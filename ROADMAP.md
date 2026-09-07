@@ -4713,6 +4713,69 @@ scoping, and the redaction are M61's and are untouched.
 
 ---
 
+### M65 — The repository, as AI work ✅
+
+Opening a Repository showed you its default branch, its sign-in mode, its
+command mode, a count of grants, and a three-step explanation of a workflow you
+had used forty times. Every one of those is a setting somebody chose once.
+Nothing on that page moved between visits — which, on a product whose whole
+premise is that AI employees do the work, made the first screen of a repository
+the least informative one in the section, and the one place where "what has the
+AI actually been doing here" went unanswered.
+
+The subject is the work now, and the settings are one disclosure down.
+
+- [x] **One digest, and the server computes it.** `GET
+      /repositories/:slug/ai-overview` (`services/repositoryAiOverview.ts`)
+      answers the AI-work half of the page in one read: the counts, what AI
+      work has been *accepted* into the repository, the per-employee tallies,
+      the two dozen sessions worth listing, and a live line for each turn in
+      flight. Both reads are projections rather than rows — the tallies drop
+      every prose column, so counting two thousand sessions costs less than
+      shipping twenty, and the list keeps only what it draws, because a
+      response re-read on every tool call must not carry two dozen
+      twenty-thousand-character briefs. It is mounted `workspace: false` —
+      this answers a question *about* a repository, and an unreachable remote
+      must not be able to hide the answer behind a clone error.
+- [x] **Only accepted work counts as landed.** A branch nobody merged changed
+      nothing here. Counting it would have turned the headline number into a
+      measure of how much the employees typed rather than how much of it was any
+      good, which is the same distinction M58 drew between a Run that returned
+      and a Run that was graded.
+- [x] **A running session says what it is doing.** The overview reads the tail
+      of the activity feed, the newest `steps` event wherever it is, and the
+      tool-call count, and prints *Ran npm test → Exit 1 · Step 4 of 7 · 38 tool
+      calls* — live, on the same `resource.changed` frames the session page
+      uses. A row that only said "Working" would be a spinner with extra steps.
+      All three are scoped to the **turn in flight**, never to the session:
+      ordinals run on across turns and events are never deleted, so a
+      session-wide read would answer the second instruction with the first
+      one's finished plan.
+- [x] **Rows say what to do, not what state they are in.** "Read the diff and
+      decide", "Nothing changed — ask for another pass", "The last turn failed —
+      ask again". A status names the work; an overview exists to name the next
+      move, and the reader is the one who has to make it. A session already
+      decided has no next move, so its line says where the work went —
+      *Merged into main* — rather than repeating the chip beside it.
+- [x] **Bands hide when empty, and the counts stay honest.** The three bands
+      follow decision 12 — an empty queue is not news — and the four tallies
+      partition the sessions exactly once, with archived rows out of the queues
+      and still inside the lifetime totals. A cap is stated rather than implied,
+      because a number that quietly means "the first two thousand" is worse than
+      one that says so.
+- [x] **The grant is not the work.** "Who works here" lists each granted
+      employee beside what it has actually done in this repository. The old
+      page could print "4 employees" on a repository no employee had ever
+      touched.
+
+Deliberately **not** in this milestone. A second session inbox — the bands are a
+glance and every row opens **AI work**, which stays the place work is done. Any
+change to what a work session *is*: M63 owns the runtime, the events, and the
+review surface, and none of it was touched. And commit history, which is
+`History`'s subject and would only have been a worse copy of it here.
+
+---
+
 ## V2+ wild ideas
 
 - **Marketplace** of Soul personas + skill packs (M17 above is the seed)

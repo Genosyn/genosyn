@@ -3,6 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // `tsx` reads this project — the tests and `npm run dev` both run through it —
+    // and the app compiles JSX with the automatic runtime everywhere else
+    // (tsconfig.client.json, Vite, and `react/react-in-jsx-scope: off` in
+    // ESLint). Leaving it unset here made tsx emit classic `React.createElement`
+    // calls, so a component that legitimately does not import React — Spinner —
+    // threw the moment a test rendered it.
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

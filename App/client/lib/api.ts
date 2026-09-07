@@ -2920,6 +2920,110 @@ export type RepositoryWorkSessionEventsResponse = {
   more: boolean;
 };
 
+// ─────────────────────── the repository's AI work ───────────────────────
+
+/**
+ * How many sessions sit in each state.
+ *
+ * `running`, `attention` and `completed` partition the sessions that are not
+ * archived; `archived` is the rest. The four add up to `total` exactly once.
+ */
+export type RepositoryAiCounts = {
+  total: number;
+  running: number;
+  attention: number;
+  completed: number;
+  archived: number;
+};
+
+/**
+ * What AI work has actually put into this repository — accepted sessions only.
+ * A branch nobody merged changed nothing here, and counting it would measure
+ * how much the employees typed rather than how much of it was any good.
+ */
+export type RepositoryAiLanded = {
+  sessions: number;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+};
+
+/** One employee's tally here, joined onto its grant by `employeeId`. */
+export type RepositoryAiEmployeeWork = {
+  employeeId: string;
+  sessions: number;
+  landed: number;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  lastActiveAt: string | null;
+};
+
+/** Where a turn in flight has got to, from the employee's own step list. */
+export type RepositoryAiStepProgress = {
+  done: number;
+  total: number;
+  current: string | null;
+};
+
+/** The live line for one running session, scoped to the turn in flight. */
+export type RepositoryAiActivity = {
+  sessionId: string;
+  /** "Ran npm test → Exit 1", "Read src/app.ts" — empty before the first event. */
+  summary: string;
+  at: string | null;
+  steps: RepositoryAiStepProgress | null;
+  /** Tool calls the turn in flight has made. */
+  toolCalls: number;
+};
+
+/**
+ * A session as the Overview lists it.
+ *
+ * Deliberately not the whole row: the digest is re-read on every activity event
+ * of a running turn, and the three large fields on a session — the brief in
+ * full, the employee's report, the failure text — are all things this list
+ * never shows. `instruction` survives, clipped, because a session nobody
+ * renamed is titled from it.
+ */
+export type RepositoryAiSessionRow = Pick<
+  RepositoryWorkSession,
+  | "id"
+  | "employeeId"
+  | "status"
+  | "title"
+  | "branch"
+  | "turnCount"
+  | "filesChanged"
+  | "insertions"
+  | "deletions"
+  | "publishedBranch"
+  | "pullRequestUrl"
+  | "pullRequestNumber"
+  | "finishedAt"
+  | "archivedAt"
+  | "createdAt"
+  | "updatedAt"
+  | "employee"
+> & {
+  /** The opening instruction, clipped by the server to ~200 characters. */
+  instruction: string;
+};
+
+/** `GET /repositories/:slug/ai-overview` — the Overview page's whole subject. */
+export type RepositoryAiOverview = {
+  counts: RepositoryAiCounts;
+  landed: RepositoryAiLanded;
+  totals: { turns: number; discarded: number };
+  lastActiveAt: string | null;
+  employees: RepositoryAiEmployeeWork[];
+  /** True when the tallies stopped counting. Never let a cap go unsaid. */
+  capped: boolean;
+  /** The sessions the page lists, already in display order. */
+  sessions: RepositoryAiSessionRow[];
+  activity: RepositoryAiActivity[];
+};
+
 // ───────────────────────── Finance AI access ────────────────────────────
 
 /** read < invoice < full — see EmployeeFinanceGrant on the server. */
