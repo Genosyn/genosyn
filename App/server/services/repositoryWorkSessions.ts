@@ -1,8 +1,10 @@
+import { withSerializedTransaction } from "../db/transactions.js";
 import fs from "node:fs";
 import path from "node:path";
-import { In } from "typeorm";
+import { In, type EntityManager } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Attachment } from "../db/entities/Attachment.js";
 import { Repository } from "../db/entities/Repository.js";
 import {
   REVISABLE_WORK_SESSION_STATUSES,
@@ -54,6 +56,17 @@ import {
 } from "./repositoryWorkSessionActivity.js";
 import { toSlug } from "../lib/slug.js";
 import { config } from "../../config.js";
+import {
+  attachmentImageContextForMessages,
+  historicalAttachmentSummaries,
+  inlineAttachmentsForMessage,
+} from "./attachmentText.js";
+import {
+  bindWorkSessionAttachments,
+  serializeWorkSessionAttachment,
+  WORK_SESSION_ATTACHMENTS_MAX,
+  type WorkSessionAttachment,
+} from "./repositoryWorkSessionAttachments.js";
 
 /**
  * AI work sessions — "ask an employee to do something in this repository, then
@@ -458,6 +471,7 @@ export type StartWorkSessionArgs = {
   repositoryId: string;
   employeeId: string;
   instruction: string;
+  attachmentIds?: string[];
   requesterUserId: string;
   requesterSessionVersion: number;
   /** Seam for tests; defaults to the real chat runtime. */
@@ -468,6 +482,7 @@ export type ReviseWorkSessionArgs = {
   companyId: string;
   sessionId: string;
   instruction: string;
+  attachmentIds?: string[];
   requesterUserId: string;
   requesterSessionVersion: number;
   runChat?: typeof chatWithEmployee;
@@ -543,28 +558,37 @@ export async function createRepositoryWorkSession(
   args: StartWorkSessionArgs,
 ): Promise<PreparedWorkSession> {
   assertRepositoryWorkAllowed();
-  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const repo = await AppDataSource.getRepository(Repository).findOneBy({
     id: args.repositoryId,
     companyId: args.companyId,
   });
   if (!repo) throw new Error("Repository not found.");
   const employee = await loadWorkingEmployee(args.companyId, args.employeeId, repo);
-  const instruction = args.instruction.trim();
-
-  const session = await sessionRepo.save(
-    sessionRepo.create({
+  const instruction = validateWorkSessionInstruction(args);
+  const { session, turn } = await withSerializedTransaction(async (manager) => {
+    const sessionRepo = manager.getRepository(RepositoryWorkSession);
+    const session = await sessionRepo.save(
+      sessionRepo.create({
+        companyId: args.companyId,
+        repositoryId: repo.id,
+        employeeId: employee.id,
+        requestedByUserId: args.requesterUserId,
+        title: instruction ? deriveWorkSessionTitle(instruction) : "Shared attachments",
+        instruction,
+        status: "running",
+        turnCount: 0,
+      }),
+    );
+    const turn = await appendTurn(session, instruction, args.requesterUserId, manager);
+    await bindWorkSessionAttachments({
+      attachmentIds: args.attachmentIds ?? [],
+      turnId: turn.id,
       companyId: args.companyId,
-      repositoryId: repo.id,
-      employeeId: employee.id,
-      requestedByUserId: args.requesterUserId,
-      title: deriveWorkSessionTitle(instruction),
-      instruction,
-      status: "running",
-      turnCount: 0,
-    }),
-  );
-  const turn = await appendTurn(session, instruction, args.requesterUserId);
+      userId: args.requesterUserId,
+      manager,
+    });
+    return { session, turn };
+  });
   return {
     session,
     turn,
@@ -589,51 +613,86 @@ export async function prepareWorkSessionRevision(
   args: ReviseWorkSessionArgs,
 ): Promise<PreparedWorkSession> {
   assertRepositoryWorkAllowed();
-  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
-  const session = await sessionRepo.findOneBy({ id: args.sessionId, companyId: args.companyId });
-  if (!session) throw new Error("Work session not found.");
-  if (session.status === "running") {
-    throw new Error("That session is still working. Wait for the current turn to finish.");
-  }
-  if (!REVISABLE_WORK_SESSION_STATUSES.includes(session.status)) {
-    throw new Error(
-      session.status === "published"
-        ? "That work has already been accepted. Start a new session for anything further."
-        : "That session was thrown away. Start a new one instead.",
-    );
-  }
-  const repo = await AppDataSource.getRepository(Repository).findOneBy({
-    id: session.repositoryId,
-    companyId: args.companyId,
-  });
-  if (!repo) throw new Error("Repository not found.");
-  const employee = await loadWorkingEmployee(args.companyId, session.employeeId, repo);
-  const instruction = args.instruction.trim();
+  return withSerializedTransaction(async (manager) => {
+    const sessionRepo = manager.getRepository(RepositoryWorkSession);
+    const session = await sessionRepo.findOneBy({ id: args.sessionId, companyId: args.companyId });
+    if (!session) throw new Error("Work session not found.");
+    if (session.status === "running") {
+      throw new Error("That session is still working. Wait for the current turn to finish.");
+    }
+    if (!REVISABLE_WORK_SESSION_STATUSES.includes(session.status)) {
+      throw new Error(
+        session.status === "published"
+          ? "That work has already been accepted. Start a new session for anything further."
+          : "That session was thrown away. Start a new one instead.",
+      );
+    }
+    const repo = await AppDataSource.getRepository(Repository).findOneBy({
+      id: session.repositoryId,
+      companyId: args.companyId,
+    });
+    if (!repo) throw new Error("Repository not found.");
+    const employee = await loadWorkingEmployee(args.companyId, session.employeeId, repo);
+    const instruction = validateWorkSessionInstruction(args);
 
-  // A session started before turns existed still has its first exchange to
-  // replay; give it a turn row before adding the second.
-  await ensureFirstTurn(session);
-  session.status = "running";
-  session.error = "";
-  session.finishedAt = null;
-  // Asking for another pass un-archives the session. An archived row is one
-  // somebody filtered out of their inbox, and a turn running inside something
-  // nobody can see is exactly the state archiving exists to avoid; it also
-  // spares the Member the two-step of restoring a session before they are
-  // allowed to talk to it.
-  session.archivedAt = null;
-  session.requestedByUserId = args.requesterUserId;
-  await sessionRepo.save(session);
-  const turn = await appendTurn(session, instruction, args.requesterUserId);
-  return {
-    session,
-    turn,
-    repo,
-    employee,
-    requesterUserId: args.requesterUserId,
-    requesterSessionVersion: args.requesterSessionVersion,
-    runChat: args.runChat,
-  };
+    // Postgres can prepare on separate connections. Claim the previous state
+    // in the database before adding a turn, so only one simultaneous revision
+    // can proceed even when the caller read a revisable session moments ago.
+    const claimed = await sessionRepo.update(
+      { id: session.id, companyId: args.companyId, status: session.status },
+      { status: "running" },
+    );
+    if (claimed.affected !== 1) {
+      throw new Error("That session is still working. Wait for the current turn to finish.");
+    }
+
+    // A session started before turns existed still has its first exchange to
+    // replay; give it a turn row before adding the second.
+    await ensureFirstTurn(session, manager);
+    session.status = "running";
+    session.error = "";
+    session.finishedAt = null;
+    // Asking for another pass un-archives the session. An archived row is one
+    // somebody filtered out of their inbox, and a turn running inside something
+    // nobody can see is exactly the state archiving exists to avoid; it also
+    // spares the Member the two-step of restoring a session before they are
+    // allowed to talk to it.
+    session.archivedAt = null;
+    session.requestedByUserId = args.requesterUserId;
+    await manager.getRepository(RepositoryWorkSession).save(session);
+    const turn = await appendTurn(session, instruction, args.requesterUserId, manager);
+    await bindWorkSessionAttachments({
+      attachmentIds: args.attachmentIds ?? [],
+      turnId: turn.id,
+      companyId: args.companyId,
+      userId: args.requesterUserId,
+      manager,
+    });
+    return {
+      session,
+      turn,
+      repo,
+      employee,
+      requesterUserId: args.requesterUserId,
+      requesterSessionVersion: args.requesterSessionVersion,
+      runChat: args.runChat,
+    };
+  });
+}
+
+function validateWorkSessionInstruction(args: {
+  instruction: string;
+  attachmentIds?: string[];
+}): string {
+  const instruction = args.instruction.trim();
+  if (!instruction && !args.attachmentIds?.length) {
+    throw new Error("Write an instruction or attach a file before sending.");
+  }
+  if (instruction.length > 20_000) throw new Error("Keep the instruction under 20,000 characters.");
+  if ((args.attachmentIds?.length ?? 0) > WORK_SESSION_ATTACHMENTS_MAX) {
+    throw new Error(`Attach at most ${WORK_SESSION_ATTACHMENTS_MAX} files to one instruction.`);
+  }
+  return instruction;
 }
 
 /** Shared refusals: both halves need the exact same answer to "may this run?". */
@@ -674,8 +733,9 @@ async function appendTurn(
   session: RepositoryWorkSession,
   instruction: string,
   requesterUserId: string,
+  manager: EntityManager = AppDataSource.manager,
 ): Promise<RepositoryWorkSessionTurn> {
-  const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  const turnRepo = manager.getRepository(RepositoryWorkSessionTurn);
   const ordinal = session.turnCount + 1;
   const turn = await turnRepo.save(
     turnRepo.create({
@@ -688,7 +748,7 @@ async function appendTurn(
     }),
   );
   session.turnCount = ordinal;
-  await AppDataSource.getRepository(RepositoryWorkSession).save(session);
+  await manager.getRepository(RepositoryWorkSession).save(session);
   return turn;
 }
 
@@ -748,7 +808,13 @@ export async function runRepositoryWorkSession(
     turn.baseCommit = turnBase;
     await AppDataSource.getRepository(RepositoryWorkSessionTurn).save(turn);
 
-    const history = await composeTurnHistory(session.id, turn.ordinal, repo);
+    const { history, images } = await composeWorkSessionContext(
+      session.id,
+      turn.ordinal,
+      repo,
+      turn.id,
+    );
+    const attachments = await inlineAttachmentsForMessage(turn.id, session.companyId);
     const runChat = prepared.runChat ?? chatWithEmployee;
 
     // The live record of the turn, and the handle a Member can stop it by.
@@ -773,10 +839,13 @@ export async function runRepositoryWorkSession(
       result = await runChat(
         session.companyId,
         employee.id,
-        composeWorkBrief(repo, turn.instruction, turn.ordinal),
+        [composeWorkBrief(repo, turn.instruction, turn.ordinal), attachments]
+          .filter(Boolean)
+          .join("\n\n"),
         history,
         {
           requesterUserId: prepared.requesterUserId,
+          images,
           requesterSessionVersion: prepared.requesterSessionVersion,
           repositoryWorkSessionId: session.id,
           workSurface: "repository",
@@ -1034,14 +1103,40 @@ export async function composeTurnHistory(
   beforeOrdinal: number,
   repo?: Repository,
 ): Promise<ChatTurn[]> {
+  return (await composeWorkSessionContext(sessionId, beforeOrdinal, repo)).history;
+}
+
+async function composeWorkSessionContext(
+  sessionId: string,
+  beforeOrdinal: number,
+  repo?: Repository,
+  currentTurnId?: string,
+) {
   const rows = await AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
     where: { sessionId, status: In(["ok", "stopped", "failed"]) },
     order: { ordinal: "ASC" },
   });
   const earlier = rows.filter((row) => row.ordinal < beforeOrdinal).slice(-MAX_REPLAYED_TURNS);
+  const companyId = repo?.companyId ?? earlier[0]?.companyId;
+  const messageIds = earlier.map((row) => row.id);
+  if (currentTurnId) messageIds.push(currentTurnId);
+  const images = companyId
+    ? await attachmentImageContextForMessages(messageIds, companyId)
+    : new Map();
+  const attachmentSummaries = await historicalAttachmentSummaries(
+    earlier.map((row) => row.id),
+    companyId,
+  );
   const history: ChatTurn[] = [];
   for (const row of earlier) {
-    history.push({ role: "user", content: row.instruction });
+    const summary = attachmentSummaries.get(row.id);
+    history.push({
+      role: "user",
+      content: [row.instruction, summary ? `[Attachments: ${summary}]` : ""]
+        .filter(Boolean)
+        .join("\n\n"),
+      ...(images.get(row.id)?.length ? { images: images.get(row.id) } : {}),
+    });
     const reply = row.reply.trim() || row.error.trim();
     // What the turn actually recorded, appended to what it said. An employee
     // told only its own report starts a revision blind about which files it
@@ -1050,7 +1145,7 @@ export async function composeTurnHistory(
     const content = [reply, record].filter(Boolean).join("\n\n");
     if (content) history.push({ role: "assistant", content });
   }
-  return history;
+  return { history, images: currentTurnId ? images.get(currentTurnId) : undefined };
 }
 
 /** One line per commit a turn made, plus its totals — or a note that it made none. */
@@ -1120,15 +1215,28 @@ export async function stopRepositoryWorkSession(
 /** The turns of a session, oldest first — the transcript a Member reads. */
 export async function repositoryWorkSessionTurns(
   sessionId: string,
-): Promise<RepositoryWorkSessionTurn[]> {
+): Promise<Array<RepositoryWorkSessionTurn & { attachments: WorkSessionAttachment[] }>> {
   const session = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
     id: sessionId,
   });
   if (session) await ensureFirstTurn(session);
-  return AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
+  const turns = await AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
     where: { sessionId },
     order: { ordinal: "ASC" },
   });
+  const attachments =
+    session && turns.length
+      ? await AppDataSource.getRepository(Attachment).find({
+          where: { companyId: session.companyId, messageId: In(turns.map((turn) => turn.id)) },
+          order: { createdAt: "ASC" },
+        })
+      : [];
+  return turns.map((turn) => ({
+    ...turn,
+    attachments: attachments
+      .filter((attachment) => attachment.messageId === turn.id)
+      .map(serializeWorkSessionAttachment),
+  }));
 }
 
 /**
@@ -1141,9 +1249,12 @@ export async function repositoryWorkSessionTurns(
  * one insert per old session ever, and leaves both paths with a single shape
  * to reason about rather than a fallback that has to be remembered everywhere.
  */
-async function ensureFirstTurn(session: RepositoryWorkSession): Promise<void> {
+async function ensureFirstTurn(
+  session: RepositoryWorkSession,
+  manager: EntityManager = AppDataSource.manager,
+): Promise<void> {
   if (session.turnCount > 0) return;
-  const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  const turnRepo = manager.getRepository(RepositoryWorkSessionTurn);
   if ((await turnRepo.countBy({ sessionId: session.id })) > 0) return;
   await turnRepo.save(
     turnRepo.create({
@@ -1166,7 +1277,7 @@ async function ensureFirstTurn(session: RepositoryWorkSession): Promise<void> {
   );
   session.turnCount = 1;
   if (!session.title.trim()) session.title = deriveWorkSessionTitle(session.instruction);
-  await AppDataSource.getRepository(RepositoryWorkSession).save(session);
+  await manager.getRepository(RepositoryWorkSession).save(session);
 }
 
 /** Rename a session, so a list of twenty of them stays navigable. */
@@ -1713,9 +1824,7 @@ export type ResolvedRepositoryForge = {
  * repository on a company's own Forgejo could be cloned, worked in, committed
  * to — and then told that pull requests are a GitHub feature.
  */
-export async function resolveRepositoryForge(
-  repo: Repository,
-): Promise<ResolvedRepositoryForge> {
+export async function resolveRepositoryForge(repo: Repository): Promise<ResolvedRepositoryForge> {
   const match = await resolveForgeRemote(repo);
   if (!match) {
     throw new Error(

@@ -1949,6 +1949,7 @@ export type TodoCommentAuthor =
   | { kind: "ai"; id: string; name: string; slug: string; role: string };
 
 export type TodoComment = {
+  attachments?: ChatAttachment[];
   id: string;
   todoId: string;
   authorUserId: string | null;
@@ -2831,6 +2832,7 @@ export type RepositoryWorkSessionTurnStatus = "running" | "ok" | "stopped" | "fa
 
 /** One instruction and what the employee did about it. */
 export type RepositoryWorkSessionTurn = {
+  attachments?: ChatAttachment[];
   id: string;
   sessionId: string;
   ordinal: number;

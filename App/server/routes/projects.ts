@@ -15,7 +15,7 @@ import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/T
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { Role } from "../db/entities/Membership.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
@@ -41,7 +41,12 @@ import {
   assertTodoCapacity,
   todoCapacityRemaining,
 } from "../services/entitlements.js";
-import { buildTodoMentionTurn } from "../services/todoMentionTurn.js";
+import {
+  composeTodoMentionContext,
+  createTodoDiscussionComment,
+  resolveTodoCommentAttachment,
+  todoCommentAttachments,
+} from "../services/todoCommentAttachments.js";
 
 export const projectsRouter = Router({ mergeParams: true });
 projectsRouter.use(requireAuth);
@@ -1011,6 +1016,9 @@ projectsRouter.delete("/todos/:tid", async (req, res) => {
 // ----- Comments -----
 
 type HydratedComment = TodoComment & {
+  attachments: Awaited<ReturnType<typeof todoCommentAttachments>> extends Map<string, infer A>
+    ? A
+    : never;
   author:
     | { kind: "human"; id: string; name: string; email: string | null }
     | { kind: "ai"; id: string; name: string; slug: string; role: string }
@@ -1036,6 +1044,10 @@ async function hydrateComments(cid: string, comments: TodoComment[]): Promise<Hy
         })
       : Promise.resolve([]),
   ]);
+  const attachments = await todoCommentAttachments(
+    cid,
+    comments.map((comment) => comment.id),
+  );
   const userById = new Map(users.map((u) => [u.id, u]));
   const empById = new Map(emps.map((e) => [e.id, e]));
   return comments.map((c) => {
@@ -1047,7 +1059,7 @@ async function hydrateComments(cid: string, comments: TodoComment[]): Promise<Hy
       const e = empById.get(c.authorEmployeeId);
       if (e) author = { kind: "ai", id: e.id, name: e.name, slug: e.slug, role: e.role };
     }
-    return { ...c, author };
+    return { ...c, author, attachments: attachments.get(c.id) ?? [] };
   });
 }
 
@@ -1065,11 +1077,51 @@ projectsRouter.get("/todos/:tid/comments", async (req, res) => {
   res.json(await hydrateComments(cid, comments));
 });
 
-const createCommentSchema = z.object({
-  body: z.string().min(1).max(10_000),
-  /** When set, the mentioned AI employee is invoked and their reply is posted. */
-  mentionEmployeeId: z.string().uuid().nullable().optional(),
-});
+projectsRouter.get(
+  "/todos/:tid/comment-attachments/:attachmentId",
+  validateParams(
+    z.object({ cid: z.string().uuid(), tid: z.string().uuid(), attachmentId: z.string().uuid() }),
+  ),
+  async (req, res, next) => {
+    try {
+      const found = await loadTodo(req.params.cid, req.params.tid);
+      if (!found) return res.status(404).json({ error: "Not found" });
+      if (!(await hasProjectAccess(found.project, actorOf(req), "read")))
+        return res.status(403).json({ error: "No access to that project" });
+      const resolved = await resolveTodoCommentAttachment(
+        req.params.cid,
+        found.todo.id,
+        req.userId ?? null,
+        req.params.attachmentId,
+      );
+      if (!resolved) return res.status(404).json({ error: "Attachment not found" });
+      res.setHeader("content-type", resolved.row.mimeType);
+      res.setHeader("x-content-type-options", "nosniff");
+      const inline = ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+        resolved.row.mimeType,
+      );
+      res.setHeader(
+        "content-disposition",
+        `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+      );
+      res.sendFile(resolved.absPath);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+const createCommentSchema = z
+  .object({
+    body: z.string().max(10_000).default(""),
+    attachmentIds: z.array(z.string().uuid()).max(10).default([]),
+    /** When set, the mentioned AI employee is invoked and their reply is posted. */
+    mentionEmployeeId: z.string().uuid().nullable().optional(),
+  })
+  .refine(
+    (body) => body.body.trim().length > 0 || body.attachmentIds.length > 0,
+    "Write a comment or attach a file.",
+  );
 
 function requireBrowserForEmployeeMention(
   req: Request,
@@ -1088,74 +1140,59 @@ projectsRouter.post(
   "/todos/:tid/comments",
   validateBody(createCommentSchema),
   requireBrowserForEmployeeMention,
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const found = await loadTodo(cid, req.params.tid);
-    if (!found) return res.status(404).json({ error: "Not found" });
-    if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
-      return res.status(403).json({ error: "No access to that project" });
-    }
-    const body = req.body as z.infer<typeof createCommentSchema>;
-    const commentRepo = AppDataSource.getRepository(TodoComment);
-
-    // Validate mention target belongs to this company.
-    let mentionEmp: AIEmployee | null = null;
-    if (body.mentionEmployeeId) {
-      mentionEmp = await AppDataSource.getRepository(AIEmployee).findOneBy({
-        id: body.mentionEmployeeId,
-        companyId: cid,
-      });
-      if (!mentionEmp) return res.status(400).json({ error: "Invalid mention" });
-      // A mention hands the employee the todo and the whole thread as context,
-      // so it has to clear the same bar as reading the project. Without this,
-      // @-mentioning is a side door into a project the employee is denied at
-      // every other one.
-      if (!(await hasProjectAccess(found.project, { kind: "ai", id: mentionEmp.id }, "read"))) {
-        return res
-          .status(400)
-          .json({ error: "That AI employee doesn't have access to this project" });
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const found = await loadTodo(cid, req.params.tid);
+      if (!found) return res.status(404).json({ error: "Not found" });
+      if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+        return res.status(403).json({ error: "No access to that project" });
       }
-    }
+      const body = req.body as z.infer<typeof createCommentSchema>;
+      // Validate mention target belongs to this company.
+      let mentionEmp: AIEmployee | null = null;
+      if (body.mentionEmployeeId) {
+        mentionEmp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+          id: body.mentionEmployeeId,
+          companyId: cid,
+        });
+        if (!mentionEmp) return res.status(400).json({ error: "Invalid mention" });
+        // A mention hands the employee the todo and the whole thread as context,
+        // so it has to clear the same bar as reading the project. Without this,
+        // @-mentioning is a side door into a project the employee is denied at
+        // every other one.
+        if (!(await hasProjectAccess(found.project, { kind: "ai", id: mentionEmp.id }, "read"))) {
+          return res
+            .status(400)
+            .json({ error: "That AI employee doesn't have access to this project" });
+        }
+      }
 
-    // 1. Save the human comment.
-    const human = await commentRepo.save(
-      commentRepo.create({
+      const { human, pending } = await createTodoDiscussionComment({
+        companyId: cid,
         todoId: found.todo.id,
-        authorUserId: req.userId ?? null,
-        authorEmployeeId: null,
+        userId: req.userId ?? null,
         body: body.body,
-        pending: false,
-      }),
-    );
-
-    // 2. If an AI employee was mentioned, create a pending placeholder so the
-    //    client can render a "typing" row immediately, then kick off the chat
-    //    call in the background. The placeholder is filled in (or marked
-    //    errored) once the CLI returns.
-    let pending: TodoComment | null = null;
-    if (mentionEmp) {
-      pending = await commentRepo.save(
-        commentRepo.create({
-          todoId: found.todo.id,
-          authorUserId: null,
-          authorEmployeeId: mentionEmp.id,
-          body: "",
-          pending: true,
-        }),
-      );
-      // Fire-and-forget. Errors are captured onto the comment so the UI
-      // surfaces them instead of silently hanging.
-      void respondAsEmployee(cid, found.todo.id, pending.id, mentionEmp.id, {
-        commentId: human.id,
-        userId: req.userId!,
-        sessionVersion: req.session!.sessionVersion!,
-      }).catch((err) => {
-        console.error("[todo-comments] AI reply failed", err);
+        attachmentIds: body.attachmentIds,
+        mentionEmployeeId: mentionEmp?.id,
       });
-    }
+      if (mentionEmp && pending) {
+        // Fire-and-forget. Errors are captured onto the comment so the UI
+        // surfaces them instead of silently hanging.
+        void respondAsEmployee(cid, found.todo.id, pending.id, mentionEmp.id, {
+          commentId: human.id,
+          userId: req.userId!,
+          sessionVersion: req.session!.sessionVersion!,
+        }).catch((err) => {
+          console.error("[todo-comments] AI reply failed", err);
+        });
+      }
 
-    const toReturn = pending ? [human, pending] : [human];
-    res.json(await hydrateComments(cid, toReturn));
+      const toReturn = pending ? [human, pending] : [human];
+      res.json(await hydrateComments(cid, toReturn));
+    } catch (error) {
+      next(error);
+    }
   },
 );
 
@@ -1204,7 +1241,8 @@ async function respondAsEmployee(
     where: { todoId },
     order: { createdAt: "ASC" },
   });
-  const turn = buildTodoMentionTurn({
+  const turn = await composeTodoMentionContext({
+    companyId,
     comments: thread,
     triggerCommentId: requester.commentId,
     requesterUserId: requester.userId,
@@ -1231,6 +1269,7 @@ async function respondAsEmployee(
 
   const result = await chatWithEmployee(companyId, employeeId, turn.message, history, {
     requesterUserId: requester.userId,
+    images: turn.images,
     requesterSessionVersion: requester.sessionVersion,
     // The comment thread on one Todo is the transcript this turn replays, so
     // it is what the reply serializes against — not the whole employee.

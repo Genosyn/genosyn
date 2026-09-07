@@ -1,4 +1,4 @@
-import { api, type MessageAction, type TldrEmployeeSnapshot } from "./api";
+import { api, type ChatAttachment, type MessageAction, type TldrEmployeeSnapshot } from "./api";
 
 /**
  * Question cards on a TLDR: the client half of `server/services/tldrQuestions`.
@@ -14,6 +14,7 @@ export type TldrQuestionMessage = {
   employeeId: string | null;
   modelId: string | null;
   content: string;
+  attachments?: ChatAttachment[];
   /** `working` is a persisted in-flight turn, not a local spinner. */
   status: "working" | "ok" | "skipped" | "error" | null;
   actions: MessageAction[];
@@ -55,6 +56,7 @@ export type TldrQuestion = {
   id: string;
   tldrId: string;
   prompt: string;
+  attachments?: ChatAttachment[];
   /** `standing` cards were answered automatically when the briefing landed. */
   origin: "member" | "standing";
   employee: TldrEmployeeSnapshot;
@@ -103,7 +105,7 @@ export const tldrQuestionsApi = {
   ask: (
     companyId: string,
     tldrId: string,
-    body: { prompt: string; modelId?: string | null },
+    body: { prompt: string; attachmentIds?: string[]; modelId?: string | null },
     onEvent: TldrQuestionStreamHandler,
     signal?: AbortSignal,
   ) => api.stream(base(companyId, tldrId), body, onEvent, { signal }),
@@ -113,7 +115,7 @@ export const tldrQuestionsApi = {
     companyId: string,
     tldrId: string,
     questionId: string,
-    body: { message: string; modelId?: string | null },
+    body: { message: string; attachmentIds?: string[]; modelId?: string | null },
     onEvent: TldrQuestionStreamHandler,
     signal?: AbortSignal,
   ) =>
@@ -137,12 +139,9 @@ export const tldrQuestionsApi = {
     onEvent: TldrQuestionStreamHandler,
     signal?: AbortSignal,
   ) =>
-    api.stream(
-      `${base(companyId, tldrId)}/${questionId}/actions/${actionId}/run`,
-      {},
-      onEvent,
-      { signal },
-    ),
+    api.stream(`${base(companyId, tldrId)}/${questionId}/actions/${actionId}/run`, {}, onEvent, {
+      signal,
+    }),
 
   dismissAction: (companyId: string, tldrId: string, questionId: string, actionId: string) =>
     api.del<{ ok: true }>(`${base(companyId, tldrId)}/${questionId}/actions/${actionId}`),
@@ -179,10 +178,7 @@ export function upsertQuestionMessage(
  * server has nothing matching — otherwise a reload would show the message
  * twice, once as the optimistic twin and once as the real row.
  */
-export function mergeQuestions(
-  previous: TldrQuestion[],
-  incoming: TldrQuestion[],
-): TldrQuestion[] {
+export function mergeQuestions(previous: TldrQuestion[], incoming: TldrQuestion[]): TldrQuestion[] {
   const bySeenId = new Map(previous.map((q) => [q.id, q]));
   return incoming.map((question) => {
     const seen = bySeenId.get(question.id);

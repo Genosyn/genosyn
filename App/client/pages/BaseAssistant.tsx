@@ -1,5 +1,11 @@
 import React from "react";
-import { Sparkles, Send, X, Bot, AlertTriangle } from "lucide-react";
+import { useComposerFileDrop } from "../lib/fileDrop";
+import { useChatAttachments } from "../lib/stagedChatAttachments";
+import { ChatAttachments } from "../components/chat/ChatAttachments";
+import { workspaceApi } from "../lib/workspace";
+import type { ChatAttachment } from "../lib/api";
+import { FormError } from "../components/ui/FormError";
+import { Sparkles, Send, X, Bot, AlertTriangle, Paperclip } from "lucide-react";
 import { api, Base, BaseAssistantResult, BaseTable } from "../lib/api";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
@@ -13,7 +19,7 @@ import {
 } from "../components/chat/ResourceReferencePicker";
 
 type Message =
-  | { role: "user"; text: string }
+  | { role: "user"; text: string; attachments: ChatAttachment[] }
   | {
       role: "assistant";
       text: string;
@@ -54,17 +60,34 @@ export function BaseAssistant({
     resourceQuery,
   );
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const attachmentDraft = useChatAttachments({
+    scopeKey: `${companyId}:${base.id}`,
+    upload: (file) => workspaceApi.uploadAttachment(companyId, file),
+    onError: setUploadError,
+  });
+  const { onPaste, dragProps } = useComposerFileDrop(attachmentDraft.addFiles, { disabled: busy });
+  const attachmentUrl = (id: string) => workspaceApi.attachmentUrl(companyId, id);
+
   async function send() {
     const text = draft.trim();
-    if (!text || busy) return;
-    if (text === "/new") {
+    if ((!text && attachmentDraft.pending.length === 0) || busy || attachmentDraft.isUploading())
+      return;
+    if (text === "/new" && attachmentDraft.pending.length === 0) {
       setMessages([]);
       setDraft("");
       setResourceQuery(null);
       return;
     }
     setBusy(true);
-    const userMsg: Message = { role: "user", text };
+    const userMsg: Message = {
+      role: "user",
+      text,
+      attachments: attachmentDraft.pending.map(
+        ({ previewUrl: _previewUrl, ...attachment }) => attachment,
+      ),
+    };
     setMessages((prev) => [...prev, userMsg]);
     setDraft("");
     try {
@@ -73,8 +96,11 @@ export function BaseAssistant({
         {
           prompt: text,
           tableId: currentTable?.id,
+          attachmentIds: userMsg.attachments.map((attachment) => attachment.id),
         },
       );
+      if (result.status === "ok") attachmentDraft.clear();
+      else setDraft(text);
       setMessages((prev) => [
         ...prev,
         {
@@ -85,8 +111,9 @@ export function BaseAssistant({
         },
       ]);
     } catch (err) {
+      setDraft(text);
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((message) => message !== userMsg),
         {
           role: "assistant",
           text: (err as Error).message,
@@ -153,10 +180,7 @@ export function BaseAssistant({
         </button>
       </div>
 
-      <div
-        ref={scrollerRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
-      >
+      <div ref={scrollerRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
           <IntroTips
             onPick={(p) => {
@@ -164,7 +188,7 @@ export function BaseAssistant({
             }}
           />
         ) : (
-          messages.map((m, i) => <MessageRow key={i} message={m} />)
+          messages.map((m, i) => <MessageRow key={i} message={m} companyId={companyId} />)
         )}
         {busy && (
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -173,11 +197,37 @@ export function BaseAssistant({
         )}
       </div>
 
-      <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+      <div {...dragProps} className="border-t border-slate-200 p-3 dark:border-slate-700">
+        <FormError message={uploadError} />
+        <ChatAttachments
+          attachments={attachmentDraft.pending}
+          urlFor={attachmentUrl}
+          onRemove={attachmentDraft.remove}
+        />
         <div className="relative flex items-end gap-2 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files) attachmentDraft.addFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Attach a file"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+            className="m-1 rounded-md p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-40"
+          >
+            {attachmentDraft.uploading > 0 ? <Spinner size={14} /> : <Paperclip size={14} />}
+          </button>
           <textarea
             ref={textareaRef}
             value={draft}
+            onPaste={onPaste}
             onChange={(e) => {
               setDraft(e.target.value);
               refreshResourceState(e.target.value, e.target.selectionStart);
@@ -218,7 +268,11 @@ export function BaseAssistant({
           />
           <button
             onClick={send}
-            disabled={!draft.trim() || busy}
+            disabled={
+              (!draft.trim() && attachmentDraft.pending.length === 0) ||
+              busy ||
+              attachmentDraft.uploading > 0
+            }
             className="m-1 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white disabled:bg-indigo-300 dark:disabled:bg-indigo-900"
             title="Send (⌘⏎)"
           >
@@ -257,8 +311,7 @@ function IntroTips({ onPick }: { onPick: (p: string) => void }) {
         <Bot size={14} className="text-violet-500" /> Ask your AI employees
       </div>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        The first employee with a connected model reads this base&apos;s schema
-        and answers. Try:
+        The first employee with a connected model reads this base&apos;s schema and answers. Try:
       </p>
       <div className="mt-3 flex flex-col gap-1">
         {prompts.map((p) => (
@@ -275,12 +328,16 @@ function IntroTips({ onPick }: { onPick: (p: string) => void }) {
   );
 }
 
-function MessageRow({ message }: { message: Message }) {
+function MessageRow({ message, companyId }: { message: Message; companyId: string }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white dark:bg-indigo-500 [&_a]:text-white [&_a]:underline">
           <ChatMarkdown content={message.text} />
+          <ChatAttachments
+            attachments={message.attachments}
+            urlFor={(id) => workspaceApi.attachmentUrl(companyId, id)}
+          />
         </div>
       </div>
     );

@@ -1039,6 +1039,11 @@ the reply.
 
 ### M7 — Chat + Workspace ✅
 
+- [x] Paste images across every AI conversation, including Repository work
+      briefs and follow-ups, Help, Mail, Routines, Bases, Todo discussions, and TLDR questions.
+      Preview and remove uploads before sending, retain them in the conversation,
+      and deliver image pixels to image-capable AI Models.
+
 - [x] Top-nav sections with context-specific sidebars
 - [x] Per-employee sub-nav (Chat / Workspace / Soul / Skills / Settings /
       Connections / Handoffs / Journal)

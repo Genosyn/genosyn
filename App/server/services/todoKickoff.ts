@@ -3,7 +3,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoStatus } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
-import { ChatTurn, chatWithEmployee } from "./chat.js";
+import { chatWithEmployee } from "./chat.js";
+import { todoDiscussionHistory } from "./todoCommentAttachments.js";
 import { getActiveModel } from "./models.js";
 
 /**
@@ -103,7 +104,7 @@ export async function kickoffAssignedTodo(args: {
       companyId,
       emp.id,
       composeKickoffBrief(project, todo),
-      await threadHistory(todo.id, emp.id, pending.id),
+      await todoDiscussionHistory(companyId, todo.id, emp.id, pending.id),
       {
         requesterUserId: args.requesterUserId,
         requesterSessionVersion: args.requesterSessionVersion,
@@ -140,31 +141,6 @@ export async function kickoffAssignedTodo(args: {
   } finally {
     inFlight.delete(todoId);
   }
-}
-
-/**
- * The prior discussion on the todo, mapped to chat turns the same way the
- * @-mention flow does it: this employee's comments are `assistant`, everyone
- * else's are `user`. Pending rows (including our own placeholder) are noise.
- */
-async function threadHistory(
-  todoId: string,
-  employeeId: string,
-  pendingCommentId: string,
-): Promise<ChatTurn[]> {
-  const thread = await AppDataSource.getRepository(TodoComment).find({
-    where: { todoId },
-    order: { createdAt: "ASC" },
-  });
-  const history: ChatTurn[] = [];
-  for (const c of thread) {
-    if (c.id === pendingCommentId || c.pending) continue;
-    history.push({
-      role: c.authorEmployeeId === employeeId ? "assistant" : "user",
-      content: c.body,
-    });
-  }
-  return history;
 }
 
 function composeKickoffBrief(project: Project, todo: Todo): string {

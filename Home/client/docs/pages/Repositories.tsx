@@ -190,7 +190,13 @@ export function Repositories() {
       <P>
         The quick-start surface keeps the employee picker and brief together. Suggested briefs give
         you a concrete starting point; choose one to adapt it, or write your own in plain language.
-        An unfinished brief is saved for this repository until the session starts.
+        An unfinished text brief is saved for this repository until the session starts. Paste a
+        screenshot into the brief, drag files onto it, or choose{" "}
+        <Strong>Attach files or paste an image</Strong>. Review the image previews and remove
+        anything you do not want to send. Wait for uploads to finish, then start the session. The
+        same controls are available when asking for another pass, and sent attachments stay
+        alongside the brief in Activity. Unsent attachments must be selected again after a page
+        refresh. See <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
       </P>
       <OL>
         <LI>Pick the employee, choose a suggested brief if it helps, and describe the outcome.</LI>
@@ -218,8 +224,8 @@ export function Repositories() {
         <LI>
           It commits its work and writes a short report of what it changed, what it left alone, and
           what it could not verify. Anything it left uncommitted when the turn ends — because it hit
-          its turn limit, was stopped, or failed — is committed for it as a checkpoint named as such,
-          so nothing it wrote is lost and everything is in the diff you review.
+          its turn limit, was stopped, or failed — is committed for it as a checkpoint named as
+          such, so nothing it wrote is lost and everything is in the diff you review.
         </LI>
         <LI>
           Follow the work in <Strong>Activity</Strong>. If it is not right yet, ask for changes in

@@ -115,7 +115,7 @@ function toAnthropicTool(t: ToolDef): Anthropic.Tool {
   };
 }
 
-function toAnthropicMessage(m: AgentMessage): Anthropic.MessageParam {
+export function toAnthropicMessage(m: AgentMessage): Anthropic.MessageParam {
   if (m.role === "assistant") {
     return {
       role: "assistant",
@@ -134,6 +134,11 @@ function toAnthropicMessage(m: AgentMessage): Anthropic.MessageParam {
     role: "user",
     content: m.content.map((b) => {
       if (b.type === "text") return { type: "text", text: b.text };
+      if (b.type === "image")
+        return {
+          type: "image",
+          source: { type: "base64", media_type: b.mimeType as "image/png", data: b.data },
+        };
       // Attach any images (e.g. a browser screenshot) as native image blocks so
       // a vision-capable model actually sees them, rather than dropping them.
       const images = b.images ?? [];

@@ -6,6 +6,7 @@ import {
   CircleCheck,
   Inbox,
   Plus,
+  Paperclip,
   Search,
   ShieldCheck,
   Sparkles,
@@ -44,6 +45,10 @@ import {
   RepositoryWorkSessionsResponse,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { useChatAttachments } from "@/lib/stagedChatAttachments";
+import { useComposerFileDrop } from "@/lib/fileDrop";
+import { ChatAttachments } from "@/components/chat/ChatAttachments";
+import type { ChatAttachment } from "@/lib/api";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -744,6 +749,17 @@ function NewSessionPane({
   );
   const [starting, setStarting] = React.useState(false);
   const [startError, setStartError] = React.useState<string | null>(null);
+  const fileInput = React.useRef<HTMLInputElement>(null);
+  const submitting = React.useRef(false);
+  const attachments = useChatAttachments({
+    scopeKey: `${currentUserId}:${repoId}`,
+    upload: (file) => api.uploadFile<ChatAttachment>(`${base}/session-attachments`, file),
+    onError: setStartError,
+  });
+  const { onPaste, dragProps, dragActive } = useComposerFileDrop(
+    (files) => void attachments.addFiles(files),
+    { disabled: starting || !employeeId },
+  );
 
   React.useEffect(() => {
     if (!candidates || candidates.length === 0) {
@@ -787,23 +803,27 @@ function NewSessionPane({
   }
 
   async function start() {
-    if (!employeeId) return;
+    if (!employeeId || submitting.current || attachments.isUploading()) return;
     setStartError(null);
-    if (!instruction.trim()) {
+    if (!instruction.trim() && !attachments.pending.length) {
       setStartError("Say what the employee should do.");
       return;
     }
+    submitting.current = true;
     setStarting(true);
     try {
       const session = await api.post<RepositoryWorkSession>(`${base}/sessions`, {
         employeeId,
         instruction: instruction.trim(),
+        attachmentIds: attachments.pending.map((attachment) => attachment.id),
       });
       setInstruction("");
+      attachments.clear();
       await onStarted(session);
     } catch (err) {
       setStartError(errorMessage(err));
     } finally {
+      submitting.current = false;
       setStarting(false);
     }
   }
@@ -867,9 +887,17 @@ function NewSessionPane({
             ))}
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-indigo-700 dark:focus-within:ring-indigo-900/30">
+          <div
+            {...dragProps}
+            className={
+              (dragActive ? "ring-2 ring-indigo-400 " : "") +
+              "overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-indigo-700 dark:focus-within:ring-indigo-900/30"
+            }
+          >
             <textarea
               value={instruction}
+              onPaste={onPaste}
+              disabled={starting}
               onChange={(event) => setInstruction(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void start();
@@ -881,6 +909,33 @@ function NewSessionPane({
               aria-label="Work brief"
               className="w-full resize-y border-0 bg-transparent px-4 py-3 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
             />
+            <div className="px-3">
+              <ChatAttachments
+                attachments={attachments.pending}
+                urlFor={(id) => `${base}/session-attachments/${id}`}
+                onRemove={starting ? undefined : attachments.remove}
+              />
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                className="hidden"
+                aria-label="Attach files to work brief"
+                onChange={(event) => {
+                  if (event.target.files) void attachments.addFiles(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                disabled={starting || attachments.pending.length + attachments.uploading >= 10}
+                onClick={() => fileInput.current?.click()}
+                className="mb-2 inline-flex items-center gap-1.5 text-xs text-slate-500 disabled:opacity-50"
+              >
+                {attachments.uploading ? <Spinner size={13} /> : <Paperclip size={13} />}
+                {attachments.uploading ? "Uploading…" : "Attach files or paste an image"}
+              </button>
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
                 <span className="inline-flex items-center gap-1">
@@ -917,7 +972,12 @@ function NewSessionPane({
             </div>
             <Button
               onClick={start}
-              disabled={starting || !employeeId || !instruction.trim()}
+              disabled={
+                starting ||
+                attachments.uploading > 0 ||
+                !employeeId ||
+                (!instruction.trim() && !attachments.pending.length)
+              }
               className="w-full justify-center sm:w-auto"
             >
               {starting ? <Spinner size={14} /> : <Sparkles size={14} />}

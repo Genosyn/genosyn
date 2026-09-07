@@ -12,6 +12,7 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
@@ -22,6 +23,7 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
+import { recordAttachmentBytes, ATTACHMENTS_MAX_BYTES } from "../services/uploads.js";
 
 /**
  * The HTTP surface an open work session is driven through.
@@ -186,6 +188,211 @@ beforeEach(async () => {
 });
 
 const sessionsUrl = () => `${baseUrl}/api/companies/${company.id}/repositories/strategy/sessions`;
+const attachmentsUrl = () =>
+  `${baseUrl}/api/companies/${company.id}/repositories/strategy/session-attachments`;
+
+describe("work-session attachment endpoints", () => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=",
+    "base64",
+  );
+  async function upload(bytes: Uint8Array = png, filename = "pasted.png", mime = "image/png") {
+    const form = new FormData();
+    form.set("file", new Blob([new Uint8Array(bytes)], { type: mime }), filename);
+    return fetch(attachmentsUrl(), { method: "POST", body: form });
+  }
+  async function storedUpload(
+    overrides: Partial<Parameters<typeof recordAttachmentBytes>[0]> = {},
+  ) {
+    return recordAttachmentBytes({
+      companyId: company.id,
+      companySlug: company.slug,
+      uploadedByUserId: member.id,
+      filename: "screenshot.png",
+      mimeType: "image/png",
+      bytes: png,
+      ...overrides,
+    });
+  }
+
+  test("accepts multipart image uploads and serves the owner's draft preview", async () => {
+    const response = await upload();
+    assert.equal(response.status, 201);
+    const metadata = (await response.json()) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(metadata).sort(), [
+      "filename",
+      "id",
+      "isImage",
+      "mimeType",
+      "sizeBytes",
+    ]);
+    assert.equal(metadata.filename, "pasted.png");
+    assert.equal(metadata.isImage, true);
+    assert.equal(metadata.sizeBytes, png.length);
+    const preview = await fetch(`${attachmentsUrl()}/${metadata.id}`);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers.get("content-type"), "image/png");
+    assert.equal(preview.headers.get("x-content-type-options"), "nosniff");
+    assert.match(preview.headers.get("content-disposition") ?? "", /^inline/);
+    assert.deepEqual(Buffer.from(await preview.arrayBuffer()), png);
+  });
+
+  test("download names are encoded and active image formats download as files", async () => {
+    const attachment = await storedUpload({
+      filename: "diagram.svg",
+      mimeType: "image/svg+xml",
+      bytes: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+    });
+    const response = await fetch(`${attachmentsUrl()}/${attachment.id}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-disposition") ?? "", /^attachment/);
+  });
+
+  test("requires a file and enforces the existing upload size cap", async () => {
+    const missing = await fetch(attachmentsUrl(), { method: "POST", body: new FormData() });
+    assert.equal(missing.status, 400);
+    const empty = await upload(new Uint8Array());
+    assert.equal(empty.status, 400);
+    const oversized = await upload(new Uint8Array(ATTACHMENTS_MAX_BYTES + 1));
+    assert.equal(oversized.status, 400);
+    assert.match(((await oversized.json()) as { error: string }).error, /File too large/);
+    assert.equal(await AppDataSource.getRepository(Attachment).count(), 0);
+  });
+
+  test("requires a company Member for both upload and preview", async () => {
+    const attachment = await storedUpload();
+    actingUserId = outsider.id;
+    assert.equal((await upload()).status, 403);
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 403);
+    actingUserId = null;
+    assert.equal((await upload()).status, 401);
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 401);
+  });
+
+  test("a draft preview is private to the uploader", async () => {
+    const attachment = await storedUpload();
+    actingUserId = owner.id;
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 404);
+  });
+
+  test("a bound repository image is readable by another company Member", async () => {
+    const attachment = await storedUpload();
+    const turn = await AppDataSource.getRepository(RepositoryWorkSessionTurn).findOneByOrFail({
+      sessionId: session.id,
+    });
+    await AppDataSource.getRepository(Attachment).update(
+      { id: attachment.id },
+      { messageId: turn.id },
+    );
+    actingUserId = owner.id;
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 200);
+    const detail = await call("GET", `${sessionsUrl()}/${session.id}`);
+    const turns = detail.body.turns as Array<{ attachments: Array<Record<string, unknown>> }>;
+    assert.equal(turns[0].attachments[0].id, attachment.id);
+    assert.equal("storageKey" in turns[0].attachments[0], false);
+  });
+
+  test("hides attachments bound outside this repository or to another chat surface", async () => {
+    const attachment = await storedUpload();
+    const turn = await AppDataSource.getRepository(RepositoryWorkSessionTurn).findOneByOrFail({
+      sessionId: session.id,
+    });
+    await AppDataSource.getRepository(RepositoryWorkSession).update(
+      { id: session.id },
+      { repositoryId: "other-repository" },
+    );
+    await AppDataSource.getRepository(Attachment).update(
+      { id: attachment.id },
+      { messageId: turn.id },
+    );
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 404);
+    await AppDataSource.getRepository(Attachment).update(
+      { id: attachment.id },
+      { messageId: "some-chat-message" },
+    );
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 404);
+  });
+
+  test("hides foreign-company images even if their uploader matches", async () => {
+    const attachment = await storedUpload({ companyId: "other-company" });
+    assert.equal((await fetch(`${attachmentsUrl()}/${attachment.id}`)).status, 404);
+  });
+
+  test("validates attachment IDs and requires an existing repository", async () => {
+    assert.equal((await fetch(`${attachmentsUrl()}/not-a-uuid`)).status, 400);
+    const form = new FormData();
+    form.set("file", new Blob([png], { type: "image/png" }), "pasted.png");
+    const absent = await fetch(attachmentsUrl().replace("/strategy/", "/absent/"), {
+      method: "POST",
+      body: form,
+    });
+    assert.equal(absent.status, 404);
+    assert.equal(await AppDataSource.getRepository(Attachment).count(), 0);
+  });
+
+  test("initial and revision requests validate attachment count, IDs and empty content", async () => {
+    for (const url of [sessionsUrl(), `${sessionsUrl()}/${session.id}/revise`]) {
+      const base = url === sessionsUrl() ? { employeeId: employee.id } : {};
+      for (const fields of [
+        { instruction: " \n", attachmentIds: [] },
+        { instruction: "Do this", attachmentIds: ["invalid"] },
+        { instruction: "Do this", attachmentIds: Array(11).fill(member.id) },
+      ]) {
+        assert.equal((await call("POST", url, { ...base, ...fields })).status, 400);
+      }
+    }
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("a Member cannot submit another Member's draft in either instruction endpoint", async () => {
+    const attachment = await storedUpload({ uploadedByUserId: owner.id });
+    const initial = await call("POST", sessionsUrl(), {
+      employeeId: employee.id,
+      instruction: "Use this",
+      attachmentIds: [attachment.id],
+    });
+    assert.equal(initial.status, 400);
+    const revised = await call("POST", `${sessionsUrl()}/${session.id}/revise`, {
+      instruction: "Use this",
+      attachmentIds: [attachment.id],
+    });
+    assert.equal(revised.status, 400);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("an image-only initial request persists its uploaded image", async () => {
+    const attachment = await storedUpload();
+    const initial = await call("POST", sessionsUrl(), {
+      employeeId: employee.id,
+      instruction: "",
+      attachmentIds: [attachment.id],
+    });
+    assert.equal(initial.status, 200);
+    const detail = await call("GET", `${sessionsUrl()}/${initial.body.id}`);
+    const turns = detail.body.turns as Array<{
+      instruction: string;
+      attachments: Array<{ id: string }>;
+    }>;
+    assert.equal(turns[0].instruction, "");
+    assert.equal(turns[0].attachments[0].id, attachment.id);
+  });
+
+  test("an image-only revision returns the new attachment on its own turn", async () => {
+    const attachment = await storedUpload();
+    const response = await call("POST", `${sessionsUrl()}/${session.id}/revise`, {
+      instruction: "",
+      attachmentIds: [attachment.id],
+    });
+    assert.equal(response.status, 200);
+    const turns = response.body.turns as Array<{ attachments: Array<{ id: string }> }>;
+    assert.deepEqual(
+      turns.map((turn) => turn.attachments.map((a) => a.id)),
+      [[], [attachment.id]],
+    );
+  });
+});
 
 async function call(
   method: "GET" | "POST" | "PATCH",

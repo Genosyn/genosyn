@@ -1,5 +1,11 @@
 import React from "react";
+import { useComposerFileDrop } from "../../lib/fileDrop";
+import { useChatAttachments } from "../../lib/stagedChatAttachments";
+import { ChatAttachments } from "../chat/ChatAttachments";
+import { workspaceApi } from "../../lib/workspace";
+import { FormError } from "../ui/FormError";
 import {
+  Paperclip,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -294,7 +300,7 @@ export function TldrQuestions({
     ) => Promise<void>,
     initialQuestionId: string | null,
   ) {
-    if (busyRef.current) return;
+    if (busyRef.current) return false;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -302,12 +308,14 @@ export function TldrQuestions({
     setError(null);
 
     let current = initialQuestionId;
+    let accepted = false;
     // A box rather than a plain binding: the server reports a refused turn as
     // an `error` event mid-stream, and the assignment happens inside a callback
     // the compiler cannot see through.
     const failure: { message: string | null } = { message: null };
     try {
       await start((event, payload) => {
+        if (["question", "user", "working", "assistant"].includes(event)) accepted = true;
         if (event === "error") {
           failure.message =
             (payload as { message?: string }).message ?? "This reply could not be started.";
@@ -322,7 +330,7 @@ export function TldrQuestions({
         await reload();
       }
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return accepted;
       // The connection can die between the server persisting the in-flight row
       // and this stream hearing about it. Re-read before claiming nothing ran,
       // so a reply that is actually running isn't reported as a failure.
@@ -336,15 +344,21 @@ export function TldrQuestions({
       if (abortRef.current === controller) abortRef.current = null;
       setStream({ questionId: null, open: false });
     }
+    return accepted;
   }
 
-  async function ask(prompt: string) {
+  async function ask(prompt: string, attachmentIds: string[] = []) {
     const clean = prompt.trim();
-    if (!clean || busy) return;
-    if (askRef.current) askRef.current.value = "";
-    await runTurn(
+    if ((!clean && attachmentIds.length === 0) || busy) return false;
+    return runTurn(
       (onEvent, signal) =>
-        tldrQuestionsApi.ask(company.id, item.id, { prompt: clean }, onEvent, signal),
+        tldrQuestionsApi.ask(
+          company.id,
+          item.id,
+          { prompt: clean, attachmentIds },
+          onEvent,
+          signal,
+        ),
       null,
     );
   }
@@ -499,14 +513,14 @@ export function TldrQuestions({
               onRemove={() => void remove(question)}
               onRunAction={(action) => void runAction(question, action)}
               onDismissAction={(action) => void dismissAction(question, action)}
-              onSend={(message) =>
+              onSend={(message, attachmentIds) =>
                 runTurn(
                   (onEvent, signal) =>
                     tldrQuestionsApi.send(
                       company.id,
                       item.id,
                       question.id,
-                      { message },
+                      { message, attachmentIds },
                       onEvent,
                       signal,
                     ),
@@ -551,11 +565,13 @@ export function TldrQuestions({
           )}
           <Composer
             ref={askRef}
+            companyId={company.id}
+            scopeKey={`${item.id}:new`}
             placeholder={`Ask ${employeeName} anything about this briefing…`}
             maxLength={TLDR_QUESTION_PROMPT_MAX_CHARS}
             busy={busy}
             submitLabel="Ask"
-            onSubmit={(value) => void ask(value)}
+            onSubmit={ask}
           />
         </div>
       )}
@@ -592,7 +608,7 @@ function QuestionCard({
   onRemove: () => void;
   onRunAction: (action: TldrSuggestedAction) => void;
   onDismissAction: (action: TldrSuggestedAction) => void;
-  onSend: (message: string) => Promise<void>;
+  onSend: (message: string, attachmentIds: string[]) => Promise<boolean>;
 }) {
   const employee = question.employee;
   const avatar = employee.id
@@ -667,15 +683,17 @@ function QuestionCard({
       </div>
 
       <div className="px-3.5 pb-3 pt-2">
+        <ChatAttachments
+          attachments={question.attachments ?? []}
+          urlFor={(id) => workspaceApi.attachmentUrl(company.id, id)}
+        />
         {answering && !answer?.content && (
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <Spinner size={13} /> {employee.name || "The AI Employee"} is working on this…
           </div>
         )}
 
-        {answer && answer.content && (
-          <Answer message={answer} company={company} />
-        )}
+        {answer && answer.content && <Answer message={answer} company={company} />}
 
         {(actions.length > 0 || canReply) && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -746,11 +764,13 @@ function QuestionCard({
                   </p>
                 )}
                 <Composer
+                  companyId={company.id}
+                  scopeKey={question.id}
                   placeholder={`Reply to ${employee.name || "the AI Employee"} — ask them to act on this…`}
                   maxLength={TLDR_QUESTION_MESSAGE_MAX_CHARS}
                   busy={busy}
                   submitLabel="Send"
-                  onSubmit={(value) => void onSend(value)}
+                  onSubmit={onSend}
                 />
               </>
             )}
@@ -811,11 +831,7 @@ function ActionButton({
         type="button"
         onClick={onRun}
         disabled={busy || blocked}
-        title={
-          blocked
-            ? `${action.intent} — an owner or admin has to press this.`
-            : action.intent
-        }
+        title={blocked ? `${action.intent} — an owner or admin has to press this.` : action.intent}
         className={clsx(
           "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition",
           blocked
@@ -922,6 +938,10 @@ function Bubble({
           </div>
         )}
         <span className="whitespace-pre-wrap">{message.content}</span>
+        <ChatAttachments
+          attachments={message.attachments ?? []}
+          urlFor={(id) => workspaceApi.attachmentUrl(company.id, id)}
+        />
       </div>
     );
   }
@@ -983,21 +1003,61 @@ const Composer = React.forwardRef<
     maxLength: number;
     busy: boolean;
     submitLabel: string;
-    onSubmit: (value: string) => void;
+    companyId: string;
+    scopeKey: string;
+    onSubmit: (value: string, attachmentIds: string[]) => Promise<boolean>;
   }
->(function Composer({ placeholder, maxLength, busy, submitLabel, onSubmit }, ref) {
+>(function Composer(
+  { companyId, scopeKey, placeholder, maxLength, busy, submitLabel, onSubmit },
+  ref,
+) {
   const inner = React.useRef<HTMLTextAreaElement | null>(null);
   const [value, setValue] = React.useState("");
 
-  function submit() {
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const attachmentDraft = useChatAttachments({
+    scopeKey: `${companyId}:${scopeKey}`,
+    upload: (file) => workspaceApi.uploadAttachment(companyId, file),
+    onError: setUploadError,
+  });
+  const { onPaste, dragProps } = useComposerFileDrop(attachmentDraft.addFiles, { disabled: busy });
+
+  async function submit() {
     const clean = value.trim();
-    if (!clean || busy) return;
-    setValue("");
-    onSubmit(clean);
+    if ((!clean && attachmentDraft.pending.length === 0) || busy || attachmentDraft.isUploading())
+      return;
+    const accepted = await onSubmit(
+      clean,
+      attachmentDraft.pending.map((attachment) => attachment.id),
+    );
+    if (accepted) {
+      setValue("");
+      attachmentDraft.clear();
+    }
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-slate-200 bg-white focus-within:border-violet-300 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-violet-500/40">
+    <div
+      {...dragProps}
+      className="mt-2 rounded-lg border border-slate-200 bg-white focus-within:border-violet-300 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-violet-500/40"
+    >
+      <FormError message={uploadError} />
+      <ChatAttachments
+        attachments={attachmentDraft.pending}
+        urlFor={(id) => workspaceApi.attachmentUrl(companyId, id)}
+        onRemove={attachmentDraft.remove}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files) attachmentDraft.addFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
       <textarea
         ref={(node) => {
           inner.current = node;
@@ -1009,6 +1069,7 @@ const Composer = React.forwardRef<
         maxLength={maxLength}
         disabled={busy}
         placeholder={placeholder}
+        onPaste={onPaste}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -1019,10 +1080,28 @@ const Composer = React.forwardRef<
         className="w-full resize-none bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:opacity-60 dark:text-slate-200 dark:placeholder:text-slate-500"
       />
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
+        <button
+          type="button"
+          aria-label="Attach a file"
+          disabled={busy}
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-md p-1 text-slate-400 hover:text-violet-600 disabled:opacity-40"
+        >
+          {attachmentDraft.uploading > 0 ? <Spinner size={13} /> : <Paperclip size={13} />}
+        </button>
         <span className="text-[10px] text-slate-400 dark:text-slate-500">
           Enter to send · Shift + Enter for a new line
         </span>
-        <Button size="sm" variant="secondary" disabled={busy || !value.trim()} onClick={submit}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={
+            busy ||
+            attachmentDraft.uploading > 0 ||
+            (!value.trim() && attachmentDraft.pending.length === 0)
+          }
+          onClick={() => void submit()}
+        >
           {busy ? <Spinner size={12} /> : <CornerDownLeft size={12} />}
           {busy ? "Working…" : submitLabel}
         </Button>

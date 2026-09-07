@@ -295,7 +295,9 @@ mailRouter.post("/mail/connect/discover", validateBody(discoverSchema), async (r
   try {
     res.json({ plan: await describeMailboxConnect(body.email) });
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "Could not read that address" });
+    res
+      .status(400)
+      .json({ error: err instanceof Error ? err.message : "Could not read that address" });
   }
 });
 
@@ -1561,16 +1563,21 @@ mailRouter.delete("/mail/accounts/:aid/assistant/messages", async (req, res) => 
   res.json({ ok: true });
 });
 
-const assistantSendSchema = z.object({
-  message: z.string().min(1).max(8000),
-  threadId: z.string().uuid(),
-  focusedMessageId: z.string().uuid().optional(),
-  employeeId: z.string().uuid().optional(),
-  /** Files uploaded through the route below, bound to this turn on send. */
-  attachmentIds: z.array(z.string().uuid()).max(10).optional().default([]),
-  /** Employee-owned AI Model for this turn; null inherits the active one. */
-  modelId: z.string().uuid().nullable().optional().default(null),
-});
+const assistantSendSchema = z
+  .object({
+    message: z.string().max(8000).default(""),
+    threadId: z.string().uuid(),
+    focusedMessageId: z.string().uuid().optional(),
+    employeeId: z.string().uuid().optional(),
+    /** Files uploaded through the route below, bound to this turn on send. */
+    attachmentIds: z.array(z.string().uuid()).max(10).optional().default([]),
+    /** Employee-owned AI Model for this turn; null inherits the active one. */
+    modelId: z.string().uuid().nullable().optional().default(null),
+  })
+  .refine((body) => body.message.trim().length > 0 || body.attachmentIds.length > 0, {
+    message: "Message or attachment required",
+    path: ["message"],
+  });
 
 /**
  * Upload a file into an email's AI chat.

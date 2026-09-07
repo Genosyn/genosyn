@@ -7,7 +7,9 @@ import {
 } from "typeorm";
 
 /**
- * A file uploaded as part of a {@link ChannelMessage}. The bytes live on disk
+ * A file uploaded as part of a chat message or Repository work-session turn.
+ * `messageId` is the owning message/turn UUID across those surfaces; the
+ * surface verifies the owner before allowing downloads. The bytes live on disk
  * under `data/companies/<slug>/attachments/<uuid>.<ext>` (see
  * services/uploads.ts) so large files don't bloat sqlite. We store the
  * original filename for the download prompt + mime type for inline image

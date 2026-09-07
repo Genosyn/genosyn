@@ -401,3 +401,42 @@ describe("Base row id guards", () => {
     assert.equal(await AppDataSource.getRepository(BaseRecord).countBy({ id: record.id }), 1);
   });
 });
+
+describe("Base AI attachment payloads", () => {
+  test("accepts a screenshot-only request and preserves the missing-model response", async () => {
+    const response = await humanCall("POST", `/bases/${base.slug}/ai`, {
+      prompt: "",
+      attachmentIds: [randomUUID()],
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, "skipped");
+  });
+  test("rejects a completely empty question", async () => {
+    assert.equal(
+      (await humanCall("POST", `/bases/${base.slug}/ai`, { prompt: "   " })).status,
+      400,
+    );
+  });
+  test("rejects malformed attachment IDs", async () => {
+    assert.equal(
+      (
+        await humanCall("POST", `/bases/${base.slug}/ai`, {
+          prompt: "Review",
+          attachmentIds: ["not-an-id"],
+        })
+      ).status,
+      400,
+    );
+  });
+  test("rejects more than ten attachments", async () => {
+    assert.equal(
+      (
+        await humanCall("POST", `/bases/${base.slug}/ai`, {
+          prompt: "Review",
+          attachmentIds: Array.from({ length: 11 }, () => randomUUID()),
+        })
+      ).status,
+      400,
+    );
+  });
+});

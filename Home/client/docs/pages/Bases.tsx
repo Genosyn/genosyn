@@ -143,6 +143,11 @@ export function Bases() {
 
       <H2 id="ai-access">AI Employees &amp; bases</H2>
       <P>
+        You can paste screenshots into the AI message box, drag files onto it, or use the paperclip.
+        Review and remove attachments before sending. See{" "}
+        <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
+      </P>
+      <P>
         Access is per-base: open <Strong>Base settings → AI access</Strong> and grant the employees
         who should read and write records. Granted employees get the full tool surface — listing and
         reading rows, creating and updating records, managing fields, commenting, and attaching

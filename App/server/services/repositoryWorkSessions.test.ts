@@ -8,12 +8,14 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { User } from "../db/entities/User.js";
+import { recordAttachmentBytes, discardUnboundAttachment } from "./uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import {
   CHAT_HARD_TIMEOUT_MS,
@@ -186,6 +188,282 @@ async function start(runChat: typeof chatWithEmployee, instruction = "Update the
     runChat,
   });
 }
+
+describe("work-session attachments", () => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=",
+    "base64",
+  );
+  async function upload(overrides: Partial<Parameters<typeof recordAttachmentBytes>[0]> = {}) {
+    return recordAttachmentBytes({
+      companyId: company.id,
+      companySlug: company.slug,
+      uploadedByUserId: requester.id,
+      filename: "screenshot.png",
+      mimeType: "image/png",
+      bytes: png,
+      ...overrides,
+    });
+  }
+  async function prepare(attachmentIds: string[], instruction = "Use this reference") {
+    return createRepositoryWorkSession({
+      companyId: company.id,
+      repositoryId: repository.id,
+      employeeId: employee.id,
+      instruction,
+      attachmentIds,
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+    });
+  }
+
+  beforeEach(() => grantAccess());
+
+  test("binds an image-only first instruction and returns safe transcript metadata", async () => {
+    const attachment = await upload();
+    const prepared = await prepare([attachment.id], "  ");
+    assert.equal(prepared.turn.instruction, "");
+    assert.equal(prepared.session.title, "Shared attachments");
+    assert.equal(
+      (await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: attachment.id }))
+        .messageId,
+      prepared.turn.id,
+    );
+    const turns = await repositoryWorkSessionTurns(prepared.session.id);
+    assert.deepEqual(turns[0].attachments, [
+      {
+        id: attachment.id,
+        filename: "screenshot.png",
+        mimeType: "image/png",
+        sizeBytes: png.length,
+        isImage: true,
+      },
+    ]);
+    assert.equal(
+      await discardUnboundAttachment({
+        attachmentId: attachment.id,
+        companyId: company.id,
+        companySlug: company.slug,
+      }),
+      false,
+    );
+  });
+
+  test("duplicate attachment IDs bind once", async () => {
+    const attachment = await upload();
+    const prepared = await prepare([attachment.id, attachment.id]);
+    assert.equal((await repositoryWorkSessionTurns(prepared.session.id))[0].attachments.length, 1);
+  });
+
+  test("concurrent starts keep each request's attachments on its own turn", async () => {
+    const first = await upload();
+    const second = await upload({ filename: "second.png" });
+    const prepared = await Promise.all([prepare([first.id]), prepare([second.id])]);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 2);
+    const turns = await Promise.all(
+      prepared.map((row) => repositoryWorkSessionTurns(row.session.id)),
+    );
+    assert.deepEqual(
+      turns.map((rows) => rows[0].attachments[0].id),
+      [first.id, second.id],
+    );
+  });
+
+  test("one upload can be claimed by only one concurrent request", async () => {
+    const attachment = await upload();
+    const outcomes = await Promise.allSettled([prepare([attachment.id]), prepare([attachment.id])]);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("concurrent revisions preserve the losing request's upload for retry", async () => {
+    const prepared = await prepare([], "Start the work");
+    await AppDataSource.getRepository(RepositoryWorkSession).update(
+      { id: prepared.session.id },
+      { status: "empty" },
+    );
+    const first = await upload();
+    const second = await upload({ filename: "second.png" });
+    const outcomes = await Promise.allSettled(
+      [first, second].map((attachment) =>
+        prepareWorkSessionRevision({
+          companyId: company.id,
+          sessionId: prepared.session.id,
+          instruction: "Continue",
+          attachmentIds: [attachment.id],
+          requesterUserId: requester.id,
+          requesterSessionVersion: 1,
+        }),
+      ),
+    );
+    assert.equal(outcomes[0].status, "fulfilled");
+    assert.equal(outcomes[1].status, "rejected");
+    assert.equal((await repositoryWorkSessionTurns(prepared.session.id)).length, 2);
+    assert.equal(
+      (await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: second.id })).messageId,
+      null,
+    );
+  });
+
+  for (const invalid of ["missing", "company", "member", "ai", "bound"] as const) {
+    test(`refuses ${invalid} uploads and rolls back the entire instruction`, async () => {
+      const valid = await upload();
+      const attachment = await upload({
+        ...(invalid === "company" ? { companyId: "another-company" } : {}),
+        ...(invalid === "member" ? { uploadedByUserId: "another-member" } : {}),
+        ...(invalid === "ai" ? { uploadedByUserId: null } : {}),
+      });
+      if (invalid === "bound")
+        await AppDataSource.getRepository(Attachment).update(
+          { id: attachment.id },
+          { messageId: "existing-message" },
+        );
+      await assert.rejects(
+        prepare([valid.id, invalid === "missing" ? "missing" : attachment.id]),
+        /attachment is unavailable/,
+      );
+      assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+      assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 0);
+      assert.equal(
+        (await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: valid.id })).messageId,
+        null,
+      );
+    });
+  }
+
+  test("refuses an empty request and too many attachments before creating a row", async () => {
+    await assert.rejects(prepare([], " \n"), /instruction or attach/);
+    await assert.rejects(prepare(Array.from({ length: 11 }, (_, n) => String(n))), /at most 10/);
+    await assert.rejects(prepare([], "x".repeat(20_001)), /20,000/);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+  });
+
+  test("current image bytes and file context reach the model seam", async () => {
+    const attachment = await upload();
+    const text = await upload({
+      filename: "spec.txt",
+      mimeType: "text/plain",
+      bytes: Buffer.from("The button says Save"),
+    });
+    const prepared = await prepare([attachment.id, text.id]);
+    prepared.runChat = (async (_company, _employee, message, history, options) => {
+      assert.match(message, /Use this reference/);
+      assert.match(message, /screenshot\.png/);
+      assert.match(message, /The button says Save/);
+      assert.deepEqual(history, []);
+      assert.deepEqual(
+        options?.images?.map(({ mimeType, data }) => ({ mimeType, data })),
+        [{ mimeType: "image/png", data: png.toString("base64") }],
+      );
+      assert.match(options?.images?.[0].sourceLabel ?? "", new RegExp(attachment.id));
+      return { status: "ok", reply: "Reviewed the image.", attachmentIds: [], sidecars: {} };
+    }) as typeof chatWithEmployee;
+    const result = await runRepositoryWorkSession(prepared);
+    assert.equal(result.status, "empty", result.error);
+  });
+
+  test("a revision retains previous images and attaches the new image to its own turn", async () => {
+    const original = await upload();
+    const first = await prepare([original.id], "Match this screenshot");
+    first.runChat = stubChat(() => {});
+    await runRepositoryWorkSession(first);
+    const followup = await upload({ filename: "revised.png" });
+    const second = await prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: first.session.id,
+      instruction: "",
+      attachmentIds: [followup.id],
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: (async (_company, _employee, message, history, options) => {
+        assert.match(message, /revised\.png/);
+        assert.match(history[0].content, /Match this screenshot/);
+        assert.match(history[0].content, new RegExp(original.id));
+        assert.deepEqual(
+          history[0].images?.map(({ mimeType, data }) => ({ mimeType, data })),
+          [{ mimeType: "image/png", data: png.toString("base64") }],
+        );
+        assert.deepEqual(
+          options?.images?.map(({ mimeType, data }) => ({ mimeType, data })),
+          [{ mimeType: "image/png", data: png.toString("base64") }],
+        );
+        return { status: "ok", reply: "Updated.", attachmentIds: [], sidecars: {} };
+      }) as typeof chatWithEmployee,
+    });
+    const result = await runRepositoryWorkSession(second);
+    assert.equal(result.status, "empty", result.error);
+    const turns = await repositoryWorkSessionTurns(first.session.id);
+    assert.deepEqual(
+      turns.map((turn) => turn.attachments.map((a) => a.id)),
+      [[original.id], [followup.id]],
+    );
+  });
+
+  test("a refused revision preserves session status, archive state and existing attachments", async () => {
+    const original = await upload();
+    const first = await prepare([original.id]);
+    first.runChat = stubChat(() => {});
+    await runRepositoryWorkSession(first);
+    const archivedAt = new Date("2026-01-01T00:00:00.000Z");
+    await AppDataSource.getRepository(RepositoryWorkSession).update(
+      { id: first.session.id },
+      { archivedAt },
+    );
+    const unused = await upload();
+    await assert.rejects(
+      prepareWorkSessionRevision({
+        companyId: company.id,
+        sessionId: first.session.id,
+        instruction: "Use these",
+        attachmentIds: [unused.id, original.id],
+        requesterUserId: requester.id,
+        requesterSessionVersion: 1,
+      }),
+      /attachment is unavailable/,
+    );
+    const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: first.session.id,
+    });
+    assert.equal(stored.status, "empty");
+    assert.equal(stored.turnCount, 1);
+    assert.deepEqual(stored.archivedAt, archivedAt);
+    assert.equal(
+      (await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: unused.id })).messageId,
+      null,
+    );
+    assert.equal((await repositoryWorkSessionTurns(first.session.id)).length, 1);
+  });
+
+  test("missing image bytes preserve the attachment reference without failing a turn", async () => {
+    const attachment = await upload();
+    const prepared = await prepare([attachment.id]);
+    fs.rmSync(path.join(dataDir, "companies", company.slug, "attachments", attachment.storageKey));
+    prepared.runChat = (async (_company, _employee, message, _history, options) => {
+      assert.match(message, /File missing/);
+      assert.equal(options?.images?.length ?? 0, 0);
+      return { status: "ok", reply: "Please resend it.", attachmentIds: [], sidecars: {} };
+    }) as typeof chatWithEmployee;
+    assert.equal((await runRepositoryWorkSession(prepared)).status, "empty");
+  });
+
+  test("transcript metadata excludes a foreign-company attachment with a matching turn id", async () => {
+    const prepared = await prepare([], "Read the plan");
+    const attachment = await upload({ companyId: "other-company" });
+    await AppDataSource.getRepository(Attachment).update(
+      { id: attachment.id },
+      { messageId: prepared.turn.id },
+    );
+    assert.deepEqual((await repositoryWorkSessionTurns(prepared.session.id))[0].attachments, []);
+    await AppDataSource.getRepository(RepositoryWorkSessionTurn).update(
+      { id: prepared.turn.id },
+      { status: "ok" },
+    );
+    const history = await composeTurnHistory(prepared.session.id, 2);
+    assert.equal(history[0].content, "Read the plan");
+    assert.equal(history[0].images, undefined);
+  });
+});
 
 // ────────────────────────────── guards ──────────────────────────────────
 

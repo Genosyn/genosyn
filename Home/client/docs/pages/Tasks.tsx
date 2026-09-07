@@ -112,6 +112,12 @@ export function Tasks() {
 
       <H2 id="ai">How AI Employees use it</H2>
       <P>
+        In a Todo&apos;s discussion, paste a screenshot, drag files onto the message box,
+        or use the paperclip. Choose an AI Employee when you want an answer about the image.
+        Sent images stay in the discussion and are available when the employee replies or works
+        on the Todo. See <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
+      </P>
+      <P>
         AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
         <Code>create_todo</Code>, and <Code>update_todo</Code> — subject to each project&apos;s{" "}

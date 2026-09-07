@@ -164,7 +164,9 @@ export function createOpenAIResponsesClient(opts: {
         blocks,
         // Loose by contract — the loop decides "tools pending" from the blocks
         // themselves and never reads this string.
-        stopReason: blocks.some((b) => b.type === "tool_use") ? "tool_use" : (final.status ?? "completed"),
+        stopReason: blocks.some((b) => b.type === "tool_use")
+          ? "tool_use"
+          : (final.status ?? "completed"),
         ...(final.usage
           ? {
               usage: {
@@ -205,7 +207,7 @@ function toResponsesTool(t: ToolDef): OpenAI.Responses.FunctionTool {
  * off the message, and each of our tool_result blocks becomes a
  * `function_call_output` keyed by `call_id`.
  */
-function toResponsesInput(messages: AgentMessage[]): OpenAI.Responses.ResponseInputItem[] {
+export function toResponsesInput(messages: AgentMessage[]): OpenAI.Responses.ResponseInputItem[] {
   const out: OpenAI.Responses.ResponseInputItem[] = [];
   for (const m of messages) {
     if (m.role === "assistant") {
@@ -227,10 +229,16 @@ function toResponsesInput(messages: AgentMessage[]): OpenAI.Responses.ResponseIn
       // A user turn can mix free text and tool results. Tool results become
       // their own `function_call_output` items; any plain text becomes a user
       // message.
-      const textParts: string[] = [];
+      const contentParts: OpenAI.Responses.ResponseInputContent[] = [];
       for (const b of m.content) {
         if (b.type === "text") {
-          textParts.push(b.text);
+          contentParts.push({ type: "input_text", text: b.text });
+        } else if (b.type === "image") {
+          contentParts.push({
+            type: "input_image",
+            image_url: `data:${b.mimeType};base64,${b.data}`,
+            detail: "auto",
+          });
         } else {
           out.push({
             type: "function_call_output",
@@ -239,8 +247,8 @@ function toResponsesInput(messages: AgentMessage[]): OpenAI.Responses.ResponseIn
           });
         }
       }
-      if (textParts.length > 0) {
-        out.push({ role: "user", content: textParts.join("\n") });
+      if (contentParts.length > 0) {
+        out.push({ role: "user", content: contentParts });
       }
     }
   }
@@ -257,7 +265,9 @@ function toResponsesInput(messages: AgentMessage[]): OpenAI.Responses.ResponseIn
  * Anthropic. The loop already leaves an image-only result's text empty on
  * purpose, and the budget already charges for the image either way.
  */
-function toolOutput(b: ToolResultBlock): OpenAI.Responses.ResponseInputItem.FunctionCallOutput["output"] {
+function toolOutput(
+  b: ToolResultBlock,
+): OpenAI.Responses.ResponseInputItem.FunctionCallOutput["output"] {
   const images = b.images ?? [];
   if (images.length === 0) return b.content;
   return [

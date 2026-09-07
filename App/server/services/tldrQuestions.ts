@@ -1,4 +1,16 @@
 import { In, LessThanOrEqual } from "typeorm";
+import { withSerializedTransaction } from "../db/transactions.js";
+import { Attachment } from "../db/entities/Attachment.js";
+import { attachmentsForMessages } from "./uploads.js";
+import {
+  claimMemberChatAttachments,
+  validateMemberChatAttachments,
+  serializeChatAttachment,
+} from "./memberChatAttachments.js";
+import {
+  attachmentImageContextForMessages,
+  inlineAttachmentsForMessage,
+} from "./attachmentText.js";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -9,15 +21,17 @@ import type { MessageAction } from "../db/entities/ConversationMessage.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { TldrQuestion, type TldrQuestionOrigin } from "../db/entities/TldrQuestion.js";
-import {
-  TldrQuestionAction,
-  type TldrActionStatus,
-} from "../db/entities/TldrQuestionAction.js";
+import { TldrQuestionAction, type TldrActionStatus } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
-import { CHAT_HARD_TIMEOUT_MS, streamChatWithEmployee, type ChatResult } from "./chat.js";
+import {
+  CHAT_HARD_TIMEOUT_MS,
+  buildMessages,
+  streamChatWithEmployee,
+  type ChatResult,
+} from "./chat.js";
 import { resolveChatModel } from "./models.js";
 import { isModelConnected } from "./providers.js";
 import {
@@ -124,6 +138,7 @@ export type TldrQuestionMessageDTO = {
   content: string;
   status: "working" | "ok" | "skipped" | "error" | null;
   actions: MessageAction[];
+  attachments?: ReturnType<typeof serializeChatAttachment>[];
   /** Set when this Member turn came from pressing a suggested action. */
   actionId: string | null;
   createdByUserId: string | null;
@@ -134,6 +149,7 @@ export type TldrQuestionDTO = {
   id: string;
   tldrId: string;
   prompt: string;
+  attachments?: ReturnType<typeof serializeChatAttachment>[];
   /** Whether a Member asked this, or a standing question produced it. */
   origin: TldrQuestionOrigin;
   employee: TldrEmployeeSnapshot;
@@ -171,7 +187,10 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-export function serializeTldrQuestionMessage(m: TldrQuestionMessage): TldrQuestionMessageDTO {
+export function serializeTldrQuestionMessage(
+  m: TldrQuestionMessage,
+  attachments: Attachment[] = [],
+): TldrQuestionMessageDTO {
   return {
     id: m.id,
     questionId: m.questionId,
@@ -181,6 +200,7 @@ export function serializeTldrQuestionMessage(m: TldrQuestionMessage): TldrQuesti
     content: m.content,
     status: m.status,
     actions: parseActions(m.actionsJson),
+    attachments: attachments.map(serializeChatAttachment),
     actionId: m.actionId,
     createdByUserId: m.createdByUserId,
     createdAt: m.createdAt.toISOString(),
@@ -211,18 +231,22 @@ function serializeQuestion(
   messages: TldrQuestionMessage[],
   actions: TldrQuestionAction[] = [],
   canDelegateAutomation = false,
+  attachments = new Map<string, Attachment[]>(),
 ): TldrQuestionDTO {
   return {
     id: question.id,
     tldrId: question.tldrId,
     prompt: question.prompt,
+    attachments: (attachments.get(question.promptMessageId ?? "") ?? []).map(
+      serializeChatAttachment,
+    ),
     origin: question.origin,
     employee: cardEmployee(tldr),
     createdByUserId: question.createdByUserId,
     createdAt: question.createdAt.toISOString(),
     messages: messages
       .filter((m) => m.id !== question.promptMessageId)
-      .map(serializeTldrQuestionMessage),
+      .map((message) => serializeTldrQuestionMessage(message, attachments.get(message.id) ?? [])),
     suggestedActions: actions.map((action) =>
       serializeTldrQuestionAction(action, canDelegateAutomation),
     ),
@@ -277,13 +301,21 @@ export async function listTldrQuestions(params: {
     if (list) list.push(message);
     else byQuestion.set(message.questionId, [message]);
   }
-  const [actions, canDelegate] = await Promise.all([
+  const [actions, canDelegate, attachments] = await Promise.all([
     actionsByQuestion(questions.map((q) => q.id)),
     canDelegateAutomation(params.companyId, params.userId),
+    attachmentsForMessages(messages.map((message) => message.id)),
   ]);
   return {
     questions: questions.map((q) =>
-      serializeQuestion(q, tldr, byQuestion.get(q.id) ?? [], actions.get(q.id) ?? [], canDelegate),
+      serializeQuestion(
+        q,
+        tldr,
+        byQuestion.get(q.id) ?? [],
+        actions.get(q.id) ?? [],
+        canDelegate,
+        attachments,
+      ),
     ),
     canAsk: tldr.employeeId !== null,
     canDelegateAutomation: canDelegate,
@@ -425,6 +457,7 @@ export type TldrQuestionTurnArgs = {
   prompt?: string;
   /** Discuss flow: the follow-up the Member typed, or a pressed action's sentence. */
   message?: string;
+  attachmentIds?: string[];
   /**
    * Ask flow: who wanted this card. Standing questions answer with no Member
    * behind them, which is also why that path leaves `userId` null.
@@ -462,7 +495,6 @@ export async function runTldrQuestionTurn(args: TldrQuestionTurnArgs): Promise<v
   // argument each caller has to supply a no-op for.
   const callbacks = args.callbacks ?? {};
   const messageRepo = AppDataSource.getRepository(TldrQuestionMessage);
-  const questionRepo = AppDataSource.getRepository(TldrQuestion);
 
   const tldr = await loadReadyTldr(args.companyId, args.tldrId);
   if (!tldr.employeeId) {
@@ -481,70 +513,93 @@ export async function runTldrQuestionTurn(args: TldrQuestionTurnArgs): Promise<v
     );
   }
 
+  const attachmentIds = args.attachmentIds ?? [];
+  await validateMemberChatAttachments(args.companyId, args.userId, attachmentIds);
   const asking = args.questionId === undefined;
-  let question: TldrQuestion;
-  if (asking) {
-    const prompt = clean(args.prompt ?? "", TLDR_QUESTION_PROMPT_MAX_CHARS);
-    if (!prompt) throw new TldrQuestionValidationError("Write a question to ask.");
-    const existing = await questionRepo.countBy({ companyId: args.companyId, tldrId: tldr.id });
-    if (existing >= MAX_QUESTIONS_PER_TLDR) {
-      throw new TldrQuestionValidationError(
-        `This TLDR already has ${MAX_QUESTIONS_PER_TLDR} question cards. Remove one before asking another.`,
+  const { question, userMsg, userAttachments, memberText } = await withSerializedTransaction(
+    async (manager) => {
+      const questionRepo = manager.getRepository(TldrQuestion);
+      const messageRepo = manager.getRepository(TldrQuestionMessage);
+      let question: TldrQuestion;
+      if (asking) {
+        const prompt =
+          clean(args.prompt ?? "", TLDR_QUESTION_PROMPT_MAX_CHARS) ||
+          (attachmentIds.length ? "Review the attached files." : "");
+        if (!prompt) throw new TldrQuestionValidationError("Write a question to ask.");
+        const existing = await questionRepo.countBy({ companyId: args.companyId, tldrId: tldr.id });
+        if (existing >= MAX_QUESTIONS_PER_TLDR) {
+          throw new TldrQuestionValidationError(
+            `This TLDR already has ${MAX_QUESTIONS_PER_TLDR} question cards. Remove one before asking another.`,
+          );
+        }
+        question = await questionRepo.save(
+          questionRepo.create({
+            companyId: args.companyId,
+            tldrId: tldr.id,
+            employeeId: employee.id,
+            prompt,
+            origin: args.origin ?? "member",
+            standingQuestionId: args.standingQuestionId ?? null,
+            promptMessageId: null,
+            createdByUserId: args.userId,
+          }),
+        );
+      } else {
+        const found = await questionRepo.findOneBy({
+          id: args.questionId!,
+          tldrId: tldr.id,
+          companyId: args.companyId,
+        });
+        if (!found) throw new TldrQuestionNotFoundError("Question not found.");
+        question = found;
+      }
+
+      // Bounded and redacted once, here. The same string is what the thread shows
+      // and what the model is sent — a transcript the Member cannot trust to match
+      // what the employee actually read is worse than no transcript.
+      const memberText = asking
+        ? question.prompt
+        : clean(args.message ?? "", TLDR_QUESTION_MESSAGE_MAX_CHARS);
+      if (!memberText && attachmentIds.length === 0)
+        throw new TldrQuestionValidationError("Write a message to send.");
+      // A follow-up runs under a Member's delegated authority, so it is only ever
+      // reachable with a Member on it. The standing pass never takes this branch.
+      if (!asking && (!args.userId || args.requesterSessionVersion === undefined)) {
+        throw new TldrQuestionValidationError("Sign in again before replying on this card.");
+      }
+
+      const userMsg = await messageRepo.save(
+        messageRepo.create({
+          companyId: args.companyId,
+          tldrId: tldr.id,
+          questionId: question.id,
+          role: "user",
+          content: memberText,
+          status: null,
+          actionId: args.actionId ?? null,
+          createdByUserId: args.userId,
+        }),
       );
-    }
-    question = await questionRepo.save(
-      questionRepo.create({
-        companyId: args.companyId,
-        tldrId: tldr.id,
-        employeeId: employee.id,
-        prompt,
-        origin: args.origin ?? "member",
-        standingQuestionId: args.standingQuestionId ?? null,
-        promptMessageId: null,
-        createdByUserId: args.userId,
-      }),
-    );
-  } else {
-    const found = await questionRepo.findOneBy({
-      id: args.questionId!,
-      tldrId: tldr.id,
-      companyId: args.companyId,
-    });
-    if (!found) throw new TldrQuestionNotFoundError("Question not found.");
-    question = found;
-  }
-
-  // Bounded and redacted once, here. The same string is what the thread shows
-  // and what the model is sent — a transcript the Member cannot trust to match
-  // what the employee actually read is worse than no transcript.
-  const memberText = asking
-    ? question.prompt
-    : clean(args.message ?? "", TLDR_QUESTION_MESSAGE_MAX_CHARS);
-  if (!memberText) throw new TldrQuestionValidationError("Write a message to send.");
-  // A follow-up runs under a Member's delegated authority, so it is only ever
-  // reachable with a Member on it. The standing pass never takes this branch.
-  if (!asking && (!args.userId || args.requesterSessionVersion === undefined)) {
-    throw new TldrQuestionValidationError("Sign in again before replying on this card.");
-  }
-
-  const userMsg = await messageRepo.save(
-    messageRepo.create({
-      companyId: args.companyId,
-      tldrId: tldr.id,
-      questionId: question.id,
-      role: "user",
-      content: memberText,
-      status: null,
-      actionId: args.actionId ?? null,
-      createdByUserId: args.userId,
-    }),
+      const userAttachments = await claimMemberChatAttachments(
+        args.companyId,
+        args.userId,
+        attachmentIds,
+        userMsg.id,
+        manager,
+      );
+      if (asking) {
+        question.promptMessageId = userMsg.id;
+        await questionRepo.save(question);
+      }
+      return { question, userMsg, userAttachments, memberText };
+    },
   );
   if (asking) {
-    question.promptMessageId = userMsg.id;
-    await questionRepo.save(question);
-    callbacks.onQuestion?.(serializeQuestion(question, tldr, []));
+    callbacks.onQuestion?.(
+      serializeQuestion(question, tldr, [], [], false, new Map([[userMsg.id, userAttachments]])),
+    );
   } else {
-    callbacks.onUser?.(serializeTldrQuestionMessage(userMsg));
+    callbacks.onUser?.(serializeTldrQuestionMessage(userMsg, userAttachments));
   }
 
   // Resolve the brain at acceptance time and persist the concrete choice, so a
@@ -731,14 +786,19 @@ async function runAnswerMode(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ANSWER_TIMEOUT_MS);
   let streamed = "";
+  const attachmentMessageId = question.promptMessageId ?? "";
+  const images = await attachmentImageContextForMessages([attachmentMessageId], args.companyId);
+  const attachmentText = await inlineAttachmentsForMessage(attachmentMessageId, args.companyId);
   try {
     const result = await (args.runRestricted ?? runRestrictedEmployeeAgent)({
       model,
       employeeId: employee.id,
       system: answerSystemPrompt(company, employee, 8_000),
-      messages: [
-        { role: "user", content: [{ type: "text", text: answerUserPrompt(tldr, question) }] },
-      ],
+      messages: buildMessages(
+        [],
+        [answerUserPrompt(tldr, question), attachmentText].filter(Boolean).join("\n\n"),
+        images.get(attachmentMessageId),
+      ),
       tools: [],
       maxSteps: 2,
       signal: controller.signal,
@@ -796,16 +856,31 @@ async function runDiscussMode(
     order: { createdAt: "DESC" },
     take: MAX_REPLAY_TURNS + 1,
   });
+  const imageContext = await attachmentImageContextForMessages(
+    [...prior]
+      .reverse()
+      .map((message) => message.id)
+      .filter((id) => id !== userMsgId)
+      .concat(userMsgId),
+    args.companyId,
+  );
   const history = prior
     // The current turn's own rows are not history: the user row is the message
     // being sent, and an in-flight or interrupted assistant row is an empty
     // placeholder, never something to replay as speech.
     .filter((m) => m.id !== userMsgId && m.id !== workingId && m.status !== "working")
     .reverse()
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({
+      role: m.role,
+      content: m.content,
+      ...(m.role === "user" && imageContext.has(m.id) ? { images: imageContext.get(m.id) } : {}),
+    }));
 
   const canAct = await canDelegateAutomation(args.companyId, requesterUserId);
-  const prompt = [composeQuestionContext(tldr, question), "", memberText].join("\n").trimEnd();
+  const attachmentText = await inlineAttachmentsForMessage(userMsgId, args.companyId);
+  const prompt = [composeQuestionContext(tldr, question), "", memberText, attachmentText]
+    .join("\n")
+    .trimEnd();
 
   const runChat = args.runChat ?? streamChatWithEmployee;
   const busyRetryDelayMs = args.busyRetryDelayMs ?? BUSY_RETRY_DELAY_MS;
@@ -821,6 +896,7 @@ async function runDiscussMode(
         history,
         (chunk: string) => args.callbacks?.onChunk?.(chunk),
         {
+          images: imageContext.get(userMsgId),
           extraSystem: discussBriefing(canAct),
           extraToolset: TLDR_QUESTION_TOOLS,
           modelId: model.id,

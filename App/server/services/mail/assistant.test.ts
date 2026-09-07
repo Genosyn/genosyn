@@ -724,3 +724,63 @@ describe("choosing the model for an email's chat", () => {
     cleanUp(company);
   });
 });
+
+test("pasted email chat images are sent natively and retained for the next question", async () => {
+  const { company, account, employee, thread } = await companyFixture();
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jC1sAAAAASUVORK5CYII=",
+    "base64",
+  );
+  try {
+    const screenshot = await recordAttachmentBytes({
+      companyId: company.id,
+      companySlug: company.slug,
+      filename: "screenshot.png",
+      mimeType: "image/png",
+      bytes,
+      uploadedByUserId: null,
+    });
+    const expected = [
+      {
+        mimeType: "image/png",
+        data: bytes.toString("base64"),
+        sourceLabel: `[Attached image id=${screenshot.id} filename=${JSON.stringify(screenshot.filename)}]`,
+      },
+    ];
+    await runAssistantTurn({
+      userId: null,
+      account,
+      threadId: thread.id,
+      message: "@jamie What does this screenshot show?",
+      attachmentIds: [screenshot.id],
+      callbacks: recorder().callbacks,
+      runChat: async (_companyId, employeeId, prompt, history, _onChunk, options) => {
+        assert.equal(employeeId, employee.id);
+        assert.deepEqual(options?.images, expected);
+        assert.equal(history.length, 0);
+        assert.match(prompt, /What does this screenshot show/);
+        assert.ok(!prompt.includes(bytes.toString("base64")));
+        return chatResult("The screenshot shows a pixel.");
+      },
+    });
+    await runAssistantTurn({
+      userId: null,
+      account,
+      threadId: thread.id,
+      message: "@jamie Describe its colour.",
+      callbacks: recorder().callbacks,
+      runChat: async (_companyId, _employeeId, _prompt, history, _onChunk, options) => {
+        assert.equal(options?.images, undefined);
+        assert.deepEqual(history.find((message) => message.role === "user")?.images, expected);
+        assert.ok(
+          history
+            .filter((message) => message.role === "assistant")
+            .every((message) => !message.images),
+        );
+        return chatResult("It is white.");
+      },
+    });
+  } finally {
+    cleanUp(company);
+  }
+});

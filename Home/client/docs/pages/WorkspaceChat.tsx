@@ -14,6 +14,29 @@ export function WorkspaceChat() {
         }
       />
 
+      <H2 id="images">Paste images into AI conversations</H2>
+      <P>
+        Copy a screenshot or image, focus the message box, and press <Strong>⌘V</Strong> on Mac or{" "}
+        <Strong>Ctrl+V</Strong> on Windows and Linux. You can also drag files onto the composer or
+        choose the paperclip. Review the previews and remove any unwanted file with its{" "}
+        <Strong>×</Strong> button before sending. Text copied alongside an image is preserved.
+      </P>
+      <P>
+        Image attachments work in employee Chat, Workspace and Todo discussions, Help, per-email and
+        Routine Ask AI, Base Assistant, TLDR questions, and Repository work briefs and follow-ups.
+        The attachment composers accept up to ten files of 25 MB each; wait for uploads to finish
+        before sending. A failed send keeps the draft available to retry.
+      </P>
+      <P>
+        Image-capable AI Models receive the pixels in PNG, JPEG, GIF, and WebP attachments. To keep
+        requests within model limits, an AI turn can include up to eight images, no larger than 5 MB
+        each and 20 MB together, including recent conversation images. Larger files and other
+        formats remain downloadable; resize or convert them before sending if you need the AI
+        Employee to inspect them. Custom AI Models must support vision. Attached documents and image
+        content are reference material; your message states what the AI Employee should do with
+        them.
+      </P>
+
       <H2 id="channels-and-dms">Channels and direct messages</H2>
       <P>
         Open <Strong>Workspace</Strong> from the section menu. Use the <Strong>+</Strong> beside

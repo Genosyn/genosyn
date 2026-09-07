@@ -227,17 +227,27 @@ const questionParamsSchema = z
 
 const askQuestionSchema = z
   .object({
-    prompt: z.string().trim().min(1).max(TLDR_QUESTION_PROMPT_MAX_CHARS),
+    prompt: z.string().trim().max(TLDR_QUESTION_PROMPT_MAX_CHARS).default(""),
+    attachmentIds: z.array(z.string().uuid()).max(10).default([]),
     modelId: z.string().uuid().nullable().optional().default(null),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.prompt.length > 0 || body.attachmentIds.length > 0, {
+    message: "Message or attachment required",
+    path: ["prompt"],
+  });
 
 const questionMessageSchema = z
   .object({
-    message: z.string().trim().min(1).max(TLDR_QUESTION_MESSAGE_MAX_CHARS),
+    message: z.string().trim().max(TLDR_QUESTION_MESSAGE_MAX_CHARS).default(""),
+    attachmentIds: z.array(z.string().uuid()).max(10).default([]),
     modelId: z.string().uuid().nullable().optional().default(null),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.message.length > 0 || body.attachmentIds.length > 0, {
+    message: "Message or attachment required",
+    path: ["message"],
+  });
 
 /**
  * How often a card's turn stream emits an SSE keepalive comment. A reply can
@@ -326,6 +336,7 @@ tldrsRouter.post(
       companyId: cid(req),
       tldrId: req.params.id as string,
       prompt: body.prompt,
+      attachmentIds: body.attachmentIds,
       modelId: body.modelId,
       userId: req.userId!,
       requesterSessionVersion: req.session!.sessionVersion!,
@@ -367,6 +378,7 @@ tldrsRouter.post(
       tldrId: req.params.id as string,
       questionId: req.params.qid as string,
       message: body.message,
+      attachmentIds: body.attachmentIds,
       modelId: body.modelId,
       userId: req.userId!,
       requesterSessionVersion: req.session!.sessionVersion!,
@@ -416,11 +428,7 @@ tldrsRouter.post(
     });
     // Owner/admin-gated kinds are refused here as well as greyed out in the
     // UI: a disabled button is a courtesy, not a boundary.
-    if (
-      action.kind === "routine" &&
-      req.companyRole !== "owner" &&
-      req.companyRole !== "admin"
-    ) {
+    if (action.kind === "routine" && req.companyRole !== "owner" && req.companyRole !== "admin") {
       throw new TldrQuestionActionValidationError(
         "Creating or changing a Routine is an owner or admin action. Ask one of them to run this.",
       );

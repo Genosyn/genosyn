@@ -3,7 +3,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
-import { ChatTurn, chatWithEmployee } from "./chat.js";
+import { chatWithEmployee } from "./chat.js";
+import { todoDiscussionHistory } from "./todoCommentAttachments.js";
 import { getActiveModel } from "./models.js";
 
 /**
@@ -111,7 +112,7 @@ export async function kickoffTodoReview(args: {
       companyId,
       reviewer.id,
       composeReviewBrief(project, todo, assignee),
-      await threadHistory(todo.id, reviewer.id, pending.id),
+      await todoDiscussionHistory(companyId, todo.id, reviewer.id, pending.id),
       // The same thread the assignee kickoff and @-mention replies replay, so
       // a review must not answer it while one of those is mid-reply.
       { toolAuthority: "employee", workloadScope: `todo:${todo.id}` },
@@ -136,27 +137,6 @@ export async function kickoffTodoReview(args: {
     // eslint-disable-next-line no-console
     console.error(`[review-kickoff] failed to post review verdict for todo ${todoId}:`, err);
   }
-}
-
-/** Thread mapping mirrors `todoKickoff.ts`: this reviewer is `assistant`. */
-async function threadHistory(
-  todoId: string,
-  employeeId: string,
-  pendingCommentId: string,
-): Promise<ChatTurn[]> {
-  const thread = await AppDataSource.getRepository(TodoComment).find({
-    where: { todoId },
-    order: { createdAt: "ASC" },
-  });
-  const history: ChatTurn[] = [];
-  for (const c of thread) {
-    if (c.id === pendingCommentId || c.pending) continue;
-    history.push({
-      role: c.authorEmployeeId === employeeId ? "assistant" : "user",
-      content: c.body,
-    });
-  }
-  return history;
 }
 
 function composeReviewBrief(project: Project, todo: Todo, assignee: AIEmployee | null): string {

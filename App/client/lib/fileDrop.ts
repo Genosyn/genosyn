@@ -14,9 +14,7 @@ import React from "react";
  * there as a `kind: "file"` entry and doesn't always populate `.files` — and
  * falls back to `.files` for browsers that only expose the file list.
  */
-export function filesFromDataTransfer(
-  dt: DataTransfer | null | undefined,
-): File[] {
+export function filesFromDataTransfer(dt: DataTransfer | null | undefined): File[] {
   if (!dt) return [];
   const out: File[] = [];
   if (dt.items && dt.items.length > 0) {
@@ -37,17 +35,15 @@ export function filesFromDataTransfer(
 
 /**
  * Files a paste should turn into attachments rather than inserting as text.
- * A pasted screenshot or copied image carries no `text/plain`, so a non-empty
- * text payload (spreadsheet cells, for instance, always ship text alongside a
- * bitmap) is left to the browser's default text paste and yields nothing here.
+ * A copied image can also carry a URL or caption as `text/plain`. Keep those
+ * image files and let the browser insert the accompanying text. For other
+ * file types, text remains the preferred clipboard representation.
  */
-export function pastedUploadFiles(
-  dt: DataTransfer | null | undefined,
-): File[] {
+export function pastedUploadFiles(dt: DataTransfer | null | undefined): File[] {
   if (!dt) return [];
   const text = dt.getData("text/plain");
-  if (text && text.trim().length > 0) return [];
-  return filesFromDataTransfer(dt);
+  const files = filesFromDataTransfer(dt);
+  return text.trim() ? files.filter((file) => file.type?.startsWith("image/")) : files;
 }
 
 /**
@@ -55,9 +51,7 @@ export function pastedUploadFiles(
  * isn't readable yet, so we sniff `types` — the one signal available before
  * the drop — to decide whether to accept the drag at all.
  */
-export function dataTransferHasFiles(
-  dt: DataTransfer | null | undefined,
-): boolean {
+export function dataTransferHasFiles(dt: DataTransfer | null | undefined): boolean {
   if (!dt) return false;
   if (dt.types && Array.from(dt.types).includes("Files")) return true;
   return !!(dt.files && dt.files.length > 0);
@@ -138,7 +132,9 @@ export function useComposerFileDrop(
       if (disabled) return;
       const files = pastedUploadFiles(e.clipboardData);
       if (files.length === 0) return;
-      e.preventDefault();
+      // Do not lose a caption, URL, or selected text accompanying an image.
+      if (!e.clipboardData.getData("text/plain").trim()) e.preventDefault();
+      e.stopPropagation();
       onFiles(files);
     },
     [onFiles, disabled],
@@ -146,10 +142,11 @@ export function useComposerFileDrop(
 
   const onDragOver = React.useCallback(
     (e: React.DragEvent) => {
-      if (disabled) return;
       if (!dataTransferHasFiles(e.dataTransfer)) return;
       // Announce we'll accept the drop; without this the browser rejects it.
       e.preventDefault();
+      e.stopPropagation();
+      if (disabled) return;
       setDragActive(true);
     },
     [disabled],
@@ -164,10 +161,11 @@ export function useComposerFileDrop(
 
   const onDrop = React.useCallback(
     (e: React.DragEvent) => {
-      if (disabled) return;
       if (!dataTransferHasFiles(e.dataTransfer)) return;
       e.preventDefault();
+      e.stopPropagation();
       setDragActive(false);
+      if (disabled) return;
       const files = filesFromDataTransfer(e.dataTransfer);
       if (files.length > 0) onFiles(files);
     },

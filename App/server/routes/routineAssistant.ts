@@ -88,14 +88,19 @@ routineAssistantRouter.delete("/routines/:rid/assistant/messages", async (req, r
   res.json({ ok: true });
 });
 
-const sendSchema = z.object({
-  message: z.string().min(1).max(8000),
-  employeeId: z.string().uuid().optional(),
-  /** Files uploaded through the route below, bound to this turn on send. */
-  attachmentIds: z.array(z.string().uuid()).max(10).optional().default([]),
-  /** Employee-owned AI Model for this turn; null inherits the active one. */
-  modelId: z.string().uuid().nullable().optional().default(null),
-});
+const sendSchema = z
+  .object({
+    message: z.string().max(8000).default(""),
+    employeeId: z.string().uuid().optional(),
+    /** Files uploaded through the route below, bound to this turn on send. */
+    attachmentIds: z.array(z.string().uuid()).max(10).optional().default([]),
+    /** Employee-owned AI Model for this turn; null inherits the active one. */
+    modelId: z.string().uuid().nullable().optional().default(null),
+  })
+  .refine((body) => body.message.trim().length > 0 || body.attachmentIds.length > 0, {
+    message: "Message or attachment required",
+    path: ["message"],
+  });
 
 /**
  * Upload a file into a routine's AI chat — a spec to check the brief against,

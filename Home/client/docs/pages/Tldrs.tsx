@@ -117,6 +117,11 @@ export function Tldrs() {
 
       <H2 id="questions">Ask your own question about a TLDR</H2>
       <P>
+        You can paste screenshots into the AI message box, drag files onto it, or use the paperclip.
+        Review and remove attachments before sending. See{" "}
+        <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
+      </P>
+      <P>
         Standing questions cover what you always want to know. For anything else, ask on the spot:
         choose <Strong>Ask a question</Strong> on a briefing, or{" "}
         <Strong>Ask … something else</Strong> under the answers it already carries.

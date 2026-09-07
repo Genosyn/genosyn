@@ -355,6 +355,11 @@ Post it to the #morning channel.`}</Pre>
 
       <H2 id="assistant">Ask AI about a routine</H2>
       <P>
+        You can paste screenshots into the AI message box, drag files onto it, or use the paperclip.
+        Review and remove attachments before sending. See{" "}
+        <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
+      </P>
+      <P>
         Every routine has its own AI chat. Press <Strong>Ask AI</Strong> in the routine header and a
         panel docks beside the page — the same idea as the chat beside an{" "}
         <DocLink to="/docs/email#assistant">email</DocLink>, pointed at scheduled work instead. Drag

@@ -278,13 +278,7 @@ export async function runCodexSubscriptionTurn(params: {
         "turn/start",
         {
           threadId,
-          input: [
-            {
-              type: "text",
-              text: conversation.current,
-              text_elements: [],
-            },
-          ],
+          input: conversation.current,
           approvalPolicy: "never",
         },
         30_000,
@@ -488,9 +482,9 @@ function parseDynamicToolCall(value: unknown): DynamicToolCallParams {
   };
 }
 
-function splitConversation(messages: AgentMessage[]): {
+export function splitConversation(messages: AgentMessage[]): {
   history: JsonObject[];
-  current: string;
+  current: JsonObject[];
 } {
   if (messages.length === 0) {
     throw new Error("The OpenAI subscription turn has no user message.");
@@ -503,29 +497,32 @@ function splitConversation(messages: AgentMessage[]): {
   const history = messages.slice(0, -1).map((message) => ({
     type: "message",
     role: message.role,
-    content: [
-      {
-        type: message.role === "assistant" ? "output_text" : "input_text",
-        text: messageText(message),
-      },
-    ],
+    content: message.content.map((block) =>
+      block.type === "image"
+        ? { type: "input_image", image_url: `data:${block.mimeType};base64,${block.data}` }
+        : {
+            type: message.role === "assistant" ? "output_text" : "input_text",
+            text: blockText(block),
+          },
+    ),
   }));
   return {
     history,
-    current: messageText(latest),
+    current: latest.content.map((block) =>
+      block.type === "image"
+        ? { type: "image", url: `data:${block.mimeType};base64,${block.data}` }
+        : { type: "text", text: blockText(block), text_elements: [] },
+    ),
   };
 }
 
-function messageText(message: AgentMessage): string {
-  return message.content
-    .map((block) => {
-      if (block.type === "text") return block.text;
-      if (block.type === "tool_use") {
-        return `[Prior tool call: ${block.name} ${JSON.stringify(block.input)}]`;
-      }
-      return `[Prior tool result${block.isError ? " (error)" : ""}: ${block.content}]`;
-    })
-    .join("\n");
+function blockText(block: AgentMessage["content"][number]): string {
+  if (block.type === "text") return block.text;
+  if (block.type === "image") return "";
+  if (block.type === "tool_use") {
+    return `[Prior tool call: ${block.name} ${JSON.stringify(block.input)}]`;
+  }
+  return `[Prior tool result${block.isError ? " (error)" : ""}: ${block.content}]`;
 }
 
 function isAllowedCodexItemType(type: string | null | undefined): boolean {

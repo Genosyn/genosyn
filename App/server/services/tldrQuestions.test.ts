@@ -1,4 +1,11 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { config } from "../../config.js";
+import { Attachment } from "../db/entities/Attachment.js";
+import { recordAttachmentBytes } from "./uploads.js";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -23,8 +30,18 @@ import {
 } from "./tldrQuestions.js";
 import { deleteUserCascade } from "./userDelete.js";
 
-before(initTestDb);
-after(closeTestDb);
+const originalDataDir = config.dataDir;
+let temporaryDataDir = "";
+before(async () => {
+  await initTestDb();
+  temporaryDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-tldr-image-tests-"));
+  (config as { dataDir: string }).dataDir = temporaryDataDir;
+});
+after(async () => {
+  await closeTestDb();
+  (config as { dataDir: string }).dataDir = originalDataDir;
+  await fs.rm(temporaryDataDir, { recursive: true, force: true });
+});
 beforeEach(resetTestDb);
 
 const NOW = new Date("2026-08-20T12:00:00.000Z");
@@ -122,11 +139,10 @@ type ChatSeam = NonNullable<TldrQuestionTurnArgs["runChat"]>;
  * which is exactly the mistake that made these assertions pass for the wrong
  * reason once a second turn existed.
  */
-const answeringAgent =
-  (
-    reply = "Ship fewer things, finish more of them.",
-    inspect?: (prompt: string, system: string, toolNames: string[], turn: number) => void,
-  ): RestrictedSeam => {
+const answeringAgent = (
+  reply = "Ship fewer things, finish more of them.",
+  inspect?: (prompt: string, system: string, toolNames: string[], turn: number) => void,
+): RestrictedSeam => {
   let turn = 0;
   return async (params) => {
     inspect?.(
@@ -300,10 +316,7 @@ describe("asking a question about a TLDR", () => {
       await ask(f, `Question ${i}`);
     }
 
-    await assert.rejects(
-      () => ask(f, "One too many"),
-      /already has 12 question cards/,
-    );
+    await assert.rejects(() => ask(f, "One too many"), /already has 12 question cards/);
   });
 
   test("refuses a briefing from another company, and one that is not ready", async () => {
@@ -354,10 +367,7 @@ describe("asking a question about a TLDR", () => {
     await ask(f, "What can be improved?");
     await AppDataSource.getRepository(Tldr).update({ id: f.tldr.id }, { employeeId: null });
 
-    await assert.rejects(
-      () => ask(f, "And what else?"),
-      /can no longer answer questions/,
-    );
+    await assert.rejects(() => ask(f, "And what else?"), /can no longer answer questions/);
 
     const listed = await listTldrQuestions({
       companyId: f.company.id,
@@ -775,4 +785,202 @@ describe("card housekeeping", () => {
     });
     assert.equal(asMember.canDelegateAutomation, false);
   });
+});
+
+const CLIPBOARD_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8YkAAAAASUVORK5CYII=",
+  "base64",
+);
+async function screenshot(f: Fixture, uploadedByUserId = f.owner.id) {
+  return recordAttachmentBytes({
+    companyId: f.company.id,
+    companySlug: f.company.slug,
+    uploadedByUserId,
+    filename: "clipboard.png",
+    mimeType: "image/png",
+    bytes: CLIPBOARD_PNG,
+  });
+}
+
+describe("images on TLDR questions", () => {
+  test("an image-only opening reaches the restricted model and survives reload", async () => {
+    const f = await fixture();
+    const image = await screenshot(f);
+    const prompts: string[] = [];
+    await runTldrQuestionTurn({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      prompt: "",
+      userId: f.owner.id,
+      attachmentIds: [image.id],
+      runRestricted: answeringAgent("The screenshot shows a completed deployment.", (prompt) =>
+        prompts.push(prompt),
+      ),
+    });
+    assert.match(prompts[0], /"type":"image"/);
+    assert.ok(prompts[0].includes(CLIPBOARD_PNG.toString("base64")));
+    const listed = await listTldrQuestions({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      userId: f.owner.id,
+    });
+    assert.equal(listed.questions.length, 1);
+    assert.equal(listed.questions[0].attachments?.[0].filename, "clipboard.png");
+    assert.equal(listed.questions[0].attachments?.[0].isImage, true);
+    const persisted = await AppDataSource.getRepository(Attachment).findOneByOrFail({
+      id: image.id,
+    });
+    assert.ok(persisted.messageId);
+  });
+
+  test("a screenshot-only follow-up reaches the ordinary chat model and transcript", async () => {
+    const f = await fixture();
+    await runTldrQuestionTurn({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      prompt: "Explain the deployment",
+      userId: f.owner.id,
+      runRestricted: answeringAgent(),
+    });
+    const question = await AppDataSource.getRepository(TldrQuestion).findOneByOrFail({
+      tldrId: f.tldr.id,
+    });
+    const image = await screenshot(f);
+    const seen = capture();
+    await runTldrQuestionTurn({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      questionId: question.id,
+      message: "",
+      attachmentIds: [image.id],
+      userId: f.owner.id,
+      requesterSessionVersion: 0,
+      runChat: replyingChat("The screenshot is attached.", seen.record),
+    });
+    assert.equal(
+      (seen.calls[0].options.images as Array<{ data: string }>)[0].data,
+      CLIPBOARD_PNG.toString("base64"),
+    );
+    const listed = await listTldrQuestions({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      userId: f.owner.id,
+    });
+    assert.ok(
+      listed.questions[0].messages.some((message) =>
+        message.attachments?.some((attachment) => attachment.id === image.id),
+      ),
+    );
+  });
+
+  test("an earlier screenshot remains available on a text follow-up", async () => {
+    const f = await fixture();
+    const image = await screenshot(f);
+    await runTldrQuestionTurn({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      prompt: "Explain this",
+      attachmentIds: [image.id],
+      userId: f.owner.id,
+      runRestricted: answeringAgent(),
+    });
+    const question = await AppDataSource.getRepository(TldrQuestion).findOneByOrFail({
+      tldrId: f.tldr.id,
+    });
+    let replay = "";
+    await runTldrQuestionTurn({
+      companyId: f.company.id,
+      tldrId: f.tldr.id,
+      questionId: question.id,
+      message: "What changed in the screenshot?",
+      userId: f.owner.id,
+      requesterSessionVersion: 0,
+      runChat: replyingChat("A deployment completed.", ({ history }) => {
+        replay = JSON.stringify(history);
+      }),
+    });
+    assert.match(replay, /"images":/);
+    assert.ok(replay.includes(CLIPBOARD_PNG.toString("base64")));
+  });
+
+  test("another Member's screenshot is rejected before a card is created", async () => {
+    const f = await fixture();
+    const image = await screenshot(f, f.member.id);
+    await assert.rejects(
+      () =>
+        runTldrQuestionTurn({
+          companyId: f.company.id,
+          tldrId: f.tldr.id,
+          prompt: "Explain",
+          userId: f.owner.id,
+          attachmentIds: [image.id],
+          runRestricted: answeringAgent(),
+        }),
+      /unavailable/,
+    );
+    assert.equal(await AppDataSource.getRepository(TldrQuestion).count(), 0);
+    assert.equal(
+      (await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: image.id })).messageId,
+      null,
+    );
+  });
+
+  test("missing attachment IDs cannot create an empty question", async () => {
+    const f = await fixture();
+    await assert.rejects(
+      () =>
+        runTldrQuestionTurn({
+          companyId: f.company.id,
+          tldrId: f.tldr.id,
+          prompt: "",
+          userId: f.owner.id,
+          attachmentIds: [randomUUID()],
+          runRestricted: answeringAgent(),
+        }),
+      /unavailable/,
+    );
+    assert.equal(await AppDataSource.getRepository(TldrQuestionMessage).count(), 0);
+  });
+
+  test("duplicate screenshot IDs are rejected before they are consumed", async () => {
+    const f = await fixture();
+    const image = await screenshot(f);
+    await assert.rejects(
+      () =>
+        runTldrQuestionTurn({
+          companyId: f.company.id,
+          tldrId: f.tldr.id,
+          prompt: "Explain",
+          userId: f.owner.id,
+          attachmentIds: [image.id, image.id],
+          runRestricted: answeringAgent(),
+        }),
+      /different files/,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: image.id })).messageId,
+      null,
+    );
+  });
+});
+
+test("concurrent TLDR submissions of one upload create only one transcript", async () => {
+  const f = await fixture();
+  const image = await screenshot(f);
+  const results = await Promise.allSettled(
+    [1, 2].map(() =>
+      runTldrQuestionTurn({
+        companyId: f.company.id,
+        tldrId: f.tldr.id,
+        prompt: "Explain this screenshot",
+        attachmentIds: [image.id],
+        userId: f.owner.id,
+        runRestricted: answeringAgent(),
+      }),
+    ),
+  );
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+  assert.equal(await AppDataSource.getRepository(TldrQuestion).count(), 1);
+  assert.equal(await AppDataSource.getRepository(TldrQuestionMessage).countBy({ role: "user" }), 1);
 });

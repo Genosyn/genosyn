@@ -18,7 +18,11 @@ import { streamChatWithEmployee, ChatTurn } from "./chat.js";
 import { Company } from "../db/entities/Company.js";
 import { createNotifications } from "./notifications.js";
 import { ensureUserHandles } from "./userHandle.js";
-import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
+import {
+  historicalAttachmentSummaries,
+  inlineAttachmentsForMessage,
+  attachmentImageContextForMessages,
+} from "./attachmentText.js";
 
 /**
  * The workspace-chat service: channels, DMs, messages, reactions.
@@ -290,7 +294,6 @@ async function assertDmActorsInCompany(
     employeeIds: dmActors.flatMap((a) => (a.kind === "ai" ? [a.employeeId] : [])),
   });
 }
-
 
 function dmActorMatchesMember(actor: DmActor, m: ChannelMember): boolean {
   if (actor.kind === "user") {
@@ -1211,24 +1214,26 @@ async function handleMentions(args: {
       .take(20)
       .getMany();
     recentRows.reverse();
+    const replayRows = workspaceReplayThroughMessage(recentRows, args.message);
 
-    // `/new` leaves a visible system marker in the DM but deliberately keeps
-    // older messages out of the model replay. If the marker is older than the
-    // 20-message window, the query has already excluded the old context.
-    let resetIndex = -1;
-    for (let i = recentRows.length - 1; i >= 0; i -= 1) {
-      if (isContextResetMessage(recentRows[i])) {
-        resetIndex = i;
-        break;
-      }
-    }
-    const replayRows = resetIndex >= 0 ? recentRows.slice(resetIndex + 1) : recentRows;
-
+    const imageContext = await attachmentImageContextForMessages(
+      [
+        ...replayRows
+          .filter(
+            (row) => !row.deletedAt && row.authorKind === "user" && row.id !== args.message.id,
+          )
+          .map((row) => row.id),
+        ...(args.message.authorKind === "user" ? [args.message.id] : []),
+      ],
+      args.channel.companyId,
+    );
     const history: ChatTurn[] = await historyForEmployee(
       replayRows,
       emp.id,
       args.channel.id,
       args.message.id,
+      args.channel.companyId,
+      imageContext,
     );
     const triggerLabel =
       args.trigger.kind === "user"
@@ -1266,6 +1271,7 @@ async function handleMentions(args: {
           // One channel is one transcript, so that is what the reply
           // serializes on. Mentioning the same employee in two channels asks
           // for two answers, not a queue.
+          images: imageContext.get(args.message.id),
           workloadScope: `workspace-channel:${args.channel.id}`,
           ...(args.requester
             ? {
@@ -1307,11 +1313,30 @@ async function handleMentions(args: {
   }
 }
 
+/** Keep queued and multi-employee replies anchored to the same Member message. */
+export function workspaceReplayThroughMessage(
+  recentRows: ChannelMessage[],
+  trigger: ChannelMessage,
+): ChannelMessage[] {
+  // A previous mentioned employee may already have replied, or another
+  // Member may have posted while this turn waited. Never replay those as
+  // though they preceded the current request or crowd out its image budget.
+  const triggerIndex = recentRows.findIndex((row) => row.id === trigger.id);
+  const throughTrigger = triggerIndex >= 0 ? recentRows.slice(0, triggerIndex + 1) : [trigger];
+  // `/new` leaves a visible marker while deliberately clearing earlier context.
+  for (let i = throughTrigger.length - 1; i >= 0; i -= 1) {
+    if (isContextResetMessage(throughTrigger[i])) return throughTrigger.slice(i + 1);
+  }
+  return throughTrigger;
+}
+
 async function historyForEmployee(
   rows: ChannelMessage[],
   employeeId: string,
   channelId: string,
   triggerMessageId: string,
+  companyId: string,
+  imageContext: Map<string, NonNullable<ChatTurn["images"]>>,
 ): Promise<ChatTurn[]> {
   const { users, employees } = repos();
   const turns: ChatTurn[] = [];
@@ -1324,7 +1349,10 @@ async function historyForEmployee(
   const [u, e, attachmentSummaries] = await Promise.all([
     userIds.length ? users.findBy({ id: In(userIds) }) : Promise.resolve([]),
     empIds.length ? employees.findBy({ id: In(empIds) }) : Promise.resolve([]),
-    historicalAttachmentSummaries(rows.filter((r) => r.id !== triggerMessageId).map((r) => r.id)),
+    historicalAttachmentSummaries(
+      rows.filter((r) => r.id !== triggerMessageId).map((r) => r.id),
+      companyId,
+    ),
   ]);
   const uMap = new Map(u.map((x) => [x.id, x.name || x.email]));
   const eMap = new Map(e.map((x) => [x.id, x.name]));
@@ -1333,7 +1361,7 @@ async function historyForEmployee(
     return note ? `${body}\n[attached: ${note}]` : body;
   };
   for (const r of rows) {
-    if (r.deletedAt) continue;
+    if (r.deletedAt || r.id === triggerMessageId) continue;
     if (r.authorKind === "ai" && r.authorEmployeeId === employeeId) {
       turns.push({ role: "assistant", content: annotate(r.id, r.content) });
     } else {
@@ -1343,12 +1371,13 @@ async function historyForEmployee(
           : r.authorKind === "ai" && r.authorEmployeeId
             ? (eMap.get(r.authorEmployeeId) ?? "AI teammate")
             : r.authorName || "system";
-      turns.push({ role: "user", content: annotate(r.id, `${name}: ${r.content}`) });
+      turns.push({
+        role: "user",
+        content: annotate(r.id, `${name}: ${r.content}`),
+        images: imageContext.get(r.id),
+      });
     }
   }
-  // Drop the very last turn — it's the triggering message, which we pass as
-  // `message` to streamChatWithEmployee separately.
-  if (turns.length > 0) turns.pop();
   // Mark the context origin in the first turn so the employee knows this is
   // a channel, not a 1:1 thread. Tiny nudge that improves replies.
   if (turns.length > 0) {

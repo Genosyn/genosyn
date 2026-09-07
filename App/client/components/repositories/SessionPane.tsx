@@ -17,6 +17,7 @@ import {
   MessageSquareText,
   OctagonX,
   Pencil,
+  Paperclip,
   Square,
   Trash2,
   Upload,
@@ -55,6 +56,10 @@ import {
   RepositoryWorkSessionTurn,
 } from "../../lib/api";
 import { errorMessage } from "../../lib/errors";
+import { useChatAttachments } from "@/lib/stagedChatAttachments";
+import { useComposerFileDrop } from "@/lib/fileDrop";
+import { ChatAttachments } from "@/components/chat/ChatAttachments";
+import type { ChatAttachment } from "@/lib/api";
 
 /**
  * One work session, everywhere it is shown.
@@ -162,6 +167,8 @@ export function SessionPane({
     `repository-ai-revision-draft:${currentUserId}:${sessionId}`,
   );
   const [sending, setSending] = React.useState(false);
+  const fileInput = React.useRef<HTMLInputElement>(null);
+  const submitting = React.useRef(false);
   const [acting, setActing] = React.useState(false);
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [detailError, setDetailError] = React.useState<string | null>(null);
@@ -172,6 +179,15 @@ export function SessionPane({
    * a notice — it has to stay put while someone acts on it.
    */
   const [failure, setFailure] = React.useState<string | null>(null);
+  const attachments = useChatAttachments({
+    scopeKey: `${currentUserId}:${companyId}:${sessionId}`,
+    upload: (file) => api.uploadFile<ChatAttachment>(`${base}/session-attachments`, file),
+    onError: setFailure,
+  });
+  const { onPaste, dragProps, dragActive } = useComposerFileDrop(
+    (files) => void attachments.addFiles(files),
+    { disabled: sending },
+  );
   /**
    * The activity feed, every turn's events in one ordinal-ordered list. Only
    * ever appended to — each fetch asks for what comes after the last ordinal
@@ -387,19 +403,25 @@ export function SessionPane({
   }
 
   async function send() {
+    if (submitting.current || attachments.isUploading()) return;
     const text = instruction.trim();
-    if (!text) {
-      setFailure("Say what should change.");
+    if (!text && !attachments.pending.length) {
+      setFailure("Say what should change or attach an image.");
       return;
     }
+    submitting.current = true;
     setSending(true);
     setFailure(null);
     try {
       const next = await api.post<RepositoryWorkSessionDetail>(
         `${base}/sessions/${sessionId}/revise`,
-        { instruction: text },
+        {
+          instruction: text,
+          attachmentIds: attachments.pending.map((attachment) => attachment.id),
+        },
       );
       setInstruction("");
+      attachments.clear();
       setDetail(next);
       await onChanged();
     } catch (err) {
@@ -407,6 +429,7 @@ export function SessionPane({
       // message people need while they retype the instruction.
       setFailure(errorMessage(err));
     } finally {
+      submitting.current = false;
       setSending(false);
     }
   }
@@ -764,6 +787,7 @@ export function SessionPane({
               <TurnBlock
                 key={turn.id}
                 turn={turn}
+                attachmentBase={`${base}/session-attachments`}
                 events={turnEvents.get(turn.id) ?? NO_EVENTS}
                 employeeName={employeeName}
                 avatarSrc={avatarSrc}
@@ -774,9 +798,18 @@ export function SessionPane({
 
           <div className="border-t border-slate-100 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-950/20">
             {actions.revise ? (
-              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:focus-within:border-indigo-700 dark:focus-within:ring-indigo-900/30">
+              <div
+                {...dragProps}
+                className={
+                  (dragActive ? "ring-2 ring-indigo-400 " : "") +
+                  "overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:focus-within:border-indigo-700 dark:focus-within:ring-indigo-900/30"
+                }
+              >
                 <textarea
                   value={instruction}
+                  onPaste={onPaste}
+                  disabled={sending}
+                  aria-label="Follow-up work brief"
                   onChange={(event) => setInstruction(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void send();
@@ -786,6 +819,33 @@ export function SessionPane({
                   placeholder={`Ask ${employeeName} for another pass…`}
                   className="w-full resize-y border-0 bg-transparent px-3 py-2.5 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
                 />
+                <div className="px-3">
+                  <ChatAttachments
+                    attachments={attachments.pending}
+                    urlFor={(id) => `${base}/session-attachments/${id}`}
+                    onRemove={sending ? undefined : attachments.remove}
+                  />
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    aria-label="Attach files to follow-up"
+                    onChange={(event) => {
+                      if (event.target.files) void attachments.addFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={sending || attachments.pending.length + attachments.uploading >= 10}
+                    onClick={() => fileInput.current?.click()}
+                    className="mb-2 inline-flex items-center gap-1.5 text-xs text-slate-500 disabled:opacity-50"
+                  >
+                    {attachments.uploading ? <Spinner size={13} /> : <Paperclip size={13} />}
+                    {attachments.uploading ? "Uploading…" : "Attach files or paste an image"}
+                  </button>
+                </div>
                 <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2.5 py-2 dark:border-slate-800">
                   <span className="min-w-0 truncate text-[10px] text-slate-400 dark:text-slate-500">
                     {archived
@@ -796,7 +856,11 @@ export function SessionPane({
                   <Button
                     size="sm"
                     onClick={() => void send()}
-                    disabled={sending || !instruction.trim()}
+                    disabled={
+                      sending ||
+                      attachments.uploading > 0 ||
+                      (!instruction.trim() && !attachments.pending.length)
+                    }
                   >
                     {sending ? <Spinner size={13} /> : <ArrowUp size={13} />}
                     {sending ? "Sending…" : "Send"}
@@ -1115,11 +1179,13 @@ function DiffSkeleton() {
 /** One instruction and what came back — the unit the transcript is made of. */
 function TurnBlock({
   turn,
+  attachmentBase,
   events,
   employeeName,
   avatarSrc,
 }: {
   turn: RepositoryWorkSessionTurn;
+  attachmentBase: string;
   /** This turn's slice of the session's activity feed, in order. */
   events: RepositoryWorkSessionEvent[];
   employeeName: string;
@@ -1140,6 +1206,10 @@ function TurnBlock({
         <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-200">
           {turn.instruction}
         </div>
+        <ChatAttachments
+          attachments={turn.attachments ?? []}
+          urlFor={(id) => `${attachmentBase}/${id}`}
+        />
       </div>
 
       {/* How the work was done sits between what was asked and what was

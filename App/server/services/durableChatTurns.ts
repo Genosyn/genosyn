@@ -22,7 +22,11 @@ import {
   createChatTurnProgressRecorder,
   createProgressRefreshNotifier,
 } from "./chatTurnProgress.js";
-import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
+import {
+  historicalAttachmentSummaries,
+  inlineAttachmentsForMessage,
+  attachmentImageContextForMessages,
+} from "./attachmentText.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { captureTurnActionsForAuthority } from "./turnActions.js";
 import { bindAttachmentsToMessage } from "./uploads.js";
@@ -367,7 +371,7 @@ export async function executeDurableChatTurn(
       );
     }
 
-    const { replay, prompt } = await buildTurnPrompt({
+    const { replay, prompt, images } = await buildTurnPrompt({
       companyId: context.employee.companyId,
       conversation: context.conversation,
       userMessage: context.userMessage,
@@ -398,6 +402,7 @@ export async function executeDurableChatTurn(
           }
         },
         {
+          images,
           conversationId: context.conversation.id,
           modelId: claimedMessage.modelId,
           surface: context.conversation.source === "help" ? "help" : "chat",
@@ -691,7 +696,7 @@ async function buildTurnPrompt(args: {
   userMessage: ConversationMessage;
   assistantMessage: ConversationMessage;
   attempt: number;
-}): Promise<{ replay: ChatTurn[]; prompt: string }> {
+}): Promise<{ replay: ChatTurn[]; prompt: string; images?: ChatTurn["images"] }> {
   const allMessages = await AppDataSource.getRepository(ConversationMessage).find({
     where: { conversationId: args.conversation.id },
     order: { createdAt: "ASC" },
@@ -700,8 +705,16 @@ async function buildTurnPrompt(args: {
   const prior = (userIndex >= 0 ? allMessages.slice(0, userIndex) : allMessages)
     .filter((message) => message.status !== "working")
     .slice(-MAX_REPLAY_TURNS);
+  const imageContext = await attachmentImageContextForMessages(
+    [
+      ...prior.filter((message) => message.role === "user").map((message) => message.id),
+      args.userMessage.id,
+    ],
+    args.companyId,
+  );
   const priorAttachmentNotes = await historicalAttachmentSummaries(
     prior.map((message) => message.id),
+    args.companyId,
   );
   const replay: ChatTurn[] = prior.map((message) => {
     const note = priorAttachmentNotes.get(message.id);
@@ -712,6 +725,7 @@ async function buildTurnPrompt(args: {
     // never did — so say plainly that the Member cut it off.
     return {
       role: message.role,
+      images: message.role === "user" ? imageContext.get(message.id) : undefined,
       content:
         message.status === "interrupted"
           ? `${content}\n[This reply was cut short — the Member stopped it here.]`
@@ -757,7 +771,7 @@ async function buildTurnPrompt(args: {
     ].join("\n");
   }
 
-  return { replay, prompt };
+  return { replay, prompt, images: imageContext.get(args.userMessage.id) };
 }
 
 /**

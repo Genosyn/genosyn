@@ -1,7 +1,17 @@
 import React from "react";
+import { useComposerFileDrop } from "../lib/fileDrop";
+import { useChatAttachments } from "../lib/stagedChatAttachments";
+import { ChatAttachments } from "../components/chat/ChatAttachments";
 import { Select } from "@/components/ui/Select";
 import { Link } from "react-router-dom";
-import { AlertCircle, CircleHelp, Code2, MessageSquarePlus, Send, Sparkles } from "lucide-react";
+import {
+  AlertCircle,
+  CircleHelp,
+  Paperclip,
+  MessageSquarePlus,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import { ContextualLayout } from "@/components/AppShell";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
@@ -10,6 +20,7 @@ import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import {
   api,
+  type ChatAttachment,
   type Company,
   type ConversationDetail,
   type ConversationMessage,
@@ -49,6 +60,23 @@ export default function Help({ company }: { company: Company }) {
   const selected = employees?.find((employee) => employee.id === selectedId) ?? null;
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeId) ?? null;
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const attachmentDraft = useChatAttachments({
+    scopeKey: `${company.id}:${selectedId}`,
+    upload: (file) =>
+      api.uploadFile<ChatAttachment>(
+        `/api/companies/${company.id}/employees/${selectedId}/chat-attachments`,
+        file,
+      ),
+    onError: setUploadError,
+  });
+  const { onPaste, dragProps } = useComposerFileDrop(attachmentDraft.addFiles, {
+    disabled: !selected || sending || Boolean(activeConversation?.legacyUnclaimed),
+  });
+  const attachmentUrl = (id: string) =>
+    `/api/companies/${company.id}/employees/${selectedId}/chat-attachments/${id}`;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -150,7 +178,7 @@ export default function Help({ company }: { company: Company }) {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
   }, [input]);
 
-  async function newConversation(): Promise<ConversationSummary | null> {
+  async function newConversation(keepAttachments = false): Promise<ConversationSummary | null> {
     if (!selectedId || sending || claimingLegacy) return null;
     try {
       const created = await api.post<ConversationSummary>(
@@ -161,6 +189,7 @@ export default function Help({ company }: { company: Company }) {
         created,
         ...current.filter((conversation) => conversation.id !== created.id),
       ]);
+      if (!keepAttachments) attachmentDraft.clear();
       setActiveId(created.id);
       setLoadedId(created.id);
       setMessages([]);
@@ -177,6 +206,7 @@ export default function Help({ company }: { company: Company }) {
 
   function selectConversation(id: string) {
     if (sending || claimingLegacy || id === activeId) return;
+    attachmentDraft.clear();
     setClaimError(null);
     setMessagesError(null);
     setActiveId(id);
@@ -207,7 +237,17 @@ export default function Help({ company }: { company: Company }) {
 
   async function sendMessage() {
     const content = input.trim();
-    if (!content || !selectedId || !selected || sending) return;
+    if (
+      (!content && attachmentDraft.pending.length === 0) ||
+      !selectedId ||
+      !selected ||
+      sending ||
+      attachmentDraft.isUploading()
+    )
+      return;
+    const attachments = attachmentDraft.pending.map(
+      ({ previewUrl: _previewUrl, ...attachment }) => attachment,
+    );
     if (activeConversation?.legacyUnclaimed) {
       // The banner above the thread owns this instruction — say it there.
       setClaimError("Claim this legacy conversation before continuing it.");
@@ -215,7 +255,7 @@ export default function Help({ company }: { company: Company }) {
     }
     let conversationId = activeId;
     if (!conversationId) {
-      const created = await newConversation();
+      const created = await newConversation(true);
       if (!created) return;
       conversationId = created.id;
     }
@@ -226,6 +266,7 @@ export default function Help({ company }: { company: Company }) {
       conversationId,
       role: "user",
       content,
+      attachments,
       status: null,
       createdAt: new Date().toISOString(),
     };
@@ -235,17 +276,23 @@ export default function Help({ company }: { company: Company }) {
     setStreamingReply("");
     let accumulated = "";
     let receivedAssistant = false;
+    let accepted = false;
 
     try {
       await api.stream(
         `/api/companies/${company.id}/employees/${selectedId}/conversations/${conversationId}/messages`,
-        { message: content, attachmentIds: [] },
+        { message: content, attachmentIds: attachments.map((attachment) => attachment.id) },
         (event, data) => {
           if (event === "user") {
+            accepted = true;
+            attachmentDraft.clear();
             const persisted = data as ConversationMessage;
             setMessages((current) =>
               current.map((message) => (message.id === tempId ? persisted : message)),
             );
+          } else if (event === "working") {
+            accepted = true;
+            attachmentDraft.clear();
           } else if (event === "chunk") {
             accumulated += (data as { text?: string } | null)?.text ?? "";
             setStreamingReply(accumulated);
@@ -281,8 +328,9 @@ export default function Help({ company }: { company: Company }) {
       }
     } catch (error) {
       const detail = errorMessage(error, "Unknown error");
+      if (!accepted) setInput(content);
       setMessages((current) => [
-        ...current,
+        ...current.filter((message) => accepted || message.id !== tempId),
         {
           id: `help-error-${Date.now()}`,
           conversationId,
@@ -602,6 +650,7 @@ export default function Help({ company }: { company: Company }) {
           </div>
 
           <form
+            {...dragProps}
             className="border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"
             onSubmit={(event) => {
               event.preventDefault();
@@ -609,8 +658,32 @@ export default function Help({ company }: { company: Company }) {
             }}
           >
             <div className="mx-auto max-w-3xl">
+              {uploadError && <FormError message={uploadError} />}
+              <ChatAttachments
+                attachments={attachmentDraft.pending}
+                urlFor={attachmentUrl}
+                onRemove={attachmentDraft.remove}
+              />
               <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900">
-                <Code2 size={16} className="mb-2 shrink-0 text-slate-400" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    if (event.target.files) attachmentDraft.addFiles(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label="Attach a file"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!selected || sending || Boolean(activeConversation?.legacyUnclaimed)}
+                  className="mb-1 rounded-md p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-40"
+                >
+                  {attachmentDraft.uploading > 0 ? <Spinner size={16} /> : <Paperclip size={16} />}
+                </button>
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -620,6 +693,7 @@ export default function Help({ company }: { company: Company }) {
                   placeholder={
                     selected ? `Ask ${selected.name} about Genosyn…` : "Select an AI Employee"
                   }
+                  onPaste={onPaste}
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
@@ -635,7 +709,8 @@ export default function Help({ company }: { company: Company }) {
                     !selected ||
                     sending ||
                     Boolean(activeConversation?.legacyUnclaimed) ||
-                    !input.trim()
+                    attachmentDraft.uploading > 0 ||
+                    (!input.trim() && attachmentDraft.pending.length === 0)
                   }
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
                   aria-label="Ask for Help"
@@ -671,6 +746,12 @@ function HelpBubble({
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-indigo-600 px-3.5 py-2 text-sm leading-relaxed text-white shadow-sm sm:max-w-[75%]">
           <ChatMarkdown content={message.content} />
+          <ChatAttachments
+            attachments={message.attachments ?? []}
+            urlFor={(id) =>
+              `/api/companies/${companyId}/employees/${employee.id}/chat-attachments/${id}`
+            }
+          />
         </div>
       </div>
     );
@@ -703,6 +784,12 @@ function HelpBubble({
         ) : (
           <ChatMarkdown content={message.content} />
         )}
+        <ChatAttachments
+          attachments={message.attachments ?? []}
+          urlFor={(id) =>
+            `/api/companies/${companyId}/employees/${employee.id}/chat-attachments/${id}`
+          }
+        />
       </div>
     </div>
   );

@@ -90,6 +90,8 @@ export function estimateMessageTokens(m: AgentMessage): number {
   for (const b of m.content) {
     if (b.type === "text") {
       total += estimateTokens(b.text);
+    } else if (b.type === "image") {
+      total += IMAGE_TOKENS;
     } else if (b.type === "tool_use") {
       total += estimateTokens(b.name) + estimateTokens(safeJson(b.input));
     } else {

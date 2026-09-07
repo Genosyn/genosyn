@@ -16,6 +16,11 @@ export function Help() {
       />
 
       <H2 id="ask">Ask a question</H2>
+      <P>
+        You can paste screenshots into the AI message box, drag files onto it, or use the paperclip.
+        Review and remove attachments before sending. See{" "}
+        <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
+      </P>
       <OL>
         <LI>
           Click the <Strong>Help</Strong> icon in the app&apos;s top bar.
@@ -66,8 +71,7 @@ export function Help() {
       <Callout kind="info" title="Help is a separate, read-only support surface.">
         Help conversations never appear in ordinary employee Chat, so their Genosyn-specific context
         cannot bleed into day-to-day work. Source access cannot edit the running application. To ask
-        the employee to perform company work or change one of your granted Repositories, open that
-        {" "}
+        the employee to perform company work or change one of your granted Repositories, open that{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink>&apos;s regular <Strong>Chat</Strong>.
       </Callout>
     </>

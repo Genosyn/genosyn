@@ -3,11 +3,12 @@ import { z } from "zod";
 import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Company } from "../db/entities/Company.js";
 import { Repository } from "../db/entities/Repository.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { User } from "../db/entities/User.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
   requireBrowserSession,
@@ -67,6 +68,13 @@ import {
   WORK_SESSION_TITLE_MAX,
 } from "../services/repositoryWorkSessions.js";
 import { listSessionEvents } from "../services/repositoryWorkSessionActivity.js";
+import { uploadMiddleware } from "../services/uploads.js";
+import {
+  recordWorkSessionAttachment,
+  resolveWorkSessionAttachment,
+  serializeWorkSessionAttachment,
+  WORK_SESSION_ATTACHMENTS_MAX,
+} from "../services/repositoryWorkSessionAttachments.js";
 
 /**
  * Working with a Repository's *contents* — the file tree, the editor, history,
@@ -668,9 +676,73 @@ repositoryContentRouter.get(
   }),
 );
 
+const attachmentParamsSchema = z.object({ cid: z.string().uuid(), slug: z.string().min(1) });
+
+repositoryContentRouter.post(
+  "/repositories/:slug/session-attachments",
+  validateParams(attachmentParamsSchema),
+  withRepository(
+    async (repo, req, res) => {
+      const company = await AppDataSource.getRepository(Company).findOneByOrFail({
+        id: repo.companyId,
+      });
+      (req as Request & { company: Company }).company = company;
+      await new Promise<void>((resolve, reject) => {
+        uploadMiddleware.single("file")(req, res, (error) => (error ? reject(error) : resolve()));
+      });
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const row = await recordWorkSessionAttachment({
+        companyId: company.id,
+        companySlug: company.slug,
+        file: req.file,
+        uploadedByUserId: req.userId!,
+      });
+      res.status(201).json(serializeWorkSessionAttachment(row));
+    },
+    { workspace: false },
+  ),
+);
+
+repositoryContentRouter.get(
+  "/repositories/:slug/session-attachments/:attachmentId",
+  validateParams(attachmentParamsSchema.extend({ attachmentId: z.string().uuid() })),
+  withRepository(
+    async (repo, req, res) => {
+      const resolved = await resolveWorkSessionAttachment(
+        repo,
+        req.userId!,
+        req.params.attachmentId,
+      );
+      if (!resolved) return res.status(404).json({ error: "Attachment not found" });
+      res.setHeader("content-type", resolved.row.mimeType);
+      res.setHeader("x-content-type-options", "nosniff");
+      const inline = ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+        resolved.row.mimeType,
+      );
+      res.setHeader(
+        "content-disposition",
+        `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+      );
+      res.sendFile(resolved.absPath);
+    },
+    { workspace: false },
+  ),
+);
+
+const sessionInstructionShape = {
+  instruction: z.string().max(20000),
+  attachmentIds: z
+    .array(z.string().uuid())
+    .max(WORK_SESSION_ATTACHMENTS_MAX)
+    .optional()
+    .default([]),
+};
+const hasSessionInstruction = (body: { instruction: string; attachmentIds: string[] }) =>
+  body.instruction.trim().length > 0 || body.attachmentIds.length > 0;
 const startSessionSchema = z
-  .object({ employeeId: z.string().uuid(), instruction: z.string().min(1).max(20000) })
-  .strict();
+  .object({ employeeId: z.string().uuid(), ...sessionInstructionShape })
+  .strict()
+  .refine(hasSessionInstruction, "Write an instruction or attach a file before sending.");
 
 /**
  * Start a session and answer as soon as the row exists.
@@ -715,6 +787,7 @@ repositoryContentRouter.post(
       repositoryId: repo.id,
       employeeId: employee.id,
       instruction: body.instruction,
+      attachmentIds: body.attachmentIds,
       requesterUserId: req.userId,
       requesterSessionVersion: req.session.sessionVersion,
     });
@@ -761,7 +834,10 @@ repositoryContentRouter.get(
   }),
 );
 
-const reviseSessionSchema = z.object({ instruction: z.string().min(1).max(20000) }).strict();
+const reviseSessionSchema = z
+  .object(sessionInstructionShape)
+  .strict()
+  .refine(hasSessionInstruction, "Write an instruction or attach a file before sending.");
 
 /**
  * Ask for changes to work that has already been done.
@@ -787,6 +863,7 @@ repositoryContentRouter.post(
       companyId: repo.companyId,
       sessionId: session.id,
       instruction: body.instruction,
+      attachmentIds: body.attachmentIds,
       requesterUserId: req.userId,
       requesterSessionVersion: req.session.sessionVersion,
     });

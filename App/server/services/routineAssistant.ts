@@ -9,7 +9,10 @@ import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
-import { inlineAttachmentsForMessage } from "./attachmentText.js";
+import {
+  inlineAttachmentsForMessage,
+  attachmentImageContextForMessages,
+} from "./attachmentText.js";
 import { CHAT_HARD_TIMEOUT_MS, streamChatWithEmployee, type ChatResult } from "./chat.js";
 import { resolveChatModel } from "./models.js";
 import { isModelConnected } from "./providers.js";
@@ -585,6 +588,16 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
       : []
     ).map((e) => [e.id, e.name]),
   );
+  const imageContext = await attachmentImageContextForMessages(
+    [
+      ...prior
+        .filter((message) => message.id !== userMsg.id && message.role === "user")
+        .map((message) => message.id)
+        .reverse(),
+      userMsg.id,
+    ],
+    companyId,
+  );
   const history = prior
     // An interrupted turn's row is an empty placeholder, and a live sibling
     // turn's row has no text yet. Neither is something to replay as speech.
@@ -592,6 +605,7 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
     .reverse()
     .map((m) => ({
       role: m.role,
+      images: m.role === "user" ? imageContext.get(m.id) : undefined,
       content:
         m.role === "assistant" && m.employeeId && m.employeeId !== employee.id
           ? `[${empNames.get(m.employeeId) ?? "Another employee"} answered] ${m.content}`
@@ -638,6 +652,7 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
     for (;;) {
       try {
         result = await runChat(companyId, employee.id, prompt, history, callbacks.onChunk, {
+          images: imageContext.get(userMsg.id),
           extraSystem: assistantBriefing(routine, employee.id === routine.employeeId),
           extraToolset: ROUTINE_ASSISTANT_TOOLS,
           modelId: selectedModel?.id ?? null,

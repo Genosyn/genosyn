@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { prepareMemberChatAttachmentContext } from "../services/memberChatAttachments.js";
 import { z } from "zod";
 import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -1135,71 +1136,99 @@ basesRouter.get("/base-attachments/:attachmentId", async (req, res) => {
  * actions the client can apply. See the prompt in `composeAssistantPrompt` for
  * the contract.
  */
-const aiSchema = z.object({
-  prompt: z.string().min(1).max(2000),
-  tableId: z.string().optional(),
-});
+const aiSchema = z
+  .object({
+    prompt: z.string().max(2000).default(""),
+    tableId: z.string().optional(),
+    attachmentIds: z.array(z.string().uuid()).max(10).default([]),
+  })
+  .refine((body) => body.prompt.trim().length > 0 || body.attachmentIds.length > 0, {
+    message: "Message or attachment required",
+    path: ["prompt"],
+  });
 
 basesRouter.post(
   "/bases/:baseSlug/ai",
   requireBrowserSession,
   validateBody(aiSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const body = req.body as z.infer<typeof aiSchema>;
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const b = await loadBaseBySlug(cid, req.params.baseSlug);
+      if (!b) return res.status(404).json({ error: "Base not found" });
+      const body = req.body as z.infer<typeof aiSchema>;
 
-    // Pick an AI employee for this company that has a model row. The chat
-    // service will itself error if the model is incomplete; we prefer to ask
-    // and report than to silently pick a different one.
-    const employees = await AppDataSource.getRepository(AIEmployee).find({
-      where: { companyId: cid },
-    });
-    if (employees.length === 0) {
-      return res.json({
-        status: "skipped",
-        reply:
-          "No AI employees in this company yet — hire one from the Employees tab, then connect their model to use the assistant.",
+      // Pick an AI employee for this company that has a model row. The chat
+      // service will itself error if the model is incomplete; we prefer to ask
+      // and report than to silently pick a different one.
+      const employees = await AppDataSource.getRepository(AIEmployee).find({
+        where: { companyId: cid },
       });
-    }
-    const models = await AppDataSource.getRepository(AIModel).find({
-      where: { employeeId: In(employees.map((e) => e.id)) },
-    });
-    const firstConnected = employees.find((e) => models.some((m) => m.employeeId === e.id));
-    if (!firstConnected) {
-      return res.json({
-        status: "skipped",
-        reply:
-          "None of your AI employees have a connected model yet. Connect one from Employees → Settings → Model to use the assistant.",
+      if (employees.length === 0) {
+        return res.json({
+          status: "skipped",
+          reply:
+            "No AI employees in this company yet — hire one from the Employees tab, then connect their model to use the assistant.",
+        });
+      }
+      const models = await AppDataSource.getRepository(AIModel).find({
+        where: { employeeId: In(employees.map((e) => e.id)) },
       });
-    }
+      const firstConnected = employees.find((e) => models.some((m) => m.employeeId === e.id));
+      if (!firstConnected) {
+        return res.json({
+          status: "skipped",
+          reply:
+            "None of your AI employees have a connected model yet. Connect one from Employees → Settings → Model to use the assistant.",
+        });
+      }
 
-    // Build a schema snapshot for the prompt.
-    const tables = await AppDataSource.getRepository(BaseTable).find({
-      where: { baseId: b.id, archivedAt: IsNull() },
-      order: { sortOrder: "ASC" },
-    });
-    if (body.tableId && !tables.some((table) => table.id === body.tableId)) {
-      return res.status(404).json({ error: "Table not found" });
-    }
-    const fields = tables.length
-      ? await AppDataSource.getRepository(BaseField).find({
-          where: { tableId: In(tables.map((t) => t.id)) },
-          order: { sortOrder: "ASC" },
-        })
-      : [];
+      // Build a schema snapshot for the prompt.
+      const tables = await AppDataSource.getRepository(BaseTable).find({
+        where: { baseId: b.id, archivedAt: IsNull() },
+        order: { sortOrder: "ASC" },
+      });
+      if (body.tableId && !tables.some((table) => table.id === body.tableId)) {
+        return res.status(404).json({ error: "Table not found" });
+      }
+      const fields = tables.length
+        ? await AppDataSource.getRepository(BaseField).find({
+            where: { tableId: In(tables.map((t) => t.id)) },
+            order: { sortOrder: "ASC" },
+          })
+        : [];
 
-    const promptText = composeAssistantPrompt(b.name, tables, fields, body);
-    const result = await chatWithEmployee(cid, firstConnected.id, promptText, [], {
-      requesterUserId: req.userId!,
-      requesterSessionVersion: req.session!.sessionVersion!,
-    });
-    res.json({
-      status: result.status,
-      reply: result.reply,
-      employee: { id: firstConnected.id, name: firstConnected.name, slug: firstConnected.slug },
-    });
+      const attachments = await prepareMemberChatAttachmentContext({
+        companyId: cid,
+        userId: req.userId!,
+        ids: body.attachmentIds,
+      });
+      let result: Awaited<ReturnType<typeof chatWithEmployee>>;
+      try {
+        result = await chatWithEmployee(
+          cid,
+          firstConnected.id,
+          [composeAssistantPrompt(b.name, tables, fields, body), attachments.text]
+            .filter(Boolean)
+            .join("\n\n"),
+          [],
+          {
+            images: attachments.images,
+            requesterUserId: req.userId!,
+            requesterSessionVersion: req.session!.sessionVersion!,
+          },
+        );
+      } finally {
+        await attachments.release();
+      }
+      res.json({
+        status: result.status,
+        reply: result.reply,
+        employee: { id: firstConnected.id, name: firstConnected.name, slug: firstConnected.slug },
+      });
+    } catch (error) {
+      next(error);
+    }
   },
 );
 

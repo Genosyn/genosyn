@@ -28,8 +28,13 @@ export type ToolUseBlock = {
   name: string;
   input: Record<string, unknown>;
 };
-/** A base64 image a tool returned (e.g. a browser screenshot). */
-export type ToolResultImage = { mimeType: string; data: string };
+/** A base64 image supplied by a Member or returned by a tool. */
+export type ToolResultImage = {
+  mimeType: string;
+  data: string;
+  /** Attachment identity shown directly beside an uploaded image. */
+  sourceLabel?: string;
+};
 export type ToolResultBlock = {
   type: "tool_result";
   toolUseId: string;
@@ -40,7 +45,8 @@ export type ToolResultBlock = {
 };
 
 export type AssistantBlock = TextBlock | ToolUseBlock;
-export type UserBlock = TextBlock | ToolResultBlock;
+export type ImageBlock = { type: "image" } & ToolResultImage;
+export type UserBlock = TextBlock | ImageBlock | ToolResultBlock;
 
 export type AgentMessage =
   | { role: "user"; content: UserBlock[] }

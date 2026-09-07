@@ -74,10 +74,7 @@ export function createOpenAIClient(opts: {
       let finishReason = "stop";
       let usage: AssistantTurn["usage"];
       // tool_call deltas arrive fragmented and keyed by index; assemble them.
-      const toolAcc = new Map<
-        number,
-        { id: string; name: string; args: string }
-      >();
+      const toolAcc = new Map<number, { id: string; name: string; args: string }>();
       // Which slot the previous fragment landed in, so a fragment carrying
       // neither `index` nor `id` can be appended to the call it continues.
       let lastSlot = -1;
@@ -177,7 +174,7 @@ function toOpenAITool(t: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
   };
 }
 
-function toOpenAIMessages(
+export function toOpenAIMessages(
   system: string,
   messages: AgentMessage[],
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
@@ -205,10 +202,15 @@ function toOpenAIMessages(
     } else {
       // A user turn can mix free text and tool results. Tool results become
       // their own `role:"tool"` messages; any plain text becomes a user message.
-      const textParts: string[] = [];
+      const contentParts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
       for (const b of m.content) {
         if (b.type === "text") {
-          textParts.push(b.text);
+          contentParts.push({ type: "text", text: b.text });
+        } else if (b.type === "image") {
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: `data:${b.mimeType};base64,${b.data}` },
+          });
         } else {
           // Chat Completions tool-role messages are text-only, so images (e.g.
           // browser screenshots) can't ride along here — note their presence.
@@ -220,8 +222,13 @@ function toOpenAIMessages(
           out.push({ role: "tool", tool_call_id: b.toolUseId, content });
         }
       }
-      if (textParts.length > 0) {
-        out.push({ role: "user", content: textParts.join("\n") });
+      if (contentParts.length > 0) {
+        out.push({
+          role: "user",
+          content: contentParts.every((part) => part.type === "text")
+            ? contentParts.map((part) => (part.type === "text" ? part.text : "")).join("\n")
+            : contentParts,
+        });
       }
     }
   }

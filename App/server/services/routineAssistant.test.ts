@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { randomUUID } from "node:crypto";
+import { Company } from "../db/entities/Company.js";
+import { companyDir } from "./paths.js";
+import { recordAttachmentBytes } from "./uploads.js";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -593,4 +598,54 @@ describe("interrupted turn recovery", () => {
 
     assert.equal(await finalizeInterruptedAssistantTurns(), 0);
   });
+});
+
+test("Routine chat sends pasted screenshots and replays them for follow-up questions", async () => {
+  const { routine } = await fixture();
+  const company = await insert(Company, {
+    id: COMPANY_ID,
+    name: "Routine image tests",
+    slug: `routine-image-${randomUUID()}`,
+    ownerId: USER_ID,
+  });
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jC1sAAAAASUVORK5CYII=",
+    "base64",
+  );
+  try {
+    const screenshot = await recordAttachmentBytes({
+      companyId: company.id,
+      companySlug: company.slug,
+      filename: "routine.png",
+      mimeType: "image/png",
+      bytes,
+      uploadedByUserId: USER_ID,
+    });
+    const expected = [
+      {
+        mimeType: "image/png",
+        data: bytes.toString("base64"),
+        sourceLabel: `[Attached image id=${screenshot.id} filename=${JSON.stringify(screenshot.filename)}]`,
+      },
+    ];
+    await turn(routine, "", recorder(), {
+      attachmentIds: [screenshot.id],
+      runChat: async (_companyId, _employeeId, prompt, history, _onChunk, options) => {
+        assert.deepEqual(options?.images, expected);
+        assert.equal(history.length, 0);
+        assert.match(prompt, /routine.png/);
+        assert.ok(!prompt.includes(bytes.toString("base64")));
+        return chatResult("I can see the screenshot.");
+      },
+    });
+    await turn(routine, "What colour was the screenshot?", recorder(), {
+      runChat: async (_companyId, _employeeId, _prompt, history, _onChunk, options) => {
+        assert.equal(options?.images, undefined);
+        assert.deepEqual(history.find((message) => message.role === "user")?.images, expected);
+        return chatResult("White.");
+      },
+    });
+  } finally {
+    fs.rmSync(companyDir(company.slug), { recursive: true, force: true });
+  }
 });

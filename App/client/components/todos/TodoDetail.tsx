@@ -1,7 +1,12 @@
 import React from "react";
+import { useComposerFileDrop } from "@/lib/fileDrop";
+import { useChatAttachments } from "@/lib/stagedChatAttachments";
+import { ChatAttachments } from "@/components/chat/ChatAttachments";
+import { workspaceApi } from "@/lib/workspace";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
+  Paperclip,
   AtSign,
   Bot,
   Check,
@@ -683,9 +688,40 @@ export function CommentThread({
     }
   }, [todo.assigneeEmployeeId, mentionId]);
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [posting, setPosting] = React.useState(false);
+  const postingRef = React.useRef(false);
+  const scopeRef = React.useRef(`${companyId}:${todo.id}`);
+  scopeRef.current = `${companyId}:${todo.id}`;
+  const attachmentDraft = useChatAttachments({
+    scopeKey: `${companyId}:${todo.id}`,
+    upload: (file) => workspaceApi.uploadAttachment(companyId, file),
+    onError: setUploadError,
+  });
+  const { onPaste, dragProps } = useComposerFileDrop(attachmentDraft.addFiles, {
+    disabled: !canEdit || posting,
+  });
+  React.useEffect(() => {
+    postingRef.current = false;
+    setPosting(false);
+  }, [companyId, todo.id]);
+
   function submit(withMention: boolean) {
     const text = body.trim();
-    if (!text) return;
+    if (
+      (!text && attachmentDraft.pending.length === 0) ||
+      !canEdit ||
+      postingRef.current ||
+      attachmentDraft.isUploading()
+    )
+      return;
+    const postingScope = scopeRef.current;
+    const attachments = attachmentDraft.pending.map(
+      ({ previewUrl: _previewUrl, ...attachment }) => attachment,
+    );
+    postingRef.current = true;
+    setPosting(true);
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
     const optimistic: TodoComment = {
       id: optimisticId,
@@ -693,6 +729,7 @@ export function CommentThread({
       authorUserId: null,
       authorEmployeeId: null,
       body: text,
+      attachments,
       pending: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -712,17 +749,25 @@ export function CommentThread({
         api.post<TodoComment[]>(`/api/companies/${companyId}/todos/${todo.id}/comments`, {
           body: text,
           mentionEmployeeId: withMention ? mentionId : null,
+          attachmentIds: attachments.map((attachment) => attachment.id),
         }),
       {
         title: "Couldn’t post the comment",
         error: (error) => `${errorMessage(error)} Your text has been restored.`,
         onSuccess: (created) => {
+          if (postingScope !== scopeRef.current) return;
+          postingRef.current = false;
+          setPosting(false);
+          attachmentDraft.clear();
           setComments((current) => [
             ...(current ?? []).filter((comment) => comment.id !== optimisticId),
             ...created,
           ]);
         },
         onError: () => {
+          if (postingScope !== scopeRef.current) return;
+          postingRef.current = false;
+          setPosting(false);
           setComments(
             (current) => current?.filter((comment) => comment.id !== optimisticId) ?? current,
           );
@@ -804,17 +849,46 @@ export function CommentThread({
           </div>
         ) : (
           comments.map((c) => (
-            <CommentRow key={c.id} comment={c} canEdit={canEdit} onDelete={remove} />
+            <CommentRow
+              key={c.id}
+              comment={c}
+              companyId={companyId}
+              todoId={todo.id}
+              canEdit={canEdit}
+              onDelete={remove}
+            />
           ))
         )}
       </div>
 
       {/* Posting a comment needs write access — the server 403s otherwise. */}
       {canEdit && (
-        <div className="relative mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700">
+        <div
+          {...dragProps}
+          className="relative mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700"
+        >
+          <FormError message={uploadError} />
+          <ChatAttachments
+            attachments={attachmentDraft.pending}
+            urlFor={(id) =>
+              `/api/companies/${companyId}/todos/${todo.id}/comment-attachments/${id}`
+            }
+            onRemove={attachmentDraft.remove}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files) attachmentDraft.addFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
           <textarea
             ref={composerRef}
             value={body}
+            onPaste={onPaste}
             onChange={(e) => {
               setBody(e.target.value);
               refreshResourceState(e.target.value, e.target.selectionStart);
@@ -864,6 +938,15 @@ export function CommentThread({
             />
           )}
           <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
+            <button
+              type="button"
+              aria-label="Attach a file"
+              disabled={posting}
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-md p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-40"
+            >
+              {attachmentDraft.uploading > 0 ? <Spinner size={13} /> : <Paperclip size={13} />}
+            </button>
             <MentionPicker value={mentionId} employees={employees} onChange={setMentionId} />
             <span className="text-[11px] text-slate-400 dark:text-slate-500">
               <span className="font-mono">#</span> resource
@@ -873,7 +956,11 @@ export function CommentThread({
               <Button
                 size="sm"
                 onClick={() => submit(true)}
-                disabled={!body.trim()}
+                disabled={
+                  posting ||
+                  attachmentDraft.uploading > 0 ||
+                  (!body.trim() && attachmentDraft.pending.length === 0)
+                }
                 title="Post and ask the AI employee to reply (⌘⏎)"
               >
                 <Sparkles size={13} /> Ask {mentionEmp.name.split(" ")[0]}
@@ -882,7 +969,11 @@ export function CommentThread({
               <Button
                 size="sm"
                 onClick={() => submit(false)}
-                disabled={!body.trim()}
+                disabled={
+                  posting ||
+                  attachmentDraft.uploading > 0 ||
+                  (!body.trim() && attachmentDraft.pending.length === 0)
+                }
                 title="Post comment (⌘⏎)"
               >
                 <Send size={13} /> Send
@@ -896,11 +987,15 @@ export function CommentThread({
 }
 
 function CommentRow({
+  companyId,
+  todoId,
   comment,
   canEdit,
   onDelete,
 }: {
   comment: TodoComment;
+  companyId: string;
+  todoId: string;
   canEdit: boolean;
   onDelete: (c: TodoComment) => void;
 }) {
@@ -950,6 +1045,12 @@ function CommentRow({
         ) : (
           <div className="mt-0.5 break-words text-sm text-slate-800 dark:text-slate-100">
             <ChatMarkdown content={comment.body} />
+            <ChatAttachments
+              attachments={comment.attachments ?? []}
+              urlFor={(id) =>
+                `/api/companies/${companyId}/todos/${todoId}/comment-attachments/${id}`
+              }
+            />
           </div>
         )}
       </div>

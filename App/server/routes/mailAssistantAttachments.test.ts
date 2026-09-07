@@ -375,3 +375,37 @@ describe("the panel bootstrap", () => {
     assert.equal(badModel.status, 400);
   });
 });
+
+test("Mail AI chat accepts an image-only message and retains it in the transcript", async () => {
+  const uploaded = await upload("clipboard.png", "test-image-bytes", "image/png");
+  assert.equal(uploaded.status, 201);
+  const attachmentId = uploaded.body.attachment!.id;
+  const response = await fetch(
+    `${baseUrl}/api/companies/${company.id}/mail/accounts/${account.id}/assistant/messages`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "", threadId: thread.id, attachmentIds: [attachmentId] }),
+    },
+  );
+  assert.equal(response.status, 200);
+  const stream = await response.text();
+  assert.match(stream, /event: user/);
+  assert.match(stream, /clipboard.png/);
+  const row = await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: attachmentId });
+  assert.ok(row.messageId);
+  assert.equal(
+    (await AppDataSource.getRepository(MailChatMessage).findOneByOrFail({ id: row.messageId }))
+      .content,
+    "",
+  );
+});
+
+test("Mail AI chat still rejects empty text without an attachment", async () => {
+  const result = await call("POST", `/mail/accounts/${account.id}/assistant/messages`, {
+    message: "   ",
+    threadId: thread.id,
+  });
+  assert.equal(result.status, 400);
+  assert.equal(await AppDataSource.getRepository(MailChatMessage).count(), 0);
+});

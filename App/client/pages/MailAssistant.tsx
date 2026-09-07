@@ -1,4 +1,8 @@
 import React from "react";
+import { chatRetryText } from "../lib/chatRetry";
+import { useComposerFileDrop } from "../lib/fileDrop";
+import { useChatAttachments } from "../lib/stagedChatAttachments";
+import { ChatAttachments } from "../components/chat/ChatAttachments";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -158,8 +162,7 @@ export function MailAssistant({
     slug: string;
   } | null>(null);
   /** Files chosen for the next message — uploaded already, bound on send. */
-  const [pending, setPending] = React.useState<MailAssistantAttachment[]>([]);
-  const [uploading, setUploading] = React.useState(0);
+
   /**
    * The brain for the next turn. Null means "whatever the employee's active
    * model is" until the server tells us which one this email's chat has been
@@ -172,6 +175,13 @@ export function MailAssistant({
   // In-flight SSE turn — aborted when the mailbox changes or the panel
   // unmounts, so a slow reply can't paint into the wrong conversation.
   const streamAbortRef = React.useRef<AbortController | null>(null);
+
+  const attachmentDraft = useChatAttachments({
+    scopeKey: `${company.id}:${account.id}:${threadId}`,
+    upload: (file) => mailApi.assistantUpload(company.id, account.id, file),
+    onError: setComposerError,
+  });
+  const { pending, uploading, addFiles, clear: clearAttachments, isUploading } = attachmentDraft;
 
   // ── mention picker state ──
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
@@ -197,7 +207,7 @@ export function MailAssistant({
     setStreaming(null);
     setStreamOpen(false);
     setReconnecting(false);
-    setPending([]);
+    clearAttachments();
     setModelId(null);
     mailApi
       .assistant(company.id, account.id, threadId)
@@ -313,15 +323,15 @@ export function MailAssistant({
   const send = React.useCallback(
     async (text: string) => {
       const message = text.trim();
-      if (!message || turnInFlight) return;
+      if ((!message && pending.length === 0) || turnInFlight || isUploading()) return;
       setComposerError(null);
-      if (message === "/new") {
+      if (message === "/new" && pending.length === 0) {
         try {
           await mailApi.assistantClear(company.id, account.id, threadId);
           setMessages([]);
           setTarget(null);
           setDraft("");
-          setPending([]);
+          clearAttachments();
           setMentionQuery(null);
           setResourceQuery(null);
         } catch (err) {
@@ -336,8 +346,7 @@ export function MailAssistant({
       setResourceQuery(null);
       // Hand the files to this turn and clear the tray: a second send must
       // not re-attach what the first one already carried.
-      const attachments = pending;
-      setPending([]);
+      const attachments = pending.map(({ previewUrl: _previewUrl, ...attachment }) => attachment);
       // Optimistic bubble; swapped for the persisted row on the `user` event.
       const temp: MailAssistantMessage = {
         id: `temp-${Date.now()}`,
@@ -375,6 +384,8 @@ export function MailAssistant({
           },
           (event, data) => {
             if (event === "user") {
+              accepted = true;
+              clearAttachments();
               const row = data as MailAssistantMessage;
               setMessages((prev) => (prev ?? []).map((m) => (m.id === temp.id ? row : m)));
             } else if (event === "target") {
@@ -386,6 +397,7 @@ export function MailAssistant({
               setTarget(emp);
             } else if (event === "working") {
               accepted = true;
+              clearAttachments();
               setMessages((prev) => upsertAssistantMessage(prev, data as MailAssistantMessage));
             } else if (event === "chunk") {
               accumulated += (data as { text: string }).text;
@@ -420,11 +432,13 @@ export function MailAssistant({
           }
         }
         if (accepted) {
+          clearAttachments();
           setReconnecting(true);
           return;
         }
+        setDraft(message);
         setMessages((prev) => [
-          ...(prev ?? []),
+          ...(prev ?? []).filter((row) => row.id !== temp.id),
           {
             ...temp,
             id: `temp-err-${Date.now()}`,
@@ -448,33 +462,16 @@ export function MailAssistant({
       focusedMessageId,
       target,
       pending,
+      isUploading,
+      clearAttachments,
       selectedModelId,
       scrollToBottom,
     ],
   );
 
-  /**
-   * Files are uploaded the moment they're chosen, so the send payload is just
-   * ids and a failed upload is reported while the human is still composing —
-   * not after they hit send.
-   */
-  const addFiles = React.useCallback(
-    async (files: FileList | File[]) => {
-      setComposerError(null);
-      for (const file of Array.from(files)) {
-        setUploading((n) => n + 1);
-        try {
-          const attachment = await mailApi.assistantUpload(company.id, account.id, file);
-          setPending((prev) => [...prev, attachment]);
-        } catch (err) {
-          setComposerError(errorMessage(err, `Could not upload ${file.name}`));
-        } finally {
-          setUploading((n) => n - 1);
-        }
-      }
-    },
-    [company.id, account.id],
-  );
+  const { onPaste, dragProps } = useComposerFileDrop(addFiles, {
+    disabled: turnInFlight,
+  });
 
   /**
    * Re-run the human message that produced a failed reply. The panel knows
@@ -487,7 +484,7 @@ export function MailAssistant({
       const index = list.findIndex((m) => m.id === failed.id);
       for (let i = index - 1; i >= 0; i -= 1) {
         if (list[i].role === "user") {
-          void send(list[i].content);
+          void send(chatRetryText(list[i]));
           return;
         }
       }
@@ -760,30 +757,16 @@ export function MailAssistant({
             className="absolute bottom-full left-3 right-3 z-10 mb-1"
           />
         )}
-        {pending.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap gap-1.5">
-            {pending.map((a) => (
-              <span
-                key={a.id}
-                className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-              >
-                <FileText size={11} className="shrink-0 text-slate-400" />
-                <span className="max-w-40 truncate">{a.filename}</span>
-                <span className="text-slate-400">{formatBytes(a.sizeBytes)}</span>
-                <button
-                  type="button"
-                  onClick={() => setPending((prev) => prev.filter((p) => p.id !== a.id))}
-                  className="text-slate-400 hover:text-rose-500"
-                  title="Remove"
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        <FormError message={composerError} className="mb-1.5" />
-        <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
+        <FormError message={composerError} />
+        <ChatAttachments
+          attachments={pending}
+          urlFor={(id) => mailApi.assistantAttachmentUrl(company.id, account.id, id)}
+          onRemove={attachmentDraft.remove}
+        />
+        <div
+          {...dragProps}
+          className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900"
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -826,12 +809,13 @@ export function MailAssistant({
               setMentionQuery(null);
               setResourceQuery(null);
             }}
+            onPaste={onPaste}
             onKeyDown={onComposerKeyDown}
             className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100"
           />
           <button
             onClick={() => void send(draft)}
-            disabled={!draft.trim() || turnInFlight}
+            disabled={(!draft.trim() && pending.length === 0) || turnInFlight || uploading > 0}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-600 text-white transition-opacity hover:bg-indigo-500 disabled:opacity-40"
             title="Send (Enter)"
           >
@@ -970,8 +954,7 @@ function MessageRow({
   /** This panel lost the stream and is polling the row instead. */
   reconnecting?: boolean;
 }) {
-  const attachmentUrl = (id: string) =>
-    mailApi.assistantAttachmentUrl(company.id, account.id, id);
+  const attachmentUrl = (id: string) => mailApi.assistantAttachmentUrl(company.id, account.id, id);
 
   if (message.role === "user") {
     return (

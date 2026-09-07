@@ -7,6 +7,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
+import { Attachment } from "../db/entities/Attachment.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
@@ -290,4 +291,35 @@ describe("deleting the routine", () => {
     assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
     assert.equal(await AppDataSource.getRepository(RoutineChatMessage).count(), 0);
   });
+});
+
+test("a Routine chat accepts an image-only message and binds its upload", async () => {
+  const attachment = await insert(Attachment, {
+    companyId: company.id,
+    uploadedByUserId: owner.id,
+    messageId: null,
+    filename: "clipboard.png",
+    mimeType: "image/png",
+    sizeBytes: 10,
+    storageKey: "missing-test-image.png",
+  });
+  const response = await fetch(
+    `${baseUrl}/api/companies/${company.id}/routines/${routine.id}/assistant/messages`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "", attachmentIds: [attachment.id] }),
+    },
+  );
+  assert.equal(response.status, 200);
+  const stream = await response.text();
+  assert.match(stream, /event: user/);
+  assert.match(stream, /clipboard.png/);
+  const row = await AppDataSource.getRepository(Attachment).findOneByOrFail({ id: attachment.id });
+  assert.ok(row.messageId);
+  assert.equal(
+    (await AppDataSource.getRepository(RoutineChatMessage).findOneByOrFail({ id: row.messageId }))
+      .content,
+    "",
+  );
 });
