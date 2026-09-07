@@ -199,7 +199,9 @@ export function Repositories() {
         refresh. See <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
       </P>
       <OL>
-        <LI>Pick the employee, choose a suggested brief if it helps, and describe the outcome.</LI>
+        <LI>
+          Pick the employee by name, choose a suggested brief if it helps, and describe the outcome.
+        </LI>
         <LI>
           Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}
           <Strong>default branch</Strong> as it stands there — see{" "}

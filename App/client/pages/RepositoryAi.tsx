@@ -964,8 +964,8 @@ function NewSessionPane({
                 onChange={(event) => setEmployeeId(event.target.value)}
               >
                 {candidates.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name} — {candidate.role}
+                  <option key={candidate.id} value={candidate.id} data-search-text={candidate.role}>
+                    {candidate.name}
                   </option>
                 ))}
               </Select>
