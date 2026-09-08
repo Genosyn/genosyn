@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
-import { requireAuth, requireBrowserSession } from "../middleware/auth.js";
+import { establishUserSession, requireAuth, requireBrowserSession } from "../middleware/auth.js";
+import { revokeCurrentUserSession } from "../services/userSessions.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   beginTotpEnrollment,
@@ -80,7 +81,10 @@ async function pendingUser(req: Request): Promise<User | null> {
   const userId = pendingTwoFactorUserId(req);
   if (!userId) return null;
   const user = await AppDataSource.getRepository(User).findOneBy({ id: userId });
-  if (!user) req.session = null;
+  if (!user || user.sessionVersion !== req.session?.twoFactorSessionVersion) {
+    req.session = null;
+    return null;
+  }
   return user;
 }
 
@@ -89,7 +93,7 @@ function loginResponse(user: User) {
 }
 
 async function completeLogin(req: Request, user: User): Promise<void> {
-  completeTwoFactorLogin(req, user.id, user.sessionVersion);
+  await completeTwoFactorLogin(req, user.id, user.sessionVersion);
   if (user.isMasterAdmin && user.emailVerifiedAt) {
     await capturePublicUrlFromMasterAdminRequest(req);
   }
@@ -142,11 +146,9 @@ twoFactorRouter.get("/login/two-factor", async (req, res, next) => {
     if (!methods.enabled) {
       // This branch covers a factor removed between primary auth and this
       // probe. It does not mint second-factor evidence.
-      req.session = {
-        userId: user.id,
-        sessionVersion: user.sessionVersion,
-        authenticatedAt: req.session?.primaryAuthenticatedAt ?? Date.now(),
-      };
+      const authenticatedAt = req.session?.primaryAuthenticatedAt ?? Date.now();
+      await establishUserSession(req, user);
+      req.session!.authenticatedAt = authenticatedAt;
       return res.json({ requiresTwoFactor: false });
     }
     res.json({ requiresTwoFactor: true, methods });
@@ -452,6 +454,9 @@ export async function requireTwoFactorAfterPrimaryAuth(
   user: User,
 ): Promise<ReturnType<typeof getTwoFactorLoginMethods>> {
   const methods = await getTwoFactorLoginMethods(user.id);
-  if (methods.enabled) beginTwoFactorLoginSession(req, user.id);
+  if (methods.enabled) {
+    await revokeCurrentUserSession(req);
+    beginTwoFactorLoginSession(req, user.id, user.sessionVersion);
+  }
   return methods;
 }

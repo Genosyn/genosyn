@@ -16,6 +16,7 @@
     "test": "tsx --test --import ./server/test/httpSetup.ts \"server/**/*.test.ts\" \"client/**/*.test.ts\"",
     "test:chat-images": "tsx scripts/test-chat-images.ts",
     "test:work-outcomes": "tsx scripts/test-work-outcomes.ts",
+    "test:saas-postgres": "tsx server/scripts/testSaasPostgres.ts",
     "typeorm": "tsx ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d ormconfig.ts",
     "migration:create": "npm run typeorm -- migration:create",
@@ -23,6 +24,7 @@
     "migration:revert": "npm run typeorm -- migration:revert -d ormconfig.ts",
     "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts",
     "license:keygen": "tsx server/scripts/licenseKeygen.ts",
+    "setup:public-url": "tsx server/scripts/setupPublicUrl.ts",
     "test:work-session-models": "tsx scripts/test-work-session-models.ts",
     "test:proactive": "tsx scripts/test-proactive.ts"
   },
@@ -58,7 +60,7 @@
     "mailparser": "^3.9.19",
     "marked": "^14.1.2",
     "multer": "^2.2.0",
-    "mysql2": "^3.22.3",
+    "mysql2": "^3.24.4",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
     "openai": "^6.45.0",
@@ -122,9 +124,10 @@
     "@hono/node-server": "^2.0.11",
     "brace-expansion": "^5.0.8",
     "epubjs": {
-      "xmldom": "npm:@xmldom/xmldom@^0.9.10"
+      "xmldom": "npm:@xmldom/xmldom@^0.9.12"
     },
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^3.1.6",
+    "qs": "^6.16.0",
     "typeorm": {
       "glob": "^13.0.6"
     }

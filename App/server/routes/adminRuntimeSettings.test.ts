@@ -1,3 +1,4 @@
+import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -37,10 +38,11 @@ before(async () => {
   await initTestDb();
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     (req as unknown as { session: unknown }).session = actingUserId
       ? { userId: actingUserId, sessionVersion: 0 }
       : null;
+    await persistTestSession(req);
     next();
   });
   app.use("/api/admin", adminRouter);
@@ -184,6 +186,7 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
 
   test("the agent group round-trips its nested tool discovery block", async () => {
     const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/agent", {
+      maxConcurrentTurnsPerCompany: 5,
       taintPolicy: "off",
       memberBrowsersEnabled: false,
       toolDiscovery: { enabled: false, minCatalogueSize: 12 },
@@ -191,6 +194,7 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
 
     assert.equal(status, 200);
     assert.deepEqual(body.agent, {
+      maxConcurrentTurnsPerCompany: 5,
       taintPolicy: "off",
       memberBrowsersEnabled: false,
       toolDiscovery: { enabled: false, minCatalogueSize: 12 },

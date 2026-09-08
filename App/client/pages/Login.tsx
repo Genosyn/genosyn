@@ -17,6 +17,11 @@ import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { Logo } from "../components/Logo";
 import { clsx } from "../components/ui/clsx";
+import {
+  invitationAuthPath,
+  invitationPath,
+  invitationTokenFromSearch,
+} from "../lib/invitationNavigation";
 
 export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   const [email, setEmail] = React.useState("");
@@ -27,6 +32,8 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   const [twoFactor, setTwoFactor] = React.useState<TwoFactorLoginMethods | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const invitationToken = invitationTokenFromSearch(searchParams.toString());
+  const returnTo = invitationPath(invitationToken);
   // Present on the /login/sso/:companySlug route — the company-SSO entry page.
   const { companySlug } = useParams<{ companySlug: string }>();
   // A failed SSO round-trip lands back here as /login?ssoError=… — surface it
@@ -55,11 +62,11 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
           return;
         }
         await onAuth();
-        navigate("/");
+        navigate(returnTo);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [navigate, onAuth, searchParams]);
+  }, [navigate, onAuth, searchParams, returnTo]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,7 +82,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
       // Refresh App's auth state so the route tree flips from "anon" to
       // "ready" before we navigate — otherwise "/" bounces back to /login.
       await onAuth();
-      navigate("/");
+      navigate(returnTo);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -90,12 +97,12 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
           methods={twoFactor}
           onComplete={async () => {
             await onAuth();
-            navigate("/");
+            navigate(returnTo);
           }}
           onBack={() => {
             setTwoFactor(null);
             setError(null);
-            navigate("/login", { replace: true });
+            navigate(invitationAuthPath("login", invitationToken), { replace: true });
           }}
         />
       </AuthShell>
@@ -161,7 +168,10 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         )}
         {sso?.companySso && <CompanySsoQuietEntry />}
         <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-          <Link to="/signup" className="hover:text-indigo-600">
+          <Link
+            to={invitationAuthPath("signup", invitationToken)}
+            className="hover:text-indigo-600"
+          >
             Create account
           </Link>
           <Link to="/forgot" className="hover:text-indigo-600">

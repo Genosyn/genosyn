@@ -15,6 +15,11 @@ import { config } from "../../config.js";
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Client as PostgresClient } from "pg";
 import { LessThan } from "typeorm";
+import {
+  realtimeHandshakeExpiry,
+  realtimeUserIsAuthorized,
+  type RealtimeAuthentication,
+} from "./realtimeAuthorization.js";
 
 /**
  * In-process WebSocket hub for the workspace-chat surface.
@@ -108,6 +113,7 @@ type ConnectedSocket = {
   userId: string;
   companyId: string;
   connectedAt: number;
+  authentication: RealtimeAuthentication;
   /** Serialized per-socket delivery preserves event ordering across DB checks. */
   delivery: Promise<void>;
 };
@@ -123,6 +129,7 @@ type WorkspaceTokenRecord = {
   userId: string;
   companyId: string;
   expiresAt: number;
+  authentication: RealtimeAuthentication;
 };
 type BrowserViewerTokenRecord = {
   audience: "browser-viewer";
@@ -131,9 +138,9 @@ type BrowserViewerTokenRecord = {
   employeeId: string;
   sessionId: string;
   expiresAt: number;
+  authentication: RealtimeAuthentication;
 };
 type TokenRecord = WorkspaceTokenRecord | BrowserViewerTokenRecord;
-const WS_TOKEN_TTL_MS = 60_000;
 const REALTIME_EVENT_TTL_MS = 5 * 60_000;
 const REALTIME_CHANNEL = "genosyn_realtime";
 const REALTIME_INSTANCE_ID = crypto.randomUUID();
@@ -141,16 +148,23 @@ let postgresListener: PostgresClient | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let publishCount = 0;
 
-export function mintWsToken(userId: string, companyId: string): Promise<string> {
+export function mintWsToken(
+  userId: string,
+  companyId: string,
+  authentication: RealtimeAuthentication,
+): Promise<string> {
+  const expiresAt = realtimeHandshakeExpiry(authentication);
   return createAuthFlowState(
     "websocket",
     {
       audience: "workspace",
       userId,
       companyId,
-      expiresAt: Date.now() + WS_TOKEN_TTL_MS,
+      expiresAt,
+      authentication,
     } satisfies WorkspaceTokenRecord,
-    WS_TOKEN_TTL_MS,
+    Math.max(0, expiresAt - Date.now()),
+    expiresAt,
   );
 }
 
@@ -159,7 +173,9 @@ export function mintBrowserViewerWsToken(
   companyId: string,
   employeeId: string,
   sessionId: string,
+  authentication: RealtimeAuthentication,
 ): Promise<string> {
+  const expiresAt = realtimeHandshakeExpiry(authentication);
   return createAuthFlowState(
     "websocket",
     {
@@ -168,16 +184,19 @@ export function mintBrowserViewerWsToken(
       companyId,
       employeeId,
       sessionId,
-      expiresAt: Date.now() + WS_TOKEN_TTL_MS,
+      expiresAt,
+      authentication,
     } satisfies BrowserViewerTokenRecord,
-    WS_TOKEN_TTL_MS,
+    Math.max(0, expiresAt - Date.now()),
+    expiresAt,
   );
 }
 
 async function consumeWsToken(token: string): Promise<TokenRecord | null> {
   const rec = await consumeAuthFlowState<TokenRecord>("websocket", token);
   if (!rec) return null;
-  if (rec.expiresAt < Date.now()) return null;
+  if (!Number.isFinite(rec.expiresAt) || rec.expiresAt <= Date.now()) return null;
+  if (!(await realtimeUserIsAuthorized(rec.userId, rec.companyId, rec.authentication))) return null;
   return rec;
 }
 
@@ -308,6 +327,7 @@ async function userCanReceiveChannelEvent(
 }
 
 async function socketCanReceive(s: ConnectedSocket, event: WsEvent): Promise<boolean> {
+  if (!(await keepWorkspaceSocketAuthorized(s))) return false;
   if (
     (event.type === "notification.new" || event.type === "notification.read") &&
     event.userId !== s.userId
@@ -317,6 +337,25 @@ async function socketCanReceive(s: ConnectedSocket, event: WsEvent): Promise<boo
   const channelId = eventChannelId(event);
   if (!channelId) return true;
   return userCanReceiveChannelEvent(s.userId, s.companyId, channelId);
+}
+
+async function keepWorkspaceSocketAuthorized(s: ConnectedSocket): Promise<boolean> {
+  try {
+    if (await realtimeUserIsAuthorized(s.userId, s.companyId, s.authentication)) return true;
+  } catch {
+    // An unavailable authorization store cannot leave a live channel authorized.
+  }
+  s.ws.close(1008, "Sign-in or company access changed");
+  return false;
+}
+
+/** Also close idle connections; delivery always checks immediately before send. */
+export async function revalidateWorkspaceSockets(): Promise<void> {
+  await Promise.all(
+    Array.from(sockets, async (socket) => {
+      if (socket.ws.readyState === WebSocket.OPEN) await keepWorkspaceSocketAuthorized(socket);
+    }),
+  );
 }
 
 /** Authorize and enqueue an event separately for every connected Member. */
@@ -405,6 +444,16 @@ function matchViewerWsPath(pathname: string): { cid: string; eid: string; sid: s
 
 export function attachRealtime(httpServer: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
+  let revalidating = false;
+  const authorizationTimer = setInterval(() => {
+    if (revalidating) return;
+    revalidating = true;
+    void revalidateWorkspaceSockets().finally(() => {
+      revalidating = false;
+    });
+  }, 15_000);
+  authorizationTimer.unref();
+  httpServer.once("close", () => clearInterval(authorizationTimer));
   const browserWss = new WebSocketServer({ noServer: true });
   // CDP screencast frames ride this socket, so the default 100 MB cap is
   // generous but the frames themselves are small; the ceiling exists to stop a
@@ -570,7 +619,7 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
         return;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
-        registerSocket(ws, rec.userId, rec.companyId);
+        registerSocket(ws, rec.userId, rec.companyId, rec.authentication);
       });
     } catch {
       socket.destroy();
@@ -580,12 +629,18 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
   return wss;
 }
 
-function registerSocket(ws: WebSocket, userId: string, companyId: string): void {
+function registerSocket(
+  ws: WebSocket,
+  userId: string,
+  companyId: string,
+  authentication: RealtimeAuthentication,
+): void {
   const record: ConnectedSocket = {
     ws,
     userId,
     companyId,
     connectedAt: Date.now(),
+    authentication,
     delivery: Promise.resolve(),
   };
   sockets.add(record);
@@ -610,14 +665,18 @@ function registerSocket(ws: WebSocket, userId: string, companyId: string): void 
     }
     const m = msg as { type?: string; channelId?: string; name?: string };
     if (m.type === "typing" && m.channelId) {
-      void userCanReceiveChannelEvent(userId, companyId, m.channelId).then((allowed) => {
-        if (!allowed) return;
-        broadcastToCompany(companyId, {
-          type: "typing",
-          channelId: m.channelId!,
-          by: { kind: "user", id: userId, name: m.name ?? "" },
-        });
-      });
+      void keepWorkspaceSocketAuthorized(record)
+        .then(async (authorized) => {
+          if (!authorized) return;
+          const allowed = await userCanReceiveChannelEvent(userId, companyId, m.channelId!);
+          if (!allowed) return;
+          broadcastToCompany(companyId, {
+            type: "typing",
+            channelId: m.channelId!,
+            by: { kind: "user", id: userId, name: m.name ?? "" },
+          });
+        })
+        .catch(() => ws.close(1008, "Realtime authorization unavailable"));
     }
   });
 

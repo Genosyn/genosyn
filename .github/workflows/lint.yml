@@ -118,6 +118,40 @@ jobs:
       - name: Test
         run: bash CLI/test-genosyn.sh
 
+  saas-postgres:
+    name: SaaS Postgres migrations and coordination
+    timeout-minutes: 8
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: genosyn_test
+          POSTGRES_PASSWORD: genosyn_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U genosyn_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: App
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: App/package-lock.json
+      - run: npm ci
+      - name: Test fresh migrations, replica coordination and sessions
+        run: npm run test:saas-postgres
+        env:
+          GENOSYN_TEST_POSTGRES_URL: postgres://genosyn_test:genosyn_test@127.0.0.1:5432/postgres
+
   fresh-boot:
     name: Fresh-DB boot (App)
     runs-on: ubuntu-latest

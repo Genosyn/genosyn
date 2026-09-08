@@ -61,6 +61,7 @@ import { defaultStageFor } from "./stages.js";
 
 /** Everything the `hand_to_employee` action gets handed. */
 export type SignalHandoff = {
+  lease?: import("../schedulerLeases.js").SchedulerLeaseContext;
   signal: Signal;
   event: SignalEvent;
   /** The result row as the customer's database returned it. */
@@ -116,6 +117,7 @@ export type SignalTickResult = {
 
 /** Per-pass caches, so a hundred events for one company do one company lookup. */
 type TickContext = {
+  lease?: import("../schedulerLeases.js").SchedulerLeaseContext;
   now: Date;
   companySlugs: Map<string, string | null>;
 };
@@ -146,9 +148,12 @@ export function isSignalDue(
  * `cronMath.ts`: a scheduler you cannot hand a fixed instant is a scheduler you
  * cannot test.
  */
-export async function tickSignals(now = new Date()): Promise<SignalTickResult> {
+export async function tickSignals(
+  now = new Date(),
+  lease?: import("../schedulerLeases.js").SchedulerLeaseContext,
+): Promise<SignalTickResult> {
   const result: SignalTickResult = { evaluated: 0, created: 0, failed: 0 };
-  const ctx: TickContext = { now, companySlugs: new Map() };
+  const ctx: TickContext = { now, companySlugs: new Map(), lease };
 
   let signals: Signal[];
   try {
@@ -161,6 +166,7 @@ export async function tickSignals(now = new Date()): Promise<SignalTickResult> {
   }
 
   for (const signal of signals) {
+    lease?.assertHeld();
     try {
       await tickOneSignal(signal, ctx, result);
     } catch (err) {
@@ -239,6 +245,7 @@ async function tickOneSignal(
   let insertFailures = 0;
 
   for (const candidate of selection.fresh) {
+    ctx.lease?.assertHeld();
     let event: SignalEvent | null;
     try {
       event = await insertEvent(signal, candidate.key, candidate.row, ctx.now);
@@ -257,6 +264,7 @@ async function tickOneSignal(
     created += 1;
     result.created += 1;
 
+    ctx.lease?.assertHeld();
     const outcome = await runAction(signal, event, candidate.row, ctx);
     if (outcome.status === "failed") {
       actionFailures += 1;
@@ -515,6 +523,7 @@ async function dispatch(
   ctx: TickContext,
 ): Promise<ActionOutcome> {
   const config = parseActionConfig(signal);
+  ctx.lease?.assertHeld();
 
   switch (signal.actionKind) {
     case "activity":
@@ -527,6 +536,7 @@ async function dispatch(
       return actionEnrollSequence(signal, event, config);
     case "hand_to_employee": {
       const handled = await signalHandler({
+        lease: ctx.lease,
         signal,
         event,
         row,

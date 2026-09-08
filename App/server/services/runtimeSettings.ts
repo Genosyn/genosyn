@@ -110,6 +110,8 @@ export type RuntimeBrowserSettings = {
 
 /** Agent runtime knobs that are not part of the boot security posture. */
 export type RuntimeAgentSettings = {
+  /** Shared across replicas in SaaS mode. Excess turns return a busy error. */
+  maxConcurrentTurnsPerCompany: number;
   /** "web" marks a turn tainted once it ingests web content; "off" disables
    *  the escalation entirely (M53). */
   taintPolicy: "web" | "off";
@@ -214,6 +216,7 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     humanize: true,
   },
   agent: {
+    maxConcurrentTurnsPerCompany: 8,
     taintPolicy: "web",
     memberBrowsersEnabled: true,
     toolDiscovery: { enabled: true, minCatalogueSize: 40 },
@@ -516,6 +519,7 @@ export function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   const o = asRecord(raw);
   const d = RUNTIME_SETTINGS_DEFAULTS.agent;
   return {
+    maxConcurrentTurnsPerCompany: intField(o, "agent", "maxConcurrentTurnsPerCompany", d.maxConcurrentTurnsPerCompany, 1, 100),
     taintPolicy: choiceField(o, "agent", "taintPolicy", ["web", "off"] as const, d.taintPolicy),
     memberBrowsersEnabled: boolField(o, "agent", "memberBrowsersEnabled", d.memberBrowsersEnabled),
     toolDiscovery: parseToolDiscovery(o.toolDiscovery),

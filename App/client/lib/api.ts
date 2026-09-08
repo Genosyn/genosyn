@@ -3456,6 +3456,7 @@ export type RuntimeBrowserSettings = {
 
 /** Agent knobs that are not part of the boot security posture. */
 export type RuntimeAgentSettings = {
+  maxConcurrentTurnsPerCompany: number;
   taintPolicy: "web" | "off";
   memberBrowsersEnabled: boolean;
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
@@ -3531,7 +3532,7 @@ export type InstanceSettings = {
 // Instance-wide toggle for self-service registration, served by
 // /api/admin/signup-settings. The public sign-up page reads /api/auth/signup-status.
 export type SignupSettings = { signupsDisabled: boolean };
-export type SignupStatus = { open: boolean };
+export type SignupStatus = { open: boolean; setupRequired?: boolean };
 
 // ───────────────────────────── Admin SSO ────────────────────────────────────
 // Instance-wide single sign-on, served by /api/admin/sso. Disabled by default.

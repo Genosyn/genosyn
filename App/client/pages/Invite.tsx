@@ -4,8 +4,9 @@ import { api } from "../lib/api";
 import { AuthShell } from "./Login";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
+import { invitationAuthPath } from "../lib/invitationNavigation";
 
-export default function Invite() {
+export default function Invite({ authenticated = true }: { authenticated?: boolean }) {
   const { token } = useParams();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -36,9 +37,29 @@ export default function Invite() {
           </Link>
         ) : null}
         <p>You&apos;ve been invited to join a company on Genosyn.</p>
-        <Button onClick={accept} disabled={loading}>
-          {loading ? "Accepting…" : "Accept invitation"}
-        </Button>
+        {!authenticated ? (
+          <>
+            <p>
+              Sign in or create an account with the email address that received this invitation.
+            </p>
+            <Link
+              className="text-indigo-600 hover:underline"
+              to={invitationAuthPath("login", token ?? null)}
+            >
+              Sign in
+            </Link>
+            <Link
+              className="text-indigo-600 hover:underline"
+              to={invitationAuthPath("signup", token ?? null)}
+            >
+              Create account
+            </Link>
+          </>
+        ) : (
+          <Button onClick={accept} disabled={loading}>
+            {loading ? "Accepting…" : "Accept invitation"}
+          </Button>
+        )}
       </div>
     </AuthShell>
   );

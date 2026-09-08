@@ -339,19 +339,26 @@ let lastSweepAt = 0;
  * internal gate. Drafts at most {@link PROPOSALS_PER_SWEEP_MAX} promotion
  * Approvals; everything else waits for the next pass.
  */
-export async function sweepAutonomyPromotions(now: Date = new Date()): Promise<void> {
+export async function sweepAutonomyPromotions(
+  now: Date = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<void> {
   if (now.getTime() - lastSweepAt < SWEEP_INTERVAL_MS) return;
   lastSweepAt = now.getTime();
-  await computeAutonomyPromotions(now);
+  await computeAutonomyPromotions(now, assertLeaseHeld);
 }
 
 /** The gate-free body, exported for tests and for a future manual trigger. */
-export async function computeAutonomyPromotions(now: Date = new Date()): Promise<number> {
+export async function computeAutonomyPromotions(
+  now: Date = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<number> {
   const since = new Date(now.getTime() - WINDOW_MS);
   let drafted = 0;
 
   const employees = await AppDataSource.getRepository(AIEmployee).find();
   for (const employee of employees) {
+    assertLeaseHeld();
     if (drafted >= PROPOSALS_PER_SWEEP_MAX) break;
     const record = await employeeRecord(employee.id, since);
     // A clean window is the precondition for every waiver, and "clean" now
@@ -381,6 +388,7 @@ export async function computeAutonomyPromotions(now: Date = new Date()): Promise
           since,
         );
         if (tally.approved >= APPROVALS_MIN && tally.rejected === 0) {
+          assertLeaseHeld();
           await draftPromotion({
             companyId: employee.companyId,
             employeeId: employee.id,
@@ -405,6 +413,7 @@ export async function computeAutonomyPromotions(now: Date = new Date()): Promise
       where: { employeeId: employee.id, requiresApproval: true, enabled: true },
     });
     for (const routine of gated) {
+      assertLeaseHeld();
       if (drafted >= PROPOSALS_PER_SWEEP_MAX) break;
       if (await hasActiveWaiver(employee.id, "routine_approval", routine.id)) continue;
       if (
@@ -437,6 +446,7 @@ export async function computeAutonomyPromotions(now: Date = new Date()): Promise
         hasChecks,
       });
       if (!evidence.promotable) continue;
+      assertLeaseHeld();
       await draftPromotion({
         companyId: employee.companyId,
         employeeId: employee.id,

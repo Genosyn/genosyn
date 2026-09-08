@@ -4,6 +4,7 @@ import { User } from "../db/entities/User.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import { sendEmail, type SendEmailResult } from "./email.js";
 import { getPublicUrl } from "./publicUrl.js";
+import { findOpenSignupInvitation } from "./signupInvitations.js";
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -20,13 +21,19 @@ export function hashEmailVerificationToken(token: string): string {
  * on a mail that was never posted, which is exactly how an unverified operator
  * ends up locked out of Admin with nothing to click.
  */
-export async function sendEmailVerification(user: User): Promise<SendEmailResult> {
+export async function sendEmailVerification(
+  user: User,
+  invitationToken?: string,
+): Promise<SendEmailResult> {
   const token = generateToken();
   user.emailVerificationTokenHash = hashEmailVerificationToken(token);
   user.emailVerificationExpiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
   await AppDataSource.getRepository(User).save(user);
 
-  const link = `${getPublicUrl()}/verify-email/${token}`;
+  const link = new URL(`/verify-email/${token}`, getPublicUrl());
+  if (invitationToken && (await findOpenSignupInvitation(invitationToken, user.email))) {
+    link.searchParams.set("invitation", invitationToken);
+  }
   return sendEmail({
     to: user.email,
     subject: "Verify your Genosyn email",

@@ -98,6 +98,7 @@ async function dispatchPipelineEvent(
       if (node.type !== event.triggerType || !matchesEvent(node, event)) continue;
       launches.push(() =>
         runPipeline({
+          beforeEffect: options.beforeEffect,
           pipeline,
           triggerKind: "event",
           triggerNodeId: node.id,

@@ -22,6 +22,7 @@ import {
   type TouchDrafter,
 } from "./sequenceTick.js";
 import { replaceSteps } from "./sequences.js";
+import { SchedulerLeaseLostError } from "../schedulerLeases.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -41,6 +42,27 @@ const HOUR_MS = 60 * 60 * 1000;
 
 /** A drafter that always succeeds, so a test can focus on the scheduling. */
 const drafts: TouchDrafter = async () => ({ status: "drafted", subject: "Hello there" });
+
+test("lease loss cancels the active touch and stops before another enrollment", async () => {
+  await scenario();
+  await scenario();
+  const controller = new AbortController();
+  let calls = 0;
+  setTouchDrafter(async ({ lease }) => {
+    calls++;
+    assert.equal(lease?.signal, controller.signal);
+    controller.abort(new SchedulerLeaseLostError("revenue-sequences"));
+    return { status: "drafted" };
+  });
+  await tickSequences(NOW, {
+    holderId: "test-owner",
+    signal: controller.signal,
+    isHeld: () => !controller.signal.aborted,
+    assertHeld: () => controller.signal.throwIfAborted(),
+  });
+  assert.equal(calls, 1);
+  assert.equal(await AppDataSource.getRepository(SequenceStepRun).count(), 0);
+});
 
 type ScenarioOptions = {
   companyId?: string;

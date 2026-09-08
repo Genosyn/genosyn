@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { api, Company, Me } from "./lib/api";
+import { invitationPath, invitationTokenFromSearch } from "./lib/invitationNavigation";
 import { AppShell } from "./components/AppShell";
 import { Spinner } from "./components/ui/Spinner";
 import { DialogProvider } from "./components/ui/Dialog";
@@ -265,7 +266,7 @@ export default function App() {
               path="/verify-email/:token"
               element={<VerifyEmailLink onVerified={refresh} />}
             />
-            <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
+            <Route path="/invite/:token" element={<Invite authenticated={false} />} />
             {/* The bind link an AI Employee replies with on Slack, Microsoft
               Teams, WhatsApp or Telegram (M59). Declared here as well as in
               the authenticated tree so an anonymous browser keeps the link in
@@ -276,6 +277,20 @@ export default function App() {
           </Routes>
         ) : (
           <Routes>
+            {/* Auth refresh may swap route trees before the form's navigation
+              runs. Preserve the invitation during that handoff as well. */}
+            <Route
+              path="/login"
+              element={
+                <Navigate to={invitationPath(invitationTokenFromSearch(location.search))} replace />
+              }
+            />
+            <Route
+              path="/signup"
+              element={
+                <Navigate to={invitationPath(invitationTokenFromSearch(location.search))} replace />
+              }
+            />
             <Route
               path="/verify-email/:token"
               element={<VerifyEmailLink onVerified={refresh} />}

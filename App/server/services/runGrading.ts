@@ -161,7 +161,10 @@ export async function latestCheckResultsForRun(
  * check has certainly either finished or died with its process, and belong to
  * an employee that still has a model to grade with.
  */
-export async function sweepUngradedRuns(now: Date): Promise<void> {
+export async function sweepUngradedRuns(
+  now: Date,
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<void> {
   const settings = getContainmentSettings();
   const perPass = Math.min(settings.regradePerPass, REGRADE_HARD_CAP);
   if (perPass <= 0) return;
@@ -195,6 +198,7 @@ export async function sweepUngradedRuns(now: Date): Promise<void> {
 
   let graded = 0;
   for (const run of candidates) {
+    assertLeaseHeld();
     if (graded >= perPass) break;
     const routine = routineById.get(run.routineId);
     if (!routine?.acceptanceCriteria.trim()) continue;
@@ -204,6 +208,7 @@ export async function sweepUngradedRuns(now: Date): Promise<void> {
     // the same rows every 30 seconds for the life of the install; the verdict
     // says plainly that it was never graded, which is the truth.
     const { model } = await resolveRoutineModel(routine).catch(() => ({ model: null }));
+    assertLeaseHeld();
     if (!model) {
       await runRepo.update(
         { id: run.id, status: "completed", outcomeCheckedAt: IsNull() },

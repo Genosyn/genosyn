@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Lock } from "lucide-react";
 import { api, SignupStatus } from "../lib/api";
 import { Button } from "../components/ui/Button";
@@ -7,6 +7,11 @@ import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { AuthShell } from "./Login";
+import {
+  invitationAuthPath,
+  invitationPath,
+  invitationTokenFromSearch,
+} from "../lib/invitationNavigation";
 
 export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
   const [name, setName] = React.useState("");
@@ -16,13 +21,20 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
   const [error, setError] = React.useState<string | null>(null);
   // null → still checking whether registration is open on this instance.
   const [open, setOpen] = React.useState<boolean | null>(null);
+  const [setupRequired, setSetupRequired] = React.useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const invitationToken = invitationTokenFromSearch(location.search);
 
   React.useEffect(() => {
     let alive = true;
     api
       .get<SignupStatus>("/api/auth/signup-status")
-      .then((s) => alive && setOpen(s.open))
+      .then((s) => {
+        if (!alive) return;
+        setOpen(s.open);
+        setSetupRequired(s.setupRequired ?? false);
+      })
       // If the probe fails, fall back to showing the form — the server still
       // enforces the policy, so a false "open" just yields a 403 on submit.
       .catch(() => alive && setOpen(true));
@@ -36,11 +48,16 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
     setError(null);
     setLoading(true);
     try {
-      await api.post("/api/auth/signup", { email, password, name });
+      await api.post("/api/auth/signup", {
+        email,
+        password,
+        name,
+        ...(invitationToken ? { invitationToken } : {}),
+      });
       // See Login.tsx: refresh App's auth state before navigating so the
       // route tree flips from "anon" to "ready".
       await onAuth();
-      navigate("/");
+      navigate(invitationPath(invitationToken));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -58,7 +75,18 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
     );
   }
 
-  if (!open) {
+  if (setupRequired) {
+    return (
+      <AuthShell title="Initial setup required">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          The operator must configure this instance&apos;s public HTTPS URL before accounts can be
+          created. Ask the operator to complete initial setup, then reload this page.
+        </p>
+      </AuthShell>
+    );
+  }
+
+  if (!open && !invitationToken) {
     return (
       <AuthShell title="Sign-ups are closed">
         <div className="flex flex-col items-center gap-4 text-center">
@@ -87,6 +115,12 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
     >
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error} />
+        {invitationToken ? (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Use the email address this invitation was sent to. Verify your email, then return to the
+            invitation to join the company.
+          </p>
+        ) : null}
         <Input
           label="Name"
           autoComplete="name"
@@ -116,7 +150,10 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
         </Button>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Already have an account?{" "}
-          <Link to="/login" className="text-indigo-600 hover:underline dark:text-indigo-400">
+          <Link
+            to={invitationAuthPath("login", invitationToken)}
+            className="text-indigo-600 hover:underline dark:text-indigo-400"
+          >
             Sign in
           </Link>
         </p>

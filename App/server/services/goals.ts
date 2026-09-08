@@ -389,7 +389,10 @@ export async function reportGoalProgress(
  * contract the `scalar` viz renders. Throws {@link GoalError} with the reason
  * when the chart cannot produce a number, so callers can surface it.
  */
-export async function refreshGoalValue(goal: Goal): Promise<Goal> {
+export async function refreshGoalValue(
+  goal: Goal,
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<Goal> {
   if (goal.metricKind !== "chart" || !goal.chartId) {
     throw new GoalError("Only chart-metric goals can be refreshed");
   }
@@ -403,7 +406,9 @@ export async function refreshGoalValue(goal: Goal): Promise<Goal> {
     companyId: goal.companyId,
   });
   if (!connection) throw new GoalError("The chart's database connection no longer exists");
+  assertLeaseHeld();
   const result = await runSqlAgainstConnection(connection, chart.sql, { maxRows: 1 });
+  assertLeaseHeld();
   const first = result.rows[0];
   if (!first) throw new GoalError("The chart returned no rows");
   const value = firstNumericCell(first);
@@ -483,7 +488,10 @@ async function notifyGoalSettled(goal: Goal, status: "achieved" | "missed"): Pro
  * then settle every active goal that is now met or past due. Each goal's
  * failure is its own — one broken chart must not stop the rest of the sweep.
  */
-export async function sweepGoals(now: Date = new Date()): Promise<void> {
+export async function sweepGoals(
+  now: Date = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<void> {
   const repo = goalRepo();
   const chartGoals = await repo.find({
     where: { status: "active", metricKind: "chart" },
@@ -491,8 +499,9 @@ export async function sweepGoals(now: Date = new Date()): Promise<void> {
     take: SWEEP_REFRESH_MAX,
   });
   for (const goal of chartGoals) {
+    assertLeaseHeld();
     try {
-      await refreshGoalValue(goal);
+      await refreshGoalValue(goal, assertLeaseHeld);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`[goals] refresh failed for goal ${goal.id}:`, err);
@@ -500,6 +509,7 @@ export async function sweepGoals(now: Date = new Date()): Promise<void> {
   }
   const active = await repo.find({ where: { status: "active" } });
   for (const goal of active) {
+    assertLeaseHeld();
     try {
       await settleIfDue(goal, now);
     } catch (err) {

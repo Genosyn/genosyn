@@ -7,7 +7,7 @@ import {
 } from "../../db/entities/MailDraftSendBatch.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { recordAudit } from "../audit.js";
-import { withSchedulerLease } from "../schedulerLeases.js";
+import { withSchedulerLease, type SchedulerLeaseContext } from "../schedulerLeases.js";
 import { notifyMailChanged, sendMailDraft } from "./actions.js";
 
 export const MAX_QUEUED_DRAFT_IDS = 2_000;
@@ -190,6 +190,7 @@ async function createDraftSendBatchUnlocked(
   ids: string[],
   actorUserId: string | null,
   timing: QueueTiming,
+  assertLeaseHeld: () => void,
 ): Promise<{ batch: MailDraftSendBatch; added: number }> {
   const activeBatch = await latestBatch(account.id, ACTIVE_STATUSES);
   const orderedIds = [...new Set(ids)].slice(0, MAX_QUEUED_DRAFT_IDS);
@@ -250,6 +251,7 @@ async function createDraftSendBatchUnlocked(
   const items = [...parseItems(batch.itemsJson), ...addedItems];
   batch.itemsJson = JSON.stringify(items);
   batch.total = items.length;
+  assertLeaseHeld();
   await repo.save(batch);
   await recordAuditSafely({
     companyId: account.companyId,
@@ -271,9 +273,12 @@ async function createDraftSendBatchUnlocked(
 /**
  * Serialize mutations within this process as well as across Postgres replicas.
  * `withSchedulerLease` deliberately skips database leases for SQLite, and a
- * lease already held by this process is re-entrant, so both layers matter.
+ * separate callers in this process still need to wait for one another.
  */
-async function withBatchMutationLease<T>(batchId: string, fn: () => Promise<T>): Promise<T | null> {
+async function withBatchMutationLease<T>(
+  batchId: string,
+  fn: (lease: SchedulerLeaseContext) => Promise<T>,
+): Promise<T | null> {
   const previous = batchMutationTails.get(batchId) ?? Promise.resolve();
   let release = (): void => undefined;
   const current = new Promise<void>((resolve) => {
@@ -315,11 +320,15 @@ export async function createDraftSendBatch(
     const result = await withSchedulerLease(
       `mail-draft-send-create:${account.id}`,
       15_000,
-      async () => {
+      async (lease) => {
         const activeBatch = await latestBatch(account.id, ACTIVE_STATUSES);
-        if (!activeBatch) return createDraftSendBatchUnlocked(account, ids, actorUserId, timing);
-        const appended = await withBatchMutationLease(activeBatch.id, () =>
-          createDraftSendBatchUnlocked(account, ids, actorUserId, timing),
+        lease.assertHeld();
+        if (!activeBatch) return createDraftSendBatchUnlocked(account, ids, actorUserId, timing, lease.assertHeld);
+        const appended = await withBatchMutationLease(activeBatch.id, (batchLease) =>
+          createDraftSendBatchUnlocked(account, ids, actorUserId, timing, () => {
+            lease.assertHeld();
+            batchLease.assertHeld();
+          }),
         );
         if (!appended) {
           throw new DraftSendQueueBusyError(
@@ -358,6 +367,7 @@ function finishBatch(batch: MailDraftSendBatch, items: DraftSendItem[], now: Dat
 async function processDraftSendBatchUnlocked(
   batchId: string,
   options: ProcessOptions,
+  lease: SchedulerLeaseContext,
 ): Promise<DraftSendBatchView | null> {
   const repo = AppDataSource.getRepository(MailDraftSendBatch);
   const batch = await repo.findOneBy({ id: batchId });
@@ -368,7 +378,21 @@ async function processDraftSendBatchUnlocked(
   if (!batch.nextSendAt || batch.nextSendAt > now) return serializeDraftSendBatch(batch, now);
 
   const items = parseItems(batch.itemsJson);
+  // Acquiring this lease means no healthy sender owns these items. The old
+  // process may have sent one before losing its database connection; retrying
+  // that ambiguous send automatically could mail the recipient twice.
+  const interrupted = markInterruptedSends(items);
+  lease.assertHeld();
   const current = items.find((item) => item.status === "queued");
+  if (interrupted && current) {
+    const counts = itemCounts(items);
+    batch.sent = counts.sent;
+    batch.failed = counts.failed;
+    batch.itemsJson = JSON.stringify(items);
+    batch.nextSendAt = new Date(now.getTime() + (options.delayMs?.() ?? randomSendDelayMs()));
+    await repo.save(batch);
+    return serializeDraftSendBatch(batch, now);
+  }
   if (!current) {
     finishBatch(batch, items, now);
     await repo.save(batch);
@@ -409,9 +433,10 @@ async function processDraftSendBatchUnlocked(
       errorMessage = "The draft no longer has a recipient.";
     } else {
       try {
+        lease.assertHeld();
         sentMessage = options.sendDraft
           ? await options.sendDraft(account, draft)
-          : await sendMailDraft(account, draft, { silent: true });
+          : await sendMailDraft(account, draft, { silent: true, assertCanSend: lease.assertHeld });
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : "Gmail refused the send.";
       }
@@ -434,6 +459,9 @@ async function processDraftSendBatchUnlocked(
   } else {
     finishBatch(batch, items, completedAt);
   }
+  // Keep an accepted send's mirror/audit work, but never overwrite the queue
+  // state now owned by a replacement worker.
+  lease.assertHeld();
   await repo.save(batch);
 
   if (account && sentMessage) {
@@ -472,8 +500,8 @@ export async function processDraftSendBatch(
   if (activeBatchIds.has(batchId)) return null;
   activeBatchIds.add(batchId);
   try {
-    return await withBatchMutationLease(batchId, () =>
-      processDraftSendBatchUnlocked(batchId, options),
+    return await withBatchMutationLease(batchId, (lease) =>
+      processDraftSendBatchUnlocked(batchId, options, lease),
     );
   } finally {
     activeBatchIds.delete(batchId);
@@ -489,7 +517,7 @@ async function holdBatchDisconnectLeases<T>(
 ): Promise<DisconnectFenceResult<T>> {
   if (index >= batches.length) return { acquired: true, value: await fn() };
   const batch = batches[index];
-  const nested = await withBatchMutationLease(batch.id, async () => {
+  const nested = await withBatchMutationLease(batch.id, async (lease) => {
     const current = await AppDataSource.getRepository(MailDraftSendBatch).findOneBy({
       id: batch.id,
       accountId: batch.accountId,
@@ -499,7 +527,11 @@ async function holdBatchDisconnectLeases<T>(
         "The mailbox is still finishing a draft send. Please try Disconnect again shortly.",
       );
     }
-    return holdBatchDisconnectLeases(batches, index + 1, fn);
+    lease.assertHeld();
+    return holdBatchDisconnectLeases(batches, index + 1, () => {
+      lease.assertHeld();
+      return fn();
+    });
   });
   return nested ?? { acquired: false };
 }
@@ -522,12 +554,16 @@ export async function withDraftSendDisconnectFence<T>(
       const result = await withSchedulerLease(
         `mail-draft-send-create:${accountId}`,
         LEASE_TTL_MS,
-        async () => {
+        async (lease) => {
           const batches = await AppDataSource.getRepository(MailDraftSendBatch).find({
             where: { accountId, status: In(ACTIVE_STATUSES) },
             order: { id: "ASC" },
           });
-          return holdBatchDisconnectLeases(batches, 0, fn);
+          lease.assertHeld();
+          return holdBatchDisconnectLeases(batches, 0, () => {
+            lease.assertHeld();
+            return fn();
+          });
         },
       );
       if (result?.acquired) return result.value;
@@ -562,33 +598,45 @@ async function tickDraftSendQueue(): Promise<void> {
   );
 }
 
-/** Reconcile cursor state left by an interrupted app process without starting
- * the discovery timer. A row left at `sending` is put back behind a fresh
- * one-to-two minute pause so restart can never turn the queue into a burst. */
+function markInterruptedSends(items: DraftSendItem[]): boolean {
+  let interrupted = false;
+  for (const item of items) {
+    if (item.status !== "sending") continue;
+    interrupted = true;
+    item.status = "failed";
+    item.errorMessage = "The send was interrupted. Check Sent before sending this draft again.";
+  }
+  return interrupted;
+}
+
+/** Recover only unowned batches. An interrupted send has an unknown external
+ * outcome and needs review; untouched drafts retain the normal pacing. */
 export async function recoverDraftSendBatches(timing: QueueTiming = {}): Promise<void> {
   const repo = AppDataSource.getRepository(MailDraftSendBatch);
   const batches = await repo.find({ where: { status: In(ACTIVE_STATUSES) } });
-  for (const batch of batches) {
-    const now = timing.now?.() ?? new Date();
-    const items = parseItems(batch.itemsJson);
-    const interrupted = items.some((item) => item.status === "sending");
-    for (const item of items) {
-      if (item.status === "sending") item.status = "queued";
-    }
-    const next = items.find((item) => item.status === "queued");
-    if (!next) {
-      finishBatch(batch, items, now);
-    } else {
-      const counts = itemCounts(items);
-      batch.sent = counts.sent;
-      batch.failed = counts.failed;
-      batch.itemsJson = JSON.stringify(items);
-      if (interrupted || !batch.nextSendAt) {
-        const delayMs = timing.delayMs?.() ?? randomSendDelayMs();
-        batch.nextSendAt = new Date(now.getTime() + delayMs);
+  for (const candidate of batches) {
+    await withBatchMutationLease(candidate.id, async (lease) => {
+      const batch = await repo.findOneBy({ id: candidate.id });
+      if (!batch || !ACTIVE_STATUSES.includes(batch.status)) return;
+      const now = timing.now?.() ?? new Date();
+      const items = parseItems(batch.itemsJson);
+      const interrupted = markInterruptedSends(items);
+      const next = items.find((item) => item.status === "queued");
+      if (!next) {
+        finishBatch(batch, items, now);
+      } else {
+        const counts = itemCounts(items);
+        batch.sent = counts.sent;
+        batch.failed = counts.failed;
+        batch.itemsJson = JSON.stringify(items);
+        if (interrupted || !batch.nextSendAt) {
+          const delayMs = timing.delayMs?.() ?? randomSendDelayMs();
+          batch.nextSendAt = new Date(now.getTime() + delayMs);
+        }
       }
-    }
-    await repo.save(batch);
+      lease.assertHeld();
+      await repo.save(batch);
+    });
   }
 }
 

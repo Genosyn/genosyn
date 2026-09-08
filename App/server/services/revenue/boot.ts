@@ -13,7 +13,7 @@ import {
   MAIL_ACCESS_RANK,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { chatWithEmployee } from "../chat.js";
-import { withSchedulerLease } from "../schedulerLeases.js";
+import { withSchedulerLease, type SchedulerLeaseContext } from "../schedulerLeases.js";
 import { listActivities } from "./activities.js";
 import { hasRevenueAccess } from "./grants.js";
 import { resumeRevenueBulkJobs } from "./bulkJobs.js";
@@ -73,6 +73,7 @@ async function draftTouch(ctx: {
   step: SequenceStep;
   enrollment: SequenceEnrollment;
   contact: Contact;
+  lease?: SchedulerLeaseContext;
 }): Promise<TouchOutcome> {
   const { sequence, step, enrollment, contact } = ctx;
 
@@ -109,8 +110,10 @@ async function draftTouch(ctx: {
     mayAutoSend,
   });
 
+  ctx.lease?.assertHeld();
   const result = await chatWithEmployee(sequence.companyId, employee.id, prompt, [], {
     toolAuthority: "employee",
+    signal: ctx.lease?.signal,
   });
   const detail = result.reply.slice(0, DETAIL_CAP);
   if (result.status !== "ok") {
@@ -215,6 +218,7 @@ async function composeTouchPrompt(input: {
 
 /** Hand a fired signal to an AI employee and let it decide what to do. */
 async function handleSignal(handoff: {
+  lease?: SchedulerLeaseContext;
   signal: { companyId: string; name: string; employeeId: string | null };
   row: Record<string, unknown>;
   config: Record<string, unknown>;
@@ -245,8 +249,10 @@ async function handleSignal(handoff: {
     .filter((line) => line !== "")
     .join("\n");
 
+  handoff.lease?.assertHeld();
   const result = await chatWithEmployee(handoff.signal.companyId, employeeId, prompt, [], {
     toolAuthority: "employee",
+    signal: handoff.lease?.signal,
   });
   return { ok: result.status === "ok", detail: result.reply.slice(0, DETAIL_CAP) };
 }
@@ -268,7 +274,7 @@ export function bootRevenue(): void {
   void withSchedulerLease(
     "revenue-provenance-backfill",
     15 * 60_000,
-    backfillRevenueProvenanceMetadata,
+    (lease) => backfillRevenueProvenanceMetadata(lease.assertHeld),
   ).catch((error) => {
     // eslint-disable-next-line no-console
     console.warn("[revenue] failed to backfill field provenance", error);
@@ -278,11 +284,12 @@ export function bootRevenue(): void {
     if (duplicateScanning) return;
     duplicateScanning = true;
     try {
-      await withSchedulerLease("revenue-duplicate-scan", DUPLICATE_SCAN_INTERVAL_MS, async () => {
+      await withSchedulerLease("revenue-duplicate-scan", DUPLICATE_SCAN_INTERVAL_MS, async (lease) => {
         const companies = await AppDataSource.getRepository(Company).find({
           select: { id: true },
         });
         for (const company of companies) {
+          lease.assertHeld();
           try {
             await scanRevenueDuplicates(company.id);
           } catch (error) {
@@ -310,8 +317,8 @@ export function bootRevenue(): void {
   sequenceTimer = setInterval(() => {
     if (sequenceTicking) return;
     sequenceTicking = true;
-    void withSchedulerLease("revenue-sequences", HEARTBEAT_INTERVAL_MS * 3, async () => {
-      await tickSequences();
+    void withSchedulerLease("revenue-sequences", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
+      await tickSequences(new Date(), lease);
     })
       .catch((err) => {
         // eslint-disable-next-line no-console
@@ -326,8 +333,8 @@ export function bootRevenue(): void {
   signalTimer = setInterval(() => {
     if (signalTicking) return;
     signalTicking = true;
-    void withSchedulerLease("revenue-signals", HEARTBEAT_INTERVAL_MS * 3, async () => {
-      await tickSignals();
+    void withSchedulerLease("revenue-signals", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
+      await tickSignals(new Date(), lease);
     })
       .catch((err) => {
         // eslint-disable-next-line no-console

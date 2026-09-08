@@ -136,9 +136,9 @@ describe("context window sweep", () => {
     assert.equal((await reload(second.id)).contextWindow, 65_536);
   });
 
-  test("stops mid-sweep once the scheduler lease is lost", async () => {
-    await customModel();
-    await customModel();
+  test("discards an in-flight probe result and stops the sweep after lease loss", async () => {
+    const first = await customModel({ contextWindow: 32_768, contextWindowSource: "probed" });
+    const second = await customModel();
     let probes = 0;
 
     const changed = await sweepContextWindows({
@@ -150,6 +150,12 @@ describe("context window sweep", () => {
     });
 
     assert.equal(probes, 1);
-    assert.equal(changed, 1);
+    assert.equal(changed, 0);
+    const savedFirst = await reload(first.id);
+    assert.equal(savedFirst.contextWindow, 32_768);
+    assert.equal(savedFirst.contextWindowSource, "probed");
+    const savedSecond = await reload(second.id);
+    assert.equal(savedSecond.contextWindow, null);
+    assert.equal(savedSecond.contextWindowSource, null);
   });
 });

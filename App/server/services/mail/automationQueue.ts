@@ -169,6 +169,7 @@ async function processOne(
         const repo = AppDataSource.getRepository(MailInboundAutomation);
         const accountRepo = AppDataSource.getRepository(MailAccount);
         const beforeClaim = await accountRepo.findOneBy({ id: accountId });
+        lease.assertHeld();
         if (!beforeClaim) {
           await failQueued(id, "Mailbox was disconnected before automation ran");
           return;
@@ -190,8 +191,9 @@ async function processOne(
         if (!event) return;
         let effectsStarted = false;
         const assertRunnable = async (): Promise<void> => {
-          if (!lease.isHeld()) throw new Error("Mailbox automation lease was lost");
+          lease.assertHeld();
           const account = await accountRepo.findOneBy({ id: accountId });
+          lease.assertHeld();
           if (!account) throw new Error("Mailbox was disconnected before automation ran");
           if (account.status === "paused") throw new MailAutomationPausedError();
         };
@@ -215,6 +217,10 @@ async function processOne(
           await assertRunnable();
           await finish(event.id, "succeeded");
         } catch (error) {
+          // Another replica may now own this mailbox. Leave uncertain effects
+          // for the existing interrupted-work recovery instead of stamping a
+          // terminal state from an owner whose lease expired.
+          lease.assertHeld();
           if (error instanceof MailAutomationPausedError && !effectsStarted) {
             await requeue(event.id);
           } else {

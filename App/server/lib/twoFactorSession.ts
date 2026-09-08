@@ -1,12 +1,18 @@
 import type { Request } from "express";
+import { createUserSession, revokeCurrentUserSession } from "../services/userSessions.js";
 
 const LOGIN_TTL_MS = 5 * 60 * 1000;
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
 
-export function beginTwoFactorLoginSession(req: Request, userId: string): void {
+export function beginTwoFactorLoginSession(
+  req: Request,
+  userId: string,
+  sessionVersion: number,
+): void {
   req.session = {
     twoFactorUserId: userId,
+    twoFactorSessionVersion: sessionVersion,
     twoFactorExpiresAt: Date.now() + LOGIN_TTL_MS,
     twoFactorAttempts: 0,
     primaryAuthenticatedAt: Date.now(),
@@ -34,11 +40,16 @@ export function recordTwoFactorFailure(req: Request): boolean {
   return false;
 }
 
-export function completeTwoFactorLogin(req: Request, userId: string, sessionVersion: number): void {
+export async function completeTwoFactorLogin(
+  req: Request,
+  userId: string,
+  sessionVersion: number,
+): Promise<void> {
+  const authenticatedAt = req.session?.primaryAuthenticatedAt ?? Date.now();
+  await revokeCurrentUserSession(req);
   req.session = {
-    userId,
-    sessionVersion,
-    authenticatedAt: req.session?.primaryAuthenticatedAt ?? Date.now(),
+    ...(await createUserSession({ id: userId, sessionVersion })),
+    authenticatedAt,
     secondFactorAt: Date.now(),
   };
 }

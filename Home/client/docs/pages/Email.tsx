@@ -174,6 +174,11 @@ export function Email() {
       </P>
       <H2 id="drafts">The Drafts review queue</H2>
       <P>
+        If the server loses ownership or restarts during a paced send, the interrupted draft is
+        marked failed. Check <Strong>Sent</Strong> before sending that draft again: the mailbox may
+        already have accepted it. Drafts that had not started sending keep their existing pace.
+      </P>
+      <P>
         AI Employees write drafts; you decide what actually goes out. <Strong>Drafts</Strong> opens
         as a review queue built for that job — one row per draft rather than one per thread, so a
         night&apos;s work is a single scannable list instead of a folder to click through.

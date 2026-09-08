@@ -312,6 +312,7 @@ const runtimeGroupSchemas = {
     humanize: z.boolean(),
   }),
   agent: z.object({
+    maxConcurrentTurnsPerCompany: z.number().int().min(1).max(100).default(8),
     taintPolicy: z.enum(["web", "off"]),
     memberBrowsersEnabled: z.boolean(),
     toolDiscovery: z.object({
