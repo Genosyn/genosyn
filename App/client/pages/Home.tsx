@@ -18,7 +18,6 @@ import {
   Mail,
   MessageSquare,
   PiggyBank,
-  Play,
   RotateCw,
   ShieldAlert,
   ShieldCheck,
@@ -55,9 +54,8 @@ import { NotificationPeekModal } from "../components/home/NotificationPeekModal"
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RunLiveModal } from "../components/routines/RunViews";
-import { TldrQuestions } from "../components/tldrs/TldrQuestions";
+import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
-import { ChatMarkdown } from "../components/ChatMarkdown";
 import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
@@ -938,13 +936,8 @@ function HomeTldrPanel({
   data: HomeData;
   onDismiss: (item: TldrItem) => void;
 }) {
-  // Which briefings have their "ask something else" composer open. Discussing
-  // one used to mean a trip to the TLDRs page and a scroll back to the card
-  // you were already reading; the conversation belongs under the briefing, and
-  // the briefing is right here.
-  const [discussing, setDiscussing] = React.useState<Record<string, boolean>>({});
   if (data.tldrs.length === 0) return null;
-  const visible = data.tldrs.slice(0, 3);
+  const visible = data.tldrs.slice(0, 1);
   const hidden = Math.max(0, data.unreadTldrCount - visible.length);
   const base = `/c/${company.slug}/tldrs`;
 
@@ -954,12 +947,9 @@ function HomeTldrPanel({
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
           <Sparkles size={15} />
         </span>
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Latest TLDRs</h2>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Latest TLDR</h2>
         <span className="rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold tabular-nums text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
           {data.unreadTldrCount}
-        </span>
-        <span className="hidden truncate text-xs text-slate-500 sm:inline dark:text-slate-400">
-          Public Workspace activity worth knowing about
         </span>
         <Link
           to={base}
@@ -993,8 +983,7 @@ function HomeTldrPanel({
                       {item.title || "Company TLDR"}
                     </Link>
                     <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      {item.employee.name || "AI Employee"} · {homeTldrPeriod(item)} ·{" "}
-                      {formatRelative(item.createdAt)}
+                      {item.employee.name || "AI Employee"} · {homeTldrPeriod(item)}
                     </div>
                   </div>
                   <button
@@ -1007,52 +996,9 @@ function HomeTldrPanel({
                   </button>
                 </div>
 
-                <div className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-300">
-                  <ChatMarkdown content={item.summary || item.body} />
+                <div className="mt-2">
+                  <TldrBriefing company={company} item={item} />
                 </div>
-
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
-                  {item.sourceStats.routineRuns > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <Play size={11} /> {item.sourceStats.routineRuns} Routine{" "}
-                      {item.sourceStats.routineRuns === 1 ? "run" : "runs"}
-                    </span>
-                  )}
-                  {item.sourceStats.channelMessages > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <MessageSquare size={11} /> {item.sourceStats.channelMessages}{" "}
-                      {item.sourceStats.channelMessages === 1 ? "message" : "messages"} in{" "}
-                      {item.sourceStats.channels}{" "}
-                      {item.sourceStats.channels === 1 ? "channel" : "channels"}
-                    </span>
-                  )}
-                  {item.sourceStats.journalEntries > 0 && (
-                    <span>
-                      {item.sourceStats.journalEntries} journal{" "}
-                      {item.sourceStats.journalEntries === 1 ? "entry" : "entries"}
-                    </span>
-                  )}
-                </div>
-                {/* The conversation lives under the briefing itself — the same
-                    cards the TLDRs page renders, so a question asked here and
-                    a question asked there are the same thread. */}
-                {!discussing[item.id] && item.questionCount === 0 && (
-                  <div className="mt-3">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setDiscussing((prev) => ({ ...prev, [item.id]: true }))}
-                    >
-                      <MessageSquare size={14} /> Discuss
-                    </Button>
-                  </div>
-                )}
-                <TldrQuestions
-                  company={company}
-                  item={item}
-                  open={discussing[item.id] ?? false}
-                  onOpenChange={(next) => setDiscussing((prev) => ({ ...prev, [item.id]: next }))}
-                />
               </div>
             </div>
           </article>

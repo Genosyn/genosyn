@@ -1,21 +1,16 @@
 import React from "react";
 import {
   AlertCircle,
-  BookText,
   CalendarClock,
   Check,
   CheckCircle2,
   ChevronRight,
-  MessageSquare,
-  Play,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { Link, useOutletContext, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 
-import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { useLiveRefetch } from "@/components/CompanySocket";
-import { TldrQuestions } from "@/components/tldrs/TldrQuestions";
+import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { useBackgroundAction } from "@/components/ui/Dialog";
@@ -34,12 +29,21 @@ export default function TldrsIndex() {
   const background = useBackgroundAction();
   const [data, setData] = React.useState<PageData | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [filter, setFilter] = React.useState<Filter>("unread");
-  const [loadingMore, setLoadingMore] = React.useState(false);
+  const location = useLocation();
   // Home's Discuss link names the briefing to open, so arriving from there ends
   // in a composer rather than merely scrolled next to one.
   const [searchParams] = useSearchParams();
   const discussId = searchParams.get("discuss");
+  const briefingId = location.hash.startsWith("#tldr-") ? location.hash.slice(6) : "";
+  const [filter, setFilter] = React.useState<Filter>(() =>
+    briefingId || discussId ? "all" : "unread",
+  );
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const scrolledTarget = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (briefingId || discussId) setFilter("all");
+  }, [briefingId, discussId]);
 
   const reload = React.useCallback(async () => {
     setError(null);
@@ -68,10 +72,14 @@ export default function TldrsIndex() {
   // scroll once the target has actually mounted rather than relying on the
   // browser's first, too-early hash pass.
   React.useEffect(() => {
-    if (!data || !window.location.hash) return;
-    const target = document.getElementById(window.location.hash.slice(1));
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [data]);
+    if (!data || (!briefingId && !discussId)) return;
+    const navigationTarget = `${location.key}:${discussId || briefingId}`;
+    if (scrolledTarget.current === navigationTarget) return;
+    const target = document.getElementById(`tldr-${discussId || briefingId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrolledTarget.current = navigationTarget;
+  }, [data, briefingId, discussId, location.key, filter]);
 
   function dismiss(item: TldrItem) {
     if (item.dismissed) return;
@@ -152,85 +160,33 @@ export default function TldrsIndex() {
 
   return (
     <div className="page-shell px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm dark:border-violet-500/25 dark:bg-slate-950">
-        <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-          <div className="flex min-w-0 items-start gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
-              <Sparkles size={21} />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                  TLDRs
-                </h1>
-                {data && data.list.unreadCount > 0 && (
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
-                    {data.list.unreadCount} unread
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-                Short, periodic briefings on completed work and the conversations moving your
-                company forward.
-              </p>
-              <p className="mt-2 flex max-w-2xl items-start gap-1.5 text-[11px] leading-5 text-slate-400 dark:text-slate-500">
-                <ShieldCheck size={13} className="mt-0.5 shrink-0" />
-                Only public Workspace channels, company-visible journal entries, and terminal
-                Routine Run output are included. Private channels, DMs, and direct chats never are.
-              </p>
-            </div>
-          </div>
-
-          {data && (
-            <div className="flex shrink-0 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-              <span
-                className={
-                  "h-2 w-2 rounded-full " +
-                  (isDefaultDraft
-                    ? "bg-violet-500"
-                    : needsWriter
-                      ? "bg-amber-500"
-                      : data.settings.enabled
-                        ? "bg-emerald-500"
-                        : "bg-slate-300 dark:bg-slate-600")
-                }
-              />
-              <div>
-                <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                  {isDefaultDraft
-                    ? "Daily briefings are ready"
-                    : needsWriter
-                      ? "A briefing AI Employee is needed"
-                      : data.settings.enabled
-                        ? "Briefings are on"
-                        : "Briefings are paused"}
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {isDefaultDraft
-                    ? canManage
-                      ? "Choose or hire an AI Employee to start the schedule"
-                      : "An owner or admin can choose the briefing writer"
-                    : needsWriter
-                      ? canManage
-                        ? "Choose a connected AI Employee to resume briefings"
-                        : "An owner or admin can resume briefings"
-                      : data.settings.enabled && data.settings.nextRunAt
-                        ? `Next ${formatRelative(data.settings.nextRunAt)}`
-                        : data.settings.enabled
-                          ? "The next interval is being scheduled"
-                          : "No automatic TLDRs will be created"}
-                </div>
-              </div>
-              <Link
-                to={`${base}/settings`}
-                className="ml-2 flex items-center gap-0.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-              >
-                Settings <ChevronRight size={12} />
-              </Link>
-            </div>
-          )}
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            <Sparkles size={22} className="text-violet-500" /> TLDRs
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            What changed. What needs your attention.
+          </p>
         </div>
-      </section>
+        {data && (
+          <Link
+            to={`${base}/settings`}
+            className="inline-flex items-center gap-1 self-start rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            {isDefaultDraft || needsWriter
+              ? canManage
+                ? "Choose a briefing writer"
+                : "Briefing writer needed"
+              : !data.settings.enabled
+                ? "Briefings paused"
+                : data.settings.nextRunAt
+                  ? `Next briefing ${formatRelative(data.settings.nextRunAt)}`
+                  : "Briefing settings"}
+            <ChevronRight size={13} />
+          </Link>
+        )}
+      </header>
 
       {error && (
         <div className="mt-5 flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center dark:border-rose-500/25 dark:bg-rose-500/10">
@@ -350,6 +306,7 @@ export default function TldrsIndex() {
                         company={company}
                         item={item}
                         onDismiss={dismiss}
+                        openBriefing={item.id === briefingId}
                         openDiscussion={item.id === discussId}
                       />
                     ))}
@@ -412,11 +369,13 @@ function TldrCard({
   company,
   item,
   onDismiss,
+  openBriefing = false,
   openDiscussion = false,
 }: {
   company: TldrsOutletContext["company"];
   item: TldrItem;
   onDismiss: (item: TldrItem) => void;
+  openBriefing?: boolean;
   /** Arrived here from a Discuss link naming this briefing. */
   openDiscussion?: boolean;
 }) {
@@ -424,12 +383,6 @@ function TldrCard({
   const avatar = employee.id
     ? employeeAvatarUrl(company.id, employee.id, employee.avatarKey)
     : null;
-  const body = item.body.trim();
-  const summary = item.summary.trim();
-  // Whether the "ask another question" composer is showing. The answers
-  // themselves are not behind this — a standing question's card is the point of
-  // the briefing carrying it, so it renders without anybody opening anything.
-  const [discussing, setDiscussing] = React.useState(openDiscussion);
 
   return (
     <article
@@ -456,33 +409,11 @@ function TldrCard({
               >
                 {formatPeriod(item.periodStart, item.periodEnd)}
               </span>
-              <span aria-hidden="true">·</span>
-              <span title={new Date(item.createdAt).toLocaleString()}>
-                created {formatRelative(item.createdAt)}
-              </span>
             </div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
-          {/* Only the empty case. Once a briefing carries cards they render
-              under it with their own "ask something else" affordance, and two
-              buttons for one thing is one button too many. */}
-          {employee.id && item.questionCount === 0 && !discussing && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setDiscussing(true)}
-              title={`Ask ${employee.name || "the AI Employee"} about this briefing, here on this page`}
-            >
-              <MessageSquare size={14} /> Ask a question
-            </Button>
-          )}
-          {item.triggerKind === "manual" && (
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              Generated manually
-            </span>
-          )}
           {item.dismissed ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
               <CheckCircle2 size={11} /> Read
@@ -496,73 +427,14 @@ function TldrCard({
       </div>
 
       <div className="px-4 py-4 sm:px-5">
-        {summary && (
-          <p className="text-[15px] font-medium leading-6 text-slate-800 dark:text-slate-200">
-            {summary}
-          </p>
-        )}
-        {body && body !== summary && (
-          <div
-            className={
-              summary
-                ? "mt-3 text-sm leading-6 text-slate-700 dark:text-slate-300"
-                : "text-sm leading-6 text-slate-700 dark:text-slate-300"
-            }
-          >
-            <ChatMarkdown content={body} />
-          </div>
-        )}
-
-        <SourceStats item={item} />
-
-        <TldrQuestions
+        <TldrBriefing
           company={company}
           item={item}
-          open={discussing}
-          onOpenChange={setDiscussing}
+          openBriefing={openBriefing}
+          openDiscussion={openDiscussion}
         />
       </div>
     </article>
-  );
-}
-
-function SourceStats({ item }: { item: TldrItem }) {
-  const stats = item.sourceStats;
-  const entries: Array<{ key: string; label: string; icon: React.ReactNode }> = [];
-  if (stats.journalEntries > 0) {
-    entries.push({
-      key: "journal",
-      label: `${stats.journalEntries} journal ${stats.journalEntries === 1 ? "entry" : "entries"}`,
-      icon: <BookText size={12} />,
-    });
-  }
-  if (stats.routineRuns > 0) {
-    entries.push({
-      key: "runs",
-      label: `${stats.routineRuns} Routine ${stats.routineRuns === 1 ? "run" : "runs"}`,
-      icon: <Play size={12} />,
-    });
-  }
-  if (stats.channelMessages > 0) {
-    entries.push({
-      key: "messages",
-      label: `${stats.channelMessages} ${stats.channelMessages === 1 ? "message" : "messages"} in ${stats.channels} ${stats.channels === 1 ? "channel" : "channels"}`,
-      icon: <MessageSquare size={12} />,
-    });
-  }
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-      {entries.map((entry) => (
-        <span
-          key={entry.key}
-          className="inline-flex items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-500 dark:bg-slate-900 dark:text-slate-400"
-        >
-          {entry.icon} {entry.label}
-        </span>
-      ))}
-    </div>
   );
 }
 

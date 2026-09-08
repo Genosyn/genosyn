@@ -15,6 +15,25 @@ export function Tldrs() {
         }
       />
 
+      <H2 id="read">Read a briefing at a glance</H2>
+      <P>
+        Home shows your newest unread TLDR with a short summary. Choose{" "}
+        <Strong>Read briefing</Strong> to expand the recap and its source counts, or{" "}
+        <Strong>All TLDRs</Strong> for older briefings. The history also starts with summaries, so
+        you can scan several periods quickly.
+      </P>
+      <P>
+        New briefings are written for a quick read: a one-sentence summary and up to three short
+        bullets, prioritizing blockers, decisions, and meaningful changes. Quiet periods need only a
+        sentence. Existing briefings keep their full text behind <Strong>Read briefing</Strong>.
+      </P>
+      <P>
+        Choose <Strong>Questions</Strong> to see the questions attached to a briefing, then select a
+        question to reveal its answer, Suggested actions, and discussion. Switching between the
+        briefing and its questions shows one at a time. Collapsing a section keeps an unfinished
+        reply and your draft in place while you stay on the page.
+      </P>
+
       <H2 id="set-up">Set up TLDRs</H2>
       <P>
         Open <Strong>TLDRs</Strong> from the company section menu. Owners and admins can configure
@@ -61,8 +80,8 @@ export function Tldrs() {
       </UL>
       <P>
         As soon as a briefing is posted, the writing AI Employee works through the list and adds
-        each answer as its own card beneath the brief. They are waiting for you when you read it,
-        rather than something you have to remember to ask for.
+        each answer under <Strong>Questions</Strong>. Open a question when you want its answer; you
+        do not need to ask it again.
       </P>
       <Callout kind="tip" title="Standing questions apply to future briefings">
         Adding one never rewrites briefings you have already read. The next briefing is the first to
@@ -123,8 +142,8 @@ export function Tldrs() {
       </P>
       <P>
         Standing questions cover what you always want to know. For anything else, ask on the spot:
-        choose <Strong>Ask a question</Strong> on a briefing, or{" "}
-        <Strong>Ask … something else</Strong> under the answers it already carries.
+        choose <Strong>Ask a question</Strong> on a briefing. If it already has questions, open{" "}
+        <Strong>Questions</Strong>, then choose <Strong>Ask a question</Strong>.
       </P>
       <UL>
         <LI>

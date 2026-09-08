@@ -9,6 +9,7 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
+  ChevronDown,
   CornerDownLeft,
   FolderKanban,
   GitBranch,
@@ -18,7 +19,6 @@ import {
   MessagesSquare,
   Repeat,
   ShieldAlert,
-  Sparkles,
   Trash2,
   X,
   Zap,
@@ -105,6 +105,7 @@ export function TldrQuestions({
   const [error, setError] = React.useState<string | null>(null);
   const [stream, setStream] = React.useState<StreamState>({ questionId: null, open: false });
   const [reconnecting, setReconnecting] = React.useState(false);
+  const [expandedQuestions, setExpandedQuestions] = React.useState<Set<string>>(() => new Set());
   const abortRef = React.useRef<AbortController | null>(null);
   const askRef = React.useRef<HTMLTextAreaElement | null>(null);
 
@@ -183,10 +184,17 @@ export function TldrQuestions({
   const busyRef = React.useRef(busy);
   busyRef.current = busy;
 
+  function expandQuestion(questionId: string) {
+    setExpandedQuestions((current) =>
+      current.has(questionId) ? current : new Set(current).add(questionId),
+    );
+  }
+
   /** Fold one SSE event into the card list. */
   function applyEvent(questionId: string | null, event: string, payload: unknown) {
     if (event === "question") {
       const question = payload as TldrQuestion;
+      expandQuestion(question.id);
       setData((current) =>
         current
           ? {
@@ -201,6 +209,7 @@ export function TldrQuestions({
     }
     if (event === "user" || event === "working" || event === "assistant") {
       const message = payload as TldrQuestionMessage;
+      if (event === "working") expandQuestion(message.questionId);
       setData((current) =>
         current
           ? {
@@ -304,6 +313,7 @@ export function TldrQuestions({
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    if (initialQuestionId) expandQuestion(initialQuestionId);
     setStream({ questionId: initialQuestionId, open: true });
     setError(null);
 
@@ -457,31 +467,14 @@ export function TldrQuestions({
   const asked = new Set(questions.map((q) => q.prompt.toLowerCase()));
   const presets = TLDR_QUESTION_PRESETS.filter((p) => !asked.has(p.toLowerCase()));
   const atCap = data ? questions.length >= data.maxQuestions : false;
-  const canAsk = (data?.canAsk ?? item.employee.id !== null) && !atCap;
+  const canAsk = Boolean(data?.canAsk) && !atCap;
 
   // Nothing to load and nothing to ask with: stay silent rather than render a
   // heading over an empty region.
   if (!wanted) return null;
 
   return (
-    <section className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          <Sparkles size={13} className="text-violet-500 dark:text-violet-400" />
-          Answers
-          {questions.length > 0 && (
-            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              {questions.length}
-            </span>
-          )}
-        </h3>
-        {open && (
-          <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        )}
-      </div>
-
+    <section>
       {!data && !error ? (
         <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <Spinner size={14} /> Loading answers…
@@ -501,13 +494,22 @@ export function TldrQuestions({
       )}
 
       {questions.length > 0 && (
-        <div className="mt-3 space-y-2.5">
+        <div className="mt-3 space-y-2">
           {questions.map((question) => (
             <QuestionCard
               key={question.id}
               company={company}
               item={item}
               question={question}
+              expanded={expandedQuestions.has(question.id)}
+              onExpandedChange={() =>
+                setExpandedQuestions((current) => {
+                  const next = new Set(current);
+                  if (next.has(question.id)) next.delete(question.id);
+                  else next.add(question.id);
+                  return next;
+                })
+              }
               busy={busy}
               canDelegateAutomation={data?.canDelegateAutomation ?? false}
               onRemove={() => void remove(question)}
@@ -548,6 +550,14 @@ export function TldrQuestions({
 
       {canAsk && open && (
         <div className="mt-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              Ask a question
+            </h3>
+            <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
+          </div>
           {presets.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {presets.map((preset) => (
@@ -582,7 +592,7 @@ export function TldrQuestions({
           onClick={() => onOpenChange(true)}
           className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-violet-300 hover:bg-violet-50/60 hover:text-violet-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
         >
-          <MessagesSquare size={13} /> Ask {employeeName} something else
+          <MessagesSquare size={13} /> Ask a question
         </button>
       )}
     </section>
@@ -593,6 +603,8 @@ function QuestionCard({
   company,
   item,
   question,
+  expanded,
+  onExpandedChange,
   busy,
   canDelegateAutomation,
   onRemove,
@@ -603,6 +615,8 @@ function QuestionCard({
   company: Pick<Company, "id" | "slug">;
   item: TldrItem;
   question: TldrQuestion;
+  expanded: boolean;
+  onExpandedChange: () => void;
   busy: boolean;
   canDelegateAutomation: boolean;
   onRemove: () => void;
@@ -610,6 +624,9 @@ function QuestionCard({
   onDismissAction: (action: TldrSuggestedAction) => void;
   onSend: (message: string, attachmentIds: string[]) => Promise<boolean>;
 }) {
+  const headingId = React.useId();
+  const contentId = React.useId();
+  const discussionId = React.useId();
   const employee = question.employee;
   const avatar = employee.id
     ? employeeAvatarUrl(company.id, employee.id, employee.avatarKey)
@@ -636,6 +653,9 @@ function QuestionCard({
   const actions = visibleActions(question);
   const canReply = answered && item.employee.id !== null;
   const gated = actions.some((a) => a.kind === "routine") && !canDelegateAutomation;
+  const working = workingMessage(question) !== null;
+  const latestMessage = question.messages[question.messages.length - 1];
+  const failed = latestMessage?.status === "error" || latestMessage?.status === "skipped";
 
   return (
     <article
@@ -646,12 +666,52 @@ function QuestionCard({
           : "border-slate-200 dark:border-slate-800",
       )}
     >
-      <div className="flex items-start gap-2 px-3.5 pt-3">
-        <div className="min-w-0 flex-1">
-          <h4 className="text-[13px] font-semibold leading-5 text-slate-900 dark:text-slate-100">
+      <h3>
+        <button
+          id={headingId}
+          type="button"
+          onClick={onExpandedChange}
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          className="flex w-full items-start gap-2 px-3.5 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 dark:hover:bg-slate-900"
+        >
+          <span
+            className={clsx(
+              "min-w-0 flex-1 text-[13px] font-medium leading-5 text-slate-900 dark:text-slate-100",
+              !expanded && "line-clamp-2",
+            )}
+          >
             {question.prompt}
-          </h4>
-          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+          </span>
+          {working ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+              <Spinner size={11} /> Working…
+            </span>
+          ) : failed ? (
+            <span className="shrink-0 text-[11px] leading-5 text-rose-600 dark:text-rose-400">
+              Needs attention
+            </span>
+          ) : null}
+          <ChevronDown
+            size={14}
+            aria-hidden="true"
+            className={clsx(
+              "mt-0.5 shrink-0 text-slate-400 transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </button>
+      </h3>
+
+      <div
+        id={contentId}
+        role="region"
+        aria-labelledby={headingId}
+        hidden={!expanded}
+        className="px-3.5 pb-3"
+      >
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
             <span>{employee.name || "AI Employee"}</span>
             {question.origin === "standing" && (
               <>
@@ -660,29 +720,26 @@ function QuestionCard({
                   className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-1.5 py-0.5 font-medium text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
                   title="Asked automatically on every briefing. Change the list in TLDR settings."
                 >
-                  <Repeat size={9} /> Always asked
+                  <Repeat size={9} /> Standing question
                 </span>
               </>
             )}
           </div>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={busy}
+            aria-label={`Remove the question “${question.prompt}”`}
+            title={
+              busy
+                ? "Wait for the reply to finish before removing this question"
+                : "Remove this question"
+            }
+            className="shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-300 dark:text-slate-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+          >
+            <Trash2 size={13} />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={busy}
-          aria-label={`Remove the question “${question.prompt}”`}
-          title={
-            busy
-              ? "Wait for the reply to finish before removing this question"
-              : "Remove this question"
-          }
-          className="shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-300 dark:text-slate-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
-        >
-          <Trash2 size={13} />
-        </button>
-      </div>
-
-      <div className="px-3.5 pb-3 pt-2">
         <ChatAttachments
           attachments={question.attachments ?? []}
           urlFor={(id) => workspaceApi.attachmentUrl(company.id, id)}
@@ -711,6 +768,7 @@ function QuestionCard({
                 type="button"
                 onClick={() => setDiscussing((current) => !current)}
                 aria-expanded={discussing}
+                aria-controls={discussionId}
                 className={clsx(
                   "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition",
                   discussing
@@ -739,7 +797,10 @@ function QuestionCard({
         )}
 
         {discussing && (
-          <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+          <div
+            id={discussionId}
+            className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800"
+          >
             {thread.length > 0 && (
               <div className="space-y-2.5">
                 {thread.map((message) => (
