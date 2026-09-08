@@ -9,6 +9,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
 import { Routine } from "../db/entities/Routine.js";
+import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { Skill } from "../db/entities/Skill.js";
@@ -720,4 +721,316 @@ describe("concurrent proposal creation", () => {
     assert.equal(await AppDataSource.getRepository(RevisionProposal).count(), 1);
     assert.equal(await AppDataSource.getRepository(Notification).count(), 1);
   });
+});
+
+async function participant() {
+  const colleague = await insert(AIEmployee, {
+    role: "Reviewer",
+    companyId,
+    name: "Colleague",
+    slug: randomUUID(),
+    soulBody: "Keep changes reviewable.",
+  });
+  const receipt = await insert(RoutineChatMessage, {
+    companyId,
+    employeeId: colleague.id,
+    routineId: routine.id,
+    role: "assistant",
+    status: "ok",
+    content: "Helped investigate the report.",
+  });
+  return { colleague, receipt };
+}
+function sharedInput(evidenceRunIds: string[] = []) {
+  return {
+    kind: "routine_body" as const,
+    targetId: routine.id,
+    proposedBody: "Post the digest and cite every source.",
+    rationale: "The digest omitted a source.",
+    evidenceRunIds,
+  };
+}
+
+describe("participating Routine revisions", () => {
+  test("successful participants stage a brief change with exact target evidence and notify both managers", async () => {
+    const { colleague } = await participant();
+    const proposerManager = testId("proposer-manager");
+    const targetManager = testId("target-manager");
+    for (const userId of [proposerManager, targetManager])
+      await insert(Membership, { companyId, userId, role: "member" });
+    await AppDataSource.getRepository(AIEmployee).update(colleague.id, {
+      reportsToUserId: proposerManager,
+    });
+    await AppDataSource.getRepository(AIEmployee).update(employee.id, {
+      reportsToUserId: targetManager,
+    });
+    const evidence = await evidenceRun();
+    const review = await reviewRun(colleague.id);
+    const proposal = await createRevisionProposal(
+      companyId,
+      colleague.id,
+      sharedInput([evidence.id]),
+      { reviewRunId: review.id },
+    );
+    assert.equal(proposal.employeeId, colleague.id);
+    assert.equal(proposal.targetLabel, `${routine.name} (${employee.name})`);
+    assert.equal(proposal.baseBody, routine.body);
+    assert.equal(
+      (await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id })).body,
+      routine.body,
+    );
+    const recipients = (
+      await AppDataSource.getRepository(Notification).findBy({ kind: "revision_pending" })
+    ).map((row) => row.userId);
+    const companyOwner = await AppDataSource.getRepository(Membership).findOneByOrFail({
+      companyId,
+      role: "owner",
+    });
+    assert.deepEqual(
+      new Set(recipients),
+      new Set([companyOwner.userId, proposerManager, targetManager]),
+    );
+    await applyRevisionProposal(proposal, { userId: testId("owner"), note: "Include sources." });
+    const changed = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
+    assert.equal(changed.body, proposal.proposedBody);
+    assert.equal(changed.employeeId, employee.id);
+    assert.equal(changed.acceptanceCriteria, routine.acceptanceCriteria);
+    assert.deepEqual(
+      new Set(
+        (await AppDataSource.getRepository(JournalEntry).find()).map((row) => row.employeeId),
+      ),
+      new Set([employee.id, colleague.id]),
+    );
+    const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+      action: "revision.apply",
+    });
+    assert.match(audit.metadataJson, new RegExp(colleague.id));
+    assert.match(audit.metadataJson, new RegExp(employee.id));
+  });
+
+  test("participants cannot use the receipt for another brief, a Skill, or acceptance criteria", async () => {
+    const { colleague } = await participant();
+    const unrelated = await insert(Routine, {
+      employeeId: employee.id,
+      name: "Unrelated",
+      slug: randomUUID(),
+      cronExpr: "0 9 * * 1",
+      body: "Other work.",
+    });
+    for (const input of [
+      { ...sharedInput(), targetId: unrelated.id },
+      { ...sharedInput(), kind: "skill" as const, targetId: skill.id },
+      { ...sharedInput(), kind: "routine_criteria" as const },
+    ])
+      await assert.rejects(createRevisionProposal(companyId, colleague.id, input), RevisionError);
+    await AppDataSource.getRepository(RoutineChatMessage).update(
+      { employeeId: colleague.id },
+      { status: "working" },
+    );
+    await assert.rejects(
+      createRevisionProposal(companyId, colleague.id, sharedInput()),
+      /participation/,
+    );
+  });
+
+  test("shared evidence must be finished work of this exact target or the proposer's own work", async () => {
+    const { colleague } = await participant();
+    const target = await evidenceRun({ outcomeVerdict: "unverified" });
+    const ownRoutine = await insert(Routine, {
+      employeeId: colleague.id,
+      name: "Own report",
+      slug: randomUUID(),
+      cronExpr: "0 9 * * 1",
+    });
+    const own = await evidenceRun({ routineId: ownRoutine.id });
+    const unrelated = await insert(Routine, {
+      employeeId: employee.id,
+      name: "Other report",
+      slug: randomUUID(),
+      cronExpr: "0 9 * * 1",
+    });
+    const invalid = [
+      await evidenceRun({ routineId: unrelated.id }),
+      await evidenceRun({ status: "running", finishedAt: null }),
+      await evidenceRun({ status: "skipped" }),
+    ];
+    const selfReview = await reviewRun(colleague.id);
+    invalid.push(await evidenceRun({ routineId: selfReview.routineId }));
+    for (const run of invalid)
+      await assert.rejects(
+        createRevisionProposal(companyId, colleague.id, sharedInput([run.id])),
+        /Evidence must/,
+      );
+    await assert.rejects(
+      createRevisionProposal(companyId, colleague.id, soulInput([target.id])),
+      /Evidence must/,
+    );
+    const proposal = await createRevisionProposal(
+      companyId,
+      colleague.id,
+      sharedInput([own.id, target.id]),
+    );
+    assert.deepEqual(serializeRevisionProposal(proposal).evidenceRunIds, [own.id, target.id]);
+  });
+
+  test("clearing participation prevents create and apply but leaves an inert proposal rejectable", async () => {
+    const { colleague, receipt } = await participant();
+    const proposal = await createRevisionProposal(companyId, colleague.id, sharedInput());
+    await AppDataSource.getRepository(RoutineChatMessage).delete(receipt.id);
+    await assert.rejects(
+      applyRevisionProposal(proposal, { userId: testId("owner") }),
+      /participation/,
+    );
+    assert.equal((await getRevisionProposal(companyId, proposal.id))?.status, "pending");
+    assert.equal(
+      (await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id })).body,
+      routine.body,
+    );
+    await rejectRevisionProposal(proposal, {
+      userId: testId("owner"),
+      note: "Participation ended.",
+    });
+    await assert.rejects(
+      createRevisionProposal(companyId, colleague.id, sharedInput()),
+      /participation/,
+    );
+  });
+
+  test("target deletion or transfer to a foreign company fails closed at apply", async () => {
+    const { colleague } = await participant();
+    const proposal = await createRevisionProposal(companyId, colleague.id, sharedInput());
+    const foreign = await insert(AIEmployee, {
+      role: "Reviewer",
+      companyId: randomUUID(),
+      name: "Foreign",
+      slug: randomUUID(),
+    });
+    await AppDataSource.getRepository(Routine).update(routine.id, { employeeId: foreign.id });
+    await assert.rejects(
+      applyRevisionProposal(proposal, { userId: testId("owner") }),
+      /participation/,
+    );
+    assert.equal(await AppDataSource.getRepository(JournalEntry).count(), 0);
+    await AppDataSource.getRepository(Routine).delete(routine.id);
+    await assert.rejects(applyRevisionProposal(proposal, { userId: testId("owner") }), /not yours/);
+  });
+
+  test("same-company reassignment uses the current owner and never transfers ownership back", async () => {
+    const { colleague } = await participant();
+    const proposal = await createRevisionProposal(companyId, colleague.id, sharedInput());
+    const successor = await insert(AIEmployee, {
+      role: "Reviewer",
+      companyId,
+      name: "Successor",
+      slug: randomUUID(),
+    });
+    await AppDataSource.getRepository(Routine).update(routine.id, { employeeId: successor.id });
+    await applyRevisionProposal(proposal, { userId: testId("owner") });
+    assert.equal(
+      (await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id })).employeeId,
+      successor.id,
+    );
+    assert.deepEqual(
+      new Set(
+        (await AppDataSource.getRepository(JournalEntry).find()).map((row) => row.employeeId),
+      ),
+      new Set([colleague.id, successor.id]),
+    );
+  });
+
+  test("owner and different participants race for a single pending target and stale decisions are refused", async () => {
+    const first = await participant();
+    const second = await participant();
+    const results = await Promise.allSettled(
+      [employee.id, first.colleague.id, second.colleague.id].map((id) =>
+        createRevisionProposal(companyId, id, sharedInput()),
+      ),
+    );
+    assert.equal(results.filter((row) => row.status === "fulfilled").length, 1);
+    assert.equal(await AppDataSource.getRepository(RevisionProposal).count(), 1);
+    const proposal = await AppDataSource.getRepository(RevisionProposal).findOneByOrFail({
+      status: "pending",
+    });
+    const decisions = await Promise.allSettled([
+      applyRevisionProposal(proposal, { userId: testId("owner") }),
+      rejectRevisionProposal(proposal, { userId: testId("owner") }),
+    ]);
+    assert.equal(decisions.filter((row) => row.status === "fulfilled").length, 1);
+    assert.equal(
+      await AppDataSource.getRepository(AuditEvent).countBy({ targetId: proposal.id }),
+      1,
+    );
+  });
+
+  test("another participant cannot repeat the same rejected automatic suggestion without new evidence", async () => {
+    const first = await participant();
+    const second = await participant();
+    const old = await evidenceRun();
+    const priorReview = await reviewRun(first.colleague.id);
+    const proposal = await createRevisionProposal(
+      companyId,
+      first.colleague.id,
+      sharedInput([old.id]),
+      { reviewRunId: priorReview.id },
+    );
+    await rejectAt(proposal, "2025-01-10T00:00:00Z");
+    const review = await reviewRun(second.colleague.id);
+    await assert.rejects(
+      createRevisionProposal(companyId, second.colleague.id, sharedInput([old.id]), {
+        reviewRunId: review.id,
+      }),
+      /new work finished after/,
+    );
+    const latest = await evidenceRun({ finishedAt: new Date("2025-01-11T00:00:00Z") });
+    const retry = await createRevisionProposal(
+      companyId,
+      second.colleague.id,
+      sharedInput([latest.id]),
+      { reviewRunId: review.id },
+    );
+    assert.equal(retry.status, "pending");
+    await assert.rejects(
+      createRevisionProposal(companyId, second.colleague.id, soulInput(), {
+        reviewRunId: review.id,
+      }),
+      /already created a proposal/,
+    );
+  });
+});
+
+test("concurrent distinct own revisions each persist their notification on SQLite", async () => {
+  const employees: AIEmployee[] = [];
+  for (let index = 0; index < 8; index++) {
+    employees.push(
+      await insert(AIEmployee, {
+        companyId,
+        name: `Reviewer ${index}`,
+        slug: randomUUID(),
+        role: "Reviewer",
+        soulBody: "Cite sources.",
+      }),
+    );
+  }
+  const results = await Promise.allSettled(
+    employees.map((colleague, index) =>
+      createRevisionProposal(companyId, colleague.id, {
+        kind: "soul",
+        proposedBody: `Cite sources and include verification step ${index}.`,
+        rationale: "The work needs a clear verification step.",
+      }),
+    ),
+  );
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, employees.length);
+  const proposals = await AppDataSource.getRepository(RevisionProposal).findBy({ companyId });
+  const notifications = await AppDataSource.getRepository(Notification).findBy({
+    companyId,
+    kind: "revision_pending",
+  });
+  assert.equal(proposals.length, employees.length);
+  assert.equal(notifications.length, employees.length);
+  assert.deepEqual(
+    new Set(notifications.map((row) => row.entityId)),
+    new Set(proposals.map((row) => row.id)),
+  );
+  assert.ok(notifications.every((row) => row.createdAt instanceof Date));
 });

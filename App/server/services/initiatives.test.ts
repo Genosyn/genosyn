@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
+import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AppDataSource } from "../db/datasource.js";
-import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId, testId } from "../test/dbHarness.js";
+import {
+  closeTestDb,
+  initTestDb,
+  insert,
+  resetTestDb,
+  testCompanyId,
+  testId,
+} from "../test/dbHarness.js";
 import {
   InitiativeError,
   acceptInitiative,
@@ -31,6 +39,7 @@ beforeEach(async () => {
   await resetTestDb();
   companyId = testCompanyId();
   ownerId = testId("owner");
+  await insert(Company, { id: companyId, name: "Ideas", slug: testId("company"), ownerId });
   employee = await insert(AIEmployee, {
     companyId,
     name: "Ada",
@@ -57,7 +66,7 @@ async function propose(title = "Stale deals go unchased") {
     title,
     evidence: "Eleven deals sat untouched past 14 days last month; three died silently.",
     proposal: "A weekly sweep that chases every stale deal costs one run and saves the quarter.",
-    routineSpec: spec(),
+    routineSpec: spec({ body: `Investigate ${title} and follow up from current evidence.` }),
   });
 }
 

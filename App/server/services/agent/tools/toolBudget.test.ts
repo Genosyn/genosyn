@@ -186,7 +186,11 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * is paid on the miss case of an unrelated search and buys an accurate
  * inventory. ~2,700 characters remain for the returned schemas.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 5_300;
+// Daily work, participation, Todo details and Initiative feedback add deferred
+// readers whose exact names must remain discoverable. The resident tool budget
+// is unchanged; this small footer allowance still leaves 2,600 characters at
+// the minimum result cap for returned schemas.
+const DOMAIN_FOOTER_CHARS_MAX = 5_400;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
@@ -337,7 +341,10 @@ describe("catalogue invariants", () => {
       [],
       "unindexed tools are unreachable through find_tools",
     );
-    assert.deepEqual(indexed.filter((n) => !known.has(n)), []);
+    assert.deepEqual(
+      indexed.filter((n) => !known.has(n)),
+      [],
+    );
   });
 
   test("signing stays granular, ranked, and cannot complete a recipient signature", () => {

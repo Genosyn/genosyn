@@ -10,10 +10,9 @@ export function Improvement() {
           <>
             The <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> says whether the
             work was any good. AI Employees review their own work every week by default and suggest
-            concrete improvements for a human to review.{" "}
-            <Strong>Lessons</Strong> feed the next Run&apos;s brief automatically, and{" "}
-            <Strong>Revision proposals</Strong> let an AI Employee stage a durable fix to its own
-            playbook — applied only when a human says so.
+            concrete improvements for a human to review. <Strong>Lessons</Strong> feed the next
+            Run&apos;s brief automatically, and <Strong>Revision proposals</Strong> let an AI
+            Employee stage a durable fix to its own playbook — applied only when a human says so.
           </>
         }
       />
@@ -21,11 +20,11 @@ export function Improvement() {
       <H2 id="self-review">Review improvement suggestions</H2>
       <P>
         Open <DocLink to="/docs/reactivity">Proactive</DocLink> and select
-        <Strong> Review suggestions</Strong> beside <Strong>Your standing work</Strong>.
-        Suggestions appear on the existing <Strong>Revisions</Strong> page with the proposed
-        before/after change, its rationale, and the evidence behind it. An owner or admin can
-        choose <Strong>Apply</Strong> or <Strong>Reject</Strong> and leave a note. Every Member can
-        read the suggestions; an AI Employee never applies its own revision.
+        <Strong> Review suggestions</Strong> beside <Strong>Your standing work</Strong>. Suggestions
+        appear on the existing <Strong>Revisions</Strong> page with the proposed before/after
+        change, its rationale, and the evidence behind it. An owner or admin can choose{" "}
+        <Strong>Apply</Strong> or <Strong>Reject</Strong> and leave a note. Every Member can read
+        the suggestions; an AI Employee never applies its own revision.
       </P>
       <P>
         With <Strong>Automatic setup</Strong> on, Genosyn assigns <Strong>Improve my work</Strong>
@@ -37,22 +36,41 @@ export function Improvement() {
       </P>
       <P>
         Each review considers the employee&apos;s recent Runs and Lessons, email handovers,
-        Repository Work sessions, and feedback on earlier revisions. It proposes at most one
-        concrete, evidence-backed change per review. Pending suggestions and earlier rejection
-        notes prevent repeated proposals; without new evidence, the review stays quiet. Suggestions
-        use the normal Revisions notifications described below.
+        Repository Work sessions, successful contributions to other Routines, and feedback on
+        earlier revisions. It proposes at most one concrete, evidence-backed change per review.
+        Pending suggestions and earlier rejection notes prevent repeated proposals; without new
+        evidence, the review stays quiet. Suggestions use the normal Revisions notifications
+        described below.
       </P>
       <P>
         <Strong>Improve my work</Strong> is limited to reading its own work evidence, keeping track
-        of its review, and staging a revision to its own Soul, Skills, or Routine instructions.
-        It cannot apply edits, send email, change business records, or propose changes to acceptance
-        criteria or Checks. A human still decides whether a suggested revision should take effect.
+        of its review, and staging a revision to its own Soul, Skills, or eligible Routine
+        instructions. It cannot apply edits, send email, change business records, or propose changes
+        to acceptance criteria or Checks. A human still decides whether a suggested revision should
+        take effect.
+      </P>
+      <H2 id="participating-routines">Improve Routines you help with</H2>
+      <P>
+        An AI Employee that successfully contributes through a Routine&apos;s{" "}
+        <Strong>Ask AI</Strong>
+        conversation can suggest an improvement to that Routine&apos;s brief, even when another
+        employee owns it. A mention, unfinished answer or failed contribution does not qualify. The
+        work review includes the recorded contribution and recent finished Runs of that exact
+        Routine. The employee reads the current complete brief before proposing a replacement.
       </P>
       <P>
-        After a human applies a revision, later reviews compare meaningful subsequent outcomes
-        with the problem the change was intended to fix. Applying a change alone does not prove
-        the work improved. If there is not enough later evidence, the employee waits before
-        drawing a conclusion or proposing another change.
+        Shared suggestions show the Routine owner in the target label. The proposer&apos;s and
+        owner&apos;s managing Members are notified alongside company admins. One pending brief
+        suggestion covers the target across all employees. Apply checks current participation,
+        company ownership and document changes again; clearing the Ask AI history removes that
+        participation. Helping with a Routine does not grant direct editing or access to another
+        employee&apos;s Soul, Skills, acceptance criteria or Checks.
+      </P>
+      <P>
+        After a human applies a revision, later reviews compare meaningful subsequent outcomes with
+        the problem the change was intended to fix. Applying a change alone does not prove the work
+        improved. If there is not enough later evidence, the employee waits before drawing a
+        conclusion or proposing another change.
       </P>
 
       <Callout kind="info" title='"Lesson" is the word.'>
@@ -127,13 +145,10 @@ export function Improvement() {
       <H2 id="revision-proposals">Revision proposals</H2>
       <P>
         A Lesson is a sticky note; some fixes belong in the document. This is approval-gated
-        self-modification on the maker-checker pattern <DocLink to="/docs/finance">Finance</DocLink>
-        {" "}
-        already uses: the AI proposes, a human decides, and nothing changes in between. Using the
-        {" "}
+        self-modification on the maker-checker pattern <DocLink to="/docs/finance">Finance</DocLink>{" "}
+        already uses: the AI proposes, a human decides, and nothing changes in between. Using the{" "}
         <Code>propose_revision</Code> tool, an AI Employee stages a{" "}
-        <Strong>complete replacement body</Strong> — never a fragment — for one of four targets, all
-        its own:
+        <Strong>complete replacement body</Strong> — never a fragment — for one of four targets:
       </P>
       <UL>
         <LI>
@@ -143,11 +158,12 @@ export function Improvement() {
           One of its <DocLink to="/docs/skills">Skills</DocLink>.
         </LI>
         <LI>
-          A <DocLink to="/docs/routines">Routine</DocLink>&apos;s brief.
+          A <DocLink to="/docs/routines">Routine</DocLink>&apos;s brief that it owns or has
+          successfully helped with through Ask AI.
         </LI>
         <LI>
-          A Routine&apos;s acceptance criteria — including clearing them, which is a legitimate
-          proposal: empty criteria switch the outcome check off.
+          Its own Routine&apos;s acceptance criteria — including clearing them, which is a
+          legitimate proposal: empty criteria switch the outcome check off.
         </LI>
       </UL>
       <P>
@@ -164,8 +180,7 @@ export function Improvement() {
 
       <H2 id="revisions-page">The Revisions page</H2>
       <P>
-        Pending proposals queue on the <Strong>Revisions</Strong> page, in the <Strong>AI</Strong>
-        {" "}
+        Pending proposals queue on the <Strong>Revisions</Strong> page, in the <Strong>AI</Strong>{" "}
         nav group. Each one renders as a before/after diff of the target document beside the
         rationale and evidence, with two buttons — <Strong>Apply</Strong> and{" "}
         <Strong>Reject</Strong> — and an optional note that travels with the decision. Owners and
@@ -181,8 +196,7 @@ export function Improvement() {
         <LI>
           <Strong>Who hears about it</Strong> — owners, admins, and the employee&apos;s manager get
           a bell when a proposal lands. One still pending after <Strong>24 hours</Strong> re-pages
-          the same audience exactly once, the same stall sweep that guards unanswered Approvals and
-          {" "}
+          the same audience exactly once, the same stall sweep that guards unanswered Approvals and{" "}
           <DocLink to="/docs/decisions">Decisions</DocLink>.
         </LI>
         <LI>

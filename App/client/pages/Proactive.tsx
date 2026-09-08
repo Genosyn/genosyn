@@ -81,15 +81,16 @@ export default function Proactive({ company }: { company: Company }) {
       <div>
         <TopBar title="Proactive" />
         <p className="mt-2 text-sm text-slate-500">
-          Your AI Employees take responsibility for incoming requests and work that needs
-          follow-through.
+          Your AI Employees move work forward, follow through on commitments, and suggest better
+          ways to run your company.
         </p>
       </div>
       <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
         Proactive work is on by default. Genosyn assigns ready work as AI Employees get a connected
         AI Model and the required resources and Grants, with one automatic assignment for each
-        responsibility. The Soul guides their judgement; Grants and company Policies control what
-        they can do.
+        shared responsibility. Every ready employee also gets a daily review of its responsibilities
+        and a weekly review of its work. The Soul guides their judgement; Grants and company
+        Policies control what they can do.
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-medium">
           <Link to={`/c/${company.slug}/employees`}>
             AI Employees <span aria-hidden="true">→</span>
@@ -151,6 +152,26 @@ export default function Proactive({ company }: { company: Company }) {
                 : "Off: Genosyn will not make new automatic assignments. You can still customize work below."}{" "}
               Turning this off only affects future assignments. Existing work keeps running; use
               Pause on each responsibility to stop future starts.
+            </p>
+          </section>
+          <section
+            aria-labelledby="daily-ownership-title"
+            className="rounded-xl border border-slate-200 p-5 dark:border-slate-800"
+          >
+            <h2 id="daily-ownership-title" className="text-base font-semibold">
+              A useful next step, every day
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Advance my responsibilities reviews assigned work, deadlines, resolved blockers,
+              commercial follow-ups, and changes in granted company knowledge. AI Employees inspect
+              the evidence, complete useful authorized steps, and track what needs to happen next.
+              They also suggest improvements to Routines they help with and new Routines for
+              recurring gaps.
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              New Routine suggestions appear in Proposed Initiatives. Changes to existing work
+              appear in Review suggestions. Previous feedback and existing work guide the next
+              suggestion; unchanged checks stay quiet.
             </p>
           </section>
           <section aria-labelledby="active-work-title" className="space-y-3">

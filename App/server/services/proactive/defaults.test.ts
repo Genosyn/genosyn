@@ -88,6 +88,10 @@ test("scope ownership prevents worker changes and extra mailboxes duplicating co
     proactiveScope("improve-own-work", null, "a"),
     proactiveScope("improve-own-work", null, "b"),
   );
+  assert.notEqual(
+    proactiveScope("advance-responsibilities", null, "a"),
+    proactiveScope("advance-responsibilities", null, "b"),
+  );
 });
 
 test("default-on planning selects one ready worker per scope and prioritizes their follow-through", () => {
@@ -115,12 +119,16 @@ test("default-on planning selects one ready worker per scope and prioritizes the
   assert.equal(plan.filter((input) => input.recipeId === "improve-own-work").length, 2);
   assert.deepEqual(
     plan.slice(0, 2).map((input) => input.recipeId),
+    ["advance-responsibilities", "advance-responsibilities"],
+  );
+  assert.deepEqual(
+    plan.slice(2, 4).map((input) => input.recipeId),
     ["work-followthrough", "work-followthrough"],
   );
   assert.ok(plan.every((input) => input.delivery === "draft"));
 });
 
-test("each ready employee gets its own review without Grants or unrelated follow-through", () => {
+test("each ready employee gets daily ownership and a review without extra Grants or half-hourly follow-through", () => {
   const overview = fixture();
   overview.mailboxes = [];
   for (const employee of overview.employees) {
@@ -135,14 +143,24 @@ test("each ready employee gets its own review without Grants or unrelated follow
   const plan = planProactiveDefaults(overview);
   assert.deepEqual(
     plan.map((input) => input.recipeId),
-    ["improve-own-work", "improve-own-work"],
+    [
+      "advance-responsibilities",
+      "advance-responsibilities",
+      "improve-own-work",
+      "improve-own-work",
+    ],
   );
-  assert.deepEqual(plan.map((input) => input.employeeId).sort(), ["employee-a", "employee-b"]);
+  assert.deepEqual(plan.map((input) => input.employeeId).sort(), [
+    "employee-a",
+    "employee-a",
+    "employee-b",
+    "employee-b",
+  ]);
   assert.ok(plan.every((input) => input.accountId === null && input.delivery === "draft"));
   overview.employees[0].modelReady = false;
   assert.deepEqual(
     planProactiveDefaults(overview).map((input) => input.employeeId),
-    ["employee-a"],
+    ["employee-a", "employee-a"],
   );
   assert.deepEqual(planProactiveDefaults(overview, new Set(["employee-a"])), []);
 });
@@ -152,6 +170,9 @@ test("existing reviews do not seed follow-through and paused or deleted review a
   overview.mailboxes = [];
   overview.defaultAssignments[proactiveScope("discover-improvements", null, "former-owner")] =
     "deleted-discovery";
+  for (const employee of overview.employees)
+    overview.defaultAssignments[proactiveScope("advance-responsibilities", null, employee.id)] =
+      "deleted-daily";
   const ownReview = (employeeId: string) =>
     installation({
       recipeId: "improve-own-work",

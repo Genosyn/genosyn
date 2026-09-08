@@ -46,6 +46,7 @@ export function planProactiveDefaults(
         (row) =>
           row.enabled &&
           row.recipeId !== "work-followthrough" &&
+          row.recipeId !== "advance-responsibilities" &&
           row.recipeId !== "improve-own-work",
       )
       .map((row) => row.employeeId),
@@ -110,6 +111,14 @@ export function planProactiveDefaults(
       }
     }
   }
+  // Daily ownership covers every ready employee. Its own schedule continues
+  // due work, so it alone does not add a half-hourly follow-through Routine.
+  const daily = overview.recipes.find((recipe) => recipe.id === "advance-responsibilities");
+  if (daily) {
+    for (const employee of employees) {
+      if (proactiveReadiness(daily, employee, undefined).length === 0) add(daily, employee);
+    }
+  }
   // Every ready employee reviews its own results, even without other standing
   // business work. Owning this review alone does not require follow-through.
   const selfReview = overview.recipes.find((recipe) => recipe.id === "improve-own-work");
@@ -121,13 +130,15 @@ export function planProactiveDefaults(
   }
   return plan.sort((left, right) => {
     const priority = (input: ProactiveSetupInput) =>
-      input.recipeId === "work-followthrough"
+      input.recipeId === "advance-responsibilities"
         ? 0
-        : overview.recipes.find((recipe) => recipe.id === input.recipeId)?.kind === "email"
+        : input.recipeId === "work-followthrough"
           ? 1
-          : input.recipeId === "improve-own-work"
+          : overview.recipes.find((recipe) => recipe.id === input.recipeId)?.kind === "email"
             ? 2
-            : 3;
+            : input.recipeId === "improve-own-work"
+              ? 3
+              : 4;
     return priority(left) - priority(right);
   });
 }

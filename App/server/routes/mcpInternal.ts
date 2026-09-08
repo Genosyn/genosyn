@@ -159,14 +159,7 @@ import {
   readBrowserActionPayload,
 } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
-import { Decision } from "../db/entities/Decision.js";
-import {
-  MAX_DECISION_OPTIONS,
-  cancelDecision,
-  createDecision,
-  expireStaleDecisions,
-  parseDecisionOptions,
-} from "../services/decisions.js";
+import { MAX_DECISION_OPTIONS, cancelDecision, createDecision } from "../services/decisions.js";
 import { decideDecisionAsEmployee, kickoffRoutedDecision } from "../services/decisionRouting.js";
 import { WakeupError, cancelWakeup, scheduleWakeup } from "../services/wakeups.js";
 import {
@@ -177,7 +170,21 @@ import {
   serializeWorkstream,
   updateWorkstream,
 } from "../services/workstreams.js";
-import { InitiativeError, proposeInitiative } from "../services/initiatives.js";
+import {
+  InitiativeError,
+  proposeInitiative,
+} from "../services/initiatives.js";
+import { getInitiativeReview, getInitiativeDetailReview } from "../services/proactive/initiativeReview.js";
+import { getProactiveWork } from "../services/proactive/work.js";
+import { getTodoForEmployee, TodoReaderError } from "../services/proactive/todoReader.js";
+import {
+  listEmployeeDecisionInbox,
+  serializeEmployeeDecision,
+} from "../services/proactive/decisionInbox.js";
+import {
+  getParticipatingRoutine,
+  findRoutineParticipation,
+} from "../services/routineParticipation.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
@@ -8738,12 +8745,18 @@ mcpInternalRouter.post(
         body.kind === "skill" ? "skill" : "routine",
         body.target,
       );
+      // Shared brief suggestions use an exact ID from recorded participation;
+      // a coincidental name or mention must not widen target resolution.
+      if (!targetId && body.kind === "routine_body" && UUID_RE.test(body.target)) {
+        targetId =
+          (await findRoutineParticipation(co.id, self.id, body.target))?.routine.id ?? null;
+      }
       if (!targetId) {
         return res.status(404).json({
           error:
             body.kind === "skill"
               ? "No skill of yours matches that — proposals cover only your own surfaces"
-              : "No routine of yours matches that — proposals cover only your own surfaces",
+              : "No eligible Routine matches. For a Routine you helped with, use its exact ID and propose only a brief revision.",
         });
       }
     }
@@ -9756,6 +9769,36 @@ mcpInternalRouter.post(
       order: { sortOrder: "ASC", createdAt: "ASC" },
     });
     res.json({ project: serializeProject(p), todos: todos.map(serializeTodo) });
+  },
+);
+
+const getTodoSchema = z
+  .object({
+    todoId: z.string().uuid(),
+    descriptionOffset: z.number().int().min(0).max(100_000).optional(),
+    commentsOffset: z.number().int().min(0).max(100_000).optional(),
+    commentId: z.string().uuid().optional(),
+    commentBodyOffset: z.number().int().min(0).max(100_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_todo",
+  validateBody(getTodoSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await getTodoForEmployee({
+          ...(req.body as z.infer<typeof getTodoSchema>),
+          companyId: req.mcpCompany!.id,
+          employeeId: req.mcpEmployee!.id,
+          additionalActors: mcpProjectActors(req).filter((actor) => actor.kind === "user"),
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof TodoReaderError)) return next(error);
+      res.status(error.status).json({ error: error.message });
+    }
   },
 );
 
@@ -12383,6 +12426,7 @@ mcpInternalRouter.post(
 
 const listDecisionsSchema = z
   .object({
+    direction: z.enum(["raised", "assigned", "both"]).optional(),
     status: z.enum(["pending", "decided", "cancelled", "expired"]).optional(),
     limit: z.number().int().min(1).max(100).optional(),
   })
@@ -12395,29 +12439,13 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listDecisionsSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    await expireStaleDecisions(co.id);
-    const rows = await AppDataSource.getRepository(Decision).find({
-      where: {
-        companyId: co.id,
-        employeeId: self.id,
-        ...(body.status ? { status: body.status } : {}),
-      },
-      order: { createdAt: "DESC" },
-      take: body.limit ?? 20,
+    const rows = await listEmployeeDecisionInbox({
+      companyId: co.id,
+      employeeId: self.id,
+      ...body,
     });
     res.json({
-      decisions: rows.map((d) => ({
-        id: d.id,
-        title: d.title,
-        status: d.status,
-        urgency: d.urgency,
-        options: parseDecisionOptions(d.optionsJson).map((o) => ({ id: o.id, label: o.label })),
-        chosenOptionId: d.chosenOptionId,
-        chosenOptionLabel: d.chosenOptionLabel,
-        note: d.note,
-        decidedAt: d.decidedAt?.toISOString() ?? null,
-        createdAt: d.createdAt.toISOString(),
-      })),
+      decisions: rows.map(serializeEmployeeDecision),
     });
   },
 );
@@ -12708,6 +12736,77 @@ mcpInternalRouter.post(
       ...(body.all ? {} : { status: "active" as const }),
     });
     res.json({ workstreams: rows.map(serializeWorkstream) });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_proactive_work",
+  validateBody(z.object({ area: z.enum(["commitments", "commercial", "knowledge"]) }).strict()),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(await getProactiveWork(req.mcpCompany!.id, req.mcpEmployee!.id, req.body.area));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_participating_routine",
+  validateBody(
+    z
+      .object({
+        routineId: z.string().uuid(),
+        bodyOffset: z.number().int().min(0).max(1_000_000).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await getParticipatingRoutine(req.mcpCompany!.id, req.mcpEmployee!.id, req.body.routineId, {
+          bodyOffset: req.body.bodyOffset,
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_initiatives",
+  validateBody(
+    z
+      .object({
+        status: z.enum(["pending", "accepted", "declined"]).optional(),
+        mine: z.boolean().optional(),
+        offset: z.number().int().min(0).max(10_000).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(await getInitiativeReview(req.mcpCompany!.id, req.mcpEmployee!.id, req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_initiative",
+  validateBody(z.object({
+    initiativeId: z.string().uuid(),
+    section: z.enum(["evidence", "proposal", "routineBody", "acceptanceCriteria", "reviewNote"]).optional(),
+    offset: z.number().int().min(0).max(1_000_000).optional(),
+  }).strict()),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(await getInitiativeDetailReview(req.mcpCompany!.id, req.body.initiativeId, req.body));
+    } catch (error) {
+      next(error);
+    }
   },
 );
 

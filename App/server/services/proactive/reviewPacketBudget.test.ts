@@ -106,6 +106,32 @@ function makePacket(count = 20, preview = text) {
       finishedAt: date,
       updatedAt: date,
     })),
+    participatingRoutines: rows(7, () => ({
+      routineId: id(14, 0),
+      routineName: preview.slice(0, 120),
+      ownerEmployeeId: id(15, 0),
+      ownerName: preview.slice(0, 120),
+      participationMessageId: id(16, 0),
+      participatedAt: date,
+      pendingRevisionId: id(3, 0),
+    })),
+    participatingRuns: rows(8, () => ({
+      routineId: id(14, 0),
+      routineName: preview.slice(0, 120),
+      status: "failed",
+      outcomeVerdict: null,
+      checksVerdict: "failed",
+      outcomeNote: preview,
+      summary: preview,
+      summaryIsPreview: true,
+      tokensIn: 100,
+      tokensOut: 200,
+      attempt: 1,
+      checkRemediations: 0,
+      durationMs: 60_000,
+      startedAt: date,
+      finishedAt: date,
+    })),
   };
 }
 
@@ -118,6 +144,8 @@ function sections(packet: Packet) {
     packet.revisions.decided,
     packet.mailHandovers,
     packet.repositoryWorkSessions,
+    packet.participatingRoutines,
+    packet.participatingRuns,
   ];
 }
 
@@ -148,11 +176,11 @@ test("a full snapshot preserves the newest evidence from every source and human 
   assert.deepEqual(boundWorkReviewPacket(source), bounded, "budgeting is deterministic");
   for (const [index, section] of sections(bounded).entries()) {
     const sourceSection = sections(source)[index];
-    assert.ok(section.items.length >= 1, `source ${index} keeps useful evidence`);
+    if (index < 6) assert.ok(section.items.length >= 1, `source ${index} keeps useful evidence`);
     assert.ok(section.items.length < sourceSection.items.length);
     assert.equal(section.truncated, true);
     assert.equal(section.limit, 20);
-    assert.equal(section.items[0].id, sourceSection.items[0].id);
+    if (section.items.length) assert.equal(section.items[0].id, sourceSection.items[0].id);
     assert.deepEqual(
       section.items.map((row) => row.id),
       sourceSection.items.slice(0, section.items.length).map((row) => row.id),
@@ -189,7 +217,8 @@ test("one oversized row per source shortens only marked excerpts and preserves e
   source.runs.items[0].truncatedFields.push("summary");
   const bounded = boundWorkReviewPacket(source);
   assertFits(bounded);
-  for (const section of sections(bounded)) assert.equal(section.items.length, 1);
+  for (const section of sections(bounded).slice(0, 6)) assert.equal(section.items.length, 1);
+  assert.equal(bounded.participatingRuns.truncated, true);
   assert.equal(bounded.runs.truncated, true);
   assert.equal(bounded.lessons.truncated, false, "excerpt shortening does not claim omitted rows");
   const fields = bounded.runs.items[0].truncatedFields;
@@ -201,8 +230,8 @@ test("escaped Unicode previews stay inside the exact pretty-printed transport bu
   const source = makePacket(20, '\\"\n🧭'.repeat(70));
   const bounded = boundWorkReviewPacket(source);
   assertFits(bounded);
-  for (const section of sections(bounded)) {
-    assert.ok(section.items.length >= 1);
+  for (const [index, section] of sections(bounded).entries()) {
+    if (index < 6) assert.ok(section.items.length >= 1);
     for (const row of section.items) {
       for (const field of row.truncatedFields) {
         const excerpt = row[field];
