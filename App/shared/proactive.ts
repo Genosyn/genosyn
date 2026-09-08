@@ -35,6 +35,7 @@ export type ProactiveMailbox = {
   address: string;
   status: string;
   analysisEnabled: boolean;
+  analysisReady: boolean;
 };
 export type ProactiveInstallation = {
   id: string;
@@ -71,6 +72,10 @@ export function proactiveReadiness(
         missing.push("Reconnect or resume this mailbox in Email → Settings.");
       if (recipe.kind === "email" && !mailbox.analysisEnabled)
         missing.push("Turn on AI analysis in Email → Settings.");
+      else if (recipe.kind === "email" && !mailbox.analysisReady)
+        missing.push(
+          "Choose an AI analysis reader with mailbox Read access and a connected AI Model in Email → Settings.",
+        );
       const access = employee.mailGrants.find((g) => g.accountId === mailbox.id)?.accessLevel;
       const needsSend = recipe.kind === "email" && delivery === "soul";
       if (needsSend ? access !== "send" : access !== "draft" && access !== "send") {

@@ -156,6 +156,7 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   assert.equal(view.employees.length, 1);
   assert.equal(view.employees[0].modelReady, true);
   assert.equal(view.employees[0].mailGrants.length, 1);
+  assert.equal(view.mailboxes[0].analysisReady, true);
   assert.doesNotMatch(JSON.stringify(view), /do-not-serialize|soulBody|configJson/);
   assert.ok(!JSON.stringify(view).includes(other.id));
 });
@@ -303,6 +304,55 @@ test("foreign employees, mailboxes, and installations cannot be used", async () 
     404,
   );
   assert.equal((await request("PATCH", { enabled: false }, `/${randomUUID()}`)).status, 404);
+});
+
+for (const missing of ["model", "grant", "company"] as const) {
+  test(`a pinned analysis reader missing ${missing} blocks setup even when the worker is ready`, async () => {
+    const reader = await insert(AIEmployee, {
+      companyId: missing === "company" ? randomUUID() : company.id,
+      name: "Inbox reader",
+      slug: "inbox-reader",
+      role: "Triage",
+    });
+    if (missing !== "grant")
+      await insert(EmployeeMailAccountGrant, {
+        employeeId: reader.id,
+        accountId: account.id,
+        accessLevel: "read",
+      });
+    if (missing !== "model")
+      await insert(AIModel, {
+        employeeId: reader.id,
+        provider: "openai",
+        model: "test",
+        isActive: true,
+        configJson: JSON.stringify({ apiKeyEncrypted: "test-only" }),
+      });
+    await AppDataSource.getRepository(MailAccount).update(
+      { id: account.id },
+      { aiAnalysisEmployeeId: reader.id },
+    );
+    const overview = (await request()).body as ProactiveOverview;
+    assert.equal(overview.employees.find((row) => row.id === employee.id)?.modelReady, true);
+    assert.equal(overview.mailboxes[0].analysisReady, false);
+    const result = await request("POST", input());
+    assert.equal(result.status, 400);
+    assert.match(result.body.error, /AI analysis reader.*Read access.*connected AI Model/);
+    assert.equal(await AppDataSource.getRepository(MailRule).count(), 0);
+  });
+}
+
+test("a stale pinned analysis model uses the reader's connected active model", async () => {
+  await AppDataSource.getRepository(MailAccount).update(
+    { id: account.id },
+    {
+      aiAnalysisEmployeeId: employee.id,
+      aiAnalysisModelId: randomUUID(),
+    },
+  );
+  const overview = (await request()).body as ProactiveOverview;
+  assert.equal(overview.mailboxes[0].analysisReady, true);
+  assert.equal((await request("POST", input())).status, 200);
 });
 test("server schemas reject unknown authority fields, missing scope, and malformed input", async () => {
   for (const payload of [

@@ -24,6 +24,7 @@ import { nextRunFor } from "../cron.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { broadcastToCompany } from "../realtime.js";
 import { parseActions, parseConditions } from "../mail/rules.js";
+import { resolveAnalysisReader } from "../mail/analysis.js";
 import { PROACTIVE_RECIPES, PROACTIVE_WORK_GUIDANCE } from "./catalogue.js";
 import {
   proactiveReadiness,
@@ -87,6 +88,17 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
   const accountIds = new Set(accounts.map((account) => account.id));
   const repositoryIds = new Set(repositories.map((repository) => repository.id));
   const calendarIds = new Set(calendars.map((calendar) => calendar.id));
+  // Use the same resolver as incoming mail: its pinned employee may differ
+  // from the worker selected for this starter, and must retain a live Grant.
+  const mailboxes = await Promise.all(
+    accounts.map(async (account) => ({
+      id: account.id,
+      address: account.address,
+      status: account.status,
+      analysisEnabled: account.aiAnalysisEnabled,
+      analysisReady: account.aiAnalysisEnabled && Boolean(await resolveAnalysisReader(account)),
+    })),
+  );
   const employees = roster.map((employee) => {
     const brains = models.filter((model) => model.employeeId === employee.id);
     const active = brains.find((model) => model.id === effectiveActiveId(brains));
@@ -185,12 +197,7 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
       brief: `${recipe.brief}\n\n${PROACTIVE_WORK_GUIDANCE}`,
     })),
     employees,
-    mailboxes: accounts.map((account) => ({
-      id: account.id,
-      address: account.address,
-      status: account.status,
-      analysisEnabled: account.aiAnalysisEnabled,
-    })),
+    mailboxes,
     installations,
   };
 }

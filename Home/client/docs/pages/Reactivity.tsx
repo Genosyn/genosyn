@@ -28,6 +28,11 @@ export function Reactivity() {
         standing work; every Member can see what is configured.
       </P>
       <P>
+        Email starters also need a working AI analysis reader in <Strong>Email → Settings</Strong>.
+        That reader can be different from the employee doing the work; it needs mailbox Read
+        access and a connected AI Model so new messages receive the categories that start work.
+      </P>
+      <P>
         An email starter creates an ordinary rule under <Strong>Email → Rules</Strong>. New
         incoming messages match the existing AI analysis category and are handed to the assigned
         employee; setup never replays historical mail. Turn on AI analysis in Email → Settings and

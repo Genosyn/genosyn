@@ -139,13 +139,33 @@ function reset() {
     recipes: structuredClone(PROACTIVE_RECIPES),
     installations: [],
     mailboxes: [
-      { id: "mailbox", address: "support@example.com", status: "active", analysisEnabled: true },
-      { id: "paused", address: "paused@example.com", status: "paused", analysisEnabled: true },
+      {
+        id: "mailbox",
+        address: "support@example.com",
+        status: "active",
+        analysisEnabled: true,
+        analysisReady: true,
+      },
+      {
+        id: "paused",
+        address: "paused@example.com",
+        status: "paused",
+        analysisEnabled: true,
+        analysisReady: true,
+      },
       {
         id: "analysis-off",
         address: "manual@example.com",
         status: "active",
         analysisEnabled: false,
+        analysisReady: false,
+      },
+      {
+        id: "reader-unready",
+        address: "unready@example.com",
+        status: "active",
+        analysisEnabled: true,
+        analysisReady: false,
       },
     ],
     employees: [
@@ -162,6 +182,7 @@ function reset() {
           { accountId: "mailbox", accessLevel: "draft" },
           { accountId: "paused", accessLevel: "draft" },
           { accountId: "analysis-off", accessLevel: "draft" },
+          { accountId: "reader-unready", accessLevel: "draft" },
         ],
       },
       {
@@ -323,6 +344,15 @@ try {
     await choose(page, "Mailbox", "manual@example.com");
     await page.getByText("Turn on AI analysis in Email → Settings.", { exact: true }).waitFor();
     assert.equal(await enable(page).isDisabled(), true);
+    await choose(page, "Mailbox", "unready@example.com");
+    await page
+      .getByText(
+        "Choose an AI analysis reader with mailbox Read access and a connected AI Model in Email → Settings.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(await enable(page).isDisabled(), true);
+    assert.deepEqual(installs, []);
   });
   await check(
     "installation sends the reviewed instruction and prevents duplicate setup",
@@ -362,6 +392,10 @@ try {
       [false, true],
     );
     await page.getByRole("link", { name: "Review work", exact: true }).click();
+    await page
+      .getByRole("status", { name: "Current route", exact: true })
+      .filter({ hasText: /^\/c\/company\/mail\/settings\/rules$/ })
+      .waitFor({ state: "attached" });
     assert.equal(
       await page.getByRole("status", { name: "Current route", exact: true }).textContent(),
       "/c/company/mail/settings/rules",
