@@ -3198,8 +3198,10 @@ export type WorkEmployeeRef = {
   avatarKey: string | null;
 };
 
-/** Everything a `run` entry's chips need, without a second request. */
+/** A Run's concise outcome and status, without a second request. */
 export type WorkEntryRun = {
+  /** A short outcome from the recorded Run, or null when none is available. */
+  summary: string | null;
   id: string;
   routineId: string;
   routineName: string;

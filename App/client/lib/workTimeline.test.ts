@@ -66,6 +66,7 @@ function entryOf(over: Partial<WorkEntry> = {}): WorkEntry {
     subject: "Nightly digest",
     detail: "",
     run: {
+      summary: null,
       id: "r1f6c1a2-0000-4000-8000-000000000003",
       routineId: "t1f6c1a2-0000-4000-8000-000000000004",
       routineName: "Nightly digest",
@@ -678,95 +679,192 @@ describe("an entry in sentences", () => {
   const at = "2026-09-03T11:00:00.000Z";
   const ended = "2026-09-03T11:03:00.000Z";
 
-  test("a finished run names the routine, the length, the changes and the verdict", () => {
-    const narrative = workNarrative(
-      entryOf({
-        at,
-        endedAt: ended,
-        effects: [
-          {
-            action: "invoice.create",
-            targetType: "invoice",
-            targetId: null,
-            targetLabel: "INV-1",
-            at,
-          },
-        ],
-        effectCount: 1,
-        run: {
-          ...entryOf().run!,
-          status: "completed",
-          outcomeVerdict: "achieved",
-          checksVerdict: "passed",
-        },
-      }),
-      { nowIso },
-    );
-    assert.match(narrative.headline, /^Rey ran the routine “Nightly digest”/);
-    assert.match(narrative.headline, /taking 3 minutes\.$/);
-    assert.equal(narrative.body[0], "It created an invoice.");
-    assert.match(narrative.body[1], /met the routine's acceptance criteria/);
-    assert.match(narrative.body[1], /Every Check on the routine passed\./);
-  });
+  const noisyEffects = Array.from({ length: 8 }, (_, index) => ({
+    action: "connection.invoke",
+    targetType: "connection",
+    targetId: `connection-${index}`,
+    targetLabel: `GitHub · list_issues_${index}`,
+    at,
+  }));
+  const summary =
+    "Reviewed GitHub activity and added 3 qualified Contacts. Sent 2 outreach emails.";
+  const finished = (run: Partial<NonNullable<WorkEntry["run"]>> = {}) =>
+    entryOf({
+      at,
+      endedAt: ended,
+      effects: noisyEffects,
+      effectCount: 17,
+      run: { ...entryOf().run!, summary, ...run },
+    });
 
-  test("a run still going is described in the present tense, never as finished", () => {
+  test("leads with the actual reported outcome and moves Routine context out of the result", () => {
     const narrative = workNarrative(
-      entryOf({
-        at,
-        endedAt: null,
-        active: true,
-        run: { ...entryOf().run!, status: "running", exitCode: null },
-      }),
-      { nowIso },
+      finished({ outcomeVerdict: "achieved", checksVerdict: "passed" }),
+      {
+        nowIso,
+      },
     );
-    assert.match(narrative.headline, /is still running, 1 hour so far\.$/);
-    assert.doesNotMatch(narrative.headline, /taking/);
+    assert.equal(narrative.headline, summary);
+    assert.equal(narrative.context, "Rey · Nightly digest · 3 minutes");
     assert.deepEqual(narrative.body, []);
+    assert.doesNotMatch(
+      workNarrativeText(finished()),
+      /connections|changes|list_issues|tools|ran the routine/i,
+    );
   });
 
-  test("a run that changed nothing says so instead of leaving it to be assumed", () => {
-    const narrative = workNarrative(entryOf({ at, endedAt: ended }), { nowIso });
-    assert.equal(narrative.body[0], "No changes were recorded for this run.");
+  test("an empty ledger does not replace a reported outcome with a no-work claim", () => {
+    const entry = finished();
+    const narrative = workNarrative({ ...entry, effects: [], effectCount: 0 }, { nowIso });
+    assert.equal(narrative.headline, summary);
+    assert.deepEqual(narrative.body, []);
+    assert.doesNotMatch(workNarrativeText(entry), /No changes|nothing happened/i);
   });
 
-  test("a skipped run says only that nothing ran, not that nothing changed", () => {
+  test("keeps a genuine no-action outcome when the employee recorded it", () => {
     const narrative = workNarrative(
-      entryOf({ at, endedAt: ended, run: { ...entryOf().run!, status: "skipped" } }),
-      { nowIso },
+      finished({ summary: "Reviewed all open issues. None required follow-up." }),
     );
-    assert.equal(narrative.body.length, 1);
-    assert.match(narrative.body[0], /no model was connected/);
+    assert.equal(narrative.headline, "Reviewed all open issues. None required follow-up.");
   });
 
-  test("an ungraded outcome is never reported as a clean one", () => {
-    const unverified = workNarrative(
-      entryOf({
-        at,
-        endedAt: ended,
-        run: { ...entryOf().run!, outcomeVerdict: "unverified" },
-      }),
-      { nowIso },
-    );
-    const unclear = workNarrative(
-      entryOf({ at, endedAt: ended, run: { ...entryOf().run!, outcomeVerdict: "unclear" } }),
-      { nowIso },
-    );
-    assert.match(unverified.body[1], /nothing graded the outcome/);
-    assert.match(unclear.body[1], /could not tell/);
-    assert.notEqual(unverified.body[1], unclear.body[1]);
+  for (const absent of [null, "", "  \n "] as const) {
+    test(`a missing outcome (${JSON.stringify(absent)}) does not turn audit counts into a result`, () => {
+      const narrative = workNarrative(finished({ summary: absent }), { nowIso });
+      assert.equal(narrative.headline, "No outcome summary is available for this run.");
+      assert.deepEqual(narrative.body, []);
+      assert.doesNotMatch(
+        workNarrativeText(finished({ summary: absent })),
+        /connections|changes|without errors/i,
+      );
+    });
+  }
+
+  test("an older response without the summary property has the same honest fallback", () => {
+    const entry = finished();
+    delete (entry.run as Partial<NonNullable<WorkEntry["run"]>>).summary;
+    assert.equal(workNarrative(entry).headline, "No outcome summary is available for this run.");
   });
 
-  test("a failure carries its exit code and a broken Check carries its warning", () => {
-    const narrative = workNarrative(
-      entryOf({
-        at,
-        endedAt: ended,
-        run: { ...entryOf().run!, status: "failed", exitCode: 2, checksVerdict: "failed" },
-      }),
-      { nowIso },
+  test("a missing Run payload remains readable without inventing a result", () => {
+    const narrative = workNarrative({ ...finished(), run: null }, { nowIso });
+    assert.equal(narrative.headline, "No outcome summary is available for this run.");
+    assert.equal(narrative.context, "Rey · Nightly digest · 3 minutes");
+  });
+
+  test("a live run suppresses stale summaries, verdicts and grader narration", () => {
+    const entry = finished({
+      outcomeVerdict: "achieved",
+      outcomeNote: "INTERNAL_TOOL_DETAIL",
+      checksVerdict: "passed",
+    });
+    entry.active = true;
+    entry.endedAt = null;
+    const narrative = workNarrative(entry, { nowIso });
+    assert.equal(
+      narrative.headline,
+      "This routine is still running. Its outcome will appear when it finishes.",
     );
-    assert.match(narrative.body[1], /failed with exit code 2/);
-    assert.match(narrative.body[1], /required Check did not hold/);
+    assert.equal(narrative.context, "Rey · Nightly digest · 1 hour so far");
+    assert.deepEqual(narrative.body, []);
+    assert.doesNotMatch(
+      workNarrativeText(entry, { nowIso }),
+      /qualified Contacts|INTERNAL_TOOL_DETAIL|criteria|Check/,
+    );
+  });
+
+  test("a running status alone does not override the server's inactive flag", () => {
+    const narrative = workNarrative(finished({ status: "running" }), { nowIso });
+    assert.equal(narrative.headline, "No outcome summary is available for this run.");
+    assert.doesNotMatch(narrative.headline, /still running|qualified Contacts/);
+  });
+
+  const stopped = [
+    ["failed", "This run failed. Open the run log for details."],
+    ["timeout", "This run ran out of time before it finished."],
+    ["skipped", "This routine did not run because no AI Model was assigned."],
+    ["interrupted", "This run was interrupted before it finished."],
+  ] as const;
+  for (const [status, expected] of stopped) {
+    for (const supplied of [null, summary]) {
+      test(`${status} states what happened even when a stale summary is ${supplied ? "present" : "absent"}`, () => {
+        const entry = finished({ status, summary: supplied, exitCode: 2 });
+        const narrative = workNarrative(entry, { nowIso });
+        assert.equal(narrative.headline, expected);
+        assert.deepEqual(narrative.body, []);
+        assert.doesNotMatch(
+          workNarrativeText(entry),
+          /qualified Contacts|connections|list_issues|exit code/,
+        );
+      });
+    }
+  }
+
+  const qualifications = [
+    ["achieved", ""],
+    ["off_goal", "The result did not meet the routine's acceptance criteria."],
+    ["unclear", "A grader could not confirm whether the goal was met."],
+    ["unverified", "The outcome has not been verified."],
+    [null, ""],
+  ] as const;
+  for (const [outcomeVerdict, expected] of qualifications) {
+    for (const checksVerdict of ["passed", "failed", "not_run", null] as const) {
+      test(`keeps outcome ${outcomeVerdict} and Checks ${checksVerdict} independent of a positive report`, () => {
+        const entry = finished({
+          outcomeVerdict,
+          checksVerdict,
+          outcomeNote: "INTERNAL_TOOL_DETAIL",
+        });
+        const narrative = workNarrative(entry, { nowIso });
+        assert.equal(narrative.headline, summary);
+        const qualification = expected
+          ? checksVerdict === "failed"
+            ? `${expected.slice(0, -1)}; a required Check failed.`
+            : expected
+          : checksVerdict === "failed"
+            ? "A required Check failed."
+            : "";
+        assert.deepEqual(narrative.body, qualification ? [qualification] : []);
+        assert.doesNotMatch(workNarrativeText(entry), /INTERNAL_TOOL_DETAIL|without errors/);
+      });
+    }
+  }
+
+  test("a failed Check remains visible when a Run also failed", () => {
+    const narrative = workNarrative(finished({ status: "failed", checksVerdict: "failed" }));
+    assert.equal(narrative.headline, "This run failed. Open the run log for details.");
+    assert.deepEqual(narrative.body, ["A required Check failed."]);
+  });
+
+  test("normalises only sentence whitespace and punctuation in the server's summary", () => {
+    const narrative = workNarrative(finished({ summary: "  Reviewed 3 Contacts  " }));
+    assert.equal(narrative.headline, "Reviewed 3 Contacts.");
+    assert.equal(
+      workNarrative(finished({ summary: "Does this need follow-up?" })).headline,
+      "Does this need follow-up?",
+    );
+    assert.equal(workNarrative(finished({ summary: "Updated the report…" })).headline, "Updated the report…");
+  });
+
+  test("uses the Routine payload name when the subject is absent", () => {
+    const entry = finished();
+    entry.subject = " ";
+    assert.equal(workNarrative(entry).context, "Rey · Nightly digest · 3 minutes");
+  });
+
+  test("missing names and invalid duration remain readable", () => {
+    const entry = finished({ routineName: "" });
+    entry.subject = "";
+    entry.at = "invalid";
+    assert.equal(workNarrative(entry).context, "Rey · Routine");
+  });
+
+  test("the chart's accessible narrative includes the outcome and its Routine context", () => {
+    const text = workNarrativeText(finished({ outcomeVerdict: "off_goal" }), { nowIso });
+    assert.match(text, /^Rey · Nightly digest · 3 minutes /);
+    assert.ok(text.includes(summary));
+    assert.match(text, /did not meet/);
+    assert.doesNotMatch(text, /list_issues|connections|changes/);
   });
 
   test("a pending Approval says a person still has to answer", () => {
@@ -789,26 +887,34 @@ describe("an entry in sentences", () => {
     );
   });
 
-  test("every kind produces a sentence that names the employee and ends in a full stop", () => {
+  test("every kind names the employee in its narrative and ends the headline in a full stop", () => {
     for (const kind of WORK_ENTRY_KINDS) {
       const narrative = workNarrative(
         entryOf({ kind, at, run: kind === "run" ? entryOf().run : null }),
         { nowIso },
       );
-      assert.match(narrative.headline, /^Rey /, kind);
+      assert.match(
+        [narrative.context, narrative.headline].filter(Boolean).join(" "),
+        /^Rey[ ·]/,
+        kind,
+      );
       assert.match(narrative.headline, /\.$/, kind);
     }
   });
 });
 
 describe("counting a window", () => {
-  test("names each kind and rolls every ledger row into one total", () => {
+  test("counts Routine work without counting its tool calls as changes", () => {
     const sentence = workCountsSentence([
       entryOf({ id: "a", effectCount: 3 }),
       entryOf({ id: "b", kind: "chat", run: null, effectCount: 1 }),
       entryOf({ id: "c", kind: "effect", run: null, effectCount: 0 }),
     ]);
-    assert.equal(sentence, "1 routine run, 1 conversation and 5 recorded changes");
+    assert.equal(sentence, "1 routine run, 1 conversation and 2 recorded changes");
+  });
+
+  test("a Routine with a large audit ledger contributes only one Run", () => {
+    assert.equal(workCountsSentence([entryOf({ effectCount: 100_000 })]), "1 routine run");
   });
 
   test("is empty rather than zeroed when nothing happened", () => {

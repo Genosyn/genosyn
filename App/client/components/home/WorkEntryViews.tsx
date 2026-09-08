@@ -114,18 +114,23 @@ function WorkKindChip({ kind }: { kind: WorkEntryKind }) {
 }
 
 /**
- * The entry in sentences: what the employee did, what it was working on, how
- * long it took, what it changed, and how it ended.
+ * The work outcome comes first; Routine context and any qualification stay
+ * quiet underneath it. Other kinds keep their existing descriptive narrative.
  */
 function WorkEntryNarrative({ entry, nowIso }: { entry: WorkEntry; nowIso: string }) {
   const narrative = workNarrative(entry, { nowIso });
   return (
     <div className="min-w-0">
-      <p className="text-sm font-medium leading-6 text-slate-900 dark:text-slate-100">
+      <p className="break-words text-sm font-medium leading-6 text-slate-900 dark:text-slate-100">
         {narrative.headline}
       </p>
+      {narrative.context && (
+        <p className="mt-1 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">
+          {narrative.context}
+        </p>
+      )}
       {narrative.body.length > 0 && (
-        <p className="mt-1 text-[13px] leading-6 text-slate-600 dark:text-slate-300">
+        <p className="mt-1 break-words text-[13px] leading-6 text-slate-600 dark:text-slate-300">
           {narrative.body.join(" ")}
         </p>
       )}
@@ -191,9 +196,9 @@ function WorkEffectList({ entry }: { entry: WorkEntry }) {
 }
 
 /**
- * One entry as a full block: when it happened, what kind it was, the sentences,
- * the Run verdicts, and the records it touched. Used inside the popup a chart
- * tile opens and inside an employee's own day.
+ * One entry in the chart popup and the employee's day. Routine results use a
+ * concise outcome with status chips; their detailed ledger stays in the Run
+ * log. Other kinds may still list the records they touched.
  */
 export function WorkEntryBlock({
   entry,
@@ -222,7 +227,7 @@ export function WorkEntryBlock({
       <div className="mt-2">
         <WorkEntryNarrative entry={entry} nowIso={nowIso} />
       </div>
-      {showEffects && <WorkEffectList entry={entry} />}
+      {showEffects && entry.kind !== "run" && <WorkEffectList entry={entry} />}
     </div>
   );
 }

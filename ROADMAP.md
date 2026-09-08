@@ -4704,6 +4704,13 @@ Two shapes replace the list, and there is deliberately no third.
       that employee alone, so one noisy colleague cannot crowd their window.
       Detail asked for is worth a whole panel; detail volunteered is a wall of
       text on a page whose other job is to be short.
+- [x] **Routine outcomes lead the detail.** Routine entries now show a concise
+      result from the recorded final report, with an outcome-assessment fallback
+      and honest copy when neither is available. Home's popup and employee day
+      omit tool and Connection counts and the individual effect ledger; **Open
+      the run log** retains the full report and evidence. Status, outcome and
+      Check badges stay independent: an employee's reported result does not
+      turn an unverified or failed Run into a verified success.
 
 Deliberately **not** in this milestone. A window control — the chart is a
 glance at today, the route already refuses to be a paging tool, and Settings →

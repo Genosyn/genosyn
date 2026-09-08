@@ -546,7 +546,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         The transcript is still the model&apos;s account of its own work. What the server recorded
         the Run actually changing is the separate <Strong>Effects</Strong> list beside it — see{" "}
-        <DocLink to="/docs/verification">what proves a Run worked</DocLink>.
+        <DocLink to="/docs/verification">what proves a Run worked</DocLink>. Home&apos;s{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> shows a concise outcome
+        summary with the Run&apos;s status and verification badges. Choose{" "}
+        <Strong>Open the run log</Strong> there to read the full report and inspect its evidence.
       </P>
       <P>
         A routine&apos;s full run history lives on its <Strong>Runs</Strong> tab — every Run,

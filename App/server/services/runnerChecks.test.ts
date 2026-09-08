@@ -19,6 +19,7 @@ import { createCheck, runChecksForRun } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
 import { stopStanddowns } from "./standdowns.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
+import { runWorkSummary } from "./runWorkSummary.js";
 
 /**
  * The check phase, from both ends.
@@ -42,6 +43,9 @@ let upstreamBaseUrl = "";
 let previousAllowlist: string[] = [];
 /** Every model turn served, so remediation rounds can be counted. */
 let upstreamTurns = 0;
+let completionText = "I have done what was asked.";
+let lastModelRequest = "";
+let rejectRemediation = false;
 
 let company: Company;
 let employee: AIEmployee;
@@ -49,9 +53,19 @@ let employee: AIEmployee;
 before(async () => {
   await initTestDb();
   upstream = createServer((request, response) => {
-    void drain(request).then(() => {
+    void drain(request).then((body) => {
+      lastModelRequest = body;
       upstreamTurns += 1;
-      sendCompletion(response, "I have done what was asked.");
+      if (rejectRemediation && upstreamTurns > 1) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            error: { message: "Remediation could not run", type: "invalid_request_error" },
+          }),
+        );
+        return;
+      }
+      sendCompletion(response, completionText);
     });
   });
   await new Promise<void>((resolve, reject) => {
@@ -73,10 +87,10 @@ after(async () => {
   await closeTestDb();
 });
 
-async function drain(request: IncomingMessage): Promise<void> {
-  for await (const _chunk of request) {
-    // Consume the body; its content is not what these tests are about.
-  }
+async function drain(request: IncomingMessage): Promise<string> {
+  let body = "";
+  for await (const chunk of request) body += String(chunk);
+  return body;
 }
 
 function sendCompletion(response: ServerResponse, text: string): void {
@@ -87,9 +101,7 @@ function sendCompletion(response: ServerResponse, text: string): void {
       object: "chat.completion.chunk",
       created: 1,
       model: "checks-test",
-      choices: [
-        { index: 0, delta: { role: "assistant", content: text }, finish_reason: "stop" },
-      ],
+      choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: "stop" }],
     })}\n\n`,
   );
   response.end("data: [DONE]\n\n");
@@ -99,6 +111,9 @@ beforeEach(async () => {
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   upstreamTurns = 0;
+  completionText = "I have done what was asked.";
+  lastModelRequest = "";
+  rejectRemediation = false;
   await resetTestDb();
   company = await insert(Company, {
     name: "Checks Co",
@@ -212,9 +227,14 @@ describe("runChecksForRun — the boundary the runner calls across", () => {
 
   test("`not_run` when every Check the Routine has is disabled", async () => {
     const routine = await makeRoutine();
-    await effectCheck(routine.id, "switched off", { action: "invoice.send", min: 1 }, {
-      enabled: false,
-    });
+    await effectCheck(
+      routine.id,
+      "switched off",
+      { action: "invoice.send", min: 1 },
+      {
+        enabled: false,
+      },
+    );
     const run = await makeRun(routine.id);
 
     const phase = await runChecksForRun({ ...checkParams(run, routine), attempt: 0 });
@@ -244,9 +264,14 @@ describe("runChecksForRun — the boundary the runner calls across", () => {
 
   test("an unsatisfied required Check fails the round; an advisory one does not", async () => {
     const routine = await makeRoutine();
-    await effectCheck(routine.id, "advisory only", { action: "invoice.send", min: 1 }, {
-      required: false,
-    });
+    await effectCheck(
+      routine.id,
+      "advisory only",
+      { action: "invoice.send", min: 1 },
+      {
+        required: false,
+      },
+    );
     const run = await makeRun(routine.id);
 
     const phase = await runChecksForRun({ ...checkParams(run, routine), attempt: 0 });
@@ -301,9 +326,7 @@ describe("runChecksForRun — the boundary the runner calls across", () => {
     });
     const run = await makeRun(routine.id);
     const timeouts: number[] = [];
-    const runCommand = async (options: {
-      timeoutMs?: number;
-    }): Promise<SandboxCommandResult> => {
+    const runCommand = async (options: { timeoutMs?: number }): Promise<SandboxCommandResult> => {
       timeouts.push(options.timeoutMs ?? -1);
       return { output: "", exitCode: 0, timedOut: false, aborted: false, truncated: false };
     };
@@ -370,6 +393,56 @@ describe("runChecksForRun — the boundary the runner calls across", () => {
 });
 
 describe("the check phase inside a Run", () => {
+  test("failed remediation clears the initial work claim", async () => {
+    await connectModel();
+    completionText = "All invoice totals are correct.";
+    rejectRemediation = true;
+    const routine = await makeRoutine();
+    await effectCheck(routine.id, "an invoice was sent", { action: "invoice.send", min: 1 });
+    const started = await startRoutineRun(routine, { triggerKind: "schedule" });
+    const run = await started.completion;
+    assert.equal(run.status, "completed");
+    assert.equal(run.checksVerdict, "failed");
+    assert.match(run.logContent, /remediation turn failed/);
+    assert.equal(runWorkSummary(run), null);
+  });
+  test("a complete model response persists a concise work outcome without another model call", async () => {
+    await connectModel();
+    completionText =
+      "## Outcome\nAdded 6 qualified Contacts. Drafted 4 outreach messages.\n\n## Details\nCalled list_issues 8 times.";
+    const routine = await makeRoutine();
+    const started = await startRoutineRun(routine, { triggerKind: "schedule" });
+    const run = await started.completion;
+    const persisted = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+    assert.equal(run.status, "completed");
+    assert.equal(upstreamTurns, 1);
+    assert.equal(
+      runWorkSummary(persisted),
+      "Added 6 qualified Contacts. Drafted 4 outreach messages.",
+    );
+    assert.match(persisted.logContent, /\[work-summary\]/);
+    assert.match(
+      persisted.logContent,
+      /Called list_issues 8 times/,
+      "the full report stays available in the Run log",
+    );
+    assert.match(lastModelRequest, /Begin your final report with one or two short sentences/);
+    assert.match(lastModelRequest, /Do not claim work you did not complete/);
+  });
+
+  test("the runner stores a redacted summary while leaving verdicts independent", async () => {
+    await connectModel();
+    completionText =
+      "Saved the report with **api_key**: hidden-example-value. One invoice needs review.";
+    const routine = await makeRoutine();
+    const started = await startRoutineRun(routine, { triggerKind: "schedule" });
+    const run = await started.completion;
+    assert.doesNotMatch(runWorkSummary(run)!, /hidden-example-value/);
+    const marker = run.logContent.split("\n").find((line) => line.startsWith("[work-summary]"))!;
+    assert.doesNotMatch(marker, /hidden-example-value/);
+    assert.equal(run.outcomeVerdict, null);
+    assert.equal(run.checksVerdict, "not_run");
+  });
   test("a Routine with no Checks finalizes `not_run` with no remediation", async () => {
     await connectModel();
     const routine = await makeRoutine();
@@ -428,6 +501,12 @@ describe("the check phase inside a Run", () => {
     assert.ok(rows.every((r) => !r.passed));
     assert.match(run.logContent, /\[checks\] 0\/1 passed/);
     assert.match(run.logContent, /remediation 1 of 2/);
+    assert.equal(
+      run.logContent.split("[work-summary]").length - 1,
+      5,
+      "both remediation rounds invalidate the old summary before recording a new one",
+    );
+    assert.equal(runWorkSummary(run), completionText);
   });
 
   test("a Run out of budget stops remediating instead of extending its own timeout", async () => {
