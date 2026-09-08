@@ -17,6 +17,7 @@ import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionT
 import { User } from "../db/entities/User.js";
 import { recordAttachmentBytes, discardUnboundAttachment } from "./uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { repositoryWorkSessionCandidates } from "./repositoryWorkSessionModels.js";
 import {
   CHAT_HARD_TIMEOUT_MS,
   type ChatResult,
@@ -126,7 +127,7 @@ beforeEach(async () => {
     provider: "anthropic",
     model: "claude-test",
     authMode: "apikey",
-    configJson: "{}",
+    configJson: '{"apiKeyEncrypted":"test-placeholder"}',
     isActive: true,
   });
   repository = await insert(Repository, {
@@ -188,6 +189,231 @@ async function start(runChat: typeof chatWithEmployee, instruction = "Update the
     runChat,
   });
 }
+
+describe("work-session AI Model selection", () => {
+  beforeEach(() => grantAccess());
+
+  const openingArgs = (modelId?: string) => ({
+    companyId: company.id,
+    repositoryId: repository.id,
+    employeeId: employee.id,
+    modelId,
+    instruction: "Update the plan",
+    requesterUserId: requester.id,
+    requesterSessionVersion: 1,
+  });
+  const revisionArgs = (sessionId: string) => ({
+    companyId: company.id,
+    sessionId,
+    instruction: "Make another pass",
+    requesterUserId: requester.id,
+    requesterSessionVersion: 1,
+  });
+  const addModel = (overrides: Partial<AIModel> = {}) =>
+    insert(AIModel, {
+      employeeId: employee.id,
+      provider: "openai",
+      model: "gpt-second",
+      authMode: "apikey",
+      configJson: '{"apiKeyEncrypted":"second-placeholder"}',
+      isActive: false,
+      ...overrides,
+    });
+
+  test("uses and persists the active model when the picker is omitted", async () => {
+    const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      employeeId: employee.id,
+      isActive: true,
+    });
+    await addModel();
+    const prepared = await createRepositoryWorkSession(openingArgs());
+    assert.equal(prepared.session.modelId, active.id);
+    const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: prepared.session.id,
+    });
+    assert.equal(stored.modelId, active.id);
+  });
+
+  test("selecting another model leaves the employee's active default unchanged", async () => {
+    const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      employeeId: employee.id,
+      isActive: true,
+    });
+    const chosen = await addModel();
+    await createRepositoryWorkSession(openingArgs(chosen.id));
+    const models = await AppDataSource.getRepository(AIModel).find({
+      where: { employeeId: employee.id },
+    });
+    assert.deepEqual(
+      models.filter((model) => model.isActive).map((model) => model.id),
+      [active.id],
+    );
+    assert.equal(models.find((model) => model.id === chosen.id)?.isActive, false);
+  });
+
+  test("a non-active model reaches the runtime and stays selected on a follow-up", async () => {
+    const chosen = await addModel();
+    const used: Array<string | null | undefined> = [];
+    const runChat: typeof chatWithEmployee = async (...args) => {
+      used.push(args[4]?.modelId);
+      return stubChat(() => {})(...args);
+    };
+    const started = await startRepositoryWorkSession({ ...openingArgs(chosen.id), runChat });
+    assert.equal(started.status, "empty");
+    assert.equal(started.modelId, chosen.id);
+    await AppDataSource.getRepository(AIModel).update(
+      { employeeId: employee.id },
+      { isActive: false },
+    );
+    await addModel({ isActive: true });
+    const revised = await reviseRepositoryWorkSession({ ...revisionArgs(started.id), runChat });
+    assert.equal(revised.status, "empty");
+    assert.equal(revised.turnCount, 2);
+    assert.equal(revised.modelId, chosen.id);
+    assert.deepEqual(used, [chosen.id, chosen.id]);
+  });
+
+  test("the only model reaches the runtime when no model id is supplied", async () => {
+    const model = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      employeeId: employee.id,
+    });
+    const started = await startRepositoryWorkSession({
+      ...openingArgs(),
+      runChat: async (...args) => {
+        assert.equal(args[4]?.modelId, model.id);
+        return stubChat(() => {})(...args);
+      },
+    });
+    assert.equal(started.status, "empty");
+    assert.equal(started.modelId, model.id);
+  });
+
+  test("an explicit connected model can run when the active model is disconnected", async () => {
+    await AppDataSource.getRepository(AIModel).update(
+      { employeeId: employee.id },
+      { configJson: "{}" },
+    );
+    const chosen = await addModel();
+    const prepared = await createRepositoryWorkSession(openingArgs(chosen.id));
+    assert.equal(prepared.session.modelId, chosen.id);
+  });
+
+  for (const kind of ["missing", "same-company employee", "foreign-company employee"] as const) {
+    test(`rejects a ${kind} model before writing a session or turn`, async () => {
+      const other = await insert(AIEmployee, {
+        companyId: kind === "foreign-company employee" ? "foreign-company" : company.id,
+        name: "Grace",
+        slug: "grace",
+        role: "Engineer",
+      });
+      const model = await addModel({ employeeId: other.id });
+      if (kind === "missing") await AppDataSource.getRepository(AIModel).delete(model.id);
+      await assert.rejects(
+        () => createRepositoryWorkSession(openingArgs(model.id)),
+        /no longer available for this employee/,
+      );
+      assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+      assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 0);
+    });
+  }
+
+  test("rejects disconnected explicit and default models before writing rows", async () => {
+    const model = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      employeeId: employee.id,
+    });
+    await AppDataSource.getRepository(AIModel).update(model.id, { configJson: "{}" });
+    for (const id of [model.id, undefined]) {
+      await assert.rejects(
+        () => createRepositoryWorkSession(openingArgs(id)),
+        /AI Model is not connected/,
+      );
+    }
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 0);
+  });
+
+  test("falls back to the newest model when no active flag exists", async () => {
+    await AppDataSource.getRepository(AIModel).update(
+      { employeeId: employee.id },
+      { isActive: false, createdAt: new Date("2024-01-01") },
+    );
+    const newest = await addModel({ createdAt: new Date("2025-01-01") });
+    const prepared = await createRepositoryWorkSession(openingArgs());
+    assert.equal(prepared.session.modelId, newest.id);
+    const candidates = await repositoryWorkSessionCandidates(repository);
+    assert.deepEqual(
+      candidates[0].models.filter((model) => model.isActive).map((model) => model.id),
+      [newest.id],
+    );
+  });
+
+  for (const change of ["disconnected", "deleted", "reassigned"] as const) {
+    test(`refuses a revision when the selected model was ${change} and keeps the transcript`, async () => {
+      const chosen = await addModel();
+      const started = await startRepositoryWorkSession({
+        ...openingArgs(chosen.id),
+        runChat: stubChat(() => {}),
+      });
+      const models = AppDataSource.getRepository(AIModel);
+      if (change === "deleted") await models.delete(chosen.id);
+      else if (change === "disconnected") await models.update(chosen.id, { configJson: "{}" });
+      else await models.update(chosen.id, { employeeId: "other-employee" });
+      await assert.rejects(
+        () => prepareWorkSessionRevision(revisionArgs(started.id)),
+        change === "disconnected" ? /not connected/ : /no longer available/,
+      );
+      const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+        id: started.id,
+      });
+      assert.equal(stored.status, "empty");
+      assert.equal(stored.turnCount, 1);
+      assert.equal(stored.modelId, chosen.id);
+      assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+    });
+  }
+
+  test("revalidates a model removed between preparing and running without invoking chat", async () => {
+    const chosen = await addModel();
+    let called = false;
+    const prepared = await createRepositoryWorkSession({
+      ...openingArgs(chosen.id),
+      runChat: async (...args) => {
+        called = true;
+        return stubChat(() => {})(...args);
+      },
+    });
+    await AppDataSource.getRepository(AIModel).delete(chosen.id);
+    const failed = await runRepositoryWorkSession(prepared);
+    assert.equal(called, false);
+    assert.equal(failed.status, "failed");
+    assert.match(failed.error, /no longer available/);
+    assert.equal(failed.branch, null);
+    const turns = await repositoryWorkSessionTurns(failed.id);
+    assert.equal(turns[0].status, "failed");
+  });
+
+  test("older sessions with a null model id still follow the current active model", async () => {
+    const started = await startRepositoryWorkSession({
+      ...openingArgs(),
+      runChat: stubChat(() => {}),
+    });
+    await AppDataSource.getRepository(RepositoryWorkSession).update(started.id, { modelId: null });
+    await AppDataSource.getRepository(AIModel).update(
+      { employeeId: employee.id },
+      { isActive: false },
+    );
+    const active = await addModel({ isActive: true });
+    const revised = await reviseRepositoryWorkSession({
+      ...revisionArgs(started.id),
+      runChat: async (...args) => {
+        assert.equal(args[4]?.modelId, active.id);
+        return stubChat(() => {})(...args);
+      },
+    });
+    assert.equal(revised.status, "empty");
+    assert.equal(revised.modelId, null);
+  });
+});
 
 describe("work-session attachments", () => {
   const png = Buffer.from(
@@ -1128,7 +1354,7 @@ describe("revising a session", () => {
     assert.equal(unchanged.turnCount, 1);
   });
 
-  test("refuses when the employee's model was disconnected", async () => {
+  test("refuses when the employee's selected model was deleted", async () => {
     const session = await firstTurn();
     await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
     await assert.rejects(
@@ -1137,7 +1363,7 @@ describe("revising a session", () => {
           session.id,
           recordingChat({}, () => {}),
         ),
-      /no AI Model connected/,
+      /no longer available for this employee/,
     );
   });
 

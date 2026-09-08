@@ -131,7 +131,7 @@ beforeEach(async () => {
     provider: "anthropic",
     model: "claude-test",
     authMode: "apikey",
-    configJson: "{}",
+    configJson: '{"apiKeyEncrypted":"test-placeholder"}',
     isActive: true,
   });
   repository = await insert(Repository, {
@@ -190,6 +190,222 @@ beforeEach(async () => {
 const sessionsUrl = () => `${baseUrl}/api/companies/${company.id}/repositories/strategy/sessions`;
 const attachmentsUrl = () =>
   `${baseUrl}/api/companies/${company.id}/repositories/strategy/session-attachments`;
+
+describe("work-session AI Model endpoints", () => {
+  const candidatesUrl = () => sessionsUrl().replace(/\/sessions$/, "/session-candidates");
+  const startBody = (modelId?: unknown) => ({
+    employeeId: employee.id,
+    instruction: "Update the plan",
+    ...(modelId === undefined ? {} : { modelId }),
+  });
+  const addModel = (overrides: Partial<AIModel> = {}) =>
+    insert(AIModel, {
+      employeeId: employee.id,
+      provider: "openai",
+      model: "gpt-second",
+      authMode: "apikey",
+      configJson: '{"apiKeyEncrypted":"second-placeholder"}',
+      isActive: false,
+      ...overrides,
+    });
+
+  test("lists all granted employee models with safe metadata, defaults and connection state", async () => {
+    const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      employeeId: employee.id,
+    });
+    const disconnected = await addModel({ configJson: "{}" });
+    const custom = await addModel({
+      provider: "custom",
+      model: "local-model",
+      authMode: "customEndpoint",
+      configJson: JSON.stringify({
+        baseURLEncrypted: "sensitive-endpoint-ciphertext",
+        baseURLPreview: "private-host.example",
+        apiKeyEncrypted: "sensitive-key-ciphertext",
+        apiKeyPreview: "secret-preview",
+      }),
+    });
+    const result = await call("GET", candidatesUrl());
+    assert.equal(result.status, 200);
+    const employees = result.body.employees as Array<{
+      id: string;
+      models: Array<Record<string, unknown>>;
+    }>;
+    assert.equal(employees.length, 1);
+    assert.equal(employees[0].id, employee.id);
+    const models = employees[0].models;
+    assert.equal(models.length, 3);
+    for (const model of models) {
+      assert.deepEqual(Object.keys(model).sort(), [
+        "id",
+        "isActive",
+        "label",
+        "model",
+        "provider",
+        "status",
+      ]);
+    }
+    assert.deepEqual(
+      models.find((model) => model.id === active.id),
+      {
+        id: active.id,
+        provider: "anthropic",
+        model: "claude-test",
+        label: "Anthropic (Claude) · claude-test",
+        status: "connected",
+        isActive: true,
+      },
+    );
+    assert.equal(models.find((model) => model.id === disconnected.id)?.status, "not_connected");
+    assert.equal(models.find((model) => model.id === custom.id)?.status, "connected");
+    const serialized = JSON.stringify(result.body);
+    for (const secret of [
+      "sensitive-endpoint-ciphertext",
+      "sensitive-key-ciphertext",
+      "private-host.example",
+      "secret-preview",
+      "configJson",
+      "authMode",
+    ]) {
+      assert.equal(serialized.includes(secret), false);
+    }
+  });
+
+  test("does not expose ungranted employees or foreign-company models even with an invalid grant", async () => {
+    const ungranted = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Grace",
+      slug: "grace",
+      role: "Engineer",
+    });
+    const foreign = await insert(AIEmployee, {
+      companyId: "another-company",
+      name: "Foreign",
+      slug: "foreign",
+      role: "Engineer",
+    });
+    await addModel({ employeeId: ungranted.id });
+    await addModel({ employeeId: foreign.id });
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: foreign.id,
+      repositoryId: repository.id,
+      accessLevel: "write",
+    });
+    const result = await call("GET", candidatesUrl());
+    const employees = result.body.employees as Array<{ id: string; models: Array<{ id: string }> }>;
+    assert.deepEqual(
+      employees.map((entry) => entry.id),
+      [employee.id],
+    );
+    assert.equal(employees[0].models.length, 1);
+  });
+
+  test("returns an empty model list for an employee without any models", async () => {
+    await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
+    const result = await call("GET", candidatesUrl());
+    assert.equal(result.status, 200);
+    const employees = result.body.employees as Array<{ models: unknown[] }>;
+    assert.deepEqual(employees[0].models, []);
+  });
+
+  test("candidate models require an authenticated company Member", async () => {
+    actingUserId = outsider.id;
+    assert.equal((await call("GET", candidatesUrl())).status, 403);
+    actingUserId = null;
+    assert.equal((await call("GET", candidatesUrl())).status, 401);
+  });
+
+  for (const mode of ["explicit", "default"] as const) {
+    test(`starts a work session with the ${mode} model id in the response and stored row`, async () => {
+      const second = await addModel();
+      const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+        employeeId: employee.id,
+        isActive: true,
+      });
+      const expectedId = mode === "explicit" ? second.id : active.id;
+      const result = await call(
+        "POST",
+        sessionsUrl(),
+        startBody(mode === "explicit" ? second.id : undefined),
+      );
+      assert.equal(result.status, 200);
+      assert.equal(result.body.modelId, expectedId);
+      const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+        id: String(result.body.id),
+      });
+      assert.equal(stored.modelId, expectedId);
+      assert.equal(stored.employeeId, employee.id);
+      // Placeholder ciphertext fails locally; no real provider request is made.
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline) {
+        const current = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+          id: stored.id,
+        });
+        if (current.status !== "running") return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      assert.fail("the locally rejected model turn did not settle");
+    });
+  }
+
+  test("rejects missing, foreign-employee and foreign-company model ids without creating rows", async () => {
+    const other = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Grace",
+      slug: "grace",
+      role: "Engineer",
+    });
+    const foreign = await insert(AIEmployee, {
+      companyId: "foreign-company",
+      name: "Foreign",
+      slug: "foreign",
+      role: "Engineer",
+    });
+    const otherModel = await addModel({ employeeId: other.id });
+    const foreignModel = await addModel({ employeeId: foreign.id });
+    for (const modelId of [owner.id, otherModel.id, foreignModel.id]) {
+      const result = await call("POST", sessionsUrl(), startBody(modelId));
+      assert.equal(result.status, 400);
+      assert.match(String(result.body.error), /no longer available for this employee/);
+    }
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("rejects a disconnected explicit or default model without creating rows", async () => {
+    const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      employeeId: employee.id,
+    });
+    await AppDataSource.getRepository(AIModel).update(active.id, { configJson: "{}" });
+    for (const modelId of [undefined, active.id]) {
+      const result = await call("POST", sessionsUrl(), startBody(modelId));
+      assert.equal(result.status, 400);
+      assert.match(String(result.body.error), /AI Model is not connected/);
+    }
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("validates the model id type and UUID before starting a session", async () => {
+    for (const modelId of [null, "", "not-a-uuid", 42, [employee.id], { id: employee.id }]) {
+      const result = await call("POST", sessionsUrl(), startBody(modelId));
+      assert.equal(result.status, 400);
+      assert.equal(result.body.error, "ValidationError");
+    }
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+  });
+
+  test("revision requests cannot silently override the session's chosen model", async () => {
+    const model = await addModel();
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/revise`, {
+      instruction: "Another pass",
+      modelId: model.id,
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, "ValidationError");
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+});
 
 describe("work-session attachment endpoints", () => {
   const png = Buffer.from(

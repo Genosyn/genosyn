@@ -2793,6 +2793,8 @@ export type RepositoryWorkSession = {
   companyId: string;
   repositoryId: string;
   employeeId: string;
+  /** Chosen AI Model; null for sessions created before model selection existed. */
+  modelId: string | null;
   requestedByUserId: string | null;
   /** Short label for the session list; renameable. */
   title: string;
@@ -2856,8 +2858,11 @@ export type RepositoryWorkSessionDetail = {
   session: RepositoryWorkSession;
   turns: RepositoryWorkSessionTurn[];
 };
+export type WorkSessionModel = Pick<AIModel, "id" | "provider" | "model" | "status" | "isActive"> & {
+  label: string;
+};
 export type RepositoryWorkSessionCandidatesResponse = {
-  employees: Array<RepositoryWorkSessionEmployee & { role: string }>;
+  employees: Array<RepositoryWorkSessionEmployee & { role: string; models: WorkSessionModel[] }>;
 };
 export type RepositoryWorkSessionDiff = RepositoryDiff & { commits: RepositoryCommit[] };
 

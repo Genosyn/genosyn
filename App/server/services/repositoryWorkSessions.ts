@@ -12,7 +12,7 @@ import {
 } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee, type ChatTurn } from "./chat.js";
-import { getActiveModel } from "./models.js";
+import { requireWorkSessionModel } from "./repositoryWorkSessionModels.js";
 import { hasRepositoryAccess } from "./repositories.js";
 import {
   MAX_EDITABLE_FILE_BYTES,
@@ -470,6 +470,7 @@ export type StartWorkSessionArgs = {
   companyId: string;
   repositoryId: string;
   employeeId: string;
+  modelId?: string;
   instruction: string;
   attachmentIds?: string[];
   requesterUserId: string;
@@ -564,6 +565,7 @@ export async function createRepositoryWorkSession(
   });
   if (!repo) throw new Error("Repository not found.");
   const employee = await loadWorkingEmployee(args.companyId, args.employeeId, repo);
+  const model = await requireWorkSessionModel(employee, args.modelId);
   const instruction = validateWorkSessionInstruction(args);
   const { session, turn } = await withSerializedTransaction(async (manager) => {
     const sessionRepo = manager.getRepository(RepositoryWorkSession);
@@ -572,6 +574,7 @@ export async function createRepositoryWorkSession(
         companyId: args.companyId,
         repositoryId: repo.id,
         employeeId: employee.id,
+        modelId: model.id,
         requestedByUserId: args.requesterUserId,
         title: instruction ? deriveWorkSessionTitle(instruction) : "Shared attachments",
         instruction,
@@ -633,6 +636,7 @@ export async function prepareWorkSessionRevision(
     });
     if (!repo) throw new Error("Repository not found.");
     const employee = await loadWorkingEmployee(args.companyId, session.employeeId, repo);
+    await requireWorkSessionModel(employee, session.modelId);
     const instruction = validateWorkSessionInstruction(args);
 
     // Postgres can prepare on separate connections. Claim the previous state
@@ -723,9 +727,6 @@ async function loadWorkingEmployee(
   if (!(await hasRepositoryAccess(employee.id, repo.id, "read"))) {
     throw new Error(`${employee.name} has not been granted access to this repository.`);
   }
-  if (!(await getActiveModel(employee.id))) {
-    throw new Error(`${employee.name} has no AI Model connected yet.`);
-  }
   return employee;
 }
 
@@ -789,6 +790,7 @@ export async function runRepositoryWorkSession(
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
 
   try {
+    const model = await requireWorkSessionModel(employee, session.modelId);
     await ensureRepositoryWorkspace(repo);
     // Always before work starts, never after: `ensureRepositoryWorkspace` has
     // just refreshed `origin/*`, and this is what turns that fetch into a
@@ -845,6 +847,7 @@ export async function runRepositoryWorkSession(
         history,
         {
           requesterUserId: prepared.requesterUserId,
+          modelId: model.id,
           images,
           requesterSessionVersion: prepared.requesterSessionVersion,
           repositoryWorkSessionId: session.id,

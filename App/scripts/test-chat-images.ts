@@ -63,7 +63,16 @@ const employee = {
   slug: "alex",
   role: "Engineer",
   model: { id: "model", status: "connected" },
-  models: [{ id: "model", provider: "openai", model: "gpt-4.1", isActive: true }],
+  models: [
+    {
+      id: "model",
+      provider: "openai",
+      model: "gpt-4.1",
+      label: "GPT 4.1",
+      status: "connected",
+      isActive: true,
+    },
+  ],
   hasModel: true,
   ownsRoutine: true,
 };

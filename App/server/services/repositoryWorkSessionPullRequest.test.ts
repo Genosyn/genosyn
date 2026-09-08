@@ -138,7 +138,7 @@ beforeEach(async () => {
     provider: "anthropic",
     model: "claude-test",
     authMode: "apikey",
-    configJson: "{}",
+    configJson: '{"apiKeyEncrypted":"test-placeholder"}',
     isActive: true,
   });
   // Created local, promoted to a remote per test by `asRemote`. Sessions have
