@@ -475,10 +475,22 @@ export function Finance() {
         slug and priced line items. Genosyn creates the same editable draft shown under{" "}
         <Code>Finance → Estimates</Code>, using the customer&apos;s currency and a thirty-day
         validity window by default. Creating the estimate assigns no number, changes no ledger
-        balance, and sends no email. The employee can then prepare a reply with the quotation PDF
-        attached, using <Code>estimateSlug</Code>. A Member reviews and issues the estimate from
-        Finance. Until then, its PDF prominently says <Code>DRAFT</Code>, even if an employee is
-        authorized to send that preliminary quotation.
+        balance, and sends no email. When asked to issue the quotation, the employee can use{" "}
+        <Code>issue_estimate</Code>. This performs the same action as marking it Sent in Finance:
+        it assigns a permanent number and slug and removes <Code>DRAFT</Code> from future PDFs.
+        It sends no email and has no ledger effect. Until issued, the PDF stays marked{" "}
+        <Code>DRAFT</Code>, even if the employee is authorized to send that preliminary quotation.
+      </P>
+      <P>
+        To email the quotation directly to the customer on file, the employee can use{" "}
+        <Code>send_estimate</Code>, which issues a draft if needed and uses the company&apos;s
+        transactional email transport. Sending must be authorized by the employee&apos;s
+        instructions and delivery settings; work restricted to preparing drafts cannot send.
+        To reply on an existing email thread instead, issue the estimate first, then attach its
+        returned <Code>estimate.slug</Code> using <Code>estimateSlug</Code> on the Email tools.
+        Issuing replaces the draft slug, so subsequent reads and attachments must use the new one.
+        Replace an old draft PDF attachment before sending: an email draft holds a snapshot that
+        does not update when the estimate changes.
       </P>
 
       <P>
@@ -499,7 +511,8 @@ export function Finance() {
         <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
         <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>,{" "}
         <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need{" "}
-        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>create_recurring_invoice</Code>,{" "}
+        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>issue_estimate</Code>,{" "}
+        <Code>send_estimate</Code>, <Code>create_recurring_invoice</Code>,{" "}
         <Code>update_recurring_invoice</Code>, and the invoice lifecycle (
         <Code>create_invoice</Code>, <Code>send_invoice</Code>, <Code>record_payment</Code>,{" "}
         <Code>void_invoice</Code>, <Code>create_customer</Code>, and <Code>update_customer</Code>)

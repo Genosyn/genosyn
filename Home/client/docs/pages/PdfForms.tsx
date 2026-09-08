@@ -124,6 +124,11 @@ overlay_pdf_text({
         <Code>send_chat_attachment</Code>. The original is never modified.
       </P>
       <P>
+        For a form whose original is an Excel file, see{" "}
+        <DocLink to="/docs/excel-workbooks">Excel workbooks</DocLink>. Complete that workbook
+        before treating a supplementary PDF as the finished form.
+      </P>
+      <P>
         A form that needs a signature rather than answers belongs in{" "}
         <DocLink to="/docs/signatures">Document signing</DocLink>, which collects real recipient
         evidence instead of drawing a name onto a page.

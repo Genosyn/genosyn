@@ -10,8 +10,13 @@ import { createServer } from "vite";
 import { browserTestVite } from "./browserTestVite";
 import { createCanvas } from "@napi-rs/canvas";
 import { chromium, type Page } from "playwright-core";
+import { xlsxFixture, xlsxCell } from "../server/test/xlsxFixtures.js";
+import { XLSX_MIME } from "../server/services/xlsxPackage.js";
+import { readXlsx } from "../server/services/xlsxRead.js";
+import { editXlsx } from "../server/services/xlsxEdit.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+let completedWorkbook: Buffer = Buffer.alloc(0);
 const server = await createServer({
   ...browserTestVite,
   configFile: path.join(root, "vite.config.ts"),
@@ -21,6 +26,16 @@ const server = await createServer({
     {
       name: "chat-image-browser-fixture",
       configureServer(dev) {
+        // Chromium downloads can bypass page request interception. Serve the
+        // real workbook bytes so the browser exercises a complete HTTP download.
+        dev.middlewares.use(
+          "/api/companies/company/mail/accounts/account/assistant/attachments/workbook-completed",
+          (_req, res) => {
+            res.setHeader("Content-Type", XLSX_MIME);
+            res.setHeader("Content-Disposition", 'attachment; filename="supplier-edited.xlsx"');
+            res.end(completedWorkbook);
+          },
+        );
         dev.middlewares.use("/__chat_images", async (_req, res) => {
           const html = await dev.transformIndexHtml(
             "/__chat_images",
@@ -98,6 +113,8 @@ let delayUpload = false;
 let failSend = false;
 let failUpload = false;
 let modelFailure = false;
+let workbookMode = false;
+let uploadedWorkbook: Buffer = Buffer.alloc(0);
 const releaseUploads: Array<() => void> = [];
 const turns: Array<Record<string, unknown>> = [];
 const browserErrors: string[] = [];
@@ -106,10 +123,31 @@ await context.route("**/api/**", async (route) => {
   const url = new URL(request.url());
   const pathname = url.pathname;
   const json = (body: unknown, status = 200) => route.fulfill({ json: body, status });
+  if (workbookMode && request.method() === "GET" && pathname.endsWith("/workbook-completed")) {
+    return route.continue();
+  }
   if (
     request.method() === "POST" &&
     request.headers()["content-type"]?.includes("multipart/form-data")
   ) {
+    if (workbookMode) {
+      assert.ok(
+        request.postDataBuffer()?.includes(uploadedWorkbook),
+        "Upload preserves the original workbook bytes",
+      );
+      return json(
+        {
+          attachment: {
+            id: "workbook-source",
+            filename: "supplier.xlsx",
+            mimeType: XLSX_MIME,
+            isImage: false,
+            sizeBytes: uploadedWorkbook.length,
+          },
+        },
+        201,
+      );
+    }
     const id = `image-${++uploads}`;
     const attachment = {
       id,
@@ -128,6 +166,54 @@ await context.route("**/api/**", async (route) => {
     const body = request.postDataJSON();
     sends.push(body);
     if (failSend) return json({ error: "Send failed; try again" }, 500);
+    if (workbookMode && pathname.endsWith("/messages")) {
+      assert.deepEqual(body.attachmentIds, ["workbook-source"]);
+      const read = await readXlsx(uploadedWorkbook);
+      assert.ok(read.sheets.some((sheet) => sheet.name === "Supplier"));
+      completedWorkbook = (
+        await editXlsx(uploadedWorkbook, [
+          { sheet: "Supplier", cell: "B1", value: "Example Company" },
+        ])
+      ).bytes;
+      const user = {
+        id: "workbook-request",
+        role: "user",
+        content: body.message,
+        attachments: [
+          {
+            id: "workbook-source",
+            filename: "supplier.xlsx",
+            mimeType: XLSX_MIME,
+            sizeBytes: uploadedWorkbook.length,
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        actions: [],
+        suggestions: [],
+      };
+      const assistant = {
+        id: "workbook-reply",
+        role: "assistant",
+        employeeId: employee.id,
+        content: "The original Excel form is filled. The completed workbook is attached.",
+        status: "ok",
+        attachments: [
+          {
+            id: "workbook-completed",
+            filename: "supplier-edited.xlsx",
+            mimeType: XLSX_MIME,
+            sizeBytes: completedWorkbook.length,
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        actions: [],
+        suggestions: [],
+      };
+      return route.fulfill({
+        contentType: "text/event-stream",
+        body: `event: user\ndata: ${JSON.stringify(user)}\n\nevent: assistant\ndata: ${JSON.stringify(assistant)}\n\nevent: done\ndata: {}\n\n`,
+      });
+    }
     if (modelFailure && pathname.endsWith("/messages")) {
       const attachments = (body.attachmentIds ?? []).map((id: string) => ({
         id,
@@ -271,6 +357,60 @@ async function check(name: string, run: () => Promise<void>) {
   checks++;
 }
 try {
+  await check(
+    "Excel form uploads in Mail, is edited, and downloads as a readable workbook",
+    async () => {
+      workbookMode = true;
+      uploadedWorkbook = await xlsxFixture({
+        sheets: [
+          {
+            name: "Supplier",
+            rows: `<row r="1">${xlsxCell("A1", "Company name")}<c r="B1" s="0"/></row>`,
+          },
+        ],
+      });
+      const page = await open("mail");
+      await page
+        .locator('input[type="file"]')
+        .setInputFiles({ name: "supplier.xlsx", mimeType: XLSX_MIME, buffer: uploadedWorkbook });
+      await page.getByRole("button", { name: "Remove supplier.xlsx", exact: true }).waitFor();
+      await page
+        .locator("textarea")
+        .first()
+        .fill("Fill the original Excel form with Example Company.");
+      await page.locator("textarea").first().press("Enter");
+      const output = page.getByTitle("Download supplier-edited.xlsx", { exact: true });
+      await output.waitFor();
+      const downloadPromise = page.waitForEvent("download");
+      await output.click();
+      const download = await downloadPromise;
+      assert.equal(download.suggestedFilename(), "supplier-edited.xlsx");
+      const downloaded = await fs.readFile((await download.path())!);
+      assert.ok(downloaded.equals(completedWorkbook), `Downloaded the completed workbook from ${download.url()}`);
+      const result = await readXlsx(downloaded);
+      assert.equal(
+        result.sheets[0].cells.find((cell) => cell.cell === "B1")?.value,
+        "Example Company",
+      );
+      assert.equal(
+        (await readXlsx(uploadedWorkbook)).sheets[0].cells.find((cell) => cell.cell === "B1")
+          ?.value,
+        null,
+      );
+      await fs.mkdir(path.resolve(root, "../output/playwright"), { recursive: true });
+      await page.screenshot({
+        path: path.resolve(root, "../output/playwright/excel-workbook-mail.png"),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        true,
+      );
+      await page.close();
+      workbookMode = false;
+    },
+  );
   await check("every AI composer accepts pasted screenshots with a removable preview", async () => {
     for (const surface of [
       "repository",

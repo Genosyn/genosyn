@@ -413,6 +413,29 @@ test("an estimate edit refreshes the PDF when edit_mail_draft reattaches its slu
   assert.match(renderedHtml[1], /Updated scope after discussion/);
 });
 
+test("issuing a quotation lets the employee replace its draft PDF in the existing reply", async () => {
+  const draft = await call("create_mail_draft", compose());
+  assert.equal(draft.status, 200, draft.body.error);
+  assert.match(lastMime().attachments?.[0].filename ?? "", /^DRAFT-/);
+  const issued = await call("issue_estimate", { estimateSlug: estimate.slug });
+  assert.equal(issued.status, 200, issued.body.error);
+  const updated = await call("edit_mail_draft", {
+    draftMessageId: draft.body.message!.messageId,
+    bodyText: "Here is your quotation for onboarding and support.",
+    attachments: [{ estimateSlug: issued.body.estimate!.slug }],
+  });
+  assert.equal(updated.status, 200, updated.body.error);
+  const update = mailbox.calls.find((entry) => entry.method === "updateDraft")!;
+  const mime = update.args[1] as MimeFields;
+  assert.equal(mime.attachments?.length, 1);
+  assert.equal(mime.attachments?.[0].filename, "CUSTOMER-EST-0001.pdf");
+  assert.deepEqual(mime.attachments?.[0].content, pdfBytes);
+  assert.match(renderedHtml[1], /CUSTOMER-EST-0001/);
+  assert.doesNotMatch(renderedHtml[1], /DRAFT/);
+  assert.equal(mailbox.calls.some((entry) => entry.method.startsWith("send")), false);
+  assert.equal(await AppDataSource.getRepository(LedgerEntry).count(), 0);
+});
+
 test("mixed attachment handles and unsupported formats are rejected before rendering", async () => {
   for (const spec of [
     { estimateSlug: estimate.slug, invoiceSlug: "invoice" },

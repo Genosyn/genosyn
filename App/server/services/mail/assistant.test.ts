@@ -497,6 +497,55 @@ describe("files on an email's AI chat", () => {
     cleanUp(company);
   });
 
+  test("the original Excel attachment stays identifiable beside a supplementary PDF", async () => {
+    const { company, account, thread } = await companyFixture();
+    const source = await insert(MailMessage, {
+      companyId: company.id,
+      accountId: account.id,
+      threadId: thread.id,
+      gmailMessageId: "gmail-excel-form",
+      gmailThreadId: thread.gmailThreadId,
+      fromEmail: "forms@example.com",
+      subject: "Supplier onboarding",
+      bodyText: "Complete the original Excel form. The PDF is supplementary information.",
+      sentAt: new Date(),
+      attachmentsJson: JSON.stringify([
+        {
+          partId: "1.1",
+          attachmentId: "supplementary",
+          filename: "information.pdf",
+          mimeType: "application/pdf",
+          size: 4096,
+        },
+        {
+          partId: "1.2",
+          attachmentId: "original-form",
+          filename: "supplier-form.xlsx",
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          size: 8192,
+        },
+      ]),
+    });
+    const rec = recorder();
+    let prompt = "";
+    await runAssistantTurn({
+      account,
+      message: "@jamie fill in their original Excel form",
+      threadId: thread.id,
+      userId: null,
+      callbacks: rec.callbacks,
+      runChat: async (_companyId, _employeeId, text) => {
+        prompt = text;
+        return chatResult("Opening the original workbook.");
+      },
+    });
+    assert.match(prompt, /index 0 "information\.pdf"/);
+    assert.match(prompt, /index 1 "supplier-form\.xlsx"/);
+    assert.ok(prompt.includes(`messageId ${source.id}`));
+    assert.match(prompt, /The PDF is supplementary information/);
+    cleanUp(company);
+  });
+
   test("the briefing tells the employee to open files itself rather than ask for a re-upload", async () => {
     const { company, account, thread } = await companyFixture();
     const rec = recorder();
@@ -517,10 +566,14 @@ describe("files on an email's AI chat", () => {
     assert.match(system, /read_mail_attachment/);
     assert.match(system, /Never ask the teammate to download and re-upload/);
     assert.match(system, /download_web_file/, "finding a form online is part of the job");
+    assert.match(system, /inspect the original \.xlsx with `read_xlsx`/);
+    assert.match(system, /fill its answer cells with `edit_xlsx`/);
+    assert.match(system, /Read back the returned attachmentId with `read_xlsx` before claiming completion/);
+    assert.match(system, /A supplementary PDF does not complete the original Excel form/);
     cleanUp(company);
   });
 
-  test("the panel's toolset carries the attachment and PDF tools", async () => {
+  test("the panel's toolset carries the attachment, PDF, Word and Excel tools", async () => {
     const { company, account, thread } = await companyFixture();
     const rec = recorder();
     let toolset: string[] = [];
@@ -537,7 +590,15 @@ describe("files on an email's AI chat", () => {
       },
     });
 
-    for (const tool of ["read_mail_attachment", "read_pdf_fields", "fill_pdf_form"]) {
+    for (const tool of [
+      "read_mail_attachment",
+      "read_pdf_fields",
+      "fill_pdf_form",
+      "read_docx",
+      "edit_docx",
+      "read_xlsx",
+      "edit_xlsx",
+    ]) {
       assert.ok(toolset.includes(tool), `${tool} is loaded without a discovery round-trip`);
     }
     cleanUp(company);

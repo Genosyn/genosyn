@@ -185,6 +185,10 @@ create_resource({ sourceKind: "file", attachmentId, title: "Mutual NDA" })
         <Code>send_chat_attachment</Code>. The original is never modified.
       </P>
       <P>
+        For a form that arrived as an Excel workbook, see{" "}
+        <DocLink to="/docs/excel-workbooks">Excel workbooks</DocLink>.
+      </P>
+      <P>
         For a form that arrived as a PDF rather than a Word file, see{" "}
         <DocLink to="/docs/pdf-forms">PDF forms</DocLink>. For a document that needs a signature
         rather than answers, see <DocLink to="/docs/signatures">Document signing</DocLink> — the

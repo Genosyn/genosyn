@@ -317,6 +317,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Read, answer and edit .docx files keeping the original formatting, or write a new one from scratch.",
       },
       {
+        path: "/docs/excel-workbooks",
+        title: "Excel workbooks",
+        blurb:
+          "Read .xlsx sheets and cells, fill the original Excel form, and return a verified copy with its formatting intact.",
+      },
+      {
         path: "/docs/signatures",
         title: "Document signing",
         blurb:

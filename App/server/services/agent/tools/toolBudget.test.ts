@@ -188,9 +188,11 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  */
 // Daily work, participation, Todo details and Initiative feedback add deferred
 // readers whose exact names must remain discoverable. The resident tool budget
-// is unchanged; this small footer allowance still leaves 2,600 characters at
-// the minimum result cap for returned schemas.
-const DOMAIN_FOOTER_CHARS_MAX = 5_400;
+// is unchanged. Issuing and sending quotations add two deferred names so a
+// discovery miss cannot hide the path from a draft to a numbered quote. Their
+// compact names add 27 characters; the 40-character allowance leaves 2,560
+// characters at the minimum result cap for returned schemas.
+const DOMAIN_FOOTER_CHARS_MAX = 5_440;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
@@ -279,6 +281,19 @@ describe("resident tool budget", () => {
     // OPENAI_MAX_TOOLS is 128. The point of deferral is that this stops being a
     // live constraint — if it ever binds again, deferral has regressed.
     assert.ok(resident.length < 64, `${resident.length} resident tools is close to a provider cap`);
+  });
+
+  test("Excel attachment tools remain granular and deferred without adding to every turn", () => {
+    const { passthrough } = collapseStaticTools();
+    for (const name of ["read_xlsx", "edit_xlsx"]) {
+      assert.equal(resident.some((tool) => tool.name === name), false);
+      assert.equal(RESIDENT_GENOSYN_TOOLS.includes(name), false);
+      const tool = passthrough.find((entry) => entry.name === name);
+      assert.ok(tool, `${name} must remain available in the built-in catalogue`);
+      assert.ok(TOOL_DOMAINS.files.tools.includes(name));
+      assert.equal("op" in tool.inputSchema.properties, false);
+      assert.equal(tool.readOnly === true, name === "read_xlsx");
+    }
   });
 });
 
