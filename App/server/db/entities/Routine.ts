@@ -84,6 +84,10 @@ export class Routine {
   @Column({ type: "varchar", nullable: true })
   mailDeliveryMode!: "draft" | null;
 
+  /** Server-owned suggestion-only scope. Native editors cannot lift this review boundary. */
+  @Column({ type: "boolean", default: false })
+  selfReviewOnly!: boolean;
+
   /**
    * Per-routine hard timeout in seconds. The runner SIGKILLs the CLI after
    * this long and marks the Run `timeout`. Default 60 min (`3600`) gives

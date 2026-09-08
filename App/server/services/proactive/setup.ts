@@ -328,6 +328,7 @@ export async function installProactiveStarter(
           body,
           acceptanceCriteria: recipe.acceptanceCriteria,
           mailDeliveryMode: "draft",
+          selfReviewOnly: recipe.id === "improve-own-work",
         });
         if (recipe.triggerKind)
           await manager.getRepository(RoutineTrigger).insert({

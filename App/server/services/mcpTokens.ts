@@ -37,6 +37,8 @@ export type McpTokenInfo = {
   mailThreadId: string | null;
   /** Server-selected ceiling for a mail handover, independent of the employee Grant. */
   mailDeliveryMode: MailDeliveryMode | null;
+  /** Server-selected suggestion-only scope for an own-work review Run. */
+  selfReviewOnly: boolean;
   /**
    * The Repository work session this turn is executing, when the surface is
    * one. Unlike the ids above this is not provenance — it is authority. The
@@ -135,6 +137,7 @@ export function issueMcpToken(
     conversationId?: string | null;
     mailThreadId?: string | null;
     mailDeliveryMode?: MailDeliveryMode | null;
+    selfReviewOnly?: boolean;
     repositoryWorkSessionId?: string | null;
     authority?: "employee" | "member" | "untrusted";
     requesterUserId?: string;
@@ -170,6 +173,7 @@ export function issueMcpToken(
     conversationId: origin.conversationId ?? null,
     mailThreadId: origin.mailThreadId ?? null,
     mailDeliveryMode: origin.mailDeliveryMode ?? null,
+    selfReviewOnly: origin.selfReviewOnly ?? false,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
     authority,
     requesterUserId,

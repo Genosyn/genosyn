@@ -154,9 +154,17 @@ export default function Proactive({ company }: { company: Company }) {
             </p>
           </section>
           <section aria-labelledby="active-work-title" className="space-y-3">
-            <h2 id="active-work-title" className="text-base font-semibold">
-              Your standing work
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="active-work-title" className="text-base font-semibold">
+                Your standing work
+              </h2>
+              <Link
+                className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline"
+                to={`/c/${company.slug}/revisions`}
+              >
+                Review suggestions <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+            </div>
             {overview.installations.length === 0 ? (
               <EmptyState
                 title={

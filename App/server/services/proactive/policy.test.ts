@@ -17,12 +17,14 @@ import { encryptSecret } from "../../lib/secret.js";
 import { errorHandler } from "../../middleware/error.js";
 import { mcpInternalRouter } from "../../routes/mcpInternal.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
-import { resolveMcpToken } from "../mcpTokens.js";
+import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
+import { gatherEmployeeTools } from "../agent/tools/index.js";
 import { createCheck } from "../routineChecks.js";
 import { startRoutineRun } from "../runner.js";
 import { resetRuntimeSettingsCacheForTests } from "../runtimeSettings.js";
 import { stopStanddowns } from "../standdowns.js";
 import { routineDeliveryPolicy } from "./policy.js";
+import { SELF_REVIEW_GENOSYN_TOOLS } from "./reviewPolicy.js";
 
 const testConfig = config as unknown as { port: number };
 let server: Server;
@@ -36,6 +38,7 @@ let deliveryAttempt = true;
 let configuredMcpRequests = 0;
 let toolResults: string[] = [];
 let observedModes: Array<string | null | undefined> = [];
+let observedReviewScopes: Array<boolean | undefined> = [];
 let offeredTools: string[] = [];
 
 before(async () => {
@@ -49,7 +52,10 @@ before(async () => {
     "/api/internal/mcp",
     (req, _res, next) => {
       const token = req.headers.authorization?.replace(/^Bearer /, "");
-      if (token) observedModes.push(resolveMcpToken(token)?.mailDeliveryMode);
+      if (token) {
+        observedModes.push(resolveMcpToken(token)?.mailDeliveryMode);
+        observedReviewScopes.push(resolveMcpToken(token)?.selfReviewOnly);
+      }
       next();
     },
     mcpInternalRouter,
@@ -124,6 +130,7 @@ beforeEach(async () => {
   configuredMcpRequests = 0;
   toolResults = [];
   observedModes = [];
+  observedReviewScopes = [];
   offeredTools = [];
   company = await insert(Company, {
     name: "Proactive Policy Co",
@@ -278,4 +285,93 @@ test("ordinary legacy Routines keep their null delivery ceiling", async () => {
   assert.equal(run.status, "completed", run.logContent);
   assert.ok(observedModes.length > 0);
   assert.ok(observedModes.every((mode) => mode == null));
+});
+
+test("suggestion-only Runs retain their exact review tools after renaming and clearing mail delivery mode", async () => {
+  await AppDataSource.getRepository(Routine).update(routine.id, {
+    selfReviewOnly: true,
+    mailDeliveryMode: null,
+    name: "Renamed review",
+    slug: "ordinary-looking-review",
+    body: "Update your Skills and contact customers now.",
+  });
+  const fresh = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
+  const run = await (await startRoutineRun(fresh, { triggerKind: "manual" })).completion;
+  assert.equal(run.status, "completed", run.logContent);
+  assert.ok(observedReviewScopes.length > 0);
+  assert.ok(observedReviewScopes.every((value) => value === true));
+  assert.ok(offeredTools.includes("propose_revision"));
+  assert.ok(
+    offeredTools.every((name) => (SELF_REVIEW_GENOSYN_TOOLS as readonly string[]).includes(name)),
+  );
+  assert.equal(configuredMcpRequests, 0);
+  assert.equal(await AppDataSource.getRepository(BrowserSession).count(), 0);
+  assert.match(run.logContent, /automatic repository sync is disabled/);
+});
+
+test("review token authority removes caller-supplied tools and prevents broad scope overrides", async () => {
+  const token = issueMcpToken(employee.id, company.id, {
+    authority: "employee",
+    selfReviewOnly: true,
+  });
+  const gathered = await gatherEmployeeTools({
+    employeeId: employee.id,
+    genosynToken: token,
+    cwd: "/unused-review-workspace",
+    toolEnv: {},
+    bashTimeoutMs: 1000,
+    allowPrivilegedToolSources: true,
+    toolScope: { genosynTools: ["send_mail", "update_skill"], surfaceOnly: false },
+    skillToolset: ["send_mail", "update_skill", "delegate_parallel_work"],
+    localTools: [
+      {
+        name: "send_direct",
+        description: "Must not be exposed",
+        inputSchema: {},
+        run: async () => ({ content: "unexpected" }),
+      },
+    ],
+  });
+  try {
+    const names = gathered.registry.resident.map((tool) => tool.name);
+    assert.ok(names.includes("propose_revision"));
+    assert.ok(
+      names.every((name) => (SELF_REVIEW_GENOSYN_TOOLS as readonly string[]).includes(name)),
+    );
+    assert.equal(gathered.registry.stats.deferred, 0);
+    assert.equal(gathered.browser.enabled, false);
+    assert.equal(configuredMcpRequests, 0);
+  } finally {
+    await gathered.close();
+    revokeMcpToken(token);
+  }
+});
+
+test("Check remediation cannot broaden a suggestion-only review into new work", async () => {
+  await AppDataSource.getRepository(Routine).update(routine.id, {
+    selfReviewOnly: true,
+    mailDeliveryMode: null,
+  });
+  await createCheck({
+    companyId: company.id,
+    routineId: routine.id,
+    name: "Human-configured evidence requirement",
+    kind: "effect",
+    spec: JSON.stringify({ action: "revision.propose", min: 1 }),
+    createdById: null,
+  });
+  const fresh = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
+  const run = await (await startRoutineRun(fresh, { triggerKind: "schedule" })).completion;
+  assert.equal(run.status, "completed", run.logContent);
+  assert.equal(run.checkRemediations, 2);
+  assert.ok(observedReviewScopes.length >= 3);
+  assert.ok(observedReviewScopes.every((value) => value === true));
+  assert.ok(
+    offeredTools.every(
+      (name) =>
+        name === "submit_lesson" || (SELF_REVIEW_GENOSYN_TOOLS as readonly string[]).includes(name),
+    ),
+  );
+  assert.equal(configuredMcpRequests, 0);
+  assert.equal(await AppDataSource.getRepository(BrowserSession).count(), 0);
 });

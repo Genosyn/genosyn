@@ -388,6 +388,35 @@ async function resolveParentCompany(parentName: string, id: string): Promise<str
   return companyId;
 }
 
+/** Review tracking still refreshes its page, but is not new business work. */
+async function workstreamTriggersAllowed(
+  entity: ObjectLiteral,
+  companyId: string,
+): Promise<boolean> {
+  let workstream = entity;
+  if (workstream.routineId === undefined) {
+    const id = str(workstream.id);
+    if (!id) return false;
+    const current = await AppDataSource.getRepository<ObjectLiteral>("Workstream").findOne({
+      where: { id, companyId },
+      select: ["id", "routineId", "employeeId"],
+    });
+    if (!current) return false;
+    workstream = { ...entity, ...current };
+  }
+  if (workstream.routineId === null) return true;
+  const routineId = str(workstream.routineId);
+  if (!routineId) return false;
+  const routine = await AppDataSource.getRepository<ObjectLiteral>("Routine").findOne({
+    where: { id: routineId },
+    select: ["employeeId", "selfReviewOnly"],
+  });
+  if (!routine || routine.selfReviewOnly !== false) return false;
+  const employeeId = str(routine.employeeId);
+  if (!employeeId || (workstream.employeeId && employeeId !== workstream.employeeId)) return false;
+  return (await resolveParentCompany("AIEmployee", employeeId)) === companyId;
+}
+
 export class ResourceChangeSubscriber implements EntitySubscriberInterface {
   afterInsert(event: InsertEvent<ObjectLiteral>): void {
     this.handle(event.metadata.name, event.entity);
@@ -444,7 +473,22 @@ export class ResourceChangeSubscriber implements EntitySubscriberInterface {
 
     if (reg.company === "direct") {
       const companyId = str(entity.companyId);
-      if (companyId) emitResourceChange(companyId, reg.kind, scopeId);
+      if (companyId) {
+        if (entityName === "Workstream") {
+          // UI delivery does not wait for the scope lookup. A failed/missing
+          // lookup stays UI-only; it must never spawn business work by default.
+          emitResourceChange(companyId, reg.kind, scopeId, { trigger: false });
+          void workstreamTriggersAllowed(entity, companyId)
+            .then((allowed) => {
+              if (allowed) emitResourceChange(companyId, reg.kind, scopeId);
+            })
+            .catch(() => {
+              // The UI frame is already queued. Conservatively omit Triggers.
+            });
+        } else {
+          emitResourceChange(companyId, reg.kind, scopeId);
+        }
+      }
       return;
     }
 

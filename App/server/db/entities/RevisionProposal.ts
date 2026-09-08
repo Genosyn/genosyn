@@ -31,6 +31,7 @@ export type RevisionProposalStatus = "pending" | "applied" | "rejected";
  */
 @Entity("revision_proposals")
 @Index(["companyId", "status"])
+@Index(["companyId", "employeeId", "reviewRunId"], { unique: true })
 export class RevisionProposal {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -76,6 +77,10 @@ export class RevisionProposal {
    * queue links them to their Run logs. */
   @Column({ type: "text", default: "[]" })
   evidenceRunIdsJson!: string;
+
+  /** Trusted suggestion-only Run provenance; one successful proposal per review Run. */
+  @Column({ type: "varchar", nullable: true })
+  reviewRunId!: string | null;
 
   @Column({ type: "varchar", default: "pending" })
   status!: RevisionProposalStatus;
