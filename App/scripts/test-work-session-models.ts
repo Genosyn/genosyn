@@ -415,9 +415,27 @@ try {
 
   await check("the picker is usable by keyboard and fits on narrow screens", async () => {
     const page = await open();
-    await page.getByRole("combobox", { name: "AI Model", exact: true }).focus();
-    await page.keyboard.press("ArrowUp");
-    await page.keyboard.press("Enter");
+    const picker = page.getByRole("combobox", { name: "AI Model", exact: true });
+    const pickerId = await picker.getAttribute("id");
+    assert.ok(pickerId);
+    async function waitForHighlight(name: string) {
+      const option = page.getByRole("option", { name, exact: true });
+      await option.waitFor();
+      const optionId = await option.getAttribute("id");
+      assert.ok(optionId);
+      await page.waitForFunction(
+        ([inputId, activeId]) =>
+          document.getElementById(inputId)?.getAttribute("aria-activedescendant") === activeId,
+        [pickerId!, optionId],
+      );
+    }
+    await picker.focus();
+    // Opening the menu highlights its selection in an effect. Wait for that
+    // visible state before navigating, then for ArrowUp before accepting it.
+    await waitForHighlight("Claude Sonnet (default)");
+    await picker.press("ArrowUp");
+    await waitForHighlight("GPT 5.4");
+    await picker.press("Enter");
     assert.equal(await modelValue(page), "GPT 5.4");
     await fs.mkdir(path.resolve(root, "../output/playwright"), { recursive: true });
     await page.screenshot({
