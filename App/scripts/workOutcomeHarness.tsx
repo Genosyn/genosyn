@@ -1,4 +1,4 @@
-/** Browser fixture: the production work panel, popups and Run log with stubbed reads. */
+/** Browser fixture: Home's production employee rail, day calendar and Run log. */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
@@ -24,7 +24,15 @@ function Fixture() {
   const run = opened?.run;
   return (
     <main className="min-h-screen bg-slate-50 p-3 sm:p-8 dark:bg-slate-950">
-      <div className="mx-auto max-w-5xl">
+      <div className="page-shell mx-auto flex flex-col gap-6 md:flex-row">
+        <section aria-label="Home overview" className="min-w-0 flex-1">
+          <h1 className="text-2xl font-semibold text-slate-950 dark:text-slate-50">
+            Good afternoon
+          </h1>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Your company is up to date.
+          </p>
+        </section>
         <WorkTimelinePanel company={company} employees={employees} onOpenRun={setOpened} />
       </div>
       {opened && run && (

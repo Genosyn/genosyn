@@ -22,6 +22,7 @@ import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/db
 import {
   getEmployeeWorkTimeline,
   WORK_EFFECT_CAP,
+  WORK_TIMELINE_SOURCE_CAP,
   WorkEntry,
   WorkEntryKind,
 } from "./employeeWorkTimeline.js";
@@ -230,6 +231,145 @@ describe("Routine outcomes in the work timeline", () => {
 });
 
 describe("work timeline window", () => {
+  test("uses an inclusive start and exclusive end for every source's displayed time", async () => {
+    const since = ago(48 * HOUR);
+    const until = new Date(since.getTime() + 24 * HOUR);
+    const session = await insert(RepositoryWorkSession, {
+      companyId: company.id,
+      repositoryId: testId("repo"),
+      employeeId: employee.id,
+      title: "Daily report",
+      instruction: "prepare the report",
+      status: "ready",
+    });
+    const times = [
+      new Date(since.getTime() - 1),
+      since,
+      new Date(until.getTime() - 1),
+      until,
+    ];
+    for (const [index, at] of times.entries()) {
+      await run({ startedAt: at });
+      await auditRow({ createdAt: at });
+      await approval({ requestedAt: at });
+      const conv = await conversation();
+      await assistantMessage(conv.id, {
+        // Creation is deliberately on a different day: the entry reports its
+        // last update, and that is the timestamp the query must window on.
+        createdAt: new Date(at.getTime() - 48 * HOUR),
+        updatedAt: at,
+      });
+      await insert(EmployeeWakeup, {
+        companyId: company.id,
+        employeeId: employee.id,
+        at,
+        brief: "Follow up",
+        status: "fired",
+        firedAt: at,
+      });
+      await insert(RunLesson, {
+        companyId: company.id,
+        employeeId: employee.id,
+        routineId: routine.id,
+        runId: testId("run"),
+        cause: "Review the result",
+        advice: "Keep checking",
+        createdAt: at,
+      });
+      await insert(RepositoryWorkSessionTurn, {
+        companyId: company.id,
+        sessionId: session.id,
+        ordinal: index + 1,
+        instruction: "prepare the report",
+        status: "ok",
+        createdAt: new Date(at.getTime() - 48 * HOUR),
+        finishedAt: at,
+      });
+    }
+    const result = await timeline({ employeeId: employee.id, since, until });
+    assert.equal(result.since, since.toISOString());
+    assert.equal(result.until, until.toISOString());
+    assert.equal(result.entryCount, 14);
+    for (const kind of ["run", "effect", "approval", "chat", "wakeup", "lesson", "work_session"]) {
+      assert.equal(result.entries.filter((entry) => entry.kind === kind).length, 2, kind);
+    }
+    assert.ok(result.entries.every((entry) => entry.at >= result.since && entry.at < result.until));
+  });
+
+  test("filters Repository turns by event time before applying the source cap", async () => {
+    const since = ago(48 * HOUR);
+    const until = ago(24 * HOUR);
+    const session = await insert(RepositoryWorkSession, {
+      companyId: company.id,
+      repositoryId: testId("repo"),
+      employeeId: employee.id,
+      title: "Long report",
+      instruction: "prepare it",
+      status: "ready",
+    });
+    const selected = await insert(RepositoryWorkSessionTurn, {
+      companyId: company.id,
+      sessionId: session.id,
+      ordinal: 1,
+      instruction: "prepare it",
+      status: "ok",
+      createdAt: ago(60 * HOUR),
+      finishedAt: since,
+    });
+    for (let index = 0; index < WORK_TIMELINE_SOURCE_CAP; index++) {
+      await insert(RepositoryWorkSessionTurn, {
+        companyId: company.id,
+        sessionId: session.id,
+        ordinal: index + 2,
+        instruction: "later work",
+        status: "ok",
+        createdAt: until,
+        finishedAt: until,
+      });
+    }
+    const result = await timeline({ employeeId: employee.id, since, until });
+    assert.equal(result.entryCount, 1);
+    assert.equal(result.entries[0].id, `work_session:${selected.id}`);
+  });
+
+  test("keeps another day's ongoing work and waiting out of a selected day", async () => {
+    const since = ago(48 * HOUR);
+    const until = ago(24 * HOUR);
+    await run({ startedAt: ago(HOUR), status: "running" });
+    await approval({ requestedAt: ago(HOUR) });
+    const conv = await conversation();
+    await assistantMessage(conv.id, {
+      status: "working",
+      createdAt: since,
+      updatedAt: ago(HOUR),
+    });
+    const session = await insert(RepositoryWorkSession, {
+      companyId: company.id,
+      repositoryId: testId("repo"),
+      employeeId: employee.id,
+      title: "Current work",
+      instruction: "prepare it",
+      status: "running",
+    });
+    await insert(RepositoryWorkSessionTurn, {
+      companyId: company.id,
+      sessionId: session.id,
+      ordinal: 1,
+      instruction: "prepare it",
+      status: "running",
+      createdAt: ago(HOUR),
+      finishedAt: null,
+    });
+    const selected = await timeline({ employeeId: employee.id, since, until });
+    assert.equal(selected.entryCount, 0);
+    assert.equal(selected.employeeSummaries[0].current, null);
+    assert.equal(selected.employeeSummaries[0].waiting, null);
+    const recent = await timeline({ employeeId: employee.id });
+    assert.equal(recent.entryCount, 4);
+    assert.ok(recent.employeeSummaries[0].current);
+    assert.ok(recent.employeeSummaries[0].waiting);
+  });
+
   test("includes work inside the window and excludes work outside it", async () => {
     await run({ startedAt: ago(2 * HOUR) });
     await run({ startedAt: ago(26 * HOUR) });

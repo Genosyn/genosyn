@@ -128,11 +128,11 @@ export function Introduction() {
         Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — unread mentions
         and DMs, todos assigned to you, reviews and approvals waiting on your decision, the latest
         unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
-        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> of everything your AI
-        Employees did in the last 24 hours — a circle per employee saying who is working now, and a
-        chart of the day with one lane each, where every bar opens a plain-English account of what
-        that piece of work actually did — plus shortcuts to every section. When something needs you
-        — or a fresh recap is ready — it&apos;s the first thing you see.
+        <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> on the right, plus
+        shortcuts to every section. Each bubble shows who is working now; choose one to open that
+        employee&apos;s work timeline for the day, with times and a plain-English account of what
+        they did. The details stay in the popup until you ask for them. When something needs you —
+        or a fresh recap is ready — it&apos;s the first thing you see.
       </P>
       <P>
         Home only shows you what it actually has. Every queue — the{" "}
@@ -143,10 +143,9 @@ export function Introduction() {
         waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
         and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
         long as your day is busy, and on a quiet one it says{" "}
-        <Strong>Nothing needs you right now</Strong> and leaves it at that. The one panel that is
-        not a queue is the <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> — it
-        sits below that message rather than inside it, because a quiet day for you can still be a
-        busy one for your AI Employees.
+        <Strong>Nothing needs you right now</Strong> and leaves it at that. The{" "}
+        <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> stay available on
+        the right, because a quiet day for you can still be a busy one for your AI Employees.
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the

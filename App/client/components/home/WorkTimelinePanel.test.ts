@@ -3,8 +3,8 @@ import { describe, test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Company, Employee, WorkEntry } from "../../lib/api.js";
-import { EmployeeWorkBubble, teamSentence, WorkTimelinePanel } from "./WorkTimelinePanel.js";
+import type { Company, Employee } from "../../lib/api.js";
+import { EmployeeWorkBubble, WorkTimelinePanel } from "./WorkTimelinePanel.js";
 
 /**
  * The App deliberately has no browser-like unit-test DOM. Server rendering is
@@ -34,6 +34,7 @@ describe("employee work circle", () => {
     const html = renderBubble();
     assert.match(html, /^<button/);
     assert.match(html, /type="button"/);
+    assert.match(html, /aria-haspopup="dialog"/);
     assert.match(html, /aria-label="Rey, Customer support, Working now\. Open their day\."/);
     assert.match(html, />Rey</);
     assert.match(html, />Working now</);
@@ -52,63 +53,6 @@ describe("employee work circle", () => {
   });
 });
 
-describe("the headline over the roster", () => {
-  const counts = { employees: 3, workingCount: 0, waitingCount: 0, activeCount: 0, entries: [] };
-
-  test("never mistakes a pending request for a quiet team", () => {
-    const sentence = teamSentence({ ...counts, status: "loading" });
-    assert.match(sentence, /Reading back/);
-    assert.doesNotMatch(sentence, /Nobody is working/);
-  });
-
-  test("never mistakes a failed request for a quiet team", () => {
-    const sentence = teamSentence({ ...counts, status: "unavailable" });
-    assert.match(sentence, /could not be loaded/);
-    assert.doesNotMatch(sentence, /Nobody is working/);
-  });
-
-  test("leads with live work, then a human gate, then the day's total", () => {
-    assert.match(
-      teamSentence({ ...counts, status: "ready", workingCount: 1, activeCount: 2 }),
-      /^1 of 3 employees is working right now\./,
-    );
-    assert.match(
-      teamSentence({ ...counts, status: "ready", waitingCount: 2, activeCount: 2 }),
-      /^2 employees are waiting for a person\./,
-    );
-    assert.match(
-      teamSentence({ ...counts, status: "ready", activeCount: 2 }),
-      /^2 of 3 employees have worked in the last 24 hours\./,
-    );
-    assert.match(teamSentence({ ...counts, status: "ready" }), /^Nobody is working right now\./);
-  });
-
-  test("counts the window's work in the same breath", () => {
-    const entry = {
-      id: "run:1",
-      kind: "run",
-      at: new Date().toISOString(),
-      endedAt: null,
-      active: false,
-      employee: { id: "e1", name: "Rey", slug: "rey", avatarKey: null },
-      title: "Ran Nightly digest",
-      subject: "Nightly digest",
-      detail: "",
-      run: null,
-      effects: [],
-      effectCount: 2,
-    } as WorkEntry;
-    assert.match(
-      teamSentence({ ...counts, status: "ready", activeCount: 1, entries: [entry] }),
-      /Between them they logged 1 routine run\./,
-    );
-    assert.match(
-      teamSentence({ ...counts, status: "ready" }),
-      /Nothing has been recorded in the last 24 hours\./,
-    );
-  });
-});
-
 const company = {
   id: "company-1",
   name: "Acme",
@@ -116,6 +60,19 @@ const company = {
 } as Company;
 
 describe("employee work shell", () => {
+  test("shows employee bubbles without exposing work details or a team chart", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkTimelinePanel, {
+        company,
+        employees: [{ id: "e1", name: "Rey", role: "Support", avatarKey: null }] as Employee[],
+        onOpenRun: () => undefined,
+      }),
+    );
+    assert.match(html, /<aside/);
+    assert.match(html, /Open their day/);
+    assert.match(html, /Loading work/);
+    assert.doesNotMatch(html, /The last 24 hours|Every bar|Between them|Routine run|<dialog/);
+  });
   test("puts a roster failure inline instead of silently hiding the panel", () => {
     const html = renderToStaticMarkup(
       React.createElement(WorkTimelinePanel, {

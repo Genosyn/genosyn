@@ -1,4 +1,4 @@
-import { In, MoreThanOrEqual } from "typeorm";
+import { And, In, LessThan, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -191,7 +191,7 @@ export type WorkEmployeeSummary = {
 export type WorkTimeline = {
   /** Start of the window, inclusive. */
   since: string;
-  /** End of the window — when the read happened. */
+  /** End of the window, exclusive; the read time unless a day was requested. */
   until: string;
   /** The employee this was narrowed to, or null for the whole roster. */
   employeeId: string | null;
@@ -289,6 +289,9 @@ export async function getEmployeeWorkTimeline(params: {
   /** Narrow to one employee. Omitted = every employee in the company. */
   employeeId?: string | null;
   hours?: number;
+  /** A validated calendar-day window; both bounds must be supplied together. */
+  since?: Date;
+  until?: Date;
   limit?: number;
 }): Promise<WorkTimeline> {
   const { companyId, userId, role } = params;
@@ -296,8 +299,12 @@ export async function getEmployeeWorkTimeline(params: {
   const limit = params.limit ?? WORK_TIMELINE_DEFAULT_LIMIT;
   const employeeId = params.employeeId ?? null;
 
-  const until = new Date();
-  const since = new Date(until.getTime() - hours * 60 * 60 * 1000);
+  const until = params.until ?? new Date();
+  const since = params.since ?? new Date(until.getTime() - hours * 60 * 60 * 1000);
+  const inWindow = And(MoreThanOrEqual(since), LessThan(until));
+  // The roster reports live work even if it began before its recent history.
+  // An explicitly selected day must not borrow current work from another day.
+  const summaryWindow = params.since ? inWindow : LessThan(until);
   const empty: WorkTimeline = {
     since: iso(since),
     until: iso(until),
@@ -360,14 +367,18 @@ export async function getEmployeeWorkTimeline(params: {
   ] = await Promise.all([
     routines.length
       ? AppDataSource.getRepository(Run).find({
-          where: { routineId: In([...routineById.keys()]), startedAt: MoreThanOrEqual(since) },
+          where: { routineId: In([...routineById.keys()]), startedAt: inWindow },
           order: { startedAt: "DESC" },
           take,
         })
       : Promise.resolve([] as Run[]),
     routines.length
       ? AppDataSource.getRepository(Run).find({
-          where: { routineId: In([...routineById.keys()]), status: "running" },
+          where: {
+            routineId: In([...routineById.keys()]),
+            status: "running",
+            startedAt: summaryWindow,
+          },
           select: [
             "id",
             "routineId",
@@ -381,24 +392,18 @@ export async function getEmployeeWorkTimeline(params: {
         })
       : Promise.resolve([] as Run[]),
     AppDataSource.getRepository(AuditEvent).find({
-      where: { companyId, actorEmployeeId: In(empIds), createdAt: MoreThanOrEqual(since) },
+      where: { companyId, actorEmployeeId: In(empIds), createdAt: inWindow },
       order: { createdAt: "DESC", id: "DESC" },
       take,
     }),
     conversations.length
       ? AppDataSource.getRepository(ConversationMessage).find({
-          where: [
-            {
-              conversationId: In([...convById.keys()]),
-              role: "assistant",
-              createdAt: MoreThanOrEqual(since),
-            },
-            {
-              conversationId: In([...convById.keys()]),
-              role: "assistant",
-              updatedAt: MoreThanOrEqual(since),
-            },
-          ],
+          where: {
+            conversationId: In([...convById.keys()]),
+            role: "assistant",
+            // Entries report the reply's last update, including live progress.
+            updatedAt: inWindow,
+          },
           order: { updatedAt: "DESC", createdAt: "DESC" },
           take,
         })
@@ -409,6 +414,7 @@ export async function getEmployeeWorkTimeline(params: {
             conversationId: In([...convById.keys()]),
             role: "assistant",
             status: "working",
+            updatedAt: summaryWindow,
           },
           select: [
             "id",
@@ -422,12 +428,17 @@ export async function getEmployeeWorkTimeline(params: {
         })
       : Promise.resolve([] as ConversationMessage[]),
     AppDataSource.getRepository(Approval).find({
-      where: { companyId, employeeId: In(empIds), requestedAt: MoreThanOrEqual(since) },
+      where: { companyId, employeeId: In(empIds), requestedAt: inWindow },
       order: { requestedAt: "DESC" },
       take,
     }),
     AppDataSource.getRepository(Approval).find({
-      where: { companyId, employeeId: In(empIds), status: "pending" },
+      where: {
+        companyId,
+        employeeId: In(empIds),
+        status: "pending",
+        requestedAt: summaryWindow,
+      },
       select: [
         "id",
         "employeeId",
@@ -450,22 +461,29 @@ export async function getEmployeeWorkTimeline(params: {
         companyId,
         employeeId: In(empIds),
         status: "fired",
-        firedAt: MoreThanOrEqual(since),
+        firedAt: inWindow,
       },
       order: { firedAt: "DESC" },
       take,
     }),
     AppDataSource.getRepository(RunLesson).find({
-      where: { companyId, employeeId: In(empIds), createdAt: MoreThanOrEqual(since) },
+      where: { companyId, employeeId: In(empIds), createdAt: inWindow },
       order: { createdAt: "DESC" },
       take,
     }),
     sessions.length
-      ? AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
-          where: { companyId, sessionId: In([...sessionById.keys()]) },
-          order: { createdAt: "DESC" },
-          take,
-        })
+      ? AppDataSource.getRepository(RepositoryWorkSessionTurn)
+          .createQueryBuilder("turn")
+          .where("turn.companyId = :companyId", { companyId })
+          .andWhere("turn.sessionId IN (:...sessionIds)", { sessionIds: [...sessionById.keys()] })
+          // Use the displayed event time before the cap: later sessions must
+          // not crowd a selected day's completed work out of the response.
+          .andWhere("COALESCE(turn.finishedAt, turn.createdAt) >= :since", { since })
+          .andWhere("COALESCE(turn.finishedAt, turn.createdAt) < :until", { until })
+          .orderBy("COALESCE(turn.finishedAt, turn.createdAt)", "DESC")
+          .addOrderBy("turn.id", "DESC")
+          .take(take)
+          .getMany()
       : Promise.resolve([] as RepositoryWorkSessionTurn[]),
     sessions.length
       ? AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
@@ -473,6 +491,7 @@ export async function getEmployeeWorkTimeline(params: {
             companyId,
             sessionId: In([...sessionById.keys()]),
             status: "running",
+            createdAt: summaryWindow,
           },
           select: ["id", "sessionId", "status", "createdAt"],
           order: { createdAt: "DESC" },
@@ -627,7 +646,6 @@ export async function getEmployeeWorkTimeline(params: {
   for (const turn of sessionTurns) {
     // Still-running turns have no finish time; they window on when they began.
     const at = turn.finishedAt ?? turn.createdAt;
-    if (at < since) continue;
     const session = sessionById.get(turn.sessionId);
     if (!session) continue;
     const employee = empById.get(session.employeeId);

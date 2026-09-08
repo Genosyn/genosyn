@@ -224,51 +224,52 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
 
   return (
     <ContextualLayout>
-      <div className="page-shell px-6 py-8 lg:px-8">
-        <Greeting me={me} company={company} />
-        <SetupBanner company={company} />
-        <PushPromptBanner />
-        {data === null ? (
-          <div className="flex min-h-[40vh] items-center justify-center">
-            <Spinner size={22} />
-          </div>
-        ) : (
-          <>
-            {hasAnythingToShow(data) ? (
-              <>
-                <DecisionStack company={company} data={data} onResolved={reload} />
-                <FailedRoutinesAlert
-                  company={company}
-                  data={data}
-                  onChanged={reload}
-                  onOpen={setOverlay}
-                />
-                <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
-                <StatStrip company={company} data={data} />
-                {/* `empty:hidden` so the grid's own top margin goes away too on
+      <div className="page-shell flex flex-col gap-6 px-6 py-8 md:flex-row lg:px-8">
+        <div className="min-w-0 flex-1">
+          <Greeting me={me} company={company} />
+          <SetupBanner company={company} />
+          <PushPromptBanner />
+          {data === null ? (
+            <div className="flex min-h-[40vh] items-center justify-center">
+              <Spinner size={22} />
+            </div>
+          ) : (
+            <>
+              {hasAnythingToShow(data) ? (
+                <>
+                  <DecisionStack company={company} data={data} onResolved={reload} />
+                  <FailedRoutinesAlert
+                    company={company}
+                    data={data}
+                    onChanged={reload}
+                    onOpen={setOverlay}
+                  />
+                  <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
+                  <StatStrip company={company} data={data} />
+                  {/* `empty:hidden` so the grid's own top margin goes away too on
                     a day when every card inside it has hidden itself. */}
-                <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
-                  <AttentionCard company={company} data={data} onOpen={setOverlay} />
-                  <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
-                  <MyTodosCard company={company} data={data} onOpen={setOverlay} />
-                  <MessagesCard company={company} data={data} onOpen={setOverlay} />
-                  <ReviewsCard company={company} data={data} onOpen={setOverlay} />
-                  <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
-                </div>
-              </>
-            ) : (
-              <AllClear company={company} data={data} />
-            )}
-            {/* Outside the all-clear gate on purpose — see the note on
-                {@link hasAnythingToShow}. */}
-            <WorkTimelinePanel
-              company={company}
-              employees={employees}
-              employeeLoadError={employeesError}
-              onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
-            />
-          </>
-        )}
+                  <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
+                    <AttentionCard company={company} data={data} onOpen={setOverlay} />
+                    <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
+                    <MyTodosCard company={company} data={data} onOpen={setOverlay} />
+                    <MessagesCard company={company} data={data} onOpen={setOverlay} />
+                    <ReviewsCard company={company} data={data} onOpen={setOverlay} />
+                    <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
+                  </div>
+                </>
+              ) : (
+                <AllClear company={company} data={data} />
+              )}
+            </>
+          )}
+        </div>
+        {/* The roster remains available even when all of Home's queues are empty. */}
+        <WorkTimelinePanel
+          company={company}
+          employees={employees}
+          employeeLoadError={employeesError}
+          onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
+        />
       </div>
       <HomeOverlayHost
         company={company}
@@ -439,7 +440,7 @@ function HomeOverlayHost({
  * when nothing is failing at all.
  *
  * The work timeline is deliberately **not** one of these predicates, and it
- * renders below the all-clear rather than inside it. Everything above is a
+ * sits beside the all-clear rather than inside it. Everything above is a
  * queue, and {@link AllClear} says the queues are empty — which stays true on a
  * night the roster worked straight through. Folding the timeline in here would
  * either hide a full day's work behind "Nothing needs you right now" or quietly
