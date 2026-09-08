@@ -30,6 +30,20 @@ export class Company {
   @Column({ type: "boolean", default: false })
   requireTwoFactor!: boolean;
 
+  /** Automatically assign ready Proactive starters unless an admin switches this off. */
+  @Column({ type: "boolean", default: true })
+  proactiveAutoSetup!: boolean;
+
+  /**
+   * System-owned initialization and assignment tombstones, encoded as
+   * { version: 1, assignments: Record<string, string> }. Starter instructions
+   * remain on their native MailRule and Routine rows; this records which
+   * responsibilities have already been assigned so customization, pauses,
+   * and deletions are not overwritten by later automatic setup.
+   */
+  @Column({ type: "text", default: "" })
+  proactiveDefaultsJson!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

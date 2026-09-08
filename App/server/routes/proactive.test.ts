@@ -157,6 +157,9 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   assert.equal(view.employees[0].modelReady, true);
   assert.equal(view.employees[0].mailGrants.length, 1);
   assert.equal(view.mailboxes[0].analysisReady, true);
+  assert.equal(view.mailboxes[0].analysisEmployeeId, employee.id);
+  assert.equal(view.automaticSetup, true);
+  assert.deepEqual(view.defaultAssignments, {});
   assert.doesNotMatch(JSON.stringify(view), /do-not-serialize|soulBody|configJson/);
   assert.ok(!JSON.stringify(view).includes(other.id));
 });
@@ -165,6 +168,39 @@ test("authentication and company membership are required", async () => {
   assert.equal((await request()).status, 401);
   actingUserId = user.id;
   assert.equal((await request("GET", undefined, "", randomUUID())).status, 403);
+});
+
+test("automatic setup is an admin-only company setting with strict validation", async () => {
+  assert.equal((await request("PATCH", { enabled: false }, "/defaults")).status, 200);
+  assert.equal((await request()).body.automaticSetup, false);
+  assert.equal(
+    (await request("PATCH", { enabled: true, defaultAssignments: {} }, "/defaults")).status,
+    400,
+  );
+  assert.equal((await request("PATCH", { enabled: "true" }, "/defaults")).status, 400);
+  assert.equal((await request("PATCH", { enabled: true }, "/defaults", randomUUID())).status, 403);
+  await AppDataSource.getRepository(Membership).update(
+    { companyId: company.id, userId: user.id },
+    { role: "member" },
+  );
+  assert.equal((await request("PATCH", { enabled: true }, "/defaults")).status, 403);
+  assert.equal((await request()).body.automaticSetup, false);
+});
+
+test("turning automatic setup off preserves existing work and its individual pause state", async () => {
+  const installed = await request("POST", input());
+  assert.equal((await request("PATCH", { enabled: false }, `/${installed.body.id}`)).status, 200);
+  assert.equal((await request("PATCH", { enabled: false }, "/defaults")).status, 200);
+  assert.equal((await request("PATCH", { enabled: true }, "/defaults")).status, 200);
+  const view = (await request()).body as ProactiveOverview;
+  assert.equal(view.installations.length, 1);
+  assert.equal(view.installations[0].enabled, false);
+  assert.equal(view.automaticSetup, true);
+  const events = await AppDataSource.getRepository(AuditEvent).findBy({
+    action: "proactive.automatic_setup",
+  });
+  assert.equal(events.length, 2);
+  assert.ok(events.every((event) => event.actorUserId === user.id && event.actorKind === "user"));
 });
 test("ordinary Members may inspect but cannot enable or pause standing work", async () => {
   const enabled = await request("POST", input());

@@ -9,6 +9,7 @@ import { withSchedulerLease } from "../schedulerLeases.js";
 import { analyzeInboundMessage } from "./analysis.js";
 import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
+import { reconcileProactiveDefaults } from "../proactive/defaults.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
 const ACCOUNT_LEASE_MS = 12 * 60 * 60 * 1_000;
@@ -35,16 +36,44 @@ type MailAutomationRunOptions = {
   now?: () => Date;
   /** Test seam for holding or counting side effects without starting a real Pipeline. */
   runEffects?: MailAutomationEffectRunner;
+  /** Narrow seams for verifying ordinary processing around default setup failures. */
+  defaultEffects?: MailDefaultEffectsDependencies;
 };
 
-const runDefaultEffects: MailAutomationEffectRunner = async (
-  account,
-  message,
-  assertRunnable,
-  beforeEffect,
-) => {
+type MailDefaultEffectsDependencies = {
+  reconcileDefaults?: typeof reconcileProactiveDefaults;
+  analyzeInbound?: typeof analyzeInboundMessage;
+  applyRules?: typeof runRulesForNewMessage;
+  dispatchReceived?: typeof dispatchEmailReceived;
+};
+
+export async function runDefaultMailEffects(
+  account: MailAccount,
+  message: MailMessage,
+  assertRunnable: () => Promise<void>,
+  beforeEffect: () => Promise<void>,
+  dependencies: MailDefaultEffectsDependencies = {},
+): Promise<void> {
+  // This queue contains new inbound mail only; setup never replays imported
+  // history. Install ready defaults before this first message is classified.
+  await assertRunnable();
+  try {
+    await (dependencies.reconcileDefaults ?? reconcileProactiveDefaults)(account.companyId);
+  } catch (error) {
+    // Automatic setup is repairable bookkeeping. Its failure must not turn
+    // the unique inbound delivery into a failed, unreplayable message or stop
+    // the mailbox's existing analysis, rules and Pipelines. The sweep retries setup.
+    // eslint-disable-next-line no-console
+    console.warn(`[proactive] inbox setup will retry for company ${account.companyId}:`, error);
+  }
+  await assertRunnable();
   if (await hasBlockedSender(account, message)) {
-    await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
+    await (dependencies.applyRules ?? runRulesForNewMessage)(
+      account,
+      message.id,
+      assertRunnable,
+      beforeEffect,
+    );
     return;
   }
   // AI triage goes first, and is deliberately NOT fenced by `beforeEffect`.
@@ -60,7 +89,7 @@ const runDefaultEffects: MailAutomationEffectRunner = async (
   // Going first also means the buttons a human wants are ready before a rule's
   // handover or a Pipeline that may run for hours.
   await assertRunnable();
-  await analyzeInboundMessage(account, message).catch((error) => {
+  await (dependencies.analyzeInbound ?? analyzeInboundMessage)(account, message).catch((error) => {
     // Triage is an enrichment. A mailbox whose model is down still gets its
     // rules and its Pipelines; the analysis row already recorded the failure.
     // eslint-disable-next-line no-console
@@ -68,12 +97,20 @@ const runDefaultEffects: MailAutomationEffectRunner = async (
   });
 
   await assertRunnable();
-  await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
+  await (dependencies.applyRules ?? runRulesForNewMessage)(
+    account,
+    message.id,
+    assertRunnable,
+    beforeEffect,
+  );
   await assertRunnable();
   if (!(await hasBlockedSender(account, message))) {
-    await dispatchEmailReceived(message.id, { failOnRejected: true, beforeEffect });
+    await (dependencies.dispatchReceived ?? dispatchEmailReceived)(message.id, {
+      failOnRejected: true,
+      beforeEffect,
+    });
   }
-};
+}
 
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
@@ -171,12 +208,10 @@ async function processOne(
             accountId,
           });
           if (!message) throw new Error("Inbound message no longer exists");
-          await (options.runEffects ?? runDefaultEffects)(
-            account,
-            message,
-            assertRunnable,
-            beforeEffect,
-          );
+          const effects: MailAutomationEffectRunner =
+            options.runEffects ??
+            ((...args) => runDefaultMailEffects(...args, options.defaultEffects));
+          await effects(account, message, assertRunnable, beforeEffect);
           await assertRunnable();
           await finish(event.id, "succeeded");
         } catch (error) {

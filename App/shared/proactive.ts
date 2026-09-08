@@ -36,6 +36,7 @@ export type ProactiveMailbox = {
   status: string;
   analysisEnabled: boolean;
   analysisReady: boolean;
+  analysisEmployeeId?: string | null;
 };
 export type ProactiveInstallation = {
   id: string;
@@ -50,6 +51,8 @@ export type ProactiveInstallation = {
   configurationIssue?: string;
 };
 export type ProactiveOverview = {
+  automaticSetup: boolean;
+  defaultAssignments: Record<string, string>;
   recipes: ProactiveRecipe[];
   employees: ProactiveEmployee[];
   mailboxes: ProactiveMailbox[];

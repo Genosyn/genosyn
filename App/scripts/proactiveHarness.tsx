@@ -15,11 +15,12 @@ function Location() {
     </output>
   );
 }
+const role = new URLSearchParams(location.search).get("role");
 const company = {
   id: "company",
   slug: "company",
   name: "Example company",
-  role: new URLSearchParams(location.search).get("role") === "member" ? "member" : "owner",
+  role: role === "member" || role === "admin" ? role : "owner",
 } as Company;
 createRoot(document.getElementById("root")!).render(
   <MemoryRouter initialEntries={["/c/company/proactive"]}>
