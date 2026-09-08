@@ -31,6 +31,7 @@ import { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.
  * both ends: the gate consults it, and the replay refuses anything else so a
  * forged payload cannot become an arbitrary-tool trampoline. */
 export const TAINT_SINK_TOOLS = new Set([
+  "open_repository_work_session_pull_request",
   "send_mail",
   "create_routine",
   "update_routine",

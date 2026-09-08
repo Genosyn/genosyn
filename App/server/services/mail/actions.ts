@@ -37,6 +37,7 @@ export type ThreadAction =
   | "star"
   | "unstar"
   | "archive"
+  | "spam"
   | "moveToInbox"
   | "trash"
   | "untrash"
@@ -80,6 +81,9 @@ export async function performThreadAction(
       break;
     case "unstar":
       await mailbox.setFlagged(ref, false);
+      break;
+    case "spam":
+      await mailbox.spam(ref);
       break;
     case "archive":
       await mailbox.archive(ref);

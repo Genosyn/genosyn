@@ -23,7 +23,8 @@
     "migration:revert": "npm run typeorm -- migration:revert -d ormconfig.ts",
     "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts",
     "license:keygen": "tsx server/scripts/licenseKeygen.ts",
-    "test:work-session-models": "tsx scripts/test-work-session-models.ts"
+    "test:work-session-models": "tsx scripts/test-work-session-models.ts",
+    "test:proactive": "tsx scripts/test-proactive.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

@@ -190,6 +190,47 @@ async function settle(sessionId: string): Promise<void> {
 }
 
 describe("starting a work session from a tool call", () => {
+  test("ordinary Members cannot delegate the forge delivery tool", async () => {
+    const row = await runningSession();
+    const result = await callWith(token, "open_repository_work_session_pull_request", {
+      sessionId: row.id,
+    });
+    assert.equal(result.status, 403);
+    assert.match(result.body.error ?? "", /owner or admin/);
+  });
+
+  test("a result lookup cannot read another employee's session", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    await AppDataSource.getRepository(RepositoryWorkSession).update(row.id, {
+      employeeId: "another",
+    });
+    const result = await callWith(token, "get_repository_work_session", { sessionId: row.id });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error ?? "", /not found/);
+  });
+
+  test("result lookups require a live Repository Grant", async () => {
+    const row = await runningSession();
+    const result = await callWith(token, "get_repository_work_session", { sessionId: row.id });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error ?? "", /read Grant/);
+  });
+
+  test("result and delivery arguments are validated at the API boundary", async () => {
+    const result = await callWith(token, "get_repository_work_session", { sessionId: "invalid" });
+    assert.equal(result.status, 400);
+    await AppDataSource.getRepository(Membership).update(
+      { userId: requester.id },
+      { role: "admin" },
+    );
+    const delivery = await callWith(token, "open_repository_work_session_pull_request", {
+      sessionId: "invalid",
+      branch: "main",
+    });
+    assert.equal(delivery.status, 400);
+  });
+
   test("refuses a repository the employee has no Grant for without confirming it exists", async () => {
     const res = await start({ repository: "strategy", instruction: "Update the plan" });
 
@@ -211,8 +252,12 @@ describe("starting a work session from a tool call", () => {
     assert.match(res.body.error ?? "", /Strategy \(strategy\)/);
   });
 
-  test("refuses a turn no signed-in Member is driving", async () => {
-    await grantAccess();
+  test("refuses an unattended turn with only a read Grant", async () => {
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: employee.id,
+      repositoryId: repository.id,
+      accessLevel: "read",
+    });
     const employeeAuthority = issueMcpToken(employee.id, company.id, { authority: "employee" });
     try {
       const res = await callWith(employeeAuthority, "start_repository_work_session", {
@@ -220,8 +265,8 @@ describe("starting a work session from a tool call", () => {
         instruction: "Update the plan",
       });
 
-      assert.equal(res.status, 403);
-      assert.match(res.body.error ?? "", /access of the Member who asked for it/);
+      assert.equal(res.status, 400);
+      assert.match(res.body.error ?? "", /not been granted write access/);
       assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
     } finally {
       revokeMcpToken(employeeAuthority);
@@ -332,6 +377,30 @@ describe("what a session's own turn may reach", () => {
  * the refusal tests above stalls the loop enough to reset their connections.
  */
 describe("a session that really starts", () => {
+  test("trusted unattended work starts using its own Grant and records no fictional Member", async () => {
+    await grantAccess();
+    const bearer = issueMcpToken(employee.id, company.id, { authority: "employee" });
+    try {
+      const res = await callWith(bearer, "start_repository_work_session", {
+        repository: "strategy",
+        instruction: "Investigate the customer's reported issue",
+      });
+      assert.equal(res.status, 200);
+      const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+        id: res.body.sessionId as string,
+      });
+      assert.equal(row.requestedByUserId, null);
+      assert.equal(row.employeeId, employee.id);
+      assert.match(String(res.body.note), /Wakeup/);
+      await settle(row.id);
+      const report = await callWith(bearer, "get_repository_work_session", { sessionId: row.id });
+      assert.equal(report.status, 200);
+      assert.equal(report.body.sessionId, row.id);
+    } finally {
+      revokeMcpToken(bearer);
+    }
+  });
+
   test("hands back the session and where to review it", async () => {
     await grantAccess();
     const res = await start({ repository: "strategy", instruction: "Update the plan" });

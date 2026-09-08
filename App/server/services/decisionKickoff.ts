@@ -78,6 +78,9 @@ export async function kickoffDecision(args: {
   if (inFlight.has(decisionId)) return;
 
   const repo = AppDataSource.getRepository(Decision);
+  // Preparation-only origins persist `skipped` when the question is created.
+  // Answering leaves that marker intact, so neither a human nor an AI answer
+  // can shed the originating turn's delivery ceiling by starting this session.
   // Claim first, ask questions later: whoever flips `none` → `running` owns the
   // session. A second caller sees zero affected rows and leaves.
   const claim = await repo.update(

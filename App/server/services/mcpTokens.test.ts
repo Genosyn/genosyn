@@ -31,6 +31,7 @@ describe("short-lived MCP tokens", () => {
       routineId: "routine",
       conversationId: null,
       mailThreadId: null,
+      mailDeliveryMode: null,
     repositoryWorkSessionId: null,
       authority: "employee",
       requesterUserId: null,

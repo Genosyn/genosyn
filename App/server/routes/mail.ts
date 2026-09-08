@@ -1,3 +1,4 @@
+import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
 import { Router, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -1192,6 +1193,8 @@ mailRouter.get("/mail/messages/:mid/attachments/:index", async (req, res) => {
 const ruleConditionsSchema = z
   .object({
     from: z.string().max(500).optional(),
+    fromExact: z.string().trim().email().max(254).optional(),
+    category: z.enum(MAIL_ANALYSIS_CATEGORIES).optional(),
     to: z.string().max(500).optional(),
     subjectContains: z.string().max(500).optional(),
     bodyContains: z.string().max(500).optional(),
@@ -1213,13 +1216,15 @@ const ruleActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("markRead") }).strict(),
   z.object({ type: z.literal("star") }).strict(),
   z.object({ type: z.literal("archive") }).strict(),
+  z.object({ type: z.literal("spam") }).strict(),
+  z.object({ type: z.literal("blockSender") }).strict(),
   z.object({ type: z.literal("unsubscribe") }).strict(),
   z
     .object({
       type: z.literal("handToEmployee"),
       employeeId: z.string().uuid(),
       instruction: z.string().trim().max(4000).default(""),
-      mode: z.enum(["draft", "reply", "triage"]),
+      mode: z.enum(["draft", "reply", "triage", "work"]),
     })
     .strict(),
 ]);
@@ -1449,7 +1454,7 @@ mailRouter.get("/mail/accounts/:aid/handovers", async (req, res) => {
 const createHandoverSchema = z.object({
   employeeId: z.string().uuid(),
   instruction: z.string().max(4000).default(""),
-  mode: z.enum(["draft", "reply", "triage"]),
+  mode: z.enum(["draft", "reply", "triage", "work"]),
 });
 
 mailRouter.post(

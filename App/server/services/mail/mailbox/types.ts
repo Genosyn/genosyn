@@ -141,6 +141,7 @@ export interface Mailbox {
   setRead(thread: ThreadRef, read: boolean): Promise<void>;
   setFlagged(thread: ThreadRef, flagged: boolean): Promise<void>;
   archive(thread: ThreadRef): Promise<void>;
+  spam(thread: ThreadRef): Promise<void>;
   moveToInbox(thread: ThreadRef): Promise<void>;
   trash(thread: ThreadRef): Promise<void>;
   untrash(thread: ThreadRef): Promise<void>;

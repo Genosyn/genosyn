@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
+import { performMailSenderAction } from "../services/mail/blockedSenders.js";
+import {
+  mailDeliveryAllowsDeferredWork,
+  mailDeliveryToolError,
+  type MailDeliveryMode,
+} from "../services/mail/deliveryPolicy.js";
 import { Router, Request, Response, NextFunction, type RequestHandler } from "express";
 import cron from "node-cron";
 import { z } from "zod";
@@ -34,8 +41,7 @@ import { validateBody } from "../middleware/validate.js";
 import {
   MAX_SESSION_WRITE_BYTES,
   REPOSITORY_SESSION_TOOLS,
-  createRepositoryWorkSession,
-  liveRepositoryWorkSession,
+  createToolRepositoryWorkSession,
   resolveSessionCheckout,
   runRepositoryWorkSession,
   sessionCommit,
@@ -44,6 +50,10 @@ import {
   sessionWriteFile,
   type SessionCheckout,
 } from "../services/repositoryWorkSessions.js";
+import {
+  employeeRepositoryWorkSession,
+  openEmployeeRepositoryWorkSessionPullRequest,
+} from "../services/repositoryEmployeeWork.js";
 import {
   MAX_GREP_CONTEXT,
   MAX_SESSION_STEPS,
@@ -373,6 +383,7 @@ import {
   type HydratedEstimate,
 } from "../services/estimates.js";
 import { Customer } from "../db/entities/Customer.js";
+import { getQuoteEstimate, listQuoteEstimates, listQuoteProducts } from "../services/financeQuoteRead.js";
 import { getFinanceSettings } from "../services/fx.js";
 import { disallowedRecipients, trustedRecipientDomains } from "../lib/recipientAllowlist.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
@@ -684,6 +695,7 @@ type McpRequest = Request & {
   /** The chat thread / email thread behind this call, when the surface has one. */
   mcpConversationId?: string | null;
   mcpMailThreadId?: string | null;
+  mcpMailDeliveryMode?: MailDeliveryMode | null;
   /** The Repository work session this turn may act on, if any. */
   mcpRepositoryWorkSessionId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
@@ -729,6 +741,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpRoutineId = info.routineId;
   req.mcpConversationId = info.conversationId;
   req.mcpMailThreadId = info.mailThreadId;
+  req.mcpMailDeliveryMode = info.mailDeliveryMode;
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
@@ -825,6 +838,15 @@ function requireDelegatedToolAuthority(
 }
 
 mcpInternalRouter.use(requireDelegatedToolAuthority);
+
+mcpInternalRouter.use((req: McpRequest, res, next) => {
+  const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
+  const error = name
+    ? mailDeliveryToolError(req.mcpMailDeliveryMode, name, req.body ?? {})
+    : null;
+  if (error) return res.status(403).json({ error });
+  return next();
+});
 
 /**
  * A Repository work session may only do repository work.
@@ -2252,6 +2274,41 @@ mcpInternalRouter.post(
   },
 );
 
+const quoteReadPage = {
+  limit: z.number().int().min(1).max(100).default(25),
+  offset: z.number().int().min(0).safe().default(0),
+};
+const listEstimatesSchema = z.object({
+  ...quoteReadPage,
+  customerSlug: z.string().min(1).max(200).optional(),
+  status: z.enum(["draft", "sent", "accepted", "declined", "void"]).optional(),
+}).strict();
+const getEstimateSchema = z.object({ estimateSlug: z.string().min(1).max(200) }).strict();
+const listFinanceProductsSchema = z.object({
+  ...quoteReadPage,
+  includeArchived: z.boolean().default(false),
+  currency: isoCurrency.optional(),
+}).strict();
+
+mcpInternalRouter.post("/tools/list_estimates", validateBody(listEstimatesSchema), async (req: McpRequest, res) => {
+  if (!(await requireFinance(req, res, "read"))) return;
+  const result = await listQuoteEstimates(req.mcpCompany!.id, req.body as z.infer<typeof listEstimatesSchema>);
+  if (!result) return res.status(404).json({ error: "Customer not found" });
+  res.json(result);
+});
+
+mcpInternalRouter.post("/tools/get_estimate", validateBody(getEstimateSchema), async (req: McpRequest, res) => {
+  if (!(await requireFinance(req, res, "read"))) return;
+  const estimate = await getQuoteEstimate(req.mcpCompany!.id, (req.body as z.infer<typeof getEstimateSchema>).estimateSlug);
+  if (!estimate) return res.status(404).json({ error: "Estimate not found" });
+  res.json({ estimate: serializeEstimateFull(estimate) });
+});
+
+mcpInternalRouter.post("/tools/list_finance_products", validateBody(listFinanceProductsSchema), async (req: McpRequest, res) => {
+  if (!(await requireFinance(req, res, "read"))) return;
+  res.json(await listQuoteProducts(req.mcpCompany!.id, req.body as z.infer<typeof listFinanceProductsSchema>));
+});
+
 const createEstimateSchema = z
   .object({
     customerSlug: z.string().min(1).max(200),
@@ -2314,7 +2371,7 @@ mcpInternalRouter.post(
       });
       res.json({
         estimate: serializeEstimateFull(hydrated),
-        note: "Draft created. It has no ledger effect and nothing was emailed. A Member can review, issue, and send it from Finance.",
+        note: "Draft created. It has no ledger effect and nothing was emailed. Attach its slug with estimateSlug on create_mail_draft to prepare a quotation email; send_mail requires authorization to send. The PDF stays marked DRAFT. A Member can review and issue it from Finance.",
       });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
@@ -9778,9 +9835,13 @@ mcpInternalRouter.post(
       parentTodoId: body.parentTodoId ?? null,
     });
     await todoRepo.save(t);
-    void dispatchTodoCreated(co.id, t.id).catch((err) => {
-      console.error(`[pipelines] task event failed for ${t.id}:`, err);
-    });
+    // The saved Todo remains useful follow-up work, but an event Pipeline
+    // starts a separate worker that cannot inherit this turn's mail ceiling.
+    if (mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode)) {
+      void dispatchTodoCreated(co.id, t.id).catch((err) => {
+        console.error(`[pipelines] task event failed for ${t.id}:`, err);
+      });
+    }
 
     await recordAudit({
       companyId: co.id,
@@ -9915,7 +9976,12 @@ mcpInternalRouter.post(
     // An AI reviewer gets a session, not a bell — brief it to review the work
     // now and move the card itself. Guards (self-review, pass cap, no model)
     // live in the service.
-    if (justEnteredReview && t.reviewerEmployeeId && t.reviewerEmployeeId !== self.id) {
+    if (
+      justEnteredReview &&
+      t.reviewerEmployeeId &&
+      t.reviewerEmployeeId !== self.id &&
+      mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode)
+    ) {
       void kickoffTodoReview({ companyId: co.id, todoId: t.id }).catch((e) => {
         // eslint-disable-next-line no-console
         console.error("[mcpInternal] review kickoff failed:", e);
@@ -11389,6 +11455,8 @@ mcpInternalRouter.post(
         connectionId: body.connectionId,
         toolName: body.toolName,
         toolArgs: args,
+        mailDeliveryMode: req.mcpMailDeliveryMode,
+        financeAccessLimit: delegatedMemberFinanceAccess(req),
       });
       await recordAudit({
         companyId: co.id,
@@ -12236,6 +12304,7 @@ mcpInternalRouter.post(
         runId: req.mcpRunId ?? null,
         conversationId: req.mcpConversationId ?? null,
         mailThreadId: req.mcpMailThreadId ?? null,
+        automaticContinuation: mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
       });
       await journal(
         self.id,
@@ -12255,9 +12324,11 @@ mcpInternalRouter.post(
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note: decision.routedToEmployeeId
-          ? "Stacked. Your company's decision policy routes this to an AI teammate, who is being briefed now; if they decline or stall, humans are paged. Stop this line of work and finish your turn — when it is answered, you are started again in a fresh session briefed with the answer."
-          : "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
+        note: decision.pickupStatus === "skipped"
+          ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."
+          : decision.routedToEmployeeId
+            ? "Stacked. Your company's decision policy routes this to an AI teammate, who is being briefed now; if they decline or stall, humans are paged. Stop this line of work and finish your turn — when it is answered, you are started again in a fresh session briefed with the answer."
+            : "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
       });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
@@ -13391,11 +13462,10 @@ const startRepositoryWorkSessionSchema = z
  * it could see the work and could not begin it. That is a dead end a human had
  * to walk around, not a boundary anything was safer for.
  *
- * What it deliberately does *not* do is widen what a session may then do. The
- * session it starts is the same one the Repository page starts: its own
- * worktree, the same path-validated tools, the same branch nobody but a Member
- * can merge or push. The Member's review step is untouched, which is why
- * starting one is safe to hand to the employee while publishing one is not.
+ * The session still has only its isolated repository tools. Delivery happens
+ * separately, after completion, under the Repository and forge Connection
+ * Grants. Member calls retain Member delegation; trusted unattended calls
+ * retain employee authority and need a write Grant.
  *
  * It runs detached. A session may take as long as any other turn, and a chat
  * turn cannot sit and wait for it, so the tool answers with the session id and
@@ -13417,22 +13487,15 @@ mcpInternalRouter.post(
     // has already refused every tool but the `repository_*` set. A second check
     // would read as the guard and quietly rot.
 
-    // A session runs on the delegated access of the Member who asked for it —
-    // that is what `RepositoryWorkSession.requestedByUserId` means and what the
-    // nested turn's authority is built from. A turn with no Member behind it
-    // has nothing to delegate, so it is refused here rather than quietly run
-    // with the employee's own broader authority.
-    if (
-      req.mcpAuthority !== "member" ||
-      !req.mcpRequesterUserId ||
-      req.mcpRequesterSessionVersion === null ||
-      req.mcpRequesterSessionVersion === undefined
-    ) {
-      return res.status(403).json({
-        error:
-          "A repository work session runs on the access of the Member who asked for it, so it can only be started from a turn a signed-in Member is driving. Ask them to start one from the Repository page instead.",
-      });
-    }
+    // Preserve Member delegation for interactive calls. Trusted Routines and
+    // mail work use the employee's own live write Grant, never a made-up Member.
+    const authority = req.mcpAuthority === "employee"
+      ? { toolAuthority: "employee" as const }
+      : req.mcpAuthority === "member" && req.mcpRequesterUserId &&
+          req.mcpRequesterSessionVersion !== null && req.mcpRequesterSessionVersion !== undefined
+        ? { requesterUserId: req.mcpRequesterUserId, requesterSessionVersion: req.mcpRequesterSessionVersion }
+        : null;
+    if (!authority) return res.status(403).json({ error: "Trusted work authority is required." });
 
     // Express 4 does not await a handler, so every await below stays inside
     // this try — a rejection that escaped would take the process down.
@@ -13490,28 +13553,12 @@ mcpInternalRouter.post(
         });
       }
 
-      // One tool-started session per employee per repository at a time. A turn
-      // may call a tool a hundred times, and starting one session per issue it
-      // notices creates competing, duplicated changes. A human clicking Start
-      // on the Repository page is not bounded this way and does not need to be.
-      const alreadyRunning = await liveRepositoryWorkSession({
-        companyId: co.id,
-        repositoryId: repo.id,
-        employeeId: self.id,
-      });
-      if (alreadyRunning) {
-        return res.status(400).json({
-          error: `You already have a work session running on ${repo.name} (${alreadyRunning.id}). Wait for it to finish rather than starting another — everything you asked for can go in one session.`,
-        });
-      }
-
-      const prepared = await createRepositoryWorkSession({
+      const prepared = await createToolRepositoryWorkSession({
         companyId: co.id,
         repositoryId: repo.id,
         employeeId: self.id,
         instruction: body.instruction,
-        requesterUserId: req.mcpRequesterUserId,
-        requesterSessionVersion: req.mcpRequesterSessionVersion,
+        ...authority,
       });
 
       // Both principals, deliberately. `actorEmployeeId` is what resolves
@@ -13527,7 +13574,7 @@ mcpInternalRouter.post(
         targetType: "repository",
         targetId: repo.id,
         targetLabel: repo.name,
-        metadata: { employeeId: self.id, startedBy: "tool" },
+        metadata: { employeeId: self.id, sessionId: prepared.session.id, startedBy: "tool" },
       });
 
       runRepositoryWorkSession(prepared).catch((error) => {
@@ -13554,9 +13601,77 @@ mcpInternalRouter.post(
         note: [
           "Started. It runs in its own working copy, separately from this conversation.",
           `Say you have started it and link them to the work with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — it opens beside this conversation, where they review the diff, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
-          "You will not see the result on this turn, so do not wait for it and do not report the work as done, committed, merged, pushed, or opened as a pull request.",
+          "Save the sessionId in a Workstream and schedule a Wakeup to check get_repository_work_session later. Only report completion after checking the result. If authorized to deliver a pull request, call open_repository_work_session_pull_request after the session is ready; it checks your Repository and forge Connection Grants. Never report the work as done, committed, merged, pushed, or opened as a pull request just because it started.",
         ].join(" "),
       });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+const getRepositoryWorkSessionSchema = z.object({ sessionId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_repository_work_session",
+  validateBody(getRepositoryWorkSessionSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { session, repo, latestTurn } = await employeeRepositoryWorkSession({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        sessionId: req.body.sessionId,
+      });
+      res.json({
+        sessionId: session.id,
+        repository: repo.slug,
+        status: session.status,
+        title: session.title,
+        reply: session.reply,
+        error: session.error,
+        lastTurnStatus: latestTurn?.status ?? null,
+        lastTurnNotice: latestTurn?.error ?? null,
+        filesChanged: session.filesChanged,
+        pullRequestUrl: session.pullRequestUrl,
+        publishedBranch: session.publishedBranch,
+        reviewUrl: `/c/${req.mcpCompany!.slug}/repositories/${repo.slug}/ai/${session.id}`,
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+const openRepositoryWorkSessionPullRequestSchema = z.object({
+  sessionId: z.string().uuid(),
+  title: z.string().trim().min(1).max(300).optional(),
+  body: z.string().max(20000).optional(),
+}).strict();
+
+mcpInternalRouter.post(
+  "/tools/open_repository_work_session_pull_request",
+  validateBody(openRepositoryWorkSessionPullRequestSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const session = await openEmployeeRepositoryWorkSessionPullRequest({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        ...req.body as z.infer<typeof openRepositoryWorkSessionPullRequestSchema>,
+        requester: req.mcpAuthority === "member" ? {
+          userId: req.mcpRequesterUserId!, sessionVersion: req.mcpRequesterSessionVersion!,
+        } : undefined,
+      });
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorUserId: req.mcpRequesterUserId,
+        actorEmployeeId: req.mcpEmployee!.id,
+        action: "repository.work_session.pull_request",
+        targetType: "repository",
+        targetId: session.repositoryId,
+        targetLabel: session.title,
+        metadata: { sessionId: session.id, pullRequestUrl: session.pullRequestUrl, branch: session.publishedBranch },
+      });
+      res.json({ sessionId: session.id, status: session.status, pullRequestUrl: session.pullRequestUrl });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
@@ -13586,7 +13701,10 @@ async function sessionCheckoutFor(req: McpRequest): Promise<SessionCheckout> {
       "Repository tools only work inside a repository work session, and you are not in one. Call start_repository_work_session with the repository's slug and what needs doing, and do the work there.",
     );
   }
-  return resolveSessionCheckout(req.mcpCompany!.id, sessionId);
+  return resolveSessionCheckout(req.mcpCompany!.id, sessionId, {
+    employeeId: req.mcpEmployee!.id,
+    access: req.mcpAuthority === "employee" ? "write" : "read",
+  });
 }
 
 function respondWithSessionError(res: Response, error: unknown): void {
@@ -16884,6 +17002,25 @@ mcpInternalRouter.post("/tools/list_mail_accounts", async (req: McpRequest, res:
   });
 });
 
+const mailSenderActionSchema = z.object({ threadId: z.string().uuid() }).strict();
+
+for (const operation of ["mail_block_sender", "mail_unsubscribe"] as const) {
+  mcpInternalRouter.post(`/tools/${operation}`, validateBody(mailSenderActionSchema), async (req: McpRequest, res) => {
+    const { threadId } = req.body as z.infer<typeof mailSenderActionSchema>;
+    if (req.mcpMailThreadId && req.mcpMailThreadId !== threadId) {
+      return res.status(403).json({ error: "This handover can only act on its own email thread." });
+    }
+    const found = await loadGrantedMailThread(req, res, threadId, "draft");
+    if (!found) return;
+    try {
+      const result = await performMailSenderAction({ operation, ...found, employeeId: req.mcpEmployee!.id });
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : "Could not update the sender." });
+    }
+  });
+}
+
 const searchMailSchema = z
   .object({
     accountId: z.string().uuid().optional(),
@@ -17077,7 +17214,7 @@ const chatAttachmentMailSpecSchema = z
 
 /**
  * The mail compose tools' `attachments` list: chat attachments, Resources by
- * slug, and invoices rendered to PDF. Order is preserved across the two
+ * slug, and invoices or estimates rendered to PDF. Order is preserved across the two
  * resolvers so the recipient sees the files in the order the employee named
  * them.
  */
@@ -17114,6 +17251,7 @@ async function resolveMailAttachments(
   const resolve = makeResourceAttachmentResolver({
     companyId: req.mcpCompany!.id,
     employeeId: req.mcpEmployee!.id,
+    financeAccessLimit: delegatedMemberFinanceAccess(req),
   });
   const out: MimeAttachment[] = [];
   let total = 0;
@@ -17563,6 +17701,8 @@ const suggestedRuleSchema = z
     conditions: z
       .object({
         from: z.string().max(200).optional(),
+        fromExact: z.string().trim().email().max(254).optional(),
+        category: z.enum(MAIL_ANALYSIS_CATEGORIES).optional(),
         to: z.string().max(200).optional(),
         subjectContains: z.string().max(200).optional(),
         bodyContains: z.string().max(200).optional(),
@@ -17578,12 +17718,14 @@ const suggestedRuleSchema = z
           z.object({ type: z.literal("markRead") }).strict(),
           z.object({ type: z.literal("star") }).strict(),
           z.object({ type: z.literal("archive") }).strict(),
+          z.object({ type: z.literal("spam") }).strict(),
+          z.object({ type: z.literal("blockSender") }).strict(),
           z
             .object({
               type: z.literal("handToEmployee"),
               employeeId: z.string().uuid(),
               instruction: z.string().min(1).max(4000),
-              mode: z.enum(["draft", "reply", "triage"]),
+              mode: z.enum(["draft", "reply", "triage", "work"]),
             })
             .strict(),
         ]),
@@ -17644,7 +17786,7 @@ const mailSuggestionSchema = z.discriminatedUnion("kind", [
       label: suggestionLabelSchema,
       threadId: z.string().uuid(),
       employeeId: z.string().uuid(),
-      mode: z.enum(["draft", "reply", "triage"]),
+      mode: z.enum(["draft", "reply", "triage", "work"]),
       instruction: z.string().min(1).max(4000),
     })
     .strict(),

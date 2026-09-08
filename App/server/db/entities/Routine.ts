@@ -77,6 +77,14 @@ export class Routine {
   body!: string;
 
   /**
+   * Server-owned delivery ceiling for Proactive starters. Null preserves an
+   * ordinary Routine's existing authority. Native editors cannot remove this
+   * ceiling; renaming the Routine or deleting its mailbox does not lift it.
+   */
+  @Column({ type: "varchar", nullable: true })
+  mailDeliveryMode!: "draft" | null;
+
+  /**
    * Per-routine hard timeout in seconds. The runner SIGKILLs the CLI after
    * this long and marks the Run `timeout`. Default 60 min (`3600`) gives
    * long-running agent work room to finish without letting a wedged process

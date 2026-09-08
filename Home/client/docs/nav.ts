@@ -278,9 +278,9 @@ export const DOCS_NAV: DocsSection[] = [
       },
       {
         path: "/docs/reactivity",
-        title: "Reactivity",
+        title: "Proactive work",
         blurb:
-          "Event-fired Routines, self-scheduled Wakeups, Workstreams carrying state across Runs, and Initiatives a human accepts.",
+          "Enable standing work for email, quotes, Repository fixes, follow-ups, and company improvements with Triggers, Wakeups, Workstreams, and Initiatives.",
       },
       {
         path: "/docs/pipelines",

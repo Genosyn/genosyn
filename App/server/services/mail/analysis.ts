@@ -166,7 +166,7 @@ export type MailAnalysisAction =
       kind: "hand_over";
       label: string;
       employeeId: string;
-      mode: "draft" | "reply" | "triage";
+      mode: "draft" | "reply" | "triage" | "work";
       instruction: string;
       targetEmployeeName?: string;
       executedAt?: string;
@@ -262,7 +262,7 @@ const actionSchema = z.discriminatedUnion("kind", [
       kind: z.literal("hand_over"),
       label: labelSchema,
       employeeId: z.string().uuid(),
-      mode: z.enum(["draft", "reply", "triage"]),
+      mode: z.enum(["draft", "reply", "triage", "work"]),
       instruction: z.string().trim().min(1).max(4_000),
     })
     .strict(),

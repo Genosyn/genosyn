@@ -445,6 +445,8 @@ export async function createDecision(params: {
   runId?: string | null;
   conversationId?: string | null;
   mailThreadId?: string | null;
+  /** Server-owned origin ceiling. False stores a human-only answer with no automatic AI continuation. */
+  automaticContinuation?: boolean;
 }): Promise<{ decision: Decision; options: DecisionOption[] }> {
   const options = normalizeDecisionOptions(params.options);
   if (options.length === 0) {
@@ -476,8 +478,11 @@ export async function createDecision(params: {
     note: null,
     decidedByUserId: null,
     decidedAt: null,
-    pickupStatus: "none",
-    pickupSummary: null,
+    pickupStatus: params.automaticContinuation === false ? "skipped" : "none",
+    pickupSummary:
+      params.automaticContinuation === false
+        ? "This question came from work limited to preparation. A Member can answer it; the answer is saved in the Decision and journal for an approved standing Routine or a Member to continue. Answering does not start another AI session."
+        : null,
     pickupStartedAt: null,
     pickupFinishedAt: null,
     expiresAt: params.expiresAt ?? null,

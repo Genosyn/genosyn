@@ -20,13 +20,7 @@ import {
 } from "lucide-react";
 import { Company } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import {
-  ComposeInput,
-  MailAccount,
-  MailCounts,
-  MailLabelInfo,
-  mailApi,
-} from "../lib/mail";
+import { ComposeInput, MailAccount, MailCounts, MailLabelInfo, mailApi } from "../lib/mail";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
@@ -85,12 +79,20 @@ const MAIL_COMMAND_VIEWS: Array<{ view: string; label: string; icon: LucideIcon 
 
 export default function MailLayout({ company }: { company: Company }) {
   const dialog = useDialog();
+  const [mailSearchParams] = useSearchParams();
+  const requestedAccountId = mailSearchParams.get("account");
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [accounts, setAccounts] = React.useState<MailAccount[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(() =>
     localStorage.getItem(activeAccountKey(company.id)),
   );
+  React.useEffect(() => {
+    if (!requestedAccountId || !accounts.some((account) => account.id === requestedAccountId))
+      return;
+    setActiveId(requestedAccountId);
+    localStorage.setItem(activeAccountKey(company.id), requestedAccountId);
+  }, [accounts, company.id, requestedAccountId]);
   const [labels, setLabels] = React.useState<MailLabelInfo[]>([]);
   const [labelError, setLabelError] = React.useState<string | null>(null);
   const [counts, setCounts] = React.useState<MailCounts>({

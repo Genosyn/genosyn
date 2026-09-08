@@ -1,3 +1,4 @@
+import { assertMailDeliveryCapability, type MailDeliveryMode } from "./mail/deliveryPolicy.js";
 import { AppDataSource } from "../db/datasource.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import {
@@ -39,11 +40,11 @@ export type MailCapability = keyof typeof MAIL_CAPABILITIES;
 export function makeConnectionCapabilityGate(args: {
   connection: IntegrationConnection;
   employeeId: string;
+  mailDeliveryMode?: MailDeliveryMode | null;
 }): (capability: string) => Promise<void> {
   return async (capability: string) => {
-    const required = (MAIL_CAPABILITIES as Record<string, MailAccessLevel>)[
-      capability
-    ];
+    assertMailDeliveryCapability(args.mailDeliveryMode, capability);
+    const required = (MAIL_CAPABILITIES as Record<string, MailAccessLevel>)[capability];
     // An unknown string means a provider asked for something this host was
     // never taught. Fail closed: a loud outage beats a silent bypass.
     if (!required) throw new Error(`Unknown capability: ${capability}`);
@@ -67,9 +68,7 @@ export function makeConnectionCapabilityGate(args: {
  * is supplied, which means a new context builder cannot un-gate a tool by
  * omission — it has to come here and choose.
  */
-export function unrestrictedCapabilityGate(): (
-  capability: string,
-) => Promise<void> {
+export function unrestrictedCapabilityGate(): (capability: string) => Promise<void> {
   return async () => {};
 }
 
@@ -98,9 +97,10 @@ async function assertMailCapability(
   });
   if (!account) return;
 
-  const grant = await AppDataSource.getRepository(
-    EmployeeMailAccountGrant,
-  ).findOneBy({ employeeId, accountId: account.id });
+  const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
+    employeeId,
+    accountId: account.id,
+  });
   if (!grant) {
     throw new Error(
       `No grant: you do not have access to ${account.address}. Ask a human to grant it under Email → Settings → AI access.`,

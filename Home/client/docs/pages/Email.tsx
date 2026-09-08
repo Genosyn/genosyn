@@ -431,13 +431,20 @@ export function Email() {
       </P>
       <UL>
         <LI>
+          <Strong>Do the work and draft a reply.</Strong> The employee handles the underlying
+          request through its Grants, such as preparing a Customer and quote or starting a
+          Repository Work session, then drafts a reply with the resulting artifacts. Sending is
+          blocked for this handover even if the employee has a Send Grant.
+        </LI>
+        <LI>
           <Strong>Draft a reply.</Strong> The employee writes a reply as a real draft on the thread.
           Nothing is sent — you review the draft and press <Strong>Send</Strong> when it is right.
           This is the default and the safe way to put AI on your inbox.
         </LI>
         <LI>
-          <Strong>Reply directly.</Strong> The employee composes and sends the reply itself. Only
-          offered to employees you trust with <Strong>send</Strong> access.
+          <Strong>Reply directly.</Strong> After completing the underlying work, the employee may
+          send if its Soul and your instruction authorize that kind of reply. Otherwise it saves
+          a draft. Only offered to employees with <Strong>Send</Strong> access.
         </LI>
         <LI>
           <Strong>Triage.</Strong> No writing — the employee reads the thread and files it: applies
@@ -451,6 +458,12 @@ export function Email() {
         browser session. Rule-created handovers remain trusted automation and use the
         employee&apos;s Grants. Progress and results appear on the thread and on the{" "}
         <Strong>AI handovers</Strong> page, and Genosyn notifies you when the handover finishes.
+        Paused mailboxes and active Standdowns defer queued work; removed Grants or changed rules
+        are checked again before it starts. For ready-made email starters, open{" "}
+        <DocLink to="/docs/reactivity">Proactive</DocLink> in the company navigation.
+        If preparation needs missing information, the employee can raise a Decision for a Member.
+        The answer is saved for the approved standing Routine or a Member to continue; answering
+        does not start a separate session that could send around the draft restriction.
       </P>
 
       <H2 id="access">Giving AI Employees mailbox access</H2>
@@ -502,7 +515,10 @@ export function Email() {
       <P>
         A <Strong>rule</Strong> runs on every new message that arrives:{" "}
         <em>when an email matches these conditions, do these actions.</em> Static filters match on
-        sender, recipient, subject, body text, and whether there&apos;s an attachment. Every filled
+        sender (including an exact email address), recipient, subject, body text, and whether
+        there&apos;s an attachment. The <Strong>AI category</Strong> filter reuses the completed
+        incoming analysis without another model call; it only matches while analysis is enabled
+        and the message has a successful result. Every filled
         filter must match. You can then turn on <Strong>AI judgment</Strong>, choose an eligible AI
         employee, and describe the messages that count in plain language. Static filters run first;
         the AI Employee sees only mail that passes them, and its answer must also be yes before any
@@ -515,8 +531,11 @@ export function Email() {
         exclude receipts, security alerts, suspicious spam, and messages from people.&rdquo; Add{" "}
         <Strong>Unsubscribe safely</Strong> and, if you want, <Strong>Archive</Strong>. Static
         filters are optional, but adding one is a useful way to narrow what the AI Employee has to
-        review. Every rule that matches still fires, so labelling, filing, safe unsubscribe, and
-        handovers compose naturally.
+        review. Matching rules normally compose, so labelling, filing, safe unsubscribe, and
+        handovers can work together. An enabled exact-sender Spam rule takes priority and stops
+        broader proactive work on that message. The employee&apos;s <code>mail_block_sender</code>{" "}
+        tool creates this mailbox-local rule after filing confirmed spam; disable or delete it
+        under <Strong>Email → Rules</Strong> to unblock. It does not create an outbound Suppression.
       </P>
       <Callout kind="warn" title="Safe unsubscribe never clicks a link in the email body.">
         The action only uses one HTTPS URL advertised by RFC unsubscribe headers that the receiving

@@ -102,12 +102,14 @@ function sanitizeEmailHtml(
 }
 
 const MODE_LABELS: Record<MailHandoverMode, string> = {
+  work: "Do the work and draft a reply",
   draft: "Write a draft (human sends)",
   reply: "Reply directly (sends mail)",
   triage: "Triage only (labels / archive)",
 };
 
 const DEFAULT_INSTRUCTIONS: Record<MailHandoverMode, string> = {
+  work: "Complete the underlying work with your granted company resources, then prepare a reply with the resulting artifacts for review.",
   draft: "Draft a reply to this email in our usual tone.",
   reply: "Reply to this email.",
   triage: "Categorize this email with an appropriate label and archive it if no action is needed.",
@@ -1180,7 +1182,7 @@ function HandToAiModal({
             <div className="space-y-1.5">
               {(Object.keys(MODE_LABELS) as MailHandoverMode[]).map((m) => {
                 const disabled =
-                  (m === "reply" && !canSend) || ((m === "draft" || m === "triage") && !canDraft);
+                  (m === "reply" && !canSend) || ((m === "draft" || m === "triage" || m === "work") && !canDraft);
                 return (
                   <label
                     key={m}

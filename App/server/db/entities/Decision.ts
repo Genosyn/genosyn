@@ -16,6 +16,8 @@ export type DecisionUrgency = "low" | "normal" | "high";
  *  - `skipped` — we deliberately did not start one (no AI Model connected,
  *    for instance). The answer still reaches the employee through its journal
  *    on the next run, which is what `pickupSummary` explains.
+ *    Preparation-only work sets this when asking, before the human answers,
+ *    so neither AI routing nor an answer starts a less restricted session.
  */
 export type DecisionPickupStatus = "none" | "running" | "done" | "failed" | "skipped";
 

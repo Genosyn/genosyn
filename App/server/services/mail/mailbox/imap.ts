@@ -326,11 +326,11 @@ export class ImapMailbox implements Mailbox {
   }
 
   /** The folder a special use resolves to, creating it when it is missing. */
-  private async requireFolder(client: ImapFlow, use: "\\Trash" | "\\Archive"): Promise<string> {
+  private async requireFolder(client: ImapFlow, use: "\\Trash" | "\\Archive" | "\\Junk"): Promise<string> {
     const folders = await this.folderList(client);
     const found = findSpecialFolder(folders, use);
     if (found) return found.path;
-    const fallback = use === "\\Trash" ? "Trash" : "Archive";
+    const fallback = use === "\\Trash" ? "Trash" : use === "\\Junk" ? "Junk" : "Archive";
     const created = await client.mailboxCreate(fallback);
     this.invalidateFolders();
     return created.path;
@@ -340,6 +340,11 @@ export class ImapMailbox implements Mailbox {
     const destination = await this.run((client) => this.requireFolder(client, "\\Archive"));
     const inbox = await this.run(async (client) => inboxFolder(await this.folderList(client)).path);
     await this.moveThread(thread, destination, (folder) => folder === inbox);
+  }
+
+  async spam(thread: ThreadRef): Promise<void> {
+    const destination = await this.run((client) => this.requireFolder(client, "\\Junk"));
+    await this.moveThread(thread, destination);
   }
 
   async moveToInbox(thread: ThreadRef): Promise<void> {

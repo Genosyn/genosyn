@@ -84,7 +84,7 @@ export class RepositoryWorkSession {
   @Column({ type: "varchar", nullable: true })
   modelId!: string | null;
 
-  /** The Member who opened the session. Each turn records its own asker. */
+  /** The requesting Member, or null for employee-initiated work. Each turn records its own asker. */
   @Column({ type: "varchar", nullable: true })
   requestedByUserId!: string | null;
 

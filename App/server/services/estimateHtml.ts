@@ -1,10 +1,11 @@
-import type { Customer } from "../db/entities/Customer.js";
+import { Customer } from "../db/entities/Customer.js";
 import type { Estimate } from "../db/entities/Estimate.js";
-import type { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
+import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
 import { getFinanceSettings } from "./fx.js";
+import { htmlToPdf } from "./htmlToPdf.js";
 
 /**
  * Render an Estimate as a self-contained HTML document. Used as both
@@ -217,16 +218,12 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
     })
     .join("");
 
-  const notesBlock = estimate.notes
-    ? `<div class="notes">${esc(estimate.notes)}</div>`
-    : "";
+  const notesBlock = estimate.notes ? `<div class="notes">${esc(estimate.notes)}</div>` : "";
   // Per-doc footer wins; company-wide default fills in when blank.
   const footerText = estimate.footer || input.defaultFooter || "";
-  const footerBlock = footerText
-    ? `<div class="footer">${esc(footerText)}</div>`
-    : "";
+  const footerBlock = footerText ? `<div class="footer">${esc(footerText)}</div>` : "";
 
-  const numberDisplay = estimate.number || "DRAFT";
+  const numberDisplay = estimate.status === "draft" ? "DRAFT" : estimate.number || "DRAFT";
   const statusClass = estimate.status;
 
   const billingAddress = customer.billingAddress
@@ -323,4 +320,26 @@ export async function renderEstimateHtmlForCompany(
     defaultFromBlock: settings.defaultFromBlock,
     defaultFooter: settings.defaultFooter,
   });
+}
+
+/** Render the exact scoped estimate already authorized by the caller. No lifecycle side effects. */
+export async function renderEstimatePdf(
+  companyId: string,
+  estimate: Estimate,
+): Promise<{ buffer: Buffer; filename: string } | null> {
+  if (estimate.companyId !== companyId) return null;
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: estimate.customerId,
+    companyId,
+  });
+  if (!customer) return null;
+  const lines = await AppDataSource.getRepository(EstimateLineItem).find({
+    where: { estimateId: estimate.id },
+    order: { sortOrder: "ASC" },
+  });
+  const html = await renderEstimateHtmlForCompany(companyId, estimate, customer, lines);
+  return {
+    buffer: await htmlToPdf(html),
+    filename: `${estimate.status === "draft" ? `DRAFT-${estimate.slug}` : estimate.number || estimate.slug}.pdf`,
+  };
 }
