@@ -436,6 +436,7 @@ try {
     await picker.press("ArrowUp");
     await waitForHighlight("GPT 5.4");
     await picker.press("Enter");
+    await page.getByRole("listbox").waitFor({ state: "hidden" });
     assert.equal(await modelValue(page), "GPT 5.4");
     await fs.mkdir(path.resolve(root, "../output/playwright"), { recursive: true });
     await page.screenshot({

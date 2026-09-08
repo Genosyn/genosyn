@@ -1,4 +1,4 @@
-import { Callout, Code, DocLink, H2, H3, LI, OL, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import { Callout, Code, DocLink, ExtLink, H2, H3, LI, OL, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Meetings() {
   return (
@@ -180,6 +180,30 @@ export function Meetings() {
         sign-in-only meetings, or other interactive Google checks; the meeting page keeps the
         failure reason so you can retry or supply the recording or transcript yourself.
       </Callout>
+      <H3 id="notetaker-lobby">No notetaker in the Google Meet lobby</H3>
+      <P>
+        <Strong>Joining</Strong> includes opening Meet and preparing the guest request. It does not
+        yet confirm that the notetaker is waiting in the host&apos;s lobby. Genosyn handles
+        Meet&apos;s prompts to continue without a microphone or camera, then checks whether Meet
+        actually accepted the join request.
+      </P>
+      <P>
+        If joining fails, the meeting page distinguishes a request that never reached the lobby
+        from a confirmed lobby wait that expired without admission. The failed attempt closes its
+        browser, so there is no notetaker left to admit. Correct the reported problem, then press
+        <Strong> Start notetaker</Strong> again while the host is in the call.
+      </P>
+      <P>
+        Check that the meeting link matches the call, and ask the host to review Google Meet&apos;s
+        <Strong> Host controls → Meeting access</Strong>. For Trusted access, enable
+        <Strong> Anyone with the meeting link can ask to join</Strong>; Restricted access has an
+        equivalent option for anyone to ask. If asking is disabled, Google can reject anonymous
+        notetakers without showing a lobby request. See{" "}
+        <ExtLink href="https://support.google.com/a/users/answer/11989526?hl=en">
+          Google&apos;s meeting access guide
+        </ExtLink>
+        . Meetings that require a signed-in account still need the upload or paste fallback.
+      </P>
       <Callout kind="warn" title="Recording other people has rules where you live.">
         Many jurisdictions require every participant&apos;s consent before a call is recorded. The
         guest name discloses that Genosyn records, but that is not a substitute for announcing the

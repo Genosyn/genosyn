@@ -468,7 +468,7 @@ function capitalize(text: string): string {
 function asSentence(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return "";
-  return /[.!?]$/.test(trimmed) ? capitalize(trimmed) : `${capitalize(trimmed)}.`;
+  return /[.!?…。！？]$/.test(trimmed) ? capitalize(trimmed) : `${capitalize(trimmed)}.`;
 }
 
 /**
@@ -534,41 +534,34 @@ export function workEffectPhrase(
   return joinList(parts);
 }
 
-/** How a Run ended, in a sentence. Empty while it is still going. */
+/** A concise qualification of the reported outcome, independent of its wording. */
 function runOutcomeSentence(run: WorkEntryRun): string {
-  const checks =
-    run.checksVerdict === "passed"
-      ? " Every Check on the routine passed."
-      : run.checksVerdict === "failed"
-        ? " A required Check did not hold, so this is not a green run however its transcript reads."
-        : "";
-  switch (run.status) {
-    case "running":
-      return "";
+  const verdict =
+    run.outcomeVerdict === "off_goal"
+      ? "The result did not meet the routine's acceptance criteria"
+      : run.outcomeVerdict === "unclear"
+        ? "A grader could not confirm whether the goal was met"
+        : run.outcomeVerdict === "unverified"
+          ? "The outcome has not been verified"
+          : "";
+  const check = run.checksVerdict === "failed" ? "a required Check failed" : "";
+  return asSentence([verdict, check].filter(Boolean).join("; "));
+}
+
+/** The absence of a report never means that no work happened. */
+function runFallbackSentence(run: WorkEntryRun | null, active: boolean): string {
+  if (active) return "This routine is still running. Its outcome will appear when it finishes.";
+  switch (run?.status) {
     case "failed":
-      return `The run failed${run.exitCode !== null ? ` with exit code ${run.exitCode}` : ""}.${checks}`;
+      return "This run failed. Open the run log for details.";
     case "timeout":
-      return `The run ran out of time and was stopped.${checks}`;
+      return "This run ran out of time before it finished.";
     case "skipped":
-      return "The routine fired but no model was connected, so nothing actually ran.";
+      return "This routine did not run because no AI Model was assigned.";
     case "interrupted":
-      return "The server stopped the run part-way, so what happened after that is unknown.";
-    case "completed": {
-      // `unclear` is a judgement and `unverified` is the absence of one, and a
-      // clean run is neither. Saying so in full is the whole point of this
-      // surface — see AGENTS.md §3.
-      const verdict =
-        run.outcomeVerdict === "achieved"
-          ? "It finished, and a grader found it met the routine's acceptance criteria."
-          : run.outcomeVerdict === "off_goal"
-            ? "It finished, but a grader found it missed the routine's acceptance criteria."
-            : run.outcomeVerdict === "unclear"
-              ? "It finished, but a grader read the evidence and could not tell whether the goal was met."
-              : run.outcomeVerdict === "unverified"
-                ? "It finished, but nothing graded the outcome — that is the absence of a verdict, not a clean one."
-                : "It finished without errors.";
-      return `${verdict}${checks}`;
-    }
+      return "This run was interrupted before it finished.";
+    default:
+      return "No outcome summary is available for this run.";
   }
 }
 
@@ -595,15 +588,16 @@ function approvalStatusSentence(status: string): string {
 /**
  * One entry as prose: a headline sentence, then up to three supporting ones.
  *
- * The employee's name is always the grammatical subject, including inside a
- * single employee's own timeline. Dropping it there would leave live work
- * reading "Is working on a reply", and an activity line that names who did the
- * work is the one thing every reader gets right without being taught.
+ * Routine entries lead with their reported outcome. The employee, Routine and
+ * duration stay in a quiet context line so the result remains easy to find.
+ * Other kinds keep the employee as their grammatical subject.
  */
 export type WorkNarrative = {
-  /** Who did what, to what, and when. Always present. */
+  /** The outcome, or a factual description when no outcome is available. */
   headline: string;
-  /** What it changed and how it ended. Zero to three sentences. */
+  /** Routine and employee context, separate from the result. */
+  context?: string;
+  /** Supporting context or a qualification of the reported outcome. */
   body: string[];
 };
 
@@ -617,36 +611,31 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
   const took = workDurationLabel(entry.at, entry.endedAt);
   const forSoFar = workDurationLabel(entry.at, nowIso);
   const stat = workDisplayDetail(entry);
-  const effects = workEffectPhrase(entry);
+  const effects = entry.kind === "run" ? "" : workEffectPhrase(entry);
   const body: string[] = [];
   let clause = "";
 
   switch (entry.kind) {
     case "run": {
-      const routine = named || "a routine";
-      const trigger =
-        entry.run && entry.run.triggerKind !== "schedule"
-          ? ` on a ${entry.run.triggerKind} trigger`
-          : "";
-      const attempt = entry.run && entry.run.attempt > 1 ? ` (attempt ${entry.run.attempt})` : "";
-      clause = entry.active
-        ? `started the routine ${routine}${when}${trigger}${attempt} and is still running${forSoFar ? `, ${forSoFar} so far` : ""}.`
-        : `ran the routine ${routine}${when}${trigger}${attempt}${took ? `, taking ${took}` : ""}.`;
-      if (effects) body.push(`It ${effects}.`);
-      // A skipped run never started, so "no changes were recorded" would be a
-      // second way of saying the sentence the outcome is about to say better.
-      else if (!entry.active && entry.run?.status !== "skipped") {
-        body.push("No changes were recorded for this run.");
-      }
-      // `active` is the source-backed live flag; a stale `status` on a row the
-      // server still calls live must not let this announce an outcome.
-      if (entry.run && !entry.active) {
-        const outcome = runOutcomeSentence(entry.run);
+      const run = entry.run;
+      const completed = !entry.active && run?.status === "completed";
+      // A report is a result only after completion. A stale or partial report
+      // must not make a live, skipped or failed Run look like finished work.
+      const summary = completed ? run.summary?.trim() : "";
+      const headline = summary ? asSentence(summary) : runFallbackSentence(run, entry.active);
+      if (completed) {
+        const outcome = runOutcomeSentence(run);
         if (outcome) body.push(outcome);
-        if (entry.run.outcomeNote)
-          body.push(`The grader's note: ${asSentence(entry.run.outcomeNote)}`);
+      } else if (!entry.active && run?.checksVerdict === "failed") {
+        body.push("A required Check failed.");
       }
-      break;
+      const routine = subject || run?.routineName.trim() || "Routine";
+      const duration = entry.active ? forSoFar && `${forSoFar} so far` : took;
+      return {
+        headline,
+        context: [who, routine, duration].filter(Boolean).join(" · "),
+        body,
+      };
     }
     case "chat": {
       const thread = named || "a conversation";
@@ -695,7 +684,7 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
 /** The whole narrative as one string, for a tooltip or an accessible label. */
 export function workNarrativeText(entry: WorkEntry, opts: { nowIso?: string } = {}): string {
   const narrative = workNarrative(entry, opts);
-  return [narrative.headline, ...narrative.body].join(" ");
+  return [narrative.context, narrative.headline, ...narrative.body].filter(Boolean).join(" ");
 }
 
 /**
@@ -710,9 +699,11 @@ export function workCountsSentence(entries: WorkEntry[]): string {
   const approvals = count("approval");
   const wakeups = count("wakeup");
   const lessons = count("lesson");
-  // A standalone Effect *is* one change; every other entry carries its own.
+  // Routine ledgers include reads and tool calls, which are not work outcomes.
+  // Their contribution is the Run above; retain change counts for other kinds.
   const changes = entries.reduce(
-    (total, entry) => total + (entry.kind === "effect" ? 1 : entry.effectCount),
+    (total, entry) =>
+      total + (entry.kind === "effect" ? 1 : entry.kind === "run" ? 0 : entry.effectCount),
     0,
   );
   const parts: string[] = [];

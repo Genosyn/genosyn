@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, test } from "node:test";
+import { describe, test, type TestContext } from "node:test";
 import type { Locator, Page } from "playwright-core";
 
 import {
@@ -11,6 +11,7 @@ import {
   disclosedNotetakerName,
   isGoogleMeetConferenceUrl,
   joinGoogleMeetAsGuest,
+  type GoogleMeetJoinArgs,
 } from "./googleMeetRecorder.js";
 
 class FakeFfmpeg extends EventEmitter {
@@ -183,7 +184,10 @@ describe("Google Meet URL and disclosure boundary", () => {
     // these `meet`, so the calendar armed them and then the driver refused the
     // very link the policy had accepted — a whole class of invite that could
     // never be joined and never said why.
-    assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/lookup/northwind-standup"), true);
+    assert.equal(
+      isGoogleMeetConferenceUrl("https://meet.google.com/lookup/northwind-standup"),
+      true,
+    );
     assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/lookup/"), false);
     assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/lookup/a/b"), false);
     assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/_meet/settings"), false);
@@ -216,6 +220,7 @@ describe("Google Meet guest lobby", () => {
           return this;
         },
         isVisible: async () => visible(),
+        isEnabled: async () => visible(),
         click: async () => {
           clicked.push(name);
           if (name === "ask") admitted = true;
@@ -241,6 +246,7 @@ describe("Google Meet guest lobby", () => {
       },
       locator: (selector: string) =>
         selector === "body" ? locator("body", () => true, "") : hidden,
+      url: () => "https://meet.google.com/abc-defg-hij",
       isClosed: () => false,
     } as unknown as Page;
 
@@ -259,6 +265,7 @@ describe("Google Meet guest lobby", () => {
           return this;
         },
         isVisible: async () => visible(),
+        isEnabled: async () => visible(),
         click: async () => click?.(),
         fill: async () => undefined,
         innerText: async () => text,
@@ -285,6 +292,7 @@ describe("Google Meet guest lobby", () => {
         selector === "body"
           ? locator(() => true, asked ? "Your request to join was denied" : "")
           : hidden,
+      url: () => "https://meet.google.com/abc-defg-hij",
       isClosed: () => false,
     } as unknown as Page;
 
@@ -308,6 +316,7 @@ function fakeLobby(options: {
   /** Runs once per pass of the lobby loop, which reads the body every time. */
   onPass?: (pass: number, state: { visible: Set<string>; body: string }) => void;
   failClicks?: Set<string>;
+  failEnabledChecks?: Set<string>;
 }) {
   const state = { visible: new Set(options.visible), body: options.body ?? "" };
   const clicks: string[] = [];
@@ -321,6 +330,14 @@ function fakeLobby(options: {
         return this;
       },
       isVisible: async () => state.visible.has(name),
+      isEnabled: async () => {
+        if (options.failEnabledChecks?.has(name)) {
+          failed.push(name);
+          options.failEnabledChecks.delete(name);
+          throw new Error("element was replaced while checking whether it is enabled");
+        }
+        return state.visible.has(name);
+      },
       click: async () => {
         if (options.failClicks?.has(name)) {
           failed.push(name);
@@ -368,6 +385,7 @@ function fakeLobby(options: {
     },
     locator: (selector: string) =>
       selector === "body" ? control("__body__") : control("__absent__"),
+    url: () => "https://meet.google.com/abc-defg-hij",
     isClosed: () => false,
   } as unknown as Page;
 
@@ -482,6 +500,21 @@ describe("Google Meet lobby interstitials", () => {
     assert.deepEqual(lobby.clicks, ["ask"]);
   });
 
+  test("an enabled check that loses a race with Meet's re-render retries the join", async () => {
+    const lobby = fakeLobby({
+      visible: ["name", "ask"],
+      failEnabledChecks: new Set(["ask"]),
+      onClick: (name, state) => {
+        if (name === "ask") state.visible.add("leave");
+      },
+    });
+
+    await joinGoogleMeetAsGuest(lobby.page, joinArgs());
+
+    assert.deepEqual(lobby.failed, ["ask"]);
+    assert.deepEqual(lobby.clicks, ["ask"]);
+  });
+
   test("recognises a guest who is already in the call", async () => {
     const lobby = fakeLobby({ visible: ["leave", "name", "ask"] });
 
@@ -519,6 +552,484 @@ describe("Google Meet lobby interstitials", () => {
       /was stopped/,
     );
   });
+});
+
+describe("Google Meet guest request confirmation", () => {
+  type GuestScreen = {
+    body?: string;
+    name?: boolean;
+    ask?: boolean;
+    microphone?: boolean;
+    camera?: boolean;
+    continueWithout?: { role: "button" | "link"; name: string };
+    admitted?: boolean;
+    url?: string;
+  };
+
+  function guestHarness(t: TestContext, initialScreen: GuestScreen = {}) {
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000_000 });
+    let screen = initialScreen;
+    let ask = () => {
+      screen = { body: "You'll join the call when someone lets you in" };
+    };
+    let continueWithout = () => {
+      screen = { name: true, ask: true };
+    };
+    const clicked: string[] = [];
+    const filled: string[] = [];
+    type Control = { key: string; role: string; name: string; click?: () => void };
+    const controls = (): Control[] => [
+      ...(screen.name ? [{ key: "name", role: "textbox", name: "Your name" }] : []),
+      ...(screen.ask
+        ? [{ key: "ask", role: "button", name: "Ask to join", click: () => ask() }]
+        : []),
+      ...(screen.microphone
+        ? [
+            {
+              key: "microphone",
+              role: "button",
+              name: "Turn off microphone",
+              click: () => {
+                screen.microphone = false;
+              },
+            },
+          ]
+        : []),
+      ...(screen.camera
+        ? [
+            {
+              key: "camera",
+              role: "button",
+              name: "Turn off camera",
+              click: () => {
+                screen.camera = false;
+              },
+            },
+          ]
+        : []),
+      ...(screen.continueWithout
+        ? [{ key: "continue", ...screen.continueWithout, click: () => continueWithout() }]
+        : []),
+      ...(screen.admitted ? [{ key: "leave", role: "button", name: "Leave call" }] : []),
+    ];
+    const locator = (find: () => Control | undefined, isBody = false) =>
+      ({
+        first() {
+          return this;
+        },
+        isVisible: async () => isBody || Boolean(find()),
+        isEnabled: async () => Boolean(find()),
+        click: async () => {
+          const control = find();
+          assert.ok(control, "only visible controls can be clicked");
+          clicked.push(control.key);
+          control.click?.();
+        },
+        fill: async (value: string) => {
+          assert.equal(find()?.key, "name");
+          filled.push(value);
+        },
+        innerText: async () => screen.body ?? "",
+      }) as unknown as Locator;
+    const page = {
+      setDefaultTimeout: () => undefined,
+      goto: async () => null,
+      getByRole: (role: string, options: { name?: RegExp | string }) =>
+        locator(() =>
+          controls().find(
+            (control) =>
+              control.role === role &&
+              (typeof options.name === "string"
+                ? options.name === control.name
+                : options.name?.test(control.name)),
+          ),
+        ),
+      locator: (selector: string) =>
+        locator(() => {
+          const key = selector.includes("placeholder")
+            ? "name"
+            : selector.includes("leave call")
+              ? "leave"
+              : selector.includes("microphone")
+                ? "microphone"
+                : selector.includes("camera")
+                  ? "camera"
+                  : "hidden";
+          return controls().find((control) => control.key === key);
+        }, selector === "body"),
+      url: () => screen.url ?? "https://meet.google.com/abc-defg-hij",
+      isClosed: () => false,
+    } as unknown as Page;
+
+    return {
+      clicked,
+      filled,
+      setScreen: (next: GuestScreen) => {
+        screen = next;
+      },
+      onAsk: (next: () => void) => {
+        ask = next;
+      },
+      onContinue: (next: () => void) => {
+        continueWithout = next;
+      },
+      async run(
+        args: GoogleMeetJoinArgs = { ...joinArgs(), scheduledEndAt: null },
+        advance?: (elapsedMs: number) => void,
+      ) {
+        let settled = false;
+        const joining = joinGoogleMeetAsGuest(page, args);
+        // Attach both outcomes before advancing the clock so an expected
+        // rejection never becomes an unhandled rejection between ticks.
+        void joining.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        );
+        for (let elapsed = 0; elapsed <= 6 * 60_000 && !settled; elapsed += 500) {
+          // Let each browser interaction finish before advancing a poll timer.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          if (settled) break;
+          advance?.(elapsed + 500);
+          t.mock.timers.tick(500);
+        }
+        assert.ok(settled, "guest join must settle within the bounded join window");
+        return joining;
+      },
+    };
+  }
+
+  test("discloses recording, disables devices, asks once, and waits for admission", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true, microphone: true, camera: true });
+    guest.onAsk(() =>
+      guest.setScreen({
+        body: "You'll join the call\nwhen someone lets you in",
+        // Meet can leave the old controls visible during the transition.
+        name: true,
+        ask: true,
+      }),
+    );
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed >= 2_000) guest.setScreen({ admitted: true });
+    });
+
+    assert.deepEqual(guest.filled, ["Genosyn (AI notetaker — recording)"]);
+    assert.deepEqual(guest.clicked, ["microphone", "camera", "ask"]);
+  });
+
+  for (const role of ["button", "link"] as const) {
+    test(`continues past a delayed media ${role} before the guest name appears`, async (t) => {
+      const guest = guestHarness(t);
+      guest.onAsk(() => guest.setScreen({ admitted: true }));
+
+      await guest.run(joinArgs(), (elapsed) => {
+        if (elapsed === 1_000)
+          guest.setScreen({
+            body: "Do you want people to see and hear you in the meeting?",
+            continueWithout: { role, name: "Continue without microphone and camera" },
+          });
+      });
+
+      assert.deepEqual(guest.clicked, ["continue", "ask"]);
+      assert.deepEqual(guest.filled, ["Genosyn (AI notetaker — recording)"]);
+    });
+  }
+
+  test("handles a delayed media prompt after asking and submits the guest request again", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    let requests = 0;
+    guest.onAsk(() => {
+      requests += 1;
+      guest.setScreen(requests === 1 ? {} : { admitted: true });
+    });
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed === 1_000)
+        guest.setScreen({
+          continueWithout: { role: "button", name: "Continue without a microphone and camera" },
+        });
+    });
+
+    assert.deepEqual(guest.clicked, ["ask", "continue", "ask"]);
+    assert.equal(requests, 2);
+    assert.deepEqual(guest.filled, [
+      "Genosyn (AI notetaker — recording)",
+      "Genosyn (AI notetaker — recording)",
+    ]);
+  });
+
+  test("does not resubmit when continuing without media sends the request directly", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    guest.onAsk(() =>
+      guest.setScreen({
+        continueWithout: { role: "link", name: "Continue without audio and video" },
+      }),
+    );
+    guest.onContinue(() =>
+      guest.setScreen({
+        body: "You'll join the call when someone lets you in",
+        name: true,
+        ask: true,
+      }),
+    );
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed >= 2_000) guest.setScreen({ admitted: true });
+    });
+
+    assert.deepEqual(guest.clicked, ["ask", "continue"]);
+  });
+
+  test("does not ask again if a host denial appears after continuing without media", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    guest.onAsk(() =>
+      guest.setScreen({
+        continueWithout: { role: "button", name: "Continue without microphone and camera" },
+      }),
+    );
+    guest.onContinue(() =>
+      guest.setScreen({
+        body: "Your request to join was denied",
+        name: true,
+        ask: true,
+      }),
+    );
+
+    await assert.rejects(guest.run(), /host denied/i);
+
+    assert.deepEqual(guest.clicked, ["ask", "continue"]);
+  });
+
+  test("retries an expired confirmed request and then accepts admission", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    let requests = 0;
+    guest.onAsk(() => {
+      requests += 1;
+      guest.setScreen(
+        requests === 1
+          ? { body: "You'll join the call when someone lets you in", name: true, ask: true }
+          : { admitted: true },
+      );
+    });
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed === 2_000)
+        guest.setScreen({
+          body: "No one responded to your request to join. Ask to join again.",
+          name: true,
+          ask: true,
+        });
+    });
+
+    assert.deepEqual(guest.clicked, ["ask", "ask"]);
+  });
+
+  test("remembers a confirmed waiting request after it expires and retries are exhausted", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    let requests = 0;
+    const expiredScreen = {
+      body: "No one responded to your request to join. Ask to join again.",
+      name: true,
+      ask: true,
+    };
+    guest.onAsk(() => {
+      requests += 1;
+      guest.setScreen(
+        requests === 1
+          ? { body: "You'll join the call when someone lets you in" }
+          : expiredScreen,
+      );
+    });
+
+    await assert.rejects(
+      guest.run({ ...joinArgs(), scheduledEndAt: null }, (elapsed) => {
+        if (elapsed === 2_000) guest.setScreen(expiredScreen);
+      }),
+      (error: Error) => {
+        assert.match(error.message, /confirmed.*waiting.*not admitted/i);
+        assert.doesNotMatch(error.message, /no lobby request was confirmed|could not reach/i);
+        return true;
+      },
+    );
+
+    assert.equal(requests, 8, "expired requests retain the bounded retry allowance");
+    assert.deepEqual(guest.clicked, Array(8).fill("ask"));
+  });
+
+  test("does not blame host admission when Ask to join never reaches the waiting room", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    guest.onAsk(() => undefined);
+    const started = Date.now();
+
+    await assert.rejects(guest.run(), (error: Error) => {
+      assert.match(
+        error.message,
+        /could not reach|did not confirm|not confirmed|could not confirm/i,
+      );
+      assert.doesNotMatch(error.message, /nobody admitted|host denied|admit the disclosed/i);
+      return true;
+    });
+
+    assert.ok(
+      guest.clicked.length > 1,
+      "unconfirmed requests retain the bounded retry opportunity",
+    );
+    assert.ok(guest.clicked.length <= 8, "an unconfirmed request must not spam the host");
+    assert.ok(guest.clicked.every((control) => control === "ask"));
+    assert.ok(Date.now() - started >= 5 * 60_000);
+    assert.ok(Date.now() - started <= 5 * 60_000 + 1_000);
+  });
+
+  test("reports an admission timeout only after Meet confirms a waiting request", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    const started = Date.now();
+
+    await assert.rejects(guest.run(), /waiting.*not admitted.*retry/is);
+
+    assert.deepEqual(guest.clicked, ["ask"]);
+    assert.ok(Date.now() - started >= 5 * 60_000);
+    assert.ok(Date.now() - started <= 5 * 60_000 + 1_000);
+  });
+
+  test("allows admission after unfamiliar waiting text instead of failing after 30 seconds", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    guest.onAsk(() => guest.setScreen({ body: "Asking to join…" }));
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed >= 45_000) guest.setScreen({ admitted: true });
+    });
+
+    assert.deepEqual(guest.clicked, ["ask"]);
+  });
+
+  test("keeps the five-minute grace when the scheduled end is imminent", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    const started = Date.now();
+
+    await assert.rejects(
+      guest.run({
+        ...joinArgs(),
+        scheduledEndAt: new Date(started + 10_000),
+      }),
+      /waiting.*not admitted/is,
+    );
+
+    assert.deepEqual(guest.clicked, ["ask"]);
+    assert.ok(Date.now() - started >= 5 * 60_000);
+    assert.ok(Date.now() - started <= 5 * 60_000 + 1_000);
+  });
+
+  test("allows a late host to admit the waiting guest after five minutes when the call is still scheduled", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed >= 5 * 60_000 + 30_000) guest.setScreen({ admitted: true });
+    });
+
+    assert.deepEqual(guest.clicked, ["ask"]);
+  });
+
+  test("does not claim a lobby request exists when the pre-join page never becomes ready", async (t) => {
+    const guest = guestHarness(t);
+
+    await assert.rejects(guest.run(), (error: Error) => {
+      assert.match(error.message, /could not reach|before.*ready|not confirmed/i);
+      assert.doesNotMatch(error.message, /nobody admitted|host denied|admit the disclosed/i);
+      return true;
+    });
+
+    assert.deepEqual(guest.clicked, []);
+    assert.deepEqual(guest.filled, []);
+  });
+
+  const failures = [
+    {
+      description: "invalid meeting link",
+      body: "Check your meeting code",
+      expected: /could not find this meeting/i,
+    },
+    {
+      description: "network connection failure",
+      body: "Can't connect to the video call. Check your internet connection.",
+      expected: /could not connect to Google Meet/i,
+    },
+    {
+      description: "sign-in requirement",
+      body: "Sign in to join this meeting",
+      expected: /requires.*account|sign in|guest access/i,
+    },
+    {
+      description: "generic guest rejection",
+      body: "You can't join this video call",
+      expected: /blocked.*guest|guest access/i,
+    },
+    {
+      description: "explicit host denial",
+      body: "Your request to join was denied",
+      expected: /host denied/i,
+    },
+    {
+      description: "ended meeting",
+      body: "This meeting has ended",
+      expected: /call ended|meeting.*ended/i,
+    },
+  ];
+  for (const failure of failures) {
+    for (const afterAsk of [false, true]) {
+      test(`reports ${failure.description} ${afterAsk ? "after asking" : "before the name field"} promptly`, async (t) => {
+        const guest = guestHarness(
+          t,
+          afterAsk ? { name: true, ask: true } : { body: failure.body },
+        );
+        guest.onAsk(() => guest.setScreen({ body: failure.body, name: true, ask: true }));
+        const started = Date.now();
+
+        await assert.rejects(guest.run(), (error: Error) => {
+          assert.match(error.message, failure.expected);
+          assert.doesNotMatch(error.message, /nobody admitted|admit the disclosed/i);
+          if (failure.description === "generic guest rejection") {
+            assert.doesNotMatch(error.message, /host denied/i);
+          }
+          return true;
+        });
+
+        assert.deepEqual(guest.clicked, afterAsk ? ["ask"] : []);
+        assert.ok(
+          Date.now() - started <= 2_000,
+          "terminal Meet screens should not wait for the join deadline",
+        );
+      });
+    }
+  }
+
+  test("recognises an account sign-in redirect before the guest name appears", async (t) => {
+    const guest = guestHarness(t, { url: "https://accounts.google.com/v3/signin/identifier" });
+
+    await assert.rejects(guest.run(), /requires.*account|sign in|guest access/i);
+    assert.deepEqual(guest.clicked, []);
+  });
+
+  for (const waiting of [false, true]) {
+    test(`stops promptly when aborted ${waiting ? "in the waiting room" : "before pre-join is ready"}`, async (t) => {
+      const guest = guestHarness(t, waiting ? { name: true, ask: true } : {});
+      const controller = new AbortController();
+      const started = Date.now();
+
+      await assert.rejects(
+        guest.run(joinArgs(controller.signal), (elapsed) => {
+          if (elapsed >= 1_000) controller.abort();
+        }),
+        /stopped/i,
+      );
+
+      assert.deepEqual(guest.clicked, waiting ? ["ask"] : []);
+      assert.ok(Date.now() - started <= 1_500);
+    });
+  }
 });
 
 describe("Google Meet recorder lifecycle", () => {

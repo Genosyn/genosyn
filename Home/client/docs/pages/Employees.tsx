@@ -327,16 +327,14 @@ export function Employees() {
         because a roster that hides its quiet members is one you cannot count.
       </P>
       <P>
-        Nothing is written out until you ask for it, and then it is written out in sentences:
+        Choose an employee or a piece of work to see its result:
       </P>
       <UL>
         <LI>
-          <Strong>Choose a bar</Strong> and a popup says who did it, what they did it to, when it
-          started, how long it took, what it changed and how it ended — &quot;Ada ran the routine
-          &lsquo;Nightly invoice sweep&rsquo; at 00:56, taking 22 minutes. It created 5 invoices,
-          sent 3 emails and made 1 other change. It finished, and a grader found it met the
-          routine&apos;s acceptance criteria.&quot; Underneath, <Strong>What changed</Strong> lists
-          the individual records, each with its own time.
+          <Strong>Choose a bar</Strong> to open its summary. A Routine Run leads with a brief
+          outcome, such as &quot;Created five overdue invoices and sent three payment reminders.
+          Two invoices need your review.&quot; The routine, employee and time stay visible for
+          context. Tool calls, Connection counts and individual changes stay in the run log.
         </LI>
         <LI>
           <Strong>Choose a circle</Strong> — or an employee&apos;s name on the chart — and their
@@ -349,10 +347,12 @@ export function Employees() {
       <P>Seven kinds of work land on it:</P>
       <UL>
         <LI>
-          <Strong>Routine runs</Strong>, carrying the same status, outcome and checks badges the{" "}
-          <DocLink to="/docs/routines">Routines</DocLink> pages use, and naming the routine, the
-          trigger and the attempt in words. <Strong>Open the run log</Strong> brings up the run
-          viewer over Home rather than navigating away.
+          <Strong>Routine runs</Strong> show the same concise outcome in the popup and the
+          employee&apos;s day. If no outcome summary was recorded, the entry says so; an active
+          Run says it is still working. The status, outcome and checks badges from{" "}
+          <DocLink to="/docs/routines">Routines</DocLink> remain visible. Choose{" "}
+          <Strong>Open the run log</Strong> for the full report, tool calls and{" "}
+          <DocLink to="/docs/verification#effects">Effects</DocLink>, without leaving Home.
         </LI>
         <LI>
           <Strong>Conversations.</Strong> One line per thread, saying how many times the employee
@@ -376,8 +376,8 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Changes</Strong> — the individual records an employee created, edited or sent.
-          Changes made inside a run or a conversation are counted in that entry&apos;s own sentence
-          and listed underneath it; the rest stand on their own.
+          Changes made inside a Run stay with its run log. Conversation changes appear under their
+          conversation; changes with no parent stand on their own.
         </LI>
       </UL>
       <P>
@@ -393,16 +393,15 @@ export function Employees() {
       </P>
       <Callout
         kind="info"
-        title="The timeline is what the server recorded. The Journal is what the employee wrote."
+        title="An outcome summary is a report; Checks and verdicts assess it."
       >
-        Journal entries are the employee&apos;s own account of its work, written through the
-        built-in MCP server. The work timeline is assembled at read time from the rows the server
-        itself wrote at each write seam — run records, the effect ledger behind{" "}
-        <DocLink to="/docs/verification">Checks and verdicts</DocLink>, approval rows — so an
-        employee cannot narrate its way onto it. When the two disagree, the timeline is the one to
-        trust. It is also not the <DocLink to="/docs/plans-billing">audit log</DocLink>: that is an
-        admin tool covering every actor and all of history and is a paid feature, while seeing what
-        your own workforce did today is available on every plan, to every Member.
+        A Run&apos;s summary comes from its recorded final report, or the outcome assessment when
+        a final report is unavailable. The employee&apos;s report does not prove the work succeeded:
+        read the independent <DocLink to="/docs/verification">Checks and verdicts</DocLink> beside
+        it, and open the run log for evidence. Timeline entries still come from recorded work;
+        writing a Journal entry does not create one. The work timeline is available on every plan
+        to every Member. The <DocLink to="/docs/plans-billing">audit log</DocLink> is the separate
+        admin tool for investigating every actor across all of history.
       </Callout>
     </>
   );

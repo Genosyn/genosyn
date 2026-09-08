@@ -116,6 +116,11 @@ type TimelineBody = {
     title: string;
     detail: string;
     active: boolean;
+    run: {
+      summary: string | null;
+      outcomeVerdict: string | null;
+      checksVerdict: string | null;
+    } | null;
   }[];
   entryCount: number;
   employeeSummaries: {
@@ -127,7 +132,7 @@ type TimelineBody = {
   }[];
 };
 
-async function seedRun(): Promise<void> {
+async function seedRun(overrides: Partial<Run> = {}): Promise<void> {
   const routine = await insert(Routine, {
     employeeId: employee.id,
     name: "Nightly digest",
@@ -142,6 +147,7 @@ async function seedRun(): Promise<void> {
     triggerKind: "schedule",
     startedAt: new Date(Date.now() - 60 * 60 * 1000),
     exitCode: 0,
+    ...overrides,
   });
 }
 
@@ -174,6 +180,41 @@ describe("work timeline authorization", () => {
 });
 
 describe("work timeline responses", () => {
+  test("ordinary Members receive the concise outcome, not the source transcript", async () => {
+    await seedRun({
+      logContent:
+        "[tool:connection_call] ok — private-tool-payload\nSaved 6 Contacts. Drafted 4 messages. Details follow.[tokens] in=80 out=30",
+    });
+    const { status, body } = await call<TimelineBody>("GET", "/work-timeline");
+    assert.equal(status, 200);
+    assert.equal(body.entries[0].run?.summary, "Saved 6 Contacts. Drafted 4 messages.");
+    assert.doesNotMatch(
+      JSON.stringify(body),
+      /private-tool-payload|connection_call|Details follow|logContent/,
+    );
+  });
+  test("the API scrubs formatted credentials in historical outcomes", async () => {
+    await seedRun({ logContent: "Saved the report using **password**: hidden-value." });
+    const { body } = await call<TimelineBody>("GET", "/work-timeline");
+    assert.match(body.entries[0].run?.summary ?? "", /redacted/);
+    assert.doesNotMatch(JSON.stringify(body), /hidden-value/);
+  });
+  test("missing and unfinished reports have a nullable summary", async () => {
+    await seedRun({ status: "running", logContent: "Everything is complete." });
+    const { body } = await call<TimelineBody>("GET", "/work-timeline");
+    assert.equal(body.entries[0].run?.summary, null);
+  });
+  test("explicit verification failures stay independent of the outcome text", async () => {
+    await seedRun({
+      logContent: "Prepared the report.",
+      outcomeVerdict: "off_goal",
+      checksVerdict: "failed",
+    });
+    const { body } = await call<TimelineBody>("GET", "/work-timeline");
+    assert.equal(body.entries[0].run?.summary, "Prepared the report.");
+    assert.equal(body.entries[0].run?.outcomeVerdict, "off_goal");
+    assert.equal(body.entries[0].run?.checksVerdict, "failed");
+  });
   test("returns the documented shape with the default 24-hour window", async () => {
     await seedRun();
     const { status, body } = await call<TimelineBody>("GET", "/work-timeline");
