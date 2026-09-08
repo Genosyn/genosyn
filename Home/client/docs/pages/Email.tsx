@@ -464,8 +464,14 @@ export function Email() {
         employee&apos;s Grants. Progress and results appear on the thread and on the{" "}
         <Strong>AI handovers</Strong> page, and Genosyn notifies you when the handover finishes.
         Paused mailboxes and active Standdowns defer queued work; removed Grants or changed rules
-        are checked again before it starts. For ready-made email starters, open{" "}
-        <DocLink to="/docs/reactivity">Proactive</DocLink> in the company navigation.
+        are checked again before it starts. Ready email responsibilities are assigned automatically
+        by default as AI Employees gain a connected AI Model and the required Grants, once the
+        mailbox and its AI analysis reader are ready. This covers quote requests, customer code
+        issues, sales enquiries, confirmed spam, and unwanted newsletters. Open{" "}
+        <DocLink to="/docs/reactivity">Proactive</DocLink> to review or customize those assignments.
+        Turning <Strong>Automatic setup</Strong> off only stops future automatic assignments;
+        existing work keeps running until you pause it individually. Historical mail is never
+        replayed by setup, and automatically assigned email work prepares drafts by default.
         If preparation needs missing information, the employee can raise a Decision for a Member.
         The answer is saved for the approved standing Routine or a Member to continue; answering
         does not start a separate session that could send around the draft restriction.

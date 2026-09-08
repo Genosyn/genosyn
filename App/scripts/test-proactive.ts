@@ -56,10 +56,14 @@ const installs: Array<{
   instruction: string;
 }> = [];
 const toggles: Array<{ id: string; enabled: boolean }> = [];
+const defaultToggles: boolean[] = [];
 let overview: ProactiveOverview;
 let failLoad = false;
 let failInstall = false;
 let failToggle = false;
+let failDefaults = false;
+let holdDefaults = false;
+let releaseDefaults: (() => void) | undefined;
 let holdInstall = false;
 let releaseInstall: (() => void) | undefined;
 let loads = 0;
@@ -109,6 +113,21 @@ await context.route("**/api/**", async (route) => {
     overview.installations.push(row);
     return route.fulfill({ status: 201, json: row });
   }
+  if (pathname === "/api/companies/company/proactive/defaults" && request.method() === "PATCH") {
+    const { enabled } = request.postDataJSON() as { enabled: boolean };
+    defaultToggles.push(enabled);
+    if (holdDefaults)
+      await new Promise<void>((resolve) => {
+        releaseDefaults = resolve;
+      });
+    if (failDefaults)
+      return route.fulfill({
+        status: 503,
+        json: { error: "Automatic setup could not be saved. Try again." },
+      });
+    overview.automaticSetup = enabled;
+    return route.fulfill({ json: { automaticSetup: enabled } });
+  }
   if (pathname.startsWith("/api/companies/company/proactive/") && request.method() === "PATCH") {
     const id = pathname.split("/").at(-1)!;
     const { enabled } = request.postDataJSON() as { enabled: boolean };
@@ -129,13 +148,19 @@ await context.route("**/api/**", async (route) => {
 function reset() {
   installs.length = 0;
   toggles.length = 0;
+  defaultToggles.length = 0;
   sockets.length = 0;
   failLoad = false;
   failInstall = false;
   failToggle = false;
+  failDefaults = false;
+  holdDefaults = false;
+  releaseDefaults = undefined;
   holdInstall = false;
   releaseInstall = undefined;
   overview = {
+    automaticSetup: true,
+    defaultAssignments: {},
     recipes: structuredClone(PROACTIVE_RECIPES),
     installations: [],
     mailboxes: [
@@ -145,6 +170,7 @@ function reset() {
         status: "active",
         analysisEnabled: true,
         analysisReady: true,
+        analysisEmployeeId: "ada",
       },
       {
         id: "paused",
@@ -228,7 +254,7 @@ async function setup(page: Page, id = "quote-requests") {
   await page
     .locator("article")
     .filter({ has: page.getByRole("heading", { name: recipe.name, exact: true }) })
-    .getByRole("button", { name: "Set up", exact: true })
+    .getByRole("button", { name: "Customize", exact: true })
     .click();
   await page.getByRole("dialog", { name: recipe.name, exact: true }).waitFor();
 }
@@ -241,7 +267,7 @@ async function ready(page: Page, employee = "Ada") {
   await choose(page, "Mailbox", "support@example.com");
 }
 function enable(page: Page) {
-  return page.getByRole("button", { name: /^Enable / });
+  return page.getByRole("button", { name: "Assign work", exact: true });
 }
 async function submit(page: Page) {
   await enable(page).click();
@@ -268,13 +294,119 @@ async function check(name: string, run: () => Promise<void>) {
     throw error;
   } finally {
     releaseInstall?.();
+    releaseDefaults?.();
     for (const page of context.pages()) await page.close();
   }
 }
 try {
+  await check(
+    "automatic setup is on by default and existing assignments need no first visit setup",
+    async () => {
+      overview.installations.push(
+        {
+          id: "existing-quote",
+          recipeId: "quote-requests",
+          employeeId: "ada",
+          accountId: "mailbox",
+          name: "Customer quote responsibility",
+          enabled: true,
+          kind: "email",
+          delivery: "draft",
+          href: "/c/company/mail/settings/rules",
+        },
+        {
+          id: "existing-followthrough",
+          recipeId: "work-followthrough",
+          employeeId: "grace",
+          accountId: null,
+          name: "Customized follow-through",
+          enabled: false,
+          kind: "routine",
+          delivery: "draft",
+          href: "/c/company/routines/followthrough",
+        },
+      );
+      overview.defaultAssignments = { "opaque-mailbox-scope": "existing-quote" };
+      const page = await open();
+      const automatic = page.getByRole("switch", { name: "Automatic setup", exact: true });
+      await automatic.waitFor();
+      assert.equal(await automatic.getAttribute("aria-checked"), "true");
+      assert.equal(await automatic.isEnabled(), true);
+      await page.getByText(/Proactive work is on by default/).waitFor();
+      await page
+        .getByRole("link", { name: "Customer quote responsibility", exact: true })
+        .waitFor();
+      await page.getByRole("link", { name: "Customized follow-through", exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Pause", exact: true }).count(), 1);
+      assert.equal(await page.getByRole("button", { name: "Resume", exact: true }).count(), 1);
+      assert.equal(await page.getByText("Nothing enabled yet", { exact: true }).count(), 0);
+      assert.deepEqual(installs, [], "Opening the page never installs work in the browser");
+      assert.deepEqual(defaultToggles, []);
+      const originalRows = structuredClone(overview.installations);
+      await automatic.click();
+      await page.getByText(/Off: Genosyn will not make new automatic assignments/).waitFor();
+      assert.equal(await automatic.getAttribute("aria-checked"), "false");
+      assert.deepEqual(
+        overview.installations,
+        originalRows,
+        "Turning defaults off preserves enabled and paused work",
+      );
+      await page.getByText(/Existing work keeps running/).waitFor();
+      await automatic.click();
+      await page.getByText(/On: ready responsibilities are assigned automatically/).waitFor();
+      assert.equal(await automatic.getAttribute("aria-checked"), "true");
+      assert.deepEqual(defaultToggles, [false, true]);
+      assert.deepEqual(toggles, [], "Defaults never call an individual Pause or Resume");
+    },
+  );
+  await check("automatic setup save errors preserve the setting and support retry", async () => {
+    const page = await open("admin");
+    const automatic = page.getByRole("switch", { name: "Automatic setup", exact: true });
+    await automatic.waitFor();
+    failDefaults = true;
+    await automatic.click();
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "Automatic setup could not be saved" })
+      .waitFor();
+    assert.equal(await automatic.getAttribute("aria-checked"), "true");
+    assert.equal(await automatic.isEnabled(), true);
+    assert.equal(await page.locator("article").count(), PROACTIVE_RECIPES.length);
+    failDefaults = false;
+    await automatic.click();
+    await page.getByText(/Off: Genosyn will not make new automatic assignments/).waitFor();
+    assert.equal(await page.getByRole("alert").count(), 0);
+    await page.getByText("No standing work", { exact: true }).waitFor();
+    await setup(page);
+    await ready(page);
+    assert.equal(
+      await enable(page).isEnabled(),
+      true,
+      "Manual assignment remains available with defaults off",
+    );
+    assert.deepEqual(defaultToggles, [false, false]);
+  });
+  await check("automatic setup pending save prevents duplicate changes", async () => {
+    const page = await open();
+    const automatic = page.getByRole("switch", { name: "Automatic setup", exact: true });
+    await automatic.waitFor();
+    holdDefaults = true;
+    const sent = page.waitForRequest(
+      (request) => request.method() === "PATCH" && request.url().endsWith("/proactive/defaults"),
+    );
+    await automatic.click();
+    await sent;
+    await page.getByText("Saving…", { exact: true }).waitFor();
+    assert.equal(await automatic.isDisabled(), true);
+    assert.equal(await automatic.getAttribute("aria-checked"), "true");
+    assert.deepEqual(defaultToggles, [false]);
+    releaseDefaults?.();
+    await page.getByText(/Off: Genosyn will not make new automatic assignments/).waitFor();
+    assert.equal(await automatic.isEnabled(), true);
+  });
   await check("catalogue and navigation display real starter instructions", async () => {
     const page = await open();
-    await page.getByText("Nothing enabled yet", { exact: true }).waitFor();
+    await page.getByText("Waiting for ready AI Employees", { exact: true }).waitFor();
     assert.equal(await page.locator("article").count(), PROACTIVE_RECIPES.length);
     assert.equal(
       await page.getByRole("link", { name: /AI Employees/ }).getAttribute("href"),
@@ -373,7 +505,7 @@ try {
       });
       await setup(page);
       await ready(page);
-      await page.getByText(/This starter is already installed/).waitFor();
+      await page.getByText(/This responsibility is already assigned/).waitFor();
       assert.equal(await enable(page).isDisabled(), true);
       assert.equal(installs.length, 1);
     },
@@ -431,7 +563,7 @@ try {
     await enable(page).click();
     await sent;
     assert.equal(
-      await page.getByRole("button", { name: "Enabling…", exact: true }).isDisabled(),
+      await page.getByRole("button", { name: "Assigning…", exact: true }).isDisabled(),
       true,
     );
     assert.equal(
@@ -457,7 +589,7 @@ try {
     assert.equal(await page.getByRole("button", { name: "Pause", exact: true }).isEnabled(), true);
     assert.equal(overview.installations[0].enabled, true);
   });
-  await check("ordinary Members can inspect but cannot enable or pause standing work", async () => {
+  await check("automatic setup and standing work are read-only for ordinary Members", async () => {
     overview.installations.push({
       id: "existing",
       recipeId: "quote-requests",
@@ -471,15 +603,24 @@ try {
     });
     const page = await open("member");
     await page
-      .getByText("An owner or admin can enable and change standing work.", { exact: true })
+      .getByText(
+        "An owner or admin can change Automatic setup, customize work, and pause responsibilities.",
+        { exact: true },
+      )
       .waitFor();
-    for (const button of await page.getByRole("button", { name: "Set up", exact: true }).all())
+    const automatic = page.getByRole("switch", { name: "Automatic setup", exact: true });
+    assert.equal(await automatic.getAttribute("aria-checked"), "true");
+    assert.equal(await automatic.isDisabled(), true);
+    for (const button of await page.getByRole("button", { name: "Customize", exact: true }).all())
       assert.equal(await button.isDisabled(), true);
     assert.equal(await page.getByRole("button", { name: /^(Pause|Resume)$/ }).count(), 0);
     assert.equal(
       await page.getByRole("link", { name: "Review work", exact: true }).isVisible(),
       true,
     );
+    assert.deepEqual(defaultToggles, []);
+    assert.deepEqual(toggles, []);
+    assert.deepEqual(installs, []);
   });
   await check(
     "scheduled starters omit send options and allow a mailbox-free follow-through",
@@ -498,10 +639,108 @@ try {
     },
   );
   await check(
+    "self-review can be assigned with a connected model and no extra Grants",
+    async () => {
+      const recipe = PROACTIVE_RECIPES.find((entry) => entry.id === "improve-own-work");
+      assert.ok(recipe, "The shared catalogue includes the self-review responsibility");
+      overview.mailboxes = [];
+      overview.employees = [
+        { ...overview.employees.find((entry) => entry.id === "new")!, modelReady: true },
+      ];
+      const page = await open();
+      const card = page.locator("article").filter({
+        has: page.getByRole("heading", { name: "Improve my work", exact: true }),
+      });
+      await card.waitFor();
+      await card.getByText("Fridays at 15:00", { exact: true }).waitFor();
+      await setup(page, "improve-own-work");
+      await choose(page, "AI Employee", "New employee");
+      assert.equal(await page.getByRole("combobox", { name: "Mailbox", exact: true }).count(), 0);
+      assert.equal(
+        await page.getByRole("combobox", { name: "Customer communication", exact: true }).count(),
+        0,
+      );
+      assert.equal(await page.getByText("Before assigning", { exact: true }).count(), 0);
+      assert.equal(
+        await page.getByRole("textbox", { name: "Instructions", exact: true }).inputValue(),
+        recipe.brief,
+      );
+      assert.equal(await enable(page).isEnabled(), true);
+      await submit(page);
+      assert.deepEqual(installs, [
+        {
+          recipeId: "improve-own-work",
+          employeeId: "new",
+          accountId: null,
+          delivery: "draft",
+          instruction: recipe.brief,
+        },
+      ]);
+      assert.equal(overview.installations[0].kind, "routine");
+    },
+  );
+  await check("self-review still waits for a connected AI Model", async () => {
+    overview.mailboxes = [];
+    overview.employees = [overview.employees.find((entry) => entry.id === "new")!];
+    const page = await open();
+    await setup(page, "improve-own-work");
+    await choose(page, "AI Employee", "New employee");
+    await page
+      .getByText("Connect an active AI Model on this AI Employee.", { exact: true })
+      .waitFor();
+    assert.equal(await enable(page).isDisabled(), true);
+    assert.equal(await page.getByRole("combobox", { name: "Mailbox", exact: true }).count(), 0);
+    assert.deepEqual(installs, []);
+  });
+  await check("self-review assignments and Review suggestions are visible to Members", async () => {
+    overview.installations.push({
+      id: "own-review",
+      recipeId: "improve-own-work",
+      employeeId: "ada",
+      accountId: null,
+      name: "Improve my work",
+      enabled: true,
+      kind: "routine",
+      delivery: "draft",
+      href: "/c/company/routines/improve-my-work",
+    });
+    const page = await open("member");
+    const standing = page.getByRole("region", { name: "Your standing work", exact: true });
+    await standing.getByRole("link", { name: "Improve my work", exact: true }).waitFor();
+    const suggestions = standing.getByRole("link", { name: "Review suggestions", exact: true });
+    assert.equal(await suggestions.getAttribute("href"), "/c/company/revisions");
+    assert.equal(await suggestions.isVisible(), true);
+    assert.deepEqual(installs, [], "Existing automatic self-review requires no browser setup");
+    await fs.mkdir(artifacts, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifacts, "proactive-self-review-desktop.png"),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    );
+    assert.ok(fits, "The suggestions link and new responsibility fit a narrow screen");
+    await page.screenshot({
+      path: path.join(artifacts, "proactive-self-review-mobile.png"),
+      fullPage: true,
+    });
+    await suggestions.click();
+    await page
+      .getByRole("status", { name: "Current route", exact: true })
+      .filter({ hasText: /^\/c\/company\/revisions$/ })
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await page.getByRole("status", { name: "Current route", exact: true }).textContent(),
+      "/c/company/revisions",
+    );
+    assert.deepEqual(defaultToggles, []);
+  });
+  await check(
     "live changes refresh standing work and mobile setup remains within the screen",
     async () => {
       const page = await open();
-      await page.getByText("Nothing enabled yet", { exact: true }).waitFor();
+      await page.getByText("Waiting for ready AI Employees", { exact: true }).waitFor();
       const initialLoads = loads;
       overview.installations.push({
         id: "live",
@@ -540,6 +779,7 @@ try {
   console.log(`${checks} Proactive browser regression groups passed.`);
 } finally {
   releaseInstall?.();
+  releaseDefaults?.();
   await browser.close();
   await server.close();
 }

@@ -13,6 +13,7 @@ import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronM
 import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { routineDeliveryPolicy } from "./proactive/policy.js";
+import { selfReviewToolScope } from "./proactive/reviewPolicy.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
@@ -353,6 +354,7 @@ export async function startRoutineRun(
         routineId: routine.id,
         authority: "employee",
         mailDeliveryMode: deliveryPolicy.mailDeliveryMode,
+        selfReviewOnly: routine.selfReviewOnly,
       });
       // No model connected → skip cleanly.
       if (!model) {
@@ -448,9 +450,12 @@ export async function startRoutineRun(
         priorAttemptBlock,
         checksBlock,
       );
-      const userMessage = deliveryPolicy.mailDeliveryMode
+      const deliveryMessage = deliveryPolicy.mailDeliveryMode
         ? `${routineMessage}\n\nThis Routine prepares drafts for Member review. Sending and starting separate automation are unavailable. Use the built-in granted tools to prepare work; record blockers in a Workstream or Decision. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks to send.`
         : routineMessage;
+      const userMessage = routine.selfReviewOnly
+        ? `${deliveryMessage}\n\nThis is a suggestion-only review. Your tools can read your work, maintain this review's Workstream, and propose one revision for a Member. They cannot change live Skills, Routines, acceptance criteria, Checks, or customer records, send messages, or start separate work. The scope remains in effect even if the Soul or brief asks otherwise.`
+        : deliveryMessage;
 
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
@@ -544,6 +549,7 @@ export async function startRoutineRun(
             routineId: routine.id,
             runId: saved.id,
             allowPrivilegedToolSources: deliveryPolicy.allowPrivilegedToolSources,
+            toolScope: selfReviewToolScope(routine.selfReviewOnly),
             signal: controller.signal,
             callbacks: {
               onModelRetry: (retry) =>
@@ -1050,6 +1056,7 @@ async function runCheckPhase(args: {
         routineId: args.routine.id,
         runId: args.run.id,
         allowPrivilegedToolSources: routineDeliveryPolicy(args.routine).allowPrivilegedToolSources,
+        toolScope: selfReviewToolScope(args.routine.selfReviewOnly),
         signal: controller.signal,
         callbacks: {
           onText: (delta) => log.write(delta),

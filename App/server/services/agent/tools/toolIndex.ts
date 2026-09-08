@@ -61,7 +61,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   improvement: {
     label: "improvement",
     blurb: "Stage edits to your own surfaces, or propose new standing work, for a human to apply.",
-    tools: ["propose_revision", "propose_initiative"],
+    tools: ["get_own_work_review", "propose_revision", "propose_initiative"],
   },
   continuity: {
     label: "continuity",
@@ -1282,6 +1282,13 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "self-modification",
     "change my prompt",
     "update playbook",
+  ],
+  get_own_work_review: [
+    "self review",
+    "improve my work",
+    "past feedback",
+    "learn from results",
+    "rejected suggestions",
   ],
   create_project: ["board", "workstream"],
   create_todo: ["task", "ticket", "action item", "to-do"],

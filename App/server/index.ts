@@ -38,6 +38,7 @@ import { skillsRouter } from "./routes/skills.js";
 import { toolCatalogueRouter } from "./routes/toolCatalogue.js";
 import { routinesRouter } from "./routes/routines.js";
 import { proactiveRouter } from "./routes/proactive.js";
+import { bootProactiveDefaults } from "./services/proactive/defaults.js";
 import { routineAssistantRouter } from "./routes/routineAssistant.js";
 import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { goalsRouter } from "./routes/goals.js";
@@ -181,6 +182,7 @@ async function main() {
   // can still reveal it, before dropping the dead Connection. Runs after the
   // key ring is bound and validated, which is why it is not a migration.
   await backfillRetiredIntegrationsIntoVault();
+  await bootProactiveDefaults();
   await bootCron();
   // M54: Routine event Triggers subscribe to the live-sync flush. Registered
   // here rather than imported by resourceEvents so the low-level module stays

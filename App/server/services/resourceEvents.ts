@@ -30,6 +30,8 @@ let membershipAuthorizationChangeSink: ((companyId: string) => void) | null = nu
 
 /** companyId → kind → set of parent scope ids touched (may be empty). */
 const pending = new Map<string, Map<string, Set<string>>>();
+/** Business-trigger scopes are separate: a review-only write must not widen them. */
+const pendingTriggers = new Map<string, Map<string, Set<string>>>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Collapse a burst of writes into one frame per kind. */
@@ -79,12 +81,16 @@ export function resourceEventsActive(): boolean {
  * call from any write path; cheap and synchronous — the actual broadcast is
  * debounced onto {@link FLUSH_MS}.
  */
-export function emitResourceChange(companyId: string, kind: string, scopeId?: string): void {
-  if (!sink) return;
-  let byKind = pending.get(companyId);
+function queueChange(
+  changes: Map<string, Map<string, Set<string>>>,
+  companyId: string,
+  kind: string,
+  scopeId?: string,
+): void {
+  let byKind = changes.get(companyId);
   if (!byKind) {
     byKind = new Map();
-    pending.set(companyId, byKind);
+    changes.set(companyId, byKind);
   }
   let scopes = byKind.get(kind);
   if (!scopes) {
@@ -96,6 +102,18 @@ export function emitResourceChange(companyId: string, kind: string, scopeId?: st
     // Overflow: forget the specifics and signal a company-wide refetch.
     else scopes.clear();
   }
+}
+
+/** `trigger: false` refreshes screens without starting Routine event work. */
+export function emitResourceChange(
+  companyId: string,
+  kind: string,
+  scopeId?: string,
+  { trigger = true }: { trigger?: boolean } = {},
+): void {
+  if (!sink) return;
+  queueChange(pending, companyId, kind, scopeId);
+  if (trigger) queueChange(pendingTriggers, companyId, kind, scopeId);
   if (!flushTimer) {
     flushTimer = setTimeout(flush, FLUSH_MS);
     if (typeof flushTimer.unref === "function") flushTimer.unref();
@@ -105,11 +123,11 @@ export function emitResourceChange(companyId: string, kind: string, scopeId?: st
 function flush(): void {
   flushTimer = null;
   const current = sink;
-  const batch = pending;
-  if (!current) {
-    batch.clear();
-    return;
-  }
+  const batch = new Map(pending);
+  const triggerBatch = new Map(pendingTriggers);
+  pending.clear();
+  pendingTriggers.clear();
+  if (!current) return;
   for (const [companyId, byKind] of batch) {
     for (const [kind, scopes] of byKind) {
       try {
@@ -117,6 +135,10 @@ function flush(): void {
       } catch {
         // One bad frame must not wedge the flush for other companies/kinds.
       }
+    }
+  }
+  for (const [companyId, byKind] of triggerBatch) {
+    for (const [kind, scopes] of byKind) {
       try {
         triggerSink?.(companyId, kind, Array.from(scopes));
       } catch {
@@ -124,5 +146,4 @@ function flush(): void {
       }
     }
   }
-  batch.clear();
 }

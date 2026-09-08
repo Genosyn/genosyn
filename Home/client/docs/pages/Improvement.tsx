@@ -9,13 +9,51 @@ export function Improvement() {
         lead={
           <>
             The <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> says whether the
-            work was any good. The improvement loop makes a bad answer change what happens next:{" "}
+            work was any good. AI Employees review their own work every week by default and suggest
+            concrete improvements for a human to review.{" "}
             <Strong>Lessons</Strong> feed the next Run&apos;s brief automatically, and{" "}
             <Strong>Revision proposals</Strong> let an AI Employee stage a durable fix to its own
             playbook — applied only when a human says so.
           </>
         }
       />
+
+      <H2 id="self-review">Review improvement suggestions</H2>
+      <P>
+        Open <DocLink to="/docs/reactivity">Proactive</DocLink> and select
+        <Strong> Review suggestions</Strong> beside <Strong>Your standing work</Strong>.
+        Suggestions appear on the existing <Strong>Revisions</Strong> page with the proposed
+        before/after change, its rationale, and the evidence behind it. An owner or admin can
+        choose <Strong>Apply</Strong> or <Strong>Reject</Strong> and leave a note. Every Member can
+        read the suggestions; an AI Employee never applies its own revision.
+      </P>
+      <P>
+        With <Strong>Automatic setup</Strong> on, Genosyn assigns <Strong>Improve my work</Strong>
+        to each AI Employee as soon as it has a connected AI Model. This Routine runs on
+        <Strong> Fridays at 15:00</Strong> in the server&apos;s timezone and needs no extra resource
+        Grant to review that employee&apos;s own work. Use <Strong>Review work</Strong> to adjust
+        its instructions or schedule, or <Strong>Pause</Strong> to stop future starts. Automatic
+        setup preserves customized and paused work and does not recreate a deleted responsibility.
+      </P>
+      <P>
+        Each review considers the employee&apos;s recent Runs and Lessons, email handovers,
+        Repository Work sessions, and feedback on earlier revisions. It proposes at most one
+        concrete, evidence-backed change per review. Pending suggestions and earlier rejection
+        notes prevent repeated proposals; without new evidence, the review stays quiet. Suggestions
+        use the normal Revisions notifications described below.
+      </P>
+      <P>
+        <Strong>Improve my work</Strong> is limited to reading its own work evidence, keeping track
+        of its review, and staging a revision to its own Soul, Skills, or Routine instructions.
+        It cannot apply edits, send email, change business records, or propose changes to acceptance
+        criteria or Checks. A human still decides whether a suggested revision should take effect.
+      </P>
+      <P>
+        After a human applies a revision, later reviews compare meaningful subsequent outcomes
+        with the problem the change was intended to fix. Applying a change alone does not prove
+        the work improved. If there is not enough later evidence, the employee waits before
+        drawing a conclusion or proposing another change.
+      </P>
 
       <Callout kind="info" title='"Lesson" is the word.'>
         Genosyn never says &quot;Learning,&quot; &quot;Insight,&quot; or &quot;Retro.&quot; The fast

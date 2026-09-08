@@ -11,6 +11,7 @@ import {
   getProactiveOverview,
   installProactiveStarter,
   toggleProactiveStarter,
+  setProactiveAutomaticSetup,
   ProactiveSetupError,
 } from "../services/proactive/setup.js";
 import { PlanLimitError } from "../services/entitlements.js";
@@ -57,6 +58,21 @@ proactiveRouter.post(
       if (error instanceof PlanLimitError) return res.status(402).json({ error: error.message });
       throw error;
     }
+  },
+);
+proactiveRouter.patch(
+  "/proactive/defaults",
+  requireBrowserSession,
+  requireCompanyRoleForMutations("admin"),
+  validateParams(companyParams),
+  validateBody(z.object({ enabled: z.boolean() }).strict()),
+  async (req, res) => {
+    await setProactiveAutomaticSetup(
+      (req.params as Record<string, string>).cid,
+      req.userId!,
+      req.body.enabled,
+    );
+    res.json({ ok: true });
   },
 );
 proactiveRouter.patch(

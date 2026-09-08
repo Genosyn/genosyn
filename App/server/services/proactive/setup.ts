@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { In } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { withSerializedTransaction } from "../../db/transactions.js";
@@ -19,13 +18,23 @@ import { RoutineTrigger } from "../../db/entities/RoutineTrigger.js";
 import { effectiveActiveId } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { recordAudit } from "../audit.js";
-import { assertRoutineCapacity } from "../entitlements.js";
+import { assertRoutineCapacity, PlanLimitError } from "../entitlements.js";
 import { nextRunFor } from "../cron.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { broadcastToCompany } from "../realtime.js";
 import { parseActions, parseConditions } from "../mail/rules.js";
 import { resolveAnalysisReader } from "../mail/analysis.js";
 import { PROACTIVE_RECIPES, PROACTIVE_WORK_GUIDANCE } from "./catalogue.js";
+import { proactiveId } from "./ids.js";
+import { proactiveScope } from "./scopes.js";
+import {
+  collectProactiveDefaults,
+  initializeProactiveDefaults,
+  lockProactiveCompany,
+  readProactiveDefaults,
+} from "./defaultsState.js";
+import { workBlocked } from "../standdowns.js";
+export { proactiveId } from "./ids.js";
 import {
   proactiveReadiness,
   type ProactiveInstallation,
@@ -40,20 +49,6 @@ export class ProactiveSetupError extends Error {
   ) {
     super(message);
   }
-}
-
-/** Native rows remain the source of truth. A stable primary key makes retries
- * and concurrent installs converge without a second automation registry. */
-export function proactiveId(
-  companyId: string,
-  employeeId: string,
-  recipeId: string,
-  accountId: string | null,
-): string {
-  const hex = createHash("sha1")
-    .update(JSON.stringify(["genosyn-proactive-v1", companyId, employeeId, recipeId, accountId]))
-    .digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 export async function getProactiveOverview(companyId: string): Promise<ProactiveOverview> {
@@ -91,13 +86,17 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
   // Use the same resolver as incoming mail: its pinned employee may differ
   // from the worker selected for this starter, and must retain a live Grant.
   const mailboxes = await Promise.all(
-    accounts.map(async (account) => ({
-      id: account.id,
-      address: account.address,
-      status: account.status,
-      analysisEnabled: account.aiAnalysisEnabled,
-      analysisReady: account.aiAnalysisEnabled && Boolean(await resolveAnalysisReader(account)),
-    })),
+    accounts.map(async (account) => {
+      const reader = account.aiAnalysisEnabled ? await resolveAnalysisReader(account) : null;
+      return {
+        id: account.id,
+        address: account.address,
+        status: account.status,
+        analysisEnabled: account.aiAnalysisEnabled,
+        analysisReady: Boolean(reader),
+        analysisEmployeeId: reader?.employee.id ?? null,
+      };
+    }),
   );
   const employees = roster.map((employee) => {
     const brains = models.filter((model) => model.employeeId === employee.id);
@@ -192,6 +191,8 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
     });
   }
   return {
+    automaticSetup: company.proactiveAutoSetup,
+    defaultAssignments: readProactiveDefaults(company.proactiveDefaultsJson).assignments,
     recipes: PROACTIVE_RECIPES.map((recipe) => ({
       ...recipe,
       brief: `${recipe.brief}\n\n${PROACTIVE_WORK_GUIDANCE}`,
@@ -230,32 +231,73 @@ function validateSetup(overview: ProactiveOverview, input: ProactiveSetupInput):
 
 export async function installProactiveStarter(
   companyId: string,
-  userId: string,
+  userId: string | null,
   input: ProactiveSetupInput,
+  options: { automatic?: boolean } = {},
 ): Promise<ProactiveInstallation> {
+  if (options.automatic && input.delivery !== "draft")
+    throw new ProactiveSetupError("Automatic setup prepares drafts.");
   const overview = await getProactiveOverview(companyId);
   const recipe = validateSetup(overview, input);
   const accountId = input.accountId ?? null;
   const id = proactiveId(companyId, input.employeeId, recipe.id, accountId);
   const existing = overview.installations.find((entry) => entry.id === id);
   // Retried requests never change the instruction or re-enable paused work.
-  if (existing) return existing;
+  if (existing) {
+    await initializeProactiveDefaults(companyId);
+    return existing;
+  }
   if (!input.instruction.trim() || input.instruction.length > 20_000)
     throw new ProactiveSetupError("Provide instructions of 1–20,000 characters.");
   const mailbox = overview.mailboxes.find((account) => account.id === accountId);
   const body = `${input.instruction.trim()}${mailbox ? `\n\nAssigned mailbox: ${JSON.stringify({ accountId: mailbox.id, address: mailbox.address })}. Use this mailbox only for this starter.` : ""}`;
   try {
     const created = await withSerializedTransaction(async (manager) => {
-      if (AppDataSource.options.type === "postgres")
+      const company = await lockProactiveCompany(manager, companyId);
+      const defaults = await collectProactiveDefaults(manager, company);
+      const scope = proactiveScope(recipe.id, accountId, input.employeeId);
+      const defaultsJson = JSON.stringify(defaults);
+      if (company.proactiveDefaultsJson !== defaultsJson)
         await manager
           .getRepository(Company)
-          .findOneOrFail({ where: { id: companyId }, lock: { mode: "pessimistic_write" } });
+          .update({ id: companyId }, { proactiveDefaultsJson: defaultsJson });
+      if (options.automatic) {
+        if (!company.proactiveAutoSetup)
+          return new ProactiveSetupError("Automatic setup is off.", 409);
+        if (workBlocked(companyId, { employeeId: input.employeeId }).blocked)
+          return new ProactiveSetupError("This AI Employee is under a Standdown.", 409);
+        if (defaults.assignments[scope])
+          return new ProactiveSetupError(
+            "This responsibility was already assigned or removed.",
+            409,
+          );
+        // Readiness may have changed while this assignment waited for another
+        // company write. Do not reserve an unusable owner permanently.
+        try {
+          validateSetup(await getProactiveOverview(companyId), input);
+        } catch (error) {
+          if (error instanceof ProactiveSetupError) return error;
+          throw error;
+        }
+      }
       const occupied =
         recipe.kind === "email"
           ? await manager.getRepository(MailRule).existsBy({ id })
           : await manager.getRepository(Routine).existsBy({ id });
-      if (occupied) return false;
-      if (recipe.kind === "routine") await assertRoutineCapacity(companyId);
+      if (occupied) {
+        await manager
+          .getRepository(Company)
+          .update({ id: companyId }, { proactiveDefaultsJson: JSON.stringify(defaults) });
+        return false;
+      }
+      if (recipe.kind === "routine") {
+        try {
+          await assertRoutineCapacity(companyId);
+        } catch (error) {
+          if (error instanceof PlanLimitError) return error;
+          throw error;
+        }
+      }
       if (recipe.kind === "email") {
         await manager.getRepository(MailRule).insert({
           id,
@@ -286,6 +328,7 @@ export async function installProactiveStarter(
           body,
           acceptanceCriteria: recipe.acceptanceCriteria,
           mailDeliveryMode: "draft",
+          selfReviewOnly: recipe.id === "improve-own-work",
         });
         if (recipe.triggerKind)
           await manager.getRepository(RoutineTrigger).insert({
@@ -297,8 +340,16 @@ export async function installProactiveStarter(
             minIntervalSec: 3600,
           });
       }
+      defaults.assignments[scope] = id;
+      await manager
+        .getRepository(Company)
+        .update({ id: companyId }, { proactiveDefaultsJson: JSON.stringify(defaults) });
       return true;
     });
+    // Expected contention commits the adopted ownership markers. Rolling
+    // back a declined assignment could also discard concurrent audit writes
+    // on SQLite's shared connection.
+    if (created instanceof Error) throw created;
     if (!created) {
       const installed = (await getProactiveOverview(companyId)).installations.find(
         (entry) => entry.id === id,
@@ -322,6 +373,9 @@ export async function installProactiveStarter(
   await recordAudit({
     companyId,
     actorUserId: userId,
+    ...(options.automatic
+      ? { actorKind: "system" as const, actorUserId: null, runId: null, conversationId: null }
+      : {}),
     action: "proactive.enable",
     targetType: recipe.kind === "email" ? "mail_rule" : "routine",
     targetId: id,
@@ -331,10 +385,40 @@ export async function installProactiveStarter(
       employeeId: input.employeeId,
       accountId,
       delivery: input.delivery,
+      ...(options.automatic ? { automatic: true } : {}),
     },
   });
   changed(companyId, recipe.kind, accountId);
   return (await getProactiveOverview(companyId)).installations.find((entry) => entry.id === id)!;
+}
+
+/** This controls future automatic assignments. Existing native work keeps
+ * its own Pause/Resume state and is never rewritten by the company switch. */
+export async function setProactiveAutomaticSetup(
+  companyId: string,
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  await withSerializedTransaction(async (manager) => {
+    const company = await lockProactiveCompany(manager, companyId);
+    const defaults = await collectProactiveDefaults(manager, company);
+    await manager.getRepository(Company).update(
+      { id: companyId },
+      {
+        proactiveAutoSetup: enabled,
+        proactiveDefaultsJson: JSON.stringify(defaults),
+      },
+    );
+  });
+  await recordAudit({
+    companyId,
+    actorUserId: userId,
+    action: "proactive.automatic_setup",
+    targetType: "company",
+    targetId: companyId,
+    metadata: { enabled },
+  });
+  emitResourceChange(companyId, "routine");
 }
 
 export async function toggleProactiveStarter(

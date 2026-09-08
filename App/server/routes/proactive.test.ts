@@ -130,7 +130,7 @@ function input(recipeId = "quote-requests", extra = {}) {
 }
 
 test("catalogue covers all examples with known classifier categories and resource Triggers", () => {
-  assert.equal(new Set(PROACTIVE_RECIPES.map((recipe) => recipe.id)).size, 11);
+  assert.equal(new Set(PROACTIVE_RECIPES.map((recipe) => recipe.id)).size, 12);
   for (const recipe of PROACTIVE_RECIPES) {
     if (recipe.category)
       assert.ok((MAIL_ANALYSIS_CATEGORIES as readonly string[]).includes(recipe.category));
@@ -154,11 +154,14 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   const { status, body } = await request();
   assert.equal(status, 200);
   const view = body as ProactiveOverview;
-  assert.equal(view.recipes.length, 11);
+  assert.equal(view.recipes.length, 12);
   assert.equal(view.employees.length, 1);
   assert.equal(view.employees[0].modelReady, true);
   assert.equal(view.employees[0].mailGrants.length, 1);
   assert.equal(view.mailboxes[0].analysisReady, true);
+  assert.equal(view.mailboxes[0].analysisEmployeeId, employee.id);
+  assert.equal(view.automaticSetup, true);
+  assert.deepEqual(view.defaultAssignments, {});
   assert.doesNotMatch(JSON.stringify(view), /do-not-serialize|soulBody|configJson/);
   assert.ok(!JSON.stringify(view).includes(other.id));
 });
@@ -167,6 +170,39 @@ test("authentication and company membership are required", async () => {
   assert.equal((await request()).status, 401);
   actingUserId = user.id;
   assert.equal((await request("GET", undefined, "", randomUUID())).status, 403);
+});
+
+test("automatic setup is an admin-only company setting with strict validation", async () => {
+  assert.equal((await request("PATCH", { enabled: false }, "/defaults")).status, 200);
+  assert.equal((await request()).body.automaticSetup, false);
+  assert.equal(
+    (await request("PATCH", { enabled: true, defaultAssignments: {} }, "/defaults")).status,
+    400,
+  );
+  assert.equal((await request("PATCH", { enabled: "true" }, "/defaults")).status, 400);
+  assert.equal((await request("PATCH", { enabled: true }, "/defaults", randomUUID())).status, 403);
+  await AppDataSource.getRepository(Membership).update(
+    { companyId: company.id, userId: user.id },
+    { role: "member" },
+  );
+  assert.equal((await request("PATCH", { enabled: true }, "/defaults")).status, 403);
+  assert.equal((await request()).body.automaticSetup, false);
+});
+
+test("turning automatic setup off preserves existing work and its individual pause state", async () => {
+  const installed = await request("POST", input());
+  assert.equal((await request("PATCH", { enabled: false }, `/${installed.body.id}`)).status, 200);
+  assert.equal((await request("PATCH", { enabled: false }, "/defaults")).status, 200);
+  assert.equal((await request("PATCH", { enabled: true }, "/defaults")).status, 200);
+  const view = (await request()).body as ProactiveOverview;
+  assert.equal(view.installations.length, 1);
+  assert.equal(view.installations[0].enabled, false);
+  assert.equal(view.automaticSetup, true);
+  const events = await AppDataSource.getRepository(AuditEvent).findBy({
+    action: "proactive.automatic_setup",
+  });
+  assert.equal(events.length, 2);
+  assert.ok(events.every((event) => event.actorUserId === user.id && event.actorKind === "user"));
 });
 test("ordinary Members may inspect but cannot enable or pause standing work", async () => {
   const enabled = await request("POST", input());
@@ -425,7 +461,7 @@ test("resuming rechecks revoked Grants and does not silently change category rul
     false,
   );
 });
-test("all eleven starters can be installed with the required actual resource Grants", async () => {
+test("all twelve starters can be installed with the required actual resource Grants", async () => {
   const repository = await insert(Repository, {
     companyId: company.id,
     name: "Product",
@@ -461,9 +497,40 @@ test("all eleven starters can be installed with the required actual resource Gra
     assert.equal(result.status, 200, `${recipe.id}: ${JSON.stringify(result.body)}`);
   }
   const overview = (await request()).body as ProactiveOverview;
-  assert.equal(overview.installations.length, 11);
+  assert.equal(overview.installations.length, 12);
   assert.equal(await AppDataSource.getRepository(MailRule).count(), 5);
-  assert.equal(await AppDataSource.getRepository(Routine).count(), 6);
+  assert.equal(await AppDataSource.getRepository(Routine).count(), 7);
+  for (const routine of await AppDataSource.getRepository(Routine).find()) {
+    assert.equal(routine.selfReviewOnly, routine.slug.startsWith("proactive-improve-own-work-"));
+  }
+});
+
+test("own-work review needs only a connected model and installs an immutable suggestion scope", async () => {
+  await AppDataSource.getRepository(EmployeeMailAccountGrant).delete({ employeeId: employee.id });
+  await AppDataSource.getRepository(EmployeeFinanceGrant).delete({ employeeId: employee.id });
+  const result = await request("POST", input("improve-own-work", { accountId: null }));
+  assert.equal(result.status, 200);
+  const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({
+    id: result.body.id,
+  });
+  assert.equal(routine.selfReviewOnly, true);
+  assert.equal(routine.mailDeliveryMode, "draft");
+  assert.equal(routine.cronExpr, "0 15 * * 5");
+  assert.equal(await AppDataSource.getRepository(RoutineTrigger).count(), 0);
+  assert.equal(
+    (await request("POST", input("improve-own-work", { accountId: null, selfReviewOnly: false })))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await request("PATCH", { enabled: true, selfReviewOnly: false }, `/${routine.id}`)).status,
+    400,
+  );
+  assert.equal(
+    (await request("POST", input("improve-own-work", { accountId: null, delivery: "soul" })))
+      .status,
+    400,
+  );
 });
 test("a deleted mailbox never hides its still-existing restricted Routine", async () => {
   const result = await request("POST", input("overdue-invoices"));

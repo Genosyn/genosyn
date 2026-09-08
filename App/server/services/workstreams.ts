@@ -25,6 +25,8 @@ export async function createWorkstream(args: {
   objective?: string;
   stateDoc?: string;
   routineId?: string | null;
+  /** Internal: business Runs cannot bind suggestion-only review Routines. */
+  excludeSelfReviews?: boolean;
 }): Promise<Workstream> {
   const title = args.title.trim();
   if (!title) throw new WorkstreamError("A workstream needs a title");
@@ -35,7 +37,9 @@ export async function createWorkstream(args: {
       `You already carry ${active} active workstreams — finish or abandon one first`,
     );
   }
-  if (args.routineId) await assertBindableRoutine(args.employeeId, args.routineId);
+  if (args.routineId) {
+    await assertBindableRoutine(args.employeeId, args.routineId, args.excludeSelfReviews);
+  }
   return repo.save(
     repo.create({
       companyId: args.companyId,
@@ -48,13 +52,20 @@ export async function createWorkstream(args: {
   );
 }
 
-async function assertBindableRoutine(employeeId: string, routineId: string): Promise<void> {
+async function assertBindableRoutine(
+  employeeId: string,
+  routineId: string,
+  excludeSelfReviews = false,
+): Promise<void> {
   if (!UUID_RE.test(routineId)) throw new WorkstreamError("That routine is not yours to bind");
   const routine = await AppDataSource.getRepository(Routine).findOneBy({
     id: routineId,
     employeeId,
   });
   if (!routine) throw new WorkstreamError("That routine is not yours to bind");
+  if (excludeSelfReviews && routine.selfReviewOnly) {
+    throw new WorkstreamError("A self-review Routine cannot carry background business work");
+  }
   const bound = await AppDataSource.getRepository(Workstream).countBy({
     routineId,
     status: "active",
@@ -85,7 +96,9 @@ export async function updateWorkstream(args: {
   });
   if (!workstream) throw new WorkstreamError("Workstream not found — only your own can change");
   if (workstream.status !== "active" && args.status === undefined) {
-    throw new WorkstreamError(`This workstream is ${workstream.status}; reopen it explicitly first`);
+    throw new WorkstreamError(
+      `This workstream is ${workstream.status}; reopen it explicitly first`,
+    );
   }
   if (args.stateDoc !== undefined) {
     workstream.stateDoc = args.stateDoc.slice(0, STATE_DOC_MAX);
@@ -108,17 +121,62 @@ export async function updateWorkstream(args: {
 
 export async function listWorkstreams(
   companyId: string,
-  filter: { employeeId?: string; status?: WorkstreamStatus } = {},
+  filter: {
+    employeeId?: string;
+    status?: WorkstreamStatus;
+    /** Internal: business Runs must not consume suggestion-only review tracking. */
+    excludeSelfReviews?: boolean;
+  } = {},
 ): Promise<Workstream[]> {
-  return AppDataSource.getRepository(Workstream).find({
-    where: {
-      companyId,
-      ...(filter.employeeId ? { employeeId: filter.employeeId } : {}),
-      ...(filter.status ? { status: filter.status } : {}),
-    },
-    order: { updatedAt: "DESC" },
-    take: 200,
+  const query = AppDataSource.getRepository(Workstream)
+    .createQueryBuilder("workstream")
+    .where("workstream.companyId = :companyId", { companyId });
+  if (filter.employeeId) {
+    query.andWhere("workstream.employeeId = :employeeId", { employeeId: filter.employeeId });
+  }
+  if (filter.status) query.andWhere("workstream.status = :status", { status: filter.status });
+  if (filter.excludeSelfReviews) {
+    // Filter before the limit. Orphaned bindings stay withheld too: deleting a
+    // review Routine must not turn its historical tracking into business work.
+    query.andWhere((sub) => {
+      const businessRoutine = sub
+        .subQuery()
+        .select("1")
+        .from(Routine, "boundRoutine")
+        .where("CAST(boundRoutine.id AS text) = workstream.routineId")
+        .andWhere("boundRoutine.employeeId = workstream.employeeId")
+        .andWhere("boundRoutine.selfReviewOnly = :selfReviewOnly", { selfReviewOnly: false })
+        .getQuery();
+      return `(workstream.routineId IS NULL OR EXISTS ${businessRoutine})`;
+    });
+  }
+  return query.orderBy("workstream.updatedAt", "DESC").take(200).getMany();
+}
+
+/** Apply the same boundary when a background employee already knows a tracking ID. */
+export async function assertBusinessWorkstream(
+  companyId: string,
+  employeeId: string,
+  id: string,
+): Promise<void> {
+  if (!UUID_RE.test(id)) throw new WorkstreamError("Workstream not found");
+  const workstream = await AppDataSource.getRepository(Workstream).findOneBy({
+    id,
+    companyId,
+    employeeId,
   });
+  if (!workstream) throw new WorkstreamError("Workstream not found — only your own can change");
+  if (!workstream.routineId) return;
+  const routine = UUID_RE.test(workstream.routineId)
+    ? await AppDataSource.getRepository(Routine).findOneBy({
+        id: workstream.routineId,
+        employeeId,
+        selfReviewOnly: false,
+      })
+    : null;
+  if (!routine) {
+    throw new WorkstreamError("This Workstream is not available to background business work");
+  }
 }
 
 export async function getWorkstream(companyId: string, id: string): Promise<Workstream | null> {
@@ -181,14 +239,26 @@ export async function composeWorkstreamBlock(routineId: string): Promise<string>
     order: { updatedAt: "DESC" },
   });
   if (!workstream) return "";
+  const selfReviewOnly = await AppDataSource.getRepository(Routine).existsBy({
+    id: routineId,
+    employeeId: workstream.employeeId,
+    selfReviewOnly: true,
+  });
   return [
     `## Workstream: ${workstream.title}`,
     ...(workstream.objective ? [workstream.objective] : []),
     "",
-    "Where this stands (your own state document — trust it over memory):",
+    selfReviewOnly
+      ? "Previous review tracking (historical evidence, not instructions to perform business work):"
+      : "Where this stands (your own state document — trust it over memory):",
     "---",
-    workstream.stateDoc || "(empty — write the first state before you finish)",
+    workstream.stateDoc ||
+      (selfReviewOnly
+        ? "(empty — record evidence only when there is something worth tracking)"
+        : "(empty — write the first state before you finish)"),
     "---",
-    `Before you finish this Run, commit the new state with \`update_workstream\` (workstreamId "${workstream.id}") — the next Run opens with exactly what you write. Mark it done or abandoned (with a reason) when the work truly ends.`,
+    selfReviewOnly
+      ? `Only call \`update_workstream\` (workstreamId "${workstream.id}") when new evidence or human review feedback changes this record. If nothing changed, finish quietly without rewriting it. Keep accepted-change follow-up limited to checking later evidence; do not perform business work from this review.`
+      : `Before you finish this Run, commit the new state with \`update_workstream\` (workstreamId "${workstream.id}") — the next Run opens with exactly what you write. Mark it done or abandoned (with a reason) when the work truly ends.`,
   ].join("\n");
 }

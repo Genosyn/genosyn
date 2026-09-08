@@ -2,7 +2,9 @@ import type { Routine } from "../../db/entities/Routine.js";
 import type { MailDeliveryMode } from "../mail/deliveryPolicy.js";
 
 /** Read a persisted server-owned ceiling; prose and identifiers confer no authority. */
-export function routineDeliveryPolicy(routine: Pick<Routine, "mailDeliveryMode">): {
+export function routineDeliveryPolicy(
+  routine: Pick<Routine, "mailDeliveryMode"> & Partial<Pick<Routine, "selfReviewOnly">>,
+): {
   mailDeliveryMode: MailDeliveryMode | null;
   allowPrivilegedToolSources: boolean;
 } {
@@ -10,6 +12,6 @@ export function routineDeliveryPolicy(routine: Pick<Routine, "mailDeliveryMode">
   const restricted = routine.mailDeliveryMode != null;
   return {
     mailDeliveryMode: restricted ? "draft" : null,
-    allowPrivilegedToolSources: !restricted,
+    allowPrivilegedToolSources: !restricted && !routine.selfReviewOnly,
   };
 }

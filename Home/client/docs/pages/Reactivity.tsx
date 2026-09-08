@@ -8,8 +8,9 @@ export function Reactivity() {
         title="Proactive work"
         lead={
           <>
-            A cron answers <em>when</em>. This page covers the four features that answer everything
-            cron can&apos;t: <Strong>Triggers</Strong> fire a{" "}
+            Proactive work is on by default. Genosyn assigns ready responsibilities to your
+            AI Employees as their AI Models, resources, and Grants become available.
+            <Strong> Triggers</Strong> fire a{" "}
             <DocLink to="/docs/routines">Routine</DocLink> the moment something changes,{" "}
             <Strong>Wakeups</Strong> let an employee check back later, <Strong>Workstreams</Strong>
             {" "}
@@ -19,13 +20,27 @@ export function Reactivity() {
         }
       />
 
-      <H2 id="start">Start in Proactive</H2>
+      <H2 id="start">Review your proactive work</H2>
       <P>
-        Open <Strong>Proactive</Strong> from the company navigation. Choose a starter, pick an
-        AI Employee and (where needed) a mailbox, review its instructions, then select
-        <Strong> Enable workflow</Strong>. The setup form lists missing Grants or a disconnected
-        AI Model. It never grants access for you. Owners and admins can enable, pause, and resume
-        standing work; every Member can see what is configured.
+        Open <Strong>Proactive</Strong> from the company navigation to see your standing work.
+        <Strong> Automatic setup</Strong> starts <Strong>On</Strong> for both new and existing
+        companies. Genosyn assigns ready responsibilities in the background, without a first visit
+        or setup click. Each responsibility gets one automatic assignment; it does not go to every
+        eligible employee. Assignment never adds Grants, and work waits until an AI Employee has a
+        connected AI Model and the required resource access.
+      </P>
+      <P>
+        Owners and admins can turn <Strong>Automatic setup</Strong> off to stop future automatic
+        assignments. Existing work keeps running: use its individual <Strong>Pause</Strong> control
+        to stop future starts. Automatic setup preserves customized and paused work, and does not
+        recreate work you deliberately deleted. Every Member can see the setting and standing work.
+      </P>
+      <P>
+        Use <Strong>Review work</Strong> to edit an existing rule or Routine. To assign work manually,
+        select <Strong>Customize</Strong> on a responsibility, choose an AI Employee and (where
+        needed) a mailbox, review its instructions, then select <Strong>Assign work</Strong>.
+        The form lists missing Grants or a disconnected AI Model. Manual customization remains
+        available when Automatic setup is off.
       </P>
       <P>
         Email starters also need a working AI analysis reader in <Strong>Email → Settings</Strong>.
@@ -48,12 +63,32 @@ export function Reactivity() {
       ]} />
       <P>
         The scheduled starters cover overdue invoice reminders, stalled Deals, meeting commitments,
-        unanswered customer requests, open Workstreams, and evidence-backed improvement Initiatives.
+        unanswered customer requests, open Workstreams, evidence-backed improvement Initiatives,
+        and reviews of an employee&apos;s own work.
         They create ordinary <DocLink to="/docs/routines">Routines</DocLink> with editable briefs,
         schedules, acceptance criteria, and Run history. Selected starters also get a Trigger with
         a one-hour minimum interval; the schedule catches work that becomes due without another
         change. Times use the server&apos;s timezone. Each brief limits the employee to ten
         actionable items per Run and asks it to keep unchanged checks quiet.
+      </P>
+      <P>
+        <Strong>Improve my work</Strong> is assigned automatically to each AI Employee with a
+        connected AI Model, with no extra resource Grant needed to review its own work. It runs on
+        Fridays at 15:00 in the server&apos;s timezone. The employee reviews its recent Runs,
+        Lessons, email handovers, Repository Work sessions, and earlier revision feedback, then
+        proposes at most one concrete change supported by that evidence. It stays quiet without
+        new evidence and avoids repeating pending or rejected suggestions. This review can read
+        its own evidence, track its review, and stage a suggestion; it cannot apply edits, send
+        email, change business records, or propose changes to acceptance criteria or Checks.
+      </P>
+      <P>
+        Beside <Strong>Your standing work</Strong>, select <Strong>Review suggestions</Strong> to
+        open <Strong>Revisions</Strong>. Owners and admins review the proposed change and choose
+        <Strong> Apply</Strong> or <Strong>Reject</Strong>; the employee never applies its own
+        suggestion. Later reviews check meaningful outcomes after an applied change. You can
+        customize or pause this Routine like other standing work, and automatic setup preserves
+        your edits, pauses, and deletions. See <DocLink to="/docs/improvement">The improvement
+        loop</DocLink> for the review process and notifications.
       </P>
       <H2 id="delivery">Decide how much can happen unattended</H2>
       <P>
@@ -76,15 +111,16 @@ export function Reactivity() {
         Repository publication needs the employee&apos;s Write Grant plus an explicitly granted,
         pinned GitHub or Forgejo Connection. The employee can open a PR only from its own completed
         session branch; it cannot merge or publish the default branch. Repositories using a private
-        token or SSH credential still need Member publication. Enable <Strong>Follow through on
-        open work</Strong> for the same employee to revisit saved sessions and finish the next
-        authorized step. See <DocLink to="/docs/repositories">Repositories</DocLink>.
+        token or SSH credential still need Member publication. <Strong>Follow through on
+        open work</Strong> lets the same employee revisit saved sessions and finish the next
+        authorized step; check its assignment under Your standing work. See
+        <DocLink to="/docs/repositories"> Repositories</DocLink>.
       </P>
       <P>
         Under <Strong>Your standing work</Strong>, use <Strong>Review work</Strong> to open the
         underlying rule or Routine and its history. <Strong>Pause</Strong> stops future starts;
         use a <DocLink to="/docs/standdowns">Standdown</DocLink> when work already in progress
-        must stop. Enabling the same starter for the same employee and mailbox twice reuses its
+        must stop. Assigning the same starter for the same employee and mailbox twice reuses its
         existing configuration, including a paused state.
       </P>
 

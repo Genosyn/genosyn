@@ -298,6 +298,8 @@ const ADMIN_TOOLS = [
   // — and pages the owners. A Member-driven turn gets it at the same rank as
   // editing those surfaces directly.
   "propose_revision",
+  // The packet includes Connection-backed work; match that delegation boundary.
+  "get_own_work_review",
   // Both create future employee-authority work — a wakeup is a deferred
   // session, an initiative pages owners toward a new Routine. The same class
   // of act as creating a Routine, which sits in this bucket.

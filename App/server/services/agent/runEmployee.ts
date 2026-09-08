@@ -22,6 +22,8 @@ import { createChatProgressTool } from "./tools/chatProgress.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
+import { resolveMcpToken } from "../mcpTokens.js";
+import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -163,6 +165,11 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
 }
 
 async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
+  // Token authority also narrows callers that omit or override the visible scope.
+  const reviewScope = selfReviewToolScope(resolveMcpToken(params.genosynToken)?.selfReviewOnly);
+  if (reviewScope) {
+    params = { ...params, toolScope: reviewScope, allowPrivilegedToolSources: false, extraTools: [] };
+  }
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const allowPrivileged = params.allowPrivilegedToolSources ?? true;
@@ -171,7 +178,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     allowPrivileged,
     authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
   });
-  if (delegationDepth === 0 && params.callbacks?.onProgress) {
+  if (!reviewScope && delegationDepth === 0 && params.callbacks?.onProgress) {
     localTools.push(createChatProgressTool(params.callbacks.onProgress));
   }
   if (

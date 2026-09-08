@@ -21,6 +21,7 @@ export default function Proactive({ company }: { company: Company }) {
   const [error, setError] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<ProactiveRecipe | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [savingDefaults, setSavingDefaults] = React.useState(false);
   const requestSequence = React.useRef(0);
   const admin = company.role === "owner" || company.role === "admin";
   const refresh = React.useCallback(async () => {
@@ -59,18 +60,36 @@ export default function Proactive({ company }: { company: Company }) {
     }
   }
 
+  async function toggleAutomaticSetup() {
+    if (!overview || !admin || savingDefaults) return;
+    const enabled = !overview.automaticSetup;
+    setSavingDefaults(true);
+    setError(null);
+    try {
+      await api.patch(`/api/companies/${company.id}/proactive/defaults`, { enabled });
+      setOverview((current) => current && { ...current, automaticSetup: enabled });
+      await refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSavingDefaults(false);
+    }
+  }
+
   return (
     <div className="page-shell space-y-8 p-4 sm:p-8">
       <div>
         <TopBar title="Proactive" />
         <p className="mt-2 text-sm text-slate-500">
-          Give your AI Employees standing responsibility, then follow the work they finish.
+          Your AI Employees take responsibility for incoming requests and work that needs
+          follow-through.
         </p>
       </div>
       <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
-        Start with one workflow and an AI Employee who knows your business. Review the instructions,
-        connect the required resources, and enable it. The Soul guides their judgement; Grants and
-        company Policies control what they can do.
+        Proactive work is on by default. Genosyn assigns ready work as AI Employees get a connected
+        AI Model and the required resources and Grants, with one automatic assignment for each
+        responsibility. The Soul guides their judgement; Grants and company Policies control what
+        they can do.
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-medium">
           <Link to={`/c/${company.slug}/employees`}>
             AI Employees <span aria-hidden="true">→</span>
@@ -98,14 +117,64 @@ export default function Proactive({ company }: { company: Company }) {
       )}
       {overview && (
         <>
+          <section
+            aria-labelledby="automatic-setup-title"
+            className="rounded-xl border border-slate-200 p-5 dark:border-slate-800"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <h2 id="automatic-setup-title" className="text-base font-semibold">
+                Automatic setup
+              </h2>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-sm font-medium" aria-hidden="true">
+                  {savingDefaults ? "Saving…" : overview.automaticSetup ? "On" : "Off"}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Automatic setup"
+                  aria-describedby="automatic-setup-description"
+                  aria-checked={overview.automaticSetup}
+                  disabled={!admin || savingDefaults}
+                  onClick={() => void toggleAutomaticSetup()}
+                  className={`h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 ${overview.automaticSetup ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-700"}`}
+                >
+                  <span
+                    className={`block h-5 w-5 rounded-full bg-white transition-transform ${overview.automaticSetup ? "translate-x-5" : ""}`}
+                  />
+                </button>
+              </div>
+            </div>
+            <p id="automatic-setup-description" className="mt-1 text-sm leading-6 text-slate-500">
+              {overview.automaticSetup
+                ? "On: ready responsibilities are assigned automatically, even before you visit this page."
+                : "Off: Genosyn will not make new automatic assignments. You can still customize work below."}{" "}
+              Turning this off only affects future assignments. Existing work keeps running; use
+              Pause on each responsibility to stop future starts.
+            </p>
+          </section>
           <section aria-labelledby="active-work-title" className="space-y-3">
-            <h2 id="active-work-title" className="text-base font-semibold">
-              Your standing work
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="active-work-title" className="text-base font-semibold">
+                Your standing work
+              </h2>
+              <Link
+                className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline"
+                to={`/c/${company.slug}/revisions`}
+              >
+                Review suggestions <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+            </div>
             {overview.installations.length === 0 ? (
               <EmptyState
-                title="Nothing enabled yet"
-                description="Choose a starter below. Enabling it creates an email rule or a Routine you can inspect, edit, and pause."
+                title={
+                  overview.automaticSetup ? "Waiting for ready AI Employees" : "No standing work"
+                }
+                description={
+                  overview.automaticSetup
+                    ? "Connect an AI Model and grant the resources an AI Employee needs. Ready responsibilities will appear here automatically. You can review requirements and customize work below."
+                    : "Turn on Automatic setup to assign ready responsibilities, or customize work below."
+                }
               />
             ) : (
               <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
@@ -160,7 +229,8 @@ export default function Proactive({ company }: { company: Company }) {
           </section>
           {!admin && (
             <p className="text-sm text-slate-500">
-              An owner or admin can enable and change standing work.
+              An owner or admin can change Automatic setup, customize work, and pause
+              responsibilities.
             </p>
           )}
           {(["email", "routine"] as const).map((kind) => (
@@ -206,7 +276,7 @@ export default function Proactive({ company }: { company: Company }) {
                           disabled={!admin}
                           onClick={() => setSelected(recipe)}
                         >
-                          Set up <ArrowRight size={14} />
+                          Customize <ArrowRight size={14} />
                         </Button>
                       </div>
                     </article>
@@ -299,7 +369,7 @@ function Setup({
             disabled={saving || needs.length > 0 || !instruction.trim() || Boolean(already)}
           >
             <Sparkles size={16} />
-            {saving ? "Enabling…" : "Enable workflow"}
+            {saving ? "Assigning…" : "Assign work"}
           </Button>
         </>
       }
@@ -367,13 +437,13 @@ function Setup({
           />
         </label>
         <p className="text-xs text-slate-500">
-          Only enable work you want this AI Employee to own. Existing Grants are checked here; setup
-          never adds access. Scheduled starters draft customer communication and preserve source
-          restrictions.
+          Choose who owns this responsibility and how they work. Existing Grants are checked here;
+          setup never adds access. Scheduled starters draft customer communication and preserve
+          source restrictions.
         </p>
         {already && (
           <p className="text-sm text-indigo-600">
-            This starter is already installed for this AI Employee and mailbox.{" "}
+            This responsibility is already assigned to this AI Employee and mailbox.{" "}
             <Link className="underline" to={already.href}>
               Review existing work
             </Link>
@@ -382,7 +452,7 @@ function Setup({
         )}
         {needs.length > 0 && (
           <div className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900">
-            <p className="font-medium">Before enabling</p>
+            <p className="font-medium">Before assigning</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">
               {needs.map((need) => (
                 <li key={need}>{need}</li>
