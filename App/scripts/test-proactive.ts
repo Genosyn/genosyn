@@ -419,7 +419,7 @@ try {
     await setup(page);
     assert.equal(
       await page.getByRole("textbox", { name: "Instructions", exact: true }).inputValue(),
-      PROACTIVE_RECIPES[0].brief,
+      PROACTIVE_RECIPES.find((entry) => entry.id === "quote-requests")!.brief,
     );
     assert.equal(await enable(page).isDisabled(), true);
   });
@@ -636,6 +636,97 @@ try {
       await submit(page);
       assert.equal(installs[0].accountId, null);
       assert.equal(installs[0].delivery, "draft");
+    },
+  );
+  await check(
+    "daily responsibilities are prominent and can be assigned without extra Grants",
+    async () => {
+      const recipe = PROACTIVE_RECIPES.find((entry) => entry.id === "advance-responsibilities")!;
+      overview.mailboxes = [];
+      overview.employees = [
+        { ...overview.employees.find((entry) => entry.id === "new")!, modelReady: true },
+      ];
+      const page = await open();
+      await page
+        .getByRole("heading", { name: "A useful next step, every day", exact: true })
+        .waitFor();
+      const card = page
+        .locator("article")
+        .filter({ has: page.getByRole("heading", { name: recipe.name, exact: true }) });
+      await card.getByText("Weekdays at 08:00", { exact: true }).waitFor();
+      await setup(page, recipe.id);
+      await choose(page, "AI Employee", "New employee");
+      assert.equal(await page.getByRole("combobox", { name: "Mailbox", exact: true }).count(), 0);
+      assert.equal(
+        await page.getByRole("combobox", { name: "Customer communication", exact: true }).count(),
+        0,
+      );
+      const instructions = await page
+        .getByRole("textbox", { name: "Instructions", exact: true })
+        .inputValue();
+      assert.match(instructions, /get_proactive_work/);
+      assert.match(instructions, /list_initiatives/);
+      assert.match(instructions, /previous|declined/);
+      await submit(page);
+      assert.deepEqual(installs, [
+        {
+          recipeId: recipe.id,
+          employeeId: "new",
+          accountId: null,
+          delivery: "draft",
+          instruction: recipe.brief,
+        },
+      ]);
+    },
+  );
+  await check("daily responsibility review waits for a connected AI Model", async () => {
+    overview.mailboxes = [];
+    overview.employees = [overview.employees.find((entry) => entry.id === "new")!];
+    const page = await open();
+    await setup(page, "advance-responsibilities");
+    await choose(page, "AI Employee", "New employee");
+    await page
+      .getByText("Connect an active AI Model on this AI Employee.", { exact: true })
+      .waitFor();
+    assert.equal(await enable(page).isDisabled(), true);
+    assert.deepEqual(installs, []);
+  });
+  await check(
+    "Members can inspect daily ownership and open new Routine suggestions on mobile",
+    async () => {
+      overview.installations.push({
+        id: "daily",
+        recipeId: "advance-responsibilities",
+        employeeId: "ada",
+        accountId: null,
+        name: "Advance my responsibilities",
+        enabled: true,
+        kind: "routine",
+        delivery: "draft",
+        href: "/c/company/routines/ada/daily",
+      });
+      const page = await open("member");
+      await page.setViewportSize({ width: 390, height: 844 });
+      const standing = page.getByRole("region", { name: "Your standing work", exact: true });
+      await standing
+        .getByRole("link", { name: "Advance my responsibilities", exact: true })
+        .waitFor();
+      assert.equal(await standing.getByRole("button", { name: "Pause", exact: true }).count(), 0);
+      assert.ok(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      );
+      await fs.mkdir(artifacts, { recursive: true });
+      await page.screenshot({
+        path: path.join(artifacts, "proactive-daily-mobile.png"),
+        fullPage: true,
+      });
+      await page.getByRole("link", { name: "Proposed Initiatives", exact: true }).click();
+      await page
+        .getByRole("status", { name: "Current route", exact: true })
+        .filter({ hasText: /^\/c\/company\/initiatives$/ })
+        .waitFor({ state: "attached" });
+      assert.deepEqual(defaultToggles, []);
+      assert.deepEqual(installs, []);
     },
   );
   await check(

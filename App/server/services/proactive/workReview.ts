@@ -19,6 +19,7 @@ import {
   runWorkSummary,
 } from "../runWorkSummary.js";
 import { proactiveId } from "./ids.js";
+import { findRoutineParticipation, listParticipatingRoutines } from "../routineParticipation.js";
 
 export const OWN_WORK_REVIEW_LIMIT = 20;
 const TEXT_LIMIT = 400;
@@ -110,6 +111,32 @@ export async function getOwnWorkReview(
   const since = new Date(until.getTime() - 30 * 24 * 60 * 60 * 1000);
   const reviewRoutineId = proactiveId(companyId, employeeId, "improve-own-work", null);
   const take = OWN_WORK_REVIEW_LIMIT + 1;
+  const participations = await listParticipatingRoutines(companyId, employeeId);
+  const participatingIds = participations.items.map((item) => item.routine.id);
+  const participatingRuns = participatingIds.length
+    ? await AppDataSource.getRepository(Run).find({
+        where: {
+          routineId: In(participatingIds),
+          status: In(FINISHED_RUN_STATUSES),
+          finishedAt: Between(since, until),
+        },
+        order: { finishedAt: "DESC", id: "DESC" },
+        take,
+      })
+    : [];
+  const sharedPending = participatingIds.length
+    ? await AppDataSource.getRepository(RevisionProposal).find({
+        where: {
+          companyId,
+          kind: "routine_body",
+          targetId: In(participatingIds),
+          status: "pending",
+        },
+        select: ["id", "targetId"],
+        order: { createdAt: "DESC", id: "DESC" },
+        take: OWN_WORK_REVIEW_LIMIT,
+      })
+    : [];
 
   const [runs, lessons, pending, decided, mailHandovers, sessions] = await Promise.all([
     AppDataSource.getRepository(Run)
@@ -234,17 +261,31 @@ export async function getOwnWorkReview(
     proposals.map((row) => [row.id, evidenceIds(row.evidenceRunIdsJson)]),
   );
   const referencedIds = [...new Set([...parsedEvidence.values()].flatMap((value) => value.ids))];
+  const proposalTargetIds = [
+    ...new Set(
+      proposals
+        .filter((row) => row.kind === "routine_body" && row.targetId)
+        .map((row) => row.targetId!),
+    ),
+  ];
+  const currentTargets = await Promise.all(
+    proposalTargetIds.map((id) => findRoutineParticipation(companyId, employeeId, id)),
+  );
+  const sharedTargetIds = currentTargets
+    .filter((item) => item !== null)
+    .map((item) => item.routine.id);
   const ownEvidence = referencedIds.length
     ? await AppDataSource.getRepository(Run)
         .createQueryBuilder("run")
-        .select(["run.id"])
-        .innerJoin(
-          Routine,
-          "routine",
-          "CAST(routine.id AS text) = run.routineId AND routine.employeeId = :employeeId",
-          { employeeId },
-        )
+        .select(["run.id", "run.routineId"])
+        .innerJoin(Routine, "routine", "CAST(routine.id AS text) = run.routineId")
         .where("run.id IN (:...ids)", { ids: referencedIds })
+        .andWhere(
+          sharedTargetIds.length
+            ? "(routine.employeeId = :employeeId OR routine.id IN (:...sharedTargetIds))"
+            : "routine.employeeId = :employeeId",
+          { employeeId, sharedTargetIds },
+        )
         .andWhere("run.routineId != :reviewRoutineId", { reviewRoutineId })
         .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
           selfReviewOnly: false,
@@ -253,7 +294,18 @@ export async function getOwnWorkReview(
         .andWhere("run.finishedAt IS NOT NULL AND run.finishedAt <= :until", { until })
         .getMany()
     : [];
-  const ownEvidenceIds = new Set(ownEvidence.map((row) => row.id));
+  const evidenceRoutineIds = new Map(ownEvidence.map((row) => [row.id, row.routineId]));
+  const sharedEvidenceTargets = new Set(sharedTargetIds);
+  const evidenceRoutineList = [...new Set(ownEvidence.map((row) => row.routineId))];
+  const ownRoutineIds = new Set(
+    (evidenceRoutineList.length
+      ? await AppDataSource.getRepository(Routine).find({
+          where: { employeeId, id: In(evidenceRoutineList) },
+          select: ["id"],
+        })
+      : []
+    ).map((row) => row.id),
+  );
   const routineIds = [...new Set(runs.slice(0, OWN_WORK_REVIEW_LIMIT).map((run) => run.routineId))];
   const routines = routineIds.length
     ? await AppDataSource.getRepository(Routine).find({
@@ -261,12 +313,24 @@ export async function getOwnWorkReview(
         select: ["id", "name"],
       })
     : [];
-  const routineNames = new Map(routines.map((routine) => [routine.id, routine.name]));
+  const routineNames = new Map([
+    ...routines.map((routine) => [routine.id, routine.name] as const),
+    ...participations.items.map(({ routine }) => [routine.id, routine.name] as const),
+  ]);
 
   const proposalPreview = (proposal: RevisionProposal) => {
     const truncatedFields: string[] = [];
     const parsed = parsedEvidence.get(proposal.id)!;
-    const evidenceRunIds = parsed.ids.filter((id) => ownEvidenceIds.has(id));
+    const evidenceRunIds = parsed.ids.filter((id) => {
+      const routineId = evidenceRoutineIds.get(id);
+      return (
+        routineId &&
+        (ownRoutineIds.has(routineId) ||
+          (proposal.kind === "routine_body" &&
+            proposal.targetId === routineId &&
+            sharedEvidenceTargets.has(routineId)))
+      );
+    });
     return {
       id: proposal.id,
       kind: proposal.kind,
@@ -289,6 +353,34 @@ export async function getOwnWorkReview(
     };
   };
 
+  const runPreview = (run: Run) => {
+    const truncatedFields: string[] = [];
+    return {
+      id: run.id,
+      routineId: run.routineId,
+      routineName: textPreview(
+        routineNames.get(run.routineId) ?? "",
+        "routineName",
+        truncatedFields,
+        LABEL_LIMIT,
+      ),
+      status: run.status,
+      outcomeVerdict: run.outcomeVerdict,
+      checksVerdict: run.checksVerdict,
+      outcomeNote: textPreview(run.outcomeNote, "outcomeNote", truncatedFields),
+      summary: runWorkSummary(run),
+      summaryIsPreview: true,
+      tokensIn: run.tokensIn,
+      tokensOut: run.tokensOut,
+      attempt: run.attempt,
+      checkRemediations: run.checkRemediations,
+      durationMs: Math.max(0, run.finishedAt!.getTime() - run.startedAt.getTime()),
+      startedAt: run.startedAt.toISOString(),
+      finishedAt: run.finishedAt!.toISOString(),
+      truncatedFields,
+    };
+  };
+
   return {
     employeeId,
     window: { since: since.toISOString(), until: until.toISOString(), days: 30 },
@@ -305,33 +397,29 @@ export async function getOwnWorkReview(
     },
     runs: {
       ...section(runs),
-      items: section(runs).items.map((run) => {
+      items: section(runs).items.map(runPreview),
+    },
+    participatingRoutines: {
+      limit: participations.limit,
+      truncated: participations.truncated,
+      items: participations.items.map(({ routine, owner, receipt }) => {
         const truncatedFields: string[] = [];
         return {
-          id: run.id,
-          routineId: run.routineId,
-          routineName: textPreview(
-            routineNames.get(run.routineId) ?? "",
-            "routineName",
-            truncatedFields,
-            LABEL_LIMIT,
-          ),
-          status: run.status,
-          outcomeVerdict: run.outcomeVerdict,
-          checksVerdict: run.checksVerdict,
-          outcomeNote: textPreview(run.outcomeNote, "outcomeNote", truncatedFields),
-          summary: runWorkSummary(run),
-          summaryIsPreview: true,
-          tokensIn: run.tokensIn,
-          tokensOut: run.tokensOut,
-          attempt: run.attempt,
-          checkRemediations: run.checkRemediations,
-          durationMs: Math.max(0, run.finishedAt!.getTime() - run.startedAt.getTime()),
-          startedAt: run.startedAt.toISOString(),
-          finishedAt: run.finishedAt!.toISOString(),
+          id: routine.id,
+          routineId: routine.id,
+          routineName: textPreview(routine.name, "routineName", truncatedFields, LABEL_LIMIT),
+          ownerEmployeeId: owner.id,
+          ownerName: textPreview(owner.name, "ownerName", truncatedFields, LABEL_LIMIT),
+          participationMessageId: receipt.id,
+          participatedAt: receipt.createdAt.toISOString(),
+          pendingRevisionId: sharedPending.find((row) => row.targetId === routine.id)?.id ?? null,
           truncatedFields,
         };
       }),
+    },
+    participatingRuns: {
+      ...section(participatingRuns),
+      items: section(participatingRuns).items.map(runPreview),
     },
     lessons: {
       ...section(lessons),

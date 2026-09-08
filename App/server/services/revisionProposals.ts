@@ -13,6 +13,7 @@ import { UUID_RE } from "./bases.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
 import { managingMemberIdForEmployee } from "./reportingLine.js";
+import { findRoutineParticipation } from "./routineParticipation.js";
 
 /**
  * Revision proposals — the maker-checker half of the improvement loop (M52),
@@ -95,13 +96,14 @@ export function serializeRevisionProposal(row: RevisionProposal): RevisionPropos
 type Target = {
   label: string;
   body: string;
+  ownerEmployeeId: string;
+  sharedRoutineId?: string;
   write: (body: string) => Promise<void>;
 };
 
 /**
- * Resolve where a proposal's body lives, enforcing the self-only rule: the
- * Skill or Routine must belong to the proposing employee, and `soul` targets
- * the employee itself.
+ * Soul and Skills remain owned surfaces. A successful Ask AI participant may
+ * suggest a same-company Routine brief, never its acceptance criteria.
  */
 async function loadTarget(
   employee: AIEmployee,
@@ -114,9 +116,15 @@ async function loadTarget(
     return {
       label: "Soul",
       body: employee.soulBody,
+      ownerEmployeeId: employee.id,
       write: async (body) => {
-        employee.soulBody = body;
-        await manager.getRepository(AIEmployee).save(employee);
+        const changed = await manager
+          .getRepository(AIEmployee)
+          .update(
+            { id: employee.id, companyId: employee.companyId, soulBody: employee.soulBody },
+            { soulBody: body },
+          );
+        if (changed.affected !== 1) throw new RevisionError("The target changed during review");
       },
     };
   }
@@ -130,33 +138,58 @@ async function loadTarget(
     return {
       label: skill.name,
       body: skill.body,
+      ownerEmployeeId: employee.id,
       write: async (body) => {
-        skill.body = body;
-        await manager.getRepository(Skill).save(skill);
+        const changed = await manager
+          .getRepository(Skill)
+          .update({ id: skill.id, employeeId: employee.id, body: skill.body }, { body });
+        if (changed.affected !== 1) throw new RevisionError("The target changed during review");
       },
     };
   }
-  const routine = await manager.getRepository(Routine).findOneBy({
-    id: targetId,
-    employeeId: employee.id,
+  const routine = await manager.getRepository(Routine).findOne({
+    where: { id: targetId },
+    ...(manager.queryRunner?.isTransactionActive && AppDataSource.options.type === "postgres"
+      ? { lock: { mode: "pessimistic_write" as const } }
+      : {}),
   });
   if (!routine) throw new RevisionError("That routine is not yours to revise");
+  const shared = routine.employeeId !== employee.id;
+  const participation =
+    shared && kind === "routine_body"
+      ? await findRoutineParticipation(employee.companyId, employee.id, routine.id, manager)
+      : null;
+  if (shared && !participation) {
+    throw new RevisionError("That Routine requires your current successful Ask AI participation");
+  }
   if (kind === "routine_body") {
     return {
-      label: routine.name,
+      label: participation ? `${routine.name} (${participation.owner.name})` : routine.name,
       body: routine.body,
+      ownerEmployeeId: routine.employeeId,
+      ...(shared ? { sharedRoutineId: routine.id } : {}),
       write: async (body) => {
-        routine.body = body;
-        await manager.getRepository(Routine).save(routine);
+        const changed = await manager
+          .getRepository(Routine)
+          .update({ id: routine.id, employeeId: routine.employeeId, body: routine.body }, { body });
+        if (changed.affected !== 1) throw new RevisionError("The target changed during review");
       },
     };
   }
   return {
     label: `${routine.name} — acceptance criteria`,
     body: routine.acceptanceCriteria,
+    ownerEmployeeId: routine.employeeId,
     write: async (body) => {
-      routine.acceptanceCriteria = body;
-      await manager.getRepository(Routine).save(routine);
+      const changed = await manager.getRepository(Routine).update(
+        {
+          id: routine.id,
+          employeeId: routine.employeeId,
+          acceptanceCriteria: routine.acceptanceCriteria,
+        },
+        { acceptanceCriteria: body },
+      );
+      if (changed.affected !== 1) throw new RevisionError("The target changed during review");
     },
   };
 }
@@ -239,6 +272,7 @@ export async function createRevisionProposal(
           throw new RevisionError("This self-review Run has already created a proposal");
         }
       }
+      const target = await loadTarget(employee, input.kind, input.targetId ?? null, manager);
       // Select only identity/timing, never load the cited transcripts. A deleted
       // Routine has no provable current owner and cannot be cited as evidence.
       const evidenceQuery = manager
@@ -247,14 +281,19 @@ export async function createRevisionProposal(
         .innerJoin(Routine, "routine", "CAST(routine.id AS text) = run.routineId")
         .select(["run.id", "run.finishedAt"])
         .where("run.id IN (:...evidence)", { evidence })
-        .andWhere("routine.employeeId = :employeeId", { employeeId })
+        .andWhere(
+          target.sharedRoutineId
+            ? "(routine.employeeId = :employeeId OR routine.id = :sharedRoutineId)"
+            : "routine.employeeId = :employeeId",
+          { employeeId, sharedRoutineId: target.sharedRoutineId },
+        )
         .andWhere("run.status IN (:...statuses)", {
           statuses: ["completed", "failed", "timeout"],
         })
         .andWhere("run.finishedAt IS NOT NULL");
       // Automatic reflection cannot manufacture fresh evidence by citing a
       // previous reflection. Ordinary proposals keep their existing scope.
-      if (reviewRunId) {
+      if (reviewRunId || target.sharedRoutineId) {
         evidenceQuery.andWhere(
           "(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)",
           { selfReviewOnly: false },
@@ -263,16 +302,16 @@ export async function createRevisionProposal(
       const evidenceRuns = evidence.length ? await evidenceQuery.getMany() : [];
       if (evidenceRuns.length !== evidence.length) {
         throw new RevisionError(
-          "Evidence must cite your own existing finished completed, failed, or timeout Runs",
+          "Evidence must cite your own existing finished completed, failed, or timeout Runs, or finished Runs of this exact participating Routine",
         );
       }
-      const target = await loadTarget(employee, input.kind, input.targetId ?? null, manager);
       if (target.body === proposedBody) {
         throw new RevisionError("The proposed body is identical to the current one");
       }
       const targetScope = {
         companyId,
-        employeeId,
+        // Every participant and the owner compete for one pending brief diff.
+        ...(input.kind === "routine_body" ? {} : { employeeId }),
         kind: input.kind,
         targetId: input.targetId ? input.targetId : IsNull(),
       };
@@ -317,7 +356,7 @@ export async function createRevisionProposal(
           reviewRunId,
         }),
       );
-      return { proposal, employee };
+      return { proposal, employee, targetOwnerId: target.ownerEmployeeId };
     } catch (error) {
       // A normal refusal must commit the shared SQLite connection: rolling it
       // back could erase an unrelated audit write that completed while we read.
@@ -326,13 +365,20 @@ export async function createRevisionProposal(
     }
   });
   if (created instanceof RevisionError) throw created;
-  await notifyRevisionPending(created.proposal, created.employee);
+  const notify = () =>
+    notifyRevisionPending(created.proposal, created.employee, created.targetOwnerId);
+  // SQLite's single connection also serves Notification.save(array), which
+  // may start its own transaction. Keep that phase in the same queue so it
+  // cannot overlap the next proposal's transaction and lose a notification.
+  if (AppDataSource.options.type === "postgres") await notify();
+  else await withSerializedTransaction(notify);
   return created.proposal;
 }
 
 async function notifyRevisionPending(
   proposal: RevisionProposal,
   employee: AIEmployee,
+  targetOwnerId: string,
 ): Promise<void> {
   try {
     const memberships = await AppDataSource.getRepository(Membership).find({
@@ -343,6 +389,10 @@ async function notifyRevisionPending(
     // admin role over everything else — the browser-recordings audience rule.
     const manager = await managingMemberIdForEmployee(proposal.companyId, employee.id);
     if (manager) audience.add(manager);
+    if (targetOwnerId !== employee.id) {
+      const targetManager = await managingMemberIdForEmployee(proposal.companyId, targetOwnerId);
+      if (targetManager) audience.add(targetManager);
+    }
     if (audience.size === 0) return;
     await createNotifications(
       [...audience].map((userId) => ({
@@ -391,106 +441,132 @@ export async function applyRevisionProposal(
   proposal: RevisionProposal,
   reviewer: { userId: string | null; note?: string | null },
 ): Promise<RevisionProposal> {
-  if (proposal.status !== "pending") {
-    throw new RevisionError(`This proposal is already ${proposal.status}`);
-  }
-  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
-    id: proposal.employeeId,
-    companyId: proposal.companyId,
-  });
-  if (!employee) throw new RevisionError("The proposing employee no longer exists");
-
-  let target: Target;
-  try {
-    target = await loadTarget(employee, proposal.kind, proposal.targetId);
-  } catch (err) {
-    if (err instanceof RevisionError) {
-      proposal.errorMessage = err.message;
-      await repo().save(proposal);
+  const result = await withSerializedTransaction(async (manager) => {
+    const proposals = manager.getRepository(RevisionProposal);
+    const current = await proposals.findOne({
+      where: { id: proposal.id, companyId: proposal.companyId },
+      ...(AppDataSource.options.type === "postgres"
+        ? { lock: { mode: "pessimistic_write" as const } }
+        : {}),
+    });
+    if (!current || current.status !== "pending")
+      return new RevisionError(`This proposal is already ${current?.status ?? "unavailable"}`);
+    try {
+      const employee = await manager.getRepository(AIEmployee).findOneBy({
+        id: current.employeeId,
+        companyId: current.companyId,
+      });
+      if (!employee) throw new RevisionError("The proposing employee no longer exists");
+      const target = await loadTarget(employee, current.kind, current.targetId, manager);
+      if (target.body !== current.baseBody) {
+        throw new RevisionError(
+          "The target changed since this was proposed. Review the live document; the employee can re-propose.",
+        );
+      }
+      await target.write(current.proposedBody);
+      current.status = "applied";
+      current.errorMessage = "";
+      current.decidedAt = new Date();
+      current.decidedByUserId = reviewer.userId;
+      current.reviewNote = reviewer.note?.trim() ?? "";
+      return { saved: await proposals.save(current), targetOwnerId: target.ownerEmployeeId };
+    } catch (error) {
+      if (!(error instanceof RevisionError)) throw error;
+      current.errorMessage = error.message;
+      await proposals.save(current);
+      return error;
     }
-    throw err;
-  }
-  if (target.body !== proposal.baseBody) {
-    proposal.errorMessage =
-      "The target changed since this was proposed. Review the live document; the employee can re-propose.";
-    await repo().save(proposal);
-    throw new RevisionError(proposal.errorMessage);
-  }
-
-  await target.write(proposal.proposedBody);
-  proposal.status = "applied";
-  proposal.errorMessage = "";
-  proposal.decidedAt = new Date();
-  proposal.decidedByUserId = reviewer.userId;
-  proposal.reviewNote = reviewer.note?.trim() ?? "";
-  const saved = await repo().save(proposal);
-
-  await recordAudit({
-    companyId: proposal.companyId,
-    actorUserId: reviewer.userId,
-    action: "revision.apply",
-    targetType: "revision_proposal",
-    targetId: proposal.id,
-    targetLabel: proposal.targetLabel,
-    metadata: { kind: proposal.kind, employeeId: proposal.employeeId },
   });
-  try {
-    const journal = AppDataSource.getRepository(JournalEntry);
-    await journal.save(
-      journal.create({
-        employeeId: proposal.employeeId,
-        kind: "system",
-        title: `Your revision of ${proposal.kind === "soul" ? "your Soul" : `"${proposal.targetLabel}"`} was applied`,
-        body: proposal.reviewNote || "Approved as proposed.",
-        runId: null,
-        routineId: null,
-        authorUserId: reviewer.userId,
-      }),
-    );
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(`[revisions] failed to journal apply of ${proposal.id}:`, err);
-  }
-  return saved;
+  if (result instanceof RevisionError) throw result;
+  await recordRevisionDecision(result.saved, reviewer.userId, result.targetOwnerId);
+  return result.saved;
 }
 
 export async function rejectRevisionProposal(
   proposal: RevisionProposal,
   reviewer: { userId: string | null; note?: string | null },
 ): Promise<RevisionProposal> {
-  if (proposal.status !== "pending") {
-    throw new RevisionError(`This proposal is already ${proposal.status}`);
-  }
-  proposal.status = "rejected";
-  proposal.decidedAt = new Date();
-  proposal.decidedByUserId = reviewer.userId;
-  proposal.reviewNote = reviewer.note?.trim() ?? "";
-  const saved = await repo().save(proposal);
+  const result = await withSerializedTransaction(async (manager) => {
+    const proposals = manager.getRepository(RevisionProposal);
+    const current = await proposals.findOne({
+      where: { id: proposal.id, companyId: proposal.companyId },
+      ...(AppDataSource.options.type === "postgres"
+        ? { lock: { mode: "pessimistic_write" as const } }
+        : {}),
+    });
+    if (!current || current.status !== "pending")
+      return new RevisionError(`This proposal is already ${current?.status ?? "unavailable"}`);
+    current.status = "rejected";
+    current.decidedAt = new Date();
+    current.decidedByUserId = reviewer.userId;
+    current.reviewNote = reviewer.note?.trim() ?? "";
+    let targetOwnerId = current.employeeId;
+    if (current.kind === "routine_body" && current.targetId) {
+      const routine = await manager.getRepository(Routine).findOneBy({ id: current.targetId });
+      if (
+        routine &&
+        (await manager.getRepository(AIEmployee).existsBy({
+          id: routine.employeeId,
+          companyId: current.companyId,
+        }))
+      )
+        targetOwnerId = routine.employeeId;
+    }
+    return { saved: await proposals.save(current), targetOwnerId };
+  });
+  if (result instanceof RevisionError) throw result;
+  await recordRevisionDecision(result.saved, reviewer.userId, result.targetOwnerId);
+  return result.saved;
+}
+
+async function recordRevisionDecision(
+  proposal: RevisionProposal,
+  reviewerUserId: string | null,
+  targetOwnerId: string,
+): Promise<void> {
+  const applied = proposal.status === "applied";
   await recordAudit({
     companyId: proposal.companyId,
-    actorUserId: reviewer.userId,
-    action: "revision.reject",
+    actorUserId: reviewerUserId,
+    action: applied ? "revision.apply" : "revision.reject",
     targetType: "revision_proposal",
     targetId: proposal.id,
     targetLabel: proposal.targetLabel,
-    metadata: { kind: proposal.kind, employeeId: proposal.employeeId },
+    metadata: {
+      kind: proposal.kind,
+      employeeId: proposal.employeeId,
+      proposerEmployeeId: proposal.employeeId,
+      targetOwnerEmployeeId: targetOwnerId,
+    },
   });
   try {
     const journal = AppDataSource.getRepository(JournalEntry);
-    await journal.save(
-      journal.create({
-        employeeId: proposal.employeeId,
-        kind: "system",
-        title: `Your revision of ${proposal.kind === "soul" ? "your Soul" : `"${proposal.targetLabel}"`} was declined`,
-        body: proposal.reviewNote || "Declined without a note.",
-        runId: null,
-        routineId: null,
-        authorUserId: reviewer.userId,
-      }),
-    );
+    for (const employeeId of new Set([proposal.employeeId, targetOwnerId])) {
+      if (
+        !(await AppDataSource.getRepository(AIEmployee).existsBy({
+          id: employeeId,
+          companyId: proposal.companyId,
+        }))
+      )
+        continue;
+      const target = proposal.kind === "soul" ? "your Soul" : `"${proposal.targetLabel}"`;
+      const subject =
+        employeeId === proposal.employeeId ? "Your revision" : "A colleague's revision";
+      await journal.save(
+        journal.create({
+          employeeId,
+          kind: "system",
+          title: `${subject} of ${target} was ${applied ? "applied" : "declined"}`,
+          body:
+            proposal.reviewNote || (applied ? "Approved as proposed." : "Declined without a note."),
+          runId: null,
+          routineId: null,
+          authorUserId: reviewerUserId,
+        }),
+      );
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error(`[revisions] failed to journal rejection of ${proposal.id}:`, err);
+    console.error(`[revisions] failed to journal decision of ${proposal.id}:`, err);
   }
-  return saved;
 }

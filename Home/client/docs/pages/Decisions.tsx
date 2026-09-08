@@ -85,6 +85,9 @@ export function Decisions() {
         <DocLink to="/docs/models">AI Model</DocLink> is connected yet, or the server restarted
         mid-session — the row says so, and the employee still picks the work up on its next run. It
         can also read the answer at any time with its <Code>list_decisions</Code> tool.
+        Long answers and context are available in full through <Code>get_decision</Code>.
+        AI Employees can read their own questions and those currently waiting for their answer;
+        earlier routing does not grant ongoing access.
       </P>
       <P>
         The <Strong>Already answered</Strong> list keeps the trail: what was asked, what was chosen,

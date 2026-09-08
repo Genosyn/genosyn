@@ -72,6 +72,7 @@ const MEMBER_TOOLS = [
   // question exactly as they could from the Decisions page.
   "request_decision",
   "list_decisions",
+  "get_decision",
   "cancel_decision",
   // Answering an unassigned decision is member-level on the human route; the
   // tool additionally requires the acting employee to be the routed decider,
@@ -83,6 +84,8 @@ const MEMBER_TOOLS = [
   "create_workstream",
   "update_workstream",
   "list_workstreams",
+  "list_initiatives",
+  "get_initiative",
   "cancel_wakeup",
   // Starting a session is member-level because its human route is: any company
   // Member may send an employee at a repository from the Repository page, for
@@ -300,6 +303,8 @@ const ADMIN_TOOLS = [
   "propose_revision",
   // The packet includes Connection-backed work; match that delegation boundary.
   "get_own_work_review",
+  "get_proactive_work",
+  "get_participating_routine",
   // Both create future employee-authority work — a wakeup is a deferred
   // session, an initiative pages owners toward a new Routine. The same class
   // of act as creating a Routine, which sits in this bucket.
@@ -388,7 +393,13 @@ const FINANCE_WRITE_TOOLS = [
   "propose_finance_commercial_values",
 ] as const;
 
-const PROJECT_TOOLS = ["list_projects", "list_todos", "create_todo", "update_todo"] as const;
+const PROJECT_TOOLS = [
+  "list_projects",
+  "list_todos",
+  "get_todo",
+  "create_todo",
+  "update_todo",
+] as const;
 /**
  * The open web carries no company data in either direction, so it needs no
  * Member intersection beyond an authenticated one. The risk these tools do

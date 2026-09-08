@@ -9,6 +9,7 @@ export const SELF_REVIEW_GENOSYN_TOOLS = [
   "list_runs",
   "get_run_report",
   "get_own_work_review",
+  "get_participating_routine",
   "list_workstreams",
   "get_repository_work_session",
   "get_mail_thread",

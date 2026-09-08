@@ -1,6 +1,7 @@
-/** Business ownership is stable when employees change; follow-through alone is per employee. */
+/** Shared business ownership is stable; personal review and follow-through stay per employee. */
 export function proactiveScopeKind(recipeId: string): "mailbox" | "company" | "employee" {
-  if (recipeId === "work-followthrough" || recipeId === "improve-own-work") return "employee";
+  if (["work-followthrough", "improve-own-work", "advance-responsibilities"].includes(recipeId))
+    return "employee";
   if (
     [
       "quote-requests",

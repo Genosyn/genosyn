@@ -1,7 +1,9 @@
 import cron from "node-cron";
-import { In } from "typeorm";
+import { In, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Company } from "../db/entities/Company.js";
+import { withSerializedTransaction } from "../db/transactions.js";
 import { Initiative } from "../db/entities/Initiative.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Membership } from "../db/entities/Membership.js";
@@ -63,9 +65,7 @@ export function parseRoutineSpec(raw: string): InitiativeRoutineSpec {
     cronExpr: p.cronExpr,
     body: p.body.slice(0, SPEC_BODY_MAX),
     acceptanceCriteria:
-      typeof p.acceptanceCriteria === "string"
-        ? p.acceptanceCriteria.slice(0, 4_000)
-        : undefined,
+      typeof p.acceptanceCriteria === "string" ? p.acceptanceCriteria.slice(0, 4_000) : undefined,
   };
 }
 
@@ -89,31 +89,114 @@ export async function proposeInitiative(args: {
   // Re-validate through the parser so what is stored is what accept executes.
   const spec = parseRoutineSpec(JSON.stringify(args.routineSpec));
 
-  const repo = AppDataSource.getRepository(Initiative);
-  const pending = await repo.find({
-    where: { employeeId: args.employeeId, status: "pending" },
-    select: { title: true },
-  });
-  if (pending.length >= PENDING_PER_EMPLOYEE_MAX) {
-    throw new InitiativeError(
-      `You already have ${pending.length} initiatives pending review — wait for those decisions`,
-    );
-  }
-  if (pending.some((p) => p.title.toLowerCase() === title.toLowerCase())) {
-    throw new InitiativeError("An initiative with this title is already pending review");
-  }
-
-  const initiative = await repo.save(
-    repo.create({
+  // Serialize the shared review queue so two proactive Runs cannot propose
+  // the same work at once or race past the per-employee pending limit.
+  const initiative = await withSerializedTransaction(async (manager) => {
+    const company = await manager.getRepository(Company).findOne({
+      where: { id: args.companyId },
+      ...(AppDataSource.options.type === "postgres"
+        ? { lock: { mode: "pessimistic_write" as const } }
+        : {}),
+    });
+    if (!company) return new InitiativeError("Company not found");
+    const employee = await manager.getRepository(AIEmployee).findOneBy({
+      id: args.employeeId,
+      companyId: args.companyId,
+    });
+    if (!employee) return new InitiativeError("AI Employee not found in this company");
+    const repo = manager.getRepository(Initiative);
+    const ownPending = await repo.countBy({
       companyId: args.companyId,
       employeeId: args.employeeId,
-      title,
-      evidence,
-      proposal,
-      routineSpecJson: JSON.stringify(spec),
-    }),
-  );
-  await notifyInitiativePending(initiative);
+      status: "pending",
+    });
+    if (ownPending >= PENDING_PER_EMPLOYEE_MAX) {
+      return new InitiativeError(
+        `You already have ${ownPending} initiatives pending review — wait for those decisions`,
+      );
+    }
+    const same = (value: string) => value.trim().replace(/\r\n/g, "\n");
+    const sameSpec = (row: Initiative) => {
+      try {
+        const previous = parseRoutineSpec(row.routineSpecJson);
+        return same(previous.body) === same(spec.body) && previous.cronExpr === spec.cronExpr;
+      } catch {
+        return false;
+      }
+    };
+    // Keep memory bounded without making old accepted or declined work disappear
+    // from deduplication merely because recent history filled a result limit.
+    const historyMatches = async (
+      status: Initiative["status"],
+      matches: (row: Initiative) => boolean,
+      own = false,
+    ) => {
+      let cursor: string | undefined;
+      for (;;) {
+        const rows = await repo.find({
+          where: {
+            companyId: args.companyId,
+            status,
+            ...(own ? { employeeId: args.employeeId } : {}),
+            ...(cursor ? { id: MoreThan(cursor) } : {}),
+          },
+          select: ["id", "employeeId", "title", "routineSpecJson", "evidence"],
+          order: { id: "ASC" },
+          take: 50,
+        });
+        if (rows.some(matches)) return true;
+        if (rows.length < 50) return false;
+        cursor = rows.at(-1)!.id;
+      }
+    };
+    if (
+      await historyMatches(
+        "pending",
+        (row) =>
+          (row.employeeId === args.employeeId && row.title.toLowerCase() === title.toLowerCase()) ||
+          sameSpec(row),
+      )
+    ) {
+      return new InitiativeError(
+        "This standing work is already pending review; continue the existing Initiative",
+      );
+    }
+    if (await historyMatches("accepted", sameSpec)) {
+      return new InitiativeError(
+        "This standing work was already accepted. Review its existing Routine and preserve any later pause or deletion instead of proposing it again",
+      );
+    }
+    if (
+      await historyMatches(
+        "declined",
+        (row) => sameSpec(row) && same(row.evidence) === same(evidence),
+        true,
+      )
+    ) {
+      return new InitiativeError(
+        "This suggestion was declined. Read its feedback and provide changed work or new evidence before proposing it again",
+      );
+    }
+    return repo.save(
+      repo.create({
+        companyId: args.companyId,
+        employeeId: args.employeeId,
+        title,
+        evidence,
+        proposal,
+        routineSpecJson: JSON.stringify(spec),
+      }),
+    );
+  });
+  if (initiative instanceof InitiativeError) throw initiative;
+  if (AppDataSource.options.type === "postgres") {
+    await notifyInitiativePending(initiative);
+  } else {
+    // Notification.save starts its own transaction for an array. On SQLite
+    // that must not overlap the next proposal's transaction on the one shared
+    // connection, or the notification's insert/reload can be lost.
+    await withSerializedTransaction(async () => { await notifyInitiativePending(initiative); });
+  }
   return initiative;
 }
 

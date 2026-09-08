@@ -136,8 +136,8 @@ async function message(account: MailAccount) {
 async function assertNativeDefaults(companyId: string) {
   const overview = await getProactiveOverview(companyId);
   assert.equal(overview.automaticSetup, true);
-  assert.equal(overview.installations.length, 12);
-  assert.equal(Object.keys(overview.defaultAssignments).length, 12);
+  assert.equal(overview.installations.length, 13);
+  assert.equal(Object.keys(overview.defaultAssignments).length, 13);
   const rules = await AppDataSource.getRepository(MailRule).findBy({ companyId });
   assert.equal(rules.length, 5);
   for (const rule of rules) {
@@ -148,7 +148,7 @@ async function assertNativeDefaults(companyId: string) {
   const routines = await AppDataSource.getRepository(Routine).findBy({
     employeeId: overview.employees[0].id,
   });
-  assert.equal(routines.length, 7);
+  assert.equal(routines.length, 8);
   for (const routine of routines) {
     assert.equal(routine.enabled, true);
     assert.equal(routine.mailDeliveryMode, "draft");
@@ -187,7 +187,8 @@ test("multiple eligible employees get one stable owner for each company and mail
   ]);
   const overview = await getProactiveOverview(fixture.company.id);
   for (const recipe of overview.recipes.filter(
-    (row) => !["work-followthrough", "improve-own-work"].includes(row.id),
+    (row) =>
+      !["work-followthrough", "improve-own-work", "advance-responsibilities"].includes(row.id),
   )) {
     const installed = overview.installations.filter((row) => row.recipeId === recipe.id);
     assert.equal(installed.length, 1, recipe.id);
@@ -216,6 +217,7 @@ test("later Grants become ready automatically without replacing existing assignm
   await reconcileProactiveDefaults(row.id);
   const initial = await getProactiveOverview(row.id);
   assert.deepEqual(initial.installations.map((entry) => entry.recipeId).sort(), [
+    "advance-responsibilities",
     "discover-improvements",
     "improve-own-work",
     "work-followthrough",
@@ -274,14 +276,14 @@ test("ready employees with no Grants review their work without gaining unrelated
     overview.installations
       .filter((entry) => entry.employeeId === otherwiseIdle)
       .map((entry) => entry.recipeId),
-    ["improve-own-work"],
+    ["advance-responsibilities", "improve-own-work"],
   );
   const idleRoutines = await AppDataSource.getRepository(Routine).findBy({
     employeeId: otherwiseIdle,
   });
-  assert.equal(idleRoutines.length, 1);
-  assert.equal(idleRoutines[0].selfReviewOnly, true);
-  assert.equal(idleRoutines[0].mailDeliveryMode, "draft");
+  assert.equal(idleRoutines.length, 2);
+  assert.equal(idleRoutines.filter((routine) => routine.selfReviewOnly).length, 1);
+  assert.ok(idleRoutines.every((routine) => routine.mailDeliveryMode === "draft"));
   assert.equal(await AppDataSource.getRepository(MailRule).count(), 0);
 });
 

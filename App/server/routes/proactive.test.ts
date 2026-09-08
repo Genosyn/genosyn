@@ -130,7 +130,7 @@ function input(recipeId = "quote-requests", extra = {}) {
 }
 
 test("catalogue covers all examples with known classifier categories and resource Triggers", () => {
-  assert.equal(new Set(PROACTIVE_RECIPES.map((recipe) => recipe.id)).size, 12);
+  assert.equal(new Set(PROACTIVE_RECIPES.map((recipe) => recipe.id)).size, 13);
   for (const recipe of PROACTIVE_RECIPES) {
     if (recipe.category)
       assert.ok((MAIL_ANALYSIS_CATEGORIES as readonly string[]).includes(recipe.category));
@@ -154,7 +154,7 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   const { status, body } = await request();
   assert.equal(status, 200);
   const view = body as ProactiveOverview;
-  assert.equal(view.recipes.length, 12);
+  assert.equal(view.recipes.length, 13);
   assert.equal(view.employees.length, 1);
   assert.equal(view.employees[0].modelReady, true);
   assert.equal(view.employees[0].mailGrants.length, 1);
@@ -497,9 +497,9 @@ test("all twelve starters can be installed with the required actual resource Gra
     assert.equal(result.status, 200, `${recipe.id}: ${JSON.stringify(result.body)}`);
   }
   const overview = (await request()).body as ProactiveOverview;
-  assert.equal(overview.installations.length, 12);
+  assert.equal(overview.installations.length, 13);
   assert.equal(await AppDataSource.getRepository(MailRule).count(), 5);
-  assert.equal(await AppDataSource.getRepository(Routine).count(), 7);
+  assert.equal(await AppDataSource.getRepository(Routine).count(), 8);
   for (const routine of await AppDataSource.getRepository(Routine).find()) {
     assert.equal(routine.selfReviewOnly, routine.slug.startsWith("proactive-improve-own-work-"));
   }

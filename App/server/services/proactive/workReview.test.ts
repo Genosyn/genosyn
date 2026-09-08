@@ -11,6 +11,7 @@ import { Repository } from "../../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../../db/entities/RepositoryWorkSession.js";
 import { RevisionProposal } from "../../db/entities/RevisionProposal.js";
 import { Routine } from "../../db/entities/Routine.js";
+import { RoutineChatMessage } from "../../db/entities/RoutineChatMessage.js";
 import { Run, type RunOutcomeVerdict } from "../../db/entities/Run.js";
 import { RunLesson } from "../../db/entities/RunLesson.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
@@ -146,6 +147,8 @@ test("empty history returns explicit bounded sections and validates the caller's
     result.revisions.decided,
     result.mailHandovers,
     result.repositoryWorkSessions,
+    result.participatingRoutines,
+    result.participatingRuns,
   ]) {
     assert.deepEqual(section, { items: [], limit: OWN_WORK_REVIEW_LIMIT, truncated: false });
   }
@@ -594,4 +597,138 @@ test("review performs only database reads and never contacts a model or external
     queries.join("\n"),
   );
   assert.equal(network.mock.callCount(), 0);
+});
+
+async function sharedRoutine() {
+  const owner = await insert(AIEmployee, {
+    role: "Reviewer",
+    companyId,
+    name: "Colleague",
+    slug: randomUUID(),
+  });
+  const shared = await insert(Routine, {
+    employeeId: owner.id,
+    name: "Colleague report",
+    slug: randomUUID(),
+    cronExpr: "0 9 * * 1",
+  });
+  const receipt = await insert(RoutineChatMessage, {
+    companyId,
+    routineId: shared.id,
+    employeeId: employee.id,
+    role: "assistant",
+    status: "ok",
+    content: "PRIVATE PARTICIPATION CHAT",
+    actionsJson: "PRIVATE PARTICIPATION ACTIONS",
+    createdAt: ago(60),
+  });
+  return { owner, shared, receipt };
+}
+
+test("participation is explicit separate evidence, preserves verdicts and identifies pending shared changes", async () => {
+  const { owner, shared, receipt } = await sharedRoutine();
+  const own = await addRun();
+  const sharedRun = await addRun({
+    routineId: shared.id,
+    outcomeVerdict: "unverified",
+    checksVerdict: null,
+  });
+  const pending = await addProposal({ employeeId: owner.id, targetId: shared.id });
+  const result = await review();
+  assert.deepEqual(
+    result.runs.items.map((row) => row.id),
+    [own.id],
+  );
+  assert.deepEqual(
+    result.participatingRuns.items.map((row) => row.id),
+    [sharedRun.id],
+  );
+  assert.equal(result.participatingRuns.items[0].outcomeVerdict, "unverified");
+  assert.equal(result.participatingRuns.items[0].checksVerdict, null);
+  const item = result.participatingRoutines.items[0];
+  assert.equal(item.routineId, shared.id);
+  assert.equal(item.ownerEmployeeId, owner.id);
+  assert.equal(item.participationMessageId, receipt.id);
+  assert.equal(
+    item.participatedAt,
+    ago(60).toISOString(),
+    "participation identity does not expire with the evidence window",
+  );
+  assert.equal(item.pendingRevisionId, pending.id);
+  assert.deepEqual(
+    result.revisions.pending.items,
+    [],
+    "colleague proposal bodies stay outside own proposal history",
+  );
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE PARTICIPATION/);
+});
+
+test("shared proposal evidence is allowed only for its exact currently participating Routine", async () => {
+  const first = await sharedRoutine();
+  const second = await sharedRoutine();
+  const firstRun = await addRun({ routineId: first.shared.id });
+  const secondRun = await addRun({ routineId: second.shared.id });
+  const proposal = await addProposal({
+    targetId: first.shared.id,
+    evidenceRunIdsJson: JSON.stringify([firstRun.id, secondRun.id]),
+  });
+  const ownProposal = await addProposal({
+    kind: "soul",
+    targetId: null,
+    evidenceRunIdsJson: JSON.stringify([firstRun.id]),
+  });
+  let result = await review();
+  assert.deepEqual(
+    result.revisions.pending.items.find((row) => row.id === proposal.id)?.evidenceRunIds,
+    [firstRun.id],
+  );
+  assert.deepEqual(
+    result.revisions.pending.items.find((row) => row.id === ownProposal.id)?.evidenceRunIds,
+    [],
+  );
+  await AppDataSource.getRepository(RoutineChatMessage).delete(first.receipt.id);
+  result = await review();
+  assert.deepEqual(
+    result.participatingRoutines.items.map((row) => row.id),
+    [second.shared.id],
+  );
+  assert.deepEqual(
+    result.participatingRuns.items.map((row) => row.id),
+    [secondRun.id],
+  );
+  assert.deepEqual(
+    result.revisions.pending.items.find((row) => row.id === proposal.id)?.evidenceRunIds,
+    [],
+  );
+  assert.equal(
+    result.revisions.pending.items.find((row) => row.id === proposal.id)?.evidenceLimited,
+    true,
+  );
+});
+
+test("shared Runs obey window, completion, review exclusion and live company ownership before limits", async () => {
+  const { owner, shared } = await sharedRoutine();
+  for (const status of ["running", "skipped", "interrupted"] as const)
+    await addRun({ routineId: shared.id, status });
+  await addRun({ routineId: shared.id, finishedAt: ago(31) });
+  await addRun({ routineId: shared.id, finishedAt: ago(-1) });
+  await addRun({ routineId: shared.id, finishedAt: null });
+  for (let index = 0; index < OWN_WORK_REVIEW_LIMIT + 2; index++)
+    await addRun({
+      routineId: shared.id,
+      logContent: workSummaryLogLine("api_key=private-participating-run-secret-123456789"),
+    });
+  let result = await review();
+  assert.equal(result.participatingRuns.items.length, OWN_WORK_REVIEW_LIMIT);
+  assert.equal(result.participatingRuns.truncated, true);
+  assert.doesNotMatch(JSON.stringify(result), /private-participating-run-secret/);
+  await AppDataSource.getRepository(Routine).update(shared.id, { selfReviewOnly: true });
+  result = await review();
+  assert.deepEqual(result.participatingRoutines.items, []);
+  assert.deepEqual(result.participatingRuns.items, []);
+  await AppDataSource.getRepository(Routine).update(shared.id, { selfReviewOnly: false });
+  await AppDataSource.getRepository(AIEmployee).update(owner.id, { companyId: randomUUID() });
+  result = await review();
+  assert.deepEqual(result.participatingRoutines.items, []);
+  assert.deepEqual(result.participatingRuns.items, []);
 });

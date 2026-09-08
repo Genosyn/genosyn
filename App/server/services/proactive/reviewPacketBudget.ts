@@ -10,12 +10,15 @@ type WorkReviewPacket = {
   revisions: { pending: ReviewSection; decided: ReviewSection };
   mailHandovers: ReviewSection;
   repositoryWorkSessions: ReviewSection;
+  participatingRoutines?: ReviewSection;
+  participatingRuns?: ReviewSection;
 };
 
 // These fields already contain excerpts, not complete source documents. Human
 // reviewNote, identifiers, evidence IDs, statuses and verdicts are never shortened.
 const EXCERPT_FIELDS = [
   "routineName",
+  "ownerName",
   "outcomeNote",
   "summary",
   "cause",
@@ -64,7 +67,7 @@ export function boundWorkReviewPacket<T extends WorkReviewPacket>(packet: T): T 
     packetBudget: {
       maxChars: WORK_REVIEW_PACKET_MAX_CHARS,
       truncated: true,
-      note: "Newest items retained per source. Older omitted rows set section.truncated; shortened excerpts are marked in truncatedFields. Human reviewNote is preserved. Read referenced source records before proposing a change.",
+      note: "Newest items retained. Omitted rows set section.truncated; shortened excerpts appear in truncatedFields. Own proposals and human reviewNote take priority over shared Routine details. Read current source records before proposing.",
     },
   });
   const sections = [
@@ -74,6 +77,8 @@ export function boundWorkReviewPacket<T extends WorkReviewPacket>(packet: T): T 
     bounded.revisions.decided,
     bounded.mailHandovers,
     bounded.repositoryWorkSessions,
+    ...(bounded.participatingRoutines ? [bounded.participatingRoutines] : []),
+    ...(bounded.participatingRuns ? [bounded.participatingRuns] : []),
   ];
 
   const removeOldest = (minimumItems: number): boolean => {
@@ -92,6 +97,16 @@ export function boundWorkReviewPacket<T extends WorkReviewPacket>(packet: T): T 
   for (const cap of [240, 160, 100, 60, 30]) {
     if (serializedLength(bounded) <= WORK_REVIEW_PACKET_MAX_CHARS) return bounded;
     shortenExcerpts(sections, cap);
+  }
+
+  // Participation extends the packet; it must not displace the employee's
+  // own pending changes or human feedback. Preserve the compact receipt before
+  // shared Run detail, and mark any omitted section for a later focused read.
+  for (const optional of [bounded.participatingRuns, bounded.participatingRoutines]) {
+    while (optional?.items.length && serializedLength(bounded) > WORK_REVIEW_PACKET_MAX_CHARS) {
+      optional.items.pop();
+      optional.truncated = true;
+    }
   }
 
   // Defensive fallback for an unexpectedly oversized future field. Preserve
