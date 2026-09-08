@@ -7,4 +7,5 @@ vocabulary (Routines, Soul, Skills), the tech stack (Express + TypeORM +
 React + Vite + Tailwind, no Next.js), code conventions, and what will get a
 PR rejected.
 
-See also [`ROADMAP.md`](./ROADMAP.md) for the product plan and milestones.
+See also [`README.md`](./README.md) for the product overview and
+`Home/client/docs/pages/` for user-facing documentation.

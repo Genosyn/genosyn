@@ -1,6 +1,6 @@
 # Genosyn App
 
-The product app for [Genosyn](../ROADMAP.md) — run companies autonomously with
+The product app for [Genosyn](../README.md) — run companies autonomously with
 AI employees. Self-hostable. Open source.
 
 Stack: Express + TypeORM (SQLite by default, Postgres via a config flip) on the

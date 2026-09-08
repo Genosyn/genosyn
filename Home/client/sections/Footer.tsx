@@ -1,4 +1,4 @@
-import { GITHUB_URL, ROADMAP_URL } from "@/lib/constants";
+import { GITHUB_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 import {
@@ -159,11 +159,6 @@ export function Footer() {
               <li>
                 <FooterLink href={GITHUB_URL} external>
                   GitHub
-                </FooterLink>
-              </li>
-              <li>
-                <FooterLink href={ROADMAP_URL} external>
-                  Roadmap
                 </FooterLink>
               </li>
               <li>

@@ -31,8 +31,8 @@ autonomously with AI employees**.
   unavailable anyway, boot falls back to disabled and this path still works
   without coding tools.
 
-Read `ROADMAP.md` for the full vocabulary, milestones, and backlog. **Do not
-duplicate content from ROADMAP.md here** — link to it.
+Use this guide for vocabulary and architecture, and the documentation in
+`Home/client/docs/pages/` and product source for shipped behavior.
 
 ---
 
@@ -50,13 +50,11 @@ genosyn/
 ├── CLI/         # `genosyn` cluster-maintainer CLI (bash). Served from the
 │                # Home site at /install.sh and /genosyn via a sync step in
 │                # Home's predev/prebuild scripts.
-├── ROADMAP.md   # The plan. Edit freely.
 ├── AGENTS.md    # This file.
 └── CLAUDE.md    # Pointer to this file.
 ```
 
-Agents should never invent a new top-level folder without updating this file
-and `ROADMAP.md`.
+Agents should never invent a new top-level folder without updating this file.
 
 ### About `CLI/`
 
@@ -73,7 +71,7 @@ change users should notice.
 
 Both Docker images use the repo root as their build context. Home needs the
 root because `sync-cli` reads from `../CLI/`; App needs it because in-app Help
-ships a read-only snapshot of App, Home, CLI, the roadmap, docs, and delivery
+ships a read-only snapshot of App, Home, CLI, docs, and delivery
 workflows for AI Employees to inspect. `Home/Dockerfile` mirrors the repo
 layout inside the image at `/build/Home` + `/build/CLI` so the relative path
 resolves the same way as local dev. If you rename `CLI/`, update **all three**:
@@ -153,7 +151,6 @@ must declare model-callable tools, whereas a Vault item's whole point is
 per-item `use < manage` Grants and a plaintext path that never reaches the
 model. 1.132.0 spent a milestone moving credentials *out* of connector configs
 and into the Vault; a credentials connector would push that arrow backwards.
-See ROADMAP M59 — Vault sources.
 
 The Vault section's own rail entry is nonetheless called **Integrations**
 (`/c/<slug>/vault/integrations`), because that is the word someone hunting for
@@ -289,7 +286,7 @@ exists to prevent.
   IMAP/SMTP on an `imap` Connection. It does **not** write `EmailLog` — there
   is no `gmail` or `imap` transport, and adding one would drag a mailbox
   credential into `EmailProviderConfig`. Sent mail is recorded as a
-  `MailMessage` on the thread instead. Keep the two apart — see ROADMAP M25.
+  `MailMessage` on the thread instead. Keep the two apart.
   Note the direction of travel: `EmailProvider` is *how the product emails
   people*; a MailAccount is *the company's inbox*. A change that makes one
   reach for the other is going the wrong way.
@@ -297,8 +294,8 @@ exists to prevent.
 - **Validation:** `zod` at the API boundary.
 - **No Next.js.** Listed twice because agents keep reaching for it.
 
-Before adding any new dependency, ask: does `ROADMAP.md` already imply it? If
-not, flag the addition in the PR description.
+Before adding any new dependency, check whether the existing stack can meet
+the need. Explain any addition in the PR description.
 
 ---
 
@@ -435,7 +432,7 @@ into an employee working tree or injected into model coding tools.
       internal API (`server/mcp/toolManifest.ts` + `routes/mcpInternal.ts`)
       with a short-lived MCP token. The model is shown a **working set** of
       ~20 tools and reaches the rest through `find_tools` / `call_tool` — see
-      `server/services/agent/tools/` and ROADMAP M30;
+      `server/services/agent/tools/`;
     * the built-in **browser** tools — a stdio MCP child at
       `server/mcp-browser/` that the agent connects to as an MCP client — when
       `AIEmployee.browserEnabled` is true. The same tools drive a **Member
@@ -605,10 +602,8 @@ What "update the docs" looks like in practice:
 - Keep each page short. If a page is creeping past 400 lines, that's
   a signal to split, not to keep adding.
 
-You don't need to update `ROADMAP.md` for every doc change — the
-roadmap tracks shipped milestones, not the docs we wrote about them.
-But if the feature itself is new, mark the milestone `[x]` in the
-same PR.
+For new features, document the shipped behavior in the same PR as the
+implementation.
 
 ---
 
@@ -620,8 +615,8 @@ same PR.
 - Never use `--no-verify`, `--no-gpg-sign`, or `--amend` on a commit that
   has already been pushed.
 - Never commit anything under `data/` or `node_modules/`.
-- PR descriptions reference the milestone (`M3 — AI Employees + Soul`) from
-  `ROADMAP.md` and list the manual test steps you ran.
+- PR descriptions explain the problem, scope, and resulting behavior, and
+  list the manual test steps you ran.
 
 ### Releases
 
@@ -669,7 +664,7 @@ public site until it reaches `release`. See
   its tool list.
 - Adding a tool to the agent's resident working set without a reason that
   survives `toolBudget.test.ts`, or collapsing new tools into an
-  `op`-dispatched family. Families are retired (ROADMAP M30) — defer the
+  `op`-dispatched family. Families are retired — defer the
   granular tools instead.
 - Adding an operational knob to `App/config.ts`. That file is boot
   configuration only (secrets, database coordinates, the fail-closed security
@@ -687,8 +682,8 @@ public site until it reaches `release`. See
 - Hand-writing a migration file. Always run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit
   what it emits. See section 7.
-- Adding a feature that isn't on the roadmap without adding it to the
-  roadmap first.
+- Adding a feature without explaining its scope and intended behavior in the
+  PR description.
 - Pushing a commit that breaks `npm run lint` or `npm run build` in either
   `App/` or `Home/`. CI runs both on every push to `main`; run them locally
   first. See section 7 for the ESLint rules that keep biting.
@@ -699,4 +694,5 @@ public site until it reaches `release`. See
 
 ## 13. When in doubt
 
-Re-read `ROADMAP.md`, then ask the human. Don't guess on product decisions.
+Read the relevant documentation and product source, then ask the human if
+the intended behavior is still unclear. Don't guess on product decisions.

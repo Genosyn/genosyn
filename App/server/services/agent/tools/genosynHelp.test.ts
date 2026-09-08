@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
@@ -12,7 +12,8 @@ async function fixture(): Promise<string> {
     path.join(root, "App", "server", "feature.ts"),
     "export const helpSurface = true;\nsecond line\n",
   );
-  await writeFile(path.join(root, "ROADMAP.md"), "# Roadmap\nHelp surface\n");
+  await writeFile(path.join(root, "AGENTS.md"), "# Genosyn\nHelp surface\n");
+  await writeFile(path.join(root, "App", "package.json"), '{"name":"genosyn-app"}\n');
   await writeFile(
     path.join(root, "App", "config.ts"),
     'export const config = { sessionSecret: "instance-secret" };\n',
@@ -26,7 +27,8 @@ async function fixture(): Promise<string> {
       "App/config.ts",
       "App/vite.config.ts",
       ".env.production",
-      "ROADMAP.md",
+      "AGENTS.md",
+      "App/package.json",
       "",
     ].join("\n"),
   );
@@ -34,6 +36,18 @@ async function fixture(): Promise<string> {
 }
 
 describe("Genosyn Help source tools", () => {
+  test("discovers and reads the source snapshot without a roadmap", async (context) => {
+    const root = await fixture();
+    context.mock.method(process, "cwd", () => path.join(root, "App"));
+
+    const source = createGenosynHelpSource();
+    assert.equal(source.root, await realpath(root));
+    const read = source.tools.find((tool) => tool.name === "read_genosyn_source")!;
+    const result = await read.run({ path: "AGENTS.md" });
+    assert.equal(result.isError, undefined);
+    assert.match(result.content, /Help surface/);
+  });
+
   test("list, search, and read the supplied source snapshot", async () => {
     const root = await fixture();
     const source = createGenosynHelpSource(root);

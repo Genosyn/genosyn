@@ -9,7 +9,7 @@ export function Help() {
         lead={
           <>
             Ask any AI Employee in your company how Genosyn works. Help combines that
-            employee&apos;s own voice with the product documentation, roadmap, and the exact source
+            employee&apos;s own voice with the product documentation and the exact source
             code shipped in the running release.
           </>
         }
@@ -47,8 +47,7 @@ export function Help() {
       </P>
       <UL>
         <LI>
-          <Code>AGENTS.md</Code> and <Code>ROADMAP.md</Code> for vocabulary, architecture, and
-          shipped product decisions.
+          <Code>AGENTS.md</Code> for vocabulary and architecture.
         </LI>
         <LI>
           <Code>Home/client/docs/pages/</Code> for the public, user-facing instructions.

@@ -8,15 +8,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { browserTestVite } from "./browserTestVite";
 import { chromium, type Page, type WebSocketRoute } from "playwright-core";
 import type { RepositoryWorkSessionCandidatesResponse } from "../client/lib/api";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const server = await createServer({
+  ...browserTestVite,
   configFile: path.join(root, "vite.config.ts"),
   server: { host: "127.0.0.1", port: 18473, strictPort: false, hmr: false },
   cacheDir: path.join(root, "node_modules/.vite-work-session-models"),
-  optimizeDeps: { entries: [path.join(root, "scripts/workSessionModelHarness.tsx")] },
   plugins: [
     {
       name: "work-session-model-browser-fixture",
