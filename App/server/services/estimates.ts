@@ -166,7 +166,7 @@ export type CreateEstimateDraftInput = {
 /**
  * Create an unnumbered estimate draft through one shared path for Members and
  * AI Employees. A draft has no ledger effect and is not emailed; numbering is
- * minted only when a Member later issues it.
+ * minted only when a Member or an authorized AI Employee later issues it.
  */
 export async function createEstimateDraft(input: CreateEstimateDraftInput): Promise<Estimate> {
   const customer = await AppDataSource.getRepository(Customer).findOneBy({

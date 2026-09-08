@@ -55,7 +55,7 @@ const MAIL_ATTACHMENTS_PROPERTY = {
   type: "array",
   maxItems: 10,
   description:
-    "Optional files to attach. Give each item exactly one of `attachmentId` (a chat attachment — a file you produced this turn with fill_pdf_form / edit_xlsx / edit_docx / create_docx / convert_to_pdf / send_chat_attachment, opened out of an email with read_mail_attachment, or that the teammate uploaded into this chat), `resourceSlug` (a Resource, from list_resources), `invoiceSlug` (an invoice PDF from list_invoices), or `estimateSlug` (a quotation PDF, using the slug returned by create_estimate). Finance PDFs need Read access; draft estimates need Invoicing access and remain visibly DRAFT. Attaching an estimate does not issue it or change its status. The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
+    "Optional files to attach. Give each item exactly one of `attachmentId` (a chat attachment — a file you produced this turn with fill_pdf_form / edit_xlsx / edit_docx / create_docx / convert_to_pdf / send_chat_attachment, opened out of an email with read_mail_attachment, or that the teammate uploaded into this chat), `resourceSlug` (a Resource, from list_resources), `invoiceSlug` (an invoice PDF from list_invoices), or `estimateSlug` (a quotation PDF, using the current slug returned by create_estimate, issue_estimate or send_estimate). Finance PDFs need Read access; draft estimates need Invoicing access and remain visibly DRAFT. Issuing changes the estimate slug; use the new slug to attach its non-draft PDF. Attaching an estimate does not issue it or change its status. The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
   items: {
     type: "object",
     properties: {
@@ -76,7 +76,7 @@ const MAIL_ATTACHMENTS_PROPERTY = {
       estimateSlug: {
         type: "string",
         description:
-          "Attach an estimate (quotation) PDF by slug from create_estimate. Drafts require Invoicing finance access and remain marked DRAFT; issued estimates need Read access. Does not issue or accept the estimate.",
+          "Attach an estimate (quotation) PDF by its current slug from create_estimate, issue_estimate or send_estimate. Drafts require Invoicing finance access and remain marked DRAFT; issued estimates need Read access. Issuing changes the slug. Does not issue or accept the estimate.",
       },
       format: {
         type: "string",
@@ -4262,7 +4262,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "get_estimate",
     readOnly: true,
     description:
-      "Read one quotation's full line items, tax snapshots, Customer, notes, status and converted Invoice. Use its estimateSlug from list_estimates or create_estimate; the same slug attaches its PDF on create_mail_draft/send_mail. Reading never issues or changes the estimate. Needs Read finance access.",
+      "Read one quotation's full line items, tax snapshots, Customer, notes, status and converted Invoice. Use its current estimateSlug from list_estimates, create_estimate, issue_estimate or send_estimate; the same slug attaches its PDF on create_mail_draft/send_mail. Issuing changes the slug. Reading never issues or changes the estimate. Needs Read finance access.",
     inputSchema: {
       type: "object",
       properties: { estimateSlug: { type: "string", minLength: 1, maxLength: 200 } },
@@ -4289,7 +4289,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_estimate",
     description:
-      "Create a DRAFT estimate (quotation) for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. The draft has no ledger effect, receives no estimate number, and is not emailed by this call. Use its returned slug as attachments: [{estimateSlug: slug}] on create_mail_draft to prepare the quote email, or send_mail only when sending is authorized. The PDF stays visibly DRAFT; a Member issues the estimate from Finance. Optionally attach a `taxRateId` per line; tax rates are configured by a human. Needs `invoice` finance access.",
+      "Create a DRAFT estimate (quotation) for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. The draft has no ledger effect, receives no estimate number, and is not emailed by this call. Call issue_estimate to number it and mark it Sent without email, or send_estimate to issue and email it when sending is authorized. Both return its new slug. Use the current slug as attachments: [{estimateSlug: slug}] on create_mail_draft or send_mail. A draft's PDF stays visibly DRAFT; an issued PDF is non-draft. Optionally attach a `taxRateId` per line; tax rates are configured by a human. Needs `invoice` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4334,6 +4334,42 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["customerSlug", "lines"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "issue_estimate",
+    description:
+      "Issue a draft estimate (quotation / quote) and mark it Sent without emailing it, matching Finance's Issue / Mark sent action. Assigns its estimate number and new slug; the PDF no longer says DRAFT. This has no ledger effect and does not send, accept, or convert the estimate. Only drafts can be issued. Use the returned estimate.slug for subsequent calls and non-draft PDF attachments. Existing draft attachments must be replaced; they do not update automatically. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        estimateSlug: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "The draft estimate slug from create_estimate or list_estimates.",
+        },
+      },
+      required: ["estimateSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_estimate",
+    description:
+      "Email an estimate (quotation / quote) to the Customer's on-file address through the company's Finance email transport, including its rendered content and a PDF when available. Automatically issues a draft first, assigning its number and new slug. Sends immediately: use only when sending is authorized; use issue_estimate for a non-draft PDF without emailing. Sending an already-issued estimate sends another email. Read send.status: skipped or failed does not confirm delivery. Use the returned estimate.slug even after a delivery failure. Voided estimates cannot be sent. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        estimateSlug: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "The current estimate slug; issuing a draft changes it.",
+        },
+      },
+      required: ["estimateSlug"],
       additionalProperties: false,
     },
   },

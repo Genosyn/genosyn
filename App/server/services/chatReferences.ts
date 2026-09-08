@@ -192,9 +192,9 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     key: "estimates",
     label: "Estimates",
     path: "/finance/estimates",
-    description: "Draft and review customer quotations",
+    description: "Draft, review, issue, and send customer quotations",
     keywords: ["estimate", "quote", "quotation", "proposal", "pricing"],
-    toolHints: ["list_estimates", "get_estimate", "list_finance_products", "create_estimate"],
+    toolHints: ["list_estimates", "get_estimate", "list_finance_products", "create_estimate", "issue_estimate", "send_estimate"],
   },
   {
     key: "invoices",

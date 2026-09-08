@@ -384,6 +384,8 @@ const FINANCE_WRITE_TOOLS = [
   "create_customer",
   "update_customer",
   "create_estimate",
+  "issue_estimate",
+  "send_estimate",
   "create_invoice",
   "create_recurring_invoice",
   "update_recurring_invoice",

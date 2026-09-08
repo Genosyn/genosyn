@@ -188,9 +188,11 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  */
 // Daily work, participation, Todo details and Initiative feedback add deferred
 // readers whose exact names must remain discoverable. The resident tool budget
-// is unchanged; this small footer allowance still leaves 2,600 characters at
-// the minimum result cap for returned schemas.
-const DOMAIN_FOOTER_CHARS_MAX = 5_400;
+// is unchanged. Issuing and sending quotations add two deferred names so a
+// discovery miss cannot hide the path from a draft to a numbered quote. Their
+// compact names add 27 characters; the 40-character allowance leaves 2,560
+// characters at the minimum result cap for returned schemas.
+const DOMAIN_FOOTER_CHARS_MAX = 5_440;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

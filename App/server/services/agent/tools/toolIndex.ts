@@ -295,6 +295,8 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "create_customer",
       "update_customer",
       "create_estimate",
+      "issue_estimate",
+      "send_estimate",
       "create_invoice",
       "create_recurring_invoice",
       "update_recurring_invoice",
@@ -628,6 +630,8 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "tax",
   ],
   create_estimate: ["quote", "quotation", "proposal", "pricing", "raise an estimate"],
+  issue_estimate: ["issue quote", "issue quotation", "mark sent", "remove draft", "finalize quote", "number estimate"],
+  send_estimate: ["send quote", "send quotation", "email estimate", "email quote"],
   create_invoice: ["bill", "billing", "charge", "receivable", "raise an invoice"],
   create_recurring_invoice: [
     "recurring billing",
