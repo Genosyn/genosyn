@@ -125,7 +125,7 @@ async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    await withSchedulerLease("mail-sync", HEARTBEAT_INTERVAL_MS * 3, async () => {
+    await withSchedulerLease("mail-sync", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
       const repo = AppDataSource.getRepository(MailAccount);
       const accounts = await repo.find({
         where: [{ status: "active" }, { status: "error" }],
@@ -133,6 +133,7 @@ async function tick(): Promise<void> {
       const now = Date.now();
       const intervalMs = getMailSettings().syncIntervalSec * 1000;
       for (const account of accounts) {
+        lease.assertHeld();
         const retryReference = account.syncFinishedAt ?? account.lastSyncAt;
         const dueReference = account.status === "error" ? retryReference : account.lastSyncAt;
         const since = dueReference ? now - dueReference.getTime() : Infinity;
@@ -303,8 +304,10 @@ export async function disconnectMailAccount(account: MailAccount): Promise<void>
       const deleted = await withSchedulerLease(
         `mail-automation-account:${account.id}`,
         ACCOUNT_LEASE_MS,
-        async () => {
-          return withSchedulerLease(`mail-account:${account.id}`, ACCOUNT_LEASE_MS, async () => {
+        async (automationLease) => {
+          return withSchedulerLease(`mail-account:${account.id}`, ACCOUNT_LEASE_MS, async (lease) => {
+            automationLease.assertHeld();
+            lease.assertHeld();
             await deleteMailAccount(account);
             return true;
           });
@@ -367,10 +370,12 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
           where: { id: accountId, syncAttemptId: attemptId },
           select: { id: true, status: true, syncState: true },
         });
+        if (!lease.isHeld()) throw new MailSyncLeaseLostError();
         if (!current || current.status === "paused" || current.syncState !== "running") {
           throw new MailSyncCancelledError();
         }
       };
+      if (!lease.isHeld()) throw new MailSyncLeaseLostError();
       const running = await repo
         .createQueryBuilder()
         .update()
@@ -431,6 +436,7 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
         await assertWritable();
         await finishSyncAttempt(account, attemptId, { state: "succeeded", changed });
       } catch (error) {
+        if (!lease.isHeld()) throw new MailSyncLeaseLostError();
         if (error instanceof MailSyncLeaseLostError) throw error;
         if (error instanceof MailSyncCancelledError) {
           await finishSyncAttempt(account, attemptId, {

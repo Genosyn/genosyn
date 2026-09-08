@@ -36,6 +36,8 @@ export type RunPipelineArgs = {
   triggerNodeId: string;
   payload: unknown;
   eventContext?: PipelineEventContext;
+  /** A parent worker's cancellation boundary, checked before each new node. */
+  beforeEffect?: () => void | Promise<void>;
 };
 
 export async function runPipeline(args: RunPipelineArgs): Promise<PipelineRun> {
@@ -140,6 +142,7 @@ export async function runPipeline(args: RunPipelineArgs): Promise<PipelineRun> {
     let outputs;
     let branch = "out";
     try {
+      await args.beforeEffect?.();
       const resolved = resolveConfig(node.config ?? {}, env);
       const result = await handler({
         companyId: args.pipeline.companyId,

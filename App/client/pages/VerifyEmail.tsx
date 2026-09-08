@@ -1,14 +1,23 @@
 import React from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { CheckCircle2, Mail } from "lucide-react";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { AuthShell } from "./Login";
+import {
+  invitationAuthPath,
+  invitationPath,
+  invitationTokenFromPath,
+  invitationTokenFromSearch,
+} from "../lib/invitationNavigation";
+import { isResendDelivery, resendOutcomeCopy } from "./AccountProfile";
 
 export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
   const { token } = useParams();
+  const location = useLocation();
+  const invitationToken = invitationTokenFromSearch(location.search);
   const [status, setStatus] = React.useState<"loading" | "done" | "error">("loading");
   const [error, setError] = React.useState<string | null>(null);
   // The token is single-use, so the second run of this effect would always be
@@ -51,7 +60,7 @@ export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
           </p>
           <Link
             className="inline-flex h-10 items-center justify-center rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white transition hover:bg-indigo-700"
-            to="/"
+            to={invitationPath(invitationToken)}
           >
             Continue
           </Link>
@@ -60,7 +69,10 @@ export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
         <div className="space-y-4">
           <FormError message={error} />
           <p className="text-sm text-slate-500">Request a fresh link after signing in.</p>
-          <Link className="text-sm text-blue-600 hover:underline" to="/login">
+          <Link
+            className="text-sm text-blue-600 hover:underline"
+            to={invitationAuthPath("login", invitationToken)}
+          >
             Return to sign in
           </Link>
         </div>
@@ -71,15 +83,26 @@ export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
 
 export function VerifyEmailRequired({ email }: { email: string }) {
   const [loading, setLoading] = React.useState(false);
-  const [sent, setSent] = React.useState(false);
+  const [success, setSuccess] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const location = useLocation();
+  const invitationToken = invitationTokenFromPath(location.pathname);
 
   async function resend() {
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      await api.post("/api/auth/resend-verification", {});
-      setSent(true);
+      const result = await api.post<{ delivery?: unknown }>("/api/auth/resend-verification", {
+        ...(invitationToken ? { invitationToken } : {}),
+      });
+      if (!isResendDelivery(result.delivery)) {
+        setError("The verification email could not be confirmed. Try again shortly.");
+        return;
+      }
+      const outcome = resendOutcomeCopy(result.delivery, { email, isMasterAdmin: false });
+      if (outcome.tone === "success") setSuccess(outcome.message);
+      if (outcome.tone === "error") setError(outcome.message);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -96,8 +119,8 @@ export function VerifyEmailRequired({ email }: { email: string }) {
           creating or joining a company.
         </p>
         <FormError message={error} />
-        {sent ? (
-          <p className="text-sm text-emerald-700 dark:text-emerald-400">A fresh link was sent.</p>
+        {success ? (
+          <p className="text-sm text-emerald-700 dark:text-emerald-400">{success}</p>
         ) : null}
         <Button onClick={resend} disabled={loading}>
           {loading ? "Sending…" : "Resend verification email"}

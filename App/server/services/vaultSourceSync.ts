@@ -38,7 +38,9 @@ function isDue(source: Pick<VaultSource, "status" | "updatedAt">, now: number): 
   return now - lastAttempt >= RETRY_AFTER_FAILURE_MS;
 }
 
-export async function syncDueVaultSources(): Promise<{
+export async function syncDueVaultSources(
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<{
   synced: number;
   failed: number;
   skipped: number;
@@ -51,12 +53,13 @@ export async function syncDueVaultSources(): Promise<{
   let failed = 0;
   let skipped = 0;
   for (const row of rows) {
+    assertLeaseHeld();
     if (!isDue(row, now)) {
       skipped += 1;
       continue;
     }
     try {
-      await syncVaultSource({ companyId: row.companyId, sourceId: row.id });
+      await syncVaultSource({ companyId: row.companyId, sourceId: row.id, assertLeaseHeld });
       synced += 1;
     } catch {
       // The failure is already recorded on the source row for the operator.
@@ -71,7 +74,7 @@ export function bootVaultSourceSync(): void {
   timer = setInterval(() => {
     if (running) return;
     running = true;
-    withSchedulerLease("vault-source-sync", SYNC_INTERVAL_MS - 60_000, () => syncDueVaultSources())
+    withSchedulerLease("vault-source-sync", SYNC_INTERVAL_MS - 60_000, (lease) => syncDueVaultSources(lease.assertHeld))
       .catch(() => {
         // Best-effort housekeeping; per-source failures are already persisted.
       })

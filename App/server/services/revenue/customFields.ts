@@ -560,7 +560,9 @@ export async function matchingResourceIds(
  * existed, and normalize metadata on older enrichment evidence. This is
  * deliberately idempotent and runs in bounded pages from Revenue boot.
  */
-export async function backfillRevenueProvenanceMetadata(): Promise<{
+export async function backfillRevenueProvenanceMetadata(
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<{
   evidenceUpdated: number;
   legacyValuesRecorded: number;
 }> {
@@ -592,6 +594,7 @@ export async function backfillRevenueProvenanceMetadata(): Promise<{
         row.lastVerifiedAt = row.humanConfirmedAt ?? row.extractedAt;
       }
     }
+    assertLeaseHeld();
     await evidenceRepo.save(rows, { chunk: 500 });
     evidenceUpdated += rows.length;
   }
@@ -655,6 +658,7 @@ export async function backfillRevenueProvenanceMetadata(): Promise<{
       ];
     });
     if (missing.length > 0) {
+      assertLeaseHeld();
       await evidenceRepo.save(missing, { chunk: 250 });
       legacyValuesRecorded += missing.length;
     }

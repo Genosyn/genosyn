@@ -350,7 +350,10 @@ async function journalToAsker(decision: Decision, title: string, body: string): 
  * pending past {@link ROUTED_DECISION_FUSE_MS} drops back to the human flow
  * with the bell it skipped. Exactly once per row — un-routing is the claim.
  */
-export async function sweepRoutedDecisions(now: Date = new Date()): Promise<void> {
+export async function sweepRoutedDecisions(
+  now: Date = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<void> {
   const stale = await AppDataSource.getRepository(Decision).find({
     where: {
       status: "pending",
@@ -361,6 +364,7 @@ export async function sweepRoutedDecisions(now: Date = new Date()): Promise<void
     take: MAX_PER_SWEEP,
   });
   for (const decision of stale) {
+    assertLeaseHeld();
     try {
       await unrouteDecision(decision, "the routed decider did not answer within the fuse");
     } catch (err) {

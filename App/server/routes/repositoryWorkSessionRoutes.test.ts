@@ -1,3 +1,4 @@
+import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import type { Server } from "node:http";
@@ -65,10 +66,11 @@ before(async () => {
   codingTools.allowUnsafeHostExecution = false;
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     (req as unknown as { session: unknown }).session = actingUserId
       ? { userId: actingUserId, sessionVersion: 0, authenticatedAt: Date.now() }
       : null;
+    await persistTestSession(req);
     next();
   });
   app.use("/api/companies/:cid", repositoryContentRouter);

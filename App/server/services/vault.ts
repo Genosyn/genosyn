@@ -2342,12 +2342,14 @@ function sameMirrorPayload(left: VaultPayload, right: VaultPayload): boolean {
 export async function syncVaultSource(args: {
   companyId: string;
   sourceId: string;
+  assertLeaseHeld?: () => void;
 }): Promise<VaultSourceSyncResult> {
   const source = await withVaultSourceErrors(() => loadVaultSource(args.companyId, args.sourceId));
   let read;
   try {
     read = await readVaultSourceItems(source);
   } catch (error) {
+    args.assertLeaseHeld?.();
     const message =
       error instanceof VaultSourceError ? error.message : "The external vault could not be read";
     await recordVaultSourceStatus({
@@ -2375,6 +2377,7 @@ export async function syncVaultSource(args: {
   let updated = 0;
 
   for (const item of read.items) {
+    args.assertLeaseHeld?.();
     seen.add(item.id);
     const payload = mirrorPayload(item);
     const externalHasTotp = item.totpSetupKey !== null;
@@ -2432,6 +2435,7 @@ export async function syncVaultSource(args: {
   if (stale.length > 0) {
     const staleIds = stale.map((row) => row.id);
     await AppDataSource.transaction(async (manager) => {
+      args.assertLeaseHeld?.();
       await manager.delete(VaultItemMemberAccess, {
         companyId: args.companyId,
         vaultItemId: In(staleIds),
@@ -2445,9 +2449,11 @@ export async function syncVaultSource(args: {
         id: In(staleIds),
       });
       removed = deletion.affected ?? 0;
+      args.assertLeaseHeld?.();
     });
   }
 
+  args.assertLeaseHeld?.();
   await recordVaultSourceStatus({
     companyId: args.companyId,
     sourceId: args.sourceId,

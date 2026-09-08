@@ -443,7 +443,7 @@ export async function updateMailDraft(
 export async function sendMailDraft(
   account: MailAccount,
   draftRow: MailMessage,
-  opts: { silent?: boolean } = {},
+  opts: { silent?: boolean; assertCanSend?: () => void } = {},
   dependencies: MailActionDependencies = {},
 ): Promise<MailMessage> {
   if (!draftRow.gmailDraftId) throw new Error("Not a draft");
@@ -460,6 +460,7 @@ export async function sendMailDraft(
   // Ingest the sent message before removing the draft row, so a failure
   // reading it back doesn't vanish the message from the mirror — it went out
   // either way.
+  opts.assertCanSend?.();
   const sent = await mailbox.sendDraft(draftRow.gmailDraftId);
   const { row } = await upsertMailMessage(account, sent);
   // The sent copy is not a draft, and on IMAP it is not even a different row:

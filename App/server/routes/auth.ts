@@ -11,6 +11,9 @@ import { establishUserSession, requireAuth, requireBrowserSession } from "../mid
 import { sendEmail } from "../services/email.js";
 import { ensureUserHandle } from "../services/userHandle.js";
 import { areSignupsDisabled } from "../services/signupSettings.js";
+import { findOpenSignupInvitation } from "../services/signupInvitations.js";
+import { PUBLIC_URL_SETUP_MESSAGE, publicUrlSetupRequired } from "../services/publicUrlSetup.js";
+import { revokeCurrentUserSession } from "../services/userSessions.js";
 import { billingEnabled } from "../services/billing/billingSettings.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import {
@@ -62,13 +65,17 @@ async function throttleAllowed(keys: string[], res: import("express").Response):
 }
 
 const signupSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email(),
   password: z.string().min(PASSWORD_MIN_LENGTH),
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
+  invitationToken: z.string().min(1).max(512).optional(),
 });
 
 authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
-  const { email, password, name } = req.body as z.infer<typeof signupSchema>;
+  const { email, password, name, invitationToken } = req.body as z.infer<typeof signupSchema>;
+  if (await publicUrlSetupRequired()) {
+    return res.status(503).json({ error: PUBLIC_URL_SETUP_MESSAGE });
+  }
   const throttleKeys = authThrottleKeys(req, "signup", email);
   if (!(await throttleAllowed(throttleKeys, res))) return;
   await consumeAuthAttempt(throttleKeys);
@@ -83,7 +90,13 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
     Boolean(bootstrapEmail) &&
     email.trim().toLowerCase() === bootstrapEmail &&
     (await repo.count({ where: { isMasterAdmin: true } })) === 0;
-  if (!isBootstrapCandidate && (await areSignupsDisabled())) {
+  const invitation = invitationToken
+    ? await findOpenSignupInvitation(invitationToken, email)
+    : null;
+  if (invitationToken && !invitation) {
+    return res.status(400).json({ error: "Invalid, expired, or mismatched invitation" });
+  }
+  if (!isBootstrapCandidate && !invitation && (await areSignupsDisabled())) {
     return res.status(403).json({
       error: "Sign-ups are disabled on this instance. Ask an administrator for an invitation.",
     });
@@ -102,8 +115,10 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   });
   await repo.save(user);
   await ensureUserHandle(user);
-  establishUserSession(req, user);
-  await sendEmailVerification(user);
+  await establishUserSession(req, user);
+  // Registration does not verify the mailbox or join the company. Shared SaaS
+  // still requires mailbox proof before explicit invitation acceptance.
+  await sendEmailVerification(user, invitationToken);
   void sendEmail({
     to: user.email,
     subject: "Welcome to Genosyn",
@@ -131,7 +146,8 @@ authRouter.get("/signup-status", async (_req, res) => {
   const bootstrapAvailable =
     !hasMasterAdmin && Boolean(config.security.bootstrapMasterAdminEmail.trim());
   const closed = (await areSignupsDisabled()) && !bootstrapAvailable;
-  res.json({ open: !closed });
+  const setupRequired = await publicUrlSetupRequired();
+  res.json({ open: !closed && !setupRequired, setupRequired });
 });
 
 const loginSchema = z.object({
@@ -159,7 +175,7 @@ authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
   if (methods.enabled) {
     return res.json({ requiresTwoFactor: true, methods });
   }
-  establishUserSession(req, user);
+  await establishUserSession(req, user);
   if (user.isMasterAdmin && user.emailVerifiedAt && !config.security.multiTenant) {
     await capturePublicUrlFromMasterAdminRequest(req);
   }
@@ -172,8 +188,8 @@ authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
   });
 });
 
-authRouter.post("/logout", (req, res) => {
-  req.session = null;
+authRouter.post("/logout", async (req, res) => {
+  await revokeCurrentUserSession(req);
   res.json({ ok: true });
 });
 
@@ -290,15 +306,29 @@ authRouter.post("/verify-email", validateBody(verifyEmailSchema), async (req, re
  * error is deliberately not returned — it names hosts and credentials from
  * install-wide settings that an ordinary Member has no business reading.
  */
-authRouter.post("/resend-verification", requireAuth, requireBrowserSession, async (req, res) => {
-  const user = req.user!;
-  if (user.emailVerifiedAt) return res.json({ ok: true, delivery: "already_verified" });
-  const throttleKeys = authThrottleKeys(req, "resend-verification", user.email);
-  if (!(await throttleAllowed(throttleKeys, res))) return;
-  await consumeAuthAttempt(throttleKeys);
-  const result = await sendEmailVerification(user);
-  res.json({ ok: true, delivery: result.status });
+const resendVerificationSchema = z.object({
+  invitationToken: z.string().min(1).max(512).optional(),
 });
+
+authRouter.post(
+  "/resend-verification",
+  requireAuth,
+  requireBrowserSession,
+  validateBody(resendVerificationSchema),
+  async (req, res) => {
+    const user = req.user!;
+    if (user.emailVerifiedAt) return res.json({ ok: true, delivery: "already_verified" });
+    if (await publicUrlSetupRequired()) {
+      return res.status(503).json({ error: PUBLIC_URL_SETUP_MESSAGE });
+    }
+    const throttleKeys = authThrottleKeys(req, "resend-verification", user.email);
+    if (!(await throttleAllowed(throttleKeys, res))) return;
+    await consumeAuthAttempt(throttleKeys);
+    const { invitationToken } = req.body as z.infer<typeof resendVerificationSchema>;
+    const result = await sendEmailVerification(user, invitationToken);
+    res.json({ ok: true, delivery: result.status });
+  },
+);
 
 // ─────────────────── Profile avatar (current user) ──────────────────────
 //
@@ -456,7 +486,7 @@ authRouter.post(
     user.resetExpiresAt = null;
     user.sessionVersion += 1;
     await AppDataSource.getRepository(User).save(user);
-    establishUserSession(req, user);
+    await establishUserSession(req, user);
     res.json({ ok: true });
   },
 );

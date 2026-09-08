@@ -39,8 +39,9 @@ import { createSystemVaultItem } from "./vault.js";
  * no-op on single-process SQLite.
  */
 export async function backfillRetiredIntegrationsIntoVault(): Promise<void> {
-  await withSchedulerLease("retired-integration-vault-backfill", 30 * 60_000, async () => {
-    await moveRetiredIntegrationCredentials();
+  await withSchedulerLease("retired-integration-vault-backfill", 30 * 60_000, async (lease) => {
+    await moveRetiredIntegrationCredentials(lease.assertHeld);
+    lease.assertHeld();
     await markRetiredBrowserLoginConnections();
   });
 }
@@ -78,7 +79,7 @@ async function markRetiredBrowserLoginConnections(): Promise<void> {
   }
 }
 
-async function moveRetiredIntegrationCredentials(): Promise<void> {
+async function moveRetiredIntegrationCredentials(assertLeaseHeld: () => void): Promise<void> {
   const retiredIds = listRetiredProviderIds();
   if (retiredIds.length === 0) return;
 
@@ -91,6 +92,7 @@ async function moveRetiredIntegrationCredentials(): Promise<void> {
   let skipped = 0;
 
   for (const conn of rows) {
+    assertLeaseHeld();
     const retired = getRetiredProvider(conn.provider);
     if (!retired) continue;
 
@@ -134,6 +136,7 @@ async function moveRetiredIntegrationCredentials(): Promise<void> {
     // leave the transaction empty — which here would mean deleting the
     // Connection without the Vault item having been committed.
     const item = await AppDataSource.transaction(async (manager) => {
+      assertLeaseHeld();
       const created = await createSystemVaultItem({
         manager,
         companyId: conn.companyId,
@@ -156,6 +159,7 @@ async function moveRetiredIntegrationCredentials(): Promise<void> {
         connectionId: conn.id,
       });
       await manager.getRepository(IntegrationConnection).delete({ id: conn.id });
+      assertLeaseHeld();
       return created;
     });
 

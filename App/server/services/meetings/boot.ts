@@ -100,6 +100,7 @@ const HEARTBEAT_DEPENDENCIES: MeetingHeartbeatDependencies = {
 /** One pass: sync every non-paused calendar, then drain the processing backlog. */
 export async function runMeetingsHeartbeat(
   dependencies: MeetingHeartbeatDependencies = HEARTBEAT_DEPENDENCIES,
+  assertLeaseHeld: () => void = () => undefined,
 ): Promise<void> {
   const accounts = await AppDataSource.getRepository(CalendarAccount).find({
     // `error` describes the last attempt, not an operator pause. Retrying it
@@ -109,11 +110,14 @@ export async function runMeetingsHeartbeat(
   });
 
   for (const account of accounts) {
+    assertLeaseHeld();
     const repo = AppDataSource.getRepository(CalendarAccount);
     try {
       await repo.update({ id: account.id }, { syncState: "running", syncStartedAt: new Date() });
       await dependencies.syncAccount(account);
+      assertLeaseHeld();
       await dependencies.armAccount(account);
+      assertLeaseHeld();
       await repo.update(
         { id: account.id },
         {
@@ -124,6 +128,7 @@ export async function runMeetingsHeartbeat(
         },
       );
     } catch (err) {
+      assertLeaseHeld();
       const message = err instanceof Error ? err.message : String(err);
       // One broken calendar must not stop the others, and must not silently
       // retry forever without saying why — the row carries the reason.
@@ -147,6 +152,7 @@ export async function runMeetingsHeartbeat(
     take: MAX_MEETINGS_PER_PASS,
   });
   for (const meeting of pending) {
+    assertLeaseHeld();
     try {
       await dependencies.process(meeting.companyId, meeting.id);
     } catch (err) {
@@ -167,7 +173,8 @@ export function meetingsHeartbeatTick(): void {
   if (Date.now() - lastHeartbeatStartedAt < intervalMs) return;
   lastHeartbeatStartedAt = Date.now();
   heartbeatTicking = true;
-  void withSchedulerLease("meetings-sync", intervalMs * 3, () => runMeetingsHeartbeat())
+  void withSchedulerLease("meetings-sync", intervalMs * 3, (lease) =>
+    runMeetingsHeartbeat(HEARTBEAT_DEPENDENCIES, lease.assertHeld))
     .catch((err) => {
       // eslint-disable-next-line no-console
       console.error("[meetings] heartbeat failed:", err);
@@ -186,8 +193,8 @@ export function meetingsDispatchTick(): void {
   if (!getMeetingsSettings().enabled) return;
   if (dispatchTicking) return;
   dispatchTicking = true;
-  void withSchedulerLease("meetings-notetaker-dispatch", DISPATCH_INTERVAL_MS * 3, () =>
-    dispatchDueMeetings(),
+  void withSchedulerLease("meetings-notetaker-dispatch", DISPATCH_INTERVAL_MS * 3, (lease) =>
+    dispatchDueMeetings(new Date(), lease.assertHeld),
   )
     .catch((err) => {
       // eslint-disable-next-line no-console

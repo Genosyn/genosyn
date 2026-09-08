@@ -6,6 +6,7 @@ import fs from "node:fs";
 import { config } from "../../config.js";
 import { ResourceChangeSubscriber } from "./subscribers/resourceChangeSubscriber.js";
 import { User } from "./entities/User.js";
+import { UserSession } from "./entities/UserSession.js";
 import { Company } from "./entities/Company.js";
 import { Membership } from "./entities/Membership.js";
 import { Invitation } from "./entities/Invitation.js";
@@ -214,6 +215,7 @@ import { EnterpriseLicense } from "./entities/EnterpriseLicense.js";
 
 const entities = [
   User,
+  UserSession,
   Company,
   Membership,
   Invitation,

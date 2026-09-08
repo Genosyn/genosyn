@@ -163,7 +163,12 @@ async function runOwnedLoop(
           await run({
             connectionId,
             isCancelled: () => isCancelled() || !lease.isHeld(),
-            deliver: handleInboundTurn,
+            deliver: async (turn) => {
+              // A transport response may arrive after its cancellation check.
+              // Fence the handoff as well as the next poll/socket receive.
+              if (isCancelled() || !lease.isHeld()) return;
+              await handleInboundTurn(turn);
+            },
           });
         } catch (err) {
           logSurfaceError(provider, connectionId, "transport loop failed", err);

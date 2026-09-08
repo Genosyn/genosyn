@@ -22,6 +22,7 @@ import {
   getWebSettings,
   importLegacyConfigOverrides,
   overrideRuntimeSettingsForTests,
+  parseAgentSettings,
   parseNetworkSettings,
   reloadRuntimeSettings,
   resetRuntimeSettingsCacheForTests,
@@ -122,6 +123,7 @@ describe("defaults", () => {
       humanize: true,
     });
     assert.deepEqual(getAgentSettings(), {
+      maxConcurrentTurnsPerCompany: 8,
       taintPolicy: "web",
       memberBrowsersEnabled: true,
       toolDiscovery: { enabled: true, minCatalogueSize: 40 },
@@ -155,6 +157,16 @@ describe("defaults", () => {
 });
 
 describe("tolerant parse", () => {
+  test("company capacity is bounded and older rows keep the safe default", () => {
+    assert.equal(parseAgentSettings({}).maxConcurrentTurnsPerCompany, 8);
+    for (const value of [0, -1, 101, 1.5, "8", null]) {
+      assert.equal(parseAgentSettings({ maxConcurrentTurnsPerCompany: value }).maxConcurrentTurnsPerCompany, 8);
+    }
+    for (const value of [1, 5, 100]) {
+      assert.equal(parseAgentSettings({ maxConcurrentTurnsPerCompany: value }).maxConcurrentTurnsPerCompany, value);
+    }
+  });
+
   test("a row that is not JSON is ignored rather than thrown", async () => {
     await writeRow(RUNTIME_SETTING_KEYS.web, "{not json at all");
 
@@ -228,6 +240,7 @@ describe("tolerant parse", () => {
     await reloadRuntimeSettings();
 
     assert.deepEqual(getAgentSettings(), {
+      maxConcurrentTurnsPerCompany: 8,
       taintPolicy: "off",
       memberBrowsersEnabled: true,
       toolDiscovery: { enabled: true, minCatalogueSize: 40 },
@@ -393,11 +406,13 @@ describe("writing a group", () => {
 
   test("saving twice replaces the row rather than adding a second one", async () => {
     await saveRuntimeSettingsGroup("agent", {
+      maxConcurrentTurnsPerCompany: 3,
       taintPolicy: "off",
       memberBrowsersEnabled: false,
       toolDiscovery: { enabled: false, minCatalogueSize: 10 },
     });
     await saveRuntimeSettingsGroup("agent", {
+      maxConcurrentTurnsPerCompany: 5,
       taintPolicy: "web",
       memberBrowsersEnabled: false,
       toolDiscovery: { enabled: true, minCatalogueSize: 25 },
@@ -408,6 +423,7 @@ describe("writing a group", () => {
     });
     assert.equal(rows.length, 1);
     assert.equal(getAgentSettings().taintPolicy, "web");
+    assert.equal(getAgentSettings().maxConcurrentTurnsPerCompany, 5);
     assert.equal(getAgentSettings().toolDiscovery.minCatalogueSize, 25);
   });
 
@@ -510,6 +526,7 @@ describe("legacy config import", () => {
     assert.equal(getBrowserSettings().executablePath, "/usr/bin/chromium");
     assert.equal(getBrowserSettings().humanize, false);
     assert.deepEqual(getAgentSettings(), {
+      maxConcurrentTurnsPerCompany: 8,
       taintPolicy: "off",
       memberBrowsersEnabled: false,
       toolDiscovery: { enabled: false, minCatalogueSize: 5 },

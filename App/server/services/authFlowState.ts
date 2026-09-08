@@ -13,7 +13,9 @@ export async function createAuthFlowState(
   kind: string,
   payload: unknown,
   ttlMs: number,
+  maximumExpiresAt?: number,
 ): Promise<string> {
+  const expiresAt = new Date(Math.min(Date.now() + ttlMs, maximumExpiresAt ?? Infinity));
   const token = crypto.randomBytes(32).toString("base64url");
   const repo = AppDataSource.getRepository(AuthFlowState);
   await repo.delete({ expiresAt: LessThan(new Date()) });
@@ -22,7 +24,7 @@ export async function createAuthFlowState(
       tokenHash: hashToken(token),
       kind,
       payloadEncrypted: encryptSecret(JSON.stringify(payload), `auth-flow:${kind}`),
-      expiresAt: new Date(Date.now() + ttlMs),
+      expiresAt,
     }),
   );
   return token;

@@ -32,6 +32,13 @@ export function Security() {
         and retires the previous one, so use the newest email you received. Links are valid for 24
         hours.
       </P>
+      <P>
+        If you were invited, open the invitation before choosing <Strong>Create account</Strong>
+        {" "}or <Strong>Sign in</Strong>. Use the email address that received it. A valid invitation
+        lets that address register even when public sign-ups are closed. The verification email
+        brings you back to <Strong>Accept invitation</Strong>; creating an account does not join
+        the company automatically.
+      </P>
       <Callout kind="info" title="Self-hosted installs verify too.">
         Instance administration is closed to an unverified account on every install, not only shared
         SaaS — <Code>Admin</Code> answers &ldquo;Verify your email before using instance
@@ -46,6 +53,19 @@ export function Security() {
         address active and sends a single-use confirmation to the new mailbox; the identity changes
         only after that link is opened. Confirmation signs out older sessions and revokes personal
         API keys.
+      </P>
+
+      <H2 id="sessions">Signing out and session expiry</H2>
+      <P>
+        <Strong>Sign out</Strong> revokes the current browser sign-in on the server; your other
+        browsers stay signed in. Each sign-in also has an absolute lifetime, seven days by default,
+        that browsing cannot extend. When it expires, sign in again. The first upgrade to persisted
+        browser sessions requires existing Members to sign in once again.
+      </P>
+      <P>
+        Live workspace connections use the same sign-in. Signing out, changing your password, or
+        losing company membership stops further updates. Idle connections close within 15 seconds,
+        including when another application replica handled the change.
       </P>
 
       <H2 id="enable">Enable two-factor authentication</H2>

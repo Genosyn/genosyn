@@ -14,6 +14,7 @@ import {
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { mintBrowserViewerWsToken } from "../services/realtime.js";
+import { realtimeAuthenticationForRequest } from "../services/realtimeAuthorization.js";
 import { closeBrowserSession, getSessionSnapshot } from "../services/browserSessions.js";
 
 type ScopedParams = { cid: string; eid: string; id?: string };
@@ -124,7 +125,13 @@ browserSessionsRouter.post("/:id/ws-token", async (req: ScopedReq, res) => {
   });
   if (!row) return res.status(404).json({ error: "Not found" });
   if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
-  const token = await mintBrowserViewerWsToken(req.userId, req.params.cid, req.params.eid, row.id);
+  const token = await mintBrowserViewerWsToken(
+    req.userId,
+    req.params.cid,
+    req.params.eid,
+    row.id,
+    realtimeAuthenticationForRequest(req),
+  );
   res.json({ token });
 });
 

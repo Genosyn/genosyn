@@ -296,6 +296,15 @@ const GROUPS: GroupSpec[] = [
     blurb: "Runtime knobs on the agent loop that are not part of the boot security posture.",
     fields: [
       {
+        kind: "int",
+        path: "maxConcurrentTurnsPerCompany",
+        label: "Concurrent AI turns per company",
+        min: 1,
+        max: 100,
+        unit: "turns",
+        help: "Shared SaaS only. Limits simultaneous AI work across every replica, including delegated work. Additional requests receive a busy message and can be retried later.",
+      },
+      {
         kind: "choice",
         path: "taintPolicy",
         label: "Taint policy",

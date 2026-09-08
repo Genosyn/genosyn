@@ -26,6 +26,7 @@ import {
 import type { MimeFields } from "./mime.js";
 import { columnHasLabel, columnToLabelIds, labelIdsToColumn } from "./store.js";
 import { SuppressedRecipientError, addSuppression } from "./suppression.js";
+import { SchedulerLeaseLostError } from "../schedulerLeases.js";
 
 /**
  * `actions.ts` seen through the provider seam.
@@ -49,6 +50,33 @@ const SELF = "owner@example.com";
 const COUNTERPARTY = "ada@acme.test";
 const THREAD_REF = "thread-remote-1";
 const MESSAGE_REF = "message-remote-1";
+
+test("a lease lost while resolving a mailbox prevents the subsequent send", async () => {
+  const { account, mailbox, dependencies } = await fixture();
+  const draft = await insert(MailMessage, {
+    companyId: account.companyId,
+    accountId: account.id,
+    gmailDraftId: "draft-unattempted",
+    gmailMessageId: "message-unattempted",
+    gmailThreadId: "thread-unattempted",
+    threadId: "thread-unattempted",
+    toEmails: COUNTERPARTY,
+  });
+  let held = true;
+  await assert.rejects(
+    sendMailDraft(account, draft, {
+      assertCanSend: () => {
+        if (!held) throw new SchedulerLeaseLostError("mail-draft-send");
+      },
+    }, {
+      ...dependencies,
+      mailbox: async () => { held = false; return mailbox; },
+    }),
+    SchedulerLeaseLostError,
+  );
+  assert.equal(mailbox.calls.length, 0);
+  assert.equal(await AppDataSource.getRepository(MailMessage).countBy({ id: draft.id }), 1);
+});
 
 type Fixture = {
   account: MailAccount;

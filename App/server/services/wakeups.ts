@@ -111,6 +111,7 @@ export async function listWakeups(
 export async function dispatchDueWakeups(
   now: Date = new Date(),
   runChat: typeof chatWithEmployee = chatWithEmployee,
+  lease?: import("./schedulerLeases.js").SchedulerLeaseContext,
 ): Promise<void> {
   const repo = AppDataSource.getRepository(EmployeeWakeup);
   const due = await repo.find({
@@ -119,6 +120,7 @@ export async function dispatchDueWakeups(
     take: DISPATCH_PER_SWEEP,
   });
   for (const wakeup of due) {
+    lease?.assertHeld();
     // A Standdown defers a wakeup rather than firing or cancelling it (M58):
     // the row stays `pending` with its time in the past, so it fires on the
     // first sweep after the lift. Dropping it would silently discard a
@@ -130,7 +132,7 @@ export async function dispatchDueWakeups(
     );
     if (claim.affected !== 1) continue;
     try {
-      await fireWakeup(wakeup, runChat);
+      await fireWakeup(wakeup, runChat, lease);
     } catch (err) {
       await repo.update(
         { id: wakeup.id },
@@ -145,6 +147,7 @@ export async function dispatchDueWakeups(
 async function fireWakeup(
   wakeup: EmployeeWakeup,
   runChat: typeof chatWithEmployee,
+  lease?: import("./schedulerLeases.js").SchedulerLeaseContext,
 ): Promise<void> {
   const repo = AppDataSource.getRepository(EmployeeWakeup);
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -169,12 +172,14 @@ async function fireWakeup(
     );
     return;
   }
+  const brief = await composeWakeBrief(wakeup);
+  lease?.assertHeld();
   const result = await runChat(
     wakeup.companyId,
     employee.id,
-    await composeWakeBrief(wakeup),
+    brief,
     [],
-    { toolAuthority: "employee" },
+    { toolAuthority: "employee", signal: lease?.signal },
   );
   const note = result.reply.trim().slice(0, OUTCOME_CAP) || "(no reply)";
   await repo.update({ id: wakeup.id }, { outcomeNote: note });

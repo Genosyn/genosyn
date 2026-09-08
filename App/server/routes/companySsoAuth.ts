@@ -109,7 +109,7 @@ companySsoAuthRouter.get("/callback", async (req, res) => {
     if (methods.enabled) {
       return res.redirect("/login?twoFactor=1");
     }
-    establishUserSession(req, result.user);
+    await establishUserSession(req, result.user);
     res.redirect("/");
   } catch (err) {
     loginErrorRedirect(res, ssoErrorMessage(err));
@@ -149,7 +149,7 @@ companySsoAuthRouter.post("/link", validateBody(linkSchema), async (req, res, ne
       // Same shape the password login returns, so the client reuses its 2FA UI.
       return res.json({ requiresTwoFactor: true, methods });
     }
-    establishUserSession(req, outcome.user);
+    await establishUserSession(req, outcome.user);
     res.json({ ok: true });
   } catch (err) {
     if (err instanceof SsoLoginError) {

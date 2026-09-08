@@ -16,6 +16,7 @@ import {
   type SendWindow,
 } from "./sendWindow.js";
 import { parseSendWindow } from "./sequences.js";
+import type { SchedulerLeaseContext } from "../schedulerLeases.js";
 
 /**
  * The sequence scheduler.
@@ -131,6 +132,7 @@ export type TouchDrafter = (ctx: {
   step: SequenceStep;
   enrollment: SequenceEnrollment;
   contact: Contact;
+  lease?: SchedulerLeaseContext;
 }) => Promise<TouchOutcome>;
 
 const NO_DRAFTER: TouchDrafter = async () => ({
@@ -164,7 +166,7 @@ type Outcome = "sent" | "drafted" | "skipped" | "failed";
  * and would otherwise take the process with it. A sweep that fails at the very
  * first query returns zeroes.
  */
-export async function tickSequences(now = new Date()): Promise<TickResult> {
+export async function tickSequences(now = new Date(), lease?: SchedulerLeaseContext): Promise<TickResult> {
   const result: TickResult = { processed: 0, sent: 0, drafted: 0, skipped: 0, failed: 0 };
 
   try {
@@ -184,6 +186,7 @@ export async function tickSequences(now = new Date()): Promise<TickResult> {
 
     const runnable: SequenceEnrollment[] = [];
     for (const enrollment of candidates) {
+      lease?.assertHeld();
       const sequence = sequences.get(enrollment.sequenceId);
       if (!sequence) {
         // An enrolment whose campaign row is gone is corrupt, not merely idle.
@@ -212,6 +215,7 @@ export async function tickSequences(now = new Date()): Promise<TickResult> {
     const due = selectDueEnrollments(runnable, now, MAX_TOUCHES_PER_TICK);
 
     for (const enrollment of due) {
+      lease?.assertHeld();
       const sequence = sequences.get(enrollment.sequenceId);
       if (!sequence) continue;
       const steps = stepsBySequence.get(enrollment.sequenceId) ?? [];
@@ -223,9 +227,11 @@ export async function tickSequences(now = new Date()): Promise<TickResult> {
           steps,
           now,
           capRemaining,
+          lease,
         });
         result[outcome] += 1;
       } catch (err) {
+        lease?.assertHeld();
         result.failed += 1;
         const message = err instanceof Error ? err.message : String(err);
         // The failure bookkeeping is itself wrapped: a database error while
@@ -336,8 +342,9 @@ async function processEnrollment(ctx: {
   steps: SequenceStep[];
   now: Date;
   capRemaining: Map<string, number>;
+  lease?: SchedulerLeaseContext;
 }): Promise<Outcome> {
-  const { enrollment, sequence, steps, now, capRemaining } = ctx;
+  const { enrollment, sequence, steps, now, capRemaining, lease } = ctx;
   const repo = AppDataSource.getRepository(SequenceEnrollment);
   const window = parseSendWindow(sequence);
 
@@ -370,6 +377,7 @@ async function processEnrollment(ctx: {
 
   // The gate that matters: enrolment consent is not send-time consent.
   const { suppressed } = await partitionRecipients(enrollment.companyId, [contact.email]);
+  lease?.assertHeld();
   if (suppressed.length > 0) {
     const step = steps[enrollment.currentStepOrder];
     if (step) {
@@ -395,7 +403,9 @@ async function processEnrollment(ctx: {
   }
 
   const step = steps[enrollment.currentStepOrder];
-  const outcome = await activeDrafter({ sequence, step, enrollment, contact });
+  lease?.assertHeld();
+  const outcome = await activeDrafter({ sequence, step, enrollment, contact, lease });
+  lease?.assertHeld();
   await recordStepRun(enrollment, sequence, step, outcome, now);
 
   if (outcome.status === "failed") {

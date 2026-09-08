@@ -141,9 +141,10 @@ export function publicOriginFromRequest(req: Request): string | null {
 }
 
 /** Seed a fresh installation from its first authenticated operator request. */
-export async function capturePublicUrlFromMasterAdminRequest(
-  req: Request,
-): Promise<void> {
+export async function capturePublicUrlFromMasterAdminRequest(req: Request): Promise<void> {
+  // Shared hosting is initialized only by an explicit operator setup command
+  // or an authenticated Admin setting change, never by request metadata.
+  if (config.security.multiTenant) return;
   if (cachedConfigured) return;
   // Browser credential submissions carry Origin. Do not guess from a
   // TLS-terminating proxy on callback requests where that header is absent.

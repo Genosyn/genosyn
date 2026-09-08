@@ -952,6 +952,7 @@ export type TldrDispatchResult = { started: number; completions: Array<Promise<T
 export async function dispatchDueTldrs(
   now: Date = new Date(),
   dependencies: TldrServiceDependencies = {},
+  assertLeaseHeld: () => void = () => undefined,
 ): Promise<TldrDispatchResult> {
   const due = await AppDataSource.getRepository(TldrSettings).find({
     where: { enabled: true, nextRunAt: LessThanOrEqual(now) },
@@ -960,6 +961,7 @@ export async function dispatchDueTldrs(
   });
   const completions: Array<Promise<Tldr | null>> = [];
   for (const settings of due) {
+    assertLeaseHeld();
     try {
       const claim = await claimTldr(settings.companyId, "schedule", now);
       const completion = generateClaimedTldr(claim, dependencies);

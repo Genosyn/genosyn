@@ -865,7 +865,14 @@ async function startNotetakerInternal(args: {
       active.isLeaseHeld = lease.isHeld;
       active.leaseHolderId = lease.holderId;
       active.heartbeat = beginHeartbeat(active);
-      await runClaimedNotetaker(claimed, driver, active, args.now);
+      const cancel = () => active.controller.abort(lease.signal.reason);
+      lease.signal.addEventListener("abort", cancel, { once: true });
+      try {
+        lease.assertHeld();
+        await runClaimedNotetaker(claimed, driver, active, args.now);
+      } finally {
+        lease.signal.removeEventListener("abort", cancel);
+      }
     },
   )
     .then(() => undefined)
@@ -1063,7 +1070,10 @@ export type DueDispatchResult = {
 };
 
 /** Find due calendar meetings and launch each one after its atomic claim. */
-export async function dispatchDueMeetings(now = new Date()): Promise<DueDispatchResult> {
+export async function dispatchDueMeetings(
+  now = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<DueDispatchResult> {
   const recovery = await recoverStaleNotetakers(now);
   const joinBy = new Date(now.getTime() + NOTETAKER_JOIN_LEAD_MS);
   const retryBefore = new Date(now.getTime() - AUTOMATIC_RETRY_BACKOFF_MS);
@@ -1105,6 +1115,7 @@ export async function dispatchDueMeetings(now = new Date()): Promise<DueDispatch
   let claimed = 0;
   let retried = 0;
   for (const meeting of due) {
+    assertLeaseHeld();
     const claim: ClaimMode = meeting.status === "failed" ? "automatic-retry" : "fresh";
     const result = await startNotetakerInternal({
       companyId: meeting.companyId,

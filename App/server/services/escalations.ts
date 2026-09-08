@@ -80,7 +80,7 @@ async function claimStallReminder(
   return claim.affected === 1;
 }
 
-async function sweepStaleApprovals(now: Date): Promise<void> {
+async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Promise<void> {
   const cutoff = new Date(now.getTime() - STALL_AFTER_MS);
   const stale = await AppDataSource.getRepository(Approval).find({
     where: { status: "pending", requestedAt: LessThan(cutoff), stallRemindedAt: IsNull() },
@@ -89,6 +89,7 @@ async function sweepStaleApprovals(now: Date): Promise<void> {
   });
 
   for (const approval of stale) {
+    assertLeaseHeld();
     const [company, employee, routine, userIds] = await Promise.all([
       AppDataSource.getRepository(Company).findOneBy({ id: approval.companyId }),
       AppDataSource.getRepository(AIEmployee).findOneBy({ id: approval.employeeId }),
@@ -98,6 +99,7 @@ async function sweepStaleApprovals(now: Date): Promise<void> {
       ownersAndAdmins(approval.companyId),
     ]);
     if (!company || userIds.length === 0) continue;
+    assertLeaseHeld();
     if (!(await claimStallReminder(Approval, approval.id, now))) continue;
     const what =
       approval.kind === "routine" && routine
@@ -117,11 +119,12 @@ async function sweepStaleApprovals(now: Date): Promise<void> {
       entityKind: "approval" as const,
       entityId: approval.id,
     }));
+    assertLeaseHeld();
     await createNotifications(inputs);
   }
 }
 
-async function sweepStaleDecisions(now: Date): Promise<void> {
+async function sweepStaleDecisions(now: Date, assertLeaseHeld: () => void): Promise<void> {
   const cutoff = new Date(now.getTime() - STALL_AFTER_MS);
   const stale = await AppDataSource.getRepository(Decision).find({
     where: [
@@ -143,6 +146,7 @@ async function sweepStaleDecisions(now: Date): Promise<void> {
   });
 
   for (const decision of stale) {
+    assertLeaseHeld();
     const [company, employee] = await Promise.all([
       AppDataSource.getRepository(Company).findOneBy({ id: decision.companyId }),
       AppDataSource.getRepository(AIEmployee).findOneBy({ id: decision.employeeId }),
@@ -161,6 +165,7 @@ async function sweepStaleDecisions(now: Date): Promise<void> {
       ? [decision.assigneeUserId as string]
       : await ownersAndAdmins(decision.companyId);
     if (userIds.length === 0) continue;
+    assertLeaseHeld();
     if (!(await claimStallReminder(Decision, decision.id, now))) continue;
     const inputs: CreateNotificationInput[] = userIds.map((userId) => ({
       companyId: decision.companyId,
@@ -174,11 +179,12 @@ async function sweepStaleDecisions(now: Date): Promise<void> {
       entityKind: "decision" as const,
       entityId: decision.id,
     }));
+    assertLeaseHeld();
     await createNotifications(inputs);
   }
 }
 
-async function sweepOverdueHandoffs(now: Date): Promise<void> {
+async function sweepOverdueHandoffs(now: Date, assertLeaseHeld: () => void): Promise<void> {
   // `LessThan` never matches NULL, so rows without a deadline are excluded by
   // the same predicate that finds the overdue ones.
   const overdue = await AppDataSource.getRepository(Handoff).find({
@@ -188,6 +194,7 @@ async function sweepOverdueHandoffs(now: Date): Promise<void> {
   });
 
   for (const handoff of overdue) {
+    assertLeaseHeld();
     const [company, receiver, sender] = await Promise.all([
       AppDataSource.getRepository(Company).findOneBy({ id: handoff.companyId }),
       AppDataSource.getRepository(AIEmployee).findOneBy({ id: handoff.toEmployeeId }),
@@ -202,6 +209,7 @@ async function sweepOverdueHandoffs(now: Date): Promise<void> {
     const managerId = await managingMemberIdForEmployee(handoff.companyId, receiver.id);
     if (managerId) userIds.add(managerId);
     if (userIds.size === 0) continue;
+    assertLeaseHeld();
     if (!(await claimStallReminder(Handoff, handoff.id, now))) continue;
     const inputs: CreateNotificationInput[] = [...userIds].map((userId) => ({
       companyId: handoff.companyId,
@@ -215,11 +223,12 @@ async function sweepOverdueHandoffs(now: Date): Promise<void> {
       entityKind: "handoff" as const,
       entityId: handoff.id,
     }));
+    assertLeaseHeld();
     await createNotifications(inputs);
   }
 }
 
-async function sweepStaleRevisionProposals(now: Date): Promise<void> {
+async function sweepStaleRevisionProposals(now: Date, assertLeaseHeld: () => void): Promise<void> {
   const cutoff = new Date(now.getTime() - STALL_AFTER_MS);
   const stale = await AppDataSource.getRepository(RevisionProposal).find({
     where: { status: "pending", createdAt: LessThan(cutoff), stallRemindedAt: IsNull() },
@@ -228,6 +237,7 @@ async function sweepStaleRevisionProposals(now: Date): Promise<void> {
   });
 
   for (const proposal of stale) {
+    assertLeaseHeld();
     const [company, employee] = await Promise.all([
       AppDataSource.getRepository(Company).findOneBy({ id: proposal.companyId }),
       AppDataSource.getRepository(AIEmployee).findOneBy({ id: proposal.employeeId }),
@@ -239,6 +249,7 @@ async function sweepStaleRevisionProposals(now: Date): Promise<void> {
     const managerId = await managingMemberIdForEmployee(proposal.companyId, employee.id);
     if (managerId) userIds.add(managerId);
     if (userIds.size === 0) continue;
+    assertLeaseHeld();
     if (!(await claimStallReminder(RevisionProposal, proposal.id, now))) continue;
     const inputs: CreateNotificationInput[] = [...userIds].map((userId) => ({
       companyId: proposal.companyId,
@@ -252,6 +263,7 @@ async function sweepStaleRevisionProposals(now: Date): Promise<void> {
       entityKind: "revision_proposal" as const,
       entityId: proposal.id,
     }));
+    assertLeaseHeld();
     await createNotifications(inputs);
   }
 }
@@ -261,20 +273,23 @@ async function sweepStaleRevisionProposals(now: Date): Promise<void> {
  * heartbeat; each category is independently best-effort so one broken query
  * cannot silence the others.
  */
-export async function sweepStalledWork(now: Date = new Date()): Promise<void> {
-  await sweepStaleApprovals(now).catch((err) => {
+export async function sweepStalledWork(
+  now: Date = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<void> {
+  await sweepStaleApprovals(now, assertLeaseHeld).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[escalations] stale approval sweep failed:", err);
   });
-  await sweepStaleDecisions(now).catch((err) => {
+  await sweepStaleDecisions(now, assertLeaseHeld).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[escalations] stale decision sweep failed:", err);
   });
-  await sweepOverdueHandoffs(now).catch((err) => {
+  await sweepOverdueHandoffs(now, assertLeaseHeld).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[escalations] overdue handoff sweep failed:", err);
   });
-  await sweepStaleRevisionProposals(now).catch((err) => {
+  await sweepStaleRevisionProposals(now, assertLeaseHeld).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[escalations] stale revision sweep failed:", err);
   });

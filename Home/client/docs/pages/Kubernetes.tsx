@@ -262,17 +262,19 @@ data:
         and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>
         {" "}
         and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
-        ConfigMap edit and a rollout. Nor is the public URL here: after the first master admin signs
-        in, review and save <Code>https://genosyn.example.com</Code> at <Code>Admin → General</Code>
-        . Those values are stored in Postgres and shared by every replica.
+        ConfigMap edit and a rollout. Set the initial public URL before signup using the command
+        below; later changes belong at <Code>Admin → General</Code>. Those values are stored in
+        Postgres and shared by every replica.
       </P>
+      <Pre lang="bash">{`kubectl exec -n genosyn deploy/genosyn -- node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</Pre>
       <Callout kind="info" title="Claiming the first account before SMTP exists.">
         A fresh install has no mail transport, so the bootstrap master admin&apos;s verification
         link is written to the pod log instead of being sent. Read it with{" "}
         <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
-        account, then configure SMTP at <Code>Admin → Email transport</Code>. Boot warns until you
+        account, enroll two-factor authentication, sign in again, then configure SMTP at
+        {" "}<Code>Admin → Email transport</Code>. Boot warns until you
         do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile. A link that
-        scrolled out of the log can be reissued from <Code>Account → Profile</Code> once signed in —
+        scrolled out of the log can be reissued from <Code>Check your inbox</Code> once signed in —
         it prints to the log again.
       </Callout>
       <P>

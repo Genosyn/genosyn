@@ -1,3 +1,4 @@
+import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -48,11 +49,12 @@ before(async () => {
   await initTestDb();
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     const userId = req.header("x-test-user");
     (req as unknown as { session: Record<string, unknown> | null }).session = userId
       ? { userId, sessionVersion: 0 }
       : {};
+    await persistTestSession(req);
     next();
   });
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);

@@ -59,12 +59,14 @@ export type ContextWindowProbe = (model: AIModel) => Promise<number | null>;
 export async function refreshContextWindow(
   m: AIModel,
   probe: ContextWindowProbe = probeContextWindow,
+  isHeld: () => boolean = () => true,
 ): Promise<boolean> {
   // A human who typed a number has told us something the probe demonstrably
   // couldn't work out. Don't relitigate it on every save — only an explicit
   // clear returns this model to probing.
   if (m.contextWindowSource === "manual") return false;
   const found = await probe(m);
+  if (!isHeld()) return false;
   // Null means "couldn't ask", not "has no window" — keep whatever we already
   // knew rather than letting one unreachable moment erase it. Callers that
   // change the endpoint clear the field themselves, since the old number is
@@ -111,7 +113,7 @@ export async function sweepContextWindows(
   for (const m of due) {
     if (!isHeld()) break;
     try {
-      if (await refreshContextWindow(m, probe)) changed++;
+      if (await refreshContextWindow(m, probe, isHeld)) changed++;
     } catch (error) {
       // One unhappy row — a decrypt that fails, a write that races a delete —
       // must not cost every model behind it its refresh.

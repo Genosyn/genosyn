@@ -237,7 +237,7 @@ export async function fireManually(
  */
 const STALE_RUN_CUTOFF_MS = 6 * 60 * 60 * 1000;
 
-async function sweepStaleRuns(now: Date): Promise<void> {
+async function sweepStaleRuns(now: Date, assertLeaseHeld: () => void): Promise<void> {
   const repo = AppDataSource.getRepository(PipelineRun);
   const cutoff = new Date(now.getTime() - STALE_RUN_CUTOFF_MS);
   const stale = await repo.find({
@@ -245,6 +245,7 @@ async function sweepStaleRuns(now: Date): Promise<void> {
     take: 100,
   });
   for (const run of stale) {
+    assertLeaseHeld();
     run.status = "failed";
     run.finishedAt = now;
     run.errorMessage = "Run was interrupted (the server stopped before it finished)";
@@ -256,10 +257,10 @@ async function tickPipelines(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    await withSchedulerLease("pipelines", PIPELINE_HEARTBEAT_INTERVAL_MS * 3, async () => {
+    await withSchedulerLease("pipelines", PIPELINE_HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
       const repo = AppDataSource.getRepository(Pipeline);
       const now = new Date();
-      await sweepStaleRuns(now);
+      await sweepStaleRuns(now, lease.assertHeld);
       const due = await repo.find({
         where: {
           enabled: true,
@@ -268,9 +269,11 @@ async function tickPipelines(): Promise<void> {
         },
       });
       for (const p of due) {
+        lease.assertHeld();
         const next = p.cronExpr ? nextRunFor(p.cronExpr, now) : null;
         p.nextRunAt = next;
         await repo.save(p);
+        lease.assertHeld();
         const graph = parseGraph(p.graphJson);
         const scheduleNode = findScheduleNode(graph, p.cronExpr);
         if (!scheduleNode) continue;

@@ -381,6 +381,7 @@ export async function duplicateRecurringInvoice(
 export async function generateInvoiceFromRecurring(
   ri: RecurringInvoice,
   actorUserId: string | null,
+  assertLeaseHeld: () => void = () => undefined,
 ): Promise<{
   invoice: Invoice;
   emailStatus: "sent" | "skipped" | "failed" | "not_attempted";
@@ -419,6 +420,7 @@ export async function generateInvoiceFromRecurring(
     footer: ri.footer,
     createdById: actorUserId,
   });
+  assertLeaseHeld();
   draft = await invRepo.save(draft);
 
   // Snapshot tax for each template line, then save into the invoice.
@@ -467,7 +469,9 @@ export async function generateInvoiceFromRecurring(
       }),
     );
   }
+  assertLeaseHeld();
   await lineRepo.save(newLines);
+  assertLeaseHeld();
   let invoice = await recomputeInvoiceTotals(draft);
 
   // Walk through the same lifecycle the user would. `autoSend` implies
@@ -476,8 +480,10 @@ export async function generateInvoiceFromRecurring(
   let emailStatus: "sent" | "skipped" | "failed" | "not_attempted" = "not_attempted";
   let emailError = "";
   if (ri.autoSend) {
+    assertLeaseHeld();
     invoice = await issueInvoice(invoice, actorUserId);
     try {
+      assertLeaseHeld();
       const result = await sendInvoiceEmail(ri.companyId, invoice, actorUserId);
       emailStatus = result.status;
       emailError = result.errorMessage;
@@ -500,12 +506,14 @@ export async function generateInvoiceFromRecurring(
  * Catches and logs errors so a single broken schedule doesn't block
  * the rest of the heartbeat.
  */
-async function tickRecurringInvoice(id: string): Promise<void> {
+async function tickRecurringInvoice(id: string, assertLeaseHeld: () => void): Promise<void> {
   const repo = AppDataSource.getRepository(RecurringInvoice);
   const fresh = await repo.findOneBy({ id });
   if (!fresh || fresh.status !== "active") return;
   try {
-    const { invoice } = await generateInvoiceFromRecurring(fresh, null);
+    assertLeaseHeld();
+    const { invoice } = await generateInvoiceFromRecurring(fresh, null, assertLeaseHeld);
+    assertLeaseHeld();
     fresh.runsCreated += 1;
     fresh.lastRunAt = new Date();
     fresh.lastInvoiceSlug = invoice.slug;
@@ -519,8 +527,8 @@ async function tickRecurringInvoice(id: string): Promise<void> {
 
 /**
  * One heartbeat pass. Finds active rows whose `nextRunAt` has come due,
- * advances them past now (fire-at-most-once — matches the routines
- * scheduler), saves, and fires each generation in the background.
+ * advances them past now, saves, and keeps ownership while generating them.
+ * An already accepted email cannot be retracted if ownership is later lost.
  *
  * The `ticking` guard prevents overlapping passes if a heartbeat
  * interval fires while the previous pass is still writing rows.
@@ -529,20 +537,21 @@ async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    await withSchedulerLease("recurring-invoices", HEARTBEAT_INTERVAL_MS * 3, async () => {
+    await withSchedulerLease("recurring-invoices", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
       const repo = AppDataSource.getRepository(RecurringInvoice);
       const now = new Date();
       const due = await repo.find({
         where: { status: "active", nextRunAt: LessThanOrEqual(now) },
       });
       for (const r of due) {
+        lease.assertHeld();
         const next = computeNextRun(r, now);
         r.nextRunAt = next;
         await repo.save(r);
-        tickRecurringInvoice(r.id).catch((err) => {
-          // eslint-disable-next-line no-console
-          console.error(`[recurring-invoices] ${r.id} failed:`, err);
-        });
+        // Generation has no separate worker claim. Keep this lease through
+        // issue/send, and fence each stage after awaited work.
+        lease.assertHeld();
+        await tickRecurringInvoice(r.id, lease.assertHeld);
       }
     });
   } finally {

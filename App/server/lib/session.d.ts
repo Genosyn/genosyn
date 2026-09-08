@@ -5,11 +5,15 @@ declare module "express-serve-static-core" {
     session?: {
       userId?: string;
       sessionVersion?: number;
+      userSessionId?: string;
+      /** Absolute sign-in expiry, enforced by the server as well as the cookie. */
+      expiresAt?: number;
       /** Primary password or SSO completion time, used for step-up gates. */
       authenticatedAt?: number;
       /** Successful TOTP, recovery-code, or WebAuthn completion time. */
       secondFactorAt?: number;
       twoFactorUserId?: string;
+      twoFactorSessionVersion?: number;
       twoFactorExpiresAt?: number;
       twoFactorAttempts?: number;
       primaryAuthenticatedAt?: number;

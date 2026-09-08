@@ -6,9 +6,12 @@ import { AppSetting } from "../db/entities/AppSetting.js";
  *
  * When an operator disables sign-ups from Admin → Sign-ups, the public
  * `POST /api/auth/signup` endpoint is refused for everyone except the
- * configured bootstrap address while the instance still has no master admin.
- * That account remains unprivileged until its email-verification link proves
- * ownership, so public request ordering can never choose the operator.
+ * configured bootstrap address while the instance still has no master admin,
+ * or a valid invitation matching the new account's email. Invited accounts
+ * in shared SaaS still verify their mailbox and explicitly accept before
+ * joining a company. The bootstrap account remains unprivileged until its
+ * email-verification link proves ownership, so public request ordering can
+ * never choose the operator.
  *
  * Persisted as a single boolean `AppSetting` row — the same key/value mechanism
  * the Web Push VAPID keypair and the global SMTP override use — so there is no
