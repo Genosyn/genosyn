@@ -325,8 +325,11 @@ export function describeToolUse(name: string, input: Record<string, unknown>): s
       return `Found files matching ${str("pattern")}${str("path") ? ` in ${str("path")}` : ""}`;
     case "repository_list_files":
       return `Listed ${str("path") || "the repository root"}`;
-    case "repository_run_command":
-      return `Ran ${shorten(str("command"), 120)}`;
+    case "repository_run_command": {
+      const cwd = str("cwd");
+      const scope = cwd && cwd !== "." ? ` in ${shorten(cwd, 100)}` : "";
+      return `Ran ${shorten(str("command"), 120)}${scope}`;
+    }
     case "repository_commit":
       return `Committed: ${shorten(str("message").split("\n")[0] ?? "", 100)}`;
     case "repository_status":
@@ -350,11 +353,13 @@ export function describeToolResult(name: string, result: ToolResult): string {
       if (parsed && parsed.ran === false) {
         return `Not run: ${shorten(String(parsed.reason ?? ""), 140)}`;
       }
-      if (parsed && parsed.timedOut === true) return "Stopped at the time limit";
+      const cwd = typeof parsed?.cwd === "string" ? parsed.cwd : "";
+      const scope = cwd && cwd !== "." ? ` in ${shorten(cwd, 100)}` : "";
+      if (parsed && parsed.timedOut === true) return `Stopped at the time limit${scope}`;
       if (parsed && typeof parsed.exitCode === "number") {
-        return parsed.exitCode === 0 ? "Exit 0" : `Exit ${parsed.exitCode}`;
+        return `Exit ${parsed.exitCode}${scope}`;
       }
-      return "Finished";
+      return `Finished${scope}`;
     }
     case "repository_commit": {
       if (parsed && parsed.committed === false) return "Nothing to commit";

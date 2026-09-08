@@ -20,6 +20,7 @@ import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
+import { sessionWorktreePath } from "../services/repositoryWorkSessions.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 // The client's own parser, deliberately. Chat opens this session beside the
@@ -368,6 +369,149 @@ describe("what a session's own turn may reach", () => {
     } finally {
       revokeMcpToken(bearer);
     }
+  });
+});
+
+describe("commands in a package directory", () => {
+  async function commandSession(t: { after: (fn: () => void) => void }) {
+    await grantAccess();
+    const session = await runningSession();
+    const directory = sessionWorktreePath(repository, session.id);
+    fs.mkdirSync(path.join(directory, "App"), { recursive: true });
+    fs.writeFileSync(path.join(directory, ".git"), "gitdir: /elsewhere/.git/worktrees/test\n");
+    fs.writeFileSync(path.join(directory, "marker.txt"), "repository root");
+    fs.writeFileSync(path.join(directory, "App", "marker.txt"), "App checked");
+    fs.writeFileSync(
+      path.join(directory, "App", "package.json"),
+      JSON.stringify({ name: "guide-command-fixture", scripts: { lint: "cat marker.txt" } }),
+    );
+    const shim = path.join(dataDir, "command-bwrap");
+    fs.writeFileSync(
+      shim,
+      [
+        "#!/bin/bash",
+        "while [ $# -gt 0 ]; do",
+        '  case "$1" in',
+        '    --setenv) export "$2"="$3"; shift 3 ;;',
+        "    --) shift; break ;;",
+        "    *) shift ;;",
+        "  esac",
+        "done",
+        'exec "$@"',
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const originalCoding = { ...config.agent.codingTools };
+    Object.assign(config.agent.codingTools, {
+      enabled: true,
+      executionMode: "bubblewrap",
+      bubblewrapPath: shim,
+    });
+    t.after(() => Object.assign(config.agent.codingTools, originalCoding));
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      commandMode: "allowlist",
+      allowedCommands: "",
+    });
+    const bearer = issueMcpToken(employee.id, company.id, {
+      authority: "member",
+      requesterUserId: requester.id,
+      requesterSessionVersion: requester.sessionVersion,
+      repositoryWorkSessionId: session.id,
+    });
+    t.after(() => revokeMcpToken(bearer));
+    return { bearer, directory };
+  }
+
+  test("runs the package's lint script and returns its actual directory", async (t) => {
+    const { bearer } = await commandSession(t);
+    const result = await callWith(bearer, "repository_run_command", {
+      command: "npm run lint",
+      cwd: "App",
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ran, true);
+    assert.equal(result.body.exitCode, 0, String(result.body.output));
+    assert.equal(result.body.command, "npm run lint");
+    assert.equal(result.body.cwd, "App");
+    assert.match(String(result.body.output), /App checked/);
+  });
+
+  test("omitting cwd runs at the root and reports that directory", async (t) => {
+    const { bearer } = await commandSession(t);
+    const result = await callWith(bearer, "repository_run_command", { command: "cat marker.txt" });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ran, true);
+    assert.equal(result.body.exitCode, 0);
+    assert.equal(result.body.cwd, ".");
+    assert.equal(result.body.output, "repository root");
+  });
+
+  test("a failed command still records where it ran", async (t) => {
+    const { bearer } = await commandSession(t);
+    const result = await callWith(bearer, "repository_run_command", {
+      command: "false",
+      cwd: "App",
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ran, true);
+    assert.equal(result.body.exitCode, 1);
+    assert.equal(result.body.cwd, "App");
+  });
+
+  test("validates the optional cwd field at the API boundary", async (t) => {
+    const { bearer } = await commandSession(t);
+    for (const cwd of [42, {}, null, "x".repeat(1001)]) {
+      const result = await callWith(bearer, "repository_run_command", { command: "true", cwd });
+      assert.equal(result.status, 400);
+    }
+    const unknown = await callWith(bearer, "repository_run_command", {
+      command: "true",
+      directory: "App",
+    });
+    assert.equal(
+      unknown.status,
+      400,
+      "an unknown directory parameter must not silently run at root",
+    );
+  });
+
+  test("a missing or invalid directory produces an explicit non-execution result", async (t) => {
+    const { bearer } = await commandSession(t);
+    for (const cwd of ["missing", "marker.txt", "../outside", "/tmp", ".git"]) {
+      const result = await callWith(bearer, "repository_run_command", { command: "true", cwd });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.ran, false);
+      assert.match(String(result.body.reason), /Could not prepare the command/);
+      assert.equal(result.body.exitCode, undefined);
+      assert.equal(
+        result.body.cwd,
+        undefined,
+        "a refused command must not claim it ran in a directory",
+      );
+    }
+  });
+
+  test("choosing a package preserves allowed-command and Grant enforcement", async (t) => {
+    const { bearer, directory } = await commandSession(t);
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      allowedCommands: "npm run lint",
+    });
+    const refused = await callWith(bearer, "repository_run_command", {
+      command: "touch unexpected.txt",
+      cwd: "App",
+    });
+    assert.equal(refused.status, 200);
+    assert.equal(refused.body.ran, false);
+    assert.match(String(refused.body.reason), /not on this repository's list/);
+    assert.equal(fs.existsSync(path.join(directory, "App", "unexpected.txt")), false);
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({ employeeId: employee.id });
+    const revoked = await callWith(bearer, "repository_run_command", {
+      command: "npm run lint",
+      cwd: "App",
+    });
+    assert.equal(revoked.status, 400);
+    assert.match(revoked.body.error ?? "", /not been granted/);
   });
 });
 

@@ -13,6 +13,7 @@ import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
+import { RepositoryWorkSessionEvent } from "../db/entities/RepositoryWorkSessionEvent.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { User } from "../db/entities/User.js";
 import { recordAttachmentBytes, discardUnboundAttachment } from "./uploads.js";
@@ -1892,7 +1893,7 @@ describe("the briefing an employee receives", () => {
     const code = composeWorkSystemPrompt({ ...repository, kind: "code" }, "s");
     assert.match(documents, /documents rather than software/);
     assert.match(code, /conventions of the surrounding code/);
-    assert.ok(!documents.includes("cannot run tests"));
+    assert.match(documents, /Identify each applicable guide command you could not run/);
   });
 
   test("says there is no shell where the install cannot give it one", () => {
@@ -1941,6 +1942,32 @@ describe("a session that can run commands", () => {
     const prompt = composeWorkSystemPrompt({ ...repository, kind: "documents" }, "s");
     assert.match(prompt, /documents rather than software/);
     assert.match(prompt, /repository_run_command/);
+  });
+
+  test("honours guide verification scope and package directories for code and documents", () => {
+    for (const kind of ["code", "documents"] as const) {
+      const prompt = composeWorkSystemPrompt({ ...repository, kind }, "s", {
+        agentsGuide: "Run npm run lint in App/ and Home/. Only run the tests you changed.",
+      });
+      assert.match(prompt, /Set `cwd` to a repository-relative directory/);
+      assert.match(prompt, /cwd `App`/);
+      assert.match(prompt, /cwd `Home`/);
+      assert.match(prompt, /do not replace a required targeted test with a broad suite/);
+      assert.ok(!prompt.includes("the broad one before you finish"));
+      assert.match(prompt, /including checks required for documents/);
+      assert.match(prompt, /account for each applicable guide command/);
+      assert.match(prompt, /recorded exit status/);
+    }
+  });
+
+  test("explains unavailable commands while retaining the guide requirements", () => {
+    const prompt = composeWorkSystemPrompt({ ...repository, commandMode: "off" }, "s", {
+      agentsGuide: "Run the document link checker before committing.",
+    });
+    assert.match(prompt, /This repository does not let AI employees run commands/);
+    assert.match(prompt, /Run the document link checker before committing/);
+    assert.match(prompt, /never mark it as passed/);
+    assert.ok(!prompt.includes("repository_run_command"));
   });
 
   test("loads the command tool up front only where it would work", () => {
@@ -2150,6 +2177,57 @@ describe("AGENTS.md", () => {
     assert.match(brief, /Use the word Routine, never Task\./, "the guide's own text must be there");
     assert.match(brief, /<AGENTS\.md>/);
     assert.match(brief, /<\/AGENTS\.md>/);
+  });
+
+  test("records root guide loading before the model starts", async () => {
+    await grantAccess();
+    await repositoryWithGuide();
+    const session = await start(capturingChat().chat);
+    const events = await AppDataSource.getRepository(RepositoryWorkSessionEvent).find({
+      where: { sessionId: session.id },
+      order: { ordinal: "ASC" },
+    });
+    assert.equal(events[0]?.kind, "progress");
+    assert.match(events[0]?.summary ?? "", /Loaded contributor guide AGENTS.md/);
+    assert.ok(
+      !events.some((event) => event.kind === "tool_use"),
+      "loading is not a fabricated model tool call",
+    );
+  });
+
+  for (const name of ["agents.md", "agent.md", "AgEnT.Md", "CLAUDE.md"]) {
+    test(`includes ${name} in the actual session briefing`, async () => {
+      await grantAccess();
+      await ensureRepositoryWorkspace(repository);
+      await writeRepositoryFile(repository, name, `# ${name}\nRun the specified checks.\n`);
+      await commitRepositoryChanges(repository, { message: "Add guidance" });
+      const capture = capturingChat();
+      await start(capture.chat);
+      assert.ok(capture.brief().includes(`<${name}>`));
+      assert.match(capture.brief(), /Run the specified checks/);
+    });
+  }
+
+  test("reloads the session guide on a follow-up turn", async () => {
+    await grantAccess();
+    await repositoryWithGuide();
+    const session = await start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "AGENTS.md", "Use the revised checks on the next turn.\n");
+        await sessionCommit(repository, directory, "Revise guidance");
+      }),
+    );
+    const capture = capturingChat();
+    await reviseRepositoryWorkSession({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Continue",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: capture.chat,
+    });
+    assert.match(capture.brief(), /Use the revised checks on the next turn/);
+    assert.ok(!capture.brief().includes("Use the word Routine, never Task."));
   });
 
   test("is not mentioned in the briefing of a repository without one", async () => {

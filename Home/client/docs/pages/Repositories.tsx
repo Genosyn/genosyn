@@ -259,9 +259,10 @@ export function Repositories() {
           own, on a fresh branch under <Code>genosyn/</Code>. Two sessions never collide.
         </LI>
         <LI>
-          If the repository has an <Code>AGENTS.md</Code> at its root — or a <Code>CLAUDE.md</Code>{" "}
-          when it has no <Code>AGENTS.md</Code> — it is included in the employee&apos;s briefing, so
-          the work follows your conventions.
+          Genosyn reads the root contributor guide into the employee&apos;s briefing and records
+          that it loaded it in Activity. It recognizes <Code>AGENTS.md</Code>, <Code>agent.md</Code>,
+          and other capitalization variants, with <Code>CLAUDE.md</Code> as a fallback. See{" "}
+          <DocLink to="#agents-md">Contributor guides</DocLink>.
         </LI>
         <LI>
           The employee works through tools Genosyn runs on its behalf, and gets no filesystem access
@@ -403,17 +404,37 @@ export function Repositories() {
         the same branch rather than moving the ground under a diff you are in the middle of reading.
       </P>
 
-      <H3 id="agents-md">AGENTS.md</H3>
+      <H3 id="agents-md">Contributor guides</H3>
       <P>
-        If your repository keeps an <Code>AGENTS.md</Code> at its root, Genosyn reads it and
-        includes it in the employee&apos;s briefing for every session; a repository that keeps a{" "}
-        <Code>CLAUDE.md</Code> instead is read the same way. It is the ordinary convention for
-        telling contributors how to work in a repository — the vocabulary to use, the stack, what
-        gets a change sent back — and an employee that has read it produces work you merge rather
-        than work you have to explain. Large guides are truncated in the briefing, and the employee
-        is told to read the rest with its own file-reading tool. The file is treated as a document,
-        not as instructions from you: it cannot widen what a session is allowed to do, and the tools
-        a session gets are fixed regardless of what any file in the repository says.
+        Keep your conventions, setup steps, and verification commands in <Code>AGENTS.md</Code>
+        at the repository root. Genosyn automatically includes it in every work session&apos;s
+        briefing, including follow-ups, and in ordinary chats and Routines after it prepares the
+        employee&apos;s granted checkouts. Activity shows when a work session loads its root guide.
+      </P>
+      <P>
+        Names are matched without regard to capitalization: <Code>AGENTS.md</Code> takes
+        precedence over <Code>AGENT.md</Code>, then <Code>CLAUDE.md</Code>. Lowercase names such
+        as <Code>agents.md</Code> and <Code>agent.md</Code> work too. The first readable,
+        nonempty guide in that order is used per directory. Guides in subdirectories apply only
+        to that directory and its descendants. Work-session file reads and directory listings
+        include the applicable guides, from the root down; deeper guidance takes precedence
+        within its scope. In ordinary chats and Routines, employees are instructed to read nested
+        guides before editing those directories.
+      </P>
+      <P>
+        Large guides include continuation instructions so the employee can read the remaining
+        text before making changes. Guidance controls repository conventions and verification
+        scope, including instructions to run only targeted tests. It cannot change the
+        Member&apos;s request, company Policies, or the employee&apos;s access. A guide is read
+        as instructions for the employee; its Markdown is never executed as a script.
+      </P>
+      <P>
+        Name each required command, its directory, and when it should run. For example:
+        <Code>npm run lint</Code> in <Code>App/</Code> and <Code>Home/</Code> before committing.
+        The employee is instructed to run applicable commands, including checks for document
+        repositories, and report their directory and result. If a command cannot run, its report
+        should name the command and the reason. Expand its Activity entry to inspect the recorded
+        output and exit status; a commit alone does not prove verification passed.
       </P>
 
       <H3 id="commands">Commands</H3>
@@ -446,6 +467,13 @@ export function Repositories() {
         <Code>npm test &amp;&amp; curl example.com</Code> is refused for the second half — and the
         constructs that would hide what actually runs, such as <Code>$(…)</Code> and redirection,
         are refused rather than guessed at. Lines beginning with <Code>#</Code> are comments.
+      </P>
+      <P>
+        Commands can run in a subdirectory of the session&apos;s working copy. The employee supplies
+        that directory separately from the command, so <Code>npm run lint</Code> in <Code>App</Code>
+        meets the same command policy as it does at the root. Every call starts in its own directory;
+        changing directories in one call does not affect the next. Activity includes the directory
+        alongside the command.
       </P>
       <Callout kind="info" title="The list is intent. The isolation is the boundary.">
         Whichever mode you pick, a command runs behind <Code>bubblewrap</Code> with the

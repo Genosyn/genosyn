@@ -231,6 +231,23 @@ describe("SessionActivityRecorder", () => {
     assert.ok((detail(search).output as string).endsWith("\n… [4000 more characters]"));
   });
 
+  test("records a command's requested and actual directories beside its result", async () => {
+    const rec = recorder();
+    rec.toolUse("repository_run_command", { command: "npm run lint", cwd: "app-alias" }, "lint");
+    rec.toolResult(
+      "repository_run_command",
+      { content: JSON.stringify({ ran: true, command: "npm run lint", cwd: "App", exitCode: 0 }) },
+      "lint",
+    );
+    await rec.finish();
+    const [use, result] = await events();
+    assert.equal(use.summary, "Ran npm run lint in app-alias");
+    assert.equal(result.summary, "Exit 0 in App");
+    assert.equal(result.callId, use.callId);
+    assert.deepEqual(detail(use).input, { command: "npm run lint", cwd: "app-alias" });
+    assert.equal(JSON.parse(detail(result).output as string).cwd, "App");
+  });
+
   test("clips oversized tool arguments before storing them", async () => {
     const rec = recorder();
     const content = "w".repeat(4_100);
@@ -445,7 +462,10 @@ describe("the running-turn registry", () => {
 
 describe("describeToolUse", () => {
   test("reads, with and without a line range", () => {
-    assert.equal(describeToolUse("repository_read_file", { path: "src/app.ts" }), "Read src/app.ts");
+    assert.equal(
+      describeToolUse("repository_read_file", { path: "src/app.ts" }),
+      "Read src/app.ts",
+    );
     assert.equal(
       describeToolUse("repository_read_file", { path: "src/app.ts", offset: 10, limit: 20 }),
       "Read src/app.ts (lines 10–29)",
@@ -489,7 +509,10 @@ describe("describeToolUse", () => {
   });
 
   test("commands, commits and the rest", () => {
-    assert.equal(describeToolUse("repository_run_command", { command: "npm test" }), "Ran npm test");
+    assert.equal(
+      describeToolUse("repository_run_command", { command: "npm test" }),
+      "Ran npm test",
+    );
     assert.equal(
       describeToolUse("repository_run_command", { command: "npm   run\n  lint" }),
       "Ran npm run lint",
@@ -504,10 +527,32 @@ describe("describeToolUse", () => {
       describeToolUse("repository_diff", { committed: true }),
       "Reviewed the committed diff",
     );
-    assert.equal(describeToolUse("repository_update_steps", { steps: [] }), "Updated the step list");
+    assert.equal(
+      describeToolUse("repository_update_steps", { steps: [] }),
+      "Updated the step list",
+    );
     assert.equal(describeToolUse("contacts_create", { email: "a@b.c" }), "Called contacts_create");
     // A missing or non-string path never throws.
     assert.equal(describeToolUse("repository_read_file", { path: 42 }), "Read ");
+  });
+
+  test("command summaries distinguish packages and keep root calls compact", () => {
+    assert.equal(
+      describeToolUse("repository_run_command", { command: "npm run lint", cwd: "packages/web" }),
+      "Ran npm run lint in packages/web",
+    );
+    for (const cwd of [".", "", undefined, 42]) {
+      assert.equal(
+        describeToolUse("repository_run_command", { command: "npm test", cwd }),
+        "Ran npm test",
+      );
+    }
+    const summary = describeToolUse("repository_run_command", {
+      command: "npm test",
+      cwd: "x".repeat(1000),
+    });
+    assert.ok(summary.length < 150);
+    assert.ok(summary.endsWith("…"));
   });
 });
 
@@ -539,6 +584,25 @@ describe("describeToolResult", () => {
     assert.equal(describeToolResult("repository_run_command", { content: "plain" }), "Finished");
   });
 
+  test("command outcomes retain the actual working directory", () => {
+    const outcome = (value: unknown) =>
+      describeToolResult("repository_run_command", { content: JSON.stringify(value) });
+    assert.equal(outcome({ ran: true, cwd: "App", exitCode: 0 }), "Exit 0 in App");
+    assert.equal(outcome({ ran: true, cwd: "Home", exitCode: 2 }), "Exit 2 in Home");
+    assert.equal(
+      outcome({ ran: true, cwd: "App", timedOut: true }),
+      "Stopped at the time limit in App",
+    );
+    assert.equal(outcome({ ran: true, cwd: "App", exitCode: null }), "Finished in App");
+    assert.equal(
+      outcome({ ran: false, cwd: "App", reason: "Not allowed" }),
+      "Not run: Not allowed",
+    );
+    for (const cwd of [".", "", undefined, 42]) {
+      assert.equal(outcome({ ran: true, cwd, exitCode: 0 }), "Exit 0");
+    }
+  });
+
   test("commits: sha and file count, or nothing to commit", () => {
     const json = (value: unknown) => ({ content: JSON.stringify(value) });
     assert.equal(
@@ -556,7 +620,10 @@ describe("describeToolResult", () => {
       "0123456 · 1 file",
     );
     assert.equal(
-      describeToolResult("repository_commit", json({ committed: true, commit: "0123456789abcdef" })),
+      describeToolResult(
+        "repository_commit",
+        json({ committed: true, commit: "0123456789abcdef" }),
+      ),
       "0123456",
     );
     assert.equal(

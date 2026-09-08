@@ -1,3 +1,4 @@
+import { withRepositoryGuidance } from "../services/repositoryGuidance.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { selfReviewToolError } from "../services/proactive/reviewPolicy.js";
@@ -13931,7 +13932,7 @@ mcpInternalRouter.post(
       const { repo, directory } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositoryListFilesSchema>;
       const tree = await sessionTree(repo, directory, body.path ?? "", body.depth ?? 1);
-      respondWithText(res, tree.text);
+      respondWithText(res, withRepositoryGuidance(directory, body.path ?? "", tree.text, true));
     } catch (error) {
       respondWithSessionError(res, error);
     }
@@ -13957,7 +13958,7 @@ mcpInternalRouter.post(
         offset: body.offset,
         limit: body.limit,
       });
-      respondWithText(res, read.text);
+      respondWithText(res, withRepositoryGuidance(directory, read.path, read.text));
     } catch (error) {
       respondWithSessionError(res, error);
     }
@@ -14195,6 +14196,7 @@ mcpInternalRouter.post(
 const repositoryRunCommandSchema = z
   .object({
     command: z.string().min(1).max(MAX_SESSION_COMMAND_LENGTH),
+    cwd: z.string().max(1000).optional(),
     timeout_ms: z.number().int().positive().max(MAX_SESSION_COMMAND_MS).optional(),
   })
   .strict();
@@ -14231,6 +14233,7 @@ mcpInternalRouter.post(
           repo,
           directory,
           command: body.command,
+          cwd: body.cwd,
           timeoutMs: body.timeout_ms,
           signal: controller.signal,
         });
@@ -14240,6 +14243,7 @@ mcpInternalRouter.post(
         res.json({
           ran: true,
           command: body.command,
+          cwd: result.cwd,
           exitCode: result.exitCode,
           timedOut: result.timedOut,
           truncated: result.truncated,
