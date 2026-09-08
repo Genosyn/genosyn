@@ -240,6 +240,7 @@ export type WsInboundEvent =
       by: { kind: "user" | "ai"; id: string; name: string };
     }
   | { type: "presence"; userId: string; online: boolean }
+  | { type: "mail.updated"; accountId: string; threadsChanged?: boolean }
   | {
       type: "notification.new";
       userId: string;
