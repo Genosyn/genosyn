@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { ModelEffort } from "../../../../shared/modelEffort.js";
 import type {
   AgentMessage,
   AssistantBlock,
@@ -32,6 +33,7 @@ function maxTokensFor(model: string): number {
 export function createAnthropicClient(opts: {
   apiKey: string;
   model: string;
+  effort?: Exclude<ModelEffort, "none" | "minimal" | "ultra"> | null;
   baseURL?: string;
 }): ModelClient {
   const client = new Anthropic({
@@ -53,6 +55,7 @@ export function createAnthropicClient(opts: {
       const stream = client.messages.stream(
         {
           model: opts.model,
+          ...(opts.effort != null ? { output_config: { effort: opts.effort } } : {}),
           max_tokens: maxTokensFor(opts.model),
           system,
           messages: messages.map(toAnthropicMessage),

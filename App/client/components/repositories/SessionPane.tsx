@@ -60,6 +60,7 @@ import { useChatAttachments } from "@/lib/stagedChatAttachments";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
 import type { ChatAttachment } from "@/lib/api";
+import { MODEL_EFFORT_LABELS } from "@/lib/workSessionModel";
 
 /**
  * One work session, everywhere it is shown.
@@ -668,6 +669,9 @@ export function SessionPane({
             </span>
             <span className="inline-flex items-center gap-1">
               <Clock3 size={11} /> {formatRelative(session.createdAt)}
+            </span>
+            <span title="Used for this session and every follow-up">
+              Effort: {session.effort ? MODEL_EFFORT_LABELS[session.effort] : "Model default"}
             </span>
             {session.branch && (
               <span

@@ -22,6 +22,7 @@ const models: WorkSessionModel[] = [
     label: "GPT 5.4",
     status: "connected",
     isActive: false,
+    effortLevels: ["none", "low", "medium", "high", "xhigh"],
   },
   {
     id: "claude",
@@ -30,6 +31,7 @@ const models: WorkSessionModel[] = [
     label: "Claude Sonnet",
     status: "connected",
     isActive: true,
+    effortLevels: ["low", "medium", "high"],
   },
   {
     id: "local",
@@ -38,6 +40,7 @@ const models: WorkSessionModel[] = [
     label: "Company local model",
     status: "not_connected",
     isActive: false,
+    effortLevels: [],
   },
 ];
 const employees: Candidate[] = [
@@ -103,6 +106,23 @@ function Harness() {
     if (scenario === "loading" || scenario === "error") return null;
     if (scenario === "empty") return [];
     if (scenario === "one") return [employees[1]];
+    if (scenario === "subscription")
+      return [
+        {
+          ...employees[1],
+          models: [
+            {
+              ...models[0],
+              id: "jamie-subscription",
+              model: "gpt-5.6-sol",
+              label: "GPT 5.6 Sol",
+              effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+            },
+          ],
+        },
+      ];
+    if (scenario === "unsupported")
+      return [{ ...employees[1], models: [{ ...models[0], id: "jamie-gpt", effortLevels: [] }] }];
     if (scenario === "none") return [employees[2]];
     if (scenario === "disconnected")
       return [{ ...employees[0], models: models.map((m) => ({ ...m, status: "not_connected" })) }];
@@ -163,6 +183,15 @@ function Harness() {
           </button>
           <button onClick={() => changeModels((current) => [...current].reverse())}>
             Reorder models
+          </button>
+          <button
+            onClick={() =>
+              changeModels((current) =>
+                current.map((m) => ({ ...m, effortLevels: m.effortLevels?.filter((e) => e !== "xhigh") })),
+              )
+            }
+          >
+            Remove extra high effort
           </button>
           <button
             onClick={() =>

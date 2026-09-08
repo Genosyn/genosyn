@@ -233,6 +233,7 @@ describe("work-session AI Model selection", () => {
       id: prepared.session.id,
     });
     assert.equal(stored.modelId, active.id);
+    assert.equal(stored.effort, null);
   });
 
   test("selecting another model leaves the employee's active default unchanged", async () => {
@@ -253,13 +254,19 @@ describe("work-session AI Model selection", () => {
   });
 
   test("a non-active model reaches the runtime and stays selected on a follow-up", async () => {
-    const chosen = await addModel();
+    const chosen = await addModel({ model: "gpt-5.6-sol" });
     const used: Array<string | null | undefined> = [];
+    const efforts: Array<string | null | undefined> = [];
     const runChat: typeof chatWithEmployee = async (...args) => {
       used.push(args[4]?.modelId);
+      efforts.push(args[4]?.effort);
       return stubChat(() => {})(...args);
     };
-    const started = await startRepositoryWorkSession({ ...openingArgs(chosen.id), runChat });
+    const started = await startRepositoryWorkSession({
+      ...openingArgs(chosen.id),
+      effort: "high",
+      runChat,
+    });
     assert.equal(started.status, "empty");
     assert.equal(started.modelId, chosen.id);
     await AppDataSource.getRepository(AIModel).update(
@@ -272,6 +279,61 @@ describe("work-session AI Model selection", () => {
     assert.equal(revised.turnCount, 2);
     assert.equal(revised.modelId, chosen.id);
     assert.deepEqual(used, [chosen.id, chosen.id]);
+    assert.deepEqual(efforts, ["high", "high"]);
+    assert.equal(revised.effort, "high");
+    const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: started.id,
+    });
+    assert.equal(stored.effort, "high");
+  });
+
+  test("rejects unsupported effort before creating a session or turn", async () => {
+    const chosen = await addModel({ model: "gpt-4o" });
+    await assert.rejects(
+      () => createRepositoryWorkSession({ ...openingArgs(chosen.id), effort: "high" }),
+      /does not support this effort/,
+    );
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 0);
+  });
+
+  test("revalidates saved effort if the model is edited before a follow-up", async () => {
+    const chosen = await addModel({ model: "gpt-5.6-sol" });
+    const started = await startRepositoryWorkSession({
+      ...openingArgs(chosen.id),
+      effort: "max",
+      runChat: stubChat(() => {}),
+    });
+    await AppDataSource.getRepository(AIModel).update(chosen.id, { model: "gpt-4o" });
+    await assert.rejects(
+      () => prepareWorkSessionRevision(revisionArgs(started.id)),
+      /does not support this effort/,
+    );
+    const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: started.id,
+    });
+    assert.equal(stored.status, "empty");
+    assert.equal(stored.turnCount, 1);
+    assert.equal(stored.effort, "max");
+  });
+
+  test("revalidates effort between preparing and running before work starts", async () => {
+    const chosen = await addModel({ model: "gpt-5.6-sol" });
+    let called = false;
+    const prepared = await createRepositoryWorkSession({
+      ...openingArgs(chosen.id),
+      effort: "max",
+      runChat: async (...args) => {
+        called = true;
+        return stubChat(() => {})(...args);
+      },
+    });
+    await AppDataSource.getRepository(AIModel).update(chosen.id, { model: "gpt-5.4" });
+    const failed = await runRepositoryWorkSession(prepared);
+    assert.equal(called, false);
+    assert.equal(failed.status, "failed");
+    assert.match(failed.error, /does not support this effort/);
+    assert.equal(failed.branch, null);
   });
 
   test("the only model reaches the runtime when no model id is supplied", async () => {

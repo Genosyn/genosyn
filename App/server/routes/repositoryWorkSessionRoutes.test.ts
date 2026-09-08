@@ -239,6 +239,7 @@ describe("work-session AI Model endpoints", () => {
     assert.equal(models.length, 3);
     for (const model of models) {
       assert.deepEqual(Object.keys(model).sort(), [
+        "effortLevels",
         "id",
         "isActive",
         "label",
@@ -256,6 +257,7 @@ describe("work-session AI Model endpoints", () => {
         label: "Anthropic (Claude) · claude-test",
         status: "connected",
         isActive: true,
+        effortLevels: [],
       },
     );
     assert.equal(models.find((model) => model.id === disconnected.id)?.status, "not_connected");
@@ -319,23 +321,24 @@ describe("work-session AI Model endpoints", () => {
 
   for (const mode of ["explicit", "default"] as const) {
     test(`starts a work session with the ${mode} model id in the response and stored row`, async () => {
-      const second = await addModel();
+      const second = await addModel({ model: "gpt-5.6-sol" });
       const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
         employeeId: employee.id,
         isActive: true,
       });
       const expectedId = mode === "explicit" ? second.id : active.id;
-      const result = await call(
-        "POST",
-        sessionsUrl(),
-        startBody(mode === "explicit" ? second.id : undefined),
-      );
+      const result = await call("POST", sessionsUrl(), {
+        ...startBody(mode === "explicit" ? second.id : undefined),
+        ...(mode === "explicit" ? { effort: "max" } : {}),
+      });
       assert.equal(result.status, 200);
       assert.equal(result.body.modelId, expectedId);
+      assert.equal(result.body.effort, mode === "explicit" ? "max" : null);
       const stored = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
         id: String(result.body.id),
       });
       assert.equal(stored.modelId, expectedId);
+      assert.equal(stored.effort, mode === "explicit" ? "max" : null);
       assert.equal(stored.employeeId, employee.id);
       // Placeholder ciphertext fails locally; no real provider request is made.
       const deadline = Date.now() + 60_000;
@@ -395,6 +398,45 @@ describe("work-session AI Model endpoints", () => {
       assert.equal(result.body.error, "ValidationError");
     }
     assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+  });
+
+  test("returns model-specific effort choices without model credentials", async () => {
+    const chosen = await addModel({ model: "gpt-5.6-sol" });
+    const result = await call("GET", candidatesUrl());
+    const employees = result.body.employees as Array<{
+      models: Array<{ id: string; effortLevels: string[] }>;
+    }>;
+    assert.deepEqual(employees[0].models.find((model) => model.id === chosen.id)?.effortLevels, [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
+  test("validates effort values and model support before creating work", async () => {
+    for (const effort of ["ultra", "", 7, ["high"], { effort: "high" }]) {
+      const result = await call("POST", sessionsUrl(), { ...startBody(), effort });
+      assert.equal(result.status, 400);
+      assert.equal(result.body.error, "ValidationError");
+    }
+    const result = await call("POST", sessionsUrl(), { ...startBody(), effort: "high" });
+    assert.equal(result.status, 400);
+    assert.match(String(result.body.error), /does not support this effort/);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("a revision cannot silently override the saved effort", async () => {
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/revise`, {
+      instruction: "Another pass",
+      effort: "high",
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, "ValidationError");
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
   });
 
   test("revision requests cannot silently override the session's chosen model", async () => {

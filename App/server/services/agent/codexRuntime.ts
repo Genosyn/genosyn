@@ -1,4 +1,5 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 import {
   CODEX_CONFIG_OVERRIDES,
   prepareCodexRuntime,
@@ -53,6 +54,7 @@ export type CodexSubscriptionResult = {
  */
 export async function runCodexSubscriptionTurn(params: {
   model: AIModel;
+  effort?: ModelEffort | null;
   system: string;
   messages: AgentMessage[];
   registry: ToolRegistry;
@@ -280,6 +282,7 @@ export async function runCodexSubscriptionTurn(params: {
           threadId,
           input: conversation.current,
           approvalPolicy: "never",
+          ...(params.effort != null ? { effort: params.effort } : {}),
         },
         30_000,
       );

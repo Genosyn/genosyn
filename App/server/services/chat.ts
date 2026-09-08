@@ -1,4 +1,5 @@
 import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
+import type { ModelEffort } from "../../shared/modelEffort.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -176,6 +177,8 @@ type ChatBaseOptions = {
    * surface.
    */
   modelId?: string | null;
+  /** Effort selected for this turn; omit/null to use the AI Model's default. */
+  effort?: ModelEffort | null;
   /**
    * Enables the turn-local `report_progress` control and receives each update.
    * Omit it on chat surfaces that cannot display ephemeral progress.
@@ -570,6 +573,7 @@ export async function streamChatWithEmployee(
       try {
         const result = await runRestrictedEmployeeAgent({
           model,
+          effort: options.effort,
           employeeId: emp.id,
           system,
           messages,
@@ -801,6 +805,7 @@ export async function streamChatWithEmployee(
     try {
       const result = await runEmployeeAgent({
         model,
+        effort: options.effort,
         employeeId: emp.id,
         system,
         messages,

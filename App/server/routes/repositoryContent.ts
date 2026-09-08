@@ -1,5 +1,6 @@
 import { Router, type Request, type RequestHandler, type Response } from "express";
 import { z } from "zod";
+import { MODEL_EFFORT_VALUES } from "../../shared/modelEffort.js";
 import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -747,6 +748,7 @@ const startSessionSchema = z
   .object({
     employeeId: z.string().uuid(),
     modelId: z.string().uuid().optional(),
+    effort: z.enum(MODEL_EFFORT_VALUES).nullable().optional(),
     ...sessionInstructionShape,
   })
   .strict()
@@ -795,6 +797,7 @@ repositoryContentRouter.post(
       repositoryId: repo.id,
       employeeId: employee.id,
       modelId: body.modelId,
+      effort: body.effort,
       instruction: body.instruction,
       attachmentIds: body.attachmentIds,
       requesterUserId: req.userId,

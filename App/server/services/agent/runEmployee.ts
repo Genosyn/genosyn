@@ -1,4 +1,5 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 import { runAgentLoop } from "./loop.js";
 import { createModelClient } from "./modelClients/index.js";
 import {
@@ -41,6 +42,8 @@ import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
 
 export type EmployeeAgentParams = {
   model: AIModel;
+  /** Turn-local effort; null leaves the model's default unchanged. */
+  effort?: ModelEffort | null;
   employeeId: string;
   /** System prompt: persona + Soul + memory + skills + tools briefing. */
   system: string;
@@ -117,6 +120,7 @@ export type EmployeeAgentResult =
  */
 export type RestrictedEmployeeAgentParams = {
   model: AIModel;
+  effort?: ModelEffort | null;
   employeeId: string;
   system: string;
   messages: AgentMessage[];
@@ -204,7 +208,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     return runSubscriptionEmployeeAgent(params, localTools);
   }
 
-  const built = await createModelClient(params.model);
+  const built = await createModelClient(params.model, { effort: params.effort });
   if ("error" in built) return { status: "error", error: built.error };
 
   const gathered = await gatherEmployeeTools({
@@ -301,6 +305,7 @@ async function runRestrictedEmployeeTurn(
     if (params.model.authMode === "subscription") {
       const result = await runCodexSubscriptionTurn({
         model: params.model,
+        effort: params.effort,
         system: params.system,
         messages: params.messages,
         registry,
@@ -311,7 +316,7 @@ async function runRestrictedEmployeeTurn(
       return { status: "ok", finalText: result.finalText, steps: result.steps };
     }
 
-    const built = await createModelClient(params.model);
+    const built = await createModelClient(params.model, { effort: params.effort });
     if ("error" in built) return { status: "error", error: built.error };
     const result = await runAgentLoop({
       client: built.client,
@@ -380,6 +385,7 @@ async function runSubscriptionEmployeeAgent(
 
     const result = await runCodexSubscriptionTurn({
       model: params.model,
+      effort: params.effort,
       system: params.system,
       messages: params.messages,
       registry: gathered.registry,

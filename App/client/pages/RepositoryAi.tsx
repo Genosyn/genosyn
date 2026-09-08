@@ -49,8 +49,12 @@ import { useChatAttachments } from "@/lib/stagedChatAttachments";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
 import { WorkSessionModelPicker } from "@/components/repositories/WorkSessionModelPicker";
-import { resolveWorkSessionModelId, type WorkSessionModelOverride } from "@/lib/workSessionModel";
-import type { ChatAttachment } from "@/lib/api";
+import {
+  MODEL_EFFORT_LABELS,
+  resolveWorkSessionModelId,
+  type WorkSessionModelOverride,
+} from "@/lib/workSessionModel";
+import type { ChatAttachment, ModelEffort } from "@/lib/api";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -750,6 +754,11 @@ export function NewSessionPane({
 }) {
   const [employeeId, setEmployeeId] = React.useState("");
   const [modelOverride, setModelOverride] = React.useState<WorkSessionModelOverride | null>(null);
+  const [effortOverride, setEffortOverride] = React.useState<{
+    employeeId: string;
+    modelId: string;
+    effort: ModelEffort;
+  } | null>(null);
   const [instruction, setInstruction] = usePersistedDraft(
     `repository-ai-draft:${currentUserId}:${repoId}`,
   );
@@ -766,12 +775,32 @@ export function NewSessionPane({
     (files) => void attachments.addFiles(files),
     { disabled: starting || !candidates?.length },
   );
+  const selected = candidates?.find((candidate) => candidate.id === employeeId) ?? candidates?.[0];
+  const selectedModelId = selected
+    ? resolveWorkSessionModelId({
+        employeeId: selected.id,
+        models: selected.models,
+        override: modelOverride,
+      })
+    : null;
+  const effortLevels = selected?.models.find((model) => model.id === selectedModelId)?.effortLevels;
+  const selectedEffort =
+    effortOverride &&
+    effortOverride.employeeId === selected?.id &&
+    effortOverride.modelId === selectedModelId &&
+    effortLevels?.includes(effortOverride.effort)
+      ? effortOverride.effort
+      : null;
+  React.useEffect(() => {
+    // A live model or Grant update can invalidate a choice while the brief stays open.
+    if (effortOverride && !selectedEffort) setEffortOverride(null);
+  }, [effortOverride, selectedEffort]);
 
   if (candidates === null) {
     return error ? <InlineRetry message={error} onRetry={onRetry} /> : <NewSessionSkeleton />;
   }
 
-  if (candidates.length === 0) {
+  if (!selected) {
     return (
       <section className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -798,15 +827,8 @@ export function NewSessionPane({
     );
   }
 
-  const selected = candidates.find((candidate) => candidate.id === employeeId) ?? candidates[0];
-  const selectedModelId = resolveWorkSessionModelId({
-    employeeId: selected.id,
-    models: selected.models,
-    override: modelOverride,
-  });
-
   async function start() {
-    if (!selectedModelId || submitting.current || attachments.isUploading()) return;
+    if (!selected || !selectedModelId || submitting.current || attachments.isUploading()) return;
     setStartError(null);
     if (!instruction.trim() && !attachments.pending.length) {
       setStartError("Say what the employee should do.");
@@ -818,6 +840,7 @@ export function NewSessionPane({
       const session = await api.post<RepositoryWorkSession>(`${base}/sessions`, {
         employeeId: selected.id,
         modelId: selectedModelId,
+        effort: selectedEffort,
         instruction: instruction.trim(),
         attachmentIds: attachments.pending.map((attachment) => attachment.id),
       });
@@ -969,6 +992,7 @@ export function NewSessionPane({
                 onChange={(event) => {
                   setEmployeeId(event.target.value);
                   setModelOverride(null);
+                  setEffortOverride(null);
                   setStartError(null);
                 }}
               >
@@ -984,9 +1008,34 @@ export function NewSessionPane({
                 disabled={starting}
                 onChange={(modelId) => {
                   setModelOverride({ employeeId: selected.id, modelId });
+                  setEffortOverride(null);
                   setStartError(null);
                 }}
               />
+              {!!effortLevels?.length && (
+                <Select
+                  label="Effort"
+                  value={selectedEffort ?? ""}
+                  disabled={starting}
+                  containerClassName="w-full min-w-0 sm:w-44"
+                  onChange={(event) => {
+                    const effort = effortLevels.find((level) => level === event.target.value);
+                    setEffortOverride(
+                      effort && selectedModelId
+                        ? { employeeId: selected.id, modelId: selectedModelId, effort }
+                        : null,
+                    );
+                    setStartError(null);
+                  }}
+                >
+                  <option value="">Model default</option>
+                  {effortLevels.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {MODEL_EFFORT_LABELS[effort]}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </div>
             <Button
               onClick={start}

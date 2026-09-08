@@ -1,4 +1,5 @@
 import { dateTimeColumnType } from "./columnTypes.js";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -83,6 +84,10 @@ export class RepositoryWorkSession {
   /** Keep the opening AI Model for every follow-up. Older sessions use the active model. */
   @Column({ type: "varchar", nullable: true })
   modelId!: string | null;
+
+  /** Keep the selected effort for every follow-up. Null uses the AI Model default. */
+  @Column({ type: "varchar", nullable: true })
+  effort!: ModelEffort | null;
 
   /** The requesting Member, or null for employee-initiated work. Each turn records its own asker. */
   @Column({ type: "varchar", nullable: true })

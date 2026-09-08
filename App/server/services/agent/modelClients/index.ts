@@ -1,4 +1,5 @@
 import type { AIModel } from "../../../db/entities/AIModel.js";
+import type { ModelEffort } from "../../../../shared/modelEffort.js";
 import { decryptSecret } from "../../../lib/secret.js";
 import { assertSafeOutboundUrl } from "../../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../../customEndpoint.js";
@@ -29,6 +30,7 @@ import { createOpenAIResponsesClient } from "./openaiResponses.js";
  */
 export async function createModelClient(
   model: AIModel,
+  options: { effort?: ModelEffort | null } = {},
 ): Promise<{ client: ModelClient } | { error: string }> {
   if (model.authMode === "subscription") {
     return {
@@ -38,9 +40,17 @@ export async function createModelClient(
           : `${model.provider} does not support subscription authentication.`,
     };
   }
+  if (options.effort === "ultra") {
+    return {
+      error: "Ultra effort is available only through supported ChatGPT subscription AI Models.",
+    };
+  }
   if (model.authMode === "customEndpoint") {
     if (model.provider !== "custom") {
       return { error: `${model.provider} does not use a custom endpoint — use an API key.` };
+    }
+    if (options.effort != null) {
+      return { error: "Custom AI Models use their default effort." };
     }
     const cfg = readCustomEndpoint(model);
     if (!cfg) {
@@ -76,13 +86,23 @@ export async function createModelClient(
   if ("error" in key) return { error: key.error };
 
   if (model.provider === "anthropic") {
-    return { client: createAnthropicClient({ apiKey: key.apiKey, model: model.model }) };
+    if (options.effort === "none" || options.effort === "minimal") {
+      return { error: "The selected effort is not supported by this Anthropic AI Model." };
+    }
+    return {
+      client: createAnthropicClient({
+        apiKey: key.apiKey,
+        model: model.model,
+        effort: options.effort,
+      }),
+    };
   }
   if (model.provider === "openai") {
     return {
       client: createOpenAIResponsesClient({
         apiKey: key.apiKey,
         model: model.model,
+        effort: options.effort,
         maxTools: OPENAI_MAX_TOOLS,
       }),
     };

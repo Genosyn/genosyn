@@ -253,6 +253,16 @@ export function Repositories() {
           employee&apos;s <DocLink to="/docs/models#multiple-models">active model</DocLink>.
         </LI>
         <LI>
+          Choose <Strong>Effort</Strong> to control how much work the selected AI Model puts into
+          each response. This control appears for models that support it, including when the
+          employee has only one model, and lists only that model&apos;s supported choices. Higher
+          effort can take more time and tokens. <Strong>Model default</Strong> uses the AI
+          Model&apos;s normal setting. The effort you choose stays with the session for every
+          follow-up and appears in its header. Changing the employee or AI Model resets the choice
+          to Model default. Custom endpoints and models without known effort support use their
+          normal setting.
+        </LI>
+        <LI>
           Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}
           <Strong>default branch</Strong> as it stands there — see{" "}
           <Strong>Where a session starts</Strong> below — in a git <Strong>worktree</Strong> of its

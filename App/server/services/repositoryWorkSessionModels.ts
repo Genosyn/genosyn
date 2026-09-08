@@ -6,6 +6,7 @@ import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.
 import type { Repository } from "../db/entities/Repository.js";
 import { effectiveActiveId, resolveChatModel } from "./models.js";
 import { isModelConnected, PROVIDERS } from "./providers.js";
+import { modelEffortLevels } from "./modelEffort.js";
 
 /** Only employees granted this company's Repository, with credential-free model choices. */
 export async function repositoryWorkSessionCandidates(repo: Repository) {
@@ -40,6 +41,7 @@ export async function repositoryWorkSessionCandidates(repo: Repository) {
         label: [PROVIDERS[model.provider].label, model.model].filter(Boolean).join(" · "),
         status: isModelConnected(model) ? ("connected" as const) : ("not_connected" as const),
         isActive: model.id === activeId,
+        effortLevels: modelEffortLevels(model),
       })),
     };
   });

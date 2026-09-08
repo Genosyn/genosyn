@@ -1,3 +1,6 @@
+import type { ModelEffort } from "../../shared/modelEffort";
+export type { ModelEffort } from "../../shared/modelEffort";
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -2795,6 +2798,8 @@ export type RepositoryWorkSession = {
   employeeId: string;
   /** Chosen AI Model; null for sessions created before model selection existed. */
   modelId: string | null;
+  /** Chosen reasoning effort for every turn; null uses the AI Model's default. */
+  effort: ModelEffort | null;
   requestedByUserId: string | null;
   /** Short label for the session list; renameable. */
   title: string;
@@ -2860,6 +2865,8 @@ export type RepositoryWorkSessionDetail = {
 };
 export type WorkSessionModel = Pick<AIModel, "id" | "provider" | "model" | "status" | "isActive"> & {
   label: string;
+  /** The server supplies the efforts this model currently supports. */
+  effortLevels?: ModelEffort[];
 };
 export type RepositoryWorkSessionCandidatesResponse = {
   employees: Array<RepositoryWorkSessionEmployee & { role: string; models: WorkSessionModel[] }>;

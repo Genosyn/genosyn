@@ -10,6 +10,9 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { decryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { CodexAppServer } from "./agent/codexAppServer.js";
+import { runCodexSubscriptionTurn } from "./agent/codexRuntime.js";
+import { residentOnlyRegistry } from "./agent/tools/toolRegistry.js";
 
 type ExecutionMode = "host" | "bubblewrap" | "disabled";
 
@@ -90,6 +93,55 @@ async function insertSubscriptionModel(configJson = "{}"): Promise<AIModel> {
 }
 
 describe("OpenAI subscription credential runtime", () => {
+  test("work-session effort reaches the Codex turn request and default effort stays omitted", async (t) => {
+    const entrypoint = path.join(tempRoot, "fake-app-server.mjs");
+    const requestPath = path.join(tempRoot, "turn-requests.jsonl");
+    await fs.writeFile(entrypoint, EFFORT_APP_SERVER);
+    const start = CodexAppServer.start;
+    t.mock.method(CodexAppServer, "start", (options: Parameters<typeof CodexAppServer.start>[0]) =>
+      start({
+        ...options,
+        entrypoint,
+        env: { ...options.env, GENOSYN_TEST_TURN_REQUESTS: requestPath },
+      }),
+    );
+    const model = await insertSubscriptionModel();
+    await subscription.saveSubscriptionAccessToken(model.id, `test-codex-effort-${randomUUID()}`);
+
+    for (const effort of ["max", "ultra", null, undefined] as const) {
+      const result = await runCodexSubscriptionTurn({
+        model,
+        effort,
+        system: "Read the work brief.",
+        messages: [{ role: "user", content: [{ type: "text", text: "Review the change." }] }],
+        registry: residentOnlyRegistry([]),
+        maxSteps: 4,
+      });
+      assert.equal(result.finalText, "Reviewed.");
+      assert.equal(result.steps, 1);
+      // Only the test's fixture and captured protocol remain after each turn.
+      assert.deepEqual((await fs.readdir(tempRoot)).sort(), [
+        "fake-app-server.mjs",
+        "turn-requests.jsonl",
+      ]);
+    }
+
+    const requests = (await fs.readFile(requestPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(requests.length, 4);
+    assert.equal(requests[0].effort, "max");
+    assert.equal(requests[1].effort, "ultra");
+    assert.equal(Object.hasOwn(requests[2], "effort"), false);
+    assert.equal(Object.hasOwn(requests[3], "effort"), false);
+    for (const request of requests) {
+      assert.equal(request.threadId, "test-thread");
+      assert.equal(request.approvalPolicy, "never");
+      assert.ok(Array.isArray(request.input));
+    }
+  });
+
   test("saving then preparing an access token keeps it encrypted at rest and ephemeral at runtime", async () => {
     const model = await insertSubscriptionModel(JSON.stringify({ harmlessSetting: true }));
     const accessToken = `codex-test-${randomUUID()}-${randomUUID()}`;
@@ -198,3 +250,42 @@ async function assertMissing(target: string): Promise<void> {
     return (error as NodeJS.ErrnoException).code === "ENOENT";
   });
 }
+
+/** Real JSONL transport fixture: records only turn parameters, never its credential environment. */
+const EFFORT_APP_SERVER = String.raw`
+import { appendFileSync } from "node:fs";
+import readline from "node:readline";
+
+const send = (value) => process.stdout.write(JSON.stringify(value) + "\n");
+readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ id: message.id, result: { codexHome: process.env.CODEX_HOME } });
+  } else if (message.method === "thread/start") {
+    const { cwd, model } = message.params;
+    send({
+      id: message.id,
+      result: {
+        thread: { id: "test-thread", cwd, ephemeral: true, parentThreadId: null },
+        cwd, model, modelProvider: "openai", approvalPolicy: "never",
+        sandbox: { type: "readOnly", networkAccess: false },
+        runtimeWorkspaceRoots: [], instructionSources: [],
+      },
+    });
+  } else if (message.method === "turn/start") {
+    appendFileSync(process.env.GENOSYN_TEST_TURN_REQUESTS, JSON.stringify(message.params) + "\n");
+    send({ id: message.id, result: { turn: { id: "test-turn" } } });
+    send({
+      method: "item/completed",
+      params: {
+        threadId: "test-thread", turnId: "test-turn",
+        item: { id: "reply", type: "agentMessage", text: "Reviewed.", phase: "final_answer" },
+      },
+    });
+    send({
+      method: "turn/completed",
+      params: { threadId: "test-thread", turn: { id: "test-turn", status: "completed" } },
+    });
+  }
+});
+`;

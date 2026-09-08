@@ -13,6 +13,8 @@ import {
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee, type ChatTurn } from "./chat.js";
 import { requireWorkSessionModel } from "./repositoryWorkSessionModels.js";
+import { requireModelEffort } from "./modelEffort.js";
+import type { ModelEffort } from "../../shared/modelEffort.js";
 import { hasRepositoryAccess } from "./repositories.js";
 import {
   MAX_EDITABLE_FILE_BYTES,
@@ -476,6 +478,7 @@ export type StartWorkSessionArgs = WorkSessionAuthority & {
   repositoryId: string;
   employeeId: string;
   modelId?: string;
+  effort?: ModelEffort | null;
   instruction: string;
   attachmentIds?: string[];
   /** Seam for tests; defaults to the real chat runtime. */
@@ -575,6 +578,7 @@ export async function createRepositoryWorkSession(
     throw new Error("Employee-started work sessions accept instructions, not Member attachments.");
   }
   const model = await requireWorkSessionModel(employee, args.modelId);
+  const effort = requireModelEffort(model, args.effort);
   const instruction = validateWorkSessionInstruction(args);
   const { session, turn } = await withSerializedTransaction(async (manager) => {
     const sessionRepo = manager.getRepository(RepositoryWorkSession);
@@ -584,6 +588,7 @@ export async function createRepositoryWorkSession(
         repositoryId: repo.id,
         employeeId: employee.id,
         modelId: model.id,
+        effort,
         requestedByUserId: args.requesterUserId ?? null,
         title: instruction ? deriveWorkSessionTitle(instruction) : "Shared attachments",
         instruction,
@@ -681,7 +686,8 @@ export async function prepareWorkSessionRevision(
     });
     if (!repo) throw new Error("Repository not found.");
     const employee = await loadWorkingEmployee(args.companyId, session.employeeId, repo);
-    await requireWorkSessionModel(employee, session.modelId);
+    const model = await requireWorkSessionModel(employee, session.modelId);
+    requireModelEffort(model, session.effort);
     const instruction = validateWorkSessionInstruction(args);
 
     // Postgres can prepare on separate connections. Claim the previous state
@@ -846,6 +852,7 @@ export async function runRepositoryWorkSession(
       prepared.toolAuthority === "employee" ? "write" : "read",
     );
     const model = await requireWorkSessionModel(employee, session.modelId);
+    const effort = requireModelEffort(model, session.effort);
     await ensureRepositoryWorkspace(repo);
     // Always before work starts, never after: `ensureRepositoryWorkspace` has
     // just refreshed `origin/*`, and this is what turns that fetch into a
@@ -903,6 +910,7 @@ export async function runRepositoryWorkSession(
         {
           ...workSessionAuthority(prepared),
           modelId: model.id,
+          effort,
           images,
           repositoryWorkSessionId: session.id,
           workSurface: "repository",

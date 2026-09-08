@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { browserTestVite } from "./browserTestVite";
 import { chromium, type Page, type WebSocketRoute } from "playwright-core";
-import type { RepositoryWorkSessionCandidatesResponse } from "../client/lib/api";
+import type { ModelEffort, RepositoryWorkSessionCandidatesResponse } from "../client/lib/api";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const server = await createServer({
@@ -50,6 +50,7 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 1000
 const sends: Array<{
   employeeId: string;
   modelId: string;
+  effort: ModelEffort | null;
   instruction: string;
   attachmentIds: string[];
 }> = [];
@@ -148,6 +149,9 @@ async function choose(page: Page, label: string, option: string) {
 async function modelValue(page: Page) {
   return page.getByRole("combobox", { name: "AI Model", exact: true }).inputValue();
 }
+async function effortValue(page: Page) {
+  return page.getByRole("combobox", { name: "Effort", exact: true }).inputValue();
+}
 async function send(page: Page, name = "Alex") {
   const count = Number(await page.getByRole("status", { name: "Started count" }).textContent());
   await page.getByRole("button", { name: `Start with ${name}`, exact: true }).click();
@@ -172,6 +176,15 @@ try {
     async () => {
       const page = await open();
       assert.equal(await modelValue(page), "Claude Sonnet (default)");
+      assert.equal(await effortValue(page), "Model default");
+      await page.getByRole("combobox", { name: "Effort", exact: true }).click();
+      assert.deepEqual(await page.getByRole("option").allTextContents(), [
+        "Model default",
+        "Low",
+        "Medium",
+        "High",
+      ]);
+      await page.keyboard.press("Escape");
       await page.getByRole("combobox", { name: "AI Model", exact: true }).click();
       assert.deepEqual(await page.getByRole("option").allTextContents(), [
         "GPT 5.4",
@@ -200,6 +213,7 @@ try {
       assert.deepEqual(await send(page), {
         employeeId: "alex",
         modelId: "gpt",
+        effort: null,
         instruction: "Implement the requested outcome",
         attachmentIds: [],
       });
@@ -210,13 +224,48 @@ try {
     },
   );
 
-  await check("one model hides the picker and submits that model automatically", async () => {
+  await check("one model keeps effort available and submits the chosen effort", async () => {
     const page = await open("one");
     assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
+    assert.equal(await effortValue(page), "Model default");
+    await choose(page, "Effort", "Extra high");
     await page.getByRole("textbox", { name: "Work brief" }).fill("Write the release notes");
     const request = await send(page, "Jamie");
     assert.equal(request.employeeId, "jamie");
     assert.equal(request.modelId, "jamie-gpt");
+    assert.equal(request.effort, "xhigh");
+    await page.close();
+  });
+
+  await check("unsupported models have no effort control and use the model default", async () => {
+    const page = await open("unsupported");
+    assert.equal(await page.getByRole("combobox", { name: "Effort", exact: true }).count(), 0);
+    await page.getByRole("textbox", { name: "Work brief" }).fill("Use the model default");
+    assert.equal((await send(page, "Jamie")).effort, null);
+    await page.close();
+  });
+
+  await check("subscription model exposes Ultra effort and submits it", async () => {
+    const page = await open("subscription");
+    assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
+    await choose(page, "Effort", "Ultra");
+    assert.equal(await effortValue(page), "Ultra");
+    await page.getByRole("textbox", { name: "Work brief" }).fill("Investigate this complex change");
+    const request = await send(page, "Jamie");
+    assert.equal(request.modelId, "jamie-subscription");
+    assert.equal(request.effort, "ultra");
+    await page.close();
+  });
+
+  await check("None and Model default submit distinct effort choices", async () => {
+    const page = await open();
+    await choose(page, "AI Model", "GPT 5.4");
+    await choose(page, "Effort", "None");
+    await page.getByRole("textbox", { name: "Work brief" }).fill("Make a straightforward edit");
+    assert.equal((await send(page)).effort, "none");
+    await choose(page, "Effort", "Model default");
+    await page.getByRole("textbox", { name: "Work brief" }).fill("Use the normal effort");
+    assert.equal((await send(page)).effort, null);
     await page.close();
   });
 
@@ -225,10 +274,13 @@ try {
     async () => {
       const page = await open();
       await choose(page, "AI Model", "GPT 5.4");
+      await choose(page, "Effort", "Extra high");
       await choose(page, "AI employee", "Jamie");
       assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
+      assert.equal(await effortValue(page), "Model default");
       await choose(page, "AI employee", "Alex");
       assert.equal(await modelValue(page), "Claude Sonnet (default)");
+      assert.equal(await effortValue(page), "Model default");
       await page.close();
     },
   );
@@ -258,6 +310,7 @@ try {
         await page.getByRole("combobox", { name: "AI Model", exact: true }).count(),
         scenario === "disconnected" ? 1 : 0,
       );
+      assert.equal(await page.getByRole("combobox", { name: "Effort", exact: true }).count(), 0);
       await page.close();
     }
   });
@@ -268,16 +321,39 @@ try {
       for (const change of ["Remove GPT", "Disconnect GPT"]) {
         const page = await open();
         await choose(page, "AI Model", "GPT 5.4");
+        await choose(page, "Effort", "Extra high");
         await page.getByRole("button", { name: "Reorder models", exact: true }).click();
         assert.equal(await modelValue(page), "GPT 5.4");
+        assert.equal(await effortValue(page), "Extra high");
         await page.getByRole("button", { name: change, exact: true }).click();
         assert.equal(await modelValue(page), "Claude Sonnet (default)");
+        assert.equal(await effortValue(page), "Model default");
         await page.getByRole("textbox", { name: "Work brief" }).fill("Use the available model");
-        assert.equal((await send(page)).modelId, "claude");
+        const request = await send(page);
+        assert.equal(request.modelId, "claude");
+        assert.equal(request.effort, null);
         await page.close();
       }
     },
   );
+
+  await check("changing the model or its supported efforts clears a stale effort", async () => {
+    const page = await open();
+    await choose(page, "AI Model", "GPT 5.4");
+    await choose(page, "Effort", "Extra high");
+    await choose(page, "AI Model", "Claude Sonnet (default)");
+    assert.equal(await effortValue(page), "Model default");
+    await choose(page, "AI Model", "GPT 5.4");
+    assert.equal(await effortValue(page), "Model default");
+    await choose(page, "Effort", "Extra high");
+    await page.getByRole("button", { name: "Remove extra high effort", exact: true }).click();
+    assert.equal(await effortValue(page), "Model default");
+    await page.getByRole("button", { name: "Load employees", exact: true }).click();
+    assert.equal(await effortValue(page), "Model default");
+    await page.getByRole("textbox", { name: "Work brief" }).fill("Use a supported effort");
+    assert.equal((await send(page)).effort, null);
+    await page.close();
+  });
 
   await check(
     "default refresh is reflected unless the Member has made an explicit choice",
@@ -314,10 +390,11 @@ try {
   );
 
   await check(
-    "failed starts preserve model, brief and attachment for a successful retry",
+    "failed starts preserve model, effort, brief and attachment for a successful retry",
     async () => {
       const page = await open();
       await choose(page, "AI Model", "GPT 5.4");
+      await choose(page, "Effort", "Extra high");
       await page.getByRole("textbox", { name: "Work brief" }).fill("Keep my brief and attachment");
       await page.getByLabel("Attach files to work brief").setInputFiles({
         name: "brief.txt",
@@ -331,6 +408,7 @@ try {
         .getByText("The selected AI Model is no longer connected.", { exact: true })
         .waitFor();
       assert.equal(await modelValue(page), "GPT 5.4");
+      assert.equal(await effortValue(page), "Extra high");
       assert.equal(
         await page.getByRole("textbox", { name: "Work brief" }).inputValue(),
         "Keep my brief and attachment",
@@ -340,7 +418,7 @@ try {
         1,
       );
       failSend = false;
-      await choose(page, "AI Model", "Claude Sonnet (default)");
+      await choose(page, "Effort", "High");
       assert.equal(
         await page
           .getByText("The selected AI Model is no longer connected.", { exact: true })
@@ -348,7 +426,8 @@ try {
         0,
       );
       const request = await send(page);
-      assert.equal(request.modelId, "claude");
+      assert.equal(request.modelId, "gpt");
+      assert.equal(request.effort, "high");
       assert.deepEqual(request.attachmentIds, ["attachment"]);
       assert.equal(
         await page.getByRole("button", { name: "Remove brief.txt", exact: true }).count(),
@@ -359,10 +438,11 @@ try {
   );
 
   await check(
-    "keyboard submission uses the selected model and locks both pickers until it finishes",
+    "keyboard submission sends effort and locks all pickers until it finishes",
     async () => {
       const page = await open();
       await choose(page, "AI Model", "GPT 5.4");
+      await choose(page, "Effort", "Extra high");
       await page.getByRole("textbox", { name: "Work brief" }).fill("Keyboard start");
       holdSend = true;
       const requestPromise = page.waitForRequest(
@@ -371,6 +451,11 @@ try {
       await page.getByRole("textbox", { name: "Work brief" }).press("Control+Enter");
       const request = await requestPromise;
       assert.equal(request.postDataJSON().modelId, "gpt");
+      assert.equal(request.postDataJSON().effort, "xhigh");
+      assert.equal(
+        await page.getByRole("combobox", { name: "Effort", exact: true }).isDisabled(),
+        true,
+      );
       assert.equal(
         await page.getByRole("combobox", { name: "AI Model", exact: true }).isDisabled(),
         true,
@@ -392,6 +477,10 @@ try {
         await page.getByRole("combobox", { name: "AI Model", exact: true }).isEnabled(),
         true,
       );
+      assert.equal(
+        await page.getByRole("combobox", { name: "Effort", exact: true }).isEnabled(),
+        true,
+      );
       await page.close();
     },
   );
@@ -400,6 +489,7 @@ try {
     for (const scenario of ["loading", "error", "empty"]) {
       const page = await open(scenario);
       assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
+      assert.equal(await page.getByRole("combobox", { name: "Effort", exact: true }).count(), 0);
       if (scenario === "error") {
         await page.getByText("Could not load AI employees", { exact: true }).waitFor();
         await page.getByRole("button", { name: /retry/i }).click();
@@ -409,6 +499,7 @@ try {
         await page.getByRole("button", { name: "Load employees", exact: true }).click();
       }
       assert.equal(await modelValue(page), "Claude Sonnet (default)");
+      assert.equal(await effortValue(page), "Model default");
       await page.close();
     }
   });
@@ -438,6 +529,21 @@ try {
     await picker.press("Enter");
     await page.getByRole("listbox").waitFor({ state: "hidden" });
     assert.equal(await modelValue(page), "GPT 5.4");
+    const effortPicker = page.getByRole("combobox", { name: "Effort", exact: true });
+    await effortPicker.focus();
+    await effortPicker.fill("Extra high");
+    const effortOption = page.getByRole("option", { name: "Extra high", exact: true });
+    await effortOption.waitFor();
+    const effortPickerId = await effortPicker.getAttribute("id");
+    const effortOptionId = await effortOption.getAttribute("id");
+    await page.waitForFunction(
+      ([inputId, activeId]) =>
+        document.getElementById(inputId!)?.getAttribute("aria-activedescendant") === activeId,
+      [effortPickerId, effortOptionId],
+    );
+    await effortPicker.press("Enter");
+    await page.getByRole("listbox").waitFor({ state: "hidden" });
+    assert.equal(await effortValue(page), "Extra high");
     await fs.mkdir(path.resolve(root, "../output/playwright"), { recursive: true });
     await page.screenshot({
       path: path.resolve(root, "../output/playwright/work-session-models-desktop.png"),
@@ -457,6 +563,15 @@ try {
     });
     await page.getByRole("option", { name: "Claude Sonnet (default)", exact: true }).click();
     assert.equal(await modelValue(page), "Claude Sonnet (default)");
+    await effortPicker.click();
+    const effortMenu = await page.getByRole("listbox").boundingBox();
+    assert.ok(effortMenu && effortMenu.x >= 0 && effortMenu.x + effortMenu.width <= 390);
+    await page.screenshot({
+      path: path.resolve(root, "../output/playwright/work-session-effort-mobile.png"),
+      fullPage: true,
+    });
+    await page.getByRole("option", { name: "High", exact: true }).click();
+    assert.equal(await effortValue(page), "High");
     await page.close();
   });
   await check(
@@ -477,6 +592,7 @@ try {
               label: "GPT 5.4",
               status: "connected",
               isActive: false,
+              effortLevels: ["none", "low", "medium", "high", "xhigh"],
             },
             {
               id: "claude",
@@ -485,6 +601,7 @@ try {
               label: "Claude Sonnet",
               status: "connected",
               isActive: true,
+              effortLevels: ["low", "medium", "high"],
             },
             {
               id: "local",
@@ -504,6 +621,7 @@ try {
         .waitFor();
       await page.getByRole("combobox", { name: "AI Model", exact: true }).waitFor();
       await choose(page, "AI Model", "GPT 5.4");
+      await choose(page, "Effort", "Extra high");
       await page
         .getByRole("textbox", { name: "Work brief" })
         .fill("Keep this draft through model changes");

@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { ModelEffort } from "../../../../shared/modelEffort.js";
 import type {
   AgentMessage,
   AssistantBlock,
@@ -41,6 +42,7 @@ import { parseArgs } from "./parseArgs.js";
 export function createOpenAIResponsesClient(opts: {
   apiKey: string;
   model: string;
+  effort?: Exclude<ModelEffort, "ultra"> | null;
   /** Provider tool ceiling; see `OPENAI_MAX_TOOLS` in ./openai.ts. */
   maxTools?: number | null;
 }): ModelClient {
@@ -58,6 +60,7 @@ export function createOpenAIResponsesClient(opts: {
       const stream = await client.responses.create(
         {
           model: opts.model,
+          ...(opts.effort != null ? { reasoning: { effort: opts.effort } } : {}),
           stream: true,
           // Responses takes the system prompt as a top-level field rather than a
           // `role:"system"` message.
