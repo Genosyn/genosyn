@@ -12,11 +12,10 @@ import type { AgentTool } from "../types.js";
  *
  * The whole design rests on one promise: a capability the model has not been
  * shown is still reachable. That promise is only as good as the retriever, and
- * the retriever runs on a corpus where the obvious vocabulary is measurably
- * absent — "spreadsheet" appears in none of the 104 tool descriptions,
- * "database" in one. So the curated keyword layer in `toolIndex.ts` *is* the
- * feature, and this file is what stops someone deleting a keyword that looks
- * redundant.
+ * the retriever runs on a corpus where obvious vocabulary can be absent or
+ * ambiguous — a "spreadsheet" could mean a Base or an Excel attachment. The
+ * curated keyword layer in `toolIndex.ts` connects that vocabulary to each
+ * tool, and this file stops someone deleting a keyword that looks redundant.
  *
  * What this is not: a model eval. It proves the index can find the tool, not
  * that a 7B model behind Ollama decides to go looking. That gap is real and
@@ -112,6 +111,15 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "fill in the word document", expect: "edit_docx" },
   { query: "write a report as a word document", expect: "create_docx" },
   { query: "export this to word", expect: "create_docx" },
+  { query: "read the excel file they sent", expect: "read_xlsx" },
+  { query: "open the xlsx", expect: "read_xlsx" },
+  { query: "inspect worksheet cells", expect: "read_xlsx" },
+  { query: "xlsx reader", expect: "read_xlsx" },
+  { query: "fill in their original Excel form", expect: "edit_xlsx" },
+  { query: "complete the spreadsheet questionnaire", expect: "edit_xlsx" },
+  { query: "edit xlsx attachment", expect: "edit_xlsx" },
+  { query: "update the workbook cell", expect: "edit_xlsx" },
+  { query: "xlsx editor", expect: "edit_xlsx" },
   { query: "build a kpi dashboard", expect: "create_dashboard" },
   {
     query: "configure typed CRM fields before migration",
@@ -274,6 +282,37 @@ describe("find_tools recall", () => {
     const out = await tool.run({ domain: "mail" });
     assert.ok(out.content.includes("### search_mail"));
     assert.ok(!out.content.includes("### create_invoice"));
+  });
+
+  test("Excel attachment search in files returns the reader and editor without Base tools", async () => {
+    const out = await tool.run({ query: "excel xlsx", domain: "files" });
+    assert.match(out.content, /### read_xlsx\n/);
+    assert.match(out.content, /### edit_xlsx\n/);
+    assert.doesNotMatch(out.content, /### list_base_rows\n/);
+    assert.doesNotMatch(out.content, /### list_bases\n/);
+  });
+
+  test("Excel tools expose complete schemas within the discovery result budget", async () => {
+    const out = await tool.run({ query: "excel xlsx", domain: "files" });
+    for (const name of ["read_xlsx", "edit_xlsx"]) {
+      const section = out.content.split(`### ${name}\n`)[1]?.split("\n### ")[0];
+      assert.ok(section, `${name} was not discoverable`);
+      const schemaJson = section.match(/arguments:\n({[\s\S]*?\n})/)?.[1];
+      assert.ok(schemaJson, `${name} schema was omitted or clipped`);
+      const schema = JSON.parse(schemaJson) as {
+        required: string[];
+        properties: Record<string, { items?: { required: string[] } }>;
+      };
+      assert.ok(schema.required.includes("attachmentId"));
+      if (name === "edit_xlsx") {
+        assert.ok(schema.required.includes("edits"));
+        assert.deepEqual(schema.properties.edits.items?.required, ["sheet", "cell", "value"]);
+      } else {
+        assert.ok(schema.properties.range);
+        assert.ok(schema.properties.maxCells);
+        assert.ok(schema.properties.maxChars);
+      }
+    }
   });
 });
 

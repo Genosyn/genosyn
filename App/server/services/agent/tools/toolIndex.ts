@@ -16,11 +16,10 @@ import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
  * ## Why hand-curated keywords
  *
  * Ranking on descriptions alone does not work on this corpus, and that is
- * measurable rather than suspected: "spreadsheet" matches none of the 104
- * tools, "database" matches only `run_chart`, and "invoice" matches fourteen —
- * mostly Base tools that happen to use invoices as a worked example. A model
- * asking for "the spreadsheet thing" would be told it has no such tool while
- * `base_rows` sat one synonym away.
+ * measurable rather than suspected: the original catalogue never mentioned
+ * "spreadsheet" in its Base descriptions, while "invoice" matched many Base
+ * tools that merely used invoices as a worked example. Keywords distinguish
+ * an Excel file from a Base, and connect each to the words people reach for.
  *
  * So the keyword layer is the retrieval surface, and `discovery.test.ts` is its
  * regression gate. Add a keyword when a plausible phrasing misses; do not
@@ -450,13 +449,15 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   files: {
     label: "files",
     blurb:
-      "Send a file, work on PDF forms, read, edit or write Word documents, and convert one to PDF.",
+      "Send a file, fill PDF forms, read and edit Excel workbooks, or read, edit, write and convert Word documents.",
     tools: [
       "send_chat_attachment",
       "read_pdf_fields",
       "fill_pdf_form",
       "read_pdf_layout",
       "overlay_pdf_text",
+      "read_xlsx",
+      "edit_xlsx",
       "read_docx",
       "edit_docx",
       "create_docx",
@@ -1219,6 +1220,34 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "tick box",
     "checkbox",
     "stamp text",
+  ],
+  read_xlsx: [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "workbook",
+    "worksheet",
+    "read excel",
+    "open spreadsheet",
+    "inspect cells",
+    "read a spreadsheet",
+    "original excel form",
+    "excel reader",
+  ],
+  edit_xlsx: [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "workbook",
+    "worksheet",
+    "edit spreadsheet",
+    "fill excel form",
+    "complete excel form",
+    "original excel form",
+    "excel editor",
+    "answer spreadsheet questionnaire",
+    "update cell",
+    "fill in",
   ],
   // Nobody calls it "a WordprocessingML package". They call it the Word file,
   // the doc, the questionnaire someone sent — and they ask about the thing

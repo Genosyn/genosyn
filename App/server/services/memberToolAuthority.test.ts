@@ -58,4 +58,10 @@ describe("interactive Member tool policy", () => {
     assert.equal(memberInternalCallbackPolicy("claim_browser_approval"), "admin");
     assert.equal(memberInternalCallbackPolicy("finish_browser_approval"), "admin");
   });
+
+  test("Excel tools use attachment visibility checks for an interactive Member", () => {
+    for (const tool of ["read_xlsx", "edit_xlsx"]) {
+      assert.equal(memberToolPolicy(tool), "attachment", tool);
+    }
+  });
 });

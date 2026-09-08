@@ -414,6 +414,8 @@ const ATTACHMENT_TOOLS = [
   "fill_pdf_form",
   "read_pdf_layout",
   "overlay_pdf_text",
+  "read_xlsx",
+  "edit_xlsx",
   "read_docx",
   "edit_docx",
   "create_docx",

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import { randomUUID } from "node:crypto";
+import JSZip from "jszip";
 import { config } from "../../config.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
@@ -15,7 +16,9 @@ import {
   ATTACHMENT_IMAGE_COUNT_CAP,
   ATTACHMENT_IMAGE_TOTAL_BYTE_CAP,
   inlineAttachmentsForMessage,
+  extractAttachmentTextFromBuffer,
 } from "./attachmentText.js";
+import { XLSX_MIME } from "./xlsxPackage.js";
 import { companyDir } from "./paths.js";
 
 const PNG = Buffer.from(
@@ -185,4 +188,90 @@ test("raster identification never trusts the extension or arbitrary binary data"
   assert.equal(attachmentImageMime(Buffer.from("RIFF0000WEBPVP8 ")), "image/webp");
   assert.equal(attachmentImageMime(Buffer.from("<svg/>")), null);
   assert.equal(attachmentImageMime(Buffer.alloc(0)), null);
+});
+
+async function workbookBytes() {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>',
+  );
+  zip.file(
+    "xl/workbook.xml",
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Supplier" sheetId="1" r:id="rId1"/></sheets></workbook>',
+  );
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+  );
+  zip.file(
+    "xl/worksheets/sheet1.xml",
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Company name</t></is></c><c r="B1" s="0"/></row></sheetData></worksheet>',
+  );
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
+test("Excel uploads expose worksheet cells and the original attachment id without unsupported-file advice", async () => {
+  const co = await company();
+  const messageId = randomUUID();
+  const file = await upload(co, messageId, {
+    bytes: await workbookBytes(),
+    mimeType: XLSX_MIME,
+    filename: "supplier.xlsx",
+  });
+  const context = await inlineAttachmentsForMessage(messageId, co.id);
+  assert.ok(context.includes(`id=${file.id}`));
+  for (const text of [
+    "read_xlsx",
+    "edit_xlsx",
+    "Supplier",
+    "Company name",
+    "B1",
+    "not instructions",
+  ]) {
+    assert.ok(context.includes(text), text);
+  }
+  assert.doesNotMatch(context, /Binary or unsupported type|ask the teammate/);
+  assert.ok(context.length < 30_000);
+});
+
+test("Excel previews recognize generic mail MIME and authoritative workbook MIME", async () => {
+  for (const [mime, filename] of [
+    ["application/octet-stream", "FORM.XLSX"],
+    ["application/zip", "form.xlsx"],
+    [XLSX_MIME, "download"],
+  ]) {
+    const text = await extractAttachmentTextFromBuffer(await workbookBytes(), mime, filename);
+    assert.match(text ?? "", /Company name/);
+    assert.match(text ?? "", /read_xlsx/);
+  }
+});
+
+test("legacy and unreadable workbook previews explain the error without exposing binary bytes", async () => {
+  const legacy = await extractAttachmentTextFromBuffer(
+    Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
+    "application/vnd.ms-excel",
+    "form.xls",
+  );
+  assert.match(legacy ?? "", /legacy.*xls|encrypted/i);
+  assert.match(legacy ?? "", /xlsx/);
+  const broken = await extractAttachmentTextFromBuffer(
+    Buffer.from("private binary content"),
+    XLSX_MIME,
+    "form.xlsx",
+  );
+  assert.match(broken ?? "", /not an .xlsx workbook/);
+  assert.ok(!broken?.includes("private binary content"));
+});
+
+test("CSV remains readable text rather than being parsed as an Excel archive", async () => {
+  const bytes = Buffer.from("company,total\nExample,12\n");
+  assert.equal(
+    await extractAttachmentTextFromBuffer(bytes, "text/csv", "report.csv"),
+    bytes.toString(),
+  );
+  assert.equal(
+    await extractAttachmentTextFromBuffer(bytes, "application/vnd.ms-excel", "report.csv"),
+    bytes.toString(),
+  );
 });

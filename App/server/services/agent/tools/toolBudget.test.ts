@@ -280,6 +280,19 @@ describe("resident tool budget", () => {
     // live constraint — if it ever binds again, deferral has regressed.
     assert.ok(resident.length < 64, `${resident.length} resident tools is close to a provider cap`);
   });
+
+  test("Excel attachment tools remain granular and deferred without adding to every turn", () => {
+    const { passthrough } = collapseStaticTools();
+    for (const name of ["read_xlsx", "edit_xlsx"]) {
+      assert.equal(resident.some((tool) => tool.name === name), false);
+      assert.equal(RESIDENT_GENOSYN_TOOLS.includes(name), false);
+      const tool = passthrough.find((entry) => entry.name === name);
+      assert.ok(tool, `${name} must remain available in the built-in catalogue`);
+      assert.ok(TOOL_DOMAINS.files.tools.includes(name));
+      assert.equal("op" in tool.inputSchema.properties, false);
+      assert.equal(tool.readOnly === true, name === "read_xlsx");
+    }
+  });
 });
 
 describe("discovery footprint", () => {
