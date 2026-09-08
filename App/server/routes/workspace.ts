@@ -25,6 +25,7 @@ import {
   userHasChannelAccess,
 } from "../services/workspaceChat.js";
 import { mintWsToken } from "../services/realtime.js";
+import { realtimeAuthenticationForRequest } from "../services/realtimeAuthorization.js";
 import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
 import {
   getChannelWebhookSettings,
@@ -87,7 +88,7 @@ workspaceRouter.get("/mentionables", async (req, res) => {
 workspaceRouter.post("/ws-token", async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });
   if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
-  const token = await mintWsToken(req.userId, co.id);
+  const token = await mintWsToken(req.userId, co.id, realtimeAuthenticationForRequest(req));
   res.json({ token });
 });
 

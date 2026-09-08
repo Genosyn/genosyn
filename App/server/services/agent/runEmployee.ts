@@ -21,6 +21,7 @@ import {
 import { createChatProgressTool } from "./tools/chatProgress.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
+import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -151,6 +152,17 @@ function trimToProviderCap(
 }
 
 export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
+  try {
+    return await withCompanyAgentCapacity(params.employeeId, params.signal, (signal) =>
+      runEmployeeTurn({ ...params, signal }),
+    );
+  } catch (error) {
+    if (error instanceof CompanyAgentCapacityError) return { status: "error", error: error.message };
+    return { status: "error", error: formatModelError(params.model, error) };
+  }
+}
+
+async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const allowPrivileged = params.allowPrivilegedToolSources ?? true;
@@ -262,6 +274,19 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
  * subscription runtime receive the same tiny registry.
  */
 export async function runRestrictedEmployeeAgent(
+  params: RestrictedEmployeeAgentParams,
+): Promise<EmployeeAgentResult> {
+  try {
+    return await withCompanyAgentCapacity(params.employeeId, params.signal, (signal) =>
+      runRestrictedEmployeeTurn({ ...params, signal }),
+    );
+  } catch (error) {
+    if (error instanceof CompanyAgentCapacityError) return { status: "error", error: error.message };
+    return { status: "error", error: formatModelError(params.model, error) };
+  }
+}
+
+async function runRestrictedEmployeeTurn(
   params: RestrictedEmployeeAgentParams,
 ): Promise<EmployeeAgentResult> {
   const registry = residentOnlyRegistry(params.tools);

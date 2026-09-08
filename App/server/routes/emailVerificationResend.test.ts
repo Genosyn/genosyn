@@ -22,6 +22,8 @@ import {
 } from "../services/globalEmailTransport.js";
 import { hashEmailVerificationToken } from "../services/emailVerification.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { persistTestSession } from "../test/userSession.js";
+import { setPublicUrl } from "../services/publicUrl.js";
 import { authRouter } from "./auth.js";
 
 /**
@@ -63,11 +65,12 @@ before(async () => {
   // Same signed-session shim the sibling auth suite uses: rebuild the session
   // from headers on every request so no test can lean on cookie state left
   // behind by the one before it.
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     const userId = req.header("x-test-user");
     (req as unknown as { session: Record<string, unknown> | null }).session = userId
       ? { userId, sessionVersion: Number(req.header("x-test-session-version") ?? "0") }
       : {};
+    await persistTestSession(req);
     next();
   });
   app.use("/api/auth", authRouter);
@@ -93,6 +96,7 @@ after(async () => {
 
 beforeEach(async () => {
   await resetTestDb();
+  await setPublicUrl("https://genosyn.example.test");
   security.multiTenant = false;
   security.bootstrapMasterAdminEmail = "";
   Object.assign(security.authRateLimit, originalSecurity.authRateLimit);
@@ -387,7 +391,7 @@ describe("resend verification — who may ask", () => {
   test("turns away a caller with no session", async () => {
     const response = await call("POST", "/api/auth/resend-verification", { body: {} });
     assert.equal(response.status, 401);
-    assert.equal((await AppDataSource.getRepository(EmailLog).count()), 0);
+    assert.equal(await AppDataSource.getRepository(EmailLog).count(), 0);
   });
 
   test("turns away an API key, because a bearer token proves no mailbox", async () => {
@@ -533,9 +537,8 @@ describe("the operator who could not get in", () => {
 
     // 3. The link, read out of the server log exactly as the docs describe.
     assert.equal(
-      (
-        await call("POST", "/api/auth/verify-email", { body: { token: tokenFromConsole(output) } })
-      ).status,
+      (await call("POST", "/api/auth/verify-email", { body: { token: tokenFromConsole(output) } }))
+        .status,
       200,
     );
 
@@ -556,9 +559,8 @@ describe("the operator who could not get in", () => {
       call("POST", "/api/auth/resend-verification", { userId: candidate.id, body: {} }),
     );
     assert.equal(
-      (
-        await call("POST", "/api/auth/verify-email", { body: { token: tokenFromConsole(output) } })
-      ).status,
+      (await call("POST", "/api/auth/verify-email", { body: { token: tokenFromConsole(output) } }))
+        .status,
       200,
     );
 
@@ -568,11 +570,13 @@ describe("the operator who could not get in", () => {
     // operator authority — the version bump is what invalidates it.
     assert.equal(claimed.sessionVersion, 1);
     assert.equal(
-      (await call("GET", "/api/operator-probe", { userId: candidate.id, sessionVersion: 0 })).status,
+      (await call("GET", "/api/operator-probe", { userId: candidate.id, sessionVersion: 0 }))
+        .status,
       401,
     );
     assert.equal(
-      (await call("GET", "/api/operator-probe", { userId: candidate.id, sessionVersion: 1 })).status,
+      (await call("GET", "/api/operator-probe", { userId: candidate.id, sessionVersion: 1 }))
+        .status,
       200,
     );
   });
@@ -614,6 +618,7 @@ describe("the operator who could not get in", () => {
   test("the button behaves the same in either tenancy mode", async () => {
     for (const multiTenant of [false, true]) {
       await resetTestDb();
+      await setPublicUrl("https://genosyn.example.test");
       resetGlobalSmtpCacheForTests();
       security.multiTenant = multiTenant;
       const user = await createUser();
@@ -654,10 +659,10 @@ describe("resend verification — while an email change is pending", () => {
     // account prove an address it has not yet been granted.
     const logs = await verificationLogs(user.id);
     assert.equal(logs.length, 2);
-    assert.deepEqual(
-      logs.map((log) => log.toAddress).sort(),
-      ["new@example.com", "old@example.com"],
-    );
+    assert.deepEqual(logs.map((log) => log.toAddress).sort(), [
+      "new@example.com",
+      "old@example.com",
+    ]);
     const latest = logs[logs.length - 1];
     assert.equal(latest.toAddress, "old@example.com");
     assert.equal((await reload(user)).email, "old@example.com");

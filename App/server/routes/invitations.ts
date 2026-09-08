@@ -26,7 +26,7 @@ invitationsRouter.post("/accept", validateBody(acceptSchema), async (req, res) =
   // before this hardening release usable through their existing expiry date.
   const inv =
     (await invRepo.findOneBy({ token: hashToken(token) })) ?? (await invRepo.findOneBy({ token }));
-  if (!inv || inv.acceptedAt || inv.expiresAt < new Date()) {
+  if (!inv || inv.acceptedAt || inv.expiresAt <= new Date()) {
     return res.status(400).json({ error: "Invalid or expired invitation" });
   }
   if (inv.email.trim().toLowerCase() !== req.user!.email.trim().toLowerCase()) {
@@ -35,7 +35,10 @@ invitationsRouter.post("/accept", validateBody(acceptSchema), async (req, res) =
     });
   }
   const company = await AppDataSource.getRepository(Company).findOneBy({ id: inv.companyId });
-  if (company?.requireTwoFactor && !(await hasTwoFactorMethod(req.userId!))) {
+  if (!company) {
+    return res.status(400).json({ error: "Invalid or expired invitation" });
+  }
+  if (company.requireTwoFactor && !(await hasTwoFactorMethod(req.userId!))) {
     return res.status(403).json({
       error: "This company requires two-factor authentication. Enable it in Account → Security.",
     });

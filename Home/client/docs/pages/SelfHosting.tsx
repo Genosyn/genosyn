@@ -533,6 +533,14 @@ export function SelfHosting() {
         existing account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>, or by
         inviting them into a company from that company&apos;s <Code>Settings → Members</Code>.
       </P>
+      <P>
+        A new Member follows the invitation email and chooses <Strong>Create account</Strong>.
+        That form stays available when public sign-ups are closed, for that invitation&apos;s email
+        address only. In shared SaaS, they verify their email first, choose <Strong>Continue</Strong>
+        {" "}on the verification page, then choose <Strong>Accept invitation</Strong>. Registering
+        does not consume the invitation or add a company membership. An expired invitation needs
+        to be replaced by an owner or admin.
+      </P>
 
       <H3 id="sso">SSO</H3>
       <Callout kind="info" title="Genosyn Enterprise feature.">

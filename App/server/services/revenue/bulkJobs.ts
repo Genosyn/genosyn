@@ -215,6 +215,7 @@ export async function createRevenueBulkJob(
 async function executeRevenueBulkJobWithLease(
   operationId: string,
   onProgress?: (progress: BulkExecutionProgress) => void | Promise<void>,
+  assertLeaseHeld: () => void = () => undefined,
 ): Promise<void> {
   const repo = AppDataSource.getRepository(RevenueOperation);
   const job = await repo.findOneBy({ id: operationId, kind: "bulk" });
@@ -236,6 +237,7 @@ async function executeRevenueBulkJobWithLease(
     },
   });
   try {
+    assertLeaseHeld();
     job.status = "running";
     job.summaryJson = JSON.stringify(jobSummary("running", preview));
     await repo.save(job);
@@ -244,11 +246,17 @@ async function executeRevenueBulkJobWithLease(
       reviveRequest(payload.executionRequest),
       payload.actor,
       async (progress) => {
+        // Bulk writes share one transaction. Throwing from its progress
+        // callback rolls it back instead of committing an expired worker's
+        // partially applied batch.
+        assertLeaseHeld();
         const active = activeJobProgress.get(operationId);
         if (active?.token === progressToken) active.progress = progress;
         await onProgress?.(progress);
+        assertLeaseHeld();
       },
     );
+    assertLeaseHeld();
     job.status = result.failed > 0 ? "partial" : "completed";
     job.completedAt = new Date();
     job.summaryJson = JSON.stringify(
@@ -270,6 +278,7 @@ async function executeRevenueBulkJobWithLease(
     );
     await repo.save(job);
   } catch (error) {
+    assertLeaseHeld();
     job.status = "failed";
     job.completedAt = new Date();
     const failedResult = error instanceof BulkAtomicValidationError ? error.result : undefined;
@@ -312,7 +321,7 @@ export async function executeRevenueBulkJob(
     const result = await withSchedulerLease(
       `revenue-bulk-job:${operationId}`,
       BULK_JOB_LEASE_TTL_MS,
-      () => executeRevenueBulkJobWithLease(operationId, onProgress),
+      (lease) => executeRevenueBulkJobWithLease(operationId, onProgress, lease.assertHeld),
     );
     leaseContended = result === null;
   } finally {

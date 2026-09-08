@@ -28,10 +28,10 @@ export function SaasHosting() {
         }
       />
 
-      <Callout kind="warn" title="This is an operator mode, not a billing system.">
-        Multi-tenancy, isolation, authentication hardening, and replica coordination are built in.
-        Plans, checkout, subscriptions, tax, and customer support workflows are separate product
-        decisions and are not created by this switch.
+      <Callout kind="info" title="Configure hosted billing separately.">
+        This switch enables tenant isolation and shared infrastructure. Configure plans and
+        checkout separately using <DocLink to="/docs/plans-billing">Plans and billing</DocLink>,
+        and verify your payment and customer support flows before launch.
       </Callout>
 
       <H2 id="baseline">Required production baseline</H2>
@@ -87,9 +87,17 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <Strong>Admin → Instance Health</Strong> keeps flagging the transport until you do.
       </P>
       <P>
-        On the first operator sign-in, Genosyn detects the same-origin browser URL. Review and save
-        the canonical HTTPS origin at <Strong>Admin → General</Strong> before configuring SSO,
-        WebAuthn, or OAuth integrations. It is stored in Postgres and propagated across replicas.
+        Before the first signup, set the canonical HTTPS origin from the operator&apos;s terminal
+        in the App directory. Registration stays unavailable until this trusted setup step is
+        complete, so verification mail cannot accidentally point at localhost.
+      </P>
+      <Pre lang="bash">{`npm run setup:public-url -- --url https://genosyn.example.com
+# Compiled container, from its App directory:
+node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</Pre>
+      <P>
+        This command applies pending migrations and sets an absent public URL. Repeating the same
+        URL is safe; changing an existing value requires <Strong>Admin → General</Strong>.
+        The value is stored in Postgres and shared by all replicas.
       </P>
 
       <H2 id="startup">What startup checks</H2>
@@ -130,7 +138,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
           },
           {
             term: "Sessions",
-            def: "Password changes and resets increment a server-side session version, invalidating every older signed cookie across replicas.",
+            def: "Every browser sign-in has a database record and an absolute expiry. Logout revokes that browser across replicas; password changes and resets revoke all older sign-ins. Workspace sockets recheck membership and credentials before every event and close idle revoked connections within 15 seconds.",
           },
         ]}
       />
@@ -140,15 +148,20 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         Each AI Employee&apos;s shell runs inside Bubblewrap user, mount, PID, IPC, UTS, and network
         namespaces, plus a cgroup namespace where the kernel supports it. Only that employee&apos;s
         workspace is writable; the API process environment is not inherited. File tools resolve real
-        paths and reject symlink escapes. Top-level AI work, including Routine runs and chat, can
-        overlap without an application-level per-company cap. One AI Employee replies to each of
-        their chat threads in parallel; only two replies in the same thread are serialized.
+        paths and reject symlink escapes. Shared SaaS admits up to eight simultaneous AI model
+        turns per company by default, across all replicas. Full, restricted, and delegated turns
+        each use one slot. Additional requests receive a busy message and can be retried later.
       </P>
-      <Callout kind="warn" title="Plan capacity at the deployment and AI Model layers.">
-        Genosyn does not queue or cap top-level work by company. Provision enough replicas, CPU,
-        memory, and database capacity for the overlap your customers can create, and monitor each AI
-        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling
-        still applies.
+      <P>
+        Change <Strong>Concurrent AI turns per company</Strong> at <Strong>Admin → Runtime</Strong>
+        {" "}under Agent (1–100). Other replicas refresh within 30 seconds. A reduced limit applies
+        to new work; active turns finish under their existing slots. Self-hosted mode is unaffected.
+      </P>
+      <Callout kind="warn" title="Provision resource limits separately.">
+        The model-turn limit does not cover earlier Repository preparation, transcription,
+        uploads, or CPU, memory, process, and disk consumption. Set container and storage limits,
+        size the database, and monitor AI Model spend and rate limits. Work is not queued when all
+        slots are occupied.
       </Callout>
       <UL>
         <LI>Company secrets are not injected into hosted coding shells.</LI>
@@ -195,8 +208,14 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
       <P>
         Postgres stores OAuth/OIDC/WebSocket handshake state, scheduler leases, same-AI-Employee
         chat-reply leases, and short-lived realtime fan-out records. Recurring work elects one
-        replica, pending mail handovers are claimed atomically, Telegram listeners fail over, and
+        replica, pending mail handovers are claimed atomically, chat-surface listeners fail over, and
         Postgres <Code>LISTEN/NOTIFY</Code> carries authorized WebSocket events between replicas.
+      </P>
+      <P>
+        Workers check ownership before each dispatch and cancel supported work if renewal fails
+        or the lease expires. An external request already accepted cannot be recalled. Interrupted
+        draft sends are marked failed for manual review of Sent instead of being sent automatically
+        again. Keep host clocks synchronized for database leases.
       </P>
       <UL>
         <LI>
@@ -216,6 +235,15 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         </LI>
       </UL>
 
+      <H2 id="restore">Practice recovery before launch</H2>
+      <OL>
+        <LI>Pause incoming work and all App replicas before taking a coordinated database and shared-volume snapshot.</LI>
+        <LI>Back up the encryption keys and previous keys separately in your secret manager; retain the matching image version and boot configuration.</LI>
+        <LI>Restore both snapshots into a separate environment with outbound mail, webhooks, and AI Model access blocked.</LI>
+        <LI>Start one replica, verify sign-in, company boundaries, attachments, and encrypted Connection access, then start a second replica and check coordination.</LI>
+        <LI>Record the recovered snapshot time and total recovery time. Use those results to set your recovery targets and backup retention.</LI>
+      </OL>
+
       <H2 id="launch">Launch checklist</H2>
       <OL>
         <LI>Start with an empty Postgres database and let the Postgres migration stream apply.</LI>
@@ -223,13 +251,18 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <LI>
           Run the container with Bubblewrap/user namespaces available and shell network disabled.
         </LI>
+        <LI>Run the public-URL setup command above before creating the operator account.</LI>
         <LI>
           Create the operator account using the exact bootstrap email, then verify it. With no
           transport configured yet, that verification link is written to the server log — copy it
           from there, or reissue one with <Strong>Resend verification email</Strong> at{" "}
-          <Strong>Account → Profile</Strong>. The account is not a master admin and cannot reach
+          <Strong>Check your inbox</Strong>. The account is not a master admin and cannot reach
           operator APIs before the verification succeeds; verification revokes the pre-verification
           session, so sign in again.
+        </LI>
+        <LI>
+          Enroll an authenticator, passkey, or security key, then sign in again with that factor to
+          unlock the operator control plane.
         </LI>
         <LI>
           Configure the system SMTP transport at <Strong>Admin → Email transport</Strong> and send
@@ -237,13 +270,10 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
           verify an address or recover a password.
         </LI>
         <LI>
-          Enroll an authenticator, passkey, or security key, then sign in again with that factor to
-          unlock the operator control plane.
-        </LI>
-        <LI>
           Test signup, verification, password reset, invitation matching, role denial, and 2FA.
         </LI>
         <LI>Test two concurrent companies and at least two replicas against shared storage.</LI>
+        <LI>Drain traffic and replace all old replicas before reopening access. Existing browser sessions must sign in again after this session-storage upgrade.</LI>
         <LI>
           Keep database, volume, ingress, SMTP, and model-provider monitoring outside the app.
         </LI>

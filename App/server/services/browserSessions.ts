@@ -741,7 +741,9 @@ function teardown(sessionId: string): void {
  * Background sweep: any pending session whose MCP token TTL has lapsed and
  * never went `live` flips to `expired`. Runs once a minute from boot.
  */
-export async function sweepExpiredBrowserSessions(): Promise<void> {
+export async function sweepExpiredBrowserSessions(
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<void> {
   const repo = AppDataSource.getRepository(BrowserSession);
   const cutoff = new Date(Date.now() - EXPIRE_GRACE_MS);
   const stale = await repo
@@ -750,6 +752,7 @@ export async function sweepExpiredBrowserSessions(): Promise<void> {
     .andWhere("s.mcpTokenExpiresAt < :cutoff", { cutoff })
     .getMany();
   for (const row of stale) {
+    assertLeaseHeld();
     row.status = "expired";
     row.closedAt = new Date();
     await repo.save(row);
@@ -762,7 +765,7 @@ let sweepTimer: NodeJS.Timeout | null = null;
 export function bootBrowserSessionSweeper(): void {
   if (sweepTimer) return;
   sweepTimer = setInterval(() => {
-    withSchedulerLease("browser-session-sweep", 55_000, () => sweepExpiredBrowserSessions()).catch(
+    withSchedulerLease("browser-session-sweep", 55_000, (lease) => sweepExpiredBrowserSessions(lease.assertHeld)).catch(
       () => {
         // best-effort housekeeping
       },

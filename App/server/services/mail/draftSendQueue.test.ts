@@ -382,7 +382,7 @@ describe("draft send pacing", () => {
     assert.equal(await AppDataSource.getRepository(MailDraftSendBatch).count(), 0);
   });
 
-  test("restart requeues only the interrupted item and preserves durable progress", async () => {
+  test("restart marks an uncertain send for review without automatically resending it", async () => {
     const { account, drafts } = await createDrafts(3);
     const restartAt = new Date("2026-07-29T11:00:00.000Z");
     const batch = await insert(MailDraftSendBatch, {
@@ -410,13 +410,16 @@ describe("draft send pacing", () => {
     const recovered = await AppDataSource.getRepository(MailDraftSendBatch).findOneByOrFail({
       id: batch.id,
     });
-    assert.equal(recovered.status, "running");
+    assert.equal(recovered.status, "completed_with_errors");
     assert.equal(recovered.sent, 1);
-    assert.equal(recovered.failed, 1);
-    assert.equal(recovered.nextSendAt?.toISOString(), "2026-07-29T11:01:00.000Z");
+    assert.equal(recovered.failed, 2);
+    assert.equal(recovered.nextSendAt, null);
     const recoveredView = await getLatestDraftSendBatch(account);
-    assert.deepEqual(recoveredView?.queuedDraftIds, [drafts[1].id]);
-    assert.deepEqual(recoveredView?.failures, [{ id: drafts[2].id, reason: "Invalid recipient" }]);
+    assert.deepEqual(recoveredView?.queuedDraftIds, []);
+    assert.deepEqual(recoveredView?.failures, [
+      { id: drafts[1].id, reason: "The send was interrupted. Check Sent before sending this draft again." },
+      { id: drafts[2].id, reason: "Invalid recipient" },
+    ]);
 
     const attempted: string[] = [];
     const completed = await processDraftSendBatch(batch.id, {
@@ -426,10 +429,41 @@ describe("draft send pacing", () => {
         return draft;
       },
     });
-    assert.deepEqual(attempted, [drafts[1].id]);
+    assert.deepEqual(attempted, []);
     assert.equal(completed?.status, "completed_with_errors");
-    assert.equal(completed?.sent, 2);
-    assert.equal(completed?.failed, 1);
+    assert.equal(completed?.sent, 1);
+    assert.equal(completed?.failed, 2);
+  });
+
+  test("a replacement worker preserves pacing for drafts after an uncertain send", async () => {
+    const { account, drafts } = await createDrafts(2);
+    const now = new Date("2026-07-29T11:00:00.000Z");
+    const batch = await insert(MailDraftSendBatch, {
+      companyId: account.companyId,
+      accountId: account.id,
+      status: "running",
+      total: 2,
+      itemsJson: JSON.stringify([
+        { draftId: drafts[0].id, status: "sending", errorMessage: "" },
+        { draftId: drafts[1].id, status: "queued", errorMessage: "" },
+      ]),
+      nextSendAt: new Date(now.getTime() - 60_000),
+    });
+    const attempted: string[] = [];
+    const sendDraft = async (_account: MailAccount, draft: MailMessage) => {
+      attempted.push(draft.id);
+      return draft;
+    };
+    const recovered = await processDraftSendBatch(batch.id, {
+      now: () => now, delayMs: () => MIN_SEND_DELAY_MS, sendDraft,
+    });
+    assert.deepEqual(attempted, []);
+    assert.equal(recovered?.failed, 1);
+    assert.equal(recovered?.nextSendAt, "2026-07-29T11:01:00.000Z");
+    await processDraftSendBatch(batch.id, {
+      now: () => new Date(now.getTime() + MIN_SEND_DELAY_MS), sendDraft,
+    });
+    assert.deepEqual(attempted, [drafts[1].id]);
   });
 
   test("restart closes an active batch whose items are already terminal", async () => {

@@ -1,3 +1,4 @@
+import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -83,10 +84,11 @@ before(async () => {
   // 100 KB a save just over the editor cap would 413 here and never reach the
   // validation this test is about.
   app.use(express.json({ limit: "1mb" }));
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     (req as unknown as { session: unknown }).session = actingUserId
       ? { userId: actingUserId, sessionVersion: 1, authenticatedAt: Date.now() }
       : null;
+    await persistTestSession(req);
     next();
   });
   app.use("/api/companies/:cid", repositoryContentRouter);

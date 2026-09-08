@@ -1,3 +1,4 @@
+import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { Server } from "node:http";
@@ -41,10 +42,11 @@ before(async () => {
   _setVerifyKeysForTest([publicKeyB64]);
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     (req as unknown as { session: unknown }).session = actingUserId
       ? { userId: actingUserId, sessionVersion: 0 }
       : null;
+    await persistTestSession(req);
     next();
   });
   app.use("/api/admin", adminRouter);

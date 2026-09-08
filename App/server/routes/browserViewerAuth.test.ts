@@ -21,6 +21,8 @@ import { errorHandler } from "../middleware/error.js";
 import { hashApiToken } from "../middleware/auth.js";
 import { attachRealtime, mintBrowserViewerWsToken, mintWsToken } from "../services/realtime.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { persistTestSession } from "../test/userSession.js";
+import { createUserSession } from "../services/userSessions.js";
 import { browserSessionsRouter } from "./browserSessions.js";
 import { browserRpcRouter } from "./browserRpc.js";
 
@@ -39,10 +41,11 @@ before(async () => {
   AppDataSource.subscribers.push(new ResourceChangeSubscriber());
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     (req as unknown as { session: unknown }).session = actingUserId
       ? { userId: actingUserId, sessionVersion: 0 }
       : null;
+    await persistTestSession(req);
     next();
   });
   app.use("/api/companies/:cid/employees/:eid/browser-sessions", browserSessionsRouter);
@@ -180,7 +183,10 @@ describe("Browser viewer authorization", () => {
   });
 
   test("accepts only an exact admin viewer token at the WebSocket upgrade", async () => {
-    const genericWorkspaceToken = await mintWsToken(owner.id, company.id);
+    const genericWorkspaceToken = await mintWsToken(owner.id, company.id, {
+      kind: "session",
+      identity: await createUserSession(owner),
+    });
     assert.equal(await websocketStatus(viewerPath(genericWorkspaceToken)), 403);
 
     const forgedMemberViewerToken = await mintBrowserViewerWsToken(
@@ -188,6 +194,7 @@ describe("Browser viewer authorization", () => {
       company.id,
       employee.id,
       browserSession.id,
+      { kind: "session", identity: await createUserSession(member) },
     );
     assert.equal(await websocketStatus(viewerPath(forgedMemberViewerToken)), 403);
 

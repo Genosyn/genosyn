@@ -28,7 +28,10 @@ function displayDue(value: Date | null): string {
  * AI Employees consume the same due work from `list_follow_ups`; they do not
  * receive human bell/push notifications.
  */
-export async function dispatchDueFollowUpReminders(now = new Date()): Promise<number> {
+export async function dispatchDueFollowUpReminders(
+  now = new Date(),
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<number> {
   const [tasks, deals, partnerships] = await Promise.all([
     AppDataSource.getRepository(Activity)
       .createQueryBuilder("activity")
@@ -95,6 +98,7 @@ export async function dispatchDueFollowUpReminders(now = new Date()): Promise<nu
   const slugById = new Map(companies.map((company) => [company.id, company.slug]));
   let created = 0;
   for (const reminder of reminders) {
+    assertLeaseHeld();
     const existing = await AppDataSource.getRepository(Notification).findOneBy({
       companyId: reminder.companyId,
       userId: reminder.userId,
@@ -104,6 +108,7 @@ export async function dispatchDueFollowUpReminders(now = new Date()): Promise<nu
     });
     const slug = slugById.get(reminder.companyId);
     if (existing || !slug) continue;
+    assertLeaseHeld();
     await createNotification({
       companyId: reminder.companyId,
       userId: reminder.userId,

@@ -263,6 +263,7 @@ export function scheduleStandingQuestions(
 export async function sweepPendingStandingQuestions(
   now: Date = new Date(),
   dependencies: StandingSweepDependencies = {},
+  assertLeaseHeld: () => void = () => undefined,
 ): Promise<number> {
   const pending = await AppDataSource.getRepository(Tldr).find({
     where: {
@@ -275,7 +276,10 @@ export async function sweepPendingStandingQuestions(
   });
   const dispatch =
     dependencies.dispatch ?? ((tldrId: string) => scheduleStandingQuestions(tldrId, dependencies));
-  for (const tldr of pending) dispatch(tldr.id);
+  for (const tldr of pending) {
+    assertLeaseHeld();
+    dispatch(tldr.id);
+  }
   return pending.length;
 }
 

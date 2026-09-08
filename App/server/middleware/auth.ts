@@ -11,6 +11,11 @@ import {
 } from "../services/browserRequestBoundary.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
 import { config } from "../../config.js";
+import {
+  createUserSession,
+  resolveUserSession,
+  revokeCurrentUserSession,
+} from "../services/userSessions.js";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -112,8 +117,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // Cookie-session path — what the web UI uses.
   const uid = req.session?.userId as string | undefined;
   if (uid) {
-    const user = await AppDataSource.getRepository(User).findOneBy({ id: uid });
-    if (!user || req.session?.sessionVersion !== user.sessionVersion) {
+    const user = await resolveUserSession(req.session);
+    if (!user) {
       req.session = null;
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -135,10 +140,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   return res.status(401).json({ error: "Unauthorized" });
 }
 
-export function establishUserSession(req: Request, user: User): void {
+export async function establishUserSession(req: Request, user: User): Promise<void> {
+  await revokeCurrentUserSession(req);
   req.session = {
-    userId: user.id,
-    sessionVersion: user.sessionVersion,
+    ...(await createUserSession(user)),
     authenticatedAt: Date.now(),
   };
 }

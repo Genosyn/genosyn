@@ -88,7 +88,7 @@ ssoRouter.get("/callback", async (req, res) => {
     if (methods.enabled) {
       return res.redirect("/login?twoFactor=1");
     }
-    establishUserSession(req, user);
+    await establishUserSession(req, user);
     if (user.isMasterAdmin && !config.security.multiTenant) {
       await capturePublicUrlFromMasterAdminRequest(req);
     }

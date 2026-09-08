@@ -34,6 +34,8 @@ import {
   verifyTotpLogin,
 } from "../services/twoFactor.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { persistTestSession } from "../test/userSession.js";
+import { setPublicUrl } from "../services/publicUrl.js";
 import { authRouter } from "./auth.js";
 import { adminRouter } from "./admin.js";
 import { companiesRouter } from "./companies.js";
@@ -64,7 +66,7 @@ before(async () => {
   // Route tests deliberately rebuild a fresh signed-session shape on every
   // request. This makes the persistent MFA assertions prove that a new
   // primary-login cookie cannot reset the database-backed counter.
-  app.use((req, _res, next) => {
+  app.use(async (req, _res, next) => {
     const userId = req.header("x-test-user");
     const pendingUserId = req.header("x-test-two-factor-user");
     (req as unknown as { session: Record<string, unknown> | null }).session = userId
@@ -77,10 +79,12 @@ before(async () => {
       : pendingUserId
         ? {
             twoFactorUserId: pendingUserId,
+            twoFactorSessionVersion: Number(req.header("x-test-session-version") ?? "0"),
             twoFactorExpiresAt: Date.now() + 60_000,
             twoFactorAttempts: 0,
           }
         : {};
+    await persistTestSession(req);
     next();
   });
   app.use("/api/auth", twoFactorRouter);
@@ -112,6 +116,7 @@ after(async () => {
 
 beforeEach(async () => {
   await resetTestDb();
+  await setPublicUrl("https://genosyn.example.test");
   security.multiTenant = false;
   security.bootstrapMasterAdminEmail = "operator@example.com";
   Object.assign(security.authRateLimit, originalSecurity.authRateLimit);
@@ -690,6 +695,16 @@ async function enrollAuthenticator(
 }
 
 describe("two-factor hardening", () => {
+  test("a password recovery epoch change invalidates a pending second factor", async () => {
+    const { user } = await createMember();
+    await AppDataSource.getRepository(User).update(user.id, { sessionVersion: 1 });
+    const response = await call("GET", "/api/auth/login/two-factor", {
+      pendingUserId: user.id,
+      sessionVersion: 0,
+    });
+    assert.equal(response.status, 401);
+  });
+
   test("failed MFA attempts persist across replacement login sessions", async () => {
     security.authRateLimit.maxAttempts = 2;
     const user = await insert(User, {

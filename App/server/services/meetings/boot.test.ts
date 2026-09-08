@@ -5,6 +5,7 @@ import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import { overrideRuntimeSettingsForTests } from "../runtimeSettings.js";
+import { SchedulerLeaseLostError } from "../schedulerLeases.js";
 import {
   meetingsHeartbeatTick,
   resetMeetingsHeartbeatPacingForTests,
@@ -44,6 +45,29 @@ function dependencies(
 }
 
 describe("meeting calendar heartbeat", () => {
+  test("lease loss during calendar sync stops arming and the rest of the batch", async () => {
+    const first = await account("active");
+    await account("error");
+    let held = true;
+    let syncs = 0;
+    let arms = 0;
+    const deps = dependencies(async () => {
+      syncs++;
+      held = false;
+      return { upserted: 0, cancelled: 0, pruned: 0, truncated: false };
+    });
+    deps.armAccount = async () => { arms++; return 0; };
+    await assert.rejects(
+      runMeetingsHeartbeat(deps, () => {
+        if (!held) throw new SchedulerLeaseLostError("meetings-sync");
+      }),
+      SchedulerLeaseLostError,
+    );
+    assert.equal(syncs, 1);
+    assert.equal(arms, 0);
+    const row = await AppDataSource.getRepository(CalendarAccount).findOneByOrFail({ id: first.id });
+    assert.equal(row.syncState, "running", "stale owner must not stamp success or failure");
+  });
   test("retries error calendars, restores them to active, and leaves paused calendars alone", async () => {
     const errored = await account("error");
     const paused = await account("paused");

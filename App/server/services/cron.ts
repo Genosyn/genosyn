@@ -139,7 +139,11 @@ async function findInFlightRun(routine: Routine, now: Date = new Date()): Promis
   });
 }
 
-async function tickRoutine(routineId: string, meta: { missedSlots: number }): Promise<void> {
+async function tickRoutine(
+  routineId: string,
+  meta: { missedSlots: number },
+  assertLeaseHeld: () => void,
+): Promise<void> {
   // Re-fetch each tick so edits (including flipping requiresApproval or
   // disabling the routine) take effect without restarting the process.
   const repo = AppDataSource.getRepository(Routine);
@@ -157,6 +161,7 @@ async function tickRoutine(routineId: string, meta: { missedSlots: number }): Pr
       employeeId: emp.id,
       status: "pending",
     });
+    assertLeaseHeld();
     await approvalRepo.save(pending);
     void notifyApprovalPending(pending).catch((e) => {
       // eslint-disable-next-line no-console
@@ -191,6 +196,7 @@ async function tickRoutine(routineId: string, meta: { missedSlots: number }): Pr
   const { completion } = await startRoutineRun(fresh, {
     triggerKind: "schedule",
     missedSlots: meta.missedSlots,
+    beforeRunPersist: async () => assertLeaseHeld(),
   });
   // The heartbeat only waits until the durable Run row exists. The agent work
   // continues independently, just as it did when this whole function was
@@ -285,13 +291,17 @@ function isRetryDispatchEligible(parent: Run, routine: Routine): boolean {
  * is cleared instead of dispatching that attempt twice. The claim is settled
  * only after child creation, favoring at-least-once recovery over silent loss.
  */
-export async function dispatchDueRetries(now: Date): Promise<RetryDispatchResult> {
+export async function dispatchDueRetries(
+  now: Date,
+  assertLeaseHeld: () => void = () => undefined,
+): Promise<RetryDispatchResult> {
   const routineRepo = AppDataSource.getRepository(Routine);
   const runRepo = AppDataSource.getRepository(Run);
   const completions: Array<Promise<Run>> = [];
   let started = 0;
 
   for (const queuedParent of await findDueRetries(now, MAX_RETRIES_PER_TICK)) {
+    assertLeaseHeld();
     // Re-read after the queue scan so a member cancelling a retry does not
     // lose a race to stale scheduler state.
     const parent = await runRepo.findOneBy({ id: queuedParent.id });
@@ -303,6 +313,7 @@ export async function dispatchDueRetries(now: Date): Promise<RetryDispatchResult
     ) {
       continue;
     }
+    assertLeaseHeld();
     const initialClaim = await claimRetryDispatch(parent.id, queuedParent.retryAt);
     if (!initialClaim) continue;
     let claim = initialClaim;
@@ -357,6 +368,7 @@ export async function dispatchDueRetries(now: Date): Promise<RetryDispatchResult
         missedSlots: 0,
       };
       startOptions.beforeRunPersist = async () => {
+        assertLeaseHeld();
         // Renew and verify ownership after setup, so a scheduler that
         // resumed after its claim expired cannot start work behind a newer
         // dispatcher.
@@ -370,6 +382,7 @@ export async function dispatchDueRetries(now: Date): Promise<RetryDispatchResult
         // during preparation cannot be bypassed by the stale object this
         // dispatch started with.
         const currentRoutine = await routineRepo.findOneBy({ id: routine.id });
+        assertLeaseHeld();
         if (!currentRoutine || !isRetryDispatchEligible(parent, currentRoutine)) {
           throw new RetryDispatchIneligibleError(
             "Routine became ineligible before retry child creation",
@@ -431,7 +444,7 @@ async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    await withSchedulerLease("routines", HEARTBEAT_INTERVAL_MS * 3, async () => {
+    await withSchedulerLease("routines", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
       const repo = AppDataSource.getRepository(Routine);
       const now = new Date();
 
@@ -443,6 +456,7 @@ async function tick(): Promise<void> {
         // eslint-disable-next-line no-console
         console.error("[cron] run recovery failed:", err);
       });
+      lease.assertHeld();
       await reconcileStaleTldrs(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR recovery failed:", err);
@@ -457,6 +471,7 @@ async function tick(): Promise<void> {
         take: MAX_DISPATCH_PER_TICK,
       });
       for (const r of due) {
+        lease.assertHeld();
         const slot = r.nextRunAt as Date; // non-null by the query predicate
         const { count, capped } = countMissedSlots(r.cronExpr, slot, now, MISSED_SLOT_CAP);
         const stale = isSlotStale(slot, now, STALE_SLOT_MS);
@@ -478,19 +493,22 @@ async function tick(): Promise<void> {
         try {
           // Wait only until the Run row is durable (not for the agent to
           // finish) so phase 3 can see it and defer a colliding retry.
-          await tickRoutine(r.id, { missedSlots: count });
+          lease.assertHeld();
+          await tickRoutine(r.id, { missedSlots: count }, lease.assertHeld);
         } catch (err) {
           onDispatchError(r.id)(err);
         }
       }
 
       // Phase 3 — retries owed by earlier failures.
-      await dispatchDueRetries(now);
+      lease.assertHeld();
+      await dispatchDueRetries(now, lease.assertHeld);
 
       // Phase 4 — durable Revenue reminders. The notification entity key
       // makes this idempotent across heartbeats; the scheduler lease prevents
       // two app instances racing the same reminder.
-      await dispatchDueFollowUpReminders(now).catch((err) => {
+      lease.assertHeld();
+      await dispatchDueFollowUpReminders(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] revenue follow-up reminders failed:", err);
       });
@@ -498,7 +516,8 @@ async function tick(): Promise<void> {
       // Phase 5 — claim due TLDR windows. The claim and schedule advance are
       // durable before the restricted model turn continues in the background,
       // so this heartbeat never waits for prose generation.
-      await dispatchDueTldrs(now).catch((err) => {
+      lease.assertHeld();
+      await dispatchDueTldrs(now, {}, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR dispatch failed:", err);
       });
@@ -514,14 +533,17 @@ async function tick(): Promise<void> {
       // UPDATE. Same reason a button left mid-press is released from here —
       // one guarded UPDATE, so a replica that died without a peer restarting
       // does not leave its buttons stuck until one does.
-      await sweepPendingStandingQuestions(now).catch((err) => {
+      lease.assertHeld();
+      await sweepPendingStandingQuestions(now, {}, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR standing question sweep failed:", err);
       });
+      lease.assertHeld();
       await retireStaleStandingClaims(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR standing question retirement failed:", err);
       });
+      lease.assertHeld();
       await releaseInterruptedTldrQuestionActions(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR suggested action release failed:", err);
@@ -531,7 +553,8 @@ async function tick(): Promise<void> {
       // and Handoffs that have sat unanswered past their stall threshold.
       // Idempotent per row (deduplicated against the notification feed), so
       // running it on every heartbeat costs three bounded queries.
-      await sweepStalledWork(now).catch((err) => {
+      lease.assertHeld();
+      await sweepStalledWork(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] stall sweep failed:", err);
       });
@@ -539,7 +562,8 @@ async function tick(): Promise<void> {
       // Phase 8 — keep the Goals honest. Refresh chart-bound values (bounded
       // per pass) and settle achieved / missed transitions, each claimed with
       // a conditional UPDATE so a settle notifies exactly once.
-      await sweepGoals(now).catch((err) => {
+      lease.assertHeld();
+      await sweepGoals(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] goal sweep failed:", err);
       });
@@ -547,7 +571,8 @@ async function tick(): Promise<void> {
       // Phase 9 — the routed-Decision fuse. A question an AI decider has held
       // unanswered past the fuse drops back to the human flow with the bell
       // the routing skipped; un-routing is the exactly-once claim.
-      await sweepRoutedDecisions(now).catch((err) => {
+      lease.assertHeld();
+      await sweepRoutedDecisions(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] routed decision sweep failed:", err);
       });
@@ -555,7 +580,8 @@ async function tick(): Promise<void> {
       // Phase 10 — earned-autonomy eligibility (hourly behind its own gate).
       // Drafts evidence-attached promotion Approvals; demotion needs no sweep
       // because the runner revokes at the moment a Run goes bad.
-      await sweepAutonomyPromotions(now).catch((err) => {
+      lease.assertHeld();
+      await sweepAutonomyPromotions(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] autonomy sweep failed:", err);
       });
@@ -563,7 +589,8 @@ async function tick(): Promise<void> {
       // Phase 11 — fire due Wakeups (M54). Each is claimed with a conditional
       // UPDATE, then briefed into a fresh employee-authority session — or the
       // journal, when the employee has no model.
-      await dispatchDueWakeups(now).catch((err) => {
+      lease.assertHeld();
+      await dispatchDueWakeups(now, undefined, lease).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] wakeup dispatch failed:", err);
       });
@@ -574,7 +601,8 @@ async function tick(): Promise<void> {
       // ungraded Run counted as a clean one toward earning autonomy. Claimed
       // with a conditional UPDATE on `outcomeCheckedAt IS NULL`, so the sweep
       // and a slow in-line check cannot both spend a model turn on one Run.
-      await sweepUngradedRuns(now).catch((err) => {
+      lease.assertHeld();
+      await sweepUngradedRuns(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] ungraded run sweep failed:", err);
       });
