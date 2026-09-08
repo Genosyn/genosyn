@@ -48,6 +48,8 @@ import { errorMessage } from "../lib/errors";
 import { useChatAttachments } from "@/lib/stagedChatAttachments";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
+import { WorkSessionModelPicker } from "@/components/repositories/WorkSessionModelPicker";
+import { resolveWorkSessionModelId, type WorkSessionModelOverride } from "@/lib/workSessionModel";
 import type { ChatAttachment } from "@/lib/api";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
@@ -230,6 +232,9 @@ export default function RepositoryAi() {
   );
 
   useLiveRefetch("repository", reloadList, repoId);
+  // AI Model changes are scoped to their employee, so a repository-only
+  // subscription would leave choices stale when another tab edits a model.
+  useLiveRefetch("employee", reloadList);
 
   if (!repo) {
     return (
@@ -715,7 +720,7 @@ function SessionInboxRow({
 
 // ────────────────────────── starting a session ──────────────────────────
 
-function NewSessionPane({
+export function NewSessionPane({
   base,
   companyId,
   currentUserId,
@@ -744,6 +749,7 @@ function NewSessionPane({
   onStarted: (session: RepositoryWorkSession) => Promise<void>;
 }) {
   const [employeeId, setEmployeeId] = React.useState("");
+  const [modelOverride, setModelOverride] = React.useState<WorkSessionModelOverride | null>(null);
   const [instruction, setInstruction] = usePersistedDraft(
     `repository-ai-draft:${currentUserId}:${repoId}`,
   );
@@ -758,18 +764,8 @@ function NewSessionPane({
   });
   const { onPaste, dragProps, dragActive } = useComposerFileDrop(
     (files) => void attachments.addFiles(files),
-    { disabled: starting || !employeeId },
+    { disabled: starting || !candidates?.length },
   );
-
-  React.useEffect(() => {
-    if (!candidates || candidates.length === 0) {
-      setEmployeeId("");
-      return;
-    }
-    setEmployeeId((current) =>
-      candidates.some((candidate) => candidate.id === current) ? current : candidates[0].id,
-    );
-  }, [candidates]);
 
   if (candidates === null) {
     return error ? <InlineRetry message={error} onRetry={onRetry} /> : <NewSessionSkeleton />;
@@ -802,8 +798,15 @@ function NewSessionPane({
     );
   }
 
+  const selected = candidates.find((candidate) => candidate.id === employeeId) ?? candidates[0];
+  const selectedModelId = resolveWorkSessionModelId({
+    employeeId: selected.id,
+    models: selected.models,
+    override: modelOverride,
+  });
+
   async function start() {
-    if (!employeeId || submitting.current || attachments.isUploading()) return;
+    if (!selectedModelId || submitting.current || attachments.isUploading()) return;
     setStartError(null);
     if (!instruction.trim() && !attachments.pending.length) {
       setStartError("Say what the employee should do.");
@@ -813,7 +816,8 @@ function NewSessionPane({
     setStarting(true);
     try {
       const session = await api.post<RepositoryWorkSession>(`${base}/sessions`, {
-        employeeId,
+        employeeId: selected.id,
+        modelId: selectedModelId,
         instruction: instruction.trim(),
         attachmentIds: attachments.pending.map((attachment) => attachment.id),
       });
@@ -832,7 +836,6 @@ function NewSessionPane({
     repoKind === "documents"
       ? "What should change in these documents? Include the audience, outcome, and any boundaries."
       : "What should change in this repository? Include the expected behavior and how to verify it.";
-  const selected = candidates.find((candidate) => candidate.id === employeeId) ?? candidates[0];
   const starters = STARTERS[repoKind === "documents" ? "documents" : "code"];
 
   return (
@@ -956,12 +959,18 @@ function NewSessionPane({
 
           <FormError message={startError} className="mt-4" />
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 max-w-sm">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
               <Select
                 label="AI employee"
-                value={employeeId}
-                onChange={(event) => setEmployeeId(event.target.value)}
+                value={selected.id}
+                disabled={starting}
+                containerClassName="w-full sm:w-52"
+                onChange={(event) => {
+                  setEmployeeId(event.target.value);
+                  setModelOverride(null);
+                  setStartError(null);
+                }}
               >
                 {candidates.map((candidate) => (
                   <option key={candidate.id} value={candidate.id} data-search-text={candidate.role}>
@@ -969,13 +978,22 @@ function NewSessionPane({
                   </option>
                 ))}
               </Select>
+              <WorkSessionModelPicker
+                models={selected.models}
+                modelId={selectedModelId}
+                disabled={starting}
+                onChange={(modelId) => {
+                  setModelOverride({ employeeId: selected.id, modelId });
+                  setStartError(null);
+                }}
+              />
             </div>
             <Button
               onClick={start}
               disabled={
                 starting ||
                 attachments.uploading > 0 ||
-                !employeeId ||
+                !selectedModelId ||
                 (!instruction.trim() && !attachments.pending.length)
               }
               className="w-full justify-center sm:w-auto"
@@ -984,6 +1002,12 @@ function NewSessionPane({
               {starting ? "Starting…" : `Start with ${selected?.name ?? "AI"}`}
             </Button>
           </div>
+
+          {!selectedModelId && (
+            <p role="status" className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+              Connect an AI Model for {selected.name} before starting a Work session.
+            </p>
+          )}
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">
             <span>

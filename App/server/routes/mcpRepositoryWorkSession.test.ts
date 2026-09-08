@@ -102,7 +102,7 @@ beforeEach(async () => {
     provider: "anthropic",
     model: "claude-test",
     authMode: "apikey",
-    configJson: "{}",
+    configJson: '{"apiKeyEncrypted":"test-placeholder"}',
     isActive: true,
   });
   repository = await insert(Repository, {

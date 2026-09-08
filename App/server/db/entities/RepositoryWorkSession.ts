@@ -80,6 +80,10 @@ export class RepositoryWorkSession {
   @Column({ type: "varchar" })
   employeeId!: string;
 
+  /** Keep the opening AI Model for every follow-up. Older sessions use the active model. */
+  @Column({ type: "varchar", nullable: true })
+  modelId!: string | null;
+
   /** The Member who opened the session. Each turn records its own asker. */
   @Column({ type: "varchar", nullable: true })
   requestedByUserId!: string | null;

@@ -245,7 +245,12 @@ export function Repositories() {
       </P>
       <OL>
         <LI>
-          Pick the employee by name, choose a suggested brief if it helps, and describe the outcome.
+          Pick the <Strong>AI employee</Strong> by name, choose a suggested brief if it helps, and
+          describe the outcome. If the employee has multiple assigned models, <Strong>AI Model</Strong>{" "}
+          lists them all and selects its connected default, or another connected model if needed.
+          Disconnected models are shown but cannot be selected. With one assigned model, there is
+          no picker. Your choice applies to this session and its follow-ups without changing the
+          employee&apos;s <DocLink to="/docs/models#multiple-models">active model</DocLink>.
         </LI>
         <LI>
           Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}

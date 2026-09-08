@@ -1369,6 +1369,11 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       Activity and Changes views with commit checkpoints and review actions;
       a compact mobile session switcher; and explicit loading, error, empty,
       and retry states throughout.
+- [x] **Choose an AI Model for a work session** — the new-session composer
+      lists every model assigned to the selected AI Employee when it has more
+      than one, with disconnected models visible but unavailable. A single
+      assigned model needs no picker. The selected connected model carries
+      through follow-ups without changing the employee's default model.
 - [x] **Archive a work session** (`RepositoryWorkSession.archivedAt`) — a
       repository accumulates finished sessions faster than anything else, and
       the only thing on offer for shortening the list was `discard`, which

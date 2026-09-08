@@ -5,7 +5,6 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Repository } from "../db/entities/Repository.js";
-import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { User } from "../db/entities/User.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
@@ -76,6 +75,7 @@ import {
   WORK_SESSION_ATTACHMENTS_MAX,
 } from "../services/repositoryWorkSessionAttachments.js";
 import { repositoryAiOverview } from "../services/repositoryAiOverview.js";
+import { repositoryWorkSessionCandidates } from "../services/repositoryWorkSessionModels.js";
 
 /**
  * Working with a Repository's *contents* — the file tree, the editor, history,
@@ -676,24 +676,7 @@ repositoryContentRouter.get(
 repositoryContentRouter.get(
   "/repositories/:slug/session-candidates",
   withRepository(async (repo, _req, res) => {
-    const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
-      where: { repositoryId: repo.id },
-    });
-    const employees = grants.length
-      ? await AppDataSource.getRepository(AIEmployee).find({
-          where: { companyId: repo.companyId, id: In(grants.map((g) => g.employeeId)) },
-          order: { createdAt: "ASC" },
-        })
-      : [];
-    res.json({
-      employees: employees.map((e) => ({
-        id: e.id,
-        name: e.name,
-        slug: e.slug,
-        role: e.role,
-        avatarKey: e.avatarKey ?? null,
-      })),
-    });
+    res.json({ employees: await repositoryWorkSessionCandidates(repo) });
   }),
 );
 
@@ -761,7 +744,11 @@ const sessionInstructionShape = {
 const hasSessionInstruction = (body: { instruction: string; attachmentIds: string[] }) =>
   body.instruction.trim().length > 0 || body.attachmentIds.length > 0;
 const startSessionSchema = z
-  .object({ employeeId: z.string().uuid(), ...sessionInstructionShape })
+  .object({
+    employeeId: z.string().uuid(),
+    modelId: z.string().uuid().optional(),
+    ...sessionInstructionShape,
+  })
   .strict()
   .refine(hasSessionInstruction, "Write an instruction or attach a file before sending.");
 
@@ -807,6 +794,7 @@ repositoryContentRouter.post(
       companyId: repo.companyId,
       repositoryId: repo.id,
       employeeId: employee.id,
+      modelId: body.modelId,
       instruction: body.instruction,
       attachmentIds: body.attachmentIds,
       requesterUserId: req.userId,

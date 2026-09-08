@@ -73,6 +73,7 @@ function session(overrides: Partial<RepositoryWorkSession> = {}): RepositoryWork
     companyId: "c1",
     repositoryId: "r1",
     employeeId: "e1",
+    modelId: null,
     requestedByUserId: "u1",
     title: "Add a health check",
     instruction: "Add a health check endpoint and commit it",
