@@ -589,7 +589,7 @@ export default function Help({ company }: { company: Company }) {
                   Ask {selected.name} about Genosyn
                 </h2>
                 <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-                  {selected.name} receives Genosyn&apos;s product vocabulary, roadmap,
+                  {selected.name} receives Genosyn&apos;s product vocabulary,
                   documentation, and a read-only snapshot of the full codebase shipped with this
                   version.
                 </p>

@@ -322,7 +322,7 @@ export function llmsTxt(): string {
     "",
     "## Optional",
     "",
-    `- [GitHub repository](${GITHUB_URL}): source code, issues, and roadmap`,
+    `- [GitHub repository](${GITHUB_URL}): source code and issues`,
     `- [Roles](${SITE_URL}/roles): what an AI Employee does all day, in eight worked examples`,
     `- [Pricing](${SITE_URL}/pricing): free community edition, Genosyn Cloud plans, and Enterprise licensing`,
     `- [Enterprise](${SITE_URL}/enterprise): running Genosyn in your own environment`,

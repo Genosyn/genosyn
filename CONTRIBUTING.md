@@ -1,8 +1,8 @@
 # Contributing & developer guide
 
 Thanks for hacking on Genosyn. This guide covers running the project, the repo layout,
-and how to get a change merged. For the product vision and milestones, see
-[`ROADMAP.md`](./ROADMAP.md); for the coding conventions every change must follow, see
+and how to get a change merged. For the product overview, see
+[`README.md`](./README.md); for the coding conventions every change must follow, see
 [`AGENTS.md`](./AGENTS.md) — it's the source of truth and **what gets a PR rejected**.
 
 ---
@@ -15,7 +15,6 @@ genosyn/
 ├── Home/        # Marketing site + docs — React + Vite + Tailwind
 ├── CLI/         # `genosyn` self-host CLI (bash)
 ├── AGENTS.md    # Code conventions & vocabulary (read before you change code)
-├── ROADMAP.md   # Product plan and milestones
 └── CLAUDE.md    # Pointer to AGENTS.md for AI coding agents
 ```
 
@@ -147,14 +146,14 @@ Home site's public assets at build time, so edit them in `CLI/`.
 
 1. **Read [`AGENTS.md`](./AGENTS.md) first.** It covers the vocabulary (Routine, Soul,
    Skill, AI Employee), the locked-in stack, and the conventions a PR is checked against.
-2. **Check [`ROADMAP.md`](./ROADMAP.md).** New features should map to a milestone — add
-   one before building something that isn't there yet.
+2. **Check the existing documentation and product source.** Use the docs under
+   `Home/client/docs/pages/` to understand the current behavior before changing it.
 3. **Run `npm run lint` and `npm run build` in both `App/` and `Home/`** before pushing.
    CI runs the same commands and rejects errors.
 4. **Update the docs in the same PR.** If you change something a user sees, update the
    docs under `Home/client/docs/pages/` (see [`AGENTS.md`](./AGENTS.md) §10).
-5. **Write a clear PR description** referencing the milestone and the manual test steps
-   you ran.
+5. **Write a clear PR description** explaining the problem, scope, resulting behavior,
+   and the manual test steps you ran.
 
 Releases follow a separate scripted ritual — see [`RELEASING.md`](./RELEASING.md). Don't
 bump version numbers or tag manually.

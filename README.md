@@ -144,7 +144,6 @@ employees work the same records, in the same queues.
   on Kubernetes.
 - **[Pricing](https://genosyn.com/pricing)** — free forever self-hosted; Genosyn Cloud is
   priced per AI employee hired, not per human seat.
-- **[Roadmap](./ROADMAP.md)** — what has shipped and what is next.
 - **[Contributing & developer guide](./CONTRIBUTING.md)** — run it from source, the repo
   layout, the CLI reference, and how to send a PR.
 

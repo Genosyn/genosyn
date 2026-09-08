@@ -148,10 +148,10 @@ RUN command -v bwrap >/dev/null \
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing
 # it only through the in-process list/search/read Help tools. The root context
-# is deliberate: App, Home, CLI, roadmap, docs, and delivery workflows all
+# is deliberate: App, Home, CLI, docs, and delivery workflows all
 # belong to the product context an AI Employee may need to explain.
 COPY --chown=node:node \
-  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md ROADMAP.md VERSION \
+  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md VERSION \
   ./.genosyn-source/
 COPY --chown=node:node App ./.genosyn-source/App
 COPY --chown=node:node Home ./.genosyn-source/Home

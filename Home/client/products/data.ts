@@ -6,7 +6,7 @@
  * this module at build time to prerender routes. Icons are referenced by key
  * and resolved in productIcons.ts; preview mockups live in previews.tsx.
  *
- * Copy rules: only shipped capabilities (ROADMAP milestones marked [x]) are
+ * Copy rules: only shipped capabilities verified in the source and docs are
  * claimed. Vocabulary follows AGENTS.md §3 — Routine, Soul, Skill,
  * AI Employee, Member, Integration, Connection, Grant.
  */
