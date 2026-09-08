@@ -286,7 +286,7 @@ export async function getCommitmentOpportunities(
             : "Your Decision has an answer and no successful automatic pickup. Read it and preserve the originating work's authority limits.",
         updatedAt: (decision.decidedAt ?? decision.createdAt).toISOString(),
         dueAt: decision.expiresAt?.toISOString() ?? null,
-        tools: ["list_decisions"],
+        tools: ["get_decision"],
       })),
     ),
     goals: section(

@@ -120,7 +120,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   decisions: {
     label: "decisions",
     blurb: "Ask a human to choose, and read back what they chose.",
-    tools: ["request_decision", "list_decisions", "cancel_decision", "decide_decision"],
+    tools: ["request_decision", "list_decisions", "get_decision", "cancel_decision", "decide_decision"],
   },
   journal: {
     label: "journal",
@@ -1368,6 +1368,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "check with someone",
   ],
   list_decisions: ["what did they choose", "answer", "my questions", "did they reply"],
+  get_decision: ["full decision", "answer feedback", "decision context", "read chosen option"],
   cancel_decision: ["retract", "never mind", "withdraw question"],
   decline_handoff: ["reject", "refuse"],
   cancel_handoff: ["withdraw"],

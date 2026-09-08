@@ -178,8 +178,8 @@ import { getInitiativeReview, getInitiativeDetailReview } from "../services/proa
 import { getProactiveWork } from "../services/proactive/work.js";
 import { getTodoForEmployee, TodoReaderError } from "../services/proactive/todoReader.js";
 import {
-  listEmployeeDecisionInbox,
-  serializeEmployeeDecision,
+  getEmployeeDecisionInbox,
+  getEmployeeDecisionDetail,
 } from "../services/proactive/decisionInbox.js";
 import {
   getParticipatingRoutine,
@@ -12429,24 +12429,41 @@ const listDecisionsSchema = z
     direction: z.enum(["raised", "assigned", "both"]).optional(),
     status: z.enum(["pending", "decided", "cancelled", "expired"]).optional(),
     limit: z.number().int().min(1).max(100).optional(),
+    offset: z.number().int().min(0).max(1_000_000).optional(),
   })
   .strict();
 
 mcpInternalRouter.post(
   "/tools/list_decisions",
   validateBody(listDecisionsSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof listDecisionsSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const rows = await listEmployeeDecisionInbox({
-      companyId: co.id,
-      employeeId: self.id,
-      ...body,
-    });
-    res.json({
-      decisions: rows.map(serializeEmployeeDecision),
-    });
+    try {
+      res.json(await getEmployeeDecisionInbox({ companyId: co.id, employeeId: self.id, ...body }));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_decision",
+  validateBody(z.object({
+    decisionId: z.string().uuid(),
+    section: z.enum(["context", "optionDetail", "note"]).optional(),
+    optionId: z.string().min(1).max(200).optional(),
+    offset: z.number().int().min(0).max(1_000_000).optional(),
+  }).strict()),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(await getEmployeeDecisionDetail({
+        ...req.body, companyId: req.mcpCompany!.id, employeeId: req.mcpEmployee!.id,
+      }));
+    } catch (error) {
+      next(error);
+    }
   },
 );
 

@@ -72,6 +72,7 @@ const MEMBER_TOOLS = [
   // question exactly as they could from the Decisions page.
   "request_decision",
   "list_decisions",
+  "get_decision",
   "cancel_decision",
   // Answering an unassigned decision is member-level on the human route; the
   // tool additionally requires the acting employee to be the routed decider,
