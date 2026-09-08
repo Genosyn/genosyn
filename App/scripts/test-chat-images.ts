@@ -14,6 +14,7 @@ import { xlsxFixture, xlsxCell } from "../server/test/xlsxFixtures.js";
 import { XLSX_MIME } from "../server/services/xlsxPackage.js";
 import { readXlsx } from "../server/services/xlsxRead.js";
 import { editXlsx } from "../server/services/xlsxEdit.js";
+import type { TldrQuestionsResponse } from "../client/lib/tldrQuestions";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let completedWorkbook: Buffer = Buffer.alloc(0);
@@ -291,7 +292,13 @@ await context.route("**/api/**", async (route) => {
     return json({ conversation: { id: "conversation", surface: "help" }, messages: [] });
   if (pathname.endsWith("/assistant"))
     return json({ messages: [], roster: [employee], modelId: "model" });
-  if (pathname.endsWith("/questions")) return json({ questions: [], employee });
+  if (pathname.endsWith("/questions"))
+    return json({
+      questions: [],
+      canAsk: true,
+      canDelegateAutomation: true,
+      maxQuestions: 12,
+    } satisfies TldrQuestionsResponse);
   return json([]);
 });
 
