@@ -715,6 +715,10 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
 
   const cutoff = admissionCutoff(args, Date.now());
   let named = false;
+  let needsNameFill = true;
+  let needsJoinClick = true;
+  let waitingForAdmission = false;
+  let hadConfirmedRequest = false;
   let mutedMicrophone = false;
   let stoppedCamera = false;
   let askedAt = 0;
@@ -727,14 +731,6 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     if (page.isClosed()) {
       throw new Error("Google Meet closed while the notetaker was waiting for admission.");
     }
-    if (Date.now() >= cutoff) {
-      throw new Error(
-        named
-          ? "Nobody admitted the notetaker before the join window closed. Admit the disclosed notetaker from the Google Meet lobby."
-          : "The Google Meet guest name field did not appear before the join deadline.",
-      );
-    }
-
     // Admitted. Everything below this line is lobby work, and once the call
     // controls are on screen none of it applies any more.
     if (
@@ -746,42 +742,76 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
       return;
     }
 
-    // Interstitials are re-checked every pass rather than once before the
-    // lobby renders. Meet is a single-page app: consent, "Got it", and the
-    // no-camera/no-microphone dialog each arrive whenever they arrive, and a
-    // one-shot check that ran while the page was still blank is the same as
-    // no check at all. The device dialog in particular is *modal* — miss it
-    // and every later click lands on a scrim, which is exactly how a
-    // notetaker sits in a lobby for five minutes and then reports that Meet
-    // never offered it a button.
-    await clickFirstVisible([
-      page.getByRole("button", { name: /accept all|reject all/i }),
-      page.getByRole("button", { name: /^got it$/i }),
-      page.getByRole("button", { name: /continue without (?:microphone|camera)/i }),
-      page.getByRole("button", { name: /join without (?:microphone|camera)/i }),
-      page.getByRole("button", { name: /^dismiss$/i }),
-    ]);
+    const body = (await bodyText(page)).replace(/\s+/g, " ");
+    const failure = googleMeetJoinFailure(page.url(), body);
+    if (failure) throw new Error(failure);
 
-    const body = await bodyText(page);
-    if (/request to join (?:was )?denied|you were denied|can.?t join this call/i.test(body)) {
-      throw new Error("The Google Meet host denied the notetaker's request to join.");
+    // A click can open a device-choice dialog instead of sending a request.
+    // Only Meet's waiting screen proves there is something for the host to
+    // admit. An expired request can still use the existing bounded retries.
+    const unanswered = /no one responded|ask to join again|nobody responded/i.test(body);
+    if (unanswered) waitingForAdmission = false;
+    else if (asks > 0 && isGoogleMeetWaitingForAdmission(body)) {
+      waitingForAdmission = true;
+      hadConfirmedRequest = true;
     }
-    if (/meeting has ended|this meeting is no longer available/i.test(body)) {
-      throw new Error("The Google Meet call ended before the notetaker was admitted.");
-    }
-    if (/sign in to join|you can.?t join this (?:video )?call|not allowed to join/i.test(body)) {
+
+    if (Date.now() >= cutoff) {
       throw new Error(
-        "Google Meet requires an account or has disabled guest access for this call. Allow guests, then retry the notetaker.",
+        hadConfirmedRequest
+          ? "Google Meet confirmed the notetaker was waiting, but it was not admitted before the join window closed. The notetaker has left; press Start notetaker to retry, then admit the new request."
+          : "The notetaker could not reach the Google Meet waiting room before the join window closed. No lobby request was confirmed. Check the meeting link and guest access, then press Start notetaker to retry.",
       );
     }
 
-    if (!named) {
+    if (waitingForAdmission) {
+      await delayUntil(Math.min(UI_POLL_MS, cutoff - Date.now()), args.signal);
+      continue;
+    }
+
+    // These choices may arrive before the guest name or after Ask to join,
+    // and Meet renders the devices-off choice as either a button or a link.
+    const continueWithoutMedia = /^continue without (?:a )?(?:microphone|camera|audio|video)\b/i;
+    const joinWithoutMedia = /^join without (?:a )?(?:microphone|camera|audio|video)\b/i;
+    if (
+      await clickFirstVisible([
+        page.getByRole("button", { name: continueWithoutMedia }),
+        page.getByRole("link", { name: continueWithoutMedia }),
+        page.getByRole("button", { name: joinWithoutMedia }),
+        page.getByRole("link", { name: joinWithoutMedia }),
+      ])
+    ) {
+      // Some versions submit now; others return to a rebuilt guest form.
+      // Poll again before resubmitting, and restore the disclosed name if
+      // the form returned. Never re-ask after a denial or confirmed waiting.
+      needsNameFill = true;
+      needsJoinClick = true;
+      mutedMicrophone = false;
+      stoppedCamera = false;
+      await delayUntil(Math.min(UI_POLL_MS, cutoff - Date.now()), args.signal);
+      continue;
+    }
+    if (
+      await clickFirstVisible([
+        page.getByRole("button", { name: /accept all|reject all/i }),
+        page.getByRole("button", { name: /^got it$/i }),
+        page.getByRole("button", { name: /^dismiss$/i }),
+      ])
+    ) {
+      await delayUntil(Math.min(UI_POLL_MS, cutoff - Date.now()), args.signal);
+      continue;
+    }
+
+    if (needsNameFill) {
       const nameInput = await firstVisible([
         page.getByRole("textbox", { name: /your name|name/i }),
         page.locator('input[placeholder*="name" i]'),
       ]);
       if (nameInput) {
-        named = await attempt(() => nameInput.fill(disclosedNotetakerName(args.displayName)));
+        if (await attempt(() => nameInput.fill(disclosedNotetakerName(args.displayName)))) {
+          named = true;
+          needsNameFill = false;
+        }
       }
     }
 
@@ -808,21 +838,52 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     // host who is still in their previous call — treating it as terminal is
     // what made "the notetaker never joined" the ordinary outcome of a
     // meeting that started late.
-    const rejected = /no one responded|ask to join again|nobody responded/i.test(body);
-    const dueToAsk = askedAt === 0 || rejected || Date.now() - askedAt >= RE_ASK_AFTER_MS;
+    const dueToAsk = needsJoinClick || unanswered || Date.now() - askedAt >= RE_ASK_AFTER_MS;
     if (named && dueToAsk && asks < MAX_JOIN_REQUESTS) {
       const joinButton = await firstVisible([
-        page.getByRole("button", { name: /ask to join/i }),
-        page.getByRole("button", { name: /join now/i }),
+        page.getByRole("button", { name: /^ask to join(?: again)?$/i }),
+        page.getByRole("button", { name: /^join now$/i }),
       ]);
-      if (joinButton && (await attempt(() => joinButton.click()))) {
+      if (
+        joinButton &&
+        (await joinButton.isEnabled().catch(() => false)) &&
+        (await attempt(() => joinButton.click()))
+      ) {
         askedAt = Date.now();
         asks += 1;
+        needsJoinClick = false;
       }
     }
 
-    await delayUntil(UI_POLL_MS, args.signal);
+    await delayUntil(Math.min(UI_POLL_MS, cutoff - Date.now()), args.signal);
   }
+}
+
+function isGoogleMeetWaitingForAdmission(body: string): boolean {
+  return /you.?ll join (?:the call|the meeting) when someone lets you in|someone (?:in the (?:call|meeting) )?(?:will|should) let you in soon|waiting for (?:the |a )?host to (?:let you in|admit)|(?:you are|you.?re) in the waiting room|your request (?:to join )?has been sent/i.test(body);
+}
+
+/** Interpret only known UI messages; never expose page text or account data. */
+function googleMeetJoinFailure(url: string, body: string): string | null {
+  if (/request to join (?:was )?denied|you were denied|someone denied your request/i.test(body)) {
+    return "The Google Meet host denied the notetaker's request to join.";
+  }
+  if (/meeting has ended|this meeting is no longer available/i.test(body)) {
+    return "The Google Meet call ended before the notetaker was admitted.";
+  }
+  if (
+    /^https:\/\/accounts\.google\.com\//i.test(url) ||
+    /sign in to join|you (?:need|must|have) to (?:sign|log) in|(?:can.?t|cannot|not allowed to) join this (?:video )?(?:call|meeting)/i.test(body)
+  ) {
+    return "Google Meet blocked the guest notetaker or requires a Google account. The host may receive no lobby request. Check Host controls → Meeting access. Allow guests to ask to join, or upload a recording or paste a transcript.";
+  }
+  if (/check (?:the |your )?meeting code|could(?:n.?t| not) find (?:the |this )?meeting|invalid meeting (?:code|link)/i.test(body)) {
+    return "Google Meet could not find this meeting. Check its link, then press Start notetaker to retry.";
+  }
+  if (/can.?t connect (?:you )?to (?:the |this )?(?:video )?(?:call|meeting)|check your (?:internet |network )?connection/i.test(body)) {
+    return "The notetaker could not connect to Google Meet. Check the App's network connection, then press Start notetaker to retry.";
+  }
+  return null;
 }
 
 /**
