@@ -547,9 +547,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         The transcript is still the model&apos;s account of its own work. What the server recorded
         the Run actually changing is the separate <Strong>Effects</Strong> list beside it — see{" "}
         <DocLink to="/docs/verification">what proves a Run worked</DocLink>. Home&apos;s{" "}
-        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> shows a concise outcome
-        summary with the Run&apos;s status and verification badges. Choose{" "}
-        <Strong>Open the run log</Strong> there to read the full report and inspect its evidence.
+        <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> open each
+        employee&apos;s day, where Runs show a concise outcome summary with their status and
+        verification badges. Choose <Strong>Open the run log</Strong> there to read the full report
+        and inspect its evidence.
       </P>
       <P>
         A routine&apos;s full run history lives on its <Strong>Runs</Strong> tab — every Run,
@@ -619,10 +620,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         routine&apos;s run history, where the Retry button is one click away. Once you&apos;ve looked at a failure,
         hit the <Strong>✕</Strong> on its row to <Strong>dismiss</Strong> it — the run stays in the
         routine&apos;s history, but it drops off the panel (and out of the System Health failed-runs
-        count) so it stops nagging the whole team. A dismissed failure still appears on the{" "}
-        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> further down Home,
-        alongside every Run that went fine — that panel is a record of the day rather than a queue,
-        so acknowledging a failure does not remove it from the account of what happened.
+        count) so it stops nagging the whole team. A dismissed failure still appears in the
+        employee&apos;s <DocLink to="/docs/employees#work-timeline">work timeline</DocLink>, opened
+        from their bubble on Home, alongside every Run that went fine. Acknowledging a failure
+        keeps it in the account of what happened that day.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer

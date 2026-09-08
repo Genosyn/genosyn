@@ -47,9 +47,40 @@ const workTimelineQuerySchema = z
      * that is deliberately not the audit log.
      */
     hours: z.coerce.number().int().min(1).max(168).default(WORK_TIMELINE_WINDOW_HOURS),
+    /** One local calendar day, supplied as explicit instants by the client. */
+    since: z.string().datetime({ offset: true }).optional(),
+    until: z.string().datetime({ offset: true }).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(WORK_TIMELINE_DEFAULT_LIMIT),
   })
-  .strict();
+  .strict()
+  .superRefine((query, ctx) => {
+    if (!query.since && !query.until) return;
+    if (!query.since || !query.until || !query.employeeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A calendar day requires employeeId, since and until together",
+      });
+      return;
+    }
+    const since = Date.parse(query.since);
+    const until = Date.parse(query.until);
+    const now = Date.now();
+    const hour = 60 * 60 * 1000;
+    // A local day can be 25 hours at the autumn clock change. The additional
+    // lookback hour keeps the earliest of seven local days reachable then.
+    if (
+      until <= since ||
+      until - since > 25 * hour ||
+      since < now - 169 * hour ||
+      since > now ||
+      until > now + 25 * hour
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Choose a day within the last seven days, spanning at most 25 hours",
+      });
+    }
+  });
 
 workTimelineRouter.get(
   "/work-timeline",
@@ -65,6 +96,8 @@ workTimelineRouter.get(
         role: (req as Request & { role: Role }).role,
         employeeId: q.employeeId,
         hours: q.hours,
+        since: q.since ? new Date(q.since) : undefined,
+        until: q.until ? new Date(q.until) : undefined,
         limit: q.limit,
       }),
     );

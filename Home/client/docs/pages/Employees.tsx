@@ -309,47 +309,40 @@ export function Employees() {
 
       <H2 id="work-timeline">The work timeline</H2>
       <P>
-        Your <DocLink to="/docs">Home page</DocLink> ends with the <Strong>work timeline</Strong> —
-        everything your AI Employees actually did in the last 24 hours. It opens with one line
-        saying who is working right now and what the roster added up to, then a{" "}
-        <Strong>circle for each employee</Strong>: the status under their name distinguishes
+        Your <DocLink to="/docs">Home page</DocLink> keeps a compact{" "}
+        <Strong>bubble for each AI Employee</Strong> on the right. Their status distinguishes
         <Strong> Working now</Strong>, <Strong>Waiting for input</Strong>, recent work, and a quiet
-        day.
+        day. Work details stay hidden until you choose an employee.
       </P>
       <P>
-        Under that is the <Strong>day chart</Strong> — one lane per employee, time running left to
-        right across the window, and one bar for every piece of work. It answers the question a
-        list cannot: whether the whole team was busy at four in the morning or one employee did all
-        of it, what overlapped, what ran long, and who was idle. Work still in flight runs to the
-        right-hand edge and pulses; work the server stamped with a single moment, such as a change
-        to one record, is drawn as a marker rather than a bar claiming a length it never had. An
-        employee with nothing to show keeps their lane and says <Strong>Nothing recorded</Strong>,
-        because a roster that hides its quiet members is one you cannot count.
+        Choose a bubble to open the employee&apos;s <Strong>work timeline</Strong> in a popup.
+        It opens on today, with the clock down the left and work arranged through the day, like a
+        calendar&apos;s day view. Each entry says what happened and shows its result, and work
+        happening in the same hour stays readable as separate entries. Use <Strong>Previous
+        day</Strong> and <Strong>Next day</Strong>, or choose a date with <Strong>Work day</Strong>,
+        to browse today and the previous six days. Choose <Strong>Today</Strong> to return to the
+        current day. Dates and times follow your browser&apos;s local time, with the timezone shown
+        above the calendar.
       </P>
-      <P>
-        Choose an employee or a piece of work to see its result:
-      </P>
+      <P>Everything you need to follow up stays close to the work:</P>
       <UL>
         <LI>
-          <Strong>Choose a bar</Strong> to open its summary. A Routine Run leads with a brief
-          outcome, such as &quot;Created five overdue invoices and sent three payment reminders.
-          Two invoices need your review.&quot; The routine, employee and time stay visible for
-          context. Tool calls, Connection counts and individual changes stay in the run log.
+          <Strong>Read a Routine Run&apos;s summary</Strong> beside its time, such as &quot;Created
+          five overdue invoices and sent three payment reminders. Two invoices need your
+          review.&quot; Its status, outcome and Check badges remain visible. Tool calls, Connection
+          counts and individual changes stay in the run log.
         </LI>
         <LI>
-          <Strong>Choose a circle</Strong> — or an employee&apos;s name on the chart — and their
-          whole day opens the way a calendar&apos;s day view does: the clock down the left, every
-          entry written out beside it, grouped under <Strong>Today</Strong> and{" "}
-          <Strong>Yesterday</Strong>. <Strong>Check in</Strong> opens their Chat and{" "}
-          <Strong>Employee details</Strong> opens their Settings.
+          <Strong>Check in</Strong> opens the employee&apos;s Chat, and{" "}
+          <Strong>Employee details</Strong> opens their Settings. Close the popup to return to Home.
         </LI>
       </UL>
       <P>Seven kinds of work land on it:</P>
       <UL>
         <LI>
-          <Strong>Routine runs</Strong> show the same concise outcome in the popup and the
-          employee&apos;s day. If no outcome summary was recorded, the entry says so; an active
-          Run says it is still working. The status, outcome and checks badges from{" "}
+          <Strong>Routine runs</Strong> show a concise outcome in the employee&apos;s day. If no
+          outcome summary was recorded, the entry says so; an active Run says it is still working.
+          The status, outcome and checks badges from{" "}
           <DocLink to="/docs/routines">Routines</DocLink> remain visible. Choose{" "}
           <Strong>Open the run log</Strong> for the full report, tool calls and{" "}
           <DocLink to="/docs/verification#effects">Effects</DocLink>, without leaving Home.
@@ -383,13 +376,13 @@ export function Employees() {
       <P>
         The roster stays visible even when the whole team is quiet, because it is also the quickest
         way to reach an employee and check in, and an employee&apos;s own day says plainly when
-        there is nothing in the window to show. A busy employee cannot crowd another
+        there is nothing recorded for the selected date. A busy employee cannot crowd another
         employee&apos;s status out of the roster: the circles use a per-employee summary the server
         calculates before any display limit is applied, and opening one employee&apos;s day asks
-        for that employee alone so their window is complete. Work still running — and an unresolved
-        Approval still waiting — remains in that summary even when it began before the 24-hour
-        window; the chart and the day view themselves stay bounded to the window, and say so when
-        there was more in it than they drew.
+        for that employee and date alone. Work still running — and an unresolved Approval still
+        waiting — remains in the current status even when it began before the recent-work window.
+        The day view stays bounded to the selected date and says when there is more recorded work
+        than it can display.
       </P>
       <Callout
         kind="info"

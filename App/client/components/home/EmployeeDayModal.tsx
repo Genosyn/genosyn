@@ -1,6 +1,13 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, CircleDashed, MessageCircle } from "lucide-react";
+import {
+  ArrowUpRight,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  CircleDashed,
+  MessageCircle,
+} from "lucide-react";
 
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
@@ -11,38 +18,24 @@ import { Spinner } from "@/components/ui/Spinner";
 import { api } from "@/lib/api";
 import type { Company, Employee, WorkEntry, WorkTimeline } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import { clsx } from "@/components/ui/clsx";
 import {
-  employeeWorkStatusLabel,
-  groupWorkByDay,
-  isWorkInsideWindow,
-  summarizeEmployeeWork,
+  shiftWorkCalendarDate,
+  workCalendarDate,
+  workCalendarHours,
+  workCalendarWindow,
+} from "@/lib/workCalendar";
+import {
   workClock,
   workCountsSentence,
-  workDisplayEntryCount,
-  workEmptyTitle,
   workEntryHref,
   workEntryLinkLabel,
   workOverflowLabel,
-  WORK_WINDOW_HOURS,
 } from "@/lib/workTimeline";
 
-import { WorkEntryBlock, WorkStatePill } from "./WorkEntryViews";
+import { WorkEntryBlock } from "./WorkEntryViews";
 
-/**
- * One AI Employee's day, opened from their circle on Home or from their lane
- * on the day chart.
- *
- * A calendar's day view is the right shape for this: the clock down the left,
- * every hour of the window accounted for, and each thing that happened written
- * out where it happened. It is a popup rather than a page for the same reason
- * the rest of Home's rows are — you come here to read what happened, not to go
- * somewhere — and, as M61 recorded, a second per-employee timeline *page*
- * would be a second copy of this renderer to keep in step.
- *
- * It owns its own request. Home's roster read is capped across every employee
- * at once, so one busy employee could otherwise crowd out the rest of their own
- * day; asking for this employee alone is what makes the window complete.
- */
+/** One local calendar day, fetched independently so other employees cannot crowd it out. */
 export function EmployeeDayModal({
   company,
   employee,
@@ -59,12 +52,20 @@ export function EmployeeDayModal({
   const [data, setData] = React.useState<WorkTimeline | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const request = React.useRef(0);
+  const today = workCalendarDate(nowIso);
+  const earliestDay = shiftWorkCalendarDate(today, -6);
+  const [selectedDay, setSelectedDay] = React.useState(today);
+  const day = selectedDay < earliestDay ? earliestDay : selectedDay;
+  const { since, until } = workCalendarWindow(day);
+  const calendarRef = React.useRef<HTMLDivElement>(null);
+  const scrolledDay = React.useRef<string | null>(null);
 
   const load = React.useCallback(async () => {
     const ticket = ++request.current;
     try {
+      const query = new URLSearchParams({ employeeId: employee.id, since, until, limit: "200" });
       const next = await api.get<WorkTimeline>(
-        `/api/companies/${company.id}/work-timeline?employeeId=${encodeURIComponent(employee.id)}&limit=200`,
+        `/api/companies/${company.id}/work-timeline?${query}`,
       );
       if (ticket !== request.current) return;
       setData(next);
@@ -73,32 +74,41 @@ export function EmployeeDayModal({
       if (ticket !== request.current) return;
       setError(errorMessage(err, `Could not load ${employee.name}'s work.`));
     }
-  }, [company.id, employee.id, employee.name]);
+  }, [company.id, employee.id, employee.name, since, until]);
 
   React.useEffect(() => {
     setData(null);
     setError(null);
     void load();
+    return () => {
+      request.current += 1;
+    };
   }, [load]);
 
   useLiveRefetch(["run", "routine", "approval", "employee", "repository", "employee_work"], load);
 
-  const raw = data?.entries ?? [];
-  const entries = raw.filter((entry) => isWorkInsideWindow(entry.at, nowIso));
-  const summary = summarizeEmployeeWork(
-    employee.id,
-    entries,
-    data?.employeeSummaries.find((row) => row.employeeId === employee.id),
-    { nowIso },
-  );
-  const groups = groupWorkByDay(entries);
+  // Never display yesterday's response under today's heading while a request changes.
+  const currentData = data?.since === since && data?.until === until ? data : null;
+  const entries = currentData?.entries ?? [];
+  const hours = workCalendarHours(day, entries);
   const counts = workCountsSentence(entries);
-  const overflow = data
-    ? workOverflowLabel(
-        entries.length,
-        workDisplayEntryCount(data.entryCount, raw.length, entries.length, data.until, nowIso),
-      )
-    : null;
+  const overflow = currentData ? workOverflowLabel(entries.length, currentData.entryCount) : null;
+  const dayLabel = new Date(since).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone.replaceAll("_", " ");
+  const firstWorkHour = hours.find((hour) => hour.entries.length > 0)?.key;
+
+  React.useEffect(() => {
+    if (!currentData || scrolledDay.current === day) return;
+    scrolledDay.current = day;
+    calendarRef.current
+      ?.querySelector('[data-first-work="true"]')
+      ?.scrollIntoView({ block: "start" });
+  }, [currentData, day]);
+
   const base = `/c/${company.slug}/employees/${employee.slug}`;
 
   return (
@@ -108,7 +118,7 @@ export function EmployeeDayModal({
       size="lg"
       padded={false}
       title={`${employee.name}'s day`}
-      description={`${employee.role} · the last ${WORK_WINDOW_HOURS} hours`}
+      description={`${employee.role} · Daily work timeline`}
       footer={
         <>
           <Link
@@ -124,34 +134,109 @@ export function EmployeeDayModal({
         </>
       }
     >
-      <div className="flex items-start gap-3 border-b border-slate-200/70 px-4 py-4 sm:px-5 dark:border-slate-800">
-        <span aria-hidden="true">
-          <Avatar
-            name={employee.name}
-            kind="ai"
-            size="lg"
-            src={employeeAvatarUrl(company.id, employee.id, employee.avatarKey)}
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <WorkStatePill state={summary.state} label={employeeWorkStatusLabel(summary, nowIso)} />
-          <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-            {error
-              ? "Their work could not be loaded, so this is not a complete picture."
-              : data === null
-                ? "Reading back everything the server recorded…"
-                : counts
-                  ? `In the last ${WORK_WINDOW_HOURS} hours ${employee.name} logged ${counts}.`
-                  : workEmptyTitle(employee.name, WORK_WINDOW_HOURS)}
-          </p>
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-4 sm:px-5 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center gap-3">
+          <span aria-hidden="true">
+            <Avatar
+              name={employee.name}
+              kind="ai"
+              size="lg"
+              src={employeeAvatarUrl(company.id, employee.id, employee.avatarKey)}
+            />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{dayLabel}</h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Times in {timezone}</p>
+          </div>
         </div>
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-2"
+          role="group"
+          aria-label="Choose a work day"
+        >
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="px-2"
+              aria-label="Previous day"
+              disabled={day <= earliestDay}
+              onClick={() => setSelectedDay(shiftWorkCalendarDate(day, -1))}
+            >
+              <ChevronLeft size={16} />
+            </Button>
+            <label className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 dark:border-slate-700">
+              <CalendarDays size={14} className="text-slate-400" aria-hidden="true" />
+              <span className="sr-only">Work day</span>
+              <input
+                type="date"
+                value={day}
+                min={earliestDay}
+                max={today}
+                onChange={(event) => {
+                  if (
+                    event.target.validity.valid &&
+                    event.target.value >= earliestDay &&
+                    event.target.value <= today
+                  )
+                    setSelectedDay(event.target.value);
+                }}
+                className="min-w-0 bg-transparent text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-200 dark:[color-scheme:dark]"
+              />
+            </label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="px-2"
+              aria-label="Next day"
+              disabled={day >= today}
+              onClick={() => setSelectedDay(shiftWorkCalendarDate(day, 1))}
+            >
+              <ChevronRight size={16} />
+            </Button>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={day === today}
+            onClick={() => setSelectedDay(today)}
+          >
+            Today
+          </Button>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400" aria-live="polite">
+          {error
+            ? "Work is unavailable for this day."
+            : !currentData
+              ? "Loading the day’s work…"
+              : counts
+                ? `${overflow ? "Showing" : "Recorded"} ${counts}.`
+                : "No work recorded on this day."}
+        </p>
+        {overflow && (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {overflow}. Showing the most recent work.
+          </p>
+        )}
       </div>
 
       {error ? (
         <div className="px-4 py-5 sm:px-5">
           <FormError message={error} />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            onClick={() => void load()}
+          >
+            Try again
+          </Button>
         </div>
-      ) : data === null ? (
+      ) : currentData === null ? (
         <div className="flex min-h-56 items-center justify-center" aria-label="Loading work">
           <Spinner size={20} />
         </div>
@@ -161,48 +246,76 @@ export function EmployeeDayModal({
             <CircleDashed size={18} />
           </span>
           <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            {workEmptyTitle(employee.name, WORK_WINDOW_HOURS)}
+            No work recorded on this day
           </span>
           <span className="max-w-sm text-xs leading-5 text-slate-500 dark:text-slate-400">
             Routine runs, conversations, repository work and every change they record will appear
-            here as they happen.
+            here when recorded. Choose another day to see earlier work.
           </span>
         </div>
       ) : (
-        <div>
-          {groups.map((group) => (
-            <section key={group.key}>
-              <h3 className="sticky top-0 z-10 border-y border-slate-100 bg-slate-50/95 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 backdrop-blur sm:px-5 dark:border-slate-800 dark:bg-slate-800/95 dark:text-slate-400">
-                {group.label}
-              </h3>
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                {group.items.map((entry) => (
-                  <li key={entry.id} className="flex gap-3 px-4 py-4 sm:px-5">
-                    <time
-                      dateTime={entry.at}
-                      className="w-14 shrink-0 pt-0.5 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500"
-                    >
-                      {workClock(entry.at)}
-                    </time>
-                    <div className="min-w-0 flex-1 border-l border-slate-100 pl-3 dark:border-slate-800">
-                      <WorkEntryBlock entry={entry} nowIso={nowIso} />
-                      <EntryAction
-                        company={company}
-                        entry={entry}
-                        onClose={onClose}
-                        onOpenRun={onOpenRun}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-          {overflow && (
-            <p className="border-t border-slate-100 px-4 py-3 text-center text-[11px] text-slate-400 sm:px-5 dark:border-slate-800 dark:text-slate-500">
-              {overflow}
-            </p>
-          )}
+        <div ref={calendarRef} aria-label={`${employee.name}'s hourly work timeline`}>
+          {hours.map((hour) => {
+            const isCurrentHour =
+              day === today &&
+              Date.parse(nowIso) >= Date.parse(hour.at) &&
+              Date.parse(nowIso) < Date.parse(hour.at) + 3_600_000;
+            return (
+              <section
+                key={hour.key}
+                data-first-work={hour.key === firstWorkHour ? "true" : undefined}
+                aria-label={hour.label}
+                className="flex scroll-mt-56"
+              >
+                <time
+                  dateTime={hour.at}
+                  className={clsx(
+                    "w-20 shrink-0 px-2 pt-3 text-right text-[11px] tabular-nums sm:w-24 sm:px-3",
+                    isCurrentHour
+                      ? "font-semibold text-indigo-600 dark:text-indigo-400"
+                      : "text-slate-400 dark:text-slate-500",
+                  )}
+                >
+                  {hour.label}
+                  {isCurrentHour && <span className="mt-1 block text-[10px]">Now</span>}
+                </time>
+                <div
+                  className={clsx(
+                    "min-h-14 min-w-0 flex-1 border-l border-t border-slate-100 px-3 py-2 sm:px-4 dark:border-slate-800",
+                    isCurrentHour && "bg-indigo-50/40 dark:bg-indigo-500/5",
+                  )}
+                >
+                  {hour.entries.length > 0 && (
+                    <ul className="space-y-2">
+                      {hour.entries.map((entry) => (
+                        <li
+                          key={entry.id}
+                          className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+                        >
+                          <time
+                            dateTime={entry.at}
+                            className="mb-2 block text-[11px] font-medium tabular-nums text-slate-500 dark:text-slate-400"
+                          >
+                            {workClock(entry.at)}
+                            {entry.endedAt && Date.parse(entry.endedAt) > Date.parse(entry.at)
+                              ? ` – ${workClock(entry.endedAt)}`
+                              : ""}
+                          </time>
+                          <WorkEntryBlock entry={entry} nowIso={nowIso} />
+                          <EntryAction
+                            company={company}
+                            entry={entry}
+                            onClose={onClose}
+                            onOpenRun={onOpenRun}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
     </Modal>

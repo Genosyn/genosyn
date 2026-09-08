@@ -134,7 +134,7 @@ type TimelineBody = {
   }[];
 };
 
-async function seedRun(overrides: Partial<Run> = {}): Promise<void> {
+async function seedRun(overrides: Partial<Run> = {}): Promise<Run> {
   const routine = await insert(Routine, {
     employeeId: employee.id,
     name: "Nightly digest",
@@ -142,7 +142,7 @@ async function seedRun(overrides: Partial<Run> = {}): Promise<void> {
     cronExpr: "0 3 * * *",
     body: "",
   });
-  await insert(Run, {
+  return insert(Run, {
     routineId: routine.id,
     status: "completed",
     logContent: "",
@@ -272,6 +272,24 @@ describe("work timeline responses", () => {
       [employee.id],
     );
   });
+
+  test("accepts a local calendar day and returns only its work", async () => {
+    const until = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+    const saved = await seedRun({ startedAt: since });
+    await insert(Run, { ...saved, id: undefined, startedAt: until });
+    const query = new URLSearchParams({
+      employeeId: employee.id,
+      since: since.toISOString(),
+      until: until.toISOString(),
+    });
+    const { status, body } = await call<TimelineBody>("GET", `/work-timeline?${query}`);
+    assert.equal(status, 200);
+    assert.equal(body.since, since.toISOString());
+    assert.equal(body.until, until.toISOString());
+    assert.equal(body.entryCount, 1);
+    assert.equal(body.entries[0].at, since.toISOString());
+  });
 });
 
 describe("work timeline query validation", () => {
@@ -297,5 +315,44 @@ describe("work timeline query validation", () => {
   test("accepts the boundary values on either end", async () => {
     assert.equal((await call("GET", "/work-timeline?hours=1&limit=1")).status, 200);
     assert.equal((await call("GET", "/work-timeline?hours=168&limit=200")).status, 200);
+  });
+
+  test("accepts 23- and 25-hour days across daylight saving changes", async () => {
+    const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    for (const hours of [23, 25]) {
+      const query = new URLSearchParams({
+        employeeId: employee.id,
+        since: since.toISOString().replace("Z", "+00:00"),
+        until: new Date(since.getTime() + hours * 60 * 60 * 1000).toISOString(),
+      });
+      const { status, body } = await call<TimelineBody>("GET", `/work-timeline?${query}`);
+      assert.equal(status, 200);
+      assert.equal(Date.parse(body.until) - Date.parse(body.since), hours * 60 * 60 * 1000);
+    }
+  });
+
+  test("rejects incomplete, unscoped and unbounded calendar windows", async () => {
+    const hour = 60 * 60 * 1000;
+    const now = Date.now();
+    const date = (offset: number) => new Date(now + offset * hour).toISOString();
+    const valid = { employeeId: employee.id, since: date(-48), until: date(-24) };
+    const rejected: Record<string, string>[] = [
+      { employeeId: employee.id, since: valid.since },
+      { employeeId: employee.id, until: valid.until },
+      { since: valid.since, until: valid.until },
+      { ...valid, since: "yesterday" },
+      { ...valid, until: "tomorrow" },
+      { ...valid, until: valid.since },
+      { ...valid, until: date(-49) },
+      { ...valid, until: date(-22) },
+      { ...valid, since: date(-170), until: date(-146) },
+      { ...valid, since: date(1), until: date(25) },
+      { ...valid, since: date(-1), until: date(26) },
+    ];
+    for (const params of rejected) {
+      const query = new URLSearchParams(params);
+      const { status } = await call("GET", `/work-timeline?${query}`);
+      assert.equal(status, 400, query.toString());
+    }
   });
 });
