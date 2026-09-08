@@ -100,7 +100,7 @@ describe("the headline over the roster", () => {
     } as WorkEntry;
     assert.match(
       teamSentence({ ...counts, status: "ready", activeCount: 1, entries: [entry] }),
-      /Between them they logged 1 routine run and 2 recorded changes\./,
+      /Between them they logged 1 routine run\./,
     );
     assert.match(
       teamSentence({ ...counts, status: "ready" }),

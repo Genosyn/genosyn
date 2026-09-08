@@ -244,9 +244,12 @@ neither: it is assembled at read time over one employee and a bounded window
 from rows the server wrote itself (`runs`, `audit_events` as the effect ledger,
 and five tables audit provably misses), it stores nothing, and it is readable
 by any Member on any plan — for the same reason a Run's own **Effects** are,
-which `routes/routineChecks.ts` states at length. Do not give it an entity, do
-not merge the employee's narration into it, and do not route it through
-`GET /audit`; each of those quietly turns it back into one of the other two.
+which `routes/routineChecks.ts` states at length. A Routine entry may preview a
+bounded, redacted final report from its persisted transcript, with the outcome
+assessment as a fallback. That preview is reported work, never independent
+verification: status, outcome and Check badges retain their own meaning, and
+the Run log retains the transcript and Effects. Do not give the timeline an
+entity, add Journal entries to its sources, or route it through `GET /audit`.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container

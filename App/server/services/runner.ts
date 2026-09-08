@@ -32,6 +32,7 @@ import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import { DurableRunLog, RUN_LOG_MAX_BYTES, formatToolResultLine } from "./runLog.js";
+import { workSummaryLogLine } from "./runWorkSummary.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
 import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
 import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
@@ -601,6 +602,7 @@ export async function startRoutineRun(
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
         saved.status = "completed";
         saved.exitCode = 0;
+        log.line(workSummaryLogLine(result.finalText));
       }
 
       // ---- Checks (M58) ----
@@ -1016,6 +1018,9 @@ async function runCheckPhase(args: {
     }
     remediations += 1;
     log.line(`\n[checks] remediation ${remediations} of ${ROUTINE_CHECK_REMEDIATION_MAX} — asking for a fix.`);
+    // A fix round can change the work and then fail or be interrupted. The
+    // previous report no longer describes that state unless a new one returns.
+    log.line(workSummaryLogLine(""));
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remainingMs);
     try {
@@ -1048,11 +1053,19 @@ async function runCheckPhase(args: {
           },
         },
       });
-      if (result.status === "error") log.line(`\n[checks] remediation turn failed: ${result.error}`);
+      if (result.status === "error") {
+        log.line(`\n[checks] remediation turn failed: ${result.error}`);
+        log.line(workSummaryLogLine(""));
+      } else if (result.stopReason !== "max_steps" && result.stopReason !== "aborted") {
+        log.line(workSummaryLogLine(result.finalText));
+      } else {
+        log.line(workSummaryLogLine(""));
+      }
     } catch (err) {
       // A remediation turn that throws leaves the previous verdict standing.
       // It cannot make the Run worse, and it must not make it better.
       log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
+      log.line(workSummaryLogLine(""));
     } finally {
       clearTimeout(timer);
     }
@@ -1244,6 +1257,10 @@ function composeRoutineMessage(
     "",
     "---",
     "Run this routine now. Produce the expected output.",
+    "Begin your final report with one or two short sentences saying what you accomplished, " +
+      "including concrete results and anything left unfinished. Describe the work's outcome " +
+      "in plain language, without tool names, Connection counts, or a list of steps. " +
+      "Put any supporting detail after that summary. Do not claim work you did not complete.",
     // Without this a catch-up digest silently reports on the wrong window —
     // the last interval rather than the whole period nobody covered.
     ...(missedSlots > 0

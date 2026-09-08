@@ -25,6 +25,7 @@ import {
   WorkEntry,
   WorkEntryKind,
 } from "./employeeWorkTimeline.js";
+import { workSummaryLogLine } from "./runWorkSummary.js";
 
 /**
  * The work timeline is assembled from seven tables at read time, three of
@@ -169,6 +170,64 @@ async function approval(overrides: Partial<Approval> = {}): Promise<Approval> {
 }
 
 // ─────────────────────────── the window ──────────────────────────────────
+
+describe("Routine outcomes in the work timeline", () => {
+  test("projects the persisted work report without copying the transcript or tool results", async () => {
+    const saved = await run({
+      logContent:
+        "[tool:connection_call] ok — internal payload\n" +
+        workSummaryLogLine("Added 6 Contacts. Drafted 4 outreach messages."),
+    });
+    const entry = (await timeline()).entries.find((row) => row.id === `run:${saved.id}`)!;
+    assert.equal(entry.run?.summary, "Added 6 Contacts. Drafted 4 outreach messages.");
+    assert.doesNotMatch(JSON.stringify(entry), /internal payload|logContent|connection_call/);
+  });
+  test("reads historical final reports even when a Routine has no acceptance criteria", async () => {
+    await run({
+      logContent:
+        "[tool] list_issues {}\n[tool:list_issues] ok\nSaved 3 Contacts.[tokens] in=20 out=5",
+      outcomeVerdict: null,
+    });
+    const entry = (await timeline()).entries[0];
+    assert.equal(entry.run?.summary, "Saved 3 Contacts.");
+    assert.equal(entry.run?.outcomeVerdict, null);
+  });
+  test("retains off-goal and failed Check verdicts alongside the reported outcome", async () => {
+    await run({
+      logContent: "Drafted outreach for 4 Contacts.",
+      outcomeVerdict: "off_goal",
+      outcomeNote: "The emails were not sent.",
+      checksVerdict: "failed",
+    });
+    const entry = (await timeline()).entries[0];
+    assert.equal(entry.run?.summary, "Drafted outreach for 4 Contacts.");
+    assert.equal(entry.run?.outcomeVerdict, "off_goal");
+    assert.equal(entry.run?.checksVerdict, "failed");
+  });
+  test("redacts reports for owner and ordinary Member alike", async () => {
+    await run({ logContent: "Saved the report using **password**: hidden-example-value." });
+    for (const viewer of [
+      { role: "member" as const, userId: member.id },
+      { role: "owner" as const, userId: owner.id },
+    ]) {
+      const entry = (await timeline(viewer)).entries[0];
+      assert.match(entry.run?.summary ?? "", /redacted/);
+      assert.doesNotMatch(JSON.stringify(entry), /hidden-example-value/);
+    }
+  });
+  test("a running Run exposes no premature outcome", async () => {
+    await run({ status: "running", logContent: "All outreach sent.", outcomeNote: "Done." });
+    assert.equal((await timeline()).entries[0].run?.summary, null);
+  });
+  test("a missing report is null instead of inventing work from the activity count", async () => {
+    const saved = await run();
+    await auditRow({ action: "connection.use", metadataJson: JSON.stringify({ runId: saved.id }) });
+    assert.equal(
+      (await timeline()).entries.find((entry) => entry.kind === "run")?.run?.summary,
+      null,
+    );
+  });
+});
 
 describe("work timeline window", () => {
   test("includes work inside the window and excludes work outside it", async () => {

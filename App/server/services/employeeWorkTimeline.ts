@@ -22,6 +22,7 @@ import { Todo } from "../db/entities/Todo.js";
 import { redactApprovalSummary, redactSensitiveText } from "./approvalRedaction.js";
 import { isVaultCaptureApproval } from "./approvals.js";
 import { listAccessibleProjectIds } from "./projects.js";
+import { runWorkSummary } from "./runWorkSummary.js";
 
 /**
  * The **work timeline** — everything one AI Employee (or the whole roster)
@@ -134,6 +135,8 @@ export type WorkEntryRun = {
    */
   outcomeVerdict: RunOutcomeVerdict | null;
   outcomeNote: string | null;
+  /** Bounded, redacted report of the work; independent of verification badges. */
+  summary: string | null;
   checksVerdict: RunChecksVerdict | null;
 };
 
@@ -568,6 +571,7 @@ export async function getEmployeeWorkTimeline(params: {
         attempt: run.attempt,
         outcomeVerdict: run.outcomeVerdict,
         outcomeNote: run.outcomeNote ? safe(run.outcomeNote) : null,
+        summary: runWorkSummary(run),
         checksVerdict: run.checksVerdict,
       },
       effects: [],
