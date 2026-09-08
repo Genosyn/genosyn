@@ -415,9 +415,27 @@ try {
 
   await check("the picker is usable by keyboard and fits on narrow screens", async () => {
     const page = await open();
-    await page.getByRole("combobox", { name: "AI Model", exact: true }).focus();
-    await page.keyboard.press("ArrowUp");
-    await page.keyboard.press("Enter");
+    const picker = page.getByRole("combobox", { name: "AI Model", exact: true });
+    const pickerId = await picker.getAttribute("id");
+    assert.ok(pickerId);
+    const waitForActiveModel = (label: string) =>
+      page.waitForFunction(
+        ({ pickerId, label }) => {
+          const activeId = document.getElementById(pickerId)?.getAttribute("aria-activedescendant");
+          return activeId
+            ? document.getElementById(activeId)?.textContent?.trim() === label
+            : false;
+        },
+        { pickerId, label },
+      );
+    await picker.focus();
+    // Focus opens the list, then React initializes its active option. Wait for
+    // that accessible state so ArrowUp navigates instead of only opening it.
+    await waitForActiveModel("Claude Sonnet (default)");
+    await picker.press("ArrowUp");
+    await waitForActiveModel("GPT 5.4");
+    await picker.press("Enter");
+    await page.getByRole("listbox").waitFor({ state: "hidden" });
     assert.equal(await modelValue(page), "GPT 5.4");
     await fs.mkdir(path.resolve(root, "../output/playwright"), { recursive: true });
     await page.screenshot({
