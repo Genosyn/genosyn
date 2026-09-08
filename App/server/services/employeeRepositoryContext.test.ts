@@ -38,6 +38,12 @@ let server: Server;
 let serverUrl: string;
 let modelRequests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
 let gitRequests = 0;
+// Test fixtures temporarily change these boot settings and restore them below.
+const dataConfig = config as { dataDir: string };
+const securityConfig = config.security as { multiTenant: boolean };
+const codingConfig = config.agent.codingTools as {
+  executionMode: "host" | "bubblewrap" | "disabled";
+};
 const originalConfig = {
   dataDir: config.dataDir,
   multiTenant: config.security.multiTenant,
@@ -101,8 +107,8 @@ beforeEach(async () => {
   resetRuntimeSettingsCacheForTests();
   await resetTestDb();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "employee-guides-"));
-  config.dataDir = path.join(tmp, "data");
-  config.security.multiTenant = false;
+  dataConfig.dataDir = path.join(tmp, "data");
+  securityConfig.multiTenant = false;
   Object.assign(config.agent.codingTools, {
     enabled: true,
     executionMode: "host",
@@ -130,8 +136,8 @@ afterEach(() => {
 });
 
 after(async () => {
-  config.dataDir = originalConfig.dataDir;
-  config.security.multiTenant = originalConfig.multiTenant;
+  dataConfig.dataDir = originalConfig.dataDir;
+  securityConfig.multiTenant = originalConfig.multiTenant;
   Object.assign(config.agent.codingTools, originalConfig.codingTools);
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...originalConfig.allowlist);
   if (server) {
@@ -311,7 +317,7 @@ describe("materialized employee repository contributor context", () => {
 
   test("omits all repository context on a multi-tenant installation", async () => {
     const { synced } = await grantedCheckout();
-    config.security.multiTenant = true;
+    securityConfig.multiTenant = true;
     assert.equal(await context([synced]), "");
   });
 
@@ -356,7 +362,7 @@ describe("materialized employee repository contributor context", () => {
         "AGENTS.md",
         "Required validation instructions.\n".repeat(3_000),
       );
-      config.agent.codingTools.executionMode = mode;
+      codingConfig.executionMode = mode;
       const result = await context([synced]);
       assert.ok(result.length <= REPOSITORIES_CONTEXT_MAX_CHARS);
       assert.match(result, /truncat|excerpt|omitted/i);
@@ -534,7 +540,7 @@ describe("chat and Routine repository briefing integration", () => {
 
   test("disabled coding tools do not cause repository guide reads", async () => {
     await actualRemote("Private repository contributor instruction");
-    config.agent.codingTools.executionMode = "disabled";
+    codingConfig.executionMode = "disabled";
     const result = await chatWithEmployee(company.id, employee.id, "Inspect the repository.", [], {
       toolAuthority: "employee",
     });

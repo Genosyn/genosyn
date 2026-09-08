@@ -277,7 +277,8 @@ describe("guide truncation and continuation", () => {
   test("keeps whole lines and gives the precise next unread line", () => {
     write("AGENTS.md", "123456789\n".repeat(10));
     const guide = readAgentsGuide(checkout, "AGENTS.md", { maxInlineBytes: 25 });
-    assert.ok(guide?.startsWith("123456789\n123456789\n\n[Truncated."));
+    assert.ok(guide !== null, "a valid guide must remain readable when truncated");
+    assert.ok(guide.startsWith("123456789\n123456789\n\n[Truncated."));
     assert.match(
       guide,
       /\[Truncated\. Read `AGENTS\.md` with `repository_read_file` for the rest\.\]/,
@@ -297,7 +298,8 @@ describe("guide truncation and continuation", () => {
   test("never splits a multibyte character at the excerpt boundary", () => {
     write("AGENTS.md", "é".repeat(100));
     const body = readAgentsGuide(checkout, "AGENTS.md", { maxInlineBytes: 17 });
-    assert.ok(body?.startsWith(`${"é".repeat(8)}\n\n[Truncated.`));
+    assert.ok(body !== null, "a valid Unicode guide must remain readable when truncated");
+    assert.ok(body.startsWith(`${"é".repeat(8)}\n\n[Truncated.`));
     assert.ok(!body.includes("\ufffd"));
   });
 
