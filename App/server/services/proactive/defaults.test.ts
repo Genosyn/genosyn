@@ -84,6 +84,10 @@ test("scope ownership prevents worker changes and extra mailboxes duplicating co
     proactiveScope("work-followthrough", null, "a"),
     proactiveScope("work-followthrough", null, "b"),
   );
+  assert.notEqual(
+    proactiveScope("improve-own-work", null, "a"),
+    proactiveScope("improve-own-work", null, "b"),
+  );
 });
 
 test("default-on planning selects one ready worker per scope and prioritizes their follow-through", () => {
@@ -108,11 +112,63 @@ test("default-on planning selects one ready worker per scope and prioritizes the
     assert.equal(plan.filter((input) => input.recipeId === recipeId).length, 1, recipeId);
   }
   assert.equal(plan.filter((input) => input.recipeId === "customer-commitments").length, 2);
+  assert.equal(plan.filter((input) => input.recipeId === "improve-own-work").length, 2);
   assert.deepEqual(
     plan.slice(0, 2).map((input) => input.recipeId),
     ["work-followthrough", "work-followthrough"],
   );
   assert.ok(plan.every((input) => input.delivery === "draft"));
+});
+
+test("each ready employee gets its own review without Grants or unrelated follow-through", () => {
+  const overview = fixture();
+  overview.mailboxes = [];
+  for (const employee of overview.employees) {
+    employee.mailGrants = [];
+    employee.financeAccess = null;
+    employee.revenueAccess = null;
+    employee.repositoryWrite = false;
+    employee.calendarRead = false;
+  }
+  overview.defaultAssignments[proactiveScope("discover-improvements", null, "former-owner")] =
+    "deleted-discovery";
+  const plan = planProactiveDefaults(overview);
+  assert.deepEqual(
+    plan.map((input) => input.recipeId),
+    ["improve-own-work", "improve-own-work"],
+  );
+  assert.deepEqual(plan.map((input) => input.employeeId).sort(), ["employee-a", "employee-b"]);
+  assert.ok(plan.every((input) => input.accountId === null && input.delivery === "draft"));
+  overview.employees[0].modelReady = false;
+  assert.deepEqual(
+    planProactiveDefaults(overview).map((input) => input.employeeId),
+    ["employee-a"],
+  );
+  assert.deepEqual(planProactiveDefaults(overview, new Set(["employee-a"])), []);
+});
+
+test("existing reviews do not seed follow-through and paused or deleted review assignments remain reserved", () => {
+  const overview = fixture();
+  overview.mailboxes = [];
+  overview.defaultAssignments[proactiveScope("discover-improvements", null, "former-owner")] =
+    "deleted-discovery";
+  const ownReview = (employeeId: string) =>
+    installation({
+      recipeId: "improve-own-work",
+      employeeId,
+      accountId: null,
+      delivery: "draft",
+      instruction: "Reviewed brief",
+    });
+  overview.installations = [
+    ownReview("employee-a"),
+    { ...ownReview("employee-b"), enabled: false },
+  ];
+  assert.deepEqual(planProactiveDefaults(overview), []);
+  overview.installations.pop();
+  overview.defaultAssignments[proactiveScope("improve-own-work", null, "employee-b")] =
+    "deleted-review";
+  assert.deepEqual(planProactiveDefaults(overview), []);
 });
 
 test("reserved deleted scopes and paused or customized native rows are never recreated", () => {

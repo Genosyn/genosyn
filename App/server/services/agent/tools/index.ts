@@ -16,6 +16,8 @@ import {
 import { config } from "../../../../config.js";
 import { getAgentSettings } from "../../runtimeSettings.js";
 import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js";
+import { resolveMcpToken } from "../../mcpTokens.js";
+import { selfReviewToolScope } from "../../proactive/reviewPolicy.js";
 
 /**
  * Assemble the tools an employee's agent can reach this turn, and split them
@@ -150,7 +152,8 @@ export async function gatherEmployeeTools(params: {
   };
 
   // 1 + 2: in-process tools (no teardown needed).
-  const scope = params.toolScope ?? null;
+  const reviewScope = selfReviewToolScope(resolveMcpToken(params.genosynToken)?.selfReviewOnly);
+  const scope = reviewScope ?? params.toolScope ?? null;
   const allowPrivileged = (params.allowPrivilegedToolSources ?? true) && !scope?.surfaceOnly;
   const [genosynAll, browser, userServers] = await Promise.all([
     loadGenosynTools(params.genosynToken, params.signal, params.onDeprecatedFamily),
@@ -190,7 +193,11 @@ export async function gatherEmployeeTools(params: {
     : [];
   const guardedCoding = guardPrivilegedTools(coding, params.authorizePrivilegedToolCall);
 
-  const tools: AgentTool[] = [...(params.localTools ?? []), ...guardedCoding, ...genosyn.tools];
+  const tools: AgentTool[] = [
+    ...(reviewScope ? [] : params.localTools ?? []),
+    ...guardedCoding,
+    ...genosyn.tools,
+  ];
   const bridged: BridgedServer[] = [];
 
   // 3: browser server (bridged stdio child) when enabled.
@@ -255,7 +262,7 @@ export async function gatherEmployeeTools(params: {
   // tools were already sorted to the tail for exactly this. The briefing reads
   // the same flag so it doesn't promise a `find_tools` that isn't there.
   const discovery = getAgentSettings().toolDiscovery;
-  if (!discovery.enabled || tools.length < discovery.minCatalogueSize) {
+  if (scope?.surfaceOnly || !discovery.enabled || tools.length < discovery.minCatalogueSize) {
     return {
       registry: buildRegistry({
         resident: tools,

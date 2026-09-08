@@ -136,8 +136,8 @@ async function message(account: MailAccount) {
 async function assertNativeDefaults(companyId: string) {
   const overview = await getProactiveOverview(companyId);
   assert.equal(overview.automaticSetup, true);
-  assert.equal(overview.installations.length, 11);
-  assert.equal(Object.keys(overview.defaultAssignments).length, 11);
+  assert.equal(overview.installations.length, 12);
+  assert.equal(Object.keys(overview.defaultAssignments).length, 12);
   const rules = await AppDataSource.getRepository(MailRule).findBy({ companyId });
   assert.equal(rules.length, 5);
   for (const rule of rules) {
@@ -148,10 +148,11 @@ async function assertNativeDefaults(companyId: string) {
   const routines = await AppDataSource.getRepository(Routine).findBy({
     employeeId: overview.employees[0].id,
   });
-  assert.equal(routines.length, 6);
+  assert.equal(routines.length, 7);
   for (const routine of routines) {
     assert.equal(routine.enabled, true);
     assert.equal(routine.mailDeliveryMode, "draft");
+    assert.equal(routine.selfReviewOnly, routine.slug.startsWith("proactive-improve-own-work-"));
     assert.ok(routine.nextRunAt instanceof Date);
   }
   assert.equal(await AppDataSource.getRepository(RoutineTrigger).countBy({ companyId }), 4);
@@ -185,11 +186,20 @@ test("multiple eligible employees get one stable owner for each company and mail
     reconcileProactiveDefaults(fixture.company.id),
   ]);
   const overview = await getProactiveOverview(fixture.company.id);
-  for (const recipe of overview.recipes.filter((row) => row.id !== "work-followthrough")) {
+  for (const recipe of overview.recipes.filter(
+    (row) => !["work-followthrough", "improve-own-work"].includes(row.id),
+  )) {
     const installed = overview.installations.filter((row) => row.recipeId === recipe.id);
     assert.equal(installed.length, 1, recipe.id);
     if (recipe.requirements.includes("mail")) assert.equal(installed[0].employeeId, preferred.id);
   }
+  assert.deepEqual(
+    overview.installations
+      .filter((row) => row.recipeId === "improve-own-work")
+      .map((row) => row.employeeId)
+      .sort(),
+    [fixture.employee.id, preferred.id].sort(),
+  );
   await AppDataSource.getRepository(MailAccount).update(fixture.account.id, {
     aiAnalysisEmployeeId: fixture.employee.id,
   });
@@ -207,6 +217,7 @@ test("later Grants become ready automatically without replacing existing assignm
   const initial = await getProactiveOverview(row.id);
   assert.deepEqual(initial.installations.map((entry) => entry.recipeId).sort(), [
     "discover-improvements",
+    "improve-own-work",
     "work-followthrough",
   ]);
   const account = await insert(MailAccount, {
@@ -237,6 +248,67 @@ test("later Grants become ready automatically without replacing existing assignm
   assert.ok(ready.installations.some((entry) => entry.recipeId === "quote-requests"));
   for (const [scope, id] of Object.entries(initial.defaultAssignments))
     assert.equal(ready.defaultAssignments[scope], id);
+});
+
+test("ready employees with no Grants review their work without gaining unrelated follow-through", async () => {
+  const row = await company();
+  const first = await worker(row.id, undefined, false);
+  const second = await worker(row.id, undefined, false);
+  const disconnected = await insert(AIEmployee, {
+    companyId: row.id,
+    name: "Not ready",
+    slug: randomUUID(),
+    role: "Operations",
+  });
+  await reconcileProactiveDefaults(row.id);
+  await sweepProactiveDefaults();
+  const overview = await getProactiveOverview(row.id);
+  const reviews = overview.installations.filter((entry) => entry.recipeId === "improve-own-work");
+  assert.deepEqual(reviews.map((entry) => entry.employeeId).sort(), [first.id, second.id].sort());
+  assert.ok(!overview.installations.some((entry) => entry.employeeId === disconnected.id));
+  const discoverOwner = overview.installations.find(
+    (entry) => entry.recipeId === "discover-improvements",
+  )!.employeeId;
+  const otherwiseIdle = discoverOwner === first.id ? second.id : first.id;
+  assert.deepEqual(
+    overview.installations
+      .filter((entry) => entry.employeeId === otherwiseIdle)
+      .map((entry) => entry.recipeId),
+    ["improve-own-work"],
+  );
+  const idleRoutines = await AppDataSource.getRepository(Routine).findBy({
+    employeeId: otherwiseIdle,
+  });
+  assert.equal(idleRoutines.length, 1);
+  assert.equal(idleRoutines[0].selfReviewOnly, true);
+  assert.equal(idleRoutines[0].mailDeliveryMode, "draft");
+  assert.equal(await AppDataSource.getRepository(MailRule).count(), 0);
+});
+
+test("a paused customized self-review and its later deletion survive automatic discovery", async () => {
+  const fixture = await readyCompany();
+  await reconcileProactiveDefaults(fixture.company.id);
+  const initial = await getProactiveOverview(fixture.company.id);
+  const review = initial.installations.find((entry) => entry.recipeId === "improve-own-work")!;
+  await AppDataSource.getRepository(Routine).update(review.id, {
+    enabled: false,
+    name: "Our review cadence",
+    body: "Review only our documented priorities.",
+    cronExpr: "0 14 * * 5",
+  });
+  await sweepProactiveDefaults();
+  const paused = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: review.id });
+  assert.equal(paused.enabled, false);
+  assert.equal(paused.body, "Review only our documented priorities.");
+  assert.equal(paused.cronExpr, "0 14 * * 5");
+  assert.equal(paused.selfReviewOnly, true);
+  await AppDataSource.getRepository(Routine).delete(review.id);
+  await sweepProactiveDefaults();
+  assert.equal(await AppDataSource.getRepository(Routine).existsBy({ id: review.id }), false);
+  assert.deepEqual(
+    (await getProactiveOverview(fixture.company.id)).defaultAssignments,
+    initial.defaultAssignments,
+  );
 });
 
 test("reconciliation preserves paused custom work and deleted defaults across later sweeps", async () => {

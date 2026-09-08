@@ -639,6 +639,104 @@ try {
     },
   );
   await check(
+    "self-review can be assigned with a connected model and no extra Grants",
+    async () => {
+      const recipe = PROACTIVE_RECIPES.find((entry) => entry.id === "improve-own-work");
+      assert.ok(recipe, "The shared catalogue includes the self-review responsibility");
+      overview.mailboxes = [];
+      overview.employees = [
+        { ...overview.employees.find((entry) => entry.id === "new")!, modelReady: true },
+      ];
+      const page = await open();
+      const card = page.locator("article").filter({
+        has: page.getByRole("heading", { name: "Improve my work", exact: true }),
+      });
+      await card.waitFor();
+      await card.getByText("Fridays at 15:00", { exact: true }).waitFor();
+      await setup(page, "improve-own-work");
+      await choose(page, "AI Employee", "New employee");
+      assert.equal(await page.getByRole("combobox", { name: "Mailbox", exact: true }).count(), 0);
+      assert.equal(
+        await page.getByRole("combobox", { name: "Customer communication", exact: true }).count(),
+        0,
+      );
+      assert.equal(await page.getByText("Before assigning", { exact: true }).count(), 0);
+      assert.equal(
+        await page.getByRole("textbox", { name: "Instructions", exact: true }).inputValue(),
+        recipe.brief,
+      );
+      assert.equal(await enable(page).isEnabled(), true);
+      await submit(page);
+      assert.deepEqual(installs, [
+        {
+          recipeId: "improve-own-work",
+          employeeId: "new",
+          accountId: null,
+          delivery: "draft",
+          instruction: recipe.brief,
+        },
+      ]);
+      assert.equal(overview.installations[0].kind, "routine");
+    },
+  );
+  await check("self-review still waits for a connected AI Model", async () => {
+    overview.mailboxes = [];
+    overview.employees = [overview.employees.find((entry) => entry.id === "new")!];
+    const page = await open();
+    await setup(page, "improve-own-work");
+    await choose(page, "AI Employee", "New employee");
+    await page
+      .getByText("Connect an active AI Model on this AI Employee.", { exact: true })
+      .waitFor();
+    assert.equal(await enable(page).isDisabled(), true);
+    assert.equal(await page.getByRole("combobox", { name: "Mailbox", exact: true }).count(), 0);
+    assert.deepEqual(installs, []);
+  });
+  await check("self-review assignments and Review suggestions are visible to Members", async () => {
+    overview.installations.push({
+      id: "own-review",
+      recipeId: "improve-own-work",
+      employeeId: "ada",
+      accountId: null,
+      name: "Improve my work",
+      enabled: true,
+      kind: "routine",
+      delivery: "draft",
+      href: "/c/company/routines/improve-my-work",
+    });
+    const page = await open("member");
+    const standing = page.getByRole("region", { name: "Your standing work", exact: true });
+    await standing.getByRole("link", { name: "Improve my work", exact: true }).waitFor();
+    const suggestions = standing.getByRole("link", { name: "Review suggestions", exact: true });
+    assert.equal(await suggestions.getAttribute("href"), "/c/company/revisions");
+    assert.equal(await suggestions.isVisible(), true);
+    assert.deepEqual(installs, [], "Existing automatic self-review requires no browser setup");
+    await fs.mkdir(artifacts, { recursive: true });
+    await page.screenshot({
+      path: path.join(artifacts, "proactive-self-review-desktop.png"),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    );
+    assert.ok(fits, "The suggestions link and new responsibility fit a narrow screen");
+    await page.screenshot({
+      path: path.join(artifacts, "proactive-self-review-mobile.png"),
+      fullPage: true,
+    });
+    await suggestions.click();
+    await page
+      .getByRole("status", { name: "Current route", exact: true })
+      .filter({ hasText: /^\/c\/company\/revisions$/ })
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await page.getByRole("status", { name: "Current route", exact: true }).textContent(),
+      "/c/company/revisions",
+    );
+    assert.deepEqual(defaultToggles, []);
+  });
+  await check(
     "live changes refresh standing work and mobile setup remains within the screen",
     async () => {
       const page = await open();

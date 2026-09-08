@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { selfReviewToolError } from "../services/proactive/reviewPolicy.js";
+import { boundWorkReviewPacket } from "../services/proactive/reviewPacketBudget.js";
+import { isActiveOwnReview, reviewTrackingRoutine } from "../services/proactive/reviewTracking.js";
+import { getOwnWorkReview, OwnWorkReviewError } from "../services/proactive/workReview.js";
 import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
 import { performMailSenderAction } from "../services/mail/blockedSenders.js";
 import {
@@ -167,6 +171,7 @@ import { decideDecisionAsEmployee, kickoffRoutedDecision } from "../services/dec
 import { WakeupError, cancelWakeup, scheduleWakeup } from "../services/wakeups.js";
 import {
   WorkstreamError,
+  assertBusinessWorkstream,
   createWorkstream,
   listWorkstreams,
   serializeWorkstream,
@@ -696,6 +701,7 @@ type McpRequest = Request & {
   mcpConversationId?: string | null;
   mcpMailThreadId?: string | null;
   mcpMailDeliveryMode?: MailDeliveryMode | null;
+  mcpSelfReviewOnly?: boolean;
   /** The Repository work session this turn may act on, if any. */
   mcpRepositoryWorkSessionId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
@@ -742,6 +748,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpConversationId = info.conversationId;
   req.mcpMailThreadId = info.mailThreadId;
   req.mcpMailDeliveryMode = info.mailDeliveryMode;
+  req.mcpSelfReviewOnly = info.selfReviewOnly;
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
@@ -839,11 +846,29 @@ function requireDelegatedToolAuthority(
 
 mcpInternalRouter.use(requireDelegatedToolAuthority);
 
-mcpInternalRouter.use((req: McpRequest, res, next) => {
+mcpInternalRouter.use(async (req: McpRequest, res, next) => {
+  if (!req.mcpSelfReviewOnly || req.path === "/manifest") return next();
+  if (req.path === "/integrations/_list") return res.json({ tools: [] });
   const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
   const error = name
-    ? mailDeliveryToolError(req.mcpMailDeliveryMode, name, req.body ?? {})
-    : null;
+    ? selfReviewToolError(true, name, req.body ?? {})
+    : "This review cannot use external Connections or other work surfaces.";
+  if (error) return res.status(403).json({ error });
+  if (
+    !(await isActiveOwnReview({
+      companyId: req.mcpCompany!.id,
+      employeeId: req.mcpEmployee!.id,
+      routineId: req.mcpRoutineId,
+      runId: req.mcpRunId,
+    }))
+  )
+    return res.status(403).json({ error: "This review is no longer running." });
+  return next();
+});
+
+mcpInternalRouter.use((req: McpRequest, res, next) => {
+  const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
+  const error = name ? mailDeliveryToolError(req.mcpMailDeliveryMode, name, req.body ?? {}) : null;
   if (error) return res.status(403).json({ error });
   return next();
 });
@@ -8684,6 +8709,19 @@ async function resolveOwnRevisionTarget(
 }
 
 mcpInternalRouter.post(
+  "/tools/get_own_work_review",
+  validateBody(z.object({}).strict()),
+  async (req: McpRequest, res) => {
+    try {
+      res.json(boundWorkReviewPacket(await getOwnWorkReview(req.mcpCompany!.id, req.mcpEmployee!.id)));
+    } catch (err) {
+      if (!(err instanceof OwnWorkReviewError)) throw err;
+      res.status(err.status).json({ error: err.message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
   "/tools/propose_revision",
   validateBody(proposeRevisionSchema),
   async (req: McpRequest, res) => {
@@ -8710,20 +8748,27 @@ mcpInternalRouter.post(
       }
     }
     try {
-      const proposal = await createRevisionProposal(co.id, self.id, {
-        kind: body.kind,
-        targetId,
-        proposedBody: body.proposedBody,
-        rationale: body.rationale,
-        evidenceRunIds: body.evidenceRunIds ?? [],
-      });
+      const proposal = await createRevisionProposal(
+        co.id,
+        self.id,
+        {
+          kind: body.kind,
+          targetId,
+          proposedBody: body.proposedBody,
+          rationale: body.rationale,
+          evidenceRunIds: body.evidenceRunIds ?? [],
+        },
+        req.mcpSelfReviewOnly ? { reviewRunId: req.mcpRunId! } : {},
+      );
       await aiWriteTrail(req, {
         action: "revision.propose",
         targetType: "revision_proposal",
         targetId: proposal.id,
         targetLabel: proposal.targetLabel,
         journalTitle: `Proposed a revision of ${proposal.kind === "soul" ? "my Soul" : `"${proposal.targetLabel}"`}`,
-        journalBody: body.rationale,
+        journalBody: req.mcpSelfReviewOnly
+          ? "An improvement suggestion awaits Member review in Revisions. It has not been applied."
+          : body.rationale,
         metadata: { kind: proposal.kind },
       });
       res.json({
@@ -12551,15 +12596,30 @@ mcpInternalRouter.post(
         title: body.title,
         objective: body.objective,
         stateDoc: body.stateDoc,
-        routineId: body.routineId ?? null,
+        excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
+        routineId: req.mcpSelfReviewOnly
+          ? await reviewTrackingRoutine(
+              {
+                companyId: req.mcpCompany!.id,
+                employeeId: req.mcpEmployee!.id,
+                routineId: req.mcpRoutineId,
+                runId: req.mcpRunId,
+              },
+              body.routineId,
+            )
+          : (body.routineId ?? null),
       });
       await aiWriteTrail(req, {
         action: "workstream.create",
         targetType: "workstream",
         targetId: workstream.id,
         targetLabel: workstream.title,
-        journalTitle: `Opened the workstream "${workstream.title}"`,
-        journalBody: workstream.objective,
+        journalTitle: req.mcpSelfReviewOnly
+          ? "Opened my work review record"
+          : `Opened the workstream "${workstream.title}"`,
+        journalBody: req.mcpSelfReviewOnly
+          ? "This record belongs to the Improve my work Routine. Only that review continues it."
+          : workstream.objective,
       });
       res.json({ workstream: serializeWorkstream(workstream) });
     } catch (err) {
@@ -12584,6 +12644,19 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof updateWorkstreamSchema>;
     try {
+      if (req.mcpSelfReviewOnly)
+        await reviewTrackingRoutine(
+          {
+            companyId: req.mcpCompany!.id,
+            employeeId: req.mcpEmployee!.id,
+            routineId: req.mcpRoutineId,
+            runId: req.mcpRunId,
+          },
+          undefined,
+          body.workstreamId,
+        );
+      else if (req.mcpAuthority === "employee")
+        await assertBusinessWorkstream(req.mcpCompany!.id, req.mcpEmployee!.id, body.workstreamId);
       const workstream = await updateWorkstream({
         companyId: req.mcpCompany!.id,
         employeeId: req.mcpEmployee!.id,
@@ -12601,11 +12674,14 @@ mcpInternalRouter.post(
         targetType: "workstream",
         targetId: workstream.id,
         targetLabel: workstream.title,
-        journalTitle:
-          workstream.status === "active"
+        journalTitle: req.mcpSelfReviewOnly
+          ? "Updated my work review record"
+          : workstream.status === "active"
             ? `Updated the workstream "${workstream.title}"`
             : `Closed the workstream "${workstream.title}" as ${workstream.status}`,
-        journalBody: workstream.closeReason || workstream.stateDoc,
+        journalBody: req.mcpSelfReviewOnly
+          ? "Review tracking changed. Only the Improve my work Routine continues this record; suggestions await Member review in Revisions."
+          : workstream.closeReason || workstream.stateDoc,
       });
       res.json({
         workstream: serializeWorkstream(workstream),
@@ -12628,6 +12704,7 @@ mcpInternalRouter.post(
     const body = req.body as { all?: boolean };
     const rows = await listWorkstreams(req.mcpCompany!.id, {
       employeeId: req.mcpEmployee!.id,
+      excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
       ...(body.all ? {} : { status: "active" as const }),
     });
     res.json({ workstreams: rows.map(serializeWorkstream) });

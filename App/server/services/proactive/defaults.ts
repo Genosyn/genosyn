@@ -42,7 +42,12 @@ export function planProactiveDefaults(
   const plan: ProactiveSetupInput[] = [];
   const assignedEmployees = new Set(
     overview.installations
-      .filter((row) => row.enabled && row.recipeId !== "work-followthrough")
+      .filter(
+        (row) =>
+          row.enabled &&
+          row.recipeId !== "work-followthrough" &&
+          row.recipeId !== "improve-own-work",
+      )
       .map((row) => row.employeeId),
   );
   const choose = (recipe: ProactiveRecipe, mailbox?: ProactiveMailbox) => {
@@ -105,13 +110,24 @@ export function planProactiveDefaults(
       }
     }
   }
+  // Every ready employee reviews its own results, even without other standing
+  // business work. Owning this review alone does not require follow-through.
+  const selfReview = overview.recipes.find((recipe) => recipe.id === "improve-own-work");
+  if (selfReview) {
+    for (const employee of employees) {
+      if (proactiveReadiness(selfReview, employee, undefined).length === 0)
+        add(selfReview, employee);
+    }
+  }
   return plan.sort((left, right) => {
     const priority = (input: ProactiveSetupInput) =>
       input.recipeId === "work-followthrough"
         ? 0
         : overview.recipes.find((recipe) => recipe.id === input.recipeId)?.kind === "email"
           ? 1
-          : 2;
+          : input.recipeId === "improve-own-work"
+            ? 2
+            : 3;
     return priority(left) - priority(right);
   });
 }

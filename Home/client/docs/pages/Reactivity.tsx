@@ -63,12 +63,32 @@ export function Reactivity() {
       ]} />
       <P>
         The scheduled starters cover overdue invoice reminders, stalled Deals, meeting commitments,
-        unanswered customer requests, open Workstreams, and evidence-backed improvement Initiatives.
+        unanswered customer requests, open Workstreams, evidence-backed improvement Initiatives,
+        and reviews of an employee&apos;s own work.
         They create ordinary <DocLink to="/docs/routines">Routines</DocLink> with editable briefs,
         schedules, acceptance criteria, and Run history. Selected starters also get a Trigger with
         a one-hour minimum interval; the schedule catches work that becomes due without another
         change. Times use the server&apos;s timezone. Each brief limits the employee to ten
         actionable items per Run and asks it to keep unchanged checks quiet.
+      </P>
+      <P>
+        <Strong>Improve my work</Strong> is assigned automatically to each AI Employee with a
+        connected AI Model, with no extra resource Grant needed to review its own work. It runs on
+        Fridays at 15:00 in the server&apos;s timezone. The employee reviews its recent Runs,
+        Lessons, email handovers, Repository Work sessions, and earlier revision feedback, then
+        proposes at most one concrete change supported by that evidence. It stays quiet without
+        new evidence and avoids repeating pending or rejected suggestions. This review can read
+        its own evidence, track its review, and stage a suggestion; it cannot apply edits, send
+        email, change business records, or propose changes to acceptance criteria or Checks.
+      </P>
+      <P>
+        Beside <Strong>Your standing work</Strong>, select <Strong>Review suggestions</Strong> to
+        open <Strong>Revisions</Strong>. Owners and admins review the proposed change and choose
+        <Strong> Apply</Strong> or <Strong>Reject</Strong>; the employee never applies its own
+        suggestion. Later reviews check meaningful outcomes after an applied change. You can
+        customize or pause this Routine like other standing work, and automatic setup preserves
+        your edits, pauses, and deletions. See <DocLink to="/docs/improvement">The improvement
+        loop</DocLink> for the review process and notifications.
       </P>
       <H2 id="delivery">Decide how much can happen unattended</H2>
       <P>
