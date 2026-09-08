@@ -418,22 +418,23 @@ try {
     const picker = page.getByRole("combobox", { name: "AI Model", exact: true });
     const pickerId = await picker.getAttribute("id");
     assert.ok(pickerId);
-    const waitForActiveModel = (label: string) =>
-      page.waitForFunction(
-        ({ pickerId, label }) => {
-          const activeId = document.getElementById(pickerId)?.getAttribute("aria-activedescendant");
-          return activeId
-            ? document.getElementById(activeId)?.textContent?.trim() === label
-            : false;
-        },
-        { pickerId, label },
+    async function waitForHighlight(name: string) {
+      const option = page.getByRole("option", { name, exact: true });
+      await option.waitFor();
+      const optionId = await option.getAttribute("id");
+      assert.ok(optionId);
+      await page.waitForFunction(
+        ([inputId, activeId]) =>
+          document.getElementById(inputId)?.getAttribute("aria-activedescendant") === activeId,
+        [pickerId!, optionId],
       );
+    }
     await picker.focus();
-    // Focus opens the list, then React initializes its active option. Wait for
-    // that accessible state so ArrowUp navigates instead of only opening it.
-    await waitForActiveModel("Claude Sonnet (default)");
+    // Opening the menu highlights its selection in an effect. Wait for that
+    // visible state before navigating, then for ArrowUp before accepting it.
+    await waitForHighlight("Claude Sonnet (default)");
     await picker.press("ArrowUp");
-    await waitForActiveModel("GPT 5.4");
+    await waitForHighlight("GPT 5.4");
     await picker.press("Enter");
     await page.getByRole("listbox").waitFor({ state: "hidden" });
     assert.equal(await modelValue(page), "GPT 5.4");
