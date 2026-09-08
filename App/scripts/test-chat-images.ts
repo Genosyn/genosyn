@@ -7,15 +7,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { browserTestVite } from "./browserTestVite";
 import { createCanvas } from "@napi-rs/canvas";
 import { chromium, type Page } from "playwright-core";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const server = await createServer({
+  ...browserTestVite,
   configFile: path.join(root, "vite.config.ts"),
   server: { host: "127.0.0.1", port: 18472, strictPort: true, hmr: false },
   cacheDir: path.join(root, "node_modules/.vite-chat-images"),
-  optimizeDeps: { entries: [path.join(root, "scripts/chatImageHarness.tsx")] },
   plugins: [
     {
       name: "chat-image-browser-fixture",
@@ -99,6 +100,7 @@ let failUpload = false;
 let modelFailure = false;
 const releaseUploads: Array<() => void> = [];
 const turns: Array<Record<string, unknown>> = [];
+const browserErrors: string[] = [];
 await context.route("**/api/**", async (route) => {
   const request = route.request();
   const url = new URL(request.url());
@@ -209,7 +211,10 @@ await context.route("**/api/**", async (route) => {
 
 async function open(surface: string) {
   const page = await context.newPage();
-  page.on("pageerror", (error) => console.error(`Browser error (${surface}): ${error.message}`));
+  page.on("pageerror", (error) => {
+    browserErrors.push(`${surface}: ${error.message}`);
+    console.error(`Browser error (${surface}): ${error.message}`);
+  });
   const pending = new Set<string>();
   page.on("request", (request) => pending.add(request.url()));
   page.on("requestfinished", (request) => pending.delete(request.url()));
@@ -473,6 +478,7 @@ try {
     });
     await page.close();
   });
+  assert.deepEqual(browserErrors, [], "No browser runtime errors");
   console.log(`${checks} browser regression groups passed.`);
 } finally {
   await browser.close();
