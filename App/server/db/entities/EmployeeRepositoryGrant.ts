@@ -9,7 +9,8 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
  *               materialized checkout).
  *   - `write` → records authority to prepare a local deliverable. Reusable
  *               repository credentials still stay server-side; authenticated
- *               publication needs a governed delivery or Member step.
+ *               publication needs a Member step or a completed work session
+ *               plus the separate Grant to its pinned forge Connection.
  *
  * `read` is the floor because a private repo can't even be cloned without
  * credentials, so withholding a grant entirely (rather than granting `read`)

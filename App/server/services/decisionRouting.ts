@@ -85,11 +85,11 @@ export async function resolveDecider(
  */
 export async function tryRouteDecision(decision: Decision): Promise<AIEmployee | null> {
   // The employee asked a person by name; that request is honored verbatim.
-  if (decision.assigneeUserId) return null;
+  if (decision.assigneeUserId || decision.pickupStatus !== "none") return null;
   const decider = await resolveDecider(decision.companyId, decision.employeeId);
   if (!decider) return null;
   const claim = await AppDataSource.getRepository(Decision).update(
-    { id: decision.id, status: "pending", routedToEmployeeId: IsNull() },
+    { id: decision.id, status: "pending", pickupStatus: "none", routedToEmployeeId: IsNull() },
     { routedToEmployeeId: decider.id, routedAt: new Date() },
   );
   if (claim.affected !== 1) return null;
@@ -122,7 +122,12 @@ export async function kickoffRoutedDecision(args: {
 }): Promise<void> {
   const repo = AppDataSource.getRepository(Decision);
   const decision = await repo.findOneBy({ id: args.decisionId, companyId: args.companyId });
-  if (!decision || decision.status !== "pending" || !decision.routedToEmployeeId) return;
+  if (
+    !decision ||
+    decision.status !== "pending" ||
+    decision.pickupStatus !== "none" ||
+    !decision.routedToEmployeeId
+  ) return;
   const [decider, asker] = await Promise.all([
     AppDataSource.getRepository(AIEmployee).findOneBy({
       id: decision.routedToEmployeeId,

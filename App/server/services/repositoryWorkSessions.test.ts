@@ -41,6 +41,7 @@ import {
   CHECKPOINT_COMMIT_MESSAGE,
   composeWorkSystemPrompt,
   createRepositoryWorkSession,
+  createToolRepositoryWorkSession,
   deriveWorkSessionTitle,
   ensureSessionWorktree,
   liveRepositoryWorkSession,
@@ -2288,5 +2289,111 @@ describe("AGENTS.md", () => {
       }),
     );
     assert.equal(seen, null);
+  });
+});
+
+describe("unattended work session authority", () => {
+  const unattendedArgs = () => ({
+    companyId: company.id,
+    repositoryId: repository.id,
+    employeeId: employee.id,
+    instruction: "Investigate and fix the issue reported by email",
+    toolAuthority: "employee" as const,
+  });
+
+  test("retains employee authority without claiming a Member requested the work", async () => {
+    await grantAccess();
+    let invoked = false;
+    const session = await startRepositoryWorkSession({
+      ...unattendedArgs(),
+      runChat: (async (_company, _employee, _brief, _history, options) => {
+        invoked = true;
+        assert.equal(options?.toolAuthority, "employee");
+        assert.equal(options?.requesterUserId, undefined);
+        assert.equal(options?.requesterSessionVersion, undefined);
+        assert.ok(options?.repositoryWorkSessionId);
+        assert.deepEqual(options?.extraToolset, repositorySessionResidentTools(repository));
+        return {
+          status: "ok",
+          reply: "The reported behavior is expected.",
+          attachmentIds: [],
+          sidecars: {},
+        };
+      }) as typeof chatWithEmployee,
+    });
+    assert.ok(invoked);
+    assert.equal(session.requestedByUserId, null);
+    const turn = await AppDataSource.getRepository(RepositoryWorkSessionTurn).findOneByOrFail({
+      sessionId: session.id,
+    });
+    assert.equal(turn.requestedByUserId, null);
+  });
+
+  test("requires a write Grant before creating a session", async () => {
+    await grantAccess("read");
+    await assert.rejects(() => createRepositoryWorkSession(unattendedArgs()), /write access/);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+  });
+
+  test("cannot attach a Member's file to an employee-started session", async () => {
+    await grantAccess();
+    await assert.rejects(
+      () => createRepositoryWorkSession({ ...unattendedArgs(), attachmentIds: ["member-file"] }),
+      /not Member attachments/,
+    );
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+  });
+
+  test("rechecks a Grant revoked between preparation and the model turn", async () => {
+    await grantAccess();
+    const prepared = await createRepositoryWorkSession(unattendedArgs());
+    prepared.runChat = (async () => {
+      assert.fail("the model must not run after revocation");
+    }) as typeof chatWithEmployee;
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({ employeeId: employee.id });
+    const result = await runRepositoryWorkSession(prepared);
+    assert.equal(result.status, "failed");
+    assert.match(result.error, /write access/);
+    assert.equal(result.branch, null);
+  });
+
+  test("parallel tool starts create only one session", async () => {
+    await grantAccess();
+    const results = await Promise.allSettled([
+      createToolRepositoryWorkSession(unattendedArgs()),
+      createToolRepositoryWorkSession(unattendedArgs()),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+  });
+
+  test("rejects a different employee even with the session id", async () => {
+    await grantAccess();
+    const prepared = await createRepositoryWorkSession(unattendedArgs());
+    await assert.rejects(
+      () =>
+        resolveSessionCheckout(company.id, prepared.session.id, {
+          employeeId: "other",
+          access: "write",
+        }),
+      /not found/,
+    );
+  });
+
+  test("rechecks the live Grant at each repository tool call", async () => {
+    await grantAccess();
+    const prepared = await createRepositoryWorkSession(unattendedArgs());
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).update(
+      { employeeId: employee.id },
+      { accessLevel: "read" },
+    );
+    await assert.rejects(
+      () =>
+        resolveSessionCheckout(company.id, prepared.session.id, {
+          employeeId: employee.id,
+          access: "write",
+        }),
+      /write access/,
+    );
   });
 });

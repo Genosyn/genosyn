@@ -33,6 +33,7 @@ import { isChatSurfaceProvider } from "./chatSurfaces/types.js";
 import { deleteIdentitiesForConnection } from "./chatSurfaces/identity.js";
 import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
+import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
 import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
 import { makeAdSpendLedger } from "./adSpend.js";
 import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
@@ -945,6 +946,8 @@ export async function invokeConnectionTool(args: {
   connectionId: string;
   toolName: string;
   toolArgs: unknown;
+  mailDeliveryMode?: MailDeliveryMode | null;
+  financeAccessLimit?: "none" | "read" | "full";
 }): Promise<unknown> {
   const pair = await getGrantWithConnection(args.employee.id, args.connectionId);
   if (!pair) {
@@ -988,10 +991,12 @@ export async function invokeConnectionTool(args: {
     resolveAttachments: makeResourceAttachmentResolver({
       companyId: pair.connection.companyId,
       employeeId: args.employee.id,
+      financeAccessLimit: args.financeAccessLimit,
     }),
     assertCapability: makeConnectionCapabilityGate({
       connection: pair.connection,
       employeeId: args.employee.id,
+      mailDeliveryMode: args.mailDeliveryMode,
     }),
     adSpend: makeAdSpendLedger({
       connection: pair.connection,

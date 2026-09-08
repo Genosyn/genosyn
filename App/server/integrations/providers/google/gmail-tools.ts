@@ -42,7 +42,7 @@ const ATTACHMENTS_PROPERTY = {
   type: "array",
   maxItems: 10,
   description:
-    "Optional files to attach. Give each item exactly one of `resourceSlug` (a Resource you have been granted) or `invoiceSlug` (an invoice rendered as a PDF, from `list_invoices` — needs finance access). The server reads the bytes itself — do NOT call `export_resource` first and do NOT paste base64 here; just name it by slug. Total attachment size is capped at 3 MB; past that, link the resource page instead.",
+    "Optional files to attach. Give each item exactly one of `resourceSlug` (a Resource you have been granted) `invoiceSlug` (an invoice PDF from `list_invoices`), or `estimateSlug` (a quotation PDF from `create_estimate`). Finance PDFs need Read access; draft estimates need Invoicing access and remain marked DRAFT. Attaching an estimate does not issue it or change its status. The server reads the bytes itself — do NOT call `export_resource` first and do NOT paste base64 here; just name it by slug. Total attachment size is capped at 3 MB; past that, link the resource page instead.",
   items: {
     type: "object",
     properties: {
@@ -54,6 +54,11 @@ const ATTACHMENTS_PROPERTY = {
         type: "string",
         description:
           "Attach an invoice as a PDF: its slug from `list_invoices`. Useful to reply to a billing thread with the invoice attached.",
+      },
+      estimateSlug: {
+        type: "string",
+        description:
+          "Attach an estimate (quotation) PDF by slug from create_estimate. Drafts require Invoicing finance access and remain marked DRAFT; issued estimates need Read access. Does not issue or accept the estimate.",
       },
       format: {
         type: "string",

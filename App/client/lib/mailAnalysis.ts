@@ -53,6 +53,7 @@ const HANDOVER_MODE_LABELS: Record<string, string> = {
   draft: "drafts a reply",
   reply: "replies for you",
   triage: "triages it",
+  work: "does the work and drafts a reply",
 };
 
 export function analysisCategoryLabel(category: string): string {

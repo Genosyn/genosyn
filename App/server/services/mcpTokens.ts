@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
 
 /**
  * Short-lived auth tokens for the built-in Genosyn MCP server.
@@ -34,6 +35,8 @@ export type McpTokenInfo = {
    */
   conversationId: string | null;
   mailThreadId: string | null;
+  /** Server-selected ceiling for a mail handover, independent of the employee Grant. */
+  mailDeliveryMode: MailDeliveryMode | null;
   /**
    * The Repository work session this turn is executing, when the surface is
    * one. Unlike the ids above this is not provenance — it is authority. The
@@ -131,6 +134,7 @@ export function issueMcpToken(
     routineId?: string;
     conversationId?: string | null;
     mailThreadId?: string | null;
+    mailDeliveryMode?: MailDeliveryMode | null;
     repositoryWorkSessionId?: string | null;
     authority?: "employee" | "member" | "untrusted";
     requesterUserId?: string;
@@ -165,6 +169,7 @@ export function issueMcpToken(
     routineId: origin.routineId ?? null,
     conversationId: origin.conversationId ?? null,
     mailThreadId: origin.mailThreadId ?? null,
+    mailDeliveryMode: origin.mailDeliveryMode ?? null,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
     authority,
     requesterUserId,

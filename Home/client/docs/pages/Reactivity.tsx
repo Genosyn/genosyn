@@ -5,7 +5,7 @@ export function Reactivity() {
     <>
       <PageHeader
         eyebrow="Operations"
-        title="Reactivity"
+        title="Proactive work"
         lead={
           <>
             A cron answers <em>when</em>. This page covers the four features that answer everything
@@ -18,6 +18,70 @@ export function Reactivity() {
           </>
         }
       />
+
+      <H2 id="start">Start in Proactive</H2>
+      <P>
+        Open <Strong>Proactive</Strong> from the company navigation. Choose a starter, pick an
+        AI Employee and (where needed) a mailbox, review its instructions, then select
+        <Strong> Enable workflow</Strong>. The setup form lists missing Grants or a disconnected
+        AI Model. It never grants access for you. Owners and admins can enable, pause, and resume
+        standing work; every Member can see what is configured.
+      </P>
+      <P>
+        An email starter creates an ordinary rule under <Strong>Email → Rules</Strong>. New
+        incoming messages match the existing AI analysis category and are handed to the assigned
+        employee; setup never replays historical mail. Turn on AI analysis in Email → Settings and
+        keep the mailbox active. Classification alone does not complete the work: the employee
+        reads the request and acts through its own Grants. A failed analysis does not fire a rule.
+      </P>
+      <KeyList rows={[
+        { term: "Quote requests", def: "Match or create the Customer, verify pricing, prepare an estimate, and attach its actual PDF to a reply draft. Missing prices or scope become a clarification, never an invented quote." },
+        { term: "Customer code issues", def: "Start an isolated Work session in a granted Repository, investigate the report, prepare a fix with tests, and track it to PR review. A queued session is never reported as a finished fix." },
+        { term: "Sales enquiries", def: "Create or update the Contact and Deal, record the enquiry as an Activity, and prepare the next reply without assuming marketing consent." },
+        { term: "Confirmed spam", def: "Review suspected spam, then file confirmed spam and create an exact-sender rule. Future matching mail moves to Spam when Genosyn syncs; it is not a provider-wide sender block. Disable or delete the exact-sender rule in Email → Rules to undo it." },
+        { term: "Unwanted newsletters", def: "Apply the Soul’s explicit preferences. Use verified one-click unsubscribe for legitimate unwanted subscriptions; retain wanted mail and avoid unsubscribe links in suspicious spam." },
+      ]} />
+      <P>
+        The scheduled starters cover overdue invoice reminders, stalled Deals, meeting commitments,
+        unanswered customer requests, open Workstreams, and evidence-backed improvement Initiatives.
+        They create ordinary <DocLink to="/docs/routines">Routines</DocLink> with editable briefs,
+        schedules, acceptance criteria, and Run history. Selected starters also get a Trigger with
+        a one-hour minimum interval; the schedule catches work that becomes due without another
+        change. Times use the server&apos;s timezone. Each brief limits the employee to ten
+        actionable items per Run and asks it to keep unchanged checks quiet.
+      </P>
+      <H2 id="delivery">Decide how much can happen unattended</H2>
+      <P>
+        Email starters default to <Strong>Prepare drafts for review</Strong>. This is enforced
+        during the handover even if the employee has a Send Grant. Choose
+        <Strong> May send when the Soul permits</Strong> only when you want the employee to send
+        and its mailbox Grant allows it. The Soul sets your commercial judgement, tone, and
+        limits; it cannot grant itself access or override a company Policy or Approval.
+        Draft and triage handovers cannot create unrestricted deferred work or delegate around
+        their delivery restriction.
+      </P>
+      <P>
+        Scheduled starters also carry an enforced draft ceiling, preserved when their instructions
+        or schedules are edited. Review and send their email from Email → Drafts. A quotation PDF
+        made from a draft estimate visibly says DRAFT and remains unissued; attaching or mailing it
+        never accepts the estimate, creates an invoice, or posts to the ledger. See
+        <DocLink to="/docs/finance"> Finance</DocLink> for its lifecycle.
+      </P>
+      <P>
+        Repository publication needs the employee&apos;s Write Grant plus an explicitly granted,
+        pinned GitHub or Forgejo Connection. The employee can open a PR only from its own completed
+        session branch; it cannot merge or publish the default branch. Repositories using a private
+        token or SSH credential still need Member publication. Enable <Strong>Follow through on
+        open work</Strong> for the same employee to revisit saved sessions and finish the next
+        authorized step. See <DocLink to="/docs/repositories">Repositories</DocLink>.
+      </P>
+      <P>
+        Under <Strong>Your standing work</Strong>, use <Strong>Review work</Strong> to open the
+        underlying rule or Routine and its history. <Strong>Pause</Strong> stops future starts;
+        use a <DocLink to="/docs/standdowns">Standdown</DocLink> when work already in progress
+        must stop. Enabling the same starter for the same employee and mailbox twice reuses its
+        existing configuration, including a paused state.
+      </P>
 
       <H2 id="triggers">Triggers — Routines that fire on change</H2>
       <P>

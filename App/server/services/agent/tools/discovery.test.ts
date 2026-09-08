@@ -85,6 +85,8 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "search my inbox", expect: "search_mail" },
   { query: "which mailboxes do i have", expect: "list_mail_accounts" },
   { query: "archive this email", expect: "update_mail_thread" },
+  { query: "block spam from this sender", expect: "mail_block_sender" },
+  { query: "unsubscribe from unwanted newsletters", expect: "mail_unsubscribe" },
   { query: "attach a file to this record", expect: "attach_file_to_record" },
   { query: "comment on a record", expect: "create_record_comment" },
   { query: "write a doc", expect: "create_note" },

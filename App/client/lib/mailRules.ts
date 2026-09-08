@@ -53,6 +53,8 @@ export function ruleEmployeeOptions<TEmployee extends RuleEmployeeCandidate>(
 export function cleanMailRuleConditions(conditions: MailRuleConditions): MailRuleConditions {
   const out: MailRuleConditions = {};
   if (conditions.from?.trim()) out.from = conditions.from.trim();
+  if (conditions.fromExact?.trim()) out.fromExact = conditions.fromExact.trim().toLowerCase();
+  if (conditions.category) out.category = conditions.category;
   if (conditions.to?.trim()) out.to = conditions.to.trim();
   if (conditions.subjectContains?.trim()) out.subjectContains = conditions.subjectContains.trim();
   if (conditions.bodyContains?.trim()) out.bodyContains = conditions.bodyContains.trim();
@@ -82,6 +84,8 @@ export function cleanMailRuleActions(actions: MailRuleAction[]): MailRuleAction[
       case "markRead":
       case "star":
       case "archive":
+      case "spam":
+      case "blockSender":
       case "unsubscribe":
         return { type: action.type };
     }
@@ -90,6 +94,8 @@ export function cleanMailRuleActions(actions: MailRuleAction[]): MailRuleAction[
 
 export function hasMailRuleCondition(conditions: MailRuleConditions): boolean {
   return Boolean(
+    conditions.fromExact?.trim() ||
+    conditions.category ||
     conditions.from?.trim() ||
     conditions.to?.trim() ||
     conditions.subjectContains?.trim() ||
@@ -131,6 +137,9 @@ export function mailRuleSummaryParts(
   actions: MailRuleAction[],
 ): MailRuleSummaryParts {
   const staticConditions: string[] = [];
+  if (conditions.fromExact) staticConditions.push(`from is "${conditions.fromExact}"`);
+  if (conditions.category)
+    staticConditions.push(`category is ${conditions.category.replaceAll("_", " ")}`);
   if (conditions.from) staticConditions.push(`from contains "${conditions.from}"`);
   if (conditions.to) staticConditions.push(`to contains "${conditions.to}"`);
   if (conditions.subjectContains) {
@@ -159,6 +168,10 @@ export function mailRuleSummaryParts(
           return "star";
         case "archive":
           return "archive";
+        case "spam":
+          return "move to Spam";
+        case "blockSender":
+          return "block exact sender";
         case "unsubscribe":
           return "unsubscribe safely";
         case "handToEmployee":

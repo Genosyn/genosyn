@@ -65,11 +65,18 @@ export function Decisions() {
 
       <H2 id="what-happens-next">What happens next</H2>
       <P>
-        The employee starts working again immediately. Pressing an option kicks off a work session
-        right away, briefed with your choice, your note, and the context it stacked with the
+        Normally the employee starts working again immediately. Pressing an option starts a
+        session briefed with your choice, your note, and the context it stacked with the
         question — so a reply you approved goes out in the next minute rather than waiting for that
         employee&apos;s next scheduled run. The row shows the session running, then the
         employee&apos;s own report of what it did.
+      </P>
+      <P>
+        Decisions raised during draft-only or triage work stay with humans, even if an AI
+        decision policy normally routes the employee&apos;s questions. Answering records your
+        choice and journal entry but starts no new session. The row explains this; an approved
+        standing Routine or a Member can continue with the answer while preserving the work&apos;s
+        delivery restrictions. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
       </P>
       <P>
         Your answer is also written to that employee&apos;s journal, and the last week of its

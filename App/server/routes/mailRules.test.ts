@@ -578,3 +578,24 @@ describe("mail rule HTTP API", () => {
     assert.equal(forbidden.body.error, "Forbidden");
   });
 });
+
+
+test("round-trips proactive categories, work mode and exact sender spam filters", async () => {
+  const created = await call<{ rule: SerializedRule }>("POST", `/mail/accounts/${account.id}/rules`, {
+    name: "Quote intake", conditions: { category: "quote_request" },
+    actions: [{ type: "handToEmployee", employeeId: employee.id, mode: "work", instruction: "Prepare the quote and a draft reply." }],
+  });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  assert.deepEqual(created.body.rule.conditions, { category: "quote_request" });
+  assert.equal(created.body.rule.actions[0].mode, "work");
+  const blocked = await call<{ rule: SerializedRule }>("POST", `/mail/accounts/${account.id}/rules`, {
+    name: "Blocked sender", conditions: { fromExact: "spam@example.com" }, actions: [{ type: "spam" }],
+  });
+  assert.equal(blocked.status, 200, JSON.stringify(blocked.body));
+  assert.deepEqual(blocked.body.rule.conditions, { fromExact: "spam@example.com" });
+  assert.deepEqual(blocked.body.rule.actions, [{ type: "spam" }]);
+  const invalid = await call("POST", `/mail/accounts/${account.id}/rules`, {
+    name: "Invalid category", conditions: { category: "invented" }, actions: [{ type: "archive" }],
+  });
+  assert.equal(invalid.status, 400);
+});

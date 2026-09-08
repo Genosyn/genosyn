@@ -18,6 +18,7 @@ import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Product } from "../db/entities/Product.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
@@ -110,8 +111,9 @@ after(async () => {
 
 async function aiCall(
   body: Record<string, unknown>,
+  tool = "create_estimate",
 ): Promise<{ status: number; body: Record<string, unknown> & { error?: string } }> {
-  const response = await fetch(`${baseUrl}/internal/mcp/tools/create_estimate`, {
+  const response = await fetch(`${baseUrl}/internal/mcp/tools/${tool}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -375,4 +377,204 @@ test("create_estimate is grant-dead when the employee has no Finance access", as
   });
   assert.equal(response.status, 403);
   assert.equal(await AppDataSource.getRepository(Estimate).count(), 0);
+});
+
+async function quotation(values: Partial<Estimate> = {}): Promise<Estimate> {
+  return insert(Estimate, {
+    companyId: company.id,
+    customerId: customer.id,
+    slug: `edraft-${randomUUID()}`,
+    issueDate: new Date("2026-09-08T00:00:00Z"),
+    validUntil: new Date("2099-01-01T00:00:00Z"),
+    currency: "EUR",
+    totalCents: 12000,
+    notes: "Source mail thread: quote-request",
+    ...values,
+  });
+}
+
+test("list_estimates pages compact prior quotations without exposing another company", async () => {
+  const older = await quotation({ createdAt: new Date("2026-09-01"), notes: "a".repeat(1200) });
+  const newer = await quotation({ createdAt: new Date("2026-09-02") });
+  await quotation({ companyId: randomUUID(), createdAt: new Date("2026-09-03") });
+  const first = await aiCall({ limit: 1 }, "list_estimates");
+  assert.equal(first.status, 200, first.body.error);
+  assert.equal(first.body.total, 2);
+  assert.equal(first.body.nextOffset, 1);
+  assert.deepEqual(
+    (first.body.estimates as Array<{ slug: string }>).map((row) => row.slug),
+    [newer.slug],
+  );
+  const second = await aiCall({ limit: 1, offset: 1 }, "list_estimates");
+  const summary = (second.body.estimates as Array<Record<string, unknown>>)[0];
+  assert.equal(summary.slug, older.slug);
+  assert.equal(summary.notesTruncated, true);
+  assert.equal(String(summary.notes).length, 1000);
+  assert.equal(summary.lines, undefined);
+  assert.equal(second.body.nextOffset, null);
+  assert.equal((await aiCall({ offset: 100 }, "list_estimates")).body.nextOffset, null);
+});
+
+test("list_estimates filters Customer and stored status and refuses foreign Customer slugs", async () => {
+  const draft = await quotation();
+  await quotation({ status: "sent" });
+  const another = await insert(Customer, { companyId: company.id, name: "Other", slug: "other" });
+  await quotation({ customerId: another.id });
+  const listed = await aiCall({ customerSlug: customer.slug, status: "draft" }, "list_estimates");
+  assert.equal(listed.status, 200, listed.body.error);
+  assert.deepEqual(
+    (listed.body.estimates as Array<{ slug: string }>).map((row) => row.slug),
+    [draft.slug],
+  );
+  await insert(Customer, { companyId: randomUUID(), name: "Foreign", slug: "foreign-customer" });
+  assert.equal((await aiCall({ customerSlug: "foreign-customer" }, "list_estimates")).status, 404);
+});
+
+test("get_estimate returns full scoped line snapshots and notes without issuing anything", async () => {
+  const quote = await quotation({ notes: "Complete " + "notes ".repeat(300) });
+  await insert(EstimateLineItem, {
+    estimateId: quote.id,
+    description: "Second",
+    quantity: 1,
+    unitPriceCents: 5000,
+    sortOrder: 1,
+  });
+  await insert(EstimateLineItem, {
+    estimateId: quote.id,
+    description: "First",
+    quantity: 2,
+    unitPriceCents: 3500,
+    taxName: "VAT",
+    taxPercent: 20,
+    sortOrder: 0,
+  });
+  const response = await aiCall({ estimateSlug: quote.slug }, "get_estimate");
+  assert.equal(response.status, 200, response.body.error);
+  const result = response.body.estimate as Record<string, unknown>;
+  assert.equal(result.notes, quote.notes);
+  assert.equal(result.status, "draft");
+  assert.equal(result.number, null);
+  assert.deepEqual(
+    (result.lines as Array<{ description: string }>).map((line) => line.description),
+    ["First", "Second"],
+  );
+  assert.equal(
+    (await AppDataSource.getRepository(Estimate).findOneByOrFail({ id: quote.id })).sentAt,
+    null,
+  );
+  assert.equal(await AppDataSource.getRepository(LedgerEntry).count(), 0);
+  const foreign = await quotation({ companyId: randomUUID() });
+  assert.equal((await aiCall({ estimateSlug: foreign.slug }, "get_estimate")).status, 404);
+  assert.equal((await aiCall({ estimateSlug: "missing" }, "get_estimate")).status, 404);
+});
+
+test("quote read tools require current company Finance access and honor Member Read", async () => {
+  const quote = await quotation();
+  const inputs: Array<[string, Record<string, unknown>]> = [
+    ["list_estimates", {}],
+    ["get_estimate", { estimateSlug: quote.slug }],
+    ["list_finance_products", {}],
+  ];
+  await AppDataSource.getRepository(EmployeeFinanceGrant).delete(grant.id);
+  for (const [tool, body] of inputs) assert.equal((await aiCall(body, tool)).status, 403);
+  await insert(EmployeeFinanceGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "read",
+  });
+  await AppDataSource.getRepository(Membership).update(member.id, { financeAccess: "read" });
+  useMemberToken();
+  for (const [tool, body] of inputs) assert.equal((await aiCall(body, tool)).status, 200);
+  await AppDataSource.getRepository(Membership).update(member.id, { financeAccess: "none" });
+  for (const [tool, body] of inputs) assert.equal((await aiCall(body, tool)).status, 403);
+});
+
+test("list_finance_products provides verified active prices and scoped tax defaults", async () => {
+  const tax = await insert(TaxRate, {
+    companyId: company.id,
+    name: "VAT 20%",
+    ratePercent: 20,
+    inclusive: false,
+  });
+  const foreignTax = await insert(TaxRate, {
+    companyId: randomUUID(),
+    name: "Foreign private tax",
+    ratePercent: 7,
+  });
+  await insert(Product, {
+    companyId: company.id,
+    name: "Advisory",
+    slug: "advisory",
+    currency: "EUR",
+    unitPriceCents: 10000,
+    defaultTaxRateId: tax.id,
+  });
+  await insert(Product, {
+    companyId: company.id,
+    name: "Broken tax link",
+    slug: "broken",
+    currency: "EUR",
+    unitPriceCents: 8000,
+    defaultTaxRateId: foreignTax.id,
+  });
+  await insert(Product, {
+    companyId: company.id,
+    name: "Archived",
+    slug: "archived",
+    archivedAt: new Date(),
+  });
+  await insert(Product, {
+    companyId: randomUUID(),
+    name: "Foreign private product",
+    slug: "private",
+    currency: "EUR",
+    unitPriceCents: 1,
+  });
+  const response = await aiCall({ currency: "EUR", limit: 1 }, "list_finance_products");
+  assert.equal(response.status, 200, response.body.error);
+  assert.equal(response.body.total, 2);
+  assert.equal(response.body.nextOffset, 1);
+  const product = (response.body.products as Array<Record<string, unknown>>)[0];
+  assert.equal(product.slug, "advisory");
+  assert.equal(product.unitPriceCents, 10000);
+  assert.equal(product.defaultTaxRateId, tax.id);
+  assert.equal((product.defaultTaxRate as { ratePercent: number }).ratePercent, 20);
+  assert.equal(product.needsTaxReview, false);
+  const next = await aiCall({ currency: "EUR", offset: 1 }, "list_finance_products");
+  const broken = (next.body.products as Array<Record<string, unknown>>)[0];
+  assert.equal(broken.defaultTaxRate, null);
+  assert.equal(broken.defaultTaxRateId, null);
+  assert.equal(broken.needsTaxReview, true);
+  assert.equal(JSON.stringify(next.body).includes("Foreign private"), false);
+  const archived = await aiCall({ includeArchived: true }, "list_finance_products");
+  assert.equal(archived.body.total, 3);
+  assert.equal((await aiCall({ currency: "GBP" }, "list_finance_products")).body.total, 0);
+  await AppDataSource.getRepository(TaxRate).update(tax.id, { archivedAt: new Date() });
+  const stale = await aiCall({ currency: "EUR", limit: 1 }, "list_finance_products");
+  assert.equal((stale.body.products as Array<{ needsTaxReview: boolean }>)[0].needsTaxReview, true);
+});
+
+test("quote read pagination and filters are strictly validated", async () => {
+  for (const tool of ["list_estimates", "list_finance_products"]) {
+    for (const body of [
+      { limit: 0 },
+      { limit: 101 },
+      { limit: 2.5 },
+      { offset: -1 },
+      { offset: "1" },
+      { companyId: randomUUID() },
+    ]) {
+      assert.equal((await aiCall(body, tool)).status, 400, `${tool} ${JSON.stringify(body)}`);
+    }
+  }
+  assert.equal((await aiCall({ status: "invented" }, "list_estimates")).status, 400);
+  assert.equal((await aiCall({ currency: "EURO" }, "list_finance_products")).status, 400);
+  assert.equal((await aiCall({ estimateSlug: "", extra: true }, "get_estimate")).status, 400);
+});
+
+test("new quotation reads are Finance-grant-dead when access is missing", async () => {
+  await AppDataSource.getRepository(EmployeeFinanceGrant).delete(grant.id);
+  const dead = await deadToolNames(employee.id);
+  for (const name of ["list_estimates", "get_estimate", "list_finance_products"])
+    assert.ok(dead.has(name), name);
 });

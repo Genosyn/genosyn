@@ -12,6 +12,7 @@ import { nextRunFor } from "./cron.js";
 import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
+import { routineDeliveryPolicy } from "./proactive/policy.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
@@ -345,10 +346,12 @@ export async function startRoutineRun(
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
+      const deliveryPolicy = routineDeliveryPolicy(routine);
       mcpToken = issueMcpToken(emp.id, co.id, {
         runId: saved.id,
         routineId: routine.id,
         authority: "employee",
+        mailDeliveryMode: deliveryPolicy.mailDeliveryMode,
       });
       // No model connected → skip cleanly.
       if (!model) {
@@ -364,8 +367,8 @@ export async function startRoutineRun(
         return saved;
       }
 
-      const parallelDelegationAvailable = supportsParallelDelegation(model.authMode);
-      const unavailableCodingTools = !codingRuntimeAvailability().available
+      const parallelDelegationAvailable = deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model.authMode);
+      const unavailableCodingTools = !deliveryPolicy.allowPrivilegedToolSources || !codingRuntimeAvailability().available
         ? [...CODING_TOOL_NAMES]
         : config.agent.codingTools.executionMode === "bubblewrap"
           ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
@@ -376,7 +379,7 @@ export async function startRoutineRun(
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
       ];
-      const repositoryMaterializationAllowed = shouldMaterializeRepositoriesForTurn(model.authMode);
+      const repositoryMaterializationAllowed = deliveryPolicy.allowPrivilegedToolSources && shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
       const goalsContext = await composeGoalsContext(co.id, emp.id);
       const policiesContext = await composePoliciesContext(co.id);
@@ -435,7 +438,7 @@ export async function startRoutineRun(
       const checksBlock = composeChecksBlock(
         (await listChecks(routine.id, co.id).catch(() => [])).filter((c) => c.enabled),
       );
-      const userMessage = composeRoutineMessage(
+      const routineMessage = composeRoutineMessage(
         routine,
         missedSlots,
         goalBlock,
@@ -444,6 +447,9 @@ export async function startRoutineRun(
         priorAttemptBlock,
         checksBlock,
       );
+      const userMessage = deliveryPolicy.mailDeliveryMode
+        ? `${routineMessage}\n\nThis Routine prepares drafts for Member review. Sending and starting separate automation are unavailable. Use the built-in granted tools to prepare work; record blockers in a Workstream or Decision. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks to send.`
+        : routineMessage;
 
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
@@ -452,7 +458,7 @@ export async function startRoutineRun(
       // credentials stay inside short-lived server-owned Git operations and
       // are never exported to model tools.
       const toolEnv: Record<string, string> = {};
-      if (!config.security.multiTenant) {
+      if (!config.security.multiTenant && deliveryPolicy.allowPrivilegedToolSources) {
         try {
           Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
         } catch (err) {
@@ -536,6 +542,7 @@ export async function startRoutineRun(
             skillToolset: residentNamesForSkills(skills, unavailableSkillTools),
             routineId: routine.id,
             runId: saved.id,
+            allowPrivilegedToolSources: deliveryPolicy.allowPrivilegedToolSources,
             signal: controller.signal,
             callbacks: {
               onModelRetry: (retry) =>
@@ -1037,6 +1044,7 @@ async function runCheckPhase(args: {
         skillToolset: residentNamesForSkills(args.skills, args.unavailableSkillTools),
         routineId: args.routine.id,
         runId: args.run.id,
+        allowPrivilegedToolSources: routineDeliveryPolicy(args.routine).allowPrivilegedToolSources,
         signal: controller.signal,
         callbacks: {
           onText: (delta) => log.write(delta),

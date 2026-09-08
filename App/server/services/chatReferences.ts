@@ -194,7 +194,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/finance/estimates",
     description: "Draft and review customer quotations",
     keywords: ["estimate", "quote", "quotation", "proposal", "pricing"],
-    toolHints: ["create_estimate"],
+    toolHints: ["list_estimates", "get_estimate", "list_finance_products", "create_estimate"],
   },
   {
     key: "invoices",

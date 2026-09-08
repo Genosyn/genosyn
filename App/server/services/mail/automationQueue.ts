@@ -7,6 +7,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { dispatchEmailReceived } from "../pipelines/events.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { analyzeInboundMessage } from "./analysis.js";
+import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
@@ -42,6 +43,10 @@ const runDefaultEffects: MailAutomationEffectRunner = async (
   assertRunnable,
   beforeEffect,
 ) => {
+  if (await hasBlockedSender(account, message)) {
+    await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
+    return;
+  }
   // AI triage goes first, and is deliberately NOT fenced by `beforeEffect`.
   //
   // `rules.ts` takes the opposite line for its own model call, marking effects
@@ -65,7 +70,9 @@ const runDefaultEffects: MailAutomationEffectRunner = async (
   await assertRunnable();
   await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
   await assertRunnable();
-  await dispatchEmailReceived(message.id, { failOnRejected: true, beforeEffect });
+  if (!(await hasBlockedSender(account, message))) {
+    await dispatchEmailReceived(message.id, { failOnRejected: true, beforeEffect });
+  }
 };
 
 function errorMessage(error: unknown): string {

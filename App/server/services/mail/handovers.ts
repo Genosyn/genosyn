@@ -9,6 +9,9 @@ import {
 } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailHandover, type MailHandoverMode } from "../../db/entities/MailHandover.js";
+import { MailRule } from "../../db/entities/MailRule.js";
+import { workBlocked } from "../standdowns.js";
+import { composeHandoverPrompt, handoverDeliveryMode } from "./handoverPrompt.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { Membership } from "../../db/entities/Membership.js";
@@ -16,7 +19,6 @@ import { chatWithEmployee, type ChatOptions } from "../chat.js";
 import { recordAudit } from "../audit.js";
 import { createNotifications } from "../notifications.js";
 import { broadcastToCompany } from "../realtime.js";
-import { columnHasLabel } from "./store.js";
 import { config } from "../../../config.js";
 
 /**
@@ -32,9 +34,6 @@ import { config } from "../../../config.js";
  */
 
 const CONCURRENCY = 2;
-/** Keep prompts bounded: per-message and whole-transcript caps. */
-const MESSAGE_CHARS_CAP = 4_000;
-const TRANSCRIPT_CHARS_CAP = 24_000;
 const RESULT_SUMMARY_CAP = 8_000;
 
 const queue: string[] = [];
@@ -221,7 +220,10 @@ function pump(): void {
   }
 }
 
-async function runHandover(id: string): Promise<void> {
+export async function runHandover(
+  id: string,
+  runChat: typeof chatWithEmployee = chatWithEmployee,
+): Promise<void> {
   const repo = AppDataSource.getRepository(MailHandover);
   const handover = await AppDataSource.transaction(async (manager) => {
     const txRepo = manager.getRepository(MailHandover);
@@ -248,7 +250,15 @@ async function runHandover(id: string): Promise<void> {
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: handover.employeeId,
   });
-  if (!account || !thread || !employee) {
+  if (
+    !account ||
+    !thread ||
+    !employee ||
+    account.companyId !== handover.companyId ||
+    thread.companyId !== handover.companyId ||
+    thread.accountId !== account.id ||
+    employee.companyId !== handover.companyId
+  ) {
     handover.status = "failed";
     handover.errorMessage =
       "The mailbox, thread, or employee behind this handover no longer exists.";
@@ -274,16 +284,63 @@ async function runHandover(id: string): Promise<void> {
   // it orphans as "running" until the next restart with the creator staring
   // at a spinner.
   try {
-    const prompt = await composeHandoverPrompt(handover, account, thread);
+    // A queued handover never outlives a pause or a revoked standing instruction.
+    if (
+      account.status !== "active" ||
+      workBlocked(account.companyId, { employeeId: employee.id }).blocked
+    ) {
+      await repo.update(
+        { id: handover.id, status: "running" },
+        { status: "pending", startedAt: null },
+      );
+      return;
+    }
+    if (handover.sourceKind === "rule") {
+      const rule = handover.ruleId
+        ? await AppDataSource.getRepository(MailRule).findOneBy({
+            id: handover.ruleId,
+            companyId: account.companyId,
+            accountId: account.id,
+            enabled: true,
+          })
+        : null;
+      let stillConfigured = false;
+      try {
+        const actions: unknown = rule ? JSON.parse(rule.actionsJson) : [];
+        stillConfigured =
+          Array.isArray(actions) &&
+          actions.some(
+            (action: Record<string, unknown>) =>
+              action.type === "handToEmployee" &&
+              action.employeeId === employee.id &&
+              action.mode === handover.mode &&
+              action.instruction === handover.instruction,
+          );
+      } catch {
+        /* A malformed rule has no live authority. */
+      }
+      if (!stillConfigured)
+        throw new Error(
+          "The rule behind this handover was disabled, removed, or changed. New mail will use its current configuration.",
+        );
+    }
+    const grantError = await handoverGrantError(employee.id, account.id, handover.mode);
+    if (grantError) throw new Error(grantError);
+    const messages = await AppDataSource.getRepository(MailMessage).find({
+      where: { threadId: thread.id, accountId: account.id, companyId: account.companyId },
+      order: { sentAt: "ASC" },
+    });
+    const prompt = composeHandoverPrompt(handover, account, thread, messages);
     const authority = resolveMailHandoverAuthority(handover);
     if (!authority) {
       throw new Error(
         "This manual handover predates secure Member delegation. Retry it from a logged-in browser to authorize a new attempt.",
       );
     }
-    const result = await chatWithEmployee(account.companyId, employee.id, prompt, [], {
+    const result = await runChat(account.companyId, employee.id, prompt, [], {
       ...authority,
       mailThreadId: handover.threadId,
+      mailDeliveryMode: handoverDeliveryMode(handover.mode),
     });
     if (result.status === "ok") {
       handover.status = "completed";
@@ -336,76 +393,6 @@ export function resolveMailHandoverAuthority(
   return null;
 }
 
-async function composeHandoverPrompt(
-  handover: MailHandover,
-  account: MailAccount,
-  thread: MailThread,
-): Promise<string> {
-  const messages = await AppDataSource.getRepository(MailMessage).find({
-    where: { threadId: thread.id },
-    order: { sentAt: "ASC" },
-  });
-  const visible = messages.filter((m) => !columnHasLabel(m.labelIds, "DRAFT"));
-
-  const parts: string[] = [];
-  parts.push(
-    handover.sourceKind === "rule"
-      ? "An inbound email matched an automation rule, and the rule handed the thread to you."
-      : "A human teammate handed you an email thread to handle.",
-  );
-  parts.push(
-    `Mailbox: ${account.address}. Thread id: ${thread.id} (pass this as \`threadId\` to the \`mail\` tool).`,
-  );
-  parts.push(
-    `Instruction: ${handover.instruction || "(none given — use the mode guidance below)"}`,
-  );
-  parts.push(modeGuidance(handover.mode));
-  parts.push(
-    'The full thread is below, oldest first. Use the `mail` tool (`op: "get"`, threadId as above) if you need to re-read it, check labels, or fetch anything the transcript truncated.',
-  );
-  parts.push("");
-  parts.push(`=== Email thread: "${thread.subject || "(no subject)"}" ===`);
-
-  let budget = TRANSCRIPT_CHARS_CAP;
-  const rendered: string[] = [];
-  // Render newest→oldest against the budget so long threads keep the recent
-  // context, then restore chronological order for the prompt.
-  for (let i = visible.length - 1; i >= 0; i -= 1) {
-    const m = visible[i];
-    const body = (m.bodyText || m.snippet).slice(0, MESSAGE_CHARS_CAP);
-    const block = [
-      `[${i + 1}] From: ${m.fromName ? `${m.fromName} <${m.fromEmail}>` : m.fromEmail}`,
-      `    To: ${m.toEmails}${m.ccEmails ? `  Cc: ${m.ccEmails}` : ""}`,
-      `    Date: ${m.sentAt ? m.sentAt.toISOString() : "unknown"}`,
-      "",
-      body,
-    ].join("\n");
-    if (block.length > budget) {
-      rendered.push(`… ${i + 1} earlier message(s) omitted — fetch with the mail tool if needed.`);
-      break;
-    }
-    budget -= block.length;
-    rendered.push(block);
-  }
-  parts.push(rendered.reverse().join("\n\n---\n\n"));
-  parts.push("");
-  parts.push(
-    "When you are done, reply with a short summary of exactly what you did (which tool calls, what you wrote or labelled). The summary is stored on the handover record for the humans to read.",
-  );
-  return parts.join("\n");
-}
-
-function modeGuidance(mode: MailHandoverMode): string {
-  switch (mode) {
-    case "draft":
-      return 'Mode: DRAFT. Write the reply as a Gmail draft on this thread using the `mail` tool with `op: "draft"` and the `threadId` above. Do NOT send anything — a human will review and send the draft.';
-    case "reply":
-      return 'Mode: REPLY. Compose and SEND the reply yourself using the `mail` tool with `op: "send"` and the `threadId` above. You are trusted to send on this mailbox — keep the tone consistent with the thread.';
-    case "triage":
-      return 'Mode: TRIAGE. Do not write or send anything. Read the thread and file it: apply/remove labels, archive, star, or mark read using the `mail` tool with `op: "update"`. If asked to categorize, apply exactly the label the instruction names (labels are created on first use).';
-  }
-}
-
 /** Bell + push: the creator hears about manual handovers; owners/admins
  * hear about rule-driven failures (a silent broken automation is worse
  * than a noisy one). Rule successes stay quiet — the draft in the thread
@@ -416,9 +403,12 @@ async function notifyHandoverFinished(handover: MailHandover): Promise<void> {
   });
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: handover.employeeId,
+    companyId: handover.companyId,
   });
   const thread = await AppDataSource.getRepository(MailThread).findOneBy({
     id: handover.threadId,
+    companyId: handover.companyId,
+    accountId: handover.accountId,
   });
   if (!company) return;
   const subject = thread?.subject || "(no subject)";

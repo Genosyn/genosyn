@@ -463,6 +463,35 @@ export function Repositories() {
         Without one, the employee tells you it could not install them rather than reporting checks
         it did not run.
       </Callout>
+      <H2 id="proactive-work">Work that starts from email or a Routine</H2>
+      <P>
+        An AI Employee handling a customer issue can start its own Work session when it already
+        has a <Strong>write Grant</Strong> on the Repository. Give it the expected scope and
+        verification steps in its Soul or Routine: investigate the reported issue, make a focused
+        fix, add a regression test, and prepare the result for review. Reading access alone does
+        not authorize unattended changes.
+      </P>
+      <P>
+        The work runs separately. The employee can save its session id in a Workstream, arrange
+        a Wakeup, and check the final report before updating the customer. Each session keeps
+        its own branch and working copy; its tools cannot send mail or reach other Connections.
+        You can inspect its Activity and Changes from the Repository at any time.
+      </P>
+      <P>
+        For automatic pull requests, explicitly authorize delivery in the Soul or Routine, choose
+        the Repository through its GitHub or Forgejo Connection, and grant that same Connection
+        to the employee. It needs both Grants: Repository write access prepares the fix; the
+        separate Connection Grant permits the completed branch to be pushed and proposed.
+        Personal tokens or SSH keys stored directly on a Repository remain for Member delivery.
+        Genosyn rechecks the Grants before delivery and refuses unfinished, stopped, or failed
+        work. Existing pull requests receive the new branch commits; merging and publishing the
+        default branch remain Member actions.
+      </P>
+      <P>
+        Continue with <DocLink to="/docs/routines">Routines</DocLink> and{" "}
+        <DocLink to="/docs/soul">Soul</DocLink> to define when the employee acts and what it may send.
+      </P>
+
     </>
   );
 }

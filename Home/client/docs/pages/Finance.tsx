@@ -64,8 +64,7 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Sent</Strong> — clicking <Code>Issue</Code> (or <Code>Issue &amp; send</Code> to
-          email the customer) mints a gapless number prefixed with the customer&apos;s slug — e.g.
-          {" "}
+          email the customer) mints a gapless number prefixed with the customer&apos;s slug — e.g.{" "}
           <Code>ACME-CORP-EST-0001</Code> — and locks the line items, so two customers&apos; first
           estimates never both read <Code>EST-0001</Code>. The URL slug becomes the lowercased
           number.
@@ -110,8 +109,7 @@ export function Finance() {
       <H3 id="estimates-printing">Sending and printing</H3>
       <P>
         Every issued estimate has a Print / PDF view at{" "}
-        <Code>/api/companies/:cid/estimates/:slug/html</Code>. Use it from the detail page&apos;s
-        {" "}
+        <Code>/api/companies/:cid/estimates/:slug/html</Code>. Use it from the detail page&apos;s{" "}
         <Code>Print / PDF</Code> button —<em>File → Save as PDF</em> in your browser produces a
         clean A4 PDF with no app chrome. The same HTML is what the customer sees when you click{" "}
         <Code>Issue &amp; send</Code> or <Code>Resend email</Code>, and that email now carries a PDF
@@ -179,8 +177,7 @@ export function Finance() {
         given back with a refund or a credit note, never by rewriting history. And voiding an
         invoice issued inside a <Strong>closed accounting period</Strong> is refused too, because
         the reversal carries today&apos;s date and would pull a closed period&apos;s revenue into
-        the current one; reopen the period first. Both rules apply identically to <Code>Void</Code>
-        {" "}
+        the current one; reopen the period first. Both rules apply identically to <Code>Void</Code>{" "}
         on a bill.
       </P>
 
@@ -244,8 +241,7 @@ export function Finance() {
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a
-        template. Pick a customer, choose how often it should bill — every <Strong>N</Strong>
-        {" "}
+        template. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
         <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{" "}
         <Strong>quarters</Strong> or <Strong>years</Strong>, on the day and at the time you set —
         and compose the line items just like a normal invoice. The count lets you say{" "}
@@ -294,8 +290,7 @@ export function Finance() {
         <DocLink to="/docs/integrations">Finance → Integrations</DocLink>.
       </P>
       <P>
-        Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded
-        {" "}
+        Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded{" "}
         <Strong>invoice payments</Strong> (the money-in side), and any posted{" "}
         <Strong>journal entry</Strong> that already touches this feed&apos;s bank account — a bill
         payment, a card settlement, a refund, or a manual entry. That second kind covers the whole
@@ -325,8 +320,7 @@ export function Finance() {
         The AP mirror of credit notes. When a supplier credits you — a return, a billing correction
         — open the bill and click <Code>Vendor credit</Code>. Issuing posts{" "}
         <Code>DR Vendor Credits / CR the expense account(s) / CR Tax Payable</Code>, reversing the
-        bill&apos;s expense and input tax and parking the value in <Code>1300 Vendor Credits</Code>
-        {" "}
+        bill&apos;s expense and input tax and parking the value in <Code>1300 Vendor Credits</Code>{" "}
         (an asset — the supplier owes you). Apply it to a bill to reduce what you owe (
         <Code>DR Accounts Payable / CR Vendor Credits</Code>, capped so AP can&apos;t go negative),
         or record a <Code>Refund</Code> when the supplier pays you back in cash (
@@ -356,8 +350,7 @@ export function Finance() {
         defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable, 2300
         Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), but you can rename,
         reparent, or add accounts freely as long as you don&apos;t touch the system codes the
-        auto-posting depends on. From there, the <Code>Trial balance</Code> and <Code>Reports</Code>
-        {" "}
+        auto-posting depends on. From there, the <Code>Trial balance</Code> and <Code>Reports</Code>{" "}
         pages produce the standard accountant outputs (P&amp;L, balance sheet, cash flow) with
         optional period comparisons. Each report opens with a monthly graph built from the same
         ledger calculation as the table beneath it: revenue, expenses, and net income for P&amp;L;
@@ -446,8 +439,7 @@ export function Finance() {
 
       <H2 id="ai-access">Give AI Employees finance access</H2>
       <P>
-        By default an AI Employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>
-        {" "}
+        By default an AI Employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>{" "}
         (owners and admins only) to grant an employee access at one of three escalating levels:
       </P>
       <UL>
@@ -460,9 +452,10 @@ export function Finance() {
           <Strong>Invoicing</Strong> — everything in Read, plus the full accounts-receivable loop:
           create estimate drafts; create and manage recurring invoice schedules; create, issue,
           email, and void invoices; create and update customers; and record payments to mark an
-          invoice paid. Estimate drafts do not affect the ledger and stay unsent for a Member to
-          review. Issuing an invoice mints its number and posts it to the ledger; sending emails it
-          to the customer on file.
+          invoice paid. Estimate drafts do not affect the ledger and remain unissued for a Member to
+          review; an authorized employee can attach a clearly marked draft quotation to email.
+          Issuing an invoice mints its number and posts it to the ledger; sending emails it to the
+          customer on file.
         </LI>
         <LI>
           <Strong>Full accounting</Strong> — everything in Invoicing, plus staging ledger
@@ -481,21 +474,32 @@ export function Finance() {
         With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer
         slug and priced line items. Genosyn creates the same editable draft shown under{" "}
         <Code>Finance → Estimates</Code>, using the customer&apos;s currency and a thirty-day
-        validity window by default. The tool deliberately stops there: it assigns no number, changes
-        no ledger balance, and sends no email. A Member reviews the draft and chooses when to issue
-        or send it.
+        validity window by default. Creating the estimate assigns no number, changes no ledger
+        balance, and sends no email. The employee can then prepare a reply with the quotation PDF
+        attached, using <Code>estimateSlug</Code>. A Member reviews and issues the estimate from
+        Finance. Until then, its PDF prominently says <Code>DRAFT</Code>, even if an employee is
+        authorized to send that preliminary quotation.
+      </P>
+
+      <P>
+        Before preparing a quotation, the employee can find prior estimates for the Customer with
+        <Code> list_estimates</Code>, inspect their line items and notes with{" "}
+        <Code>get_estimate</Code>, and read approved prices from <Code>list_finance_products</Code>.
+        Lists return a bounded page and the next offset. The product catalogue includes prices in
+        their original currency and available default tax rates; archived products are hidden by
+        default. Missing pricing or unavailable tax defaults need clarification, never an invented
+        amount.
       </P>
 
       <H3 id="ai-finance-tools">Finance tools</H3>
       <P>
         Granted employees use granular built-in Finance tools, reached through{" "}
         <Code>find_tools</Code> and <Code>call_tool</Code>. The read tools (
+        <Code>list_estimates</Code>, <Code>get_estimate</Code>, <Code>list_finance_products</Code>,
         <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
         <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>,{" "}
-        <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need
-        {" "}
-        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>create_recurring_invoice</Code>,
-        {" "}
+        <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need{" "}
+        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>create_recurring_invoice</Code>,{" "}
         <Code>update_recurring_invoice</Code>, and the invoice lifecycle (
         <Code>create_invoice</Code>, <Code>send_invoice</Code>, <Code>record_payment</Code>,{" "}
         <Code>void_invoice</Code>, <Code>create_customer</Code>, and <Code>update_customer</Code>)
@@ -512,18 +516,23 @@ export function Finance() {
         address anyone.
       </P>
 
-      <H3 id="ai-invoice-email">Emailing an invoice PDF</H3>
+      <H3 id="ai-invoice-email">Emailing an invoice or quotation PDF</H3>
       <P>
         An employee that also has an <DocLink to="/docs/email">Email</DocLink> grant can attach an
-        invoice&apos;s PDF straight to a message — no need to dig the file out of a past email. The
-        {" "}
+        invoice&apos;s PDF straight to a message — no need to dig the file out of a past email. The{" "}
         <Code>create_mail_draft</Code> and <Code>send_mail</Code> tools (and the Gmail
         integration&apos;s <Code>gmail_create_draft</Code> / <Code>gmail_send_message</Code>) take
-        an <Code>attachments</Code> list; name an invoice by <Code>invoiceSlug</Code> and Genosyn
-        renders the PDF on the fly and attaches it. So a routine can reply on the original billing
-        thread — preserving the recipient and CCs — with the invoice attached. Rendering the PDF
-        needs at least <Strong>Read</Strong> finance access; sending needs the matching mailbox
-        grant.
+        an <Code>attachments</Code> list; name an invoice by <Code>invoiceSlug</Code> or a quotation
+        by <Code>estimateSlug</Code> and Genosyn renders the PDF on the fly and attaches it. So a
+        routine can reply on the original billing thread — preserving the recipient and CCs — with
+        the invoice attached. Rendering the PDF needs at least <Strong>Read</Strong> finance access;
+        attaching a draft estimate needs
+        <Strong> Invoicing</Strong>. Sending also needs a mailbox <Strong>Send</Strong> Grant and
+        authorization in the employee&apos;s instructions and delivery settings. With a
+        <Strong> Draft</Strong> Grant, the employee prepares the email for Member review. Attaching
+        an estimate never issues it, assigns a number, marks it sent in Finance, or accepts it. A
+        draft email contains a PDF snapshot: if you change the estimate, ask the employee to refresh
+        the attachment before sending.
       </P>
 
       <H3 id="ai-transaction-review">AI transaction review</H3>

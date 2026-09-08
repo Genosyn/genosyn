@@ -87,3 +87,31 @@ test("the explicit unrestricted gate accepts opaque capabilities", async () => {
   const gate = unrestrictedCapabilityGate();
   await gate("anything");
 });
+
+test("a mail handover ceiling is enforced on Gmail even with a Send Grant or an unmanaged Connection", async () => {
+  for (const mailDeliveryMode of ["draft", "triage"] as const) {
+    const gate = makeConnectionCapabilityGate({
+      connection,
+      employeeId: "employee",
+      mailDeliveryMode,
+    });
+    await assert.rejects(() => gate("mail.send"), /preparation only/);
+  }
+  const account = await insert(MailAccount, {
+    companyId: "company",
+    connectionId: connection.id,
+    address: "team@example.com",
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: "employee",
+    accountId: account.id,
+    accessLevel: "send",
+  });
+  const gate = makeConnectionCapabilityGate({
+    connection,
+    employeeId: "employee",
+    mailDeliveryMode: "draft",
+  });
+  await gate("mail.draft");
+  await assert.rejects(() => gate("mail.send"), /preparation only/);
+});

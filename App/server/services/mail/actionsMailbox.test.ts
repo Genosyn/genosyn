@@ -145,6 +145,11 @@ async function reload(thread: MailThread): Promise<MailThread> {
  */
 const MAPPINGS: Array<{ name: string; action: ThreadAction; expected: FakeMailboxCall }> = [
   {
+    name: "spam moves a conversation through the mailbox Spam operation",
+    action: "spam",
+    expected: { method: "spam", args: [THREAD_REF] },
+  },
+  {
     name: "markRead asks the mailbox to set read, rather than deleting a Gmail UNREAD label",
     action: "markRead",
     expected: { method: "setRead", args: [THREAD_REF, true] },

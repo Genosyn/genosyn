@@ -4,6 +4,7 @@ import { Bot, Pencil, Plus, ShieldCheck, SlidersHorizontal, Sparkles, Trash2 } f
 import { Employee, api } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
+  MAIL_ANALYSIS_CATEGORIES,
   MailGrant,
   MailRule,
   MailRuleAction,
@@ -458,6 +459,28 @@ function RuleEditor({
               placeholder="acme.com"
             />
             <Input
+              label="Exact sender address"
+              value={conditions.fromExact ?? ""}
+              onChange={(e) => setCond({ fromExact: e.target.value })}
+              placeholder="sender@example.com"
+            />
+            <Select
+              label="AI category"
+              value={conditions.category ?? ""}
+              onChange={(e) =>
+                setCond({
+                  category: (e.target.value || undefined) as MailRuleConditions["category"],
+                })
+              }
+            >
+              <option value="">Any category</option>
+              {MAIL_ANALYSIS_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category.replaceAll("_", " ")}
+                </option>
+              ))}
+            </Select>
+            <Input
               label="To contains"
               value={conditions.to ?? ""}
               onChange={(e) => setCond({ to: e.target.value })}
@@ -608,6 +631,8 @@ function RuleEditor({
                     <option value="markRead">Mark read</option>
                     <option value="star">Star</option>
                     <option value="archive">Archive</option>
+                    <option value="spam">Move to Spam</option>
+                    <option value="blockSender">Block exact sender</option>
                     <option value="unsubscribe">Unsubscribe safely</option>
                     <option value="handToEmployee">Hand to AI employee</option>
                   </Select>
@@ -667,6 +692,7 @@ function RuleEditor({
                             })
                           }
                         >
+                          <option value="work">Do the work and draft a reply</option>
                           <option value="draft">Draft a reply (human sends)</option>
                           <option value="reply">Reply directly (sends mail)</option>
                           <option value="triage">Triage (label / archive)</option>

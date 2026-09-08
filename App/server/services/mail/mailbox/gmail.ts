@@ -89,6 +89,10 @@ export class GmailMailbox implements Mailbox {
     await modifyThread(await this.token(), thread, [], [CANONICAL_LABELS.inbox]);
   }
 
+  async spam(thread: ThreadRef): Promise<void> {
+    await modifyThread(await this.token(), thread, [CANONICAL_LABELS.spam], [CANONICAL_LABELS.inbox]);
+  }
+
   async moveToInbox(thread: ThreadRef): Promise<void> {
     await modifyThread(await this.token(), thread, [CANONICAL_LABELS.inbox], []);
   }

@@ -92,6 +92,7 @@ const MEMBER_TOOLS = [
   // turn this is, only at a repository that employee already holds a Grant
   // for, and only onto a branch the same Member-only review step governs.
   "start_repository_work_session",
+  "get_repository_work_session",
   // The repository work-session tools are bounded by the session on the turn's
   // MCP token, not by their arguments: they act on one worktree, they have no
   // parameter for reaching another repository, and outside a session they
@@ -143,6 +144,8 @@ const MEMBER_TOOLS = [
   "create_mail_draft",
   "edit_mail_draft",
   "update_mail_thread",
+  "mail_block_sender",
+  "mail_unsubscribe",
   "send_mail",
   "suggest_mail_actions",
   // Meetings (M44): every Member may read meetings and manually start the
@@ -279,6 +282,8 @@ const MEMBER_TOOLS = [
 ] as const;
 
 const ADMIN_TOOLS = [
+  // External delivery requires the same Member authority as a forge Connection.
+  "open_repository_work_session_pull_request",
   "create_skill",
   "update_skill",
   "delete_skill",
@@ -355,6 +360,9 @@ const FINANCE_READ_TOOLS = [
   "list_finance_transactions",
   "get_finance_transaction",
   "get_finance_report",
+  "list_estimates",
+  "get_estimate",
+  "list_finance_products",
   "list_invoices",
   "get_invoice",
   "list_recurring_invoices",

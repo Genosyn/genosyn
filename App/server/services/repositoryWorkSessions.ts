@@ -99,8 +99,9 @@ import {
  *      a symlink the earlier two never anticipated: without it, writing
  *      "through" a planted link would reach `.git` by another name or land
  *      outside the worktree entirely.
- *   3. **Nothing reaches the remote unreviewed.** Credentials live only in the
- *      push path, which only a Member can trigger.
+ *   3. **The session cannot reach the remote.** Credentials live only in the
+ *      delivery path. A Member can publish, or an employee with the separate
+ *      forge Connection Grant can propose its completed branch as a PR.
  *
  * `repository_run_command` is the one exception, and it is shaped to keep all
  * three true. It runs behind the same bubblewrap boundary as every other
@@ -466,15 +467,17 @@ export async function sessionCommit(
 
 // ──────────────────────────── session flow ──────────────────────────────
 
-export type StartWorkSessionArgs = {
+export type WorkSessionAuthority =
+  | { requesterUserId: string; requesterSessionVersion: number; toolAuthority?: never }
+  | { requesterUserId?: undefined; requesterSessionVersion?: undefined; toolAuthority: "employee" };
+
+export type StartWorkSessionArgs = WorkSessionAuthority & {
   companyId: string;
   repositoryId: string;
   employeeId: string;
   modelId?: string;
   instruction: string;
   attachmentIds?: string[];
-  requesterUserId: string;
-  requesterSessionVersion: number;
   /** Seam for tests; defaults to the real chat runtime. */
   runChat?: typeof chatWithEmployee;
 };
@@ -497,14 +500,12 @@ export type ReviseWorkSessionArgs = {
  * re-reading would only introduce a window where the two halves disagree about
  * what they are working on.
  */
-export type PreparedWorkSession = {
+export type PreparedWorkSession = WorkSessionAuthority & {
   session: RepositoryWorkSession;
   /** The turn this run will execute — the last row in the session so far. */
   turn: RepositoryWorkSessionTurn;
   repo: Repository;
   employee: AIEmployee;
-  requesterUserId: string;
-  requesterSessionVersion: number;
   runChat?: typeof chatWithEmployee;
 };
 
@@ -564,7 +565,15 @@ export async function createRepositoryWorkSession(
     companyId: args.companyId,
   });
   if (!repo) throw new Error("Repository not found.");
-  const employee = await loadWorkingEmployee(args.companyId, args.employeeId, repo);
+  const employee = await loadWorkingEmployee(
+    args.companyId,
+    args.employeeId,
+    repo,
+    args.toolAuthority === "employee" ? "write" : "read",
+  );
+  if (args.toolAuthority === "employee" && args.attachmentIds?.length) {
+    throw new Error("Employee-started work sessions accept instructions, not Member attachments.");
+  }
   const model = await requireWorkSessionModel(employee, args.modelId);
   const instruction = validateWorkSessionInstruction(args);
   const { session, turn } = await withSerializedTransaction(async (manager) => {
@@ -575,21 +584,22 @@ export async function createRepositoryWorkSession(
         repositoryId: repo.id,
         employeeId: employee.id,
         modelId: model.id,
-        requestedByUserId: args.requesterUserId,
+        requestedByUserId: args.requesterUserId ?? null,
         title: instruction ? deriveWorkSessionTitle(instruction) : "Shared attachments",
         instruction,
         status: "running",
         turnCount: 0,
       }),
     );
-    const turn = await appendTurn(session, instruction, args.requesterUserId, manager);
-    await bindWorkSessionAttachments({
-      attachmentIds: args.attachmentIds ?? [],
-      turnId: turn.id,
-      companyId: args.companyId,
-      userId: args.requesterUserId,
-      manager,
-    });
+    const turn = await appendTurn(session, instruction, args.requesterUserId ?? null, manager);
+    if (args.requesterUserId)
+      await bindWorkSessionAttachments({
+        attachmentIds: args.attachmentIds ?? [],
+        turnId: turn.id,
+        companyId: args.companyId,
+        userId: args.requesterUserId,
+        manager,
+      });
     return { session, turn };
   });
   return {
@@ -597,10 +607,45 @@ export async function createRepositoryWorkSession(
     turn,
     repo,
     employee,
-    requesterUserId: args.requesterUserId,
-    requesterSessionVersion: args.requesterSessionVersion,
+    ...workSessionAuthority(args),
     runChat: args.runChat,
   };
+}
+
+const preparingToolSessions = new Set<string>();
+
+/** Claim a tool-started session before awaiting, so parallel tool calls cannot duplicate work. */
+export async function createToolRepositoryWorkSession(
+  args: StartWorkSessionArgs,
+): Promise<PreparedWorkSession> {
+  const key = `${args.companyId}:${args.employeeId}:${args.repositoryId}`;
+  if (preparingToolSessions.has(key)) {
+    throw new Error(
+      "You already have a work session starting on this Repository. Check its progress later.",
+    );
+  }
+  preparingToolSessions.add(key);
+  try {
+    const existing = await liveRepositoryWorkSession(args);
+    if (existing) {
+      throw new Error(
+        `You already have a work session running on this Repository (${existing.id}). Wait for it to finish.`,
+      );
+    }
+    return await createRepositoryWorkSession(args);
+  } finally {
+    preparingToolSessions.delete(key);
+  }
+}
+
+/** Preserve the original principal; an unattended turn must never impersonate a Member. */
+function workSessionAuthority(args: WorkSessionAuthority): WorkSessionAuthority {
+  return args.toolAuthority === "employee"
+    ? { toolAuthority: "employee" }
+    : {
+        requesterUserId: args.requesterUserId,
+        requesterSessionVersion: args.requesterSessionVersion,
+      };
 }
 
 /**
@@ -716,6 +761,7 @@ async function loadWorkingEmployee(
   companyId: string,
   employeeId: string,
   repo: Repository,
+  access: "read" | "write" = "read",
 ): Promise<AIEmployee> {
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: employeeId,
@@ -724,8 +770,10 @@ async function loadWorkingEmployee(
   if (!employee) throw new Error("Employee not found.");
   // Re-checked on every turn rather than only at the first: a grant revoked
   // mid-session must stop the next instruction, not merely the next session.
-  if (!(await hasRepositoryAccess(employee.id, repo.id, "read"))) {
-    throw new Error(`${employee.name} has not been granted access to this repository.`);
+  if (!(await hasRepositoryAccess(employee.id, repo.id, access))) {
+    throw new Error(
+      `${employee.name} has not been granted ${access === "write" ? "write " : ""}access to this repository.`,
+    );
   }
   return employee;
 }
@@ -733,7 +781,7 @@ async function loadWorkingEmployee(
 async function appendTurn(
   session: RepositoryWorkSession,
   instruction: string,
-  requesterUserId: string,
+  requesterUserId: string | null,
   manager: EntityManager = AppDataSource.manager,
 ): Promise<RepositoryWorkSessionTurn> {
   const turnRepo = manager.getRepository(RepositoryWorkSessionTurn);
@@ -790,6 +838,13 @@ export async function runRepositoryWorkSession(
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
 
   try {
+    assertRepositoryWorkAllowed();
+    await loadWorkingEmployee(
+      session.companyId,
+      employee.id,
+      repo,
+      prepared.toolAuthority === "employee" ? "write" : "read",
+    );
     const model = await requireWorkSessionModel(employee, session.modelId);
     await ensureRepositoryWorkspace(repo);
     // Always before work starts, never after: `ensureRepositoryWorkspace` has
@@ -846,10 +901,9 @@ export async function runRepositoryWorkSession(
           .join("\n\n"),
         history,
         {
-          requesterUserId: prepared.requesterUserId,
+          ...workSessionAuthority(prepared),
           modelId: model.id,
           images,
-          requesterSessionVersion: prepared.requesterSessionVersion,
           repositoryWorkSessionId: session.id,
           workSurface: "repository",
           maxSteps: WORK_SESSION_MAX_STEPS,
@@ -1532,6 +1586,8 @@ export async function openRepositoryWorkSessionPullRequest(args: {
   sessionId: string;
   title?: string;
   body?: string;
+  /** Employee delivery rechecks its live Grants before each external write. */
+  authorize?: (session: RepositoryWorkSession, repo: Repository) => Promise<void>;
   /** Seam for tests; defaults to the real push + GitHub API. */
   deps?: Partial<WorkSessionPullRequestDeps>;
 }): Promise<RepositoryWorkSession> {
@@ -1555,12 +1611,14 @@ export async function openRepositoryWorkSessionPullRequest(args: {
   }
   // One resolution, used for both the API calls and the push, so the token and
   // the endpoint cannot disagree about which Connection owns this remote.
+  await args.authorize?.(session, repo);
   const forge = await deps.resolveForge(repo);
   const remote = forge.remote;
   // Push before asking for the pull request: no forge can open one for a
   // branch it has never seen, and a revision's new commits have to be up there
   // before the existing pull request can pick them up.
   try {
+    await args.authorize?.(session, repo);
     await deps.push(repo, session.branch);
   } catch (error) {
     throw describePushFailure(error, {
@@ -1593,6 +1651,7 @@ export async function openRepositoryWorkSessionPullRequest(args: {
   } else {
     const base = await resolvePullRequestBase(repo, forge, deps);
     try {
+      await args.authorize?.(session, repo);
       pull = await deps.createPullRequest(forge.endpoint, forge.token, {
         owner: remote.owner,
         repo: remote.repo,
@@ -1967,7 +2026,7 @@ export function composeWorkSystemPrompt(
   return [
     `## Repository work session`,
     `You are working inside the Genosyn Repository "${repo.name}" — ${subject}.`,
-    `Your working copy for this session is isolated: session id \`${sessionId}\`. Nobody else is editing it, and nothing you do here affects anyone until a human reviews your diff and merges it. A human is watching your progress live — every tool call, its result, and your step list — and reads your final report beside the diff.`,
+    `Your working copy for this session is isolated: session id \`${sessionId}\`. Nobody else is editing it, and your tools cannot publish or merge it. Members can watch your progress live — every tool call, its result, and your step list — and read your final report beside the diff.`,
     "",
     "### Tools",
     "The `repository_*` tools are the whole of what you can reach here; anything else is refused. They act on your working copy only.",
@@ -1994,7 +2053,7 @@ export function composeWorkSystemPrompt(
     "6. **Commit** when a coherent piece of work is finished, with a message in the imperative mood whose body says why the change exists. One logical change per commit where practical. You must commit: work you leave uncommitted is discarded when the session ends and the human sees nothing.",
     "",
     "### Your report",
-    "Your final message is shown beside your diff. Lead with what you changed and why, in a few sentences. Then say exactly what you verified and how — which commands you ran and what they said — and be plain about anything you could not verify, anything you deliberately left alone, and any judgement call you made. Never describe work you did not do or checks you did not run. Do not claim the change is merged, pushed, or opened as a pull request: the human decides that.",
+    "Your final message is shown beside your diff. Lead with what you changed and why, in a few sentences. Then say exactly what you verified and how — which commands you ran and what they said — and be plain about anything you could not verify, anything you deliberately left alone, and any judgement call you made. Never describe work you did not do or checks you did not run. Do not claim the change is merged, pushed, or opened as a pull request: delivery happens separately after this session finishes.",
     options.revision
       ? "\nThis is a follow-up on work you already did in this same working copy. Your earlier commits are still there and are what the human is looking at, so read the files again rather than trusting your memory of them, change only what has just been asked for, and commit the change as its own commit on top."
       : "",
@@ -2126,18 +2185,22 @@ async function repositoryWorkSessionIsLive(session: RepositoryWorkSession): Prom
 export async function resolveSessionCheckout(
   companyId: string,
   sessionId: string,
+  actor?: { employeeId: string; access: "read" | "write" },
 ): Promise<SessionCheckout> {
   const session = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
     id: sessionId,
     companyId,
   });
-  if (!session) throw new Error("Work session not found.");
+  if (!session || (actor && session.employeeId !== actor.employeeId)) {
+    throw new Error("Work session not found.");
+  }
   if (session.status !== "running") throw new Error("This work session has already finished.");
   const repo = await AppDataSource.getRepository(Repository).findOneBy({
     id: session.repositoryId,
     companyId,
   });
   if (!repo) throw new Error("Repository not found.");
+  if (actor) await loadWorkingEmployee(companyId, actor.employeeId, repo, actor.access);
   const directory = sessionWorktreePath(repo, session.id);
   if (!fs.existsSync(directory)) throw new Error("This work session has no working copy.");
   return { repo, directory, session };

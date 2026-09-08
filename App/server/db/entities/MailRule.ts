@@ -29,7 +29,7 @@ import {
  *   { type: "markRead" } | { type: "star" } | { type: "archive" }
  *   { type: "unsubscribe" }                   // RFC 8058 HTTPS one-click only
  *   { type: "handToEmployee", employeeId, instruction, mode }
- *     // mode: "draft" | "reply" | "triage" — creates a MailHandover
+ *     // mode: "draft" | "reply" | "triage" | "work" — creates a MailHandover
  */
 @Entity("mail_rules")
 @Index(["companyId"])

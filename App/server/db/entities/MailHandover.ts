@@ -2,7 +2,7 @@ import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /** What the employee is being asked to do with the thread. */
-export type MailHandoverMode = "draft" | "reply" | "triage";
+export type MailHandoverMode = "draft" | "reply" | "triage" | "work";
 
 export type MailHandoverStatus = "pending" | "running" | "completed" | "failed";
 

@@ -51,6 +51,7 @@ export type SectionKey =
   | "employees"
   | "skills"
   | "routines"
+  | "proactive"
   | "goals"
   | "revisions"
   | "initiatives"
@@ -222,6 +223,16 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/skills",
         iconBg: "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
         keywords: ["playbook", "capability", "instructions"],
+      },
+      {
+        key: "proactive",
+        label: "Proactive",
+        description: "Standing work that moves your company forward.",
+        icon: Sparkles,
+        shortcut: "-",
+        path: "/proactive",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        keywords: ["proactive", "automation", "quote", "inbox", "follow-up"],
       },
       {
         key: "routines",
@@ -573,6 +584,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
   if (/\/c\/[^/]+\/skills(\/|$)/.test(pathname)) return "skills";
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
+  if (/\/c\/[^/]+\/proactive(\/|$)/.test(pathname)) return "proactive";
   if (/\/c\/[^/]+\/goals(\/|$)/.test(pathname)) return "goals";
   if (/\/c\/[^/]+\/revisions(\/|$)/.test(pathname)) return "revisions";
   if (/\/c\/[^/]+\/initiatives(\/|$)/.test(pathname)) return "initiatives";

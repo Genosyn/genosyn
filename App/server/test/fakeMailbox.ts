@@ -123,6 +123,11 @@ export class FakeMailbox implements Mailbox {
     this.mutate(thread, (labels) => labels.delete("INBOX"));
   }
 
+  async spam(thread: ThreadRef): Promise<void> {
+    this.record("spam", thread);
+    this.mutate(thread, (labels) => { labels.delete("INBOX"); labels.add("SPAM"); });
+  }
+
   async moveToInbox(thread: ThreadRef): Promise<void> {
     this.record("moveToInbox", thread);
     this.mutate(thread, (labels) => labels.add("INBOX"));

@@ -1,3 +1,7 @@
+import { normalizeEmail } from "../../lib/emailAddress.js";
+import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
+import { blockMailSender, findBlockedSenderRule } from "./blockedSenders.js";
+import { MAIL_ANALYSIS_CATEGORIES, type MailAnalysisCategory } from "./analysis.js";
 import type { Repository } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
@@ -37,6 +41,8 @@ import { unsubscribeFromMessage, type MailUnsubscribeResult } from "./unsubscrib
 
 export type MailRuleConditions = {
   from?: string;
+  fromExact?: string;
+  category?: MailAnalysisCategory;
   to?: string;
   subjectContains?: string;
   bodyContains?: string;
@@ -49,6 +55,8 @@ export type MailRuleAction =
   | { type: "markRead" }
   | { type: "star" }
   | { type: "archive" }
+  | { type: "spam" }
+  | { type: "blockSender" }
   | { type: "unsubscribe" }
   | {
       type: "handToEmployee";
@@ -80,6 +88,15 @@ export function parseActions(json: string): MailRuleAction[] {
 export function messageMatches(conditions: MailRuleConditions, message: MailMessage): boolean {
   const has = (haystack: string, needle: string) =>
     haystack.toLowerCase().includes(needle.trim().toLowerCase());
+  if (conditions.fromExact !== undefined) {
+    const sender = normalizeEmail(conditions.fromExact);
+    if (
+      !sender ||
+      sender !== conditions.fromExact.trim().toLowerCase() ||
+      normalizeEmail(message.fromEmail) !== sender
+    )
+      return false;
+  }
   if (conditions.from?.trim()) {
     const from = `${message.fromName} ${message.fromEmail}`;
     if (!has(from, conditions.from)) return false;
@@ -108,6 +125,7 @@ export function messageMatches(conditions: MailRuleConditions, message: MailMess
 }
 
 export type MailRuleRuntimeDependencies = {
+  threadAction?: typeof performThreadAction;
   evaluateAi?: (
     account: MailAccount,
     message: MailMessage,
@@ -128,6 +146,26 @@ export async function validateMailRuleConfiguration(args: {
   actions: MailRuleAction[];
   requireReady?: boolean;
 }): Promise<string | null> {
+  if (args.conditions.fromExact !== undefined && !normalizeEmail(args.conditions.fromExact)) {
+    return "Exact sender must be a valid email address";
+  }
+  if (args.conditions.category && !MAIL_ANALYSIS_CATEGORIES.includes(args.conditions.category)) {
+    return "Choose a recognized email category";
+  }
+  if (args.conditions.category && args.requireReady !== false) {
+    const account = await AppDataSource.getRepository(MailAccount).findOneBy({
+      id: args.accountId,
+      companyId: args.companyId,
+    });
+    if (!account?.aiAnalysisEnabled)
+      return "Enable AI analysis for this mailbox before using a category condition";
+  }
+  if (
+    args.actions.some((action) => action.type === "blockSender" || action.type === "spam") &&
+    !hasConfiguredCondition(args.conditions)
+  ) {
+    return "Automatic spam filtering needs at least one condition";
+  }
   for (const action of args.actions) {
     if (action.type !== "handToEmployee") continue;
     const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -169,6 +207,8 @@ export async function validateMailRuleConfiguration(args: {
 
 export function hasConfiguredCondition(conditions: MailRuleConditions): boolean {
   return Boolean(
+    conditions.fromExact?.trim() ||
+    conditions.category ||
     conditions.from?.trim() ||
     conditions.to?.trim() ||
     conditions.subjectContains?.trim() ||
@@ -198,6 +238,23 @@ export async function runRulesForNewMessage(
   });
   if (!thread) return;
 
+  const blockRule = await findBlockedSenderRule(account, message);
+  if (blockRule) {
+    await beforeEffect();
+    await assertWritable();
+    if (!(await claimRuleMatch(AppDataSource.getRepository(MailRule), blockRule))) return;
+    await (dependencies.threadAction ?? performThreadAction)(account, thread, "spam");
+    await recordAudit({
+      companyId: account.companyId,
+      actorKind: "system",
+      action: "mail.rule.match",
+      targetType: "mail_rule",
+      targetId: blockRule.id,
+      targetLabel: blockRule.name,
+      metadata: { threadId: thread.id, messageId: message.id, action: "spam" },
+    });
+    return;
+  }
   const ruleRepo = AppDataSource.getRepository(MailRule);
   const rules = await ruleRepo.find({
     where: { accountId: account.id, enabled: true },
@@ -224,6 +281,22 @@ export async function runRulesForNewMessage(
 
     const conditions = parseConditions(activeRule.conditionsJson);
     if (!messageMatches(conditions, message)) continue;
+    if (conditions.category) {
+      const liveAccount = await AppDataSource.getRepository(MailAccount).findOneBy({
+        id: account.id,
+        companyId: account.companyId,
+      });
+      if (!liveAccount?.aiAnalysisEnabled) continue;
+      const analysis = await AppDataSource.getRepository(MailInboundAnalysis).findOneBy({
+        companyId: account.companyId,
+        accountId: account.id,
+        messageId: message.id,
+        threadId: thread.id,
+        status: "succeeded",
+        category: conditions.category,
+      });
+      if (!analysis) continue;
+    }
 
     let aiDecision: MailRuleAiDecision | null = null;
     if (conditions.ai) {
@@ -378,6 +451,12 @@ async function applyRuleAction(
       return;
     case "star":
       await performThreadAction(account, thread, "star");
+      return;
+    case "blockSender":
+      await blockMailSender({ account, thread, message }, { fileSpam: dependencies.threadAction });
+      return;
+    case "spam":
+      await (dependencies.threadAction ?? performThreadAction)(account, thread, "spam");
       return;
     case "archive":
       await performThreadAction(account, thread, "archive");

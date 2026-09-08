@@ -1,3 +1,4 @@
+import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -162,6 +163,7 @@ type ChatBaseOptions = {
    * so a tool that records provenance can point a human back at the email.
    */
   mailThreadId?: string | null;
+  mailDeliveryMode?: MailDeliveryMode | null;
   /**
    * The Repository work session this turn is doing, for the surface that runs
    * an employee against a repository. Carried on the turn's MCP token so the
@@ -628,9 +630,9 @@ export async function streamChatWithEmployee(
 
     const skills = await AppDataSource.getRepository(Skill).find({ where: { employeeId: emp.id } });
     const parallelDelegationAvailable =
-      privilegedToolSourcesAllowed && supportsParallelDelegation(model.authMode);
+      privilegedToolSourcesAllowed && !options.mailDeliveryMode && supportsParallelDelegation(model.authMode);
     const unavailableCodingTools =
-      !privilegedToolSourcesAllowed || !codingRuntimeAvailability().available
+      !privilegedToolSourcesAllowed || Boolean(options.mailDeliveryMode) || !codingRuntimeAvailability().available
         ? [...CODING_TOOL_NAMES]
         : config.agent.codingTools.executionMode === "bubblewrap"
           ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
@@ -771,6 +773,7 @@ export async function streamChatWithEmployee(
     const tokenOrigin = {
       conversationId: options.conversationId ?? null,
       mailThreadId: options.mailThreadId ?? null,
+      mailDeliveryMode: options.mailDeliveryMode ?? null,
       repositoryWorkSessionId: options.repositoryWorkSessionId ?? null,
     };
     mcpToken = issueMcpToken(
@@ -813,7 +816,7 @@ export async function streamChatWithEmployee(
         extraTools: helpSource?.tools,
         extraToolsAuthority: helpSource ? "member" : undefined,
         conversationId: options.conversationId,
-        allowPrivilegedToolSources: privilegedToolSourcesAllowed,
+        allowPrivilegedToolSources: privilegedToolSourcesAllowed && !options.mailDeliveryMode,
         authorizePrivilegedToolCall,
         toolScope: repositoryWork
           ? { genosynTools: options.extraToolset ?? [], surfaceOnly: true }

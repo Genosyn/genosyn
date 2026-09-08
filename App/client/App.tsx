@@ -29,6 +29,7 @@ import {
   SoulSettingsPage,
 } from "./pages/employeeTabs";
 import RoutinesLayout from "./pages/RoutinesLayout";
+import Proactive from "./pages/Proactive";
 import RoutinesIndex from "./pages/RoutinesIndex";
 import RoutineNew from "./pages/RoutineNew";
 import RoutineDetail from "./pages/RoutineDetail";
@@ -458,6 +459,7 @@ function CompanyRoutes({
             employee, but "what is scheduled around here?" is a company-level
             question, and answering it used to mean opening each employee in
             turn. */}
+          <Route path="proactive" element={<Proactive company={company} />} />
           <Route path="routines" element={<RoutinesLayout company={company} />}>
             <Route index element={<RoutinesIndex company={company} />} />
             <Route path="new" element={<RoutineNew company={company} />} />

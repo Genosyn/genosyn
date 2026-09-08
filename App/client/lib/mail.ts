@@ -97,7 +97,7 @@ export type MailMessage = {
   attachments: MailAttachment[];
 };
 
-export type MailHandoverMode = "draft" | "reply" | "triage";
+export type MailHandoverMode = "draft" | "reply" | "triage" | "work";
 
 export type MailHandover = {
   id: string;
@@ -118,6 +118,8 @@ export type MailHandover = {
 
 export type MailRuleConditions = {
   from?: string;
+  fromExact?: string;
+  category?: MailAnalysisCategory;
   to?: string;
   subjectContains?: string;
   bodyContains?: string;
@@ -134,6 +136,8 @@ export type MailRuleAction =
   | { type: "markRead" }
   | { type: "star" }
   | { type: "archive" }
+  | { type: "spam" }
+  | { type: "blockSender" }
   | { type: "unsubscribe" }
   | {
       type: "handToEmployee";

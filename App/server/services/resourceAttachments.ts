@@ -8,7 +8,13 @@ import { Company } from "../db/entities/Company.js";
 import { hasResourceAccess, resolveResourceFile } from "./resources.js";
 import { exportResource } from "./resourceExport.js";
 import { renderInvoicePdfBySlug } from "./invoiceHtml.js";
-import { hasFinanceAccess } from "./financeGrants.js";
+import { renderEstimatePdf } from "./estimateHtml.js";
+import { Estimate } from "../db/entities/Estimate.js";
+import { getFinanceGrant } from "./financeGrants.js";
+import {
+  FINANCE_ACCESS_RANK,
+  type FinanceAccessLevel,
+} from "../db/entities/EmployeeFinanceGrant.js";
 import type { ResolvedAttachment } from "../integrations/types.js";
 
 /**
@@ -55,18 +61,33 @@ const invoiceSpecSchema = z
   })
   .strict();
 
+/** A quotation PDF. Drafts stay visibly DRAFT and require Invoicing access. */
+const estimateSpecSchema = z
+  .object({
+    estimateSlug: z.string().min(1).max(200),
+    filename: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
 export const resourceAttachmentSpecsSchema = z
-  .array(z.union([resourceSpecSchema, invoiceSpecSchema]))
+  .array(z.union([resourceSpecSchema, invoiceSpecSchema, estimateSpecSchema]))
   .max(ATTACHMENT_MAX_COUNT, `At most ${ATTACHMENT_MAX_COUNT} attachments per message.`);
 
 type ResourceSpec = z.infer<typeof resourceSpecSchema>;
 type InvoiceSpec = z.infer<typeof invoiceSpecSchema>;
-export type ResourceAttachmentSpec = ResourceSpec | InvoiceSpec;
+type EstimateSpec = z.infer<typeof estimateSpecSchema>;
+export type ResourceAttachmentSpec = ResourceSpec | InvoiceSpec | EstimateSpec;
 
-export function makeResourceAttachmentResolver(args: {
+type AttachmentResolverIdentity = {
   companyId: string;
   employeeId: string;
-}): (specs: unknown) => Promise<ResolvedAttachment[]> {
+  /** Effective human Finance ceiling, bound by the authenticated caller. */
+  financeAccessLimit?: "none" | "read" | "full";
+};
+
+export function makeResourceAttachmentResolver(
+  args: AttachmentResolverIdentity,
+): (specs: unknown) => Promise<ResolvedAttachment[]> {
   return async (specs: unknown) => {
     const parsed = resourceAttachmentSpecsSchema.safeParse(specs);
     if (!parsed.success) {
@@ -89,8 +110,10 @@ export function makeResourceAttachmentResolver(args: {
     for (const spec of parsed.data) {
       const resolved =
         "invoiceSlug" in spec
-          ? await resolveInvoicePdf(spec, company, args.employeeId)
-          : await resolveOne(spec, company, args.employeeId);
+          ? await resolveInvoicePdf(spec, company, args)
+          : "estimateSlug" in spec
+            ? await resolveEstimatePdf(spec, company, args)
+            : await resolveOne(spec, company, args.employeeId);
       total += resolved.content.length;
       if (total > ATTACHMENT_TOTAL_MAX_BYTES) {
         const mb = Math.floor(ATTACHMENT_TOTAL_MAX_BYTES / (1024 * 1024));
@@ -113,19 +136,61 @@ export function makeResourceAttachmentResolver(args: {
 async function resolveInvoicePdf(
   spec: InvoiceSpec,
   company: Company,
-  employeeId: string,
+  identity: AttachmentResolverIdentity,
 ): Promise<ResolvedAttachment> {
-  if (!(await hasFinanceAccess(employeeId, "read"))) {
+  if (!(await attachmentFinanceAccess(identity, "read"))) {
     throw new Error(
       "You do not have finance access, so you cannot attach invoices. Ask an owner or admin to grant it under Finance → AI access.",
     );
   }
   const rendered = await renderInvoicePdfBySlug(company.id, spec.invoiceSlug);
   if (!rendered) {
+    throw new Error(`Invoice "${spec.invoiceSlug}" not found. Use list_invoices to find the slug.`);
+  }
+  return {
+    filename: safeFilename(spec.filename ?? rendered.filename, rendered.filename),
+    contentType: "application/pdf",
+    content: rendered.buffer,
+  };
+}
+
+async function attachmentFinanceAccess(
+  identity: AttachmentResolverIdentity,
+  required: FinanceAccessLevel,
+): Promise<boolean> {
+  const ceiling = identity.financeAccessLimit ?? "full";
+  if (ceiling !== "read" && ceiling !== "full") return false;
+  if (ceiling === "read" && required !== "read") return false;
+  const grant = await getFinanceGrant(identity.employeeId);
+  return (
+    !!grant &&
+    grant.companyId === identity.companyId &&
+    FINANCE_ACCESS_RANK[grant.accessLevel] >= FINANCE_ACCESS_RANK[required]
+  );
+}
+
+async function resolveEstimatePdf(
+  spec: EstimateSpec,
+  company: Company,
+  identity: AttachmentResolverIdentity,
+): Promise<ResolvedAttachment> {
+  if (!(await attachmentFinanceAccess(identity, "read"))) {
     throw new Error(
-      `Invoice "${spec.invoiceSlug}" not found. Use the finance tool (op: list_invoices) to find the slug.`,
+      "You do not have finance access, so you cannot attach estimates. Ask an owner or admin to grant it under Finance → AI access.",
     );
   }
+  const estimate = await AppDataSource.getRepository(Estimate).findOneBy({
+    companyId: company.id,
+    slug: spec.estimateSlug,
+  });
+  if (!estimate) throw new Error(`Estimate "${spec.estimateSlug}" not found.`);
+  if (estimate.status === "draft" && !(await attachmentFinanceAccess(identity, "invoice"))) {
+    throw new Error(
+      "Attaching a draft estimate requires Invoicing finance access. The PDF remains marked DRAFT; attaching it does not issue the estimate.",
+    );
+  }
+  const rendered = await renderEstimatePdf(company.id, estimate);
+  if (!rendered) throw new Error(`Estimate "${spec.estimateSlug}" not found.`);
   return {
     filename: safeFilename(spec.filename ?? rendered.filename, rendered.filename),
     contentType: "application/pdf",

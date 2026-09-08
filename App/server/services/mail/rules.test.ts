@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { AuditEvent } from "../../db/entities/AuditEvent.js";
+import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailRule } from "../../db/entities/MailRule.js";
@@ -569,5 +570,78 @@ describe("unsubscribe action isolation", () => {
       action: "mail.rule.action_error",
     });
     assert.match(failure.metadataJson, /No safe one-click method/);
+  });
+});
+
+describe("analysis category rule conditions", () => {
+  test("only a succeeded verdict for the exact message, mailbox, company and thread can match", async () => {
+    const { account, message, thread } = await mailboxFixture();
+    const rule = await createRule(account, {
+      name: "Quote intake",
+      conditions: { category: "quote_request" },
+      actions: [],
+    });
+    const count = async () =>
+      (await AppDataSource.getRepository(MailRule).findOneByOrFail({ id: rule.id })).matchCount;
+    await runRulesForNewMessage(account, message.id);
+    assert.equal(await count(), 0);
+    const analysis = await insert(MailInboundAnalysis, {
+      companyId: COMPANY_ID,
+      accountId: account.id,
+      threadId: thread.id,
+      messageId: message.id,
+      status: "failed",
+      category: "quote_request",
+    });
+    await runRulesForNewMessage(account, message.id);
+    assert.equal(await count(), 0);
+    await AppDataSource.getRepository(MailInboundAnalysis).update(
+      { id: analysis.id },
+      { status: "succeeded", accountId: "another-account" },
+    );
+    await runRulesForNewMessage(account, message.id);
+    assert.equal(await count(), 0);
+    await AppDataSource.getRepository(MailInboundAnalysis).update(
+      { id: analysis.id },
+      { accountId: account.id, companyId: "another-company" },
+    );
+    await runRulesForNewMessage(account, message.id);
+    assert.equal(await count(), 0);
+    await AppDataSource.getRepository(MailInboundAnalysis).update(
+      { id: analysis.id },
+      { companyId: COMPANY_ID },
+    );
+    await runRulesForNewMessage(account, message.id);
+    assert.equal(await count(), 1);
+  });
+
+  test("disabling AI analysis invalidates stored category verdicts without calling a model", async () => {
+    const { account, message, thread } = await mailboxFixture();
+    const rule = await createRule(account, {
+      name: "Quote intake",
+      conditions: { category: "quote_request" },
+      actions: [],
+    });
+    await insert(MailInboundAnalysis, {
+      companyId: COMPANY_ID,
+      accountId: account.id,
+      threadId: thread.id,
+      messageId: message.id,
+      status: "succeeded",
+      category: "quote_request",
+    });
+    await AppDataSource.getRepository(MailAccount).update(
+      { id: account.id },
+      { aiAnalysisEnabled: false },
+    );
+    await runRulesForNewMessage(account, message.id, undefined, undefined, {
+      evaluateAi: async () => {
+        assert.fail("Category rules reuse the existing verdict");
+      },
+    });
+    assert.equal(
+      (await AppDataSource.getRepository(MailRule).findOneByOrFail({ id: rule.id })).matchCount,
+      0,
+    );
   });
 });
