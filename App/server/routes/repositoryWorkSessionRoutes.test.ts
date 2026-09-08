@@ -417,14 +417,16 @@ describe("work-session AI Model endpoints", () => {
   });
 
   test("validates effort values and model support before creating work", async () => {
-    for (const effort of ["ultra", "", 7, ["high"], { effort: "high" }]) {
+    for (const effort of ["unsupported-effort", "", 7, ["high"], { effort: "high" }]) {
       const result = await call("POST", sessionsUrl(), { ...startBody(), effort });
       assert.equal(result.status, 400);
       assert.equal(result.body.error, "ValidationError");
     }
-    const result = await call("POST", sessionsUrl(), { ...startBody(), effort: "high" });
-    assert.equal(result.status, 400);
-    assert.match(String(result.body.error), /does not support this effort/);
+    for (const effort of ["high", "ultra"]) {
+      const result = await call("POST", sessionsUrl(), { ...startBody(), effort });
+      assert.equal(result.status, 400);
+      assert.match(String(result.body.error), /does not support this effort/);
+    }
     assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
     assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
   });
