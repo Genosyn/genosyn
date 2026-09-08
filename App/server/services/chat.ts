@@ -17,8 +17,7 @@ import { composeMemoryContext } from "./employeeMemory.js";
 import { workBlocked } from "./standdowns.js";
 import { composeGoalsContext } from "./goals.js";
 import { composePoliciesContext } from "./companyPolicies.js";
-import { materializeReposForEmployee } from "./repoSync.js";
-import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
+import { materializeEmployeeRepositoryContext } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
@@ -655,6 +654,7 @@ export async function streamChatWithEmployee(
     const repositoryMaterializationAllowed =
       !repositoryWork &&
       privilegedToolSourcesAllowed &&
+      !options.mailDeliveryMode &&
       shouldMaterializeRepositoriesForTurn(model.authMode);
     // Memory has no resource provenance yet. It may contain facts learned in
     // a Finance, Project, mailbox, or Connection context broader than the
@@ -670,9 +670,11 @@ export async function streamChatWithEmployee(
         ? await composeGoalsContext(co.id, emp.id)
         : "";
     const policiesContext = contextAccess.soulAndSkills ? await composePoliciesContext(co.id) : "";
+    const cwd = employeeDir(co.slug, emp.slug);
+    ensureDir(cwd);
     const repositoriesContext =
       contextAccess.repositories && repositoryMaterializationAllowed
-        ? await composeRepositoriesContext(emp.id)
+        ? (await materializeEmployeeRepositoryContext({ employeeId: emp.id, cwd })).context
         : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
@@ -751,9 +753,6 @@ export async function streamChatWithEmployee(
     }
     const messages = buildMessages(history, message, options.images);
 
-    const cwd = employeeDir(co.slug, emp.slug);
-    ensureDir(cwd);
-
     const toolEnv: Record<string, string> = {};
     if (!config.security.multiTenant && privilegedToolSourcesAllowed) {
       try {
@@ -761,17 +760,6 @@ export async function streamChatWithEmployee(
       } catch {
         // Best-effort: chat still proceeds without secrets if the vault hiccups.
       }
-    }
-
-    if (repositoryMaterializationAllowed) {
-      // Materialize granted repos into the employee's cwd so the coding tools
-      // find a working tree. Non-fatal — chat still proceeds if a repo fails.
-      const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-      await materializeRepositoriesForEmployee({
-        employeeId: emp.id,
-        cwd,
-        forgeRepoCredentials: repoSync.forgeRepoCredentials,
-      });
     }
 
     const tokenOrigin = {

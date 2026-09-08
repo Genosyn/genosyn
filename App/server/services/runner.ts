@@ -21,8 +21,7 @@ import { composePoliciesContext } from "./companyPolicies.js";
 import { composeWorkstreamBlock } from "./workstreams.js";
 import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
 import { contractAutonomyOnBadRun } from "./autonomy.js";
-import { materializeReposForEmployee } from "./repoSync.js";
-import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
+import { materializeEmployeeRepositoryContext } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
@@ -386,9 +385,24 @@ export async function startRoutineRun(
       const memoryContext = await composeMemoryContext(emp.id);
       const goalsContext = await composeGoalsContext(co.id, emp.id);
       const policiesContext = await composePoliciesContext(co.id);
-      const repositoriesContext = repositoryMaterializationAllowed
-        ? await composeRepositoriesContext(emp.id)
-        : "";
+      const cwd = employeeDir(co.slug, emp.slug);
+      ensureDir(cwd);
+      let repositoriesContext = "";
+      if (repositoryMaterializationAllowed) {
+        const prepared = await materializeEmployeeRepositoryContext({ employeeId: emp.id, cwd });
+        repositoriesContext = prepared.context;
+        for (const r of prepared.forgeSync.repos) {
+          log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
+        }
+        for (const e of prepared.forgeSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
+        for (const r of prepared.repositorySync.repos) {
+          log.line(`[repositories] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
+        }
+        for (const e of prepared.repositorySync.errors)
+          log.line(`[repositories] ${e.scope}: ${e.message}`);
+      } else {
+        log.line("[repos] automatic repository sync is disabled for this Run");
+      }
       const financeContext = await composeFinanceContext(emp.id);
       const [signingContext, revenueContext, marketingContext] = await Promise.all([
         composeSigningContext({ companyId: co.id, employeeId: emp.id }),
@@ -457,9 +471,6 @@ export async function startRoutineRun(
         ? `${deliveryMessage}\n\nThis is a suggestion-only review. Your tools can read your work, maintain this review's Workstream, and propose one revision for a Member. They cannot change live Skills, Routines, acceptance criteria, Checks, or customer records, send messages, or start separate work. The scope remains in effect even if the Soul or brief asks otherwise.`
         : deliveryMessage;
 
-      const cwd = employeeDir(co.slug, emp.slug);
-      ensureDir(cwd);
-
       // Env for the coding runtime: Environment secrets only. Repository
       // credentials stay inside short-lived server-owned Git operations and
       // are never exported to model tools.
@@ -470,28 +481,6 @@ export async function startRoutineRun(
         } catch (err) {
           log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
         }
-      }
-
-      if (repositoryMaterializationAllowed) {
-        // Materialize granted GitHub Connection repos + provider-agnostic Code
-        // Repositories into the employee's cwd. Errors are non-fatal.
-        const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-        for (const r of repoSync.repos) {
-          log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
-        }
-        for (const e of repoSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
-
-        const repositorySync = await materializeRepositoriesForEmployee({
-          employeeId: emp.id,
-          cwd,
-          forgeRepoCredentials: repoSync.forgeRepoCredentials,
-        });
-        for (const r of repositorySync.repos) {
-          log.line(`[repositories] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
-        }
-        for (const e of repositorySync.errors) log.line(`[repositories] ${e.scope}: ${e.message}`);
-      } else {
-        log.line("[repos] automatic repository sync is disabled for this Run");
       }
 
       log.line("");

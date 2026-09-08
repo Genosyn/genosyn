@@ -345,6 +345,75 @@ describe("repository_read_file", () => {
   });
 });
 
+describe("scoped contributor guidance", () => {
+  test("delivers root and nested guides with a file read in scope order", async () => {
+    await withSession(async (s) => {
+      sessionWriteFile(s.directory, "agents.md", "Use root conventions.\n");
+      sessionWriteFile(s.directory, "docs/agent.md", "Run the document checker in docs/.\n");
+      sessionWriteFile(s.directory, "unrelated/AGENTS.md", "Unrelated instructions.\n");
+      sessionWriteFile(s.directory, "docs/plan.md", PLAN);
+      const read = await s.call("repository_read_file", { path: "docs/plan.md" });
+      assert.equal(read.status, 200);
+      assert.match(read.text, /Use root conventions/);
+      assert.match(read.text, /Run the document checker in docs/);
+      assert.ok(
+        read.text.indexOf("Use root conventions") < read.text.indexOf("Run the document checker"),
+      );
+      assert.ok(!read.text.includes("Unrelated instructions"));
+      assert.match(read.text, /deeper guidance takes precedence/);
+      assert.match(read.text, /Requested content/);
+      assert.match(read.text, / {3}1\t/);
+    });
+  });
+
+  test("loads a directory guide before files are created there", async () => {
+    await withSession(async (s) => {
+      sessionWriteFile(s.directory, "docs/AGENT.md", "Use short headings in new documents.\n");
+      const listed = await s.call("repository_list_files", { path: "docs/" });
+      assert.equal(listed.status, 200);
+      assert.match(listed.text, /Use short headings in new documents/);
+      assert.match(listed.text, /Contributor guide: docs\/AGENT.md/);
+      const root = await s.call("repository_list_files", {});
+      assert.ok(!root.text.includes("Use short headings in new documents"));
+    });
+  });
+
+  test("refreshes nested guidance on each read", async () => {
+    await withSession(async (s) => {
+      sessionWriteFile(s.directory, "docs/AGENTS.md", "Old command.\n");
+      sessionWriteFile(s.directory, "docs/plan.md", PLAN);
+      const first = await s.call("repository_read_file", { path: "docs/plan.md" });
+      assert.match(first.text, /Old command/);
+      sessionWriteFile(s.directory, "docs/AGENTS.md", "New command.\n");
+      const next = await s.call("repository_read_file", { path: "docs/plan.md" });
+      assert.match(next.text, /New command/);
+      assert.ok(!next.text.includes("Old command"));
+    });
+  });
+
+  test("does not duplicate a guide when explicitly reading its numbered contents", async () => {
+    await withSession(async (s) => {
+      sessionWriteFile(s.directory, "AGENTS.md", "Root guide body.\n");
+      const read = await s.call("repository_read_file", { path: "AGENTS.md" });
+      assert.equal(read.status, 200);
+      assert.equal(read.text, "   1\tRoot guide body.");
+    });
+  });
+
+  test("includes continuation instructions for a large nested guide", async () => {
+    await withSession(async (s) => {
+      sessionWriteFile(s.directory, "docs/AGENTS.md", "Read the full guide.\n".repeat(1000));
+      sessionWriteFile(s.directory, "docs/plan.md", PLAN);
+      const read = await s.call("repository_read_file", { path: "docs/plan.md" });
+      assert.equal(read.status, 200);
+      assert.match(read.text, /Truncated/);
+      assert.match(read.text, /docs\/AGENTS.md/);
+      assert.match(read.text, /offset=/);
+      assert.ok(read.text.length < 16000);
+    });
+  });
+});
+
 // ───────────────────────────── editing ──────────────────────────────────
 
 describe("repository_edit_file", () => {
@@ -470,7 +539,7 @@ describe("repository_search", () => {
         pattern: "revenue",
         output_mode: "files",
       });
-      assert.equal(files.status, 200);
+      assert.equal(files.status, 200, JSON.stringify(files.body));
       assert.equal(files.text, "docs/plan.md\nnotes/todo.md\nsrc/app.ts");
 
       const counts = await s.call("repository_search", {

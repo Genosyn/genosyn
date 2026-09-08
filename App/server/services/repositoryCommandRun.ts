@@ -10,6 +10,7 @@ import {
 } from "./agent/sandboxCommandRun.js";
 import { buildSandboxShellInvocation } from "./agent/sandboxShell.js";
 import { decideRepositoryCommand } from "./repositoryCommandPolicy.js";
+import { normalizeRepositoryPath, resolveInCheckout } from "./repositoryWorkspace.js";
 
 /**
  * Running one command inside a Repository work session's worktree.
@@ -81,7 +82,10 @@ export const SESSION_COMMAND_ENV: Record<string, string> = {
  */
 export const SESSION_COMMAND_HOME = "/tmp";
 
-export type SessionCommandResult = SandboxCommandResult;
+export type SessionCommandResult = SandboxCommandResult & {
+  /** Actual working directory relative to the session root; `.` means root. */
+  cwd: string;
+};
 
 export type SessionCommandRefusal = { refused: string };
 
@@ -136,8 +140,10 @@ export function workSessionCommandAvailability(
  */
 export async function runWorkSessionCommand(args: {
   repo: Pick<Repository, "commandMode" | "allowedCommands">;
-  /** The session worktree. Both the sandbox root and the working directory. */
+  /** The session worktree, which remains the sandbox root. */
   directory: string;
+  /** An existing directory inside the worktree, relative to its root. */
+  cwd?: string;
   command: string;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -156,10 +162,15 @@ export async function runWorkSessionCommand(args: {
   let executable: string;
   let spawnArgs: string[];
   let childEnv: Record<string, string>;
+  let commandDirectory: string;
+  let relativeCwd: string;
   try {
+    const resolved = resolveCommandDirectory(args.directory, args.cwd ?? ".");
+    commandDirectory = resolved.directory;
+    relativeCwd = resolved.cwd;
     const invocation = buildSandboxShellInvocation({
       workspaceRoot: args.directory,
-      cwd: args.directory,
+      cwd: commandDirectory,
       command: args.command.trim(),
       // No company Environment secrets here. A work session is reviewed by a
       // human as a diff, and a secret that entered the sandbox could leave in
@@ -183,10 +194,10 @@ export async function runWorkSessionCommand(args: {
     return { refused: `Could not prepare the command: ${messageOf(error)}` };
   }
 
-  return spawnSandboxedCommand({
+  const result = await spawnSandboxedCommand({
     executable,
     args: spawnArgs,
-    cwd: args.directory,
+    cwd: commandDirectory,
     env: childEnv,
     timeoutMs,
     signal: args.signal,
@@ -194,6 +205,41 @@ export async function runWorkSessionCommand(args: {
     headOutputBytes: HEAD_OUTPUT_BYTES,
     abortedMessage: "The command was stopped because the work session ended.",
   });
+  return { ...result, cwd: relativeCwd };
+}
+
+/** Resolve the command's folder without changing what the sandbox exposes. */
+function resolveCommandDirectory(
+  directory: string,
+  cwd: string,
+): { directory: string; cwd: string } {
+  // The file tools accept a leading slash as a repository-relative spelling;
+  // a command's cwd must be unambiguously relative on every host.
+  if (path.isAbsolute(cwd) || path.win32.isAbsolute(cwd)) {
+    throw new Error("The command working directory must be relative to the repository root.");
+  }
+  const normalized = normalizeRepositoryPath(cwd, { allowRoot: true });
+  let resolved: string;
+  try {
+    const target = resolveInCheckout(directory, normalized);
+    if (!fs.statSync(target).isDirectory()) {
+      throw new Error("The command working directory must be an existing directory.");
+    }
+    resolved = fs.realpathSync(target);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      throw new Error("The command working directory must be an existing directory.");
+    }
+    throw error;
+  }
+  // Check the resolved path as well: an in-tree alias must not turn a managed
+  // .git directory into an apparently ordinary working directory.
+  const relative = normalizeRepositoryPath(
+    path.relative(fs.realpathSync(directory), resolved).split(path.sep).join("/"),
+    { allowRoot: true },
+  );
+  return { directory: path.resolve(directory, relative), cwd: relative || "." };
 }
 
 /**

@@ -157,6 +157,92 @@ describe("running one", () => {
     assert.ok(!isCommandRefusal(result));
     if (isCommandRefusal(result)) return;
     assert.match(result.output, /marker\.txt/);
+    assert.equal(result.cwd, ".");
+  });
+
+  test("executes a guide's lint command in each package under the default allowed list", async (t) => {
+    const directory = await worktree(t);
+    for (const cwd of ["App", "packages/Home site"]) {
+      const packageDirectory = path.join(directory, cwd);
+      await fs.mkdir(packageDirectory, { recursive: true });
+      await fs.writeFile(path.join(packageDirectory, "marker.txt"), `checked ${cwd}`);
+      await fs.writeFile(
+        path.join(packageDirectory, "package.json"),
+        JSON.stringify({
+          name: "guide-command-fixture",
+          scripts: {
+            lint: "node -e \"process.stdout.write(require('node:fs').readFileSync('marker.txt', 'utf8'))\"",
+          },
+        }),
+      );
+      const result = await runWorkSessionCommand({
+        repo: LISTED_REPO,
+        directory,
+        cwd,
+        command: "npm run lint",
+      });
+      assert.ok(!isCommandRefusal(result));
+      if (isCommandRefusal(result)) return;
+      assert.equal(result.exitCode, 0, result.output);
+      assert.match(result.output, new RegExp(`checked ${cwd}`));
+      assert.equal(result.cwd, cwd);
+      const argv = (await fs.readFile(argvLog, "utf8")).split("\n");
+      const bind = argv.indexOf("--bind");
+      assert.deepEqual(argv.slice(bind, bind + 3), ["--bind", directory, "/workspace"]);
+      const chdir = argv.indexOf("--chdir");
+      assert.deepEqual(argv.slice(chdir, chdir + 2), ["--chdir", `/workspace/${cwd}`]);
+      assert.ok(argv.includes("/workspace/.git"), "the root Git pointer remains protected");
+    }
+  });
+
+  test("an explicit root directory preserves the default command behavior", async (t) => {
+    const directory = await worktree(t);
+    for (const cwd of [".", ""]) {
+      const result = await runWorkSessionCommand({
+        repo: LISTED_REPO,
+        directory,
+        cwd,
+        command: "pwd",
+      });
+      assert.ok(!isCommandRefusal(result));
+      if (isCommandRefusal(result)) return;
+      assert.equal(result.exitCode, 0);
+      assert.equal(await fs.realpath(result.output.trim()), await fs.realpath(directory));
+      assert.equal(result.cwd, ".");
+    }
+  });
+
+  test("reports the resolved directory for an alias inside the worktree", async (t) => {
+    const directory = await worktree(t);
+    await fs.mkdir(path.join(directory, "App"));
+    await fs.writeFile(path.join(directory, "App", "marker.txt"), "from App");
+    await fs.symlink("App", path.join(directory, "app-alias"));
+    const result = await runWorkSessionCommand({
+      repo: LISTED_REPO,
+      directory,
+      cwd: "app-alias",
+      command: "cat marker.txt",
+    });
+    assert.ok(!isCommandRefusal(result));
+    if (isCommandRefusal(result)) return;
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.output, "from App");
+    assert.equal(result.cwd, "App");
+  });
+
+  test("a failed check retains its package directory in the evidence", async (t) => {
+    const directory = await worktree(t);
+    await fs.mkdir(path.join(directory, "App"));
+    const result = await runWorkSessionCommand({
+      repo: LISTED_REPO,
+      directory,
+      cwd: "App/",
+      command: "false",
+    });
+    assert.ok(!isCommandRefusal(result));
+    if (isCommandRefusal(result)) return;
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.cwd, "App");
   });
 
   test("stops a command that runs too long, and keeps what it printed", async (t) => {
@@ -259,6 +345,94 @@ describe("running one", () => {
 });
 
 describe("refusing one", () => {
+  for (const cwd of [
+    "../outside",
+    "App/../Home",
+    "./App",
+    "App//nested",
+    ".git",
+    "App/\0bad",
+    "/tmp",
+    "C:\\workspace",
+  ]) {
+    test(`refuses an invalid working directory ${JSON.stringify(cwd)} without spawning`, async (t) => {
+      const directory = await worktree(t);
+      await fs.writeFile(argvLog, "not invoked");
+      const result = await runWorkSessionCommand({
+        repo: OPEN_REPO,
+        directory,
+        cwd,
+        command: "true",
+      });
+      assert.ok(isCommandRefusal(result));
+      assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+    });
+  }
+
+  for (const cwd of ["missing", "marker.txt", "marker.txt/child"]) {
+    test(`refuses a missing or non-directory working directory ${cwd}`, async (t) => {
+      const directory = await worktree(t);
+      await fs.writeFile(path.join(directory, "marker.txt"), "a file");
+      await fs.writeFile(argvLog, "not invoked");
+      const result = await runWorkSessionCommand({
+        repo: OPEN_REPO,
+        directory,
+        cwd,
+        command: "true",
+      });
+      assert.ok(isCommandRefusal(result));
+      assert.match(isCommandRefusal(result) ? result.refused : "", /existing directory/);
+      assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+    });
+  }
+
+  test("refuses a directory symlink outside the worktree without spawning", async (t) => {
+    const directory = await worktree(t);
+    const outside = await worktree(t);
+    await fs.symlink(outside, path.join(directory, "outside"));
+    await fs.writeFile(argvLog, "not invoked");
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      cwd: "outside",
+      command: "true",
+    });
+    assert.ok(isCommandRefusal(result));
+    assert.match(isCommandRefusal(result) ? result.refused : "", /escapes the repository/);
+    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+  });
+
+  test("refuses a directory alias into managed Git metadata", async (t) => {
+    const directory = await worktree(t);
+    await fs.mkdir(path.join(directory, "nested", ".git"), { recursive: true });
+    await fs.symlink("nested/.git", path.join(directory, "git-alias"));
+    await fs.writeFile(argvLog, "not invoked");
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      cwd: "git-alias",
+      command: "true",
+    });
+    assert.ok(isCommandRefusal(result));
+    assert.match(isCommandRefusal(result) ? result.refused : "", /\.git directory is managed/);
+    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+  });
+
+  test("a package directory does not broaden the repository's allowed commands", async (t) => {
+    const directory = await worktree(t);
+    await fs.mkdir(path.join(directory, "App"));
+    await fs.writeFile(argvLog, "not invoked");
+    const result = await runWorkSessionCommand({
+      repo: { commandMode: "allowlist", allowedCommands: "npm run lint" },
+      directory,
+      cwd: "App",
+      command: "touch should-not-run.txt",
+    });
+    assert.ok(isCommandRefusal(result));
+    assert.match(isCommandRefusal(result) ? result.refused : "", /not on this repository's list/);
+    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+  });
+
   test("a command the repository's list does not cover never spawns", async (t) => {
     const directory = await worktree(t);
     const result = await runWorkSessionCommand({

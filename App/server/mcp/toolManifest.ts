@@ -2652,7 +2652,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         command: {
           type: "string",
           description:
-            "The command to run, from the root of your working copy. For example `npm test` or `pytest -q`.",
+            "The command to run, for example `npm test` or `pytest -q`. Use cwd to run it in a package or subdirectory; the command still has to be allowed by the repository.",
+        },
+        cwd: {
+          type: "string",
+          maxLength: 1000,
+          description:
+            "An existing directory relative to the repository root, for example `App` or `packages/web`. Omit or use `.` for the root. Use this instead of adding `cd` to the command when following a contributor guide's package-specific checks. The result records the directory used.",
         },
         timeout_ms: {
           type: "number",
