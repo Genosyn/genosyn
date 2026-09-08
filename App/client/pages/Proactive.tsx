@@ -60,7 +60,7 @@ export default function Proactive({ company }: { company: Company }) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 p-4 sm:p-8">
+    <div className="page-shell space-y-8 p-4 sm:p-8">
       <div>
         <TopBar title="Proactive" />
         <p className="mt-2 text-sm text-slate-500">
