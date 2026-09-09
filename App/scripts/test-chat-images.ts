@@ -573,6 +573,11 @@ try {
           fullPage: true,
         });
         await page.setViewportSize({ width: 390, height: 844 });
+        // Routine switches layouts through matchMedia-driven React state,
+        // which may finish rendering after setViewportSize resolves.
+        await page.waitForFunction(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        );
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
           true,
