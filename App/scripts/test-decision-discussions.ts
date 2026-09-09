@@ -193,6 +193,8 @@ function homeData(rows: Decision[]): HomeData {
   return {
     decisions: pending,
     pendingDecisionCount: pending.length,
+    repositoryWork: [],
+    repositoryWorkCount: 0,
     notifications: [],
     unreadNotificationCount: 0,
     myTodos: [],
