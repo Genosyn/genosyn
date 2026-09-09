@@ -3796,6 +3796,16 @@ export type HomeRepositoryWork = {
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
 };
 
+export type HomeDraftEmail = {
+  id: string;
+  accountId: string;
+  threadId: string;
+  subject: string;
+  recipientSummary: string;
+  accountEmail: string;
+  updatedAt: string;
+};
+
 export type HomeData = {
   repositoryWork: HomeRepositoryWork[];
   repositoryWorkCount: number;
@@ -3810,6 +3820,10 @@ export type HomeData = {
   reviewTodoCount: number;
   approvals: HomeApproval[];
   pendingApprovalCount: number;
+  /** Drafts awaiting review, excluding messages already queued for sending. */
+  draftEmailCount: number;
+  draftEmails: HomeDraftEmail[];
+  draftEmailAccounts: { id: string; email: string; count: number }[];
   unreadChannels: HomeChannel[];
   failedRuns: HomeFailedRun[];
   failedRunCount: number;

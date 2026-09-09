@@ -79,7 +79,7 @@ const MAIL_COMMAND_VIEWS: Array<{ view: string; label: string; icon: LucideIcon 
 
 export default function MailLayout({ company }: { company: Company }) {
   const dialog = useDialog();
-  const [mailSearchParams] = useSearchParams();
+  const [mailSearchParams, setMailSearchParams] = useSearchParams();
   const requestedAccountId = mailSearchParams.get("account");
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -115,7 +115,11 @@ export default function MailLayout({ company }: { company: Company }) {
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
   const [composeSession, setComposeSession] = React.useState(0);
 
-  const account = accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null;
+  const account =
+    accounts.find((a) => a.id === requestedAccountId) ??
+    accounts.find((a) => a.id === activeId) ??
+    accounts[0] ??
+    null;
 
   const refreshAccounts = React.useCallback(async () => {
     const requestSeq = ++accountRequestSeq.current;
@@ -234,7 +238,10 @@ export default function MailLayout({ company }: { company: Company }) {
       lastLabelRefreshAt.current = 0;
       try {
         const list = await refreshAccounts();
-        const current = list.find((a) => a.id === activeId) ?? list[0];
+        const current =
+          list.find((a) => a.id === requestedAccountId) ??
+          list.find((a) => a.id === activeId) ??
+          list[0];
         if (cancelled) return;
 
         // Account discovery is enough to paint the mailbox and start the
@@ -288,6 +295,16 @@ export default function MailLayout({ company }: { company: Company }) {
   });
 
   const selectAccount = (id: string) => {
+    // Keep a Home deep link in step with the picker; otherwise a live account
+    // refresh would restore the mailbox named by the old URL.
+    setMailSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("account", id);
+        return next;
+      },
+      { replace: true },
+    );
     setActiveId(id);
     localStorage.setItem(activeAccountKey(company.id), id);
     setLabels([]);
