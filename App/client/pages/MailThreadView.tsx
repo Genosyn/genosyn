@@ -773,13 +773,22 @@ function DraftCard({
                 key={a.index}
                 className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
               >
-                <Paperclip size={12} className="text-slate-400" />
-                <span className="max-w-40 truncate">{a.filename}</span>
-                <span className="text-slate-400">{formatBytes(a.size)}</span>
+                <a
+                  href={mailApi.attachmentUrl(companyId, draft.id, a.index)}
+                  download={a.filename}
+                  aria-label={`Download ${a.filename}`}
+                  title={`Download ${a.filename}`}
+                  className="flex min-w-0 items-center gap-1.5 rounded-sm hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:text-indigo-400"
+                >
+                  <Paperclip size={12} className="shrink-0 text-slate-400" />
+                  <span className="max-w-40 truncate">{a.filename}</span>
+                  <span className="shrink-0 text-slate-400">{formatBytes(a.size)}</span>
+                </a>
                 <button
                   type="button"
                   onClick={() => setKept((prev) => withoutAttachment(prev, a.index))}
                   className="text-slate-400 hover:text-red-500"
+                  aria-label={`Remove ${a.filename}`}
                   title="Remove"
                 >
                   <X size={12} />

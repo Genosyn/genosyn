@@ -138,6 +138,10 @@ export function Email() {
         server immediately.
       </P>
       <P>
+        Click an attachment on a saved draft to download it, including while editing the draft.
+        The separate × button removes it from the draft when you save or send.
+      </P>
+      <P>
         The Inbox header shows when the mailbox last synced <Strong>successfully</Strong>. Click{" "}
         <Strong>Sync now</Strong> to check for new mail immediately. Genosyn records that pass
         before it starts, so the button follows a real queued, running, succeeded, or failed state
