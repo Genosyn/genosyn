@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { CompanySocketProvider, useCompanySocket } from "@/components/CompanySocket";
 import { DialogProvider } from "@/components/ui/Dialog";
 import { ThemeProvider } from "@/components/Theme";
+import { ChatSessionsProvider } from "@/lib/chatSessions";
 import type { Company, Me } from "@/lib/api";
 import HomePage from "@/pages/Home";
 import "../client/styles/index.css";
@@ -53,7 +54,9 @@ createRoot(document.getElementById("root")!).render(
     <MemoryRouter initialEntries={["/c/company"]}>
       <ThemeProvider>
         <DialogProvider>
-          <Harness />
+          <ChatSessionsProvider>
+            <Harness />
+          </ChatSessionsProvider>
         </DialogProvider>
       </ThemeProvider>
     </MemoryRouter>

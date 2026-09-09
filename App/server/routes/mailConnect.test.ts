@@ -16,6 +16,7 @@ import { User } from "../db/entities/User.js";
 import type { IntegrationConfig } from "../integrations/types.js";
 import { errorHandler } from "../middleware/error.js";
 import { encryptConnectionConfig } from "../services/integrations.js";
+import { saveOauthApp } from "../services/oauthApps.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mailRouter } from "./mail.js";
 
@@ -204,7 +205,7 @@ async function candidates(): Promise<Map<string, Candidate>> {
 // ─────────────────────── POST /mail/connect/discover ───────────────────────
 
 describe("working out how to connect one address", () => {
-  test("a gmail.com address is named Gmail and offered imap.gmail.com with app-password help", async () => {
+  test("a gmail.com address is named Gmail and offered only Google sign-in", async () => {
     const response = await discover("Someone@Gmail.com");
     assert.equal(response.status, 200, JSON.stringify(response.body));
 
@@ -220,15 +221,13 @@ describe("working out how to connect one address", () => {
     assert.equal(plan.source, "builtin");
     assert.equal(plan.unsupportedReason, undefined);
 
-    const imap = imapOption(plan);
-    assert.deepEqual(imap.imap, { host: "imap.gmail.com", port: 993, secure: true });
-    assert.deepEqual(imap.smtp, { host: "smtp.gmail.com", port: 465, secure: true });
-    assert.equal(imap.ready, true);
-    // Gmail rejects an ordinary password on IMAP outright, so the plan has to
-    // carry the app-password page or the person fails at the password box
-    // with no idea why.
-    assert.match(imap.password?.summary ?? "", /App password/i);
-    assert.equal(imap.password?.url, "https://myaccount.google.com/apppasswords");
+    assert.equal(plan.options.length, 1);
+    const oauth = plan.options[0];
+    assert.equal(oauth.kind, "oauth");
+    if (oauth.kind !== "oauth") assert.fail("Gmail must use Google sign-in");
+    assert.equal(oauth.provider, "google");
+    assert.equal(oauth.label, "Continue with Google");
+    assert.deepEqual(oauth.scopeGroups, ["mail"]);
   });
 
   test("the Google button is offered but marked unusable when no OAuth app is registered here", async () => {
@@ -244,12 +243,50 @@ describe("working out how to connect one address", () => {
     assert.equal(oauth.ready, false);
     assert.equal(oauth.instanceApp, false);
     assert.match(oauth.blockedReason ?? "", /no google oauth app is registered/i);
-    assert.match(oauth.blockedReason ?? "", /app password/i);
+    assert.match(oauth.blockedReason ?? "", /Admin → Integrations/);
+    assert.doesNotMatch(oauth.blockedReason ?? "", /password|IMAP/i);
+    assert.equal(plan.options.length, 1);
+  });
 
+  test("a registered Google app enables the single Gmail sign-in option for both address aliases", async () => {
+    await saveOauthApp("google", { clientId: "google-client", clientSecret: "google-secret" });
+    for (const address of ["someone@gmail.com", "someone@googlemail.com"]) {
+      const response = await discover(address);
+      assert.equal(response.status, 200);
+      assert.equal(response.body.plan.options.length, 1);
+      const oauth = response.body.plan.options[0];
+      assert.equal(oauth.kind, "oauth");
+      assert.equal(oauth.ready, true);
+      assert.equal(oauth.blockedReason, undefined);
+    }
+  });
+
+  test("other mailbox services still receive a usable password form", async () => {
+    const response = await discover("someone@fastmail.com");
+    assert.equal(response.status, 200);
+    const plan = response.body.plan;
+    assert.equal(plan.options.length, 1);
+    const imap = imapOption(plan);
+    assert.equal(imap.ready, true);
+    assert.equal(imap.imap.host, "imap.fastmail.com");
+    assert.equal(imap.smtp.host, "smtp.fastmail.com");
+    assert.match(imap.password?.summary ?? "", /app password/i);
+  });
+
+  test("a Gmail address cannot accidentally start the password flow without server settings", async () => {
+    const response = await call<ApiError>("POST", "/mail/connect/imap", {
+      address: "someone@gmail.com",
+      password: "unused-app-password",
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error ?? "", /Continue with Google/);
     assert.equal(
-      plan.options[0]?.kind,
-      "imap",
-      "a blocked OAuth route must not sit above the route that actually works",
+      await AppDataSource.getRepository(IntegrationConnection).countBy({ companyId: company.id }),
+      0,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(MailAccount).countBy({ companyId: company.id }),
+      0,
     );
   });
 
@@ -378,6 +415,37 @@ describe("which existing Connections can back a mailbox", () => {
     // registered at all still has to be able to connect a mailbox.
     assert.equal(listed.hasGmailScope, true);
     assert.equal(listed.linkedAccountId, null);
+  });
+
+  test("keeps a Gmail mailbox connected through IMAP before the onboarding change accessible", async () => {
+    const legacy = await connection({
+      provider: "imap",
+      label: "legacy@gmail.com",
+      config: {
+        address: "legacy@gmail.com",
+        password: "existing-app-password",
+        imapHost: "imap.gmail.com",
+        smtpHost: "smtp.gmail.com",
+      },
+    });
+    const account = await insert(MailAccount, {
+      companyId: company.id,
+      connectionId: legacy.id,
+      provider: "imap",
+      address: "legacy@gmail.com",
+      status: "active",
+    });
+    const listed = (await candidates()).get(legacy.id);
+    assert.equal(listed?.status, "connected");
+    assert.equal(listed?.linkedAccountId, account.id);
+    assert.equal(listed?.hasGmailScope, true);
+    const response = await call<{
+      accounts: Array<{ id: string; address: string; provider: string }>;
+    }>("GET", "/mail/accounts");
+    assert.equal(response.status, 200);
+    const stillConnected = response.body.accounts.find((candidate) => candidate.id === account.id);
+    assert.equal(stillConnected?.address, "legacy@gmail.com");
+    assert.equal(stillConnected?.provider, "imap");
   });
 
   test("a google Connection qualifies only when its consent actually covered the mailbox", async () => {

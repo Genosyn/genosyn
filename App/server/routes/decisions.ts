@@ -6,6 +6,7 @@ import { kickoffDecision } from "../services/decisionKickoff.js";
 import {
   cancelDecision,
   decideDecision,
+  getDecision,
   hydrateDecisions,
   listDecisions,
 } from "../services/decisions.js";
@@ -53,6 +54,13 @@ decisionsRouter.get("/decisions", async (req, res) => {
     limit: parsed.data.limit,
   });
   res.json(decisions);
+});
+
+decisionsRouter.get("/decisions/:id", validateParams(idParamsSchema), async (req, res) => {
+  const { cid, id } = req.params as Record<string, string>;
+  const decision = await getDecision({ companyId: cid, decisionId: id });
+  if (!decision) return res.status(404).json({ error: "Not found" });
+  return res.json(decision);
 });
 
 decisionsRouter.post(

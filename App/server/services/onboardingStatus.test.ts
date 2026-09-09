@@ -37,6 +37,8 @@ beforeEach(async () => {
       name: "Northwind Labs",
       slug: "northwind-labs",
       ownerId: "owner-1",
+      mission: "Make useful work accessible.",
+      vision: "Every team achieves more together.",
     }),
   );
 });
@@ -73,7 +75,7 @@ async function connectModel(employeeId: string, apiKeyEncrypted: string | null):
   );
 }
 
-test("a company with no AI Employees starts at the explainer", async () => {
+test("a company with direction and no AI Employees resumes at hiring", async () => {
   const status = await loadOnboardingStatus(company.id);
 
   assert.equal(status.complete, false);
@@ -85,8 +87,39 @@ test("a company with no AI Employees starts at the explainer", async () => {
   assert.equal(status.skillCount, 0);
   assert.equal(status.mailGranted, false);
   assert.equal(status.mailAccessLevel, null);
-  assert.equal(status.nextStep, "intro");
+  assert.equal(status.nextStep, "employee");
 });
+
+for (const missing of [
+  { mission: "", vision: "" },
+  { mission: "  \n", vision: "A clear vision" },
+  { mission: "A clear mission", vision: "\t" },
+]) {
+  test(`company direction comes before hiring or a connected model: ${JSON.stringify(missing)}`, async () => {
+    await AppDataSource.getRepository(Company).update({ id: company.id }, missing);
+    const beforeHire = await loadOnboardingStatus(company.id);
+    assert.equal(beforeHire.complete, false);
+    assert.equal(beforeHire.nextStep, "company");
+
+    const employee = await hire("Avery");
+    await connectModel(employee.id, "cipher");
+    const afterHire = await loadOnboardingStatus(company.id);
+    assert.equal(afterHire.modelConnected, true);
+    assert.equal(afterHire.complete, false);
+    assert.equal(afterHire.nextStep, "company");
+
+    await AppDataSource.getRepository(Company).update(
+      { id: company.id },
+      {
+        mission: "A clear mission",
+        vision: "A clear vision",
+      },
+    );
+    const complete = await loadOnboardingStatus(company.id);
+    assert.equal(complete.complete, true);
+    assert.equal(complete.nextStep, "done");
+  });
+}
 
 test("an AI Employee without usable model credentials is not complete", async () => {
   const employee = await hire("Avery");
@@ -299,7 +332,7 @@ test("an AI Employee id from another company resolves to nothing", async () => {
 
   assert.equal(status.employee, null);
   assert.equal(status.modelConnected, false);
-  assert.equal(status.nextStep, "intro");
+  assert.equal(status.nextStep, "company");
 });
 
 test("another company's AI Employees never leak in", async () => {
@@ -315,5 +348,5 @@ test("another company's AI Employees never leak in", async () => {
   const status = await loadOnboardingStatus(other.id);
 
   assert.equal(status.employee, null);
-  assert.equal(status.nextStep, "intro");
+  assert.equal(status.nextStep, "company");
 });

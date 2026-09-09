@@ -27,8 +27,8 @@ import { employeesRouter } from "./employees.js";
 
 /**
  * The Free plan's AI Employee cap at the hire route (M56): the second hire is
- * a 402 with the upgrade message, and a template hire seeds only as many
- * Routines as the plan still allows — capping, never failing the hire.
+ * a 402 with the upgrade message. Hiring never consumes Routine capacity;
+ * recurring work is selected separately after the company and role are set.
  */
 
 const originalDataDir = config.dataDir;
@@ -80,7 +80,13 @@ beforeEach(async () => {
     passwordHash: "x",
     sessionVersion: 0,
   });
-  company = await insert(Company, { name: "Acme", slug: "acme", ownerId: owner.id });
+  company = await insert(Company, {
+    name: "Acme",
+    slug: "acme",
+    ownerId: owner.id,
+    mission: "Make meaningful work easier.",
+    vision: "Every team can deliver useful outcomes.",
+  });
   await insert(Membership, {
     companyId: company.id,
     userId: owner.id,
@@ -132,18 +138,16 @@ describe("Free plan AI Employee cap", () => {
 });
 
 describe("template hire under the Routine cap", () => {
-  test("seeds at most the remaining capacity and never fails the hire", async () => {
-    // The paid-marketing template ships 3 Routines; a Free company has
-    // capacity for 2 — the hire succeeds and the third is skipped silently.
+  test("leaves Routine capacity for the Member's reviewed selections", async () => {
     const hired = await hire({ name: "Mars", role: "Marketer", templateId: "paid-marketing" });
     assert.equal(hired.status, 200);
     const routines = await AppDataSource.getRepository(Routine).findBy({
       employeeId: String(hired.body.id),
     });
-    assert.equal(routines.length, 2);
+    assert.equal(routines.length, 0);
   });
 
-  test("seeds every template Routine when billing is disabled", async () => {
+  test("still requires explicit Routine selection when billing is disabled", async () => {
     await AppDataSource.getRepository(AppSetting).delete({ key: BILLING_SETTING_KEY });
     invalidateBillingSettingsCache();
     const hired = await hire({ name: "Mars", role: "Marketer", templateId: "paid-marketing" });
@@ -151,6 +155,6 @@ describe("template hire under the Routine cap", () => {
     const routines = await AppDataSource.getRepository(Routine).findBy({
       employeeId: String(hired.body.id),
     });
-    assert.equal(routines.length, 3);
+    assert.equal(routines.length, 0);
   });
 });

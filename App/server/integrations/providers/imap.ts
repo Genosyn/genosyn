@@ -43,7 +43,7 @@ export const imapProvider: IntegrationProvider = {
     category: "Productivity",
     tagline: "Connect any mailbox with an address and an app password.",
     description:
-      "Connect a mailbox on any IMAP/SMTP provider — Fastmail, iCloud, Yahoo, Zoho, a company Exchange server, or a mail server you run yourself — so AI employees can read, draft, and send from it. Genosyn works the servers out from the address; you supply the app password. Nothing to register with anyone. Gmail and Google Workspace can use this too, with a Google App password, though the Google Workspace connector gives them a better sync.",
+      "Connect a mailbox on an IMAP/SMTP provider — Fastmail, iCloud, Yahoo, Zoho, a company Exchange server, or a mail server you run yourself — so AI Employees can read, draft, and send from it. Genosyn works the servers out from the address; you supply the app password. For Gmail and Google Workspace, open Email and choose Continue with Google.",
     icon: "Inbox",
     authMode: "apikey",
     fields: [
@@ -159,6 +159,11 @@ export async function resolveImapInput(
   let defaults: Awaited<ReturnType<typeof discoverMailbox>> | null = null;
   if (!imapHost || !smtpHost) {
     defaults = await discoverMailbox(address);
+    if (defaults.providerKey === "google") {
+      throw new Error(
+        "Gmail and Google Workspace use Google sign-in. Open Email and choose Continue with Google.",
+      );
+    }
     if (defaults.unsupportedReason && !imapHost) throw new Error(defaults.unsupportedReason);
   }
   const suggested = defaults?.routes.find((route) => route.kind === "imap");

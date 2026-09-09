@@ -17,6 +17,7 @@
     "test:chat-images": "tsx scripts/test-chat-images.ts",
     "test:mail-draft-attachments": "tsx scripts/test-mail-draft-attachments.ts",
     "test:work-outcomes": "tsx scripts/test-work-outcomes.ts",
+    "test:decision-discussions": "tsx scripts/test-decision-discussions.ts",
     "test:home-layout": "tsx scripts/test-home-layout.ts",
     "test:home-repository-work": "tsx scripts/test-home-repository-work.ts",
     "test:home-mail-drafts": "tsx scripts/test-home-mail-drafts.ts",
@@ -30,7 +31,11 @@
     "license:keygen": "tsx server/scripts/licenseKeygen.ts",
     "setup:public-url": "tsx server/scripts/setupPublicUrl.ts",
     "test:work-session-models": "tsx scripts/test-work-session-models.ts",
-    "test:proactive": "tsx scripts/test-proactive.ts"
+    "test:proactive": "tsx scripts/test-proactive.ts",
+    "test:onboarding": "tsx scripts/test-onboarding.ts",
+    "test:mail-connect": "tsx scripts/test-mail-connect.ts",
+    "test:model-setup": "tsx scripts/test-model-setup.ts",
+    "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

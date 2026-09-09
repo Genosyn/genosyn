@@ -205,7 +205,7 @@ type ChatActions = {
   selectConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   refreshConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   newConversation: (companyId: string, empId: string) => Promise<void>;
-  stageNewConversation: (companyId: string, empId: string, starterPrompt: string) => Promise<void>;
+  stageNewConversation: (companyId: string, empId: string, starterPrompt: string) => Promise<boolean>;
   claimConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   deleteConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   archiveConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
@@ -342,6 +342,8 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   // Distinguishes separate drafts whose Conversation rows do not exist yet.
   // In particular, a TLDR handoff must not be adopted by an older lazy POST.
   const newConversationIntentRef = React.useRef<Record<string, number>>({});
+  // Only the latest guided handoff may navigate, including across employees.
+  const stagedHandoffIntentRef = React.useRef(0);
 
   const update = React.useCallback((empId: string, u: Update) => {
     setSessions((prev) => {
@@ -622,9 +624,11 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
    * Open an unsaved thread with a reviewable draft. The first explicit Send
    * lazily creates the Conversation, so guided handoffs do not leave empty
    * rows when a Member opens Chat and changes their mind.
+   * Returns false if a newer selection superseded this handoff while loading.
    */
   const stageNewConversation = React.useCallback(
     async (companyId: string, empId: string, starterPrompt: string) => {
+      const handoffIntent = ++stagedHandoffIntentRef.current;
       const nextIntent = (newConversationIntentRef.current[empId] ?? 0) + 1;
       newConversationIntentRef.current[empId] = nextIntent;
       update(empId, { newConversationIntent: nextIntent });
@@ -660,6 +664,10 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           input: starterPrompt,
         };
       });
+      return (
+        newConversationIntentRef.current[empId] === nextIntent &&
+        stagedHandoffIntentRef.current === handoffIntent
+      );
     },
     [update],
   );

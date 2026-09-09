@@ -1,3 +1,4 @@
+import { fakeCodexVerification } from "../test/modelVerification.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -40,6 +41,7 @@ const originalSessionSecret = config.sessionSecret;
 const originalTmpDir = process.env.TMPDIR;
 const originalProcessAccessToken = process.env.CODEX_ACCESS_TOKEN;
 
+const realCodexStart = CodexAppServer.start;
 let tempRoot: string;
 let subscription!: typeof import("./codexSubscription.js");
 
@@ -65,7 +67,14 @@ after(async () => {
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
-beforeEach(async () => {
+beforeEach(async (t) => {
+  assert.ok("mock" in t, "beforeEach runs with a test context");
+  t.mock.method(
+    CodexAppServer,
+    "start",
+    async (options: Parameters<typeof CodexAppServer.start>[0]) =>
+      fakeCodexVerification(options.cwd),
+  );
   await resetTestDb();
   security.multiTenant = false;
   security.encryptionSecret = "codex-runtime-test-encryption-secret-2026";
@@ -97,7 +106,7 @@ describe("OpenAI subscription credential runtime", () => {
     const entrypoint = path.join(tempRoot, "fake-app-server.mjs");
     const requestPath = path.join(tempRoot, "turn-requests.jsonl");
     await fs.writeFile(entrypoint, EFFORT_APP_SERVER);
-    const start = CodexAppServer.start;
+    const start = realCodexStart;
     t.mock.method(CodexAppServer, "start", (options: Parameters<typeof CodexAppServer.start>[0]) =>
       start({
         ...options,
@@ -107,6 +116,7 @@ describe("OpenAI subscription credential runtime", () => {
     );
     const model = await insertSubscriptionModel();
     await subscription.saveSubscriptionAccessToken(model.id, `test-codex-effort-${randomUUID()}`);
+    await fs.writeFile(requestPath, "");
 
     for (const effort of ["max", "ultra", null, undefined] as const) {
       const result = await runCodexSubscriptionTurn({
@@ -202,6 +212,35 @@ describe("OpenAI subscription credential runtime", () => {
       if (authRoot) await fs.rm(authRoot, { recursive: true, force: true });
       if (workspace) await fs.rm(workspace, { recursive: true, force: true });
     }
+  });
+
+  test("a failed ChatGPT reply leaves the previous token and connected model unchanged", async (t) => {
+    const model = await insertSubscriptionModel();
+    const saved = await subscription.saveSubscriptionAccessToken(model.id, "original-test-token");
+    t.mock.method(
+      CodexAppServer,
+      "start",
+      async (options: Parameters<typeof CodexAppServer.start>[0]) =>
+        fakeCodexVerification(options.cwd, { status: "failed" }),
+    );
+    await assert.rejects(
+      subscription.saveSubscriptionAccessToken(model.id, "replacement-test-token"),
+      /could not answer/,
+    );
+    assert.deepEqual(
+      await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: model.id }),
+      saved,
+    );
+    assert.deepEqual(await fs.readdir(tempRoot), []);
+  });
+
+  test("successful automatic ChatGPT setup persists the advertised default rather than the auto marker", async () => {
+    const model = await insertSubscriptionModel();
+    await AppDataSource.getRepository(AIModel).update({ id: model.id }, { model: "auto" });
+    const saved = await subscription.saveSubscriptionAccessToken(model.id, "automatic-test-token");
+    assert.equal(saved.model, "gpt-current");
+    assert.ok(saved.connectedAt);
+    assert.deepEqual(await fs.readdir(tempRoot), []);
   });
 
   test("preparation failures remove both temporary homes", async () => {

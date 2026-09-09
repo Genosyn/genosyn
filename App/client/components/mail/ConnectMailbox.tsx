@@ -130,7 +130,7 @@ export function ConnectMailboxForm({
   async function startOauth(option: Extract<MailboxConnectOption, { kind: "oauth" }>) {
     const provider = INTEGRATION_FOR_OAUTH[option.provider];
     if (!provider) {
-      setError(`Genosyn cannot sign in with ${option.provider} yet — use a password instead.`);
+      setError(`Genosyn cannot sign in with ${option.provider} yet.`);
       return;
     }
     setBusy(true);
@@ -405,13 +405,15 @@ function OptionRow({
  */
 function SourceNote({ plan }: { plan: MailboxConnectPlan }) {
   const note =
-    plan.source === "guess"
-      ? `No published settings for ${plan.domain} — these are the usual ones. Check them under Server settings if the connection is refused.`
-      : plan.source === "mx"
-        ? `${plan.domain} receives its mail through ${plan.displayName}.`
-        : plan.source === "builtin"
-          ? `${plan.displayName} settings, filled in for you.`
-          : `Settings published by ${plan.domain}.`;
+    plan.providerKey === "google"
+      ? "Sign in with Google to connect your mailbox."
+      : plan.source === "guess"
+        ? `No published settings for ${plan.domain} — these are the usual ones. Check them under Server settings if the connection is refused.`
+        : plan.source === "mx"
+          ? `${plan.domain} receives its mail through ${plan.displayName}.`
+          : plan.source === "builtin"
+            ? `${plan.displayName} settings, filled in for you.`
+            : `Settings published by ${plan.domain}.`;
   return <p className="text-xs text-slate-500 dark:text-slate-400">{note}</p>;
 }
 
@@ -439,7 +441,7 @@ export function ConnectMailboxDialog({
       open
       onClose={onClose}
       title="Connect a mailbox"
-      description="Genosyn reads and sends from this address. Nothing to register with anyone."
+      description="Enter your email address to find the right sign-in."
     >
       <ConnectMailboxForm
         companyId={companyId}

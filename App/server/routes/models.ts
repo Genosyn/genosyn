@@ -14,12 +14,19 @@ import {
 } from "../middleware/auth.js";
 import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services/models.js";
-import { encryptSecret, maskSecret } from "../lib/secret.js";
-import { previewBaseURL, readCustomEndpoint } from "../services/customEndpoint.js";
+import { discoverApiModels, ModelSetupError } from "../services/modelCatalog.js";
+import {
+  connectApiModel,
+  replaceApiKey,
+  verifyModelEdit,
+  editApiModel,
+} from "../services/modelSetup.js";
+import { previewBaseURL } from "../services/customEndpoint.js";
+import { connectCustomModel } from "../services/customModelSetup.js";
+import { editSubscriptionModel } from "../services/subscriptionModelSetup.js";
 import { canProbeContextWindow } from "../services/agent/contextWindow.js";
 import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
 import { recordAudit } from "../services/audit.js";
-import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 import { config } from "../../config.js";
 import {
   cancelSubscriptionDeviceLogin,
@@ -230,11 +237,77 @@ modelsRouter.get("/", async (req, res) => {
   res.json(all.map((m) => toPublic(m, m.id === activeId)));
 });
 
+const modelCollectionParamsSchema = z.object({ cid: z.string().uuid(), eid: z.string().uuid() });
+const discoverSchema = z.object({
+  provider: z.enum(["anthropic", "openai"]),
+  apiKey: z.string().trim().min(1).max(500),
+});
+const connectSchema = discoverSchema.extend({
+  model: z.string().trim().min(1).max(120).optional(),
+});
+
+// No credential is stored while the member previews their available models.
+modelsRouter.post(
+  "/discover",
+  validateParams(modelCollectionParamsSchema),
+  validateBody(discoverSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadContext(p.cid, p.eid);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const body = req.body as z.infer<typeof discoverSchema>;
+    try {
+      res.json(await discoverApiModels(body.provider, body.apiKey));
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      res.status(error.status).json({ error: error.message });
+    }
+  },
+);
+
+// Discover, verify, and save together: a failed test leaves the employee unchanged.
+modelsRouter.post(
+  "/connect",
+  validateParams(modelCollectionParamsSchema),
+  validateBody(connectSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadContext(p.cid, p.eid);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    try {
+      const model = await connectApiModel({
+        ...(req.body as z.infer<typeof connectSchema>),
+        employeeId: ctx.emp.id,
+        companyId: ctx.co.id,
+      });
+      await refreshContextWindow(model);
+      await recordAudit({
+        companyId: ctx.co.id,
+        actorUserId: req.userId ?? null,
+        action: "model.configure",
+        targetType: "employee",
+        targetId: ctx.emp.id,
+        targetLabel: ctx.emp.name,
+        metadata: {
+          provider: model.provider,
+          model: model.model,
+          authMode: model.authMode,
+          verified: true,
+        },
+      });
+      res.json(await publicModel(model, ctx.emp));
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      res.status(error.status).json({ error: error.message });
+    }
+  },
+);
+
 // POST /api/companies/:cid/employees/:eid/models — add a model.
 // The newest model becomes active by default; the operator can switch any time.
 const createSchema = z.object({
   provider: providerSchema,
-  model: z.string().min(1).max(120),
+  model: z.string().trim().min(1).max(120),
   authMode: authModeSchema,
 });
 
@@ -274,67 +347,99 @@ modelsRouter.post("/", validateBody(createSchema), async (req, res) => {
 // ---------- Item routes ----------
 
 // PUT /api/companies/:cid/employees/:eid/models/:id — change provider/model/auth.
-const updateSchema = createSchema;
+const updateSchema = createSchema.extend({ apiKey: z.string().trim().min(1).max(500).optional() });
 
-modelsRouter.put("/:id", validateBody(updateSchema), async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const body = req.body as z.infer<typeof updateSchema>;
-  const unsupported = unsupportedAuthError(body.provider, body.authMode);
-  if (unsupported) return res.status(400).json({ error: unsupported });
+modelsRouter.put(
+  "/:id",
+  validateParams(modelItemParamsSchema),
+  validateBody(updateSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const body = req.body as z.infer<typeof updateSchema>;
+    const unsupported = unsupportedAuthError(body.provider, body.authMode);
+    if (unsupported) return res.status(400).json({ error: unsupported });
 
-  const repo = AppDataSource.getRepository(AIModel);
-  await cancelSubscriptionDeviceLoginsForModel(ctx.m.id);
-  const m = await repo.findOneBy({ id: ctx.m.id, employeeId: ctx.emp.id });
-  if (!m) return res.status(404).json({ error: "Model not found" });
-  const changedAuth = m.authMode !== body.authMode || m.provider !== body.provider;
-  const changedModel = m.model !== body.model;
-  // If provider or auth mode switched, any prior credentials are invalid.
-  if (changedAuth) {
-    await repo.update(
-      { id: m.id, employeeId: ctx.emp.id },
-      {
-        provider: body.provider,
-        model: body.model,
-        authMode: body.authMode,
-        configJson: "{}",
-        connectedAt: null,
-        contextWindow: null,
-        contextWindowSource: null,
+    const repo = AppDataSource.getRepository(AIModel);
+    await cancelSubscriptionDeviceLoginsForModel(ctx.m.id);
+    const m = await repo.findOneBy({ id: ctx.m.id, employeeId: ctx.emp.id });
+    if (!m) return res.status(404).json({ error: "Model not found" });
+    const changedAuth = m.authMode !== body.authMode || m.provider !== body.provider;
+    const changedModel = m.model !== body.model;
+    if (body.authMode !== "apikey" && !changedAuth && changedModel) {
+      try {
+        await verifyModelEdit(m, body.model);
+      } catch (error) {
+        if (!(error instanceof ModelSetupError)) throw error;
+        return res.status(error.status).json({ error: error.message });
+      }
+    }
+    // If provider or auth mode switched, any prior credentials are invalid.
+    if (body.authMode === "subscription" && !changedAuth && changedModel && isModelConnected(m)) {
+      try {
+        await editSubscriptionModel(m, body.model);
+      } catch (error) {
+        if (!(error instanceof ModelSetupError)) throw error;
+        return res.status(error.status).json({ error: error.message });
+      }
+    } else if (body.authMode === "apikey" && (changedAuth || changedModel || body.apiKey)) {
+      try {
+        await editApiModel(m, {
+          provider: body.provider as "anthropic" | "openai",
+          model: body.model,
+          apiKey: body.apiKey,
+          companyId: ctx.co.id,
+        });
+      } catch (error) {
+        if (!(error instanceof ModelSetupError)) throw error;
+        return res.status(error.status).json({ error: error.message });
+      }
+    } else if (changedAuth) {
+      await repo.update(
+        { id: m.id, employeeId: ctx.emp.id },
+        {
+          provider: body.provider,
+          model: body.model,
+          authMode: body.authMode,
+          configJson: "{}",
+          connectedAt: null,
+          contextWindow: null,
+          contextWindowSource: null,
+        },
+      );
+    } else {
+      // Partial update is load-bearing for managed ChatGPT auth: a concurrent
+      // refresh may rotate its token, and saving this stale entity would restore
+      // the invalid pre-refresh configJson.
+      await repo.update(
+        { id: m.id, employeeId: ctx.emp.id },
+        {
+          provider: body.provider,
+          model: body.model,
+          authMode: body.authMode,
+          ...(changedModel ? { contextWindow: null, contextWindowSource: null } : {}),
+        },
+      );
+    }
+    const saved = await repo.findOneBy({ id: m.id, employeeId: ctx.emp.id });
+    if (!saved) return res.status(404).json({ error: "Model not found" });
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.configure",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: saved.provider,
+        model: saved.model,
+        authMode: saved.authMode,
       },
-    );
-  } else {
-    // Partial update is load-bearing for managed ChatGPT auth: a concurrent
-    // refresh may rotate its token, and saving this stale entity would restore
-    // the invalid pre-refresh configJson.
-    await repo.update(
-      { id: m.id, employeeId: ctx.emp.id },
-      {
-        provider: body.provider,
-        model: body.model,
-        authMode: body.authMode,
-        ...(changedModel ? { contextWindow: null, contextWindowSource: null } : {}),
-      },
-    );
-  }
-  const saved = await repo.findOneBy({ id: m.id, employeeId: ctx.emp.id });
-  if (!saved) return res.status(404).json({ error: "Model not found" });
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.configure",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: {
-      provider: saved.provider,
-      model: saved.model,
-      authMode: saved.authMode,
-    },
-  });
-  res.json(await publicModel(saved, ctx.emp));
-});
+    });
+    res.json(await publicModel(saved, ctx.emp));
+  },
+);
 
 // POST /api/companies/:cid/employees/:eid/models/:id/activate — switch brain.
 modelsRouter.post("/:id/activate", async (req, res) => {
@@ -355,40 +460,46 @@ modelsRouter.post("/:id/activate", async (req, res) => {
 });
 
 // POST /api/companies/:cid/employees/:eid/models/:id/apikey — set API key
-const apiKeySchema = z.object({ apiKey: z.string().min(1).max(500) });
+const apiKeySchema = z.object({ apiKey: z.string().trim().min(1).max(500) });
 
-modelsRouter.post("/:id/apikey", validateBody(apiKeySchema), async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const m = ctx.m;
-  if (m.authMode !== "apikey") {
-    return res.status(400).json({ error: "Model is not in apikey mode" });
-  }
-  if (!PROVIDERS[m.provider].supportsApiKey) {
-    return res.status(400).json({ error: `${m.provider} doesn't connect with an API key` });
-  }
-  const { apiKey } = req.body as z.infer<typeof apiKeySchema>;
-  const cfg = safeParseConfig(m.configJson);
-  cfg.apiKeyEncrypted = encryptSecret(apiKey, ctx.co.id);
-  cfg.apiKeyPreview = maskSecret(apiKey);
-  m.configJson = JSON.stringify(cfg);
-  m.connectedAt = new Date();
-  await AppDataSource.getRepository(AIModel).save(m);
-  // First moment we can ask the provider anything — find out how much room the
-  // model actually has.
-  await refreshContextWindow(m);
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.apikey.set",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: { provider: m.provider },
-  });
-  res.json(await publicModel(m, ctx.emp));
-});
+modelsRouter.post(
+  "/:id/apikey",
+  validateParams(modelItemParamsSchema),
+  validateBody(apiKeySchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const m = ctx.m;
+    if (m.authMode !== "apikey") {
+      return res.status(400).json({ error: "Model is not in apikey mode" });
+    }
+    if (!PROVIDERS[m.provider].supportsApiKey) {
+      return res.status(400).json({ error: `${m.provider} doesn't connect with an API key` });
+    }
+    const { apiKey } = req.body as z.infer<typeof apiKeySchema>;
+    let verified: AIModel;
+    try {
+      verified = await replaceApiKey(m, apiKey, ctx.co.id);
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      return res.status(error.status).json({ error: error.message });
+    }
+    // First moment we can ask the provider anything — find out how much room the
+    // model actually has.
+    await refreshContextWindow(verified);
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.apikey.set",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: { provider: m.provider },
+    });
+    res.json(await publicModel(verified, ctx.emp));
+  },
+);
 
 // POST /api/companies/:cid/employees/:eid/models/:id/subscription/device
 //
@@ -498,6 +609,8 @@ modelsRouter.post(
     try {
       saved = await saveSubscriptionAccessToken(m.id, accessToken);
     } catch (error) {
+      if (error instanceof ModelSetupError)
+        return res.status(error.status).json({ error: error.message });
       if (!(error instanceof SubscriptionCredentialConflictError)) throw error;
       return res.status(409).json({
         error: error.message,
@@ -541,73 +654,84 @@ const customEndpointSchema = z.object({
   apiKey: z.string().trim().min(1).max(500).optional(),
 });
 
-modelsRouter.post("/:id/custom-endpoint", validateBody(customEndpointSchema), async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const m = ctx.m;
-  if (m.authMode !== "customEndpoint") {
-    return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
-  }
-  if (!PROVIDERS[m.provider].supportsCustomEndpoint) {
-    return res.status(400).json({
-      error: `${m.provider} can't host a custom OpenAI-compatible endpoint.`,
+modelsRouter.post(
+  "/connect-custom",
+  validateParams(modelCollectionParamsSchema),
+  validateBody(customEndpointSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadContext(p.cid, p.eid);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    try {
+      const model = await connectCustomModel({
+        ...(req.body as z.infer<typeof customEndpointSchema>),
+        employeeId: ctx.emp.id,
+        companyId: ctx.co.id,
+      });
+      await refreshContextWindow(model);
+      await recordAudit({
+        companyId: ctx.co.id,
+        actorUserId: req.userId ?? null,
+        action: "model.customEndpoint.set",
+        targetType: "employee",
+        targetId: ctx.emp.id,
+        targetLabel: ctx.emp.name,
+        metadata: { provider: "custom", modelId: model.model, verified: true },
+      });
+      res.json(await publicModel(model, ctx.emp));
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      res.status(error.status).json({ error: error.message });
+    }
+  },
+);
+
+modelsRouter.post(
+  "/:id/custom-endpoint",
+  validateParams(modelItemParamsSchema),
+  validateBody(customEndpointSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const m = ctx.m;
+    if (m.authMode !== "customEndpoint") {
+      return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
+    }
+    if (!PROVIDERS[m.provider].supportsCustomEndpoint) {
+      return res.status(400).json({
+        error: `${m.provider} can't host a custom OpenAI-compatible endpoint.`,
+      });
+    }
+    const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
+    let verified: AIModel;
+    try {
+      verified = await connectCustomModel(
+        { baseURL, modelId, apiKey, employeeId: ctx.emp.id, companyId: ctx.co.id },
+        m,
+      );
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      return res.status(error.status).json({ error: error.message });
+    }
+    await refreshContextWindow(verified);
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.customEndpoint.set",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: m.provider,
+        host: previewBaseURL(baseURL),
+        modelId,
+        hasApiKey: Boolean(apiKey),
+      },
     });
-  }
-  const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
-  try {
-    await assertSafeOutboundUrl(baseURL);
-  } catch (error) {
-    return res.status(400).json({
-      error: error instanceof Error ? error.message : "Unsafe custom endpoint URL",
-    });
-  }
-  // Read the old target before we overwrite it: whether this save points the
-  // model somewhere new decides whether the window we knew is still true.
-  const previous = readCustomEndpoint(m);
-  const targetChanged = !previous || previous.baseURL !== baseURL || previous.modelId !== modelId;
-  const cfg = safeParseConfig(m.configJson);
-  cfg.baseURLEncrypted = encryptSecret(baseURL, ctx.co.id);
-  cfg.baseURLPreview = previewBaseURL(baseURL);
-  cfg.modelId = modelId;
-  if (apiKey) {
-    cfg.apiKeyEncrypted = encryptSecret(apiKey, ctx.co.id);
-    cfg.apiKeyPreview = maskSecret(apiKey);
-  } else {
-    // Clear any previously-set key so toggling apiKey off actually unsets it.
-    delete cfg.apiKeyEncrypted;
-    delete cfg.apiKeyPreview;
-  }
-  m.configJson = JSON.stringify(cfg);
-  // Mirror the model id onto the row so the in-process client uses it directly.
-  m.model = modelId;
-  m.connectedAt = new Date();
-  // Only drop the window when this save actually re-points the model. Pointed
-  // at new weights, the old number is stale by definition — but a save that
-  // merely rotates the API key shouldn't silently discard a number an operator
-  // typed in, which is the one case where we can't get it back by asking.
-  if (targetChanged) {
-    m.contextWindow = null;
-    m.contextWindowSource = null;
-  }
-  await AppDataSource.getRepository(AIModel).save(m);
-  await refreshContextWindow(m);
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.customEndpoint.set",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: {
-      provider: m.provider,
-      host: cfg.baseURLPreview,
-      modelId,
-      hasApiKey: Boolean(apiKey),
-    },
-  });
-  res.json(await publicModel(m, ctx.emp));
-});
+    res.json(await publicModel(verified, ctx.emp));
+  },
+);
 
 // POST /api/companies/:cid/employees/:eid/models/:id/refresh
 // Recompute connection status. Cheap; kept for the client to reconcile after a

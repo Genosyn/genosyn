@@ -126,8 +126,11 @@ function recommend(overrides: Partial<Parameters<typeof recommendOnboarding>[0]>
 }
 
 describe("onboarding Routine recommendation scoring", () => {
-  test("uses a validated hiring template as the strongest role signal", () => {
-    const result = recommend({ templateId: "paid-marketing" });
+  test("uses a hiring template only when it matches the employee's current role", () => {
+    const result = recommend({
+      templateId: "paid-marketing",
+      employee: { ...employee, role: "Performance Marketer" },
+    });
 
     assert.equal(result.routines[0]?.id, "daily-ad-pacing");
     assert(result.routines.some((item) => item.id === "weekly-ad-spend-report"));
@@ -144,22 +147,97 @@ describe("onboarding Routine recommendation scoring", () => {
     assert(result.routines[0]?.reasons.some((reason) => reason.includes("Software Engineer")));
   });
 
-  test("lets mission and vision outcomes change the ranking", () => {
-    const baseline = recommend({ employee: { ...employee, role: "Coordinator" } });
-    const customerLed = recommend({
+  test("lets mission and vision rank responsibilities within the employee's role", () => {
+    const baseline = recommend({ employee: { ...employee, role: "Product Manager" } });
+    const engineeringLed = recommend({
       company: {
         ...company,
-        mission: "Keep every customer through proactive support and retention.",
-        vision: "Customer adoption without preventable churn.",
+        mission: "Deliver reliable software for every developer.",
+        vision: "Engineering teams build a trustworthy platform without preventable code defects.",
       },
-      employee: { ...employee, role: "Coordinator" },
+      employee: { ...employee, role: "Product Manager" },
     });
 
-    assert.equal(baseline.routines[0]?.id, "daily-priority-check");
-    assert.equal(customerLed.routines[0]?.id, "daily-customer-health");
+    assert.equal(baseline.routines[0]?.id, "monday-status-digest");
+    assert.equal(engineeringLed.routines[0]?.id, "engineering-issue-triage");
     assert(
-      customerLed.routines[0]?.reasons.some((reason) => reason.includes("company priorities")),
+      engineeringLed.routines[0]?.reasons.some((reason) => reason.includes("company priorities")),
     );
+  });
+
+  test("a sales mission does not turn an engineer into a salesperson", () => {
+    const result = recommend({
+      company: {
+        ...company,
+        mission: "Grow sales, revenue, deals, outbound, prospects and conversion.",
+        vision: "End churn with customer adoption, support, renewals and retention.",
+      },
+      employee: { ...employee, role: "Software Engineer" },
+    });
+
+    assert.equal(result.routines[0]?.id, "engineering-issue-triage");
+    assert.deepEqual(
+      result.routines.map((item) => item.id),
+      [
+        "engineering-issue-triage",
+        "daily-priority-check",
+        "weekly-outcome-review",
+        "monthly-mission-check",
+      ],
+    );
+    for (const item of result.routines) {
+      assert.match(item.body, /Software Engineer/);
+      assert.match(item.body, /Grow sales, revenue, deals/);
+      assert.match(item.body, /End churn with customer adoption/);
+      assert.match(item.body, /within the AI Employee's stated role and Soul/);
+    }
+  });
+
+  test("a stale template hint cannot override an edited role or Integration ranking", () => {
+    const args = {
+      employee: { ...employee, role: "Software Engineer" },
+      catalog: [
+        catalogEntry("github"),
+        catalogEntry("linear"),
+        catalogEntry("google"),
+        catalogEntry("stripe"),
+      ],
+    };
+    const expected = recommend(args);
+    const stale = recommend({ ...args, templateId: "paid-marketing" });
+
+    assert.deepEqual(stale, expected);
+    assert(
+      stale.routines.every(
+        (item) => !item.reasons.some((reason) => reason.includes("starting role")),
+      ),
+    );
+  });
+
+  test("a custom role gets only general work scoped to its actual responsibilities", () => {
+    const result = recommend({
+      company: {
+        ...company,
+        mission: "Boost sales and revenue growth.",
+        vision: "Worldwide customer adoption.",
+      },
+      employee: { ...employee, role: "Conservation Biologist" },
+      templateId: "sdr",
+    });
+
+    assert.equal(result.routines.length, 3);
+    assert(result.routines.every((item) => item.body.includes("Conservation Biologist")));
+    assert(
+      result.routines.every((item) => !item.id.includes("deal") && !item.id.includes("revenue")),
+    );
+  });
+
+  test("refreshing without the original template still recognizes the saved role", () => {
+    const result = recommend({
+      employee: { ...employee, role: "Senior Customer Support Specialist" },
+    });
+    assert(result.routines.some((item) => item.id === "daily-customer-health"));
+    assert(result.routines.some((item) => item.id === "product-feedback-digest"));
   });
 
   test("returns the same useful fallback when no context matches", () => {
@@ -180,7 +258,7 @@ describe("onboarding Routine recommendation scoring", () => {
       first.routines.slice(0, 3).map((item) => item.id),
       ["daily-priority-check", "weekly-outcome-review", "monthly-mission-check"],
     );
-    assert.equal(first.routines.length, 4);
+    assert.equal(first.routines.length, 3);
   });
 
   test("ships only schedulable cron expressions", () => {
@@ -214,6 +292,21 @@ describe("onboarding Routine recommendation scoring", () => {
     assert.match(body, /## Guardrails/);
   });
 
+  test("includes the full saved mission and vision instead of dropping the end of long fields", () => {
+    const mission = `${"Accessible research. ".repeat(85)}Serve independent schools.`;
+    const vision = `${"Confident decisions. ".repeat(85)}Every classroom benefits.`;
+    assert(mission.length <= 2_000 && vision.length <= 2_000);
+    const result = recommend({
+      company: { ...company, mission, vision },
+      employee: { ...employee, role: "Research Analyst" },
+    });
+
+    for (const item of result.routines) {
+      assert(item.body.includes(mission));
+      assert(item.body.includes(vision));
+    }
+  });
+
   test("marks all matching seeded Routines ready and backfills alternatives", () => {
     const result = recommend({
       templateId: "revops-analyst",
@@ -234,6 +327,22 @@ describe("onboarding Routine recommendation scoring", () => {
     );
     assert.equal(new Set(result.routines.map((item) => item.id)).size, result.routines.length);
     assert(result.routines.some((item) => item.status === "suggested"));
+  });
+
+  test("an existing Routine is shown without presenting it as newly suitable for an edited role", () => {
+    const result = recommend({
+      employee: { ...employee, role: "Software Engineer" },
+      existingRoutines: [routine({ id: "previous-role", name: "Weekly deal hygiene" })],
+    });
+
+    const existing = result.routines.find((item) => item.routineId === "previous-role");
+    assert.equal(existing?.status, "ready");
+    assert(existing?.reasons.some((reason) => reason.includes("already has")));
+    assert(
+      result.routines.some(
+        (item) => item.id === "engineering-issue-triage" && item.status === "suggested",
+      ),
+    );
   });
 });
 

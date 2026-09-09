@@ -54,10 +54,18 @@ export function createOpenAIClient(opts: {
   return {
     model: opts.model,
     maxTools: opts.maxTools ?? null,
-    async streamTurn({ system, messages, tools, signal, onText }): Promise<AssistantTurn> {
+    async streamTurn({
+      system,
+      messages,
+      tools,
+      signal,
+      onText,
+      maxOutputTokens,
+    }): Promise<AssistantTurn> {
       const stream = await client.chat.completions.create(
         {
           model: opts.model,
+          ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
           stream: true,
           // Without this, a streamed response reports no token counts at all —
           // the server defaults it off. It's how we learn how full the context

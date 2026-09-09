@@ -268,10 +268,7 @@ export default function App() {
             <Route path="/signup" element={<Signup onAuth={refresh} />} />
             <Route path="/forgot" element={<Forgot />} />
             <Route path="/reset/:token" element={<Reset />} />
-            <Route
-              path="/verify-email/:token"
-              element={<VerifyEmailLink onVerified={refresh} />}
-            />
+            <Route path="/verify-email/:token" element={<VerifyEmailLink onVerified={refresh} />} />
             <Route path="/invite/:token" element={<Invite authenticated={false} />} />
             {/* The bind link an AI Employee replies with on Slack, Microsoft
               Teams, WhatsApp or Telegram (M59). Declared here as well as in
@@ -297,10 +294,7 @@ export default function App() {
                 <Navigate to={invitationPath(invitationTokenFromSearch(location.search))} replace />
               }
             />
-            <Route
-              path="/verify-email/:token"
-              element={<VerifyEmailLink onVerified={refresh} />}
-            />
+            <Route path="/verify-email/:token" element={<VerifyEmailLink onVerified={refresh} />} />
             <Route
               path="*"
               element={
@@ -412,7 +406,10 @@ function CompanyRoutes({
           {/* Home — the post-sign-in landing page: everything that needs the
             member's attention plus quick navigation. */}
           <Route index element={<HomePage company={company} me={me} />} />
-          <Route path="onboarding" element={<CompanyOnboarding company={company} />} />
+          <Route
+            path="onboarding"
+            element={<CompanyOnboarding company={company} onCompanyChanged={onCompaniesChanged} />}
+          />
 
           {/* TLDRs — periodic company briefings written by a selected AI Employee. */}
           <Route path="tldrs" element={<TldrsLayout company={company} />}>
@@ -448,7 +445,10 @@ function CompanyRoutes({
           {/* Employees section — sidebar = roster */}
           <Route path="employees" element={<EmployeesLayout company={company} />}>
             <Route index element={<EmployeesIndex company={company} />} />
-            <Route path="new" element={<EmployeeNew company={company} />} />
+            <Route
+              path="new"
+              element={<EmployeeNew company={company} onCompanyChanged={onCompaniesChanged} />}
+            />
           </Route>
 
           {/* Selected-employee section — no sidebar. An employee is two places:
@@ -874,26 +874,14 @@ function EmployeeRoutinesRedirect({ companySlug }: { companySlug: string }) {
  * under Settings. Kept as a list because both the routes and their redirects
  * are generated from it.
  */
-const EMPLOYEE_SETTINGS_MOVED = [
-  "journal",
-  "handoffs",
-  "memory",
-  "connections",
-  "mcp",
-] as const;
+const EMPLOYEE_SETTINGS_MOVED = ["journal", "handoffs", "memory", "connections", "mcp"] as const;
 
 /**
  * The employee sidebar collapsed into Chat + Settings, so the five surfaces
  * that used to have their own top-level entry now answer at
  * `/employees/:empSlug/settings/<tab>`. Any query string rides along.
  */
-function EmployeeSettingsRedirect({
-  companySlug,
-  tab,
-}: {
-  companySlug: string;
-  tab: string;
-}) {
+function EmployeeSettingsRedirect({ companySlug, tab }: { companySlug: string; tab: string }) {
   const { empSlug } = useParams();
   const { search } = useLocation();
   return (

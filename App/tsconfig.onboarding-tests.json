@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@/*": ["client/*"],
+      "@server/*": ["server/*"],
+      "@config": ["config.ts"]
+    }
+  },
+  "include": [
+    "scripts/browserFixture.ts",
+    "scripts/fullstackOnboardingServer.ts",
+    "scripts/onboardingHarness.tsx",
+    "scripts/modelSetupHarness.tsx",
+    "scripts/mailConnectHarness.tsx",
+    "scripts/test-onboarding.ts",
+    "scripts/test-onboarding-fullstack.ts",
+    "scripts/test-model-setup.ts",
+    "scripts/test-mail-connect.ts",
+    "client/**/*.d.ts",
+    "server/**/*.d.ts"
+  ]
+}

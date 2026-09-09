@@ -6,11 +6,7 @@ import { createApiKeyConnection, deleteConnection } from "../integrations.js";
 import { registeredOauthApps } from "../oauthApps.js";
 import { createMailAccount } from "./accounts.js";
 import { assertMailConnectionAllowed } from "./hostPolicy.js";
-import {
-  discoverMailbox,
-  type MailboxConnectRoute,
-  type MailboxDiscovery,
-} from "./discovery.js";
+import { discoverMailbox, type MailboxConnectRoute, type MailboxDiscovery } from "./discovery.js";
 
 /**
  * "Type your email address, press continue."
@@ -24,8 +20,8 @@ import {
  *
  * This module inverts it. {@link describeMailboxConnect} takes an address and
  * answers with what will work for it — a one-click Google button when the
- * install has a Google app registered, an IMAP form with the right servers
- * already filled in otherwise. {@link connectImapMailbox} then does the whole
+ * install has a Google app registered, and an IMAP form with the right servers
+ * already filled in for other mailboxes. {@link connectImapMailbox} then does the whole
  * rest in one call: verify the credential, create the Connection, create the
  * MailAccount, start the import.
  */
@@ -72,7 +68,7 @@ export async function describeMailboxConnect(email: string): Promise<MailboxConn
       ...(ready
         ? {}
         : {
-            blockedReason: `No ${route.provider === "google" ? "Google" : "Microsoft"} OAuth app is registered on this install. An instance admin can add one at Admin → Integrations, or you can connect this mailbox with an app password instead.`,
+            blockedReason: `No ${route.provider === "google" ? "Google" : "Microsoft"} OAuth app is registered on this install. Ask an instance admin to add one at Admin → Integrations, then return here to sign in.`,
           }),
     };
   });
