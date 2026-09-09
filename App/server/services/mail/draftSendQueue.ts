@@ -267,6 +267,7 @@ async function createDraftSendBatchUnlocked(
       maximumDelaySeconds: 120,
     },
   });
+  notifyMailChanged(account);
   return { batch, added: addedItems.length };
 }
 

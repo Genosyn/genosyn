@@ -194,6 +194,15 @@ export function Email() {
         night&apos;s work is a single scannable list instead of a folder to click through.
       </P>
       <P>
+        <Strong>Home → Draft emails</Strong> shows the total waiting for review across your
+        company&apos;s mailboxes, with up to five recent drafts. Each preview shows the subject,
+        recipients, and mailbox; open it to review, edit, and send from its thread. Choose{" "}
+        <Strong>Review drafts</Strong> or a mailbox&apos;s count to open its{" "}
+        <Strong>Drafts</Strong> queue. Drafts already queued for sending leave the count; failed
+        sends return for review. The section updates as drafts change and when you return to the
+        browser tab, and disappears when nothing needs review.
+      </P>
+      <P>
         Every row shows who wrote it: the <Strong>AI Employee</Strong> and the{" "}
         <Strong>Routine</Strong> that produced it, next to the recipient, subject, and a preview.
         Filter the queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the

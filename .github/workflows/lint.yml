@@ -108,6 +108,10 @@ jobs:
         run: npm run test:decision-discussions
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test Home draft counts, mailbox review links, and live updates
+        run: npm run test:home-mail-drafts
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test Work session model selection
         run: npm run test:work-session-models
         env:

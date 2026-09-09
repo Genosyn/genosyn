@@ -20,6 +20,7 @@
     "test:decision-discussions": "tsx scripts/test-decision-discussions.ts",
     "test:home-layout": "tsx scripts/test-home-layout.ts",
     "test:home-repository-work": "tsx scripts/test-home-repository-work.ts",
+    "test:home-mail-drafts": "tsx scripts/test-home-mail-drafts.ts",
     "test:saas-postgres": "tsx server/scripts/testSaasPostgres.ts",
     "typeorm": "tsx ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d ormconfig.ts",
