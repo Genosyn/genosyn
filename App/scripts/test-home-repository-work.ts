@@ -119,6 +119,9 @@ function homeData(items: HomeRepositoryWork[]): HomeData {
   return {
     repositoryWork: items.slice(0, 8),
     repositoryWorkCount: items.length,
+    draftEmails: [],
+    draftEmailCount: 0,
+    draftEmailAccounts: [],
     notifications: [],
     unreadNotificationCount: 0,
     decisions: [],
