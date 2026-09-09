@@ -32,7 +32,9 @@ export async function startBrowserFixture(harness: string, port: number) {
         try {
           await new Promise<void>((resolve, reject) => {
             server.httpServer.close((error) => (error ? reject(error) : resolve()));
-            server.httpServer.closeAllConnections();
+            if ("closeAllConnections" in server.httpServer) {
+              server.httpServer.closeAllConnections();
+            }
           });
         } finally {
           await fs.rm(fixtureRoot, { recursive: true, force: true });

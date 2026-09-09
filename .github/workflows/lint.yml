@@ -134,6 +134,8 @@ jobs:
           cache-dependency-path: App/package-lock.json
       - run: npm ci
       - run: npx playwright-core install --with-deps chromium
+      - name: Typecheck onboarding browser fixtures
+        run: npx tsc -p tsconfig.onboarding-tests.json
       - name: Test company direction, hiring, and Routine selection
         run: npm run test:onboarding
       - name: Test model discovery and verified connection forms
