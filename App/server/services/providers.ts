@@ -8,15 +8,13 @@ import type { AIModel, Provider } from "../db/entities/AIModel.js";
  * provider CLI harnesses.
  *
  *   - anthropic → Anthropic Messages API (Claude), API key
- *   - openai    → OpenAI Chat Completions API (GPT), API key
+ *   - openai    → OpenAI Responses API (GPT), API key
  *   - custom    → any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp,
  *                 LM Studio, a gateway), base URL + model id + optional key
  */
 export type ProviderSpec = {
   /** Human label shown in the UI. */
   label: string;
-  /** Default model id seeded when the user first picks this provider. */
-  defaultModel: string;
   /** Env var the provider's own tooling conventionally reads — informational. */
   apiKeyEnv: string | null;
   /** Does this provider connect with a plain API key? */
@@ -30,7 +28,6 @@ export type ProviderSpec = {
 export const PROVIDERS: Record<Provider, ProviderSpec> = {
   anthropic: {
     label: "Anthropic (Claude)",
-    defaultModel: "claude-opus-4-6",
     apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsApiKey: true,
     supportsSubscription: false,
@@ -38,7 +35,6 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
   },
   openai: {
     label: "OpenAI (GPT)",
-    defaultModel: "gpt-4o",
     apiKeyEnv: "OPENAI_API_KEY",
     supportsApiKey: true,
     supportsSubscription: true,
@@ -46,7 +42,6 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
   },
   custom: {
     label: "Custom OpenAI-compatible endpoint",
-    defaultModel: "",
     apiKeyEnv: null,
     supportsApiKey: false,
     supportsSubscription: false,

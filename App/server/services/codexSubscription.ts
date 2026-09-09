@@ -8,6 +8,8 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Membership } from "../db/entities/Membership.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
 import { CodexAppServer } from "./agent/codexAppServer.js";
+import { verifyCodexModel } from "./codexModelSetup.js";
+import { modelSetupFailure } from "./modelCatalog.js";
 import { bubblewrapProbeError } from "./runtimeSecurity.js";
 
 const AUTH_FILE_MAX_BYTES = 2 * 1024 * 1024;
@@ -54,6 +56,7 @@ type DeviceSession = PublicSubscriptionDeviceSession & {
   companyId: string;
   actorUserId: string;
   expectedConfigJson: string;
+  expectedModel: string;
   loginId: string | null;
   home: IsolatedCodexHome;
   server: CodexAppServer;
@@ -236,6 +239,22 @@ export async function saveSubscriptionAccessToken(
   await cancelSubscriptionDeviceLoginsForModel(modelId);
   const model = await loadSubscriptionModel(modelId);
   const nextConfig = configWithSubscriptionAccessToken(model, accessToken);
+  const home = await createIsolatedCodexHome();
+  let server: CodexAppServer | null = null;
+  let verifiedModel: string;
+  try {
+    server = await CodexAppServer.start({
+      cwd: home.workspace,
+      env: codexEnvironment(home.authRoot, accessToken),
+      configOverrides: [...CODEX_CONFIG_OVERRIDES],
+    });
+    verifiedModel = await verifyCodexModel(server, home.workspace, model.model);
+  } catch (error) {
+    throw modelSetupFailure(error, "test this ChatGPT AI Model");
+  } finally {
+    await server?.close().catch(() => undefined);
+    await removeIsolatedCodexHome(home);
+  }
   const repo = AppDataSource.getRepository(AIModel);
   const updated = await repo.update(
     {
@@ -243,9 +262,11 @@ export async function saveSubscriptionAccessToken(
       provider: "openai",
       authMode: "subscription",
       configJson: model.configJson,
+      model: model.model,
     },
     {
       configJson: nextConfig,
+      model: verifiedModel,
       connectedAt: new Date(),
     },
   );
@@ -321,6 +342,7 @@ async function startSubscriptionDeviceLoginInner(
       companyId: authorization.companyId,
       actorUserId: authorization.actorUserId,
       expectedConfigJson: model.configJson,
+      expectedModel: model.model,
       status: "running" as const,
       output: "Waiting for ChatGPT device authorization.",
       loginUrl: null,
@@ -565,6 +587,12 @@ async function settleDeviceSession(
       if (!confirmed) {
         throw new Error("OpenAI Codex did not confirm the managed ChatGPT account.");
       }
+      session.output = "Testing the ChatGPT AI Model…";
+      const verifiedModel = await verifyCodexModel(
+        session.server,
+        session.home.workspace,
+        session.expectedModel,
+      );
       const authJson = await readManagedAuthJson(session.home.authRoot);
       const membership = await AppDataSource.getRepository(Membership).findOneBy({
         companyId: session.companyId,
@@ -583,9 +611,11 @@ async function settleDeviceSession(
           provider: "openai",
           authMode: "subscription",
           configJson: session.expectedConfigJson,
+          model: session.expectedModel,
         },
         {
           configJson: JSON.stringify(cfg),
+          model: verifiedModel,
           connectedAt: new Date(),
         },
       );

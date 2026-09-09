@@ -14,8 +14,8 @@ import { safeFetchBuffer } from "../../lib/outboundUrl.js";
  *
  * This module removes the guessing. Give it `someone@example.com` and it
  * answers with the routes that will actually work for that address, best
- * first: the provider's OAuth flow when one is wired up, and an IMAP/SMTP
- * route with real host names and ports otherwise. The UI shows one text field,
+ * first: Google's OAuth flow for Gmail and Workspace, and an IMAP/SMTP
+ * route with real host names and ports for other mailboxes. The UI shows one text field,
  * and everything after it is either a button or a password box.
  *
  * Resolution runs in the order a human would try:
@@ -153,7 +153,7 @@ type BuiltinProvider = {
   imap?: MailboxServer;
   smtp?: MailboxServer;
   password?: MailboxPasswordHelp;
-  /** An OAuth route to offer ahead of IMAP. */
+  /** An OAuth route, when sign-in is supported for this provider. */
   oauth?: { provider: "google" | "microsoft"; label: string; scopeGroups: string[] };
   /** Set when there is no IMAP to connect to. */
   unsupportedReason?: string;
@@ -166,8 +166,8 @@ const APP_PASSWORD = (summary: string, url?: string): MailboxPasswordHelp => ({ 
  *
  * Order matters only for MX matching, where the first suffix hit wins — the
  * Google and Microsoft entries lead because a custom domain sitting behind
- * Workspace or 365 is by far the most common case, and both have an OAuth
- * route that beats IMAP.
+ * Workspace or 365 is by far the most common case. Gmail and Workspace use
+ * Google sign-in exclusively in the connect flow.
  */
 export const BUILTIN_MAIL_PROVIDERS: BuiltinProvider[] = [
   {
@@ -175,12 +175,6 @@ export const BUILTIN_MAIL_PROVIDERS: BuiltinProvider[] = [
     displayName: "Gmail",
     domains: ["gmail.com", "googlemail.com"],
     mxSuffixes: ["aspmx.l.google.com", "googlemail.com", "google.com"],
-    imap: { host: "imap.gmail.com", port: 993, secure: true },
-    smtp: { host: "smtp.gmail.com", port: 465, secure: true },
-    password: APP_PASSWORD(
-      "Gmail rejects your normal password here. Turn on 2-Step Verification, then create a 16-character App password and paste it below.",
-      "https://myaccount.google.com/apppasswords",
-    ),
     oauth: { provider: "google", label: "Continue with Google", scopeGroups: ["mail"] },
   },
   {

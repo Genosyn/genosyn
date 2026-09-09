@@ -56,10 +56,18 @@ export function createOpenAIResponsesClient(opts: {
   return {
     model: opts.model,
     maxTools: opts.maxTools ?? null,
-    async streamTurn({ system, messages, tools, signal, onText }): Promise<AssistantTurn> {
+    async streamTurn({
+      system,
+      messages,
+      tools,
+      signal,
+      onText,
+      maxOutputTokens,
+    }): Promise<AssistantTurn> {
       const stream = await client.responses.create(
         {
           model: opts.model,
+          ...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}),
           ...(opts.effort != null ? { reasoning: { effort: opts.effort } } : {}),
           stream: true,
           // Responses takes the system prompt as a top-level field rather than a

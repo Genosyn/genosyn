@@ -260,5 +260,7 @@ export interface ModelClient {
     tools: ToolDef[];
     signal?: AbortSignal;
     onText?: (delta: string) => void;
+    /** Optional small output budget for a connection probe. */
+    maxOutputTokens?: number;
   }): Promise<AssistantTurn>;
 }

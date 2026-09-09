@@ -1,3 +1,4 @@
+import { fakeCodexVerification, successfulModelStream } from "../test/modelVerification.js";
 import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -17,9 +18,13 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
-import { decryptSecret } from "../lib/secret.js";
+import { decryptSecret, encryptSecret } from "../lib/secret.js";
 import { errorHandler } from "../middleware/error.js";
 import { CodexAppServer } from "../services/agent/codexAppServer.js";
+import {
+  CODEX_CONFIG_OVERRIDES,
+  configWithSubscriptionAccessToken,
+} from "../services/codexSubscription.js";
 import { resetBubblewrapProbeCacheForTests } from "../services/runtimeSecurity.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { modelsRouter } from "./models.js";
@@ -102,7 +107,14 @@ after(async () => {
   await closeTestDb();
 });
 
-beforeEach(async () => {
+beforeEach(async (t) => {
+  assert.ok("mock" in t, "beforeEach runs with a test context");
+  t.mock.method(
+    CodexAppServer,
+    "start",
+    async (options: Parameters<typeof CodexAppServer.start>[0]) =>
+      fakeCodexVerification(options.cwd),
+  );
   await resetTestDb();
   security.multiTenant = false;
   security.encryptionSecret = "models-subscription-policy-encryption-secret-2026";
@@ -167,6 +179,287 @@ async function insertSubscriptionModel(): Promise<AIModel> {
     contextWindowSource: null,
   });
 }
+
+describe("verified subscription model edits", () => {
+  async function connectedModel() {
+    const model = await insertSubscriptionModel();
+    model.configJson = configWithSubscriptionAccessToken(model, "existing-fixture-token");
+    model.connectedAt = new Date("2026-01-01");
+    return AppDataSource.getRepository(AIModel).save(model);
+  }
+
+  function edit(id: string, model: string) {
+    return call("PUT", `/${id}`, { provider: "openai", authMode: "subscription", model });
+  }
+
+  test("blank UI choice resolves auto to the live default and verifies before saving", async (t) => {
+    const previous = await connectedModel();
+    let authRoot = "";
+    let starts = 0;
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      starts++;
+      authRoot = options.env.CODEX_HOME ?? "";
+      assert.deepEqual(options.configOverrides, CODEX_CONFIG_OVERRIDES);
+      assert.equal(options.env.CODEX_ACCESS_TOKEN, "existing-fixture-token");
+      assert.notEqual(options.cwd, authRoot);
+      assert.equal(
+        (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id })).model,
+        previous.model,
+      );
+      return fakeCodexVerification(options.cwd, { model: "gpt-workspace-current" });
+    });
+    const response = await edit(previous.id, "auto");
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.model, "gpt-workspace-current");
+    assert.equal(response.body.status, "connected");
+    assert.equal(starts, 1);
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id });
+    assert.equal(saved.configJson, previous.configJson);
+    assert.ok(saved.connectedAt! > previous.connectedAt!);
+    assert.equal(saved.isActive, true);
+    await assert.rejects(fs.access(authRoot));
+  });
+
+  test("auto resolving to the current model preserves a concurrent context edit", async (t) => {
+    const previous = await connectedModel();
+    await AppDataSource.getRepository(AIModel).update(
+      { id: previous.id },
+      { contextWindow: 32_000, contextWindowSource: "manual" },
+    );
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      await AppDataSource.getRepository(AIModel).update(
+        { id: previous.id },
+        { contextWindow: 64_000, contextWindowSource: "manual" },
+      );
+      return fakeCodexVerification(options.cwd, { model: previous.model });
+    });
+    const response = await edit(previous.id, "auto");
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.model, previous.model);
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id });
+    assert.equal(saved.contextWindow, 64_000);
+    assert.equal(saved.contextWindowSource, "manual");
+    assert.ok(saved.connectedAt! > previous.connectedAt!);
+  });
+
+  test("explicit model edits verify the requested ID and preserve a concurrently activated sibling", async (t) => {
+    const previous = await connectedModel();
+    const sibling = await insert(AIModel, {
+      employeeId: employee.id,
+      provider: "openai",
+      authMode: "apikey",
+      model: "sibling",
+      configJson: "{}",
+      isActive: false,
+    });
+    let requested = "";
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      await AppDataSource.getRepository(AIModel).update({ id: previous.id }, { isActive: false });
+      await AppDataSource.getRepository(AIModel).update({ id: sibling.id }, { isActive: true });
+      const server = fakeCodexVerification(options.cwd);
+      const request = server.request.bind(server);
+      t.mock.method(server, "request", async (method, params, timeout) => {
+        if (method === "thread/start")
+          requested = String((params as Record<string, unknown>).model);
+        assert.notEqual(
+          method,
+          "model/list",
+          "An explicit selection must not be replaced by discovery",
+        );
+        return request(method, params, timeout);
+      });
+      return server;
+    });
+    const response = await edit(previous.id, "gpt-my-choice");
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(requested, "gpt-my-choice");
+    assert.equal(response.body.model, "gpt-my-choice");
+    assert.equal(
+      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id })).isActive,
+      false,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: sibling.id })).isActive,
+      true,
+    );
+  });
+
+  test("a failed reply keeps the previous selected model and working credential", async (t) => {
+    const previous = await connectedModel();
+    let authRoot = "";
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      authRoot = options.env.CODEX_HOME ?? "";
+      return fakeCodexVerification(options.cwd, { status: "failed" });
+    });
+    const response = await edit(previous.id, "not-available");
+    assert.equal(response.status, 422);
+    assert.match(String(response.body.error), /could not answer/);
+    assert.deepEqual(
+      await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id }),
+      previous,
+    );
+    await assert.rejects(fs.access(authRoot));
+  });
+
+  test("the absent workspace default never replaces a working model with auto", async (t) => {
+    const previous = await connectedModel();
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      const server = fakeCodexVerification(options.cwd);
+      t.mock.method(server, "request", async () => ({ data: [], nextCursor: null }));
+      return server;
+    });
+    const response = await edit(previous.id, "auto");
+    assert.equal(response.status, 422);
+    assert.match(String(response.body.error), /did not return a default/);
+    assert.deepEqual(
+      await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id }),
+      previous,
+    );
+  });
+
+  test("credential replacement during verification returns conflict without restoring the old token", async (t) => {
+    const previous = await connectedModel();
+    const replacement = configWithSubscriptionAccessToken(previous, "newer-fixture-token");
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      await AppDataSource.getRepository(AIModel).update(
+        { id: previous.id },
+        { configJson: replacement },
+      );
+      return fakeCodexVerification(options.cwd);
+    });
+    const response = await edit(previous.id, "auto");
+    assert.equal(response.status, 409);
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id });
+    assert.equal(saved.model, previous.model);
+    assert.equal(saved.configJson, replacement);
+  });
+
+  test("managed-session refresh is preserved when a verified model edit is saved", async (t) => {
+    const previous = await connectedModel();
+    const auth = {
+      auth_mode: "chatgpt",
+      tokens: { id_token: "fixture-id", access_token: "old-access", refresh_token: "old-refresh" },
+    };
+    previous.configJson = JSON.stringify({
+      codexAuthEncrypted: encryptSecret(JSON.stringify(auth)),
+    });
+    await AppDataSource.getRepository(AIModel).save(previous);
+    t.mock.method(CodexAppServer, "start", async (options) => {
+      const authFile = path.join(options.env.CODEX_HOME!, "auth.json");
+      assert.equal((await fs.stat(authFile)).mode & 0o777, 0o600);
+      assert.deepEqual(JSON.parse(await fs.readFile(authFile, "utf8")), auth);
+      await fs.writeFile(
+        authFile,
+        JSON.stringify({
+          ...auth,
+          tokens: { ...auth.tokens, refresh_token: "fresh-refresh", access_token: "fresh-access" },
+        }),
+      );
+      return fakeCodexVerification(options.cwd);
+    });
+    const response = await edit(previous.id, "gpt-explicit");
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id });
+    assert.equal(saved.model, "gpt-explicit");
+    const refreshed = JSON.parse(decryptSecret(JSON.parse(saved.configJson).codexAuthEncrypted));
+    assert.equal(refreshed.tokens.refresh_token, "fresh-refresh");
+    assert.equal(refreshed.tokens.access_token, "fresh-access");
+  });
+
+  test("disconnected placeholders can choose an ID before sign-in without starting a runtime", async (t) => {
+    const previous = await insertSubscriptionModel();
+    let starts = 0;
+    t.mock.method(CodexAppServer, "start", async () => {
+      starts++;
+      throw new Error("Unexpected runtime");
+    });
+    const response = await edit(previous.id, "auto");
+    assert.equal(response.status, 200);
+    assert.equal(response.body.model, "auto");
+    assert.equal(response.body.status, "not_connected");
+    assert.equal(starts, 0);
+  });
+});
+
+describe("API model setup routes", () => {
+  test("discovery is scoped, validates credentials, and never saves a model", async (t) => {
+    const originalFetch = globalThis.fetch;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).startsWith(baseUrl)) return originalFetch(input, init);
+        assert.equal(String(input), "https://api.openai.com/v1/models");
+        return Response.json({ data: [{ id: "gpt-live", created: 100 }] });
+      },
+    );
+    const invalid = await call("POST", "/discover", { provider: "openai", apiKey: "  " });
+    assert.equal(invalid.status, 400);
+    const result = await call("POST", "/discover", { provider: "openai", apiKey: "test-key" });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.recommendedModel, "gpt-live");
+    assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: user.id },
+      { role: "member" },
+    );
+    assert.equal(
+      (await call("POST", "/discover", { provider: "openai", apiKey: "test-key" })).status,
+      403,
+    );
+    assert.equal(
+      (await call("POST", "/connect", { provider: "openai", apiKey: "test-key" })).status,
+      403,
+    );
+  });
+
+  test("connect tests a real tool reply and returns a connected model without exposing credentials", async (t) => {
+    const originalFetch = globalThis.fetch;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).startsWith(baseUrl)) return originalFetch(input, init);
+        assert.match(String(input), /\/responses$/);
+        return successfulModelStream("openai");
+      },
+    );
+    const connected = await call("POST", "/connect", {
+      provider: "openai",
+      apiKey: "private-test-key",
+      model: "gpt-explicit",
+    });
+    assert.equal(connected.status, 200);
+    assert.equal(connected.body.status, "connected");
+    assert.equal(connected.body.model, "gpt-explicit");
+    assert.doesNotMatch(JSON.stringify(connected.body), /private-test-key/);
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      id: String(connected.body.id),
+    });
+    assert.equal(decryptSecret(JSON.parse(saved.configJson).apiKeyEncrypted), "private-test-key");
+  });
+
+  test("failed verification returns an actionable error and saves no connected row", async (t) => {
+    const originalFetch = globalThis.fetch;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).startsWith(baseUrl)) return originalFetch(input, init);
+        return Response.json({ error: { message: "secret-credential" } }, { status: 401 });
+      },
+    );
+    const response = await call("POST", "/connect", {
+      provider: "openai",
+      apiKey: "secret-credential",
+      model: "gpt-explicit",
+    });
+    assert.equal(response.status, 422);
+    assert.match(String(response.body.error), /rejected this credential/);
+    assert.doesNotMatch(JSON.stringify(response.body), /secret-credential/);
+    assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
+  });
+});
 
 describe("OpenAI subscription policy routes", () => {
   test("stock disabled mode creates, lists, and connects a subscription model without bubblewrap", async () => {
@@ -337,8 +630,9 @@ describe("OpenAI subscription policy routes", () => {
     try {
       CodexAppServer.start = async (options) => {
         starts.push(options);
+        const verification = fakeCodexVerification(options.cwd);
         return {
-          request: async <T>(method: string): Promise<T> => {
+          request: async <T>(method: string, params?: unknown): Promise<T> => {
             if (method === "account/login/start") {
               return {
                 type: "chatgptDeviceCode",
@@ -350,11 +644,11 @@ describe("OpenAI subscription policy routes", () => {
             if (method === "account/read") {
               return { account: { type: "chatgpt", email: "member@example.test" } } as T;
             }
-            throw new Error(`Unexpected fake Codex request: ${method}`);
+            return verification.request<T>(method, params);
           },
           onNotification: (listener: (method: string, params: unknown) => void) => {
             notifications.push(listener);
-            return () => undefined;
+            return verification.onNotification(listener);
           },
           onExit: () => () => undefined,
           stderrSummary: () => "",
@@ -647,6 +941,7 @@ async function runDeviceSignIn(
   try {
     CodexAppServer.start = async (options) => {
       starts.push(options);
+      const verification = fakeCodexVerification(options.cwd);
       return {
         request: async <T>(method: string, params?: unknown): Promise<T> => {
           if (method === "account/login/start") {
@@ -662,11 +957,11 @@ async function runDeviceSignIn(
             accountReads.push(read);
             return accountFor(read) as T;
           }
-          throw new Error(`Unexpected fake Codex request: ${method}`);
+          return verification.request<T>(method, params);
         },
         onNotification: (listener: (method: string, params: unknown) => void) => {
           notifications.push(listener);
-          return () => undefined;
+          return verification.onNotification(listener);
         },
         onExit: () => () => undefined,
         stderrSummary: () => "",

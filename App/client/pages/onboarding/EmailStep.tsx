@@ -11,11 +11,8 @@ import { Note, SkipLink, StepCard, StepFooter, StepHeading } from "./OnboardingF
 /**
  * Optional mailbox access, at the deliberately safe `draft` level.
  *
- * The step used to be labelled "Gmail" because the connect path was hard-wired
- * to a Google Connection that had to exist first — which meant a member on
- * Fastmail or a company Exchange server reached this screen and had nothing to
- * press. It now asks for an email address like every other connect surface,
- * and works for any mailbox that speaks IMAP.
+ * The shared email form discovers Google sign-in for Gmail and Workspace,
+ * or IMAP settings for other supported mailboxes.
  */
 export function EmailStep({
   company,
@@ -111,13 +108,14 @@ export function EmailStep({
         }
       />
 
-      <Note kind="info" icon={ShieldCheck} className="mt-4" title="They get draft access, not send">
-        Mailbox access has three levels. <strong className="font-semibold">Read</strong> browses
-        threads. <strong className="font-semibold">Draft</strong> — what this step grants — also
-        writes replies, applies labels, archives, and marks read, so {employee.name} can clear an
-        inbox and leave a finished reply in the thread while a human presses Send.{" "}
-        <strong className="font-semibold">Send</strong> is never granted here. Change the level any
-        time at Email → Settings → AI access.
+      <Note
+        kind="info"
+        icon={ShieldCheck}
+        className="mt-4"
+        title="New mailbox access starts with drafts"
+      >
+        New mailbox access lets {employee.name} read, organize, and draft replies. You stay in
+        charge of sending. Change access later at Email → Settings → AI access.
       </Note>
 
       <div className="my-5 border-t border-slate-100 dark:border-slate-800" />

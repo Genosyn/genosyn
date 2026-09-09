@@ -12,15 +12,17 @@ import { toSlug } from "../lib/slug.js";
 import { nextRunFor } from "./cron.js";
 import { assertRoutineCapacity } from "./entitlements.js";
 import { emitResourceChange } from "./resourceEvents.js";
+import { EMPLOYEE_TEMPLATES } from "./templates.js";
 
 /**
  * Fast, deterministic recommendations for the post-hire onboarding moment.
  *
  * This deliberately does not call an AI Model: onboarding commonly happens
  * before the employee has a connected model, and a static, scored catalogue
- * gives the UI a useful answer immediately. Role/template matches supply the
- * job-specific prior; Company mission and vision keywords move the ranking
- * toward the outcomes the business actually named.
+ * gives the UI a useful answer immediately. The saved role determines which
+ * responsibilities fit; company mission and vision rank those responsibilities
+ * and become part of every suggested brief. A template hint cannot override an
+ * edited role, and company keywords cannot assign someone a different role.
  */
 
 export type OnboardingRecommendationContext = {
@@ -717,8 +719,16 @@ function containsPhrase(haystack: string, phrase: string): boolean {
   return needle.length > 0 && ` ${haystack} `.includes(` ${needle} `);
 }
 
+function roleTemplateIds(role: string): Set<string> {
+  return new Set(
+    EMPLOYEE_TEMPLATES.filter((template) => containsPhrase(role, template.role)).map(
+      (template) => template.id,
+    ),
+  );
+}
+
 function markdownQuote(label: string, value: string, fallback: string): string {
-  const lines = compactContext(value, 1_200)
+  const lines = compactContext(value)
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -759,8 +769,11 @@ ${markdownQuote("Mission", context.mission, "Not set yet")}
 ${markdownQuote("Vision", context.vision, "Not set yet")}
 ${markdownQuote("AI Employee", `${context.employeeName} — ${context.employeeRole}`, "Not set yet")}
 
-Use this context to prioritize the work. If it is missing or conflicts with current company
-direction, ask a Member before making a consequential assumption.
+Carry out this Routine within the AI Employee's stated role and Soul. Use the company mission
+to choose which work matters now, and the vision to judge the longer-term outcome. Connect
+each recommended next action to that direction, using concrete evidence rather than merely
+restating it. If context is missing or conflicts with current company direction, ask a Member
+before making a consequential assumption.
 
 ## Inputs
 ${bullets(definition.inputs)}
@@ -778,6 +791,7 @@ type RankedRoutine = {
   score: number;
   reasons: string[];
   order: number;
+  roleEligible: boolean;
 };
 
 function rankRoutineDefinitions(args: {
@@ -785,34 +799,48 @@ function rankRoutineDefinitions(args: {
   templateId?: string;
 }): RankedRoutine[] {
   const role = normalize(args.context.employeeRole);
+  const matchingTemplates = roleTemplateIds(role);
   const companyContext = normalize(`${args.context.mission} ${args.context.vision}`);
   return ROUTINE_RECOMMENDATION_DEFINITIONS.map((definition, order) => {
     let score = definition.baseScore ?? 0;
     const reasons: string[] = [];
 
-    if (args.templateId && definition.templateIds.includes(args.templateId)) {
-      score += 100;
-      reasons.push("Fits the starting role selected during hiring.");
-    }
-
     const roleMatches = definition.rolePhrases.filter((phrase) => containsPhrase(role, phrase));
-    if (roleMatches.length > 0) {
-      score += Math.min(70, 35 + (roleMatches.length - 1) * 12);
+    const templateRoleMatch = definition.templateIds.some((id) => matchingTemplates.has(id));
+    const roleMatch = roleMatches.length > 0 || templateRoleMatch;
+    const general = definition.rolePhrases.length === 0 && definition.templateIds.length === 0;
+    const roleEligible = roleMatch || general;
+    if (roleMatch) {
+      score += 100 + Math.min(24, Math.max(0, roleMatches.length - 1) * 12);
       reasons.push(`Matches ${args.context.employeeRole}'s responsibilities.`);
+    }
+    if (
+      args.templateId &&
+      matchingTemplates.has(args.templateId) &&
+      definition.templateIds.includes(args.templateId)
+    ) {
+      score += 12;
+      reasons.push("Fits the starting role selected during hiring.");
     }
 
     const contextMatches = definition.contextKeywords.filter((keyword) =>
       containsPhrase(companyContext, keyword),
     );
-    if (contextMatches.length > 0) {
+    if (roleEligible && contextMatches.length > 0) {
       score += Math.min(48, contextMatches.length * 12);
       reasons.push(
         `Supports company priorities around ${contextMatches.slice(0, 2).join(" and ")}.`,
       );
     }
 
-    if (reasons.length === 0) reasons.push("A useful starting rhythm for a new AI Employee.");
-    return { definition, score, reasons, order };
+    if (reasons.length === 0) {
+      reasons.push(
+        roleEligible
+          ? "A useful starting rhythm for a new AI Employee."
+          : "Review this existing Routine against the employee's current role.",
+      );
+    }
+    return { definition, score, reasons, order, roleEligible };
   }).sort((a, b) => b.score - a.score || a.order - b.order);
 }
 
@@ -849,7 +877,9 @@ function selectRoutineRecommendations(args: {
   const usedIds = new Set(selected.map((item) => item.definition.id));
   const usedFamilies = new Set(selected.map((item) => item.definition.family));
 
-  const suggested = ranked.filter((item) => !item.existing && !usedIds.has(item.definition.id));
+  const suggested = ranked.filter(
+    (item) => item.roleEligible && !item.existing && !usedIds.has(item.definition.id),
+  );
 
   // Prefer different outcome families first; fill any remaining places in
   // score order if a highly specialized catalogue has fewer distinct ones.
@@ -908,6 +938,7 @@ function selectIntegrationRecommendations(args: {
   grants: readonly EmployeeConnectionGrant[];
 }): OnboardingIntegrationRecommendation[] {
   const role = normalize(args.context.employeeRole);
+  const matchingTemplates = roleTemplateIds(role);
   const companyContext = normalize(`${args.context.mission} ${args.context.vision}`);
   const score = new Map<string, number>();
   const reason = new Map<string, string>();
@@ -922,13 +953,19 @@ function selectIntegrationRecommendations(args: {
   });
 
   for (const affinity of INTEGRATION_AFFINITIES) {
-    const templateMatch = !!args.templateId && affinity.templateIds.includes(args.templateId);
+    const templateMatch =
+      !!args.templateId &&
+      matchingTemplates.has(args.templateId) &&
+      affinity.templateIds.includes(args.templateId);
     const roleMatches = affinity.rolePhrases.filter((phrase) =>
       containsPhrase(role, phrase),
     ).length;
     const contextMatches = affinity.contextKeywords.filter((keyword) =>
       containsPhrase(companyContext, keyword),
     ).length;
+    if (roleMatches === 0 && !affinity.templateIds.some((id) => matchingTemplates.has(id))) {
+      continue;
+    }
     const affinityScore =
       (templateMatch ? 70 : 0) + Math.min(55, roleMatches * 28) + Math.min(36, contextMatches * 12);
     if (affinityScore === 0) continue;

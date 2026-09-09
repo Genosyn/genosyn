@@ -116,6 +116,42 @@ jobs:
           path: output/playwright/*.png
           if-no-files-found: ignore
 
+  onboarding-browser-test:
+    name: Onboarding browser regressions
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App
+    env:
+      GENOSYN_TEST_BROWSER: chromium
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: App/package-lock.json
+      - run: npm ci
+      - run: npx playwright-core install --with-deps chromium
+      - name: Test company direction, hiring, and Routine selection
+        run: npm run test:onboarding
+      - name: Test model discovery and verified connection forms
+        run: npm run test:model-setup
+      - name: Test Gmail OAuth-only setup
+        run: npm run test:mail-connect
+      - name: Build the client for the full app browser test
+        run: npm run build:client
+      - name: Test signup, company setup, hiring, and account recovery
+        run: npm run test:onboarding-fullstack
+      - name: Save onboarding screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-browser-screenshots
+          path: output/playwright/*.png
+          if-no-files-found: ignore
+
   cli-test:
     name: Test (CLI)
     runs-on: ubuntu-latest

@@ -9,7 +9,7 @@ import { imapProvider, resolveImapInput } from "./imap.js";
  *
  * Every case here uses a domain the built-in provider table already knows, so
  * nothing touches DNS or the network — which is also the shape the common case
- * takes in production: somebody types a gmail.com or fastmail.com address and
+ * takes in production: somebody types a fastmail.com or icloud.com address and
  * the form fills itself in.
  */
 
@@ -51,17 +51,49 @@ describe("the connector's shape", () => {
   test("says so when a tool is asked for anyway", async () => {
     await assert.rejects(
       () =>
-        imapProvider.invokeTool("send_mail", {}, {
-          authMode: "apikey",
-          config: {},
-          setConfig: () => undefined,
-        }),
+        imapProvider.invokeTool(
+          "send_mail",
+          {},
+          {
+            authMode: "apikey",
+            config: {},
+            setConfig: () => undefined,
+          },
+        ),
       /mailbox grant/i,
     );
   });
 });
 
 describe("resolveImapInput", () => {
+  test("redirects Gmail password setup to Google sign-in instead of guessing an IMAP server", async () => {
+    for (const address of ["sam@gmail.com", "sam@googlemail.com"]) {
+      for (const servers of [{}, { imapHost: "imap.gmail.com" }, { smtpHost: "smtp.gmail.com" }]) {
+        await assert.rejects(
+          resolveImapInput({ address, password: "app-pw", ...servers }),
+          /Gmail and Google Workspace use Google sign-in.*Continue with Google/,
+        );
+      }
+    }
+  });
+
+  test("preserves explicit server settings when refreshing an existing Gmail IMAP Connection", async () => {
+    const config = await resolveImapInput({
+      address: "sam@gmail.com",
+      password: "replacement-app-pw",
+      imapHost: "imap.gmail.com",
+      imapPort: "993",
+      smtpHost: "smtp.gmail.com",
+      smtpPort: "465",
+    });
+    assert.equal(config.address, "sam@gmail.com");
+    assert.equal(config.imapHost, "imap.gmail.com");
+    assert.equal(config.smtpHost, "smtp.gmail.com");
+    assert.equal(config.imapSecure, true);
+    assert.equal(config.smtpSecure, true);
+    assert.equal(config.password, "replacement-app-pw");
+  });
+
   test("fills both servers in from a known address", async () => {
     const config = await resolveImapInput({ address: "sam@fastmail.com", password: "app-pw" });
     assert.equal(config.imapHost, "imap.fastmail.com");
@@ -147,7 +179,10 @@ describe("resolveImapInput", () => {
   test("explains a provider that has no IMAP rather than guessing servers for it", async () => {
     // Guessing imap.tuta.com would hand the person a connection failure with
     // no explanation for a mailbox that cannot be connected at all.
-    await assert.rejects(() => resolveImapInput({ address: "sam@tuta.com", password: "x" }), /no IMAP/i);
+    await assert.rejects(
+      () => resolveImapInput({ address: "sam@tuta.com", password: "x" }),
+      /no IMAP/i,
+    );
   });
 
   test("accepts a no-IMAP provider's address when the servers are given explicitly", async () => {

@@ -4,11 +4,10 @@ import {
   AlertCircle,
   Bot,
   Check,
-  Compass,
+  Building2,
   Mail,
   RefreshCw,
   Rocket,
-  Sparkles,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -24,24 +23,17 @@ import { AuthShell } from "./Login";
 import { EmailStep } from "./onboarding/EmailStep";
 import { EmployeeStep } from "./onboarding/EmployeeStep";
 import { FirstRequestStep } from "./onboarding/FirstRequestStep";
-import { IntroStep } from "./onboarding/IntroStep";
+import { CompanyStep } from "./onboarding/CompanyStep";
+import { resolveOnboardingStep, type OnboardingStep } from "@/lib/onboardingFlow";
 import { DoneStep } from "./onboarding/DoneStep";
 import { RecommendationsStep } from "./onboarding/RecommendationsStep";
 import { STEP_WIDTH } from "./onboarding/OnboardingFrame";
 import { selectOnboardingEmployee } from "../lib/onboardingRecommendations";
 import { createCompanyAndSwitch } from "../lib/companySwitch";
 
-type OnboardingStep =
-  | "intro"
-  | "employee"
-  | "recommendations"
-  | "email"
-  | "first_request"
-  | "done";
-
 /**
  * The rail. `done` is deliberately absent — it is the terminal state, and shows
- * the rail with every step complete rather than adding a sixth dot.
+ * the rail with every step complete rather than adding another dot.
  */
 const STEPS: Array<{
   id: OnboardingStep;
@@ -49,14 +41,16 @@ const STEPS: Array<{
   hint: string;
   icon: LucideIcon;
 }> = [
-  { id: "intro", label: "How it works", hint: "What an AI Employee is", icon: Compass },
-  { id: "employee", label: "AI Employee", hint: "Hire one and connect a model", icon: Bot },
-  { id: "recommendations", label: "Launch plan", hint: "Recurring work for the role", icon: Rocket },
-  { id: "email", label: "Gmail", hint: "Optional mailbox access", icon: Mail },
-  { id: "first_request", label: "First request", hint: "Watch them work", icon: Sparkles },
+  { id: "company", label: "Company", hint: "Mission and vision", icon: Building2 },
+  { id: "employee", label: "AI Employee", hint: "Hire and connect a model", icon: Bot },
+  {
+    id: "recommendations",
+    label: "Routines",
+    hint: "Work that supports your mission",
+    icon: Rocket,
+  },
+  { id: "email", label: "Email", hint: "Optional mailbox access", icon: Mail },
 ];
-
-const ALL_STEPS: OnboardingStep[] = [...STEPS.map((step) => step.id), "done"];
 
 /**
  * The no-company gate. Once the row exists we refresh App's auth state before
@@ -74,6 +68,10 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!name.trim() || !mission.trim() || !vision.trim()) {
+      setError("Add your company name, mission, and vision to continue.");
+      return;
+    }
     setLoading(true);
     try {
       await createCompanyAndSwitch({
@@ -85,7 +83,7 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           }),
         refreshCompanies: onDone,
         navigate,
-        suffix: "/onboarding",
+        suffix: "/onboarding?step=employee",
       });
     } catch (err) {
       setError((err as Error).message);
@@ -96,8 +94,8 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
 
   return (
     <AuthShell
-      title="Name your company"
-      subtitle="Genosyn runs a company with AI Employees working alongside your team. First, the company they will work for — we explain the rest on the next screen."
+      title="Set up your company"
+      subtitle="Start with a name and a little direction. Then hire an AI Employee to help make it happen."
     >
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error} />
@@ -110,22 +108,24 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           required
         />
         <Textarea
-          label="Mission (optional)"
+          label="Mission"
           value={mission}
           onChange={(event) => setMission(event.target.value)}
           placeholder="What do you do, for whom, and why?"
           rows={3}
-          className="min-h-24"
+          className="!min-h-24"
           maxLength={2000}
-          hint="Used to pick the recurring work we suggest for your first AI Employee. You can write it later."
+          hint="A sentence is enough. We use this to suggest useful work for your AI Employees."
+          required
         />
         <Textarea
-          label="Vision (optional)"
+          label="Vision"
           value={vision}
           onChange={(event) => setVision(event.target.value)}
           placeholder="What should be true when the company succeeds?"
+          required
           rows={3}
-          className="min-h-24"
+          className="!min-h-24"
           maxLength={2000}
         />
         <Button type="submit" disabled={loading}>
@@ -136,7 +136,13 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
   );
 }
 
-export function CompanyOnboarding({ company }: { company: Company }) {
+export function CompanyOnboarding({
+  company,
+  onCompanyChanged,
+}: {
+  company: Company;
+  onCompanyChanged: () => Promise<void>;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedEmployeeId = searchParams.get("employee");
   const requestedTemplateId = searchParams.get("template");
@@ -148,10 +154,7 @@ export function CompanyOnboarding({ company }: { company: Company }) {
     requestedTemplateId,
   );
 
-  const rawStep = searchParams.get("step");
-  const step: OnboardingStep = ALL_STEPS.includes(rawStep as OnboardingStep)
-    ? (rawStep as OnboardingStep)
-    : "intro";
+  const step = resolveOnboardingStep(searchParams.get("step"), company);
 
   const updateLocation = React.useCallback(
     (nextStep: OnboardingStep, employee?: Employee | null, templateId?: string | null) => {
@@ -203,7 +206,7 @@ export function CompanyOnboarding({ company }: { company: Company }) {
     };
   }, [company.id, requestedEmployeeId, reloadToken]);
 
-  const needsEmployee = step !== "intro" && step !== "employee" && selectedEmployee === null;
+  const needsEmployee = step !== "company" && step !== "employee" && selectedEmployee === null;
 
   return (
     // The same scroll container every other page gets from `ContextualLayout`,
@@ -221,14 +224,22 @@ export function CompanyOnboarding({ company }: { company: Company }) {
             {company.name}
           </div>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl dark:text-slate-50">
-            {step === "done" ? "You are set up" : "Set up your first AI Employee"}
+            {step === "done" ? "Review your setup" : "Set up your company"}
           </h1>
         </div>
 
         <StepRail current={step} onNavigate={updateLocation} />
 
         <div className={STEP_WIDTH}>
-          {employees === null ? (
+          {step === "company" ? (
+            <CompanyStep
+              company={company}
+              onSaved={async () => {
+                await onCompanyChanged();
+                updateLocation("employee");
+              }}
+            />
+          ) : employees === null ? (
             <div
               className="flex justify-center py-24"
               role="status"
@@ -251,8 +262,6 @@ export function CompanyOnboarding({ company }: { company: Company }) {
                 </Button>
               </CardBody>
             </Card>
-          ) : step === "intro" ? (
-            <IntroStep company={company} onContinue={() => updateLocation("employee")} />
           ) : step === "employee" ? (
             <EmployeeStep
               company={company}
@@ -263,7 +272,7 @@ export function CompanyOnboarding({ company }: { company: Company }) {
                 setSelectedTemplateId(templateId);
                 updateLocation("employee", employee, templateId);
               }}
-              onBack={() => updateLocation("intro")}
+              onBack={() => updateLocation("company")}
               onContinue={() => updateLocation("recommendations")}
             />
           ) : needsEmployee ? (
@@ -288,7 +297,7 @@ export function CompanyOnboarding({ company }: { company: Company }) {
               templateId={selectedTemplateId}
               onBack={() => updateLocation("employee")}
               onContinue={() => updateLocation("email")}
-              continueLabel="Continue to Gmail"
+              continueLabel="Continue to email"
             />
           ) : step === "email" ? (
             <EmailStep
@@ -323,18 +332,14 @@ function StepRail({
   current: OnboardingStep;
   onNavigate: (step: OnboardingStep) => void;
 }) {
-  const done = current === "done";
+  const done = current === "done" || current === "first_request";
   const currentIndex = done ? -1 : STEPS.findIndex((s) => s.id === current);
   const active = STEPS[currentIndex] ?? null;
-  // On the summary, setup really is finished — but the flow reaches it from
-  // Gmail, so "First request" has not happened. Mark everything before it
-  // complete and leave that last one open rather than certifying a skipped
-  // step. Every rail entry stays reachable from here.
-  const completeThrough = done ? STEPS.length - 1 : currentIndex;
+  const completeThrough = done ? STEPS.length : currentIndex;
 
   return (
     <div className="mb-6">
-      {/* Mobile: a rail of five labels does not fit, so name the position. */}
+      {/* Mobile: a rail of four labels does not fit, so name the position. */}
       <p className="mb-4 text-center text-sm text-slate-500 sm:hidden dark:text-slate-400">
         {active ? (
           <>
@@ -344,11 +349,11 @@ function StepRail({
             · {active.label}
           </>
         ) : (
-          <span className="font-medium text-slate-900 dark:text-slate-100">Setup complete</span>
+          <span className="font-medium text-slate-900 dark:text-slate-100">Setup summary</span>
         )}
       </p>
 
-      <ol className="mx-auto hidden max-w-3xl grid-cols-5 sm:grid" aria-label="Setup progress">
+      <ol className="mx-auto hidden max-w-3xl grid-cols-4 sm:grid" aria-label="Setup progress">
         {STEPS.map((step, index) => {
           const Icon = step.icon;
           const complete = index < completeThrough;
@@ -359,12 +364,12 @@ function StepRail({
             <>
               <span
                 className={clsx(
-                  "relative z-10 grid h-8 w-8 place-items-center rounded-full border bg-white transition-colors dark:bg-slate-900",
+                  "relative z-10 grid h-8 w-8 place-items-center rounded-full border transition-colors",
                   isActive
-                    ? "border-indigo-500 text-indigo-600 ring-4 ring-indigo-100 dark:text-indigo-300 dark:ring-indigo-500/20"
+                    ? "border-indigo-500 bg-white text-indigo-600 ring-4 ring-indigo-100 dark:bg-slate-900 dark:text-indigo-300 dark:ring-indigo-500/20"
                     : complete
                       ? "border-indigo-500 bg-indigo-600 text-white dark:bg-indigo-500"
-                      : "border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-500",
+                      : "border-slate-200 bg-white text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500",
                 )}
               >
                 {complete ? <Check size={14} /> : <Icon size={14} />}

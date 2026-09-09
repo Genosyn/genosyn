@@ -28,7 +28,11 @@
     "license:keygen": "tsx server/scripts/licenseKeygen.ts",
     "setup:public-url": "tsx server/scripts/setupPublicUrl.ts",
     "test:work-session-models": "tsx scripts/test-work-session-models.ts",
-    "test:proactive": "tsx scripts/test-proactive.ts"
+    "test:proactive": "tsx scripts/test-proactive.ts",
+    "test:onboarding": "tsx scripts/test-onboarding.ts",
+    "test:mail-connect": "tsx scripts/test-mail-connect.ts",
+    "test:model-setup": "tsx scripts/test-model-setup.ts",
+    "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

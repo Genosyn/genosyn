@@ -58,6 +58,7 @@ import { FormError } from "../../components/ui/FormError";
 import { Spinner } from "../../components/ui/Spinner";
 import { Textarea } from "../../components/ui/Textarea";
 import { clsx } from "../../components/ui/clsx";
+import { StepHeading } from "./OnboardingFrame";
 import { ApiKeyModal, OauthOrServiceAccountModal } from "../SettingsIntegrations";
 
 const INTEGRATION_ICONS: Record<string, LucideIcon> = {
@@ -228,6 +229,7 @@ export function RecommendationsStep({
   }, [dialog, load]);
 
   function toggleRoutine(id: string) {
+    if (addingRoutines) return;
     const selected = selectedRoutineIds.has(id);
     if (!selected && selectedRoutineIds.size >= MAX_ONBOARDING_ROUTINE_SELECTION) {
       setSelectionError(`Choose up to ${MAX_ONBOARDING_ROUTINE_SELECTION} Routines at a time.`);
@@ -489,10 +491,7 @@ export function RecommendationsStep({
               Suggested Routines
             </h2>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-              A <strong className="font-semibold">Routine</strong> is work that runs on a schedule
-              without being asked. These were matched to {plan.context.employeeName}&apos;s{" "}
-              {plan.context.employeeRole} role and what {plan.context.companyName} is building. Pick
-              the ones you want — every brief and schedule stays editable.
+              Routines run on a schedule. Every brief and schedule stays editable.
             </p>
           </div>
           {suggested.length > 0 && (
@@ -516,6 +515,7 @@ export function RecommendationsStep({
                 key={routine.id}
                 routine={routine}
                 selected={selectedRoutineIds.has(routine.id)}
+                disabled={addingRoutines}
                 onToggle={() => toggleRoutine(routine.id)}
               />
             ))}
@@ -531,69 +531,68 @@ export function RecommendationsStep({
                 aria-hidden="true"
               />
               <p className="text-sm leading-6 text-indigo-900/80 dark:text-indigo-200/80">
-                Anything you add starts running on its own schedule straight away — using{" "}
-                {employee.name}&apos;s AI Model, and so the credit on the key you registered. Turn
-                any of them off at any time from Routines.
+                Selected Routines run on their schedules once an AI Model is connected. You can edit
+                or pause them any time from Routines.
                 {ready.length > 0 &&
                   ` ${ready.length} matching ${ready.length === 1 ? "Routine already exists" : "Routines already exist"} for ${employee.name}.`}
               </p>
             </div>
-            <Button
-              className="shrink-0 sm:ml-auto"
-              onClick={addSelectedRoutines}
-              disabled={addingRoutines || selectedRoutineIds.size === 0}
-            >
-              {addingRoutines ? "Scheduling…" : "Add selected Routines"}
-              {!addingRoutines && <ArrowRight size={14} />}
-            </Button>
           </div>
         )}
       </section>
 
-      <section aria-labelledby="recommended-integrations">
-        <div className="mb-3">
-          <h2
-            id="recommended-integrations"
-            className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100"
-          >
-            <Plug size={17} className="text-indigo-600 dark:text-indigo-400" />
-            Recommended Integrations
-          </h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-            An <strong className="font-semibold">Integration</strong> is a connector type; a{" "}
-            <strong className="font-semibold">Connection</strong> is one account your company links
-            through it; a <strong className="font-semibold">Grant</strong> is {employee.name}
-            &apos;s access to that one Connection. They can reach nothing you have not granted, and
-            all of this is optional right now.
-          </p>
-        </div>
-        {plan.integrations.length === 0 ? (
-          <EmptyPanel
-            title="No Integration suggestions yet"
-            description="This launch plan does not need an external Connection. You can add one later from AI Employees → Integrations."
-          />
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {plan.integrations.map((integration) => (
-              <IntegrationCard
-                key={integration.provider}
-                company={company}
-                employee={employee}
-                integration={integration}
-                granting={grantingProvider === integration.provider}
-                onConnect={() => connect(integration)}
-                onGrant={() => grantConnection(integration)}
-              />
-            ))}
+      <details className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200">
+          Optional Integrations
+        </summary>
+        <section className="mt-4" aria-labelledby="recommended-integrations">
+          <div className="mb-3">
+            <h2
+              id="recommended-integrations"
+              className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100"
+            >
+              <Plug size={17} className="text-indigo-600 dark:text-indigo-400" />
+              Recommended Integrations
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+              Connect the apps this role uses and grant {employee.name} access. You can do this
+              later.
+            </p>
           </div>
-        )}
-      </section>
+          {plan.integrations.length === 0 ? (
+            <EmptyPanel
+              title="No Integration suggestions yet"
+              description="This launch plan does not need an external Connection. You can add one later from AI Employees → Integrations."
+            />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {plan.integrations.map((integration) => (
+                <IntegrationCard
+                  key={integration.provider}
+                  company={company}
+                  employee={employee}
+                  integration={integration}
+                  granting={grantingProvider === integration.provider}
+                  onConnect={() => connect(integration)}
+                  onGrant={() => grantConnection(integration)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </details>
 
       <FormError message={error} />
 
       <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-5 sm:flex-row sm:items-center dark:border-slate-800">
         {onBack && (
-          <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onBack}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full sm:w-auto"
+            onClick={onBack}
+            disabled={addingRoutines}
+          >
             <ArrowLeft size={14} /> Back
           </Button>
         )}
@@ -602,16 +601,13 @@ export function RecommendationsStep({
             <button
               type="button"
               onClick={onContinue}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 sm:py-0 dark:text-slate-400 dark:hover:text-slate-200"
+              disabled={addingRoutines}
+              className="disabled:opacity-50 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 sm:py-0 dark:text-slate-400 dark:hover:text-slate-200"
             >
               Continue without adding them
             </button>
           )}
-          <Button
-            className="w-full sm:w-auto"
-            onClick={applyAndContinue}
-            disabled={addingRoutines}
-          >
+          <Button className="w-full sm:w-auto" onClick={applyAndContinue} disabled={addingRoutines}>
             {addingRoutines
               ? "Scheduling…"
               : selectedRoutineIds.size > 0
@@ -644,26 +640,11 @@ export function RecommendationsStep({
 
 function LaunchHero({ companyName, employee }: { companyName: string; employee: Employee }) {
   return (
-    <div className="relative mb-5 overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-6 shadow-sm sm:px-7 dark:border-indigo-900 dark:bg-indigo-950/40">
-      <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-indigo-200/40 blur-2xl dark:bg-indigo-700/20" />
-      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-sm dark:bg-indigo-500">
-          <Check size={24} />
-        </div>
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600 dark:text-indigo-300">
-            AI Employee hired
-          </div>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-2xl">
-            {employee.name} is ready. Let&apos;s put them to work.
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Here is a focused launch plan for {employee.name}, your {employee.role} at {companyName}
-            {" — "}recurring work to start and the Connections that unlock it.
-          </p>
-        </div>
-      </div>
-    </div>
+    <StepHeading
+      icon={CalendarClock}
+      title={`Choose useful work for ${employee.name}`}
+      description={`These Routines connect their ${employee.role} role with ${companyName}’s mission and vision. Choose what to schedule, or continue and add work later.`}
+    />
   );
 }
 
@@ -691,10 +672,12 @@ function ContextCard({
 function RoutineCard({
   routine,
   selected,
+  disabled,
   onToggle,
 }: {
   routine: OnboardingRoutineRecommendation;
   selected: boolean;
+  disabled: boolean;
   onToggle: () => void;
 }) {
   const ready = routine.status === "ready";
@@ -714,6 +697,7 @@ function RoutineCard({
           type="checkbox"
           checked={selected}
           onChange={onToggle}
+          disabled={disabled}
           className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
           aria-label={`Select ${routine.name}`}
         />
