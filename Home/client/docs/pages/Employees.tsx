@@ -310,7 +310,10 @@ export function Employees() {
       <H2 id="work-timeline">The work timeline</H2>
       <P>
         Your <DocLink to="/docs">Home page</DocLink> keeps a compact{" "}
-        <Strong>bubble for each AI Employee</Strong> on the right. Their status distinguishes
+        <Strong>bubble for each AI Employee</Strong> to the right of your greeting. The bubbles form
+        a small horizontal row in the header, leaving the cards below the full width of the page.
+        On a narrow screen, they stay beside the greeting. Scroll the row sideways
+        when the whole team does not fit. Their status distinguishes
         <Strong> Working now</Strong>, <Strong>Waiting for input</Strong>, recent work, and a quiet
         day. Work details stay hidden until you choose an employee.
       </P>

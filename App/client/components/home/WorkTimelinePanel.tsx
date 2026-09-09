@@ -18,7 +18,7 @@ import { EmployeeDayModal } from "./EmployeeDayModal";
 import { WORK_STATE_DOT } from "./WorkEntryViews";
 
 /**
- * Home's compact employee rail. Work stays behind each bubble, whose status
+ * Home's compact greeting roster. Work stays behind each bubble, whose status
  * comes from the server rollup even when another employee fills the result cap.
  * The selected employee loads their own calendar day only after it is opened.
  */
@@ -98,13 +98,12 @@ export function WorkTimelinePanel({
   if (employees.length === 0) {
     if (!employeeLoadError) return null;
     return (
-      <aside className="order-first w-full md:order-last md:w-28 md:shrink-0">
-        <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50">
-          AI employee work
-        </h2>
-        <div className="mt-4">
-          <FormError message={employeeLoadError} />
-        </div>
+      <aside
+        aria-label="AI employee work"
+        className="ml-auto min-w-0 max-w-[45%] sm:max-w-[50%]"
+      >
+        <h2 className="sr-only">AI employee work</h2>
+        <FormError message={employeeLoadError} />
       </aside>
     );
   }
@@ -120,13 +119,13 @@ export function WorkTimelinePanel({
   return (
     <aside
       aria-label="AI employee work"
-      className="order-first min-w-0 md:sticky md:top-8 md:order-last md:w-24 md:shrink-0 md:self-start"
+      className="ml-auto min-w-0 max-w-[45%] sm:max-w-[50%]"
     >
       <h2 className="sr-only">AI employee work</h2>
       <div
         role="group"
         aria-label="Open an AI employee's day"
-        className="flex gap-1 overflow-x-auto py-1 [&>button:first-child]:ml-auto md:max-h-[calc(100vh-8rem)] md:flex-col md:items-center md:overflow-y-auto md:[&>button:first-child]:ml-0"
+        className="flex gap-1 overflow-x-auto p-1"
       >
         {employees.map((employee, index) => (
           <EmployeeWorkBubble
@@ -197,29 +196,31 @@ export function EmployeeWorkBubble({
       title={`${name} · ${role} · ${status}`}
       onClick={onSelect}
       className={clsx(
-        "group flex w-[5.5rem] shrink-0 flex-col items-center rounded-xl px-1 py-2 text-center transition",
+        "group flex min-h-11 w-36 max-w-full shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition",
         "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-800/60",
       )}
     >
       <span
         aria-hidden="true"
-        className="relative rounded-full p-0.5 ring-2 ring-transparent transition group-hover:ring-indigo-300 dark:group-hover:ring-indigo-500/40"
+        className="relative shrink-0 rounded-full p-0.5 ring-2 ring-transparent transition group-hover:ring-indigo-300 dark:group-hover:ring-indigo-500/40"
       >
-        <Avatar name={name} kind="ai" size="lg" src={avatarSrc} />
+        <Avatar name={name} kind="ai" size="sm" src={avatarSrc} />
         <span
           aria-hidden="true"
           className={clsx(
-            "absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-slate-900",
+            "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-900",
             WORK_STATE_DOT[state],
             state === "working" && "motion-safe:animate-pulse",
           )}
         />
       </span>
-      <span className="mt-1.5 w-full truncate text-[11px] font-semibold text-slate-900 dark:text-slate-100">
-        {name}
-      </span>
-      <span className="w-full truncate text-[10px] text-slate-500 dark:text-slate-400">
-        {status}
+      <span className="min-w-0">
+        <span className="block truncate text-[11px] font-semibold text-slate-900 dark:text-slate-100">
+          {name}
+        </span>
+        <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">
+          {status}
+        </span>
       </span>
     </button>
   );

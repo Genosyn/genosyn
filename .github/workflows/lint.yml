@@ -96,6 +96,10 @@ jobs:
         run: npm run test:work-outcomes
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test compact Home greeting, employee bubbles, and card layout
+        run: npm run test:home-layout
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test Work session model selection
         run: npm run test:work-session-models
         env:

@@ -17,6 +17,7 @@
     "test:chat-images": "tsx scripts/test-chat-images.ts",
     "test:mail-draft-attachments": "tsx scripts/test-mail-draft-attachments.ts",
     "test:work-outcomes": "tsx scripts/test-work-outcomes.ts",
+    "test:home-layout": "tsx scripts/test-home-layout.ts",
     "test:saas-postgres": "tsx server/scripts/testSaasPostgres.ts",
     "typeorm": "tsx ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d ormconfig.ts",

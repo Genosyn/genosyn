@@ -222,52 +222,55 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
 
   return (
     <ContextualLayout>
-      <div className="page-shell flex flex-col gap-6 px-6 py-8 md:flex-row lg:px-8">
-        <div className="min-w-0 flex-1">
+      <div className="page-shell px-6 py-8 lg:px-8">
+        <header
+          aria-label="Home greeting"
+          className="flex items-start gap-3 sm:items-center sm:gap-6"
+        >
           <Greeting me={me} company={company} />
-          <SetupBanner company={company} />
-          <PushPromptBanner />
-          {data === null ? (
-            <div className="flex min-h-[40vh] items-center justify-center">
-              <Spinner size={22} />
-            </div>
-          ) : (
-            <>
-              {hasAnythingToShow(data) ? (
-                <>
-                  <DecisionStack company={company} data={data} onResolved={reload} />
-                  <FailedRoutinesAlert
-                    company={company}
-                    data={data}
-                    onChanged={reload}
-                    onOpen={setOverlay}
-                  />
-                  <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
-                  <StatStrip company={company} data={data} />
-                  {/* `empty:hidden` so the grid's own top margin goes away too on
-                    a day when every card inside it has hidden itself. */}
-                  <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
-                    <AttentionCard company={company} data={data} onOpen={setOverlay} />
-                    <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
-                    <MyTodosCard company={company} data={data} onOpen={setOverlay} />
-                    <MessagesCard company={company} data={data} onOpen={setOverlay} />
-                    <ReviewsCard company={company} data={data} onOpen={setOverlay} />
-                    <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
-                  </div>
-                </>
-              ) : (
-                <AllClear company={company} data={data} />
-              )}
-            </>
-          )}
-        </div>
-        {/* The roster remains available even when all of Home's queues are empty. */}
-        <WorkTimelinePanel
-          company={company}
-          employees={employees}
-          employeeLoadError={employeesError}
-          onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
-        />
+          {/* The roster stays available even when Home's queues are empty. */}
+          <WorkTimelinePanel
+            company={company}
+            employees={employees}
+            employeeLoadError={employeesError}
+            onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
+          />
+        </header>
+        <SetupBanner company={company} />
+        <PushPromptBanner />
+        {data === null ? (
+          <div className="flex min-h-[40vh] items-center justify-center">
+            <Spinner size={22} />
+          </div>
+        ) : (
+          <>
+            {hasAnythingToShow(data) ? (
+              <>
+                <DecisionStack company={company} data={data} onResolved={reload} />
+                <FailedRoutinesAlert
+                  company={company}
+                  data={data}
+                  onChanged={reload}
+                  onOpen={setOverlay}
+                />
+                <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
+                <StatStrip company={company} data={data} />
+                {/* `empty:hidden` so the grid's own top margin goes away too on
+                  a day when every card inside it has hidden itself. */}
+                <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
+                  <AttentionCard company={company} data={data} onOpen={setOverlay} />
+                  <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
+                  <MyTodosCard company={company} data={data} onOpen={setOverlay} />
+                  <MessagesCard company={company} data={data} onOpen={setOverlay} />
+                  <ReviewsCard company={company} data={data} onOpen={setOverlay} />
+                  <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
+                </div>
+              </>
+            ) : (
+              <AllClear company={company} data={data} />
+            )}
+          </>
+        )}
       </div>
       <HomeOverlayHost
         company={company}
@@ -518,7 +521,7 @@ function Greeting({ me, company }: { me: Me; company: Company }) {
     day: "numeric",
   });
   return (
-    <div>
+    <div className="min-w-0 flex-1 break-words">
       <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
         {salute}, {firstName}
       </h1>
