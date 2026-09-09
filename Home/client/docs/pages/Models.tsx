@@ -38,17 +38,17 @@ export function Models() {
           Open an AI Employee, then go to <Strong>Settings → Model</Strong>.
         </LI>
         <LI>
-          Select <Strong>Add model</Strong> and choose Anthropic, OpenAI, or Custom.
+          Select <Strong>Add model</Strong> and choose your <Strong>AI Model service</Strong>.
         </LI>
         <LI>
-          Choose the model and authentication method. For Custom, enter the endpoint and model id in
-          the same form. Then select <Strong>Add model</Strong>.
+          For Claude or OpenAI, paste your API key. Genosyn loads the available models and
+          recommends a current choice. Select <Strong>Connect AI Model</Strong> to test and save it.
+          For a custom endpoint, enter its URL and model ID, then select <Strong>Add model</Strong>.
         </LI>
         <LI>
-          On the new card, paste the Anthropic / OpenAI API key, or select{" "}
-          <Strong>Sign in with ChatGPT</Strong> for an OpenAI subscription. The newest model becomes
-          active automatically; use <Strong>Make active</Strong> when you want to switch back to
-          another.
+          To use ChatGPT subscription access, choose <Strong>ChatGPT sign-in</Strong>, continue,
+          then select <Strong>Sign in with ChatGPT</Strong> on its card. Genosyn tests a reply after
+          sign-in. Use <Strong>Make active</Strong> to switch between connected AI Models.
         </LI>
       </OL>
 
@@ -101,7 +101,7 @@ export function Models() {
       <UL>
         <LI>
           <Strong>Anthropic.</Strong> Paste an Anthropic Console API key. The runner picks the
-          default Claude model, or you can name a specific model string.
+          newest compatible Claude model available to your account, or you can choose another.
         </LI>
         <LI>
           <Strong>OpenAI API key.</Strong> Paste an OpenAI Platform API key for direct, usage-based
@@ -117,18 +117,48 @@ export function Models() {
         </LI>
         <LI>
           <Strong>Custom.</Strong> Paste a base URL and a model id, plus an optional API key if your
-          endpoint requires one. The loop then points every request at that endpoint.
+          endpoint requires one. Genosyn tests a real tool-use reply before saving the endpoint. The
+          loop then points every request at that endpoint.
         </LI>
       </UL>
+
+      <H3 id="connect-and-test">Connect and test an AI Model</H3>
+      <P>
+        During onboarding, or under an AI Employee&apos;s <Strong>Settings → Model</Strong>, choose
+        <Strong> AI Model service</Strong> and paste your <Strong>API key</Strong>. Genosyn loads
+        the models your account can access and recommends a recent compatible model. You can select
+        another from <Strong>Model</Strong>, or open <Strong>Choose a model ID manually</Strong>
+        to enter an exact ID. A choice you make is preserved when the list reloads.
+      </P>
+      <P>
+        Select <Strong>Connect AI Model</Strong>. Genosyn sends a small request through the same API
+        that employee work uses and checks that the model can call a harmless test tool. The request
+        uses a small amount of your API allowance. Only a successful test saves and activates the AI
+        Model. If the key, model access, billing, or network needs attention, an inline error
+        explains what to check; correct it and try again. A failed key replacement keeps the
+        previous working credential.
+      </P>
+      <P>
+        The OpenAI and Anthropic model lists do not declare a general default. Genosyn recommends
+        from their live catalogs rather than shipping a fixed model version, and tests the chosen
+        model before connecting. ChatGPT sign-in uses the default advertised for that workspace.
+        Existing AI Models keep their selected IDs; onboarding does not silently upgrade them.
+      </P>
+      <P>
+        To change a connected ChatGPT AI Model, edit its model ID and save. Genosyn tests the new
+        choice with the existing sign-in before saving. Leave the model ID blank to discover and
+        test the workspace&apos;s current default. If the test fails, the previous model stays selected.
+      </P>
 
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
         Subscription access is available on a trusted single-tenant deployment when coding execution
         is isolated with working Linux bubblewrap — the standard Docker default — or disabled. In
-        the add-model form, choose <Strong>OpenAI (GPT)</Strong>, set{" "}
-        <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the model,
-        then select <Strong>Add model</Strong>. The model card offers two official Codex
-        authentication paths:
+        the add-model form, choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
+        <Strong>Connect with</Strong> to <Strong>ChatGPT sign-in</Strong>, then select{" "}
+        <Strong>Continue to ChatGPT sign-in</Strong>. Genosyn uses your workspace&apos;s current
+        default model and tests a real reply before marking it connected. The model card offers two
+        official Codex authentication paths:
       </P>
       <UL>
         <LI>
@@ -146,8 +176,7 @@ export function Models() {
       </UL>
       <P>
         This uses the Codex access and limits attached to the selected ChatGPT workspace; it does
-        not turn a ChatGPT subscription into a general OpenAI Platform API key. OpenAI documents the
-        {" "}
+        not turn a ChatGPT subscription into a general OpenAI Platform API key. OpenAI documents the{" "}
         <ExtLink href="https://learn.chatgpt.com/docs/auth#login-on-headless-devices">
           device-code flow
         </ExtLink>
@@ -197,8 +226,7 @@ export function Models() {
         Anthropic&apos;s{" "}
         <ExtLink href="https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account">
           account authentication guidance
-        </ExtLink>
-        {" "}
+        </ExtLink>{" "}
         tells developers building third-party products to use an API key and prohibits routing
         third-party traffic against subscription limits. Connect Anthropic with a Console API key
         instead.
@@ -273,8 +301,7 @@ export function Models() {
           repositories. In separately acknowledged host mode, <Code>read_file</Code>,{" "}
           <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
           and <Code>grep</Code> are confined to the employee directory; unrestricted host bash is
-          never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed
-          {" "}
+          never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed{" "}
           <Code>bash</Code> and performs file work through it. OpenAI subscription access supports
           disabled or working bubblewrap mode, but rejects host mode. The dedicated file helpers cap
           full reads, writes, and edits at 400 KiB; <Code>read_file</Code> can still stream a
@@ -285,8 +312,7 @@ export function Models() {
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write
           journal notes, save Memory, work with Bases, Notes, Resources, charts, mail, finance and
           attachments, and reach <Strong>any registered Integration tool</Strong>. Always available;
-          the frequently-used ones are loaded up-front and the rest are a <Code>find_tools</Code>
-          {" "}
+          the frequently-used ones are loaded up-front and the rest are a <Code>find_tools</Code>{" "}
           call away.
         </LI>
         <LI>
@@ -379,8 +405,7 @@ export function Models() {
         type. In chat, use <Strong>Review AI Model settings</Strong> on the error to jump straight
         to the active employee&apos;s model roster. A separate{" "}
         <Strong>chat connection interrupted</Strong> message means the browser lost its stream to
-        the Genosyn server; confirm the server is running and inspect its logs before retrying. A
-        {" "}
+        the Genosyn server; confirm the server is running and inspect its logs before retrying. A{" "}
         <Strong>Genosyn couldn&apos;t complete this chat turn</Strong> message includes the
         conversation ID to search for in those logs and usually points to server-side setup such as
         a Browser or company MCP connection.

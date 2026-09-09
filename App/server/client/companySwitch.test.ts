@@ -209,7 +209,7 @@ describe("createCompanyAndSwitch", () => {
     assert.equal(destination, "/c/new-company-2");
   });
 
-  test("preserves the onboarding suffix for first-company creation", async () => {
+  test("opens hiring after the first company's direction is saved", async () => {
     let destination = "";
 
     await createCompanyAndSwitch({
@@ -218,10 +218,10 @@ describe("createCompanyAndSwitch", () => {
       navigate: (next) => {
         destination = next;
       },
-      suffix: "/onboarding",
+      suffix: "/onboarding?step=employee",
     });
 
-    assert.equal(destination, "/c/first-company/onboarding");
+    assert.equal(destination, "/c/first-company/onboarding?step=employee");
   });
 
   test("opens onboarding at the exact collision-safe slug returned by the server", async () => {
@@ -255,9 +255,9 @@ describe("createCompanyAndSwitch", () => {
     assert.match(appShell, /navigate: \(destination\) =>/);
     assert.match(appShell, /suffix: "\/onboarding"/);
     assert.match(app, /onCompaniesChanged=\{refreshAuthenticatedState\}/);
-    assert.match(app, /path="onboarding" element=\{<CompanyOnboarding/);
+    assert.match(app, /path="onboarding"\s+element=\{\s*<CompanyOnboarding\b/);
     assert.match(onboarding, /await createCompanyAndSwitch\(\{/);
     assert.match(onboarding, /refreshCompanies: onDone/);
-    assert.match(onboarding, /suffix: "\/onboarding"/);
+    assert.match(onboarding, /suffix: "\/onboarding\?step=employee"/);
   });
 });

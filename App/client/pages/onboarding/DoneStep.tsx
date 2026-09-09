@@ -174,14 +174,16 @@ export function DoneStep({
           </span>
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600 dark:text-indigo-300">
-              Setup complete
+              Setup summary
             </div>
             <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl dark:text-white">
               {employee.name} has joined {company.name}
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700 dark:text-indigo-100/80">
               {!nextRun
-                ? "Give them a first request below, or add scheduled work whenever you are ready."
+                ? modelConnected
+                  ? "Give them a first request below, or add scheduled work whenever you are ready."
+                  : "Connect an AI Model so they can answer requests and run their Routines."
                 : modelConnected
                   ? `Their first Routine runs ${nextRun}. You will find the transcript under Routines when it does.`
                   : `Their first Routine is scheduled for ${nextRun}, but every run will be skipped until an AI Model is connected.`}
@@ -258,8 +260,10 @@ export function DoneStep({
               body={
                 scheduledCount > 0 ? (
                   <>
-                    These run on their own schedule from now on
-                    {nextRun ? `, starting ${nextRun}` : ""}. Turn any of them off from{" "}
+                    {modelConnected
+                      ? `These run on their own schedule${nextRun ? `, starting ${nextRun}` : ""}.`
+                      : "They will start once an AI Model is connected."}{" "}
+                    Turn any of them off from{" "}
                     <Link
                       to={`/c/${company.slug}/routines`}
                       className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"

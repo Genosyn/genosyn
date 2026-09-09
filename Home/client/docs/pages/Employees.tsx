@@ -117,8 +117,9 @@ export function Employees() {
       <H2 id="lifecycle">Lifecycle</H2>
       <OL>
         <LI>
-          <Strong>Create.</Strong> Pick a template (a starter Soul, Skill set, and sometimes starter
-          Routines) or start blank. The slug freezes; you can rename freely afterward.
+          <Strong>Create.</Strong> Set the company mission and vision first, then pick a template (a
+          starter Soul and Skill set) or start blank. Hiring does not schedule Routines. The slug
+          freezes; you can rename freely afterward.
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
@@ -131,12 +132,11 @@ export function Employees() {
           constitution and rewrite it to fit your team.
         </LI>
         <LI>
-          <Strong>Review the Launch plan.</Strong> Genosyn uses the role, chosen template, and
-          company mission and vision to show dynamic Routine and Integration recommendations.
-          Template-created Routines appear as <Strong>Scheduled</Strong>; new suggestions remain
-          opt-in until you select them and choose either <Strong>Add selected Routines</Strong> or
-          the primary <Strong>Schedule N Routines and continue</Strong>, which creates them and
-          advances in one press.
+          <Strong>Choose Routines.</Strong> Genosyn selects responsibilities that fit the saved role
+          and uses company mission and vision to rank them and write their instructions. An edited
+          role takes precedence over the starting template. Suggestions remain opt-in until you
+          select them and choose the primary <Strong>Schedule N Routines and continue</Strong>,
+          which creates them and advances in one press.
         </LI>
         <LI>
           <Strong>Connect the work.</Strong> Integration cards distinguish between Connect, Grant
@@ -149,8 +149,8 @@ export function Employees() {
         </LI>
       </OL>
 
-      <Callout kind="tip" title="The Launch plan appears after every hire.">
-        The first-company guide opens it between the AI Employee and Gmail steps. The regular{" "}
+      <Callout kind="tip" title="Routine suggestions appear after every hire.">
+        The first-company guide opens them between the AI Employee and Email steps. The regular{" "}
         <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it after the Soul review. Both
         use the same recommendation rules, and both can be skipped — in the guide with{" "}
         <Strong>Continue without adding them</Strong>. Suggestions never overwrite an existing
@@ -311,21 +311,21 @@ export function Employees() {
       <P>
         Your <DocLink to="/docs">Home page</DocLink> keeps a compact{" "}
         <Strong>bubble for each AI Employee</Strong> to the right of your greeting. The bubbles form
-        a small horizontal row in the header, leaving the cards below the full width of the page.
-        On a narrow screen, they stay beside the greeting. Scroll the row sideways
-        when the whole team does not fit. Their status distinguishes
+        a small horizontal row in the header, leaving the cards below the full width of the page. On
+        a narrow screen, they stay beside the greeting. Scroll the row sideways when the whole team
+        does not fit. Their status distinguishes
         <Strong> Working now</Strong>, <Strong>Waiting for input</Strong>, recent work, and a quiet
         day. Work details stay hidden until you choose an employee.
       </P>
       <P>
-        Choose a bubble to open the employee&apos;s <Strong>work timeline</Strong> in a popup.
-        It opens on today, with the clock down the left and work arranged through the day, like a
+        Choose a bubble to open the employee&apos;s <Strong>work timeline</Strong> in a popup. It
+        opens on today, with the clock down the left and work arranged through the day, like a
         calendar&apos;s day view. Each entry says what happened and shows its result, and work
-        happening in the same hour stays readable as separate entries. Use <Strong>Previous
-        day</Strong> and <Strong>Next day</Strong>, or choose a date with <Strong>Work day</Strong>,
-        to browse today and the previous six days. Choose <Strong>Today</Strong> to return to the
-        current day. Dates and times follow your browser&apos;s local time, with the timezone shown
-        above the calendar.
+        happening in the same hour stays readable as separate entries. Use{" "}
+        <Strong>Previous day</Strong> and <Strong>Next day</Strong>, or choose a date with{" "}
+        <Strong>Work day</Strong>, to browse today and the previous six days. Choose{" "}
+        <Strong>Today</Strong> to return to the current day. Dates and times follow your
+        browser&apos;s local time, with the timezone shown above the calendar.
       </P>
       <P>Everything you need to follow up stays close to the work:</P>
       <UL>
@@ -345,10 +345,9 @@ export function Employees() {
         <LI>
           <Strong>Routine runs</Strong> show a concise outcome in the employee&apos;s day. If no
           outcome summary was recorded, the entry says so; an active Run says it is still working.
-          The status, outcome and checks badges from{" "}
-          <DocLink to="/docs/routines">Routines</DocLink> remain visible. Choose{" "}
-          <Strong>Open the run log</Strong> for the full report, tool calls and{" "}
-          <DocLink to="/docs/verification#effects">Effects</DocLink>, without leaving Home.
+          The status, outcome and checks badges from <DocLink to="/docs/routines">Routines</DocLink>{" "}
+          remain visible. Choose <Strong>Open the run log</Strong> for the full report, tool calls
+          and <DocLink to="/docs/verification#effects">Effects</DocLink>, without leaving Home.
         </LI>
         <LI>
           <Strong>Conversations.</Strong> One line per thread, saying how many times the employee
@@ -381,22 +380,19 @@ export function Employees() {
         way to reach an employee and check in, and an employee&apos;s own day says plainly when
         there is nothing recorded for the selected date. A busy employee cannot crowd another
         employee&apos;s status out of the roster: the circles use a per-employee summary the server
-        calculates before any display limit is applied, and opening one employee&apos;s day asks
-        for that employee and date alone. Work still running — and an unresolved Approval still
-        waiting — remains in the current status even when it began before the recent-work window.
-        The day view stays bounded to the selected date and says when there is more recorded work
-        than it can display.
+        calculates before any display limit is applied, and opening one employee&apos;s day asks for
+        that employee and date alone. Work still running — and an unresolved Approval still waiting
+        — remains in the current status even when it began before the recent-work window. The day
+        view stays bounded to the selected date and says when there is more recorded work than it
+        can display.
       </P>
-      <Callout
-        kind="info"
-        title="An outcome summary is a report; Checks and verdicts assess it."
-      >
-        A Run&apos;s summary comes from its recorded final report, or the outcome assessment when
-        a final report is unavailable. The employee&apos;s report does not prove the work succeeded:
+      <Callout kind="info" title="An outcome summary is a report; Checks and verdicts assess it.">
+        A Run&apos;s summary comes from its recorded final report, or the outcome assessment when a
+        final report is unavailable. The employee&apos;s report does not prove the work succeeded:
         read the independent <DocLink to="/docs/verification">Checks and verdicts</DocLink> beside
         it, and open the run log for evidence. Timeline entries still come from recorded work;
-        writing a Journal entry does not create one. The work timeline is available on every plan
-        to every Member. The <DocLink to="/docs/plans-billing">audit log</DocLink> is the separate
+        writing a Journal entry does not create one. The work timeline is available on every plan to
+        every Member. The <DocLink to="/docs/plans-billing">audit log</DocLink> is the separate
         admin tool for investigating every actor across all of history.
       </Callout>
     </>

@@ -1,6 +1,9 @@
 import { AppDataSource } from "../db/datasource.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Routine } from "../db/entities/Routine.js";
+import { withSerializedTransaction } from "../db/transactions.js";
+import type { EntityManager } from "typeorm";
 import { emitResourceChange } from "./resourceEvents.js";
 
 /**
@@ -114,13 +117,33 @@ export async function clearRoutinePins(modelId: string, companyId: string): Prom
   if (pinned.length > 0) emitResourceChange(companyId, "routine");
 }
 
-/**
- * Flip the active flag to `modelId`, clearing it on every sibling. Runs in a
- * transaction so a reader never sees zero or two active rows. Returns false if
- * the model doesn't belong to the employee.
- */
+/** Postgres needs an existing parent lock; an empty sibling update locks no rows. */
+async function lockModelEmployee(manager: EntityManager, employeeId: string): Promise<boolean> {
+  const employee = await manager.getRepository(AIEmployee).findOne({
+    where: { id: employeeId },
+    select: { id: true },
+    ...(AppDataSource.options.type === "postgres"
+      ? { lock: { mode: "pessimistic_write" as const } }
+      : {}),
+  });
+  return employee !== null;
+}
+
+/** Serialize initial inserts against the parent, even before any sibling model exists. */
+export async function createActiveModel(model: AIModel): Promise<AIModel | null> {
+  return withSerializedTransaction(async (manager) => {
+    if (!(await lockModelEmployee(manager, model.employeeId))) return null;
+    const models = manager.getRepository(AIModel);
+    await models.update({ employeeId: model.employeeId }, { isActive: false });
+    model.isActive = true;
+    return models.save(model);
+  });
+}
+
+/** Flip the active flag atomically; every writer serializes on the same employee. */
 export async function setActiveModel(employeeId: string, modelId: string): Promise<boolean> {
-  return AppDataSource.transaction(async (m) => {
+  return withSerializedTransaction(async (m) => {
+    if (!(await lockModelEmployee(m, employeeId))) return false;
     const repo = m.getRepository(AIModel);
     const target = await repo.findOneBy({ id: modelId, employeeId });
     if (!target) return false;

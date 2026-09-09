@@ -51,12 +51,19 @@ export function createAnthropicClient(opts: {
     // budgets against. Declaring a number we made up would drop tools an
     // employee needs to work around a wall that isn't there.
     maxTools: null,
-    async streamTurn({ system, messages, tools, signal, onText }): Promise<AssistantTurn> {
+    async streamTurn({
+      system,
+      messages,
+      tools,
+      signal,
+      onText,
+      maxOutputTokens,
+    }): Promise<AssistantTurn> {
       const stream = client.messages.stream(
         {
           model: opts.model,
           ...(opts.effort != null ? { output_config: { effort: opts.effort } } : {}),
-          max_tokens: maxTokensFor(opts.model),
+          max_tokens: Math.min(maxTokensFor(opts.model), maxOutputTokens ?? Infinity),
           system,
           messages: messages.map(toAnthropicMessage),
           ...(tools.length > 0 ? { tools: tools.map(toAnthropicTool) } : {}),

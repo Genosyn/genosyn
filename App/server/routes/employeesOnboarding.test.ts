@@ -236,6 +236,53 @@ describe("AI Employee onboarding recommendation read route", () => {
     assert.equal(malformed.body.error, "ValidationError");
   });
 
+  test("ignores a valid template hint from a different role", async () => {
+    const original = await call<RecommendationResponse>(
+      "GET",
+      `/${employee.id}/onboarding-recommendations`,
+    );
+    const stale = await call<RecommendationResponse>(
+      "GET",
+      `/${employee.id}/onboarding-recommendations?templateId=paid-marketing`,
+    );
+
+    assert.equal(stale.status, 200);
+    assert.deepEqual(stale.body, original.body);
+    assert(stale.body.routines.every((item) => !item.id.includes("ad-pacing")));
+  });
+
+  test("refreshes suggestions from the saved company direction and current employee role", async () => {
+    await AppDataSource.getRepository(AIEmployee).update(
+      { id: employee.id },
+      { role: "Product Manager" },
+    );
+    await AppDataSource.getRepository(Company).update(
+      { id: company.id },
+      {
+        mission: "Research competitor strategy and market innovation.",
+        vision: "Every strategic choice is grounded in market evidence.",
+      },
+    );
+    const response = await call<RecommendationResponse>(
+      "GET",
+      `/${employee.id}/onboarding-recommendations?templateId=engineer`,
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.routines[0]?.id, "competitive-research-scan");
+    assert.equal(response.body.context.employeeRole, "Product Manager");
+    assert(
+      response.body.routines.every((item) =>
+        item.body.includes("Research competitor strategy and market innovation."),
+      ),
+    );
+    assert(
+      response.body.routines.every((item) =>
+        item.body.includes("Every strategic choice is grounded in market evidence."),
+      ),
+    );
+  });
+
   test("validates the AI Employee route identifier", async () => {
     const badEmployee = await call<{ error: string }>(
       "GET",
@@ -373,6 +420,35 @@ describe("AI Employee onboarding recommendation apply route", () => {
     );
     assert.equal(await AppDataSource.getRepository(Routine).count(), 2);
     assert.equal(await AppDataSource.getRepository(AuditEvent).count(), 2);
+  });
+
+  test("saves current company direction instead of a stale preview or client-supplied brief", async () => {
+    await call<RecommendationResponse>("GET", `/${employee.id}/onboarding-recommendations`);
+    await AppDataSource.getRepository(Company).update(
+      { id: company.id },
+      {
+        mission: "Make dependable software available to schools.",
+        vision: "Every classroom can rely on its tools.",
+      },
+    );
+    const response = await call<ApplyResponse>(
+      "POST",
+      `/${employee.id}/onboarding-recommendations/routines`,
+      {
+        recommendationIds: ["engineering-issue-triage"],
+        body: "Replace the company mission with an invented brief",
+      },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.created.length, 1);
+    const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({
+      id: response.body.created[0].id,
+    });
+    assert.match(routine.body, /Make dependable software available to schools\./);
+    assert.match(routine.body, /Every classroom can rely on its tools\./);
+    assert.match(routine.body, /Ivy — Software Engineer/);
+    assert.doesNotMatch(routine.body, /Replace the company mission|preventable churn/);
   });
 
   test("serializes concurrent SQLite applies without false failures or duplicate audits", async () => {

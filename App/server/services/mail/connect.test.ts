@@ -72,26 +72,21 @@ const GOOGLE_APP = {
 // ─────────────────────── describeMailboxConnect ───────────────────────
 
 describe("describeMailboxConnect", () => {
-  test("puts the IMAP form ahead of Google when no Google app is registered here", async () => {
+  test("explains Google setup without offering an IMAP fallback when no app is registered", async () => {
     const plan = await describeMailboxConnect("someone@gmail.com");
 
     assert.equal(plan.providerKey, "google");
     assert.equal(plan.source, "builtin");
-    assert.equal(plan.options.length, 2);
-    // The dialog renders the first option as its primary button. On a fresh
-    // install — the one case where the person has the least patience — an
-    // unregistered "Continue with Google" sitting there is a button that
-    // cannot possibly work, so the app-password form has to overtake it.
-    assert.equal(plan.options[0].kind, "imap");
-    assert.equal(plan.options[0].ready, true);
-    assert.equal(plan.options[1].kind, "oauth");
+    assert.equal(plan.options.length, 1);
+    assert.equal(plan.options[0].kind, "oauth");
 
     const oauth = oauthOption(plan);
     assert.equal(oauth.ready, false);
     assert.equal(oauth.instanceApp, false);
     assert.match(oauth.blockedReason ?? "", /No Google OAuth app is registered on this install/);
     // The reason has to name the way out, not just the obstacle.
-    assert.match(oauth.blockedReason ?? "", /app password/);
+    assert.match(oauth.blockedReason ?? "", /Admin → Integrations/);
+    assert.doesNotMatch(oauth.blockedReason ?? "", /password|IMAP/i);
   });
 
   test("leads with Continue with Google once an admin has registered the app", async () => {
@@ -106,10 +101,22 @@ describe("describeMailboxConnect", () => {
     assert.equal(oauth.blockedReason, undefined);
     assert.equal(oauth.label, "Continue with Google");
     assert.deepEqual(oauth.scopeGroups, ["mail"]);
-    // The password route stays on offer underneath: an account the shared app
-    // is not allowed to cover still needs a way in.
-    assert.equal(plan.options[1].kind, "imap");
-    assert.equal(plan.options[1].ready, true);
+    assert.equal(plan.options.length, 1);
+  });
+
+  test("keeps Google OAuth as the only choice for a Workspace domain on either install state", async (t) => {
+    t.mock.method(dns, "resolveMx", async () => [{ exchange: "aspmx.l.google.com", priority: 10 }]);
+    for (const configured of [false, true]) {
+      if (configured) await saveOauthApp("google", GOOGLE_APP);
+      const plan = await describeMailboxConnect("ops@workspace.example");
+      assert.equal(plan.providerKey, "google");
+      assert.equal(plan.source, "mx");
+      assert.equal(plan.options.length, 1);
+      const oauth = oauthOption(plan);
+      assert.equal(oauth.ready, configured);
+      assert.deepEqual(oauth.scopeGroups, ["mail"]);
+      assert.doesNotMatch(oauth.blockedReason ?? "", /password|IMAP/i);
+    }
   });
 
   test("a registered Google app does not make a Microsoft address connectable", async () => {

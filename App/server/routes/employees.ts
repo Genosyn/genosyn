@@ -43,8 +43,7 @@ import { toSlug } from "../lib/slug.js";
 import { employeeDir, ensureDir } from "../services/paths.js";
 import { isModelConnected } from "../services/providers.js";
 import { effectiveActiveId } from "../services/models.js";
-import { removeDir, soulTemplate, skillTemplate, routineTemplate } from "../services/files.js";
-import { registerRoutine } from "../services/cron.js";
+import { removeDir, soulTemplate, skillTemplate } from "../services/files.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate, personalizeTemplateSoul } from "../services/templates.js";
@@ -72,12 +71,9 @@ import {
   removeAvatarFile,
   replaceAvatarFile,
 } from "../services/avatars.js";
-import {
-  PlanLimitError,
-  assertCanHireAiEmployee,
-  routineCapacityRemaining,
-} from "../services/entitlements.js";
+import { PlanLimitError, assertCanHireAiEmployee } from "../services/entitlements.js";
 import { syncSeatCount } from "../services/billing/companyBilling.js";
+import { hasCompanyDirection } from "../services/companyDirection.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -154,8 +150,8 @@ employeesRouter.get("/", async (req, res) => {
 });
 
 const createSchema = z.object({
-  name: z.string().min(1).max(80),
-  role: z.string().min(1).max(80),
+  name: z.string().trim().min(1).max(80),
+  role: z.string().trim().min(1).max(80),
   templateId: z.string().min(1).max(80).optional(),
 });
 
@@ -163,6 +159,11 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   const body = req.body as z.infer<typeof createSchema>;
   const co = await loadCompany((req.params as Record<string, string>).cid);
   if (!co) return res.status(404).json({ error: "Company not found" });
+  if (!hasCompanyDirection(co)) {
+    return res.status(400).json({
+      error: "Set your company mission and vision before hiring an AI Employee.",
+    });
+  }
   if (await findEmployeeByName(co.id, body.name)) {
     return res.status(409).json({ error: "An employee with that name already exists" });
   }
@@ -202,15 +203,12 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   await grantAllResourcesToEmployee(co.id, emp.id);
   await grantExploreToEmployee(co.id, emp.id);
 
-  // Employee cwd is still needed on disk — the CLI spawns there, writes
-  // artifacts, and resolves `.mcp.json` + credentials. Soul / Skills /
-  // Routines themselves live in the DB now, so no subdirectories are
-  // pre-created.
+  // Coding tools need an employee working directory for artifacts. Soul,
+  // Skills, and Routines live in the database.
   ensureDir(employeeDir(co.slug, slug));
 
-  // Materialize template's skills + routines directly as DB rows. Skill and
-  // routine bodies land in their respective `body` columns; no filesystem
-  // writes beyond the already-created employee directory.
+  // A template provides a Soul and Skills. Recurring work is recommended from
+  // the saved role and company direction, then scheduled only after selection.
   if (template) {
     const skillRepo = AppDataSource.getRepository(Skill);
     for (const s of template.skills) {
@@ -222,26 +220,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
         body: s.readme || skillTemplate(s.name),
       });
       await skillRepo.save(skillRow);
-    }
-    // Plan limit (M56): the hire itself never fails on Routine capacity —
-    // the seeded batch is capped at what the plan still allows, and the
-    // remainder is silently skipped.
-    const capacity = await routineCapacityRemaining(co.id);
-    const seedable = capacity === null ? template.routines : template.routines.slice(0, capacity);
-    const routineRepo = AppDataSource.getRepository(Routine);
-    for (const r of seedable) {
-      const rSlug = toSlug(r.name);
-      const rRow = routineRepo.create({
-        employeeId: emp.id,
-        name: r.name,
-        slug: rSlug,
-        cronExpr: r.cronExpr,
-        enabled: true,
-        lastRunAt: null,
-        body: r.readme || routineTemplate(r.name, r.cronExpr),
-      });
-      registerRoutine(rRow);
-      await routineRepo.save(rRow);
     }
   }
 

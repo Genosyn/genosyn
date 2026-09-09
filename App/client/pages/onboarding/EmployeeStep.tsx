@@ -2,16 +2,13 @@ import React from "react";
 import {
   AlertCircle,
   ArrowRight,
-  BookOpen,
   Bot,
-  CalendarClock,
   CheckCircle2,
   ExternalLink,
   RefreshCw,
   ScrollText,
 } from "lucide-react";
 import { AIModel, api, Company, Employee, EmployeeTemplate } from "../../lib/api";
-import { describeCronExpr } from "../../lib/scheduleBuilder";
 import { Button } from "../../components/ui/Button";
 import { FormError } from "../../components/ui/FormError";
 import { Input } from "../../components/ui/Input";
@@ -22,16 +19,6 @@ import { Note, StepCard, StepFooter, StepHeading } from "./OnboardingFrame";
 
 const FEATURED_TEMPLATE_IDS = ["executive-assistant", "sdr", "research-analyst", "operations"];
 
-/**
- * Hire the first AI Employee, then connect the AI Model they think with.
- *
- * The template cards deliberately list the Skills and Routines each template
- * ships with. The endpoint has always returned them and the picker used to
- * throw them away, which meant a member's first encounter with the words
- * "Skill" and "Routine" was an abstract reassurance. Showing four named
- * playbooks and a schedule teaches both terms by example, for free, at the
- * exact moment they first appear.
- */
 export function EmployeeStep({
   company,
   employee,
@@ -125,8 +112,8 @@ export function EmployeeStep({
       <StepCard>
         <StepHeading
           icon={Bot}
-          title="Who should join the team?"
-          description="Pick a starting role. Each template arrives with a Soul already written, a set of Skills, and — for some roles — Routines already on a schedule. All of it is yours to edit afterwards."
+          title="Hire your first AI Employee"
+          description="Choose a starting role or write your own. We prepare their Soul and Skills, then suggest Routines based on their role and your company’s direction."
         />
 
         <div className="mt-5">
@@ -174,37 +161,6 @@ export function EmployeeStep({
                   <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                     {template.tagline}
                   </p>
-
-                  <dl className="mt-3 space-y-1.5 border-t border-slate-100 pt-3 dark:border-slate-800">
-                    <div className="flex items-start gap-1.5">
-                      <dt className="sr-only">Skills</dt>
-                      <BookOpen
-                        size={12}
-                        className="mt-[3px] shrink-0 text-slate-400 dark:text-slate-500"
-                        aria-hidden="true"
-                      />
-                      <dd className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                        {template.skills.length > 0
-                          ? `${template.skills.length} ${template.skills.length === 1 ? "Skill" : "Skills"}: ${template.skills.join(", ")}`
-                          : "No Skills yet — write your own"}
-                      </dd>
-                    </div>
-                    <div className="flex items-start gap-1.5">
-                      <dt className="sr-only">Routines</dt>
-                      <CalendarClock
-                        size={12}
-                        className="mt-[3px] shrink-0 text-slate-400 dark:text-slate-500"
-                        aria-hidden="true"
-                      />
-                      <dd className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                        {template.routines.length > 0
-                          ? template.routines
-                              .map((r) => `${r.name} (${describeCronExpr(r.cronExpr)})`)
-                              .join(" · ")
-                          : "No Routines yet — add them next"}
-                      </dd>
-                    </div>
-                  </dl>
                 </button>
               ))}
             </div>
@@ -224,7 +180,10 @@ export function EmployeeStep({
             <Input
               label="Role"
               value={role}
-              onChange={(e) => setRole(e.target.value)}
+              onChange={(e) => {
+                setRole(e.target.value);
+                setSelectedId(null);
+              }}
               placeholder="Executive Assistant"
               required
             />
@@ -265,15 +224,7 @@ export function EmployeeStep({
         <StepHeading
           icon={Bot}
           title={`Connect ${employee.name}'s AI Model`}
-          description={
-            <>
-              An <strong className="font-semibold">AI Model</strong> is the brain they think with,
-              and Genosyn does not include one. Register an Anthropic or OpenAI API key — billed by
-              them, not by Genosyn — or point at any OpenAI-compatible endpoint. The key is
-              encrypted before it is stored, and this model becomes {employee.name}&apos;s active
-              one, used for chat and for every Routine that does not pin its own.
-            </>
-          }
+          description="Connect Claude or OpenAI: we find available models and test the connection automatically. Custom endpoints are also available. API usage is billed by your model company."
         />
 
         <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
@@ -304,9 +255,8 @@ export function EmployeeStep({
 
       {modelMissing && (
         <Note kind="warn" icon={AlertCircle} title="No AI Model is connected yet">
-          {employee.name} cannot answer a request or run a Routine until one is. Finish the form
-          above — most AI Models need the API key pasted in after the model is saved — or carry on
-          and connect it later from their Settings.
+          {employee.name} cannot answer a request or run a Routine until one is. Finish the
+          connection above, or connect it later from their Settings.
         </Note>
       )}
 
@@ -325,7 +275,7 @@ export function EmployeeStep({
           onClick={continueWithModelCheck}
           disabled={checkingModel}
         >
-          {checkingModel ? "Checking…" : "Build the launch plan"}
+          {checkingModel ? "Checking…" : "Choose Routines"}
           {!checkingModel && <ArrowRight size={15} />}
         </Button>
       </StepFooter>

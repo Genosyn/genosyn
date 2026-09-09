@@ -1,6 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
 import {
@@ -10,13 +11,14 @@ import {
 } from "../db/entities/EmployeeMailAccountGrant.js";
 import { effectiveActiveId } from "./models.js";
 import { isModelConnected } from "./providers.js";
+import { hasCompanyDirection } from "./companyDirection.js";
 
 /**
  * Where a first-run guide should resume. These ids mirror the client's step
  * machine in `client/pages/Onboarding.tsx` — keep the two lists in step.
  */
 export type OnboardingStepId =
-  | "intro"
+  | "company"
   | "employee"
   | "recommendations"
   | "email"
@@ -24,11 +26,11 @@ export type OnboardingStepId =
   | "done";
 
 export type OnboardingStatus = {
-  /** True once the company has an AI Employee that can actually answer. */
+  /** True once company direction is set and an AI Employee can answer. */
   complete: boolean;
   /** The AI Employee the guide is about, or null before the first hire. */
   employee: { id: string; name: string; slug: string; role: string } | null;
-  /** An active AI Model with usable credentials — the one hard requirement. */
+  /** An active AI Model with usable credentials. */
   modelConnected: boolean;
   /**
    * Every Routine the employee owns, and the subset that will actually fire.
@@ -58,11 +60,10 @@ export type OnboardingStatus = {
  * A persisted `onboardingStep` column would go stale the moment someone hires
  * an employee from the regular wizard, connects a model from the employee tab,
  * or deletes the employee the flag pointed at. Deriving it keeps the resume
- * banner honest in all three cases, costs three indexed lookups, and needs no
- * migration.
+ * banner honest in all three cases, uses indexed lookups, and needs no migration.
  *
- * "Complete" deliberately means *the employee can answer* — an AI Employee with
- * a connected AI Model. Routines, Gmail, and the first request are all genuinely
+ * "Complete" means company direction is set and the employee can answer with
+ * a connected AI Model. Routines, Gmail, and the first request are all
  * optional, so a member who skipped them is finished, not nagged forever.
  */
 export async function loadOnboardingStatus(
@@ -76,14 +77,15 @@ export async function loadOnboardingStatus(
    */
   employeeId?: string,
 ): Promise<OnboardingStatus> {
+  const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
+  const directionReady = hasCompanyDirection(company);
   const repo = AppDataSource.getRepository(AIEmployee);
   // Always scoped by companyId, so an id from another company resolves to
   // nothing rather than leaking that company's state.
   const employee = employeeId
     ? await repo.findOneBy({ id: employeeId, companyId })
-    : ((
-        await repo.find({ where: { companyId }, order: { createdAt: "ASC" }, take: 1 })
-      )[0] ?? null);
+    : ((await repo.find({ where: { companyId }, order: { createdAt: "ASC" }, take: 1 }))[0] ??
+      null);
   if (!employee) {
     return {
       complete: false,
@@ -95,7 +97,7 @@ export async function loadOnboardingStatus(
       skillCount: 0,
       mailGranted: false,
       mailAccessLevel: null,
-      nextStep: "intro",
+      nextStep: directionReady ? "employee" : "company",
     };
   }
 
@@ -112,9 +114,7 @@ export async function loadOnboardingStatus(
   const active = models.find((model) => model.id === activeId) ?? null;
   const modelConnected = active !== null && isModelConnected(active);
 
-  const scheduled = routines.filter(
-    (routine) => routine.enabled && routine.nextRunAt !== null,
-  );
+  const scheduled = routines.filter((routine) => routine.enabled && routine.nextRunAt !== null);
   const dueRuns = scheduled
     .map((routine) => routine.nextRunAt as Date)
     .sort((a, b) => a.getTime() - b.getTime());
@@ -128,7 +128,7 @@ export async function loadOnboardingStatus(
   );
 
   return {
-    complete: modelConnected,
+    complete: directionReady && modelConnected,
     employee: {
       id: employee.id,
       name: employee.name,
@@ -142,6 +142,6 @@ export async function loadOnboardingStatus(
     skillCount,
     mailGranted: mailGrants.length > 0,
     mailAccessLevel,
-    nextStep: modelConnected ? "done" : "employee",
+    nextStep: !directionReady ? "company" : modelConnected ? "done" : "employee",
   };
 }

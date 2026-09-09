@@ -36,19 +36,18 @@ export function Email() {
       <H2 id="connect">Connecting a mailbox</H2>
       <P>
         Open <Strong>Email</Strong> and type the address. That is the whole first step — Genosyn
-        works out the rest from the domain: which provider it is, which IMAP and SMTP servers it
-        uses, and whether this install can offer you a one-click sign-in for it.
+        works out the sign-in method from the domain. Gmail and Google Workspace use Google sign-in.
+        Other supported mailboxes use a password, with server settings filled in for you.
       </P>
       <OL>
         <LI>
           <Strong>Type your email address</Strong> and press Continue.
         </LI>
         <LI>
-          <Strong>Finish however that address wants to be finished.</Strong> For a Google address on
-          an install whose admin has registered a Google app, that is one{" "}
-          <Strong>Continue with Google</Strong> button and Google&apos;s consent screen — the
-          mailbox is created the moment you approve, with nothing to come back and click. For
-          everything else it is a password field, with the servers already filled in and a line
+          <Strong>Connect your mailbox.</Strong> For Gmail and Google Workspace, choose{" "}
+          <Strong>Continue with Google</Strong> and follow Google&apos;s consent screen — the
+          mailbox is created the moment you approve, with nothing to come back and click. For other
+          supported services it is a password field, with the servers already filled in and a line
           telling you what kind of password your provider wants.
         </LI>
         <LI>
@@ -64,14 +63,21 @@ export function Email() {
           the top of the sidebar.
         </LI>
       </OL>
+      <P>
+        If Google sign-in is unavailable, ask an instance admin to register the Google OAuth app at{" "}
+        <Strong>Admin → Integrations</Strong>, then return and choose{" "}
+        <Strong>Continue with Google</Strong>. See{" "}
+        <DocLink to="/docs/integrations">Integrations</DocLink> for setup. You can skip connecting
+        email during onboarding and add it later.
+      </P>
 
       <H3 id="app-passwords">App passwords</H3>
       <P>
-        Most providers will not accept your ordinary sign-in password from a mail client any more,
-        and want an <Strong>app password</Strong> instead: a long random string you generate once,
-        scoped to one application, revocable on its own without changing the password you actually
-        remember. Genosyn tells you which kind your provider wants and links straight to the page
-        that issues it. Gmail needs 2-Step Verification turned on before it will offer you one.
+        For mailboxes connected with a password, most providers will not accept your ordinary
+        sign-in password, and want an <Strong>app password</Strong> instead: a long random string
+        you generate once, scoped to one application, revocable on its own without changing the
+        password you actually remember. Genosyn tells you which kind your provider wants and links
+        straight to the page that issues it. Gmail and Google Workspace use Google sign-in instead.
       </P>
       <P>
         The password is stored encrypted with the instance key, exactly like every other Connection
@@ -84,11 +90,10 @@ export function Email() {
 
       <H3 id="providers">What works</H3>
       <P>
-        Anything that speaks IMAP and SMTP, which is very nearly everything:{" "}
-        <Strong>Gmail and Google Workspace</Strong> (either through Google sign-in or with a Google
-        App password), <Strong>Fastmail</Strong>, <Strong>iCloud</Strong>, <Strong>Yahoo</Strong>,{" "}
-        <Strong>Zoho</Strong>, <Strong>GMX</Strong>, <Strong>Yandex</Strong>,{" "}
-        <Strong>mailbox.org</Strong>, <Strong>Migadu</Strong>, <Strong>Titan</Strong>, a company
+        <Strong>Gmail and Google Workspace</Strong> connect through Google sign-in. Other mailboxes
+        connect through IMAP and SMTP: <Strong>Fastmail</Strong>, <Strong>iCloud</Strong>,{" "}
+        <Strong>Yahoo</Strong>, <Strong>Zoho</Strong>, <Strong>GMX</Strong>, <Strong>Yandex</Strong>
+        , <Strong>mailbox.org</Strong>, <Strong>Migadu</Strong>, <Strong>Titan</Strong>, a company
         Exchange or Dovecot server, or a mailbox on a domain you host yourself.
       </P>
       <P>
@@ -119,12 +124,12 @@ export function Email() {
         sender may have written about themselves would be worse than not offering it.
       </Callout>
 
-      <Callout kind="info" title="Nothing to register, and no push endpoint to expose.">
+      <Callout kind="info" title="No push endpoint to expose.">
         Sync is poll-based on a short interval, so there is no Google Cloud Pub/Sub topic and no
-        inbound webhook. A self-hosted install gets a working inbox with an address and a password.
-        (On a very large account a master admin can cap the first import to recent mail with{" "}
-        <Strong>Backfill days</Strong> at <Code>Admin → Runtime</Code>; the default imports
-        everything.)
+        inbound webhook. Gmail needs a registered Google OAuth app; other supported mailboxes use
+        their password and server settings. (On a very large account a master admin can cap the
+        first import to recent mail with <Strong>Backfill days</Strong> at{" "}
+        <Code>Admin → Runtime</Code>; the default imports everything.)
       </Callout>
 
       <H2 id="using">Reading and answering mail</H2>

@@ -9,7 +9,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { ResourceChangeSubscriber } from "../db/subscribers/resourceChangeSubscriber.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import { registerResourceChangeSink } from "./resourceEvents.js";
-import { clearRoutinePins, resolveChatModel } from "./models.js";
+import { clearRoutinePins, createActiveModel, resolveChatModel, setActiveModel } from "./models.js";
 
 before(async () => {
   await initTestDb();
@@ -39,6 +39,38 @@ async function model(args: {
     createdAt: args.createdAt,
   });
 }
+
+test("activating an existing model and adding a new model serialize the sibling flags", async () => {
+  const employee = await insert(AIEmployee, {
+    companyId: "company",
+    name: "Avery",
+    slug: "avery",
+    role: "Operations",
+  });
+  const original = await model({
+    employeeId: employee.id,
+    name: "original",
+    isActive: true,
+    createdAt: new Date(),
+  });
+  const candidate = AppDataSource.getRepository(AIModel).create({
+    employeeId: employee.id,
+    provider: "openai",
+    model: "new",
+    authMode: "apikey",
+    configJson: "{}",
+  });
+  const [saved, activated] = await Promise.all([
+    createActiveModel(candidate),
+    setActiveModel(employee.id, original.id),
+  ]);
+  assert.ok(saved);
+  assert.equal(activated, true);
+  assert.equal(
+    await AppDataSource.getRepository(AIModel).countBy({ employeeId: employee.id, isActive: true }),
+    1,
+  );
+});
 
 describe("chat model resolution", () => {
   test("defaults to active and honors an employee-owned explicit selection", async () => {

@@ -205,6 +205,52 @@ describe("company routes", () => {
     assert.equal(created.body.vision, "");
   });
 
+  test("saves both company direction fields before the guide offers hiring", async () => {
+    const created = await call<{ id: string; mission: string; vision: string }>("POST", "", {
+      name: "Clear Direction",
+      mission: "  Make everyday research accessible.  ",
+      vision: "  Every team makes well-informed decisions.  ",
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.mission, "Make everyday research accessible.");
+    assert.equal(created.body.vision, "Every team makes well-informed decisions.");
+
+    const status = await call<{ complete: boolean; employee: null; nextStep: string }>(
+      "GET",
+      `/${created.body.id}/onboarding-status`,
+    );
+    assert.equal(status.status, 200);
+    assert.equal(status.body.complete, false);
+    assert.equal(status.body.employee, null);
+    assert.equal(status.body.nextStep, "employee");
+  });
+
+  test("a company created with a name only must set direction before hiring", async () => {
+    const created = await call<{ id: string }>("POST", "", { name: "Direction Later" });
+    const missing = await call<{ nextStep: string }>(
+      "GET",
+      `/${created.body.id}/onboarding-status`,
+    );
+    assert.equal(missing.status, 200);
+    assert.equal(missing.body.nextStep, "company");
+
+    const partial = await call("PATCH", `/${created.body.id}`, { mission: "A useful mission" });
+    assert.equal(partial.status, 200);
+    assert.equal(
+      (await call<{ nextStep: string }>("GET", `/${created.body.id}/onboarding-status`)).body
+        .nextStep,
+      "company",
+    );
+
+    const complete = await call("PATCH", `/${created.body.id}`, { vision: "A useful future" });
+    assert.equal(complete.status, 200);
+    assert.equal(
+      (await call<{ nextStep: string }>("GET", `/${created.body.id}/onboarding-status`)).body
+        .nextStep,
+      "employee",
+    );
+  });
+
   test("makes a newly created company visible to the Member's next list refresh", async () => {
     const created = await call<{
       id: string;

@@ -8,8 +8,7 @@ export function Install() {
         title="Install"
         lead={
           <>
-            Genosyn ships as a single Docker image. The installer pulls it and starts a container on
-            {" "}
+            Genosyn ships as a single Docker image. The installer pulls it and starts a container on{" "}
             <Code>localhost:8471</Code>. The same command re-runs to upgrade.
           </>
         }
@@ -27,8 +26,7 @@ export function Install() {
             def: (
               <>
                 Docker Desktop or any Docker daemon. You don&apos;t have to install it first — the
-                installer sets Docker up when it&apos;s missing. The CLI is a thin wrapper around
-                {" "}
+                installer sets Docker up when it&apos;s missing. The CLI is a thin wrapper around{" "}
                 <Code>docker</Code>; there are no Node, Python, or system-package deps.
               </>
             ),
@@ -62,8 +60,7 @@ export function Install() {
           className="font-medium text-ink underline decoration-hairline underline-offset-2"
         >
           /install.sh
-        </a>
-        {" "}
+        </a>{" "}
         in your browser first if you&apos;d like to review it.
       </Callout>
 
@@ -71,8 +68,7 @@ export function Install() {
       <P>
         The installer checks for a Docker daemon it can reach, and sets one up when it can&apos;t
         find one. On Linux it runs Docker&apos;s own convenience script from{" "}
-        <Code>get.docker.com</Code>, starts the daemon, and adds you to the <Code>docker</Code>
-        {" "}
+        <Code>get.docker.com</Code>, starts the daemon, and adds you to the <Code>docker</Code>{" "}
         group so the rest of the install can talk to the socket without <Code>sudo</Code>. On macOS
         it installs Docker Desktop with Homebrew and launches it. Both paths need your password.
       </P>
@@ -136,12 +132,11 @@ export function Install() {
       <P>
         Being first to reach public signup never grants operator access; the command proves control
         of the Docker host and refuses an unverified account. Sign in again, name your first
-        company, and follow the five-step first-run guide — how it works, hiring an AI Employee and
-        connecting its AI Model, its launch plan of Routines, optional Gmail access, then a first
-        request in chat. Follow{" "}
+        company, and follow the four-step first-run guide — company mission and vision, hiring an AI
+        Employee and connecting its AI Model, its suggested Routines, and optional email access. The
+        summary offers a first request in chat. Follow{" "}
         <DocLink to="/docs/getting-started">Onboard your first AI Employee</DocLink> for the
-        complete walkthrough. If you leave partway, Home keeps a <Strong>Finish setting up</Strong>
-        {" "}
+        complete walkthrough. If you leave partway, Home keeps a <Strong>Finish setting up</Strong>{" "}
         banner back into it.
       </P>
 

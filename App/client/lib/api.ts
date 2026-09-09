@@ -1264,7 +1264,7 @@ export type OnboardingStatus = {
   skillCount: number;
   mailGranted: boolean;
   mailAccessLevel: "read" | "draft" | "send" | null;
-  nextStep: "intro" | "employee" | "recommendations" | "email" | "first_request" | "done";
+  nextStep: "company" | "employee" | "recommendations" | "email" | "first_request" | "done";
 };
 
 export type UsageBucket = {

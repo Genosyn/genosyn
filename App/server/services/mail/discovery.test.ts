@@ -320,22 +320,32 @@ describe("guessRoute", () => {
 // ───────────────────────────── discoverMailbox ─────────────────────────────
 
 describe("discoverMailbox", () => {
-  test("offers Google OAuth first and Gmail IMAP second for a gmail.com address", async () => {
-    const found = await discoverMailbox("Sam@Gmail.com", silentDeps());
-    assert.equal(found.email, "sam@gmail.com");
-    assert.equal(found.providerKey, "google");
-    assert.equal(found.source, "builtin");
-    assert.equal(found.routes[0].kind, "oauth");
-    assert.equal(found.routes[1].kind, "imap");
-    assert.equal(imapRoute(found.routes).imap.host, "imap.gmail.com");
-  });
-
-  test("tells a Gmail user that an App password is what goes in the box", async () => {
-    const found = await discoverMailbox("sam@gmail.com", silentDeps());
-    const route = imapRoute(found.routes);
-    assert.match(route.password?.summary ?? "", /App password/i);
-    assert.equal(route.password?.url, "https://myaccount.google.com/apppasswords");
-  });
+  for (const domain of ["gmail.com", "googlemail.com"]) {
+    test(`offers Google sign-in alone for ${domain}, without looking up password settings`, async () => {
+      let networkCalls = 0;
+      const unexpectedLookup = async () => {
+        networkCalls += 1;
+        throw new Error("A known Gmail address must not need discovery requests");
+      };
+      const found = await discoverMailbox(` Sam@${domain.toUpperCase()} `, {
+        resolveMx: unexpectedLookup,
+        resolveSrv: unexpectedLookup,
+        fetchAutoconfig: unexpectedLookup,
+      });
+      assert.equal(found.email, `sam@${domain}`);
+      assert.equal(found.providerKey, "google");
+      assert.equal(found.source, "builtin");
+      assert.deepEqual(found.routes, [
+        {
+          kind: "oauth",
+          provider: "google",
+          label: "Continue with Google",
+          scopeGroups: ["mail"],
+        },
+      ]);
+      assert.equal(networkCalls, 0);
+    });
+  }
 
   test("does not touch the network for a domain in the table", async () => {
     let calls = 0;
@@ -356,17 +366,45 @@ describe("discoverMailbox", () => {
     assert.equal(calls, 0);
   });
 
-  test("recognises a Workspace domain from its MX", async () => {
+  test("offers only Google sign-in for a Workspace domain discovered from its MX", async () => {
+    let passwordLookups = 0;
     const found = await discoverMailbox("sam@acme.example", {
       ...silentDeps(),
       resolveMx: async (domain) => {
         assert.equal(domain, "acme.example");
         return ["aspmx.l.google.com"];
       },
+      resolveSrv: async () => {
+        passwordLookups += 1;
+        return [];
+      },
+      fetchAutoconfig: async () => {
+        passwordLookups += 1;
+        return null;
+      },
     });
     assert.equal(found.providerKey, "google");
     assert.equal(found.source, "mx");
-    assert.equal(found.routes[0].kind, "oauth");
+    assert.deepEqual(found.routes, [
+      {
+        kind: "oauth",
+        provider: "google",
+        label: "Continue with Google",
+        scopeGroups: ["mail"],
+      },
+    ]);
+    assert.equal(passwordLookups, 0, "Workspace must not fall through to IMAP discovery");
+  });
+
+  test("keeps password setup for other supported mail services", async () => {
+    for (const domain of ["fastmail.com", "icloud.com", "yahoo.com", "zoho.com", "outlook.com"]) {
+      const found = await discoverMailbox(`sam@${domain}`, silentDeps());
+      assert.equal(found.routes.length, 1, domain);
+      const route = imapRoute(found.routes);
+      assert.ok(route.imap.host, domain);
+      assert.ok(route.smtp.host, domain);
+      assert.ok(route.password?.summary, domain);
+    }
   });
 
   test("recognises Microsoft 365 from its MX", async () => {
@@ -455,6 +493,9 @@ describe("discoverMailbox", () => {
   });
 
   test("rejects an address it cannot parse", async () => {
-    await assert.rejects(() => discoverMailbox("not-an-address", silentDeps()), /full email address/i);
+    await assert.rejects(
+      () => discoverMailbox("not-an-address", silentDeps()),
+      /full email address/i,
+    );
   });
 });

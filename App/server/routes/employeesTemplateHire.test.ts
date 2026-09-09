@@ -14,6 +14,8 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Skill } from "../db/entities/Skill.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
@@ -90,8 +92,8 @@ beforeEach(async () => {
 async function hire(
   name: string,
   role: string,
-  templateId: string,
-): Promise<ApiResponse<AIEmployee>> {
+  templateId?: string,
+): Promise<ApiResponse<AIEmployee & { error?: string }>> {
   const response = await fetch(`${baseUrl}/api/companies/${company.id}/employees`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -105,6 +107,91 @@ async function hire(
 }
 
 describe("hiring an AI Employee from a template", () => {
+  for (const direction of [
+    { mission: "", vision: "" },
+    { mission: "  \n", vision: "Clear vision" },
+    { mission: "Clear mission", vision: "\t" },
+  ]) {
+    test(`requires company mission and vision before hiring: ${JSON.stringify(direction)}`, async () => {
+      await AppDataSource.getRepository(Company).update({ id: company.id }, direction);
+
+      const response = await hire("Avery", "Executive Assistant", "executive-assistant");
+
+      assert.equal(response.status, 400);
+      assert.equal(
+        response.body.error,
+        "Set your company mission and vision before hiring an AI Employee.",
+      );
+      assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
+      assert.equal(await AppDataSource.getRepository(Skill).count(), 0);
+      assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
+      assert.equal(await AppDataSource.getRepository(TldrSettings).count(), 0);
+      assert.equal(fs.existsSync(mutableConfig.dataDir), false);
+    });
+  }
+
+  test("also requires company direction for a hire without a template", async () => {
+    await AppDataSource.getRepository(Company).update({ id: company.id }, { vision: "" });
+    const response = await hire("Quinn", "Researcher");
+    assert.equal(response.status, 400);
+    assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
+  });
+
+  test("hiring succeeds after company direction is saved", async () => {
+    await AppDataSource.getRepository(Company).update(
+      { id: company.id },
+      { mission: "", vision: "" },
+    );
+    assert.equal((await hire("Avery", "Executive Assistant", "executive-assistant")).status, 400);
+    await AppDataSource.getRepository(Company).update(
+      { id: company.id },
+      {
+        mission: "Help teams focus on meaningful work.",
+        vision: "Every team works with clarity.",
+      },
+    );
+
+    const response = await hire("  Avery  ", "  Executive Assistant  ", "executive-assistant");
+    assert.equal(response.status, 200);
+    assert.equal(response.body.name, "Avery");
+    assert.equal(response.body.role, "Executive Assistant");
+    assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 1);
+  });
+
+  test("blank names and roles cannot produce an unusable hire", async () => {
+    assert.equal((await hire("  ", "Executive Assistant")).status, 400);
+    assert.equal((await hire("Avery", "\n \t")).status, 400);
+    assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
+  });
+
+  test("authentication and company role checks precede the direction requirement", async () => {
+    await AppDataSource.getRepository(Company).update({ id: company.id }, { mission: "" });
+    actingUserId = null;
+    assert.equal((await hire("Avery", "Executive Assistant")).status, 401);
+    actingUserId = owner.id;
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: owner.id },
+      { role: "member" },
+    );
+    assert.equal((await hire("Avery", "Executive Assistant")).status, 403);
+    assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
+  });
+
+  test("a template provides its Soul and Skills without scheduling unreviewed Routines", async () => {
+    for (const [index, template] of EMPLOYEE_TEMPLATES.entries()) {
+      const response = await hire(`New hire ${index}`, template.role, template.id);
+      assert.equal(response.status, 200);
+      assert.equal(
+        await AppDataSource.getRepository(Skill).countBy({ employeeId: response.body.id }),
+        template.skills.length,
+      );
+      assert.equal(
+        await AppDataSource.getRepository(Routine).countBy({ employeeId: response.body.id }),
+        0,
+      );
+    }
+  });
+
   test("starts one daily TLDR schedule with the first AI Employee", async () => {
     const beforeHire = Date.now();
     const first = await hire("Marguerite", "VP of Go to Market", "revops-analyst");

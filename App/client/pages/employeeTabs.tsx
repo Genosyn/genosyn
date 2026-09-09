@@ -1,3 +1,4 @@
+import { ModelSetupForm as ModelForm } from "@/components/models/ModelSetupForm";
 import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
@@ -29,7 +30,6 @@ import {
 import {
   api,
   AIModel,
-  AuthMode,
   AutonomyOverview,
   AutonomyWaiver,
   AutonomyWaiverKind,
@@ -150,13 +150,6 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
 }
 
 // ---------- Model (Settings) tab ----------
-
-const PROVIDER_DEFAULTS: Record<Provider, { label: string; model: string; authMode: AuthMode }> = {
-  anthropic: { label: "Anthropic (Claude)", model: "claude-opus-4-6", authMode: "apikey" },
-  openai: { label: "OpenAI (GPT)", model: "gpt-4o", authMode: "apikey" },
-  custom: { label: "Custom OpenAI-compatible endpoint", model: "", authMode: "customEndpoint" },
-};
-const OPENAI_SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.6-terra";
 
 /**
  * Employee Settings — now the only door off the employee page besides Chat.
@@ -1252,20 +1245,41 @@ export function ModelSettingsPage() {
 export function EmployeeModelSection({ company, emp }: { company: Company; emp: Employee }) {
   const [models, setModels] = React.useState<AIModel[] | undefined>(undefined);
   const [adding, setAdding] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
-    const list = await api.get<AIModel[]>(
-      `/api/companies/${company.id}/employees/${emp.id}/models`,
-    );
-    setModels(list);
+    try {
+      const list = await api.get<AIModel[]>(
+        `/api/companies/${company.id}/employees/${emp.id}/models`,
+      );
+      setModels(list);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(errorMessage(error));
+    }
   }, [company.id, emp.id]);
 
   React.useEffect(() => {
-    reload().catch(() => setModels([]));
+    void reload();
   }, [reload]);
 
   useLiveRefetch("employee", reload, emp.id);
 
+  if (loadError)
+    return (
+      <div className="space-y-3">
+        <FormError message={loadError} />
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setLoadError(null);
+            void reload();
+          }}
+        >
+          Try loading AI Models again
+        </Button>
+      </div>
+    );
   if (models === undefined) return <Spinner />;
 
   // No models yet — straight to the first-model setup card.
@@ -1309,7 +1323,7 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
             </div>
             <ModelForm
               mode="create"
-              initial={{ provider: "anthropic", model: "claude-opus-4-6", authMode: "apikey" }}
+              initial={{ provider: "anthropic", model: "", authMode: "apikey" }}
               company={company}
               emp={emp}
               onSaved={() => {
@@ -1351,7 +1365,7 @@ function ModelSetup({
         </div>
         <ModelForm
           mode="create"
-          initial={{ provider: "anthropic", model: "claude-opus-4-6", authMode: "apikey" }}
+          initial={{ provider: "anthropic", model: "", authMode: "apikey" }}
           company={company}
           emp={emp}
           onSaved={onSaved}
@@ -1359,183 +1373,6 @@ function ModelSetup({
         />
       </CardBody>
     </Card>
-  );
-}
-
-function ModelForm({
-  mode,
-  editModelId,
-  initial,
-  company,
-  emp,
-  onSaved,
-  submitLabel,
-}: {
-  /** "create" POSTs a new model row; "edit" PUTs an existing one. */
-  mode: "create" | "edit";
-  /** Required when mode is "edit" — the row being reconfigured. */
-  editModelId?: string;
-  initial: { provider: Provider; model: string; authMode: AuthMode };
-  company: Company;
-  emp: Employee;
-  onSaved: () => void;
-  submitLabel: string;
-}) {
-  const [provider, setProvider] = React.useState<Provider>(initial.provider);
-  const [modelStr, setModelStr] = React.useState(initial.model);
-  const [authMode, setAuthMode] = React.useState<AuthMode>(initial.authMode);
-  const [saving, setSaving] = React.useState(false);
-  // Custom-endpoint inputs live on the same form so onboarding is one submit.
-  const [baseURL, setBaseURL] = React.useState("");
-  const [modelId, setModelId] = React.useState("");
-  const [apiKey, setApiKey] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
-
-  const isCustom = provider === "custom";
-
-  const onProvider = (p: Provider) => {
-    setProvider(p);
-    setModelStr(PROVIDER_DEFAULTS[p].model);
-    setAuthMode(PROVIDER_DEFAULTS[p].authMode);
-  };
-
-  const onOpenAIAuthentication = (next: "apikey" | "subscription") => {
-    setAuthMode(next);
-    setModelStr(
-      next === "subscription" ? OPENAI_SUBSCRIPTION_DEFAULT_MODEL : PROVIDER_DEFAULTS.openai.model,
-    );
-  };
-
-  return (
-    <form
-      className="flex flex-col gap-4"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setError(null);
-        setSaving(true);
-        const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
-        try {
-          if (isCustom) {
-            // Two-call save: create/update the row in customEndpoint mode (the
-            // schema requires a non-empty model — the model id satisfies it),
-            // then the encrypted endpoint config that flips status to connected.
-            const payload = { provider: "custom", model: modelId || "custom", authMode };
-            const saved =
-              mode === "create"
-                ? await api.post<AIModel>(base, payload)
-                : await api.put<AIModel>(`${base}/${editModelId}`, payload);
-            await api.post(`${base}/${saved.id}/custom-endpoint`, {
-              baseURL,
-              modelId,
-              ...(apiKey ? { apiKey } : {}),
-            });
-            setApiKey("");
-            onSaved();
-            return;
-          }
-          const payload = { provider, model: modelStr, authMode };
-          if (mode === "create") {
-            await api.post<AIModel>(base, payload);
-          } else {
-            await api.put<AIModel>(`${base}/${editModelId}`, payload);
-          }
-          onSaved();
-        } catch (err) {
-          setError(errorMessage(err));
-        } finally {
-          setSaving(false);
-        }
-      }}
-    >
-      <div className={isCustom ? "" : "grid gap-3 sm:grid-cols-2"}>
-        <Select
-          label="Provider"
-          value={provider}
-          onChange={(e) => onProvider(e.target.value as Provider)}
-        >
-          <option value="anthropic">Anthropic (Claude)</option>
-          <option value="openai">OpenAI (GPT)</option>
-          <option value="custom">Custom OpenAI-compatible endpoint</option>
-        </Select>
-        {provider === "openai" && (
-          <Select
-            label="Authentication"
-            value={authMode}
-            onChange={(e) => onOpenAIAuthentication(e.target.value as "apikey" | "subscription")}
-          >
-            <option value="apikey">OpenAI API key</option>
-            <option value="subscription">ChatGPT subscription</option>
-          </Select>
-        )}
-        {provider === "anthropic" && (
-          <Input
-            label="Model"
-            value={modelStr}
-            onChange={(e) => setModelStr(e.target.value)}
-            required
-          />
-        )}
-      </div>
-      {provider === "openai" && (
-        <Input
-          label="Model"
-          value={modelStr}
-          onChange={(e) => setModelStr(e.target.value)}
-          required
-        />
-      )}
-      {isCustom && (
-        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input
-              label="Base URL"
-              value={baseURL}
-              onChange={(e) => setBaseURL(e.target.value)}
-              placeholder={baseUrlPlaceholder(provider)}
-              required
-            />
-            <Input
-              label="Model id"
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              placeholder="qwen2.5-coder:32b"
-              required
-            />
-          </div>
-          <Input
-            label="API key (optional — most local servers ignore this)"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="leave blank if not needed"
-          />
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            Point this employee at a self-hosted OpenAI-compatible server — Ollama, vLLM, llama.cpp,
-            LM Studio. Base URL + key are stored encrypted at rest.
-          </div>
-        </div>
-      )}
-      {!isCustom && (
-        <div className="text-xs text-slate-500 dark:text-slate-400">
-          {provider === "anthropic"
-            ? "Claude subscriptions cannot be connected. Create an API key in the Anthropic Console and use API billing."
-            : authMode === "subscription"
-              ? "Sign in with ChatGPT after saving. The default mode adds a bubblewrap-isolated shell; without Linux namespaces it runs with no coding tools."
-              : "GPT via the OpenAI API. Add the API key after saving."}
-        </div>
-      )}
-      <FormError message={error} />
-      <div>
-        <Button
-          type="submit"
-          disabled={
-            saving || (isCustom && (baseURL.trim().length === 0 || modelId.trim().length === 0))
-          }
-        >
-          {saving ? "Saving…" : submitLabel}
-        </Button>
-      </div>
-    </form>
   );
 }
 
@@ -1623,7 +1460,7 @@ function ModelCard({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {model.provider} · {model.model}
+                {model.provider} · {model.model === "auto" ? "Choose automatically" : model.model}
               </span>
               <StatusBadge connected={connected} />
               {model.isActive && <ActiveBadge />}
@@ -2165,7 +2002,7 @@ function SubscriptionPanel({
                 disabled={savingToken || accessToken.trim().length === 0}
               >
                 {savingToken
-                  ? "Saving…"
+                  ? "Testing connection…"
                   : model.subscriptionCredentialKind === "accessToken"
                     ? "Replace access token"
                     : "Save access token"}
@@ -2227,7 +2064,7 @@ function ApiKeyPanel({
       <FormError message={error} />
       <div>
         <Button type="submit" disabled={saving || key.length === 0}>
-          {saving ? "Saving…" : "Save key"}
+          {saving ? "Testing connection…" : "Connect AI Model"}
         </Button>
       </div>
     </form>
@@ -2315,7 +2152,7 @@ function CustomEndpointPanel({
       <FormError message={error} />
       <div>
         <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
-          {saving ? "Saving…" : connected ? "Update endpoint" : "Save & connect"}
+          {saving ? "Testing connection…" : connected ? "Update endpoint" : "Save & connect"}
         </Button>
       </div>
     </form>

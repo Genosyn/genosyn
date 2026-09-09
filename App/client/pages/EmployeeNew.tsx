@@ -20,7 +20,6 @@ import {
   UserRound,
   Workflow,
 } from "lucide-react";
-import { describeCronExpr } from "../lib/scheduleBuilder";
 import { api, Company, Employee, EmployeeTemplate } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -32,6 +31,8 @@ import { FormError } from "../components/ui/FormError";
 import { clsx } from "../components/ui/clsx";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { EmployeeModelSection } from "./employeeTabs";
+import { CompanyStep } from "@/pages/onboarding/CompanyStep";
+import { hasCompanyDirection } from "@/lib/onboardingFlow";
 import { RecommendationsStep } from "./onboarding/RecommendationsStep";
 
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
@@ -140,7 +141,13 @@ function defaultAnswers(role: string): SoulAnswers {
  * bails out mid-wizard, the employee still exists with the template
  * defaults — they can continue from the settings page.
  */
-export default function EmployeeNew({ company }: { company: Company }) {
+export default function EmployeeNew({
+  company,
+  onCompanyChanged,
+}: {
+  company: Company;
+  onCompanyChanged: () => Promise<void>;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const resumeEmployeeId =
     searchParams.get("step") === "launch" ? searchParams.get("employee") : null;
@@ -208,7 +215,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
     setSelected(t?.id ?? null);
     if (t) {
       if (!name) setName(t.name);
-      if (!role) setRole(t.role);
+      setRole(t.role);
     }
   }
 
@@ -311,6 +318,14 @@ export default function EmployeeNew({ company }: { company: Company }) {
     navigate(`/c/${companySlug}/employees/${emp.slug}`);
   }
 
+  if (!hasCompanyDirection(company)) {
+    return (
+      <div className="mx-auto w-full max-w-3xl py-6">
+        <CompanyStep company={company} onSaved={onCompanyChanged} />
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="mb-3">
@@ -358,7 +373,10 @@ export default function EmployeeNew({ company }: { company: Company }) {
           error={basicsError}
           onPick={pick}
           onName={setName}
-          onRole={setRole}
+          onRole={(value) => {
+            setRole(value);
+            setSelected(null);
+          }}
           onSubmit={submitBasics}
           onCancel={cancel}
         />
@@ -531,8 +549,8 @@ function BasicsStep({
           <div>
             <h2 className="text-sm font-semibold">Pick a template</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Templates come with a pre-written Soul, starter skills, and sometimes a routine. Start
-              blank if you&apos;d rather author everything yourself.
+              Templates come with a pre-written Soul and starter Skills. Choose Routines after
+              hiring. Start blank if you&apos;d rather author everything yourself.
             </p>
           </div>
         </CardHeader>
@@ -551,7 +569,7 @@ function BasicsStep({
                     onPick={() => !locked && onPick(null)}
                     title="Blank employee"
                     tagline="Start with an empty Soul and add skills yourself."
-                    subtitle="No skills · No routines"
+                    subtitle="Starter Soul · Add your own Skills"
                     icon={<Sparkles size={14} />}
                     disabled={locked}
                   />
@@ -572,8 +590,6 @@ function BasicsStep({
                         tagline={t.tagline}
                         subtitle={`${t.skills.length} ${
                           t.skills.length === 1 ? "skill" : "skills"
-                        } · ${t.routines.length} ${
-                          t.routines.length === 1 ? "routine" : "routines"
                         }`}
                         icon={TEMPLATE_ICONS[t.id]}
                         disabled={locked}
@@ -595,15 +611,6 @@ function BasicsStep({
                   <li key={s}>
                     Skill ·{" "}
                     <span className="font-medium text-slate-800 dark:text-slate-100">{s}</span>
-                  </li>
-                ))}
-                {selectedTemplate.routines.map((r) => (
-                  <li key={r.name}>
-                    Routine ·{" "}
-                    <span className="font-medium text-slate-800 dark:text-slate-100">{r.name}</span>{" "}
-                    <span className="text-slate-500 dark:text-slate-400">
-                      {describeCronExpr(r.cronExpr)}
-                    </span>
                   </li>
                 ))}
               </ul>
