@@ -3784,7 +3784,21 @@ export type AdminQueryResult = {
   elapsedMs: number;
 };
 
+export type HomeRepositoryWork = {
+  id: string;
+  title: string;
+  status: RepositoryWorkSessionStatus;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  updatedAt: string;
+  repository: { id: string; name: string; slug: string; kind: RepositoryKind };
+  employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
+};
+
 export type HomeData = {
+  repositoryWork: HomeRepositoryWork[];
+  repositoryWorkCount: number;
   notifications: Notification[];
   unreadNotificationCount: number;
   /** The Decision Stack, highest urgency first. Empty on a clean day. */

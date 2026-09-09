@@ -77,6 +77,8 @@ function roster(count = 1): Employee[] {
 }
 function homeData(employeeCount: number, quiet = false): HomeData {
   return {
+    repositoryWork: [],
+    repositoryWorkCount: 0,
     decisions: quiet
       ? []
       : [

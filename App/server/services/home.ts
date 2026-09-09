@@ -20,6 +20,7 @@ import { isVaultCaptureApproval } from "./approvals.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
 import { findLiveRunFailures } from "./runFailures.js";
+import { listHomeRepositoryWork, type HomeRepositoryWork } from "./homeRepositoryWork.js";
 
 /**
  * Aggregation behind the Home page — the landing surface after sign-in.
@@ -85,6 +86,9 @@ export type HomeData = {
   myTodoCount: number;
   reviewTodos: HomeTodo[];
   reviewTodoCount: number;
+  /** Unarchived Repository AI work waiting for a Member to review or continue. */
+  repositoryWork: HomeRepositoryWork[];
+  repositoryWorkCount: number;
   approvals: HomeApproval[];
   pendingApprovalCount: number;
   unreadChannels: HomeChannel[];
@@ -137,8 +141,10 @@ export async function getHomeData(params: {
   /** The caller's company role — `requireCompanyMember` has already stamped it
    *  on the request. Needed to resolve project access; never assume a value. */
   role: Role;
+  /** Repository content is browser-only, even though Home also accepts API keys. */
+  canReadRepositoryWork?: boolean;
 }): Promise<HomeData> {
-  const { companyId, userId, role } = params;
+  const { companyId, userId, role, canReadRepositoryWork = true } = params;
 
   // Home is a feed, not a named lookup, so restricted projects the member
   // can't reach are filtered out rather than 403'd. Narrowing the project set
@@ -299,13 +305,16 @@ export async function getHomeData(params: {
       .filter((r): r is HomeFailedRun => r !== null);
   }
 
-  const [notifications, unreadNotificationCount, systemHealth, decisionStack, homeTldrs] =
+  const [notifications, unreadNotificationCount, systemHealth, decisionStack, homeTldrs, repositoryWork] =
     await Promise.all([
       listUnreadForUser({ companyId, userId, limit: 8 }),
       countUnreadForUser({ companyId, userId }),
       getSystemHealthSummary(companyId),
       listPendingDecisions({ companyId, limit: 5 }),
       listHomeTldrs({ companyId, userId, limit: 3 }),
+      canReadRepositoryWork
+        ? listHomeRepositoryWork({ companyId })
+        : Promise.resolve({ items: [], total: 0 }),
     ]);
 
   return {
@@ -325,6 +334,8 @@ export async function getHomeData(params: {
       .map((t) => toHomeTodo(t, projectById.get(t.projectId)!))
       .filter((t) => t.project),
     reviewTodoCount: reviews.length,
+    repositoryWork: repositoryWork.items,
+    repositoryWorkCount: repositoryWork.total,
     approvals: pendingApprovals.map((a) => {
       const r = a.routineId ? routineById.get(a.routineId) : null;
       const e = a.employeeId ? approvalEmpById.get(a.employeeId) : null;

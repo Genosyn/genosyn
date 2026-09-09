@@ -341,6 +341,12 @@ export function GettingStarted() {
         Connections, mailbox, and Grants so completed setup is never repeated.
       </P>
       <P>
+        Once employees are working in your repositories, Home shows a{" "}
+        <Strong>Repository AI work</Strong> card whenever a session needs attention. Open one to
+        review its changes or continue working with the employee. See{" "}
+        <DocLink to="/docs/repositories#work-sessions">Repository work sessions</DocLink>.
+      </P>
+      <P>
         When hiring from <Strong>AI → Employees</Strong> instead, the same Launch plan appears after
         the Soul review and can be skipped the same way. Skipping creates no Routines, Connections,
         or Grants. All of that work can be done later from <Strong>AI → Routines</Strong>, the
