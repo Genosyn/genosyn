@@ -104,6 +104,10 @@ jobs:
         run: npm run test:home-repository-work
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test decision discussions, drafts, and concurrent employee chats
+        run: npm run test:decision-discussions
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test Work session model selection
         run: npm run test:work-session-models
         env:

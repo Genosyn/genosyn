@@ -41,6 +41,10 @@ export function Decisions() {
           it, so a drafted email reads like an email.
         </LI>
         <LI>
+          Need more detail? Press <Strong>Discuss</Strong> to ask the AI Employee that raised the
+          decision about its reasoning, alternatives, or tradeoffs.
+        </LI>
+        <LI>
           Press the option you want. You can add a note first; the employee reads it alongside your
           choice.
         </LI>
@@ -62,6 +66,27 @@ export function Decisions() {
         Two people pressing different buttons at the same moment produce one answer, not two. The
         second person is told the decision was already made.
       </Callout>
+
+      <H2 id="discussing">Discussing a decision</H2>
+      <P>
+        Press <Strong>Discuss</Strong> on a decision in <Strong>Home</Strong> or{" "}
+        <Strong>Decisions</Strong>. A new private conversation opens with the AI Employee that asked,
+        with a draft message linking to that exact decision. Add your question and press{" "}
+        <Strong>Send</Strong> when you are ready. Opening the draft sends nothing.
+      </P>
+      <P>
+        You can ask follow-up questions in the same conversation. The employee receives the
+        decision&apos;s current context, options, and status each time you send, including the
+        recorded answer if someone has since chosen an option. Ask why it recommends an option,
+        what it has already checked, or what changes if you wait.
+      </P>
+      <P>
+        Discussion is for understanding the decision. It does not answer or dismiss it, or start
+        the proposed work. Return to the decision card and press an option when you have made your
+        choice. You can also use <Strong>Discuss</Strong> in <Strong>Already answered</Strong> to
+        understand an earlier outcome. If the asking employee has been deleted, its Discuss button
+        is unavailable.
+      </P>
 
       <H2 id="what-happens-next">What happens next</H2>
       <P>

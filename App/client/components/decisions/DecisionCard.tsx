@@ -9,6 +9,7 @@ import { FormError } from "../ui/FormError";
 import { Spinner } from "../ui/Spinner";
 import { clsx } from "../ui/clsx";
 import { DecisionSourceLine } from "./DecisionSource";
+import { DecisionDiscussButton } from "./DecisionDiscussButton";
 import { formatRelative } from "./relative";
 
 /**
@@ -97,7 +98,7 @@ export function DecisionCard({
   }
 
   return (
-    <li className="px-4 py-3">
+    <li id={`decision-${decision.id}`} className="scroll-mt-4 px-4 py-3">
       <div className="flex items-start gap-3">
         {decision.employee ? (
           <Avatar
@@ -188,6 +189,7 @@ export function DecisionCard({
                 {option.label}
               </Button>
             ))}
+            <DecisionDiscussButton company={company} decision={decision} disabled={busy !== null} />
             <button
               type="button"
               onClick={dismiss}
