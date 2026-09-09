@@ -384,6 +384,14 @@ Post it to the #morning channel.`}</Pre>
         from somewhere else.
       </P>
       <P>
+        The working status remains visible beside the composer throughout the reply. Keep typing
+        or attaching files and press <Strong>Queue message</Strong> to add a follow-up. Pending
+        messages appear above the composer and send one at a time after the preceding reply
+        finishes; remove a message before it starts if it is no longer needed. The queue stays
+        with this routine&apos;s conversation as you navigate around the app. If a reply fails,
+        pending messages remain available for you to resume.
+      </P>
+      <P>
         Each routine&apos;s chat is independent, and a reply in progress belongs to the server
         rather than to your browser tab. A long answer shows as <Strong>working</Strong>; if the
         connection drops the panel says <Strong>reconnecting</Strong> and picks the same reply back

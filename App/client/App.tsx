@@ -7,6 +7,7 @@ import { Spinner } from "./components/ui/Spinner";
 import { DialogProvider } from "./components/ui/Dialog";
 import { ThemeProvider } from "./components/Theme";
 import { ChatSessionsProvider } from "./lib/chatSessions";
+import { clearAssistantChatSessions } from "@/lib/assistantChatSessions";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Forgot from "./pages/Forgot";
@@ -223,9 +224,12 @@ export default function App() {
   const location = useLocation();
   const isPublicSigning = location.pathname.startsWith("/sign/");
   const [auth, setAuth] = React.useState<AuthState>({ status: "loading" });
+  const authenticatedMemberRef = React.useRef<string | null>(null);
 
   const refreshAuthenticatedState = React.useCallback(async () => {
     const me = await api.get<Me>("/api/auth/me");
+    if (authenticatedMemberRef.current !== me.id) clearAssistantChatSessions();
+    authenticatedMemberRef.current = me.id;
     const companies = await api.get<Company[]>("/api/companies");
     setAuth({ status: "ready", me, companies });
   }, []);
@@ -234,6 +238,8 @@ export default function App() {
     try {
       await refreshAuthenticatedState();
     } catch {
+      clearAssistantChatSessions();
+      authenticatedMemberRef.current = null;
       setAuth({ status: "anon" });
     }
   }, [refreshAuthenticatedState]);
