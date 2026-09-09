@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.clienttest.json --noEmit",
     "test": "tsx --test --import ./server/test/httpSetup.ts \"server/**/*.test.ts\" \"client/**/*.test.ts\"",
     "test:chat-images": "tsx scripts/test-chat-images.ts",
+    "test:mail-draft-attachments": "tsx scripts/test-mail-draft-attachments.ts",
     "test:work-outcomes": "tsx scripts/test-work-outcomes.ts",
     "test:saas-postgres": "tsx server/scripts/testSaasPostgres.ts",
     "typeorm": "tsx ./node_modules/typeorm/cli.js",

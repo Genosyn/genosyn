@@ -139,7 +139,8 @@ export function Email() {
       </P>
       <P>
         Click an attachment on a saved draft to download it, including while editing the draft.
-        The separate × button removes it from the draft when you save or send.
+        Downloads preserve filenames in any language. The separate × button removes it from the
+        draft when you save or send.
       </P>
       <P>
         The Inbox header shows when the mailbox last synced <Strong>successfully</Strong>. Click{" "}

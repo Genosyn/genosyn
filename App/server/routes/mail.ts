@@ -28,7 +28,7 @@ import {
   requireCompanyRole,
 } from "../middleware/auth.js";
 import { effectiveFinanceAccess } from "../middleware/financeAccess.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
 import { broadcastToCompany } from "../services/realtime.js";
@@ -1156,37 +1156,49 @@ mailRouter.delete("/mail/saved-searches/:sid", async (req, res) => {
 
 // ───────────────────────────── attachments ─────────────────────────────
 
+const attachmentParamsSchema = z.object({
+  cid: z.string().min(1),
+  mid: z.string().min(1),
+  index: z
+    .string()
+    .regex(/^\d+$/, "Attachment index must be a nonnegative integer")
+    .refine((value) => Number.isSafeInteger(Number(value)), "Attachment index is too large"),
+});
+
 /**
  * Stream one attachment. The bytes live in Gmail, not here — see
  * services/mail/attachments.ts for how a drifting Gmail attachment id is
  * resolved back to the position the stored metadata recorded.
  */
-mailRouter.get("/mail/messages/:mid/attachments/:index", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const row = await AppDataSource.getRepository(MailMessage).findOneBy({
-    id: req.params.mid as string,
-    companyId: cid,
-  });
-  if (!row) return res.status(404).json({ error: "Message not found" });
-  const account = await loadAccount(cid, row.accountId);
-  if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const index = parseInt(String(req.params.index), 10);
-  try {
-    const { meta, bytes } = await fetchMailAttachmentBytes(account, row, index);
-    res.setHeader("content-type", meta.mimeType || "application/octet-stream");
-    res.setHeader("x-content-type-options", "nosniff");
-    res.setHeader(
-      "content-disposition",
-      `attachment; filename="${meta.filename.replace(/["\r\n]/g, "")}"`,
-    );
-    res.send(bytes);
-  } catch (err) {
-    if (err instanceof MailAttachmentError) {
-      return res.status(err.status).json({ error: err.message });
+mailRouter.get(
+  "/mail/messages/:mid/attachments/:index",
+  validateParams(attachmentParamsSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const row = await AppDataSource.getRepository(MailMessage).findOneBy({
+      id: req.params.mid as string,
+      companyId: cid,
+    });
+    if (!row) return res.status(404).json({ error: "Message not found" });
+    const account = await loadAccount(cid, row.accountId);
+    if (!account) return res.status(404).json({ error: "Mail account not found" });
+    const index = Number(req.params.index);
+    try {
+      const { meta, bytes } = await fetchMailAttachmentBytes(account, row, index);
+      // Express provides filename* encoding for non-Latin names that cannot
+      // be written directly into a Content-Disposition header.
+      res.attachment(meta.filename.replace(/["\r\n]/g, "") || "attachment");
+      res.setHeader("content-type", meta.mimeType || "application/octet-stream");
+      res.setHeader("x-content-type-options", "nosniff");
+      res.send(bytes);
+    } catch (err) {
+      if (err instanceof MailAttachmentError) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      res.status(400).json({ error: err instanceof Error ? err.message : "Download failed" });
     }
-    res.status(400).json({ error: err instanceof Error ? err.message : "Download failed" });
-  }
-});
+  },
+);
 
 // ───────────────────────────── rules ─────────────────────────────
 

@@ -88,6 +88,10 @@ jobs:
         run: npm run test:chat-images
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test saved draft attachment downloads and editing
+        run: npm run test:mail-draft-attachments
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test Routine outcomes, employee day, and run-log navigation
         run: npm run test:work-outcomes
         env:
