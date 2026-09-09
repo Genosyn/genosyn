@@ -155,7 +155,15 @@ const card = (page: Page) =>
     .filter({ has: page.getByRole("heading", { name: "Draft emails", exact: true }) });
 const stat = (page: Page) => page.getByRole("link", { name: /^\d[\d,]* Draft emails$/i });
 const rows = (page: Page) => card(page).locator('a[href*="/mail/t/"]');
-const routePath = (page: Page) => page.getByTestId("route").textContent();
+async function routeIs(page: Page, expected: string) {
+  // React Router commits navigation in a transition. A completed click or key
+  // press does not promise the new location has reached the DOM yet.
+  await page.waitForFunction(
+    (path) => document.querySelector('[data-testid="route"]')?.textContent === path,
+    expected,
+  );
+  assert.equal(await page.getByTestId("route").textContent(), expected);
+}
 const quiet = (page: Page) =>
   page.getByRole("heading", { name: "Nothing needs you right now", exact: true });
 
@@ -520,7 +528,7 @@ add(
   "Review drafts opens the intended mailbox despite a previously selected mailbox",
   async ({ page, reads }) => {
     await card(page).getByRole("link", { name: "Review drafts", exact: true }).click();
-    assert.equal(await routePath(page), "/c/company/mail?view=drafts&account=support");
+    await routeIs(page, "/c/company/mail?view=drafts&account=support");
     await reviewLoaded(page, "support");
     assert.equal(
       reads.some((read) => read.includes("/accounts/sales/")),
@@ -541,7 +549,7 @@ add(
     await row.focus();
     assert.equal(await row.evaluate((element) => element === document.activeElement), true);
     await page.keyboard.press("Enter");
-    assert.equal(await routePath(page), "/c/company/mail/t/thread-1?account=support");
+    await routeIs(page, "/c/company/mail/t/thread-1?account=support");
     await page.getByRole("main").getByRole("button", { name: "Edit", exact: true }).waitFor();
     await page.getByRole("main").getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
@@ -629,7 +637,7 @@ add(
     await page.getByRole("button", { name: "support@example.test", exact: true }).click();
     await page.getByRole("menuitem", { name: "sales@example.test", exact: true }).click();
     await reviewLoaded(page, "sales");
-    assert.equal(await routePath(page), "/c/company/mail?view=drafts&account=sales");
+    await routeIs(page, "/c/company/mail?view=drafts&account=sales");
     const refreshed = page.waitForResponse((response) => response.url().endsWith("/mail/accounts"));
     event({ type: "mail.updated", accountId: "sales" });
     await refreshed;
