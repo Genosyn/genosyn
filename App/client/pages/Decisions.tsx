@@ -1,5 +1,6 @@
 import React from "react";
 import { Plus, Settings2, Trash2 } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import {
   api,
   Company,
@@ -49,30 +50,77 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export default function Decisions({ company, me }: { company: Company; me: Me }) {
+  const location = useLocation();
+  const scrolledTo = React.useRef<string | null>(null);
+  const reloadVersion = React.useRef(0);
+  const linkedDecisionId =
+    /^#decision-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
+      location.hash,
+    )?.[1]?.toLowerCase() ?? null;
   const [rows, setRows] = React.useState<Decision[] | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [linkedError, setLinkedError] = React.useState<string | null>(null);
   const [routingOpen, setRoutingOpen] = React.useState(false);
 
   const reload = React.useCallback(async () => {
+    const version = ++reloadVersion.current;
     try {
-      setRows(await api.get<Decision[]>(`/api/companies/${company.id}/decisions`));
+      const listed = await api.get<Decision[]>(`/api/companies/${company.id}/decisions`);
+      let targetError: string | null = null;
+      // A saved discussion can outlive the newest 200 rows on this page.
+      if (linkedDecisionId && !listed.some((row) => row.id === linkedDecisionId)) {
+        try {
+          listed.push(
+            await api.get<Decision>(
+              `/api/companies/${company.id}/decisions/${linkedDecisionId}`,
+            ),
+          );
+        } catch (err) {
+          targetError = `Could not open the linked decision: ${errorMessage(err)}`;
+        }
+      }
+      if (version !== reloadVersion.current) return;
+      setRows(listed);
+      setLinkedError(targetError);
       setLoadError(null);
     } catch (err) {
+      if (version !== reloadVersion.current) return;
       setLoadError(errorMessage(err, "Could not load the decisions"));
       setRows([]);
     }
-  }, [company.id]);
+  }, [company.id, linkedDecisionId]);
 
   React.useEffect(() => {
     setRows(null);
     setLoadError(null);
+    setLinkedError(null);
     reload();
+    return () => {
+      // Advance the latest request counter so every outstanding read is discarded.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      reloadVersion.current++;
+    };
   }, [reload]);
 
   // Live: the pickup session writes its progress to the same rows, so a
   // decision answered on this page fills in its own outcome without a refresh.
   useLiveRefetch("decision", reload);
+
+  // The discussion transcript links back to its exact decision, including
+  // history rows. Live refreshes must not repeatedly pull the reader back.
+  React.useEffect(() => {
+    if (linkedDecisionId) setFilter("all");
+  }, [location.key, linkedDecisionId]);
+  React.useEffect(() => {
+    if (!rows || !linkedDecisionId) return;
+    const targetKey = `${location.key}:${location.hash}`;
+    if (scrolledTo.current === targetKey) return;
+    const target = document.getElementById(`decision-${linkedDecisionId}`);
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    scrolledTo.current = targetKey;
+  }, [rows, filter, location.key, location.hash, linkedDecisionId]);
 
   const pending = rows?.filter((r) => r.status === "pending") ?? [];
   const mine = pending.filter((r) => r.assignee?.id === me.id);
@@ -97,6 +145,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         }
       />
       {routingOpen && <RoutingModal company={company} onClose={() => setRoutingOpen(false)} />}
+      <FormError message={linkedError} className="mb-4" />
       {loadError ? (
         <FormError message={loadError} />
       ) : rows === null ? (

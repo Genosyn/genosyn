@@ -386,6 +386,24 @@ export async function hydrateDecisions(rows: Decision[]): Promise<DecisionDTO[]>
   );
 }
 
+/** Resolve a linked Decision even after it leaves the bounded stack listing. */
+export async function getDecision(params: {
+  companyId: string;
+  decisionId: string;
+}): Promise<DecisionDTO | null> {
+  await Promise.all([
+    expireStaleDecisions(params.companyId),
+    reconcileStalePickups(params.companyId),
+  ]);
+  const row = await AppDataSource.getRepository(Decision).findOneBy({
+    id: params.decisionId,
+    companyId: params.companyId,
+  });
+  if (!row) return null;
+  const [decision] = await hydrateDecisions([row]);
+  return decision;
+}
+
 export async function listDecisions(params: {
   companyId: string;
   status?: DecisionStatus;

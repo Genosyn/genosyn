@@ -5,6 +5,7 @@ import { ChatMarkdown } from "../ChatMarkdown";
 import { clsx } from "../ui/clsx";
 import { DecisionPickup } from "./DecisionPickup";
 import { DecisionSourceLine } from "./DecisionSource";
+import { DecisionDiscussButton } from "./DecisionDiscussButton";
 import { formatRelative } from "./relative";
 
 /**
@@ -47,7 +48,7 @@ export function DecisionOutcome({
   const expandable = Boolean(decision.body) || decision.pickupStatus !== "none";
 
   return (
-    <li className="rounded-lg border border-slate-100 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
+    <li id={`decision-${decision.id}`} className="scroll-mt-4 rounded-lg border border-slate-100 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span
           className={clsx(
@@ -86,6 +87,7 @@ export function DecisionOutcome({
           )
         )}
         <DecisionSourceLine company={company} decision={decision} />
+        <DecisionDiscussButton company={company} decision={decision} />
         {expandable && (
           <button
             type="button"

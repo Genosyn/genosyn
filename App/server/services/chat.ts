@@ -53,6 +53,11 @@ import { User } from "../db/entities/User.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
 import { createTldrChatSource } from "./tldrChatSource.js";
+import {
+  createDecisionChatSource,
+  DecisionDiscussionScopeError,
+  type DecisionChatSource,
+} from "./decisionChatSource.js";
 
 /**
  * Chat seam.
@@ -384,20 +389,21 @@ export function composeUntrustedChatSystemPrompt(): string {
   ].join("\n");
 }
 
-/** A deliberately small prompt for the tool-contained opening of a TLDR discussion. */
-function composeTldrDiscussionSystemPrompt(
+/** A deliberately small prompt for a discussion with only its bound reference tool. */
+function composeDiscussionSystemPrompt(
   co: Company,
   emp: AIEmployee,
   sourcePrompt: string,
+  resourceLabel: "TLDR" | "Decision",
 ): string {
   return [
-    `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate opened a direct discussion with you about a company TLDR. Reply in your own voice, guided by your Soul, while staying inside the discussion-only boundary below.`,
+    `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate opened a direct discussion with you about a company ${resourceLabel}. Reply in your own voice, guided by your Soul, while staying inside the discussion-only boundary below.`,
     "",
     "## Soul",
     emp.soulBody,
     "",
     "## Delegated Member boundary",
-    "This is an interactive request from an authenticated Member. Their live company membership and authentication are checked again when the linked TLDR is read. A denial is an authorization boundary; do not work around it or infer unavailable data.",
+    `This is an interactive request from an authenticated Member. Their live company membership and authentication are checked again when the linked ${resourceLabel} is read. A denial is an authorization boundary; do not work around it or infer unavailable data.`,
     sourcePrompt,
   ].join("\n");
 }
@@ -503,6 +509,31 @@ export async function streamChatWithEmployee(
           requesterSessionVersion,
         })
       : null;
+  let decisionChatSource: DecisionChatSource | null = null;
+  if (
+    requesterMembership &&
+    options.requesterUserId &&
+    requesterSessionVersion !== undefined &&
+    options.surface === "chat"
+  ) {
+    try {
+      decisionChatSource = await createDecisionChatSource({
+        message,
+        companyId: co.id,
+        companySlug: co.slug,
+        employeeId: emp.id,
+        requesterUserId: options.requesterUserId,
+        requesterSessionVersion,
+        conversationId: options.conversationId,
+      });
+    } catch (error) {
+      if (!(error instanceof DecisionDiscussionScopeError)) throw error;
+      return { status: "error", reply: error.message, attachmentIds: [], sidecars: {} };
+    }
+  }
+  // A saved Decision discussion stays bound even when a follow-up quotes a TLDR.
+  const discussionSource = decisionChatSource ?? tldrChatSource;
+  const discussionLabel = decisionChatSource ? "Decision" : "TLDR";
   const privilegedToolSourcesAllowed = contextAccess.privilegedToolSources;
   const authorizePrivilegedToolCall =
     options.requesterUserId && requesterSessionVersion !== undefined && privilegedToolSourcesAllowed
@@ -557,9 +588,9 @@ export async function streamChatWithEmployee(
 
   let mcpToken: string | null = null;
   try {
-    if (tldrChatSource) {
+    if (discussionSource) {
       const system =
-        composeTldrDiscussionSystemPrompt(co, emp, tldrChatSource.prompt) +
+        composeDiscussionSystemPrompt(co, emp, discussionSource.prompt, discussionLabel) +
         ATTACHMENT_SOURCE_BOUNDARY;
       const messages = buildMessages(history, message, options.images);
       const controller = new AbortController();
@@ -576,7 +607,7 @@ export async function streamChatWithEmployee(
           employeeId: emp.id,
           system,
           messages,
-          tools: tldrChatSource.tools,
+          tools: discussionSource.tools,
           maxSteps: 4,
           signal: controller.signal,
           callbacks: {
@@ -589,7 +620,7 @@ export async function streamChatWithEmployee(
             onText: (delta) => {
               // Do not stream an ungrounded answer from a model that skipped
               // the required read. Only post-read discussion reaches the UI.
-              if (!tldrChatSource.wasRead()) return;
+              if (!discussionSource.wasRead()) return;
               buffered += delta;
               try {
                 onChunk(delta);
@@ -612,10 +643,10 @@ export async function streamChatWithEmployee(
         if (result.status === "error") {
           return { status: "error", reply: result.error, attachmentIds: [], sidecars: {} };
         }
-        if (!tldrChatSource.wasRead()) {
+        if (!discussionSource.wasRead()) {
           return {
             status: "error",
-            reply: `${emp.name} did not load the linked TLDR before replying. Open the discussion again and retry.`,
+            reply: `${emp.name} did not load the linked ${discussionLabel} before replying. Open the discussion again and retry.`,
             attachmentIds: [],
             sidecars: {},
           };
