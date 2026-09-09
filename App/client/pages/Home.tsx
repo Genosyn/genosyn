@@ -54,7 +54,6 @@ import { NotificationPeekModal } from "../components/home/NotificationPeekModal"
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
-import { FormError } from "@/components/ui/FormError";
 import { RunLiveModal } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
@@ -62,6 +61,7 @@ import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
+import { FormError } from "@/components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
 import { SetupBanner } from "../components/SetupBanner";
@@ -73,7 +73,7 @@ import { clsx } from "../components/ui/clsx";
  * Home — the landing page after sign-in. One aggregation call
  * (`GET /api/companies/:cid/home`) fills the cards: unread notifications,
  * todos assigned to me, reviews waiting on my sign-off, pending approvals,
- * and unread channels. Every card deep-links into the full section.
+ * draft emails, and unread channels. Every card deep-links into the full section.
  *
  * Every queue here hides itself when it has nothing. An empty queue is not
  * news — a card that spends a grid slot to say "nothing is waiting on you"
@@ -112,6 +112,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const [data, setData] = React.useState<HomeData | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const homeRequest = React.useRef(0);
+  const mailRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const background = useBackgroundAction();
 
@@ -135,8 +136,8 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
       setLoadError(null);
     } catch (err) {
       if (request !== homeRequest.current) return;
-      setLoadError(errorMessage(err, "Could not load what needs your attention."));
-      // Keep whatever we had; transient fetch errors shouldn't blank the page.
+      // Keep the last successful overview, but make a stale count explicit.
+      setLoadError(errorMessage(err, "Could not refresh your home screen."));
     }
   }, [company.id]);
 
@@ -144,9 +145,11 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     setData(null);
     setLoadError(null);
     setOverlay(null);
-    reload();
+    void reload();
     return () => {
       homeRequest.current += 1;
+      if (mailRefreshTimer.current) clearTimeout(mailRefreshTimer.current);
+      mailRefreshTimer.current = null;
     };
   }, [reload]);
 
@@ -180,6 +183,17 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   // Live-refresh when something lands in my bell, and on tab focus so the
   // page is current when the user comes back to it.
   useCompanySocketSubscription((ev) => {
+    if (ev.type === "mail.updated") {
+      // A sync or bulk action can change many drafts together. Refresh all
+      // mailboxes once per burst, through the authorized Home endpoint.
+      if (!mailRefreshTimer.current) {
+        mailRefreshTimer.current = setTimeout(() => {
+          mailRefreshTimer.current = null;
+          void reload();
+        }, 120);
+      }
+      return;
+    }
     if (
       (ev.type === "notification.new" || ev.type === "notification.read") &&
       ev.userId === me.id
@@ -252,9 +266,14 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         <SetupBanner company={company} />
         <PushPromptBanner />
         {loadError && (
-          <div className="mt-6 space-y-2">
+          <div className="mt-4 space-y-2">
             <FormError message={loadError} />
-            <Button size="sm" variant="secondary" onClick={() => void reload()}>
+            {data && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Showing the last update. Counts may have changed.
+              </p>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => void reload()}>
               Retry
             </Button>
           </div>
@@ -287,6 +306,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                 {/* `empty:hidden` so the grid's own top margin goes away too on
                   a day when every card inside it has hidden itself. */}
                 <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
+                  <DraftEmailsCard company={company} data={data} />
                   <AttentionCard company={company} data={data} onOpen={setOverlay} />
                   <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
                   <MyTodosCard company={company} data={data} onOpen={setOverlay} />
@@ -516,8 +536,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Repository AI work, Decisions, failed routines, mentions, todos, and approvals appear here
-        the moment they arrive.
+        Repository AI work, Decisions, failed routines, mentions, todos, draft emails, and
+        approvals appear here the moment they arrive.
       </p>
       <Link
         to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
@@ -626,7 +646,7 @@ function PushPromptBanner() {
 // ───────────────────────── stat strip ────────────────────────────────────────
 
 /**
- * The four counters the strip can show. Split out so {@link hasAnythingToShow}
+ * The counters the strip can show. Split out so {@link hasAnythingToShow}
  * can ask whether any of them is non-zero without rebuilding the tiles.
  */
 function statTotal(data: HomeData): number {
@@ -634,14 +654,15 @@ function statTotal(data: HomeData): number {
     data.unreadNotificationCount +
     data.myTodoCount +
     data.reviewTodoCount +
-    data.pendingApprovalCount
+    data.pendingApprovalCount +
+    data.draftEmailCount
   );
 }
 
 /**
  * Counters across the top. A tile at zero is dropped rather than rendered — the
  * strip exists to say how much is waiting, and "0" is the one number that says
- * nothing. All four at zero and the strip goes with them.
+ * nothing. All counters at zero and the strip goes with them.
  *
  * The counts are the company's real backlog, not the length of the list in the
  * card below: a Member whose only pending approvals are vault captures sees the
@@ -684,10 +705,22 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
       to: `/c/${company.slug}/approvals`,
       accent: "text-amber-600 bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300",
     },
+    {
+      label: "Draft emails",
+      value: data.draftEmailCount,
+      icon: <Mail size={15} />,
+      to: draftReviewHref(company, data.draftEmailAccounts[0]?.id),
+      accent: "text-indigo-600 bg-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300",
+    },
   ].filter((s) => s.value > 0);
   if (stats.length === 0) return null;
   return (
-    <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div
+      className={clsx(
+        "mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4",
+        stats.length === 5 && "xl:grid-cols-5",
+      )}
+    >
       {stats.map((s) => (
         <Link
           key={s.label}
@@ -1095,6 +1128,76 @@ function HomeCard({
       </div>
       <div className="min-h-[8rem] flex-1">{children}</div>
     </section>
+  );
+}
+
+// ───────────────────────── draft emails card ────────────────────────────────
+
+function draftReviewHref(company: Company, accountId?: string): string {
+  const params = new URLSearchParams({ view: "drafts" });
+  if (accountId) params.set("account", accountId);
+  return `/c/${company.slug}/mail?${params.toString()}`;
+}
+
+function DraftEmailsCard({ company, data }: { company: Company; data: HomeData }) {
+  if (data.draftEmailCount === 0) return null;
+  return (
+    <HomeCard
+      title="Draft emails"
+      icon={<Mail size={15} />}
+      count={data.draftEmailCount}
+      linkTo={draftReviewHref(company, data.draftEmailAccounts[0]?.id)}
+      linkLabel="Review drafts"
+    >
+      <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+        {data.draftEmailCount === 1 ? "1 draft is" : `${data.draftEmailCount} drafts are`} waiting
+        for you to review and send.
+      </p>
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {data.draftEmails.map((draft) => (
+          <li key={draft.id}>
+            <Link
+              to={`/c/${company.slug}/mail/t/${encodeURIComponent(draft.threadId)}?${new URLSearchParams({ account: draft.accountId })}`}
+              className="flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:bg-slate-800/60"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {draft.subject.trim() || "(No subject)"}
+                </span>
+                <span className="block truncate text-xs text-slate-600 dark:text-slate-300">
+                  {draft.recipientSummary || "No recipient yet"}
+                </span>
+                <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                  {draft.accountEmail} · {formatRelative(draft.updatedAt)}
+                </span>
+              </span>
+              <ChevronRight size={14} className="shrink-0 text-slate-400" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <div className="space-y-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+        {data.draftEmailCount > data.draftEmails.length && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Showing {data.draftEmails.length} of {data.draftEmailCount} drafts. Review each mailbox
+            to see the rest.
+          </p>
+        )}
+        {data.draftEmailAccounts.map((account) => (
+          <Link
+            key={account.id}
+            to={draftReviewHref(company, account.id)}
+            className="flex min-w-0 items-center gap-2 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            <span className="min-w-0 flex-1 truncate">{account.email}</span>
+            <span className="shrink-0 tabular-nums">
+              {account.count} {account.count === 1 ? "draft" : "drafts"}
+            </span>
+            <ChevronRight size={12} className="shrink-0" />
+          </Link>
+        ))}
+      </div>
+    </HomeCard>
   );
 }
 

@@ -86,6 +86,27 @@ export type SerializedDraft = {
   author: DraftAuthor;
 };
 
+/** Compact review reminders across the company's mailboxes, without message bodies. */
+export type HomeDraftEmail = {
+  id: string;
+  accountId: string;
+  threadId: string;
+  subject: string;
+  recipientSummary: string;
+  accountEmail: string;
+  updatedAt: string;
+};
+
+export type HomeDraftEmailAccount = { id: string; email: string; count: number };
+
+export type HomeDraftEmails = {
+  draftEmails: HomeDraftEmail[];
+  draftEmailCount: number;
+  draftEmailAccounts: HomeDraftEmailAccount[];
+};
+
+const HOME_DRAFT_LIMIT = 5;
+
 // ───────────────────────────── query helpers ─────────────────────────────
 
 function baseDraftQuery(account: MailAccount): SelectQueryBuilder<MailMessage> {
@@ -395,6 +416,67 @@ export async function listDrafts(
     nextOffset,
     facets: await draftFacets(account, queuedDraftIds),
     totals: { total, sendable: total - missingRecipient, missingRecipient, queued },
+  };
+}
+
+/**
+ * Home follows the same company-wide Member access and draft/queue rules as
+ * the Email review surface. Resolve each mailbox separately so an unrelated
+ * send queue can never hide another mailbox's draft, and include every mailbox
+ * with a backlog even when its drafts fall outside the five global previews.
+ */
+export async function listHomeDraftEmails(companyId: string): Promise<HomeDraftEmails> {
+  const accounts = await AppDataSource.getRepository(MailAccount).find({
+    where: { companyId },
+    select: ["id", "companyId", "address"],
+  });
+  const summaries = await Promise.all(
+    accounts.map(async (account) => {
+      const queuedDraftIds = await activeDraftQueueIds(account.id);
+      const [rows, count] = await excludeDraftIds(baseDraftQuery(account), queuedDraftIds)
+        .select([
+          "m.id",
+          "m.accountId",
+          "m.threadId",
+          "m.subject",
+          "m.toEmails",
+          "m.ccEmails",
+          "m.bccEmails",
+          "m.updatedAt",
+        ])
+        .orderBy("m.updatedAt", "DESC")
+        .addOrderBy("m.id", "DESC")
+        .take(HOME_DRAFT_LIMIT)
+        .getManyAndCount();
+      return {
+        account: { id: account.id, email: account.address, count },
+        drafts: rows.map((row): HomeDraftEmail => ({
+          id: row.id,
+          accountId: row.accountId,
+          threadId: row.threadId,
+          subject: row.subject,
+          // A quoted recipient display name may itself contain a comma.
+          recipientSummary:
+            row.toEmails.trim() ||
+            (row.ccEmails.trim() ? `Cc: ${row.ccEmails.trim()}` : "") ||
+            (row.bccEmails.trim() ? `Bcc: ${row.bccEmails.trim()}` : ""),
+          accountEmail: account.address,
+          updatedAt: row.updatedAt.toISOString(),
+        })),
+      };
+    }),
+  );
+  const draftEmailAccounts = summaries
+    .map((summary) => summary.account)
+    .filter((account) => account.count > 0)
+    .sort((a, b) => a.email.localeCompare(b.email) || a.id.localeCompare(b.id));
+  return {
+    draftEmails: summaries
+      .flatMap((summary) => summary.drafts)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
+      .slice(0, HOME_DRAFT_LIMIT),
+    draftEmailCount: draftEmailAccounts.reduce((total, account) => total + account.count, 0),
+    draftEmailAccounts,
   };
 }
 

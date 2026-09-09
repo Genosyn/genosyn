@@ -130,6 +130,9 @@ function homeData(employeeCount: number, quiet = false): HomeData {
     failedRunCount: 0,
     tldrs: [],
     unreadTldrCount: 0,
+    draftEmails: [],
+    draftEmailCount: 0,
+    draftEmailAccounts: [],
     systemHealth: { status: "ok", issueCount: 0, checks: [] },
     counts: { employees: employeeCount, projects: 1 },
   };

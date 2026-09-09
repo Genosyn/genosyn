@@ -21,6 +21,11 @@ import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
 import { findLiveRunFailures } from "./runFailures.js";
 import { listHomeRepositoryWork, type HomeRepositoryWork } from "./homeRepositoryWork.js";
+import {
+  listHomeDraftEmails,
+  type HomeDraftEmail,
+  type HomeDraftEmailAccount,
+} from "./mail/drafts.js";
 
 /**
  * Aggregation behind the Home page — the landing surface after sign-in.
@@ -91,6 +96,10 @@ export type HomeData = {
   repositoryWorkCount: number;
   approvals: HomeApproval[];
   pendingApprovalCount: number;
+  /** Draft messages awaiting review, excluding emails already queued to send. */
+  draftEmails: HomeDraftEmail[];
+  draftEmailCount: number;
+  draftEmailAccounts: HomeDraftEmailAccount[];
   unreadChannels: HomeChannel[];
   /** Routine runs that failed (or timed out) in the last 24h — surfaced so a
    *  human notices a broken routine without digging through the Journal. */
@@ -305,17 +314,25 @@ export async function getHomeData(params: {
       .filter((r): r is HomeFailedRun => r !== null);
   }
 
-  const [notifications, unreadNotificationCount, systemHealth, decisionStack, homeTldrs, repositoryWork] =
-    await Promise.all([
-      listUnreadForUser({ companyId, userId, limit: 8 }),
-      countUnreadForUser({ companyId, userId }),
-      getSystemHealthSummary(companyId),
-      listPendingDecisions({ companyId, limit: 5 }),
-      listHomeTldrs({ companyId, userId, limit: 3 }),
-      canReadRepositoryWork
-        ? listHomeRepositoryWork({ companyId })
-        : Promise.resolve({ items: [], total: 0 }),
-    ]);
+  const [
+    notifications,
+    unreadNotificationCount,
+    systemHealth,
+    decisionStack,
+    homeTldrs,
+    repositoryWork,
+    homeDrafts,
+  ] = await Promise.all([
+    listUnreadForUser({ companyId, userId, limit: 8 }),
+    countUnreadForUser({ companyId, userId }),
+    getSystemHealthSummary(companyId),
+    listPendingDecisions({ companyId, limit: 5 }),
+    listHomeTldrs({ companyId, userId, limit: 3 }),
+    canReadRepositoryWork
+      ? listHomeRepositoryWork({ companyId })
+      : Promise.resolve({ items: [], total: 0 }),
+    listHomeDraftEmails(companyId),
+  ]);
 
   return {
     tldrs: homeTldrs.items,
@@ -352,6 +369,7 @@ export async function getHomeData(params: {
       };
     }),
     pendingApprovalCount,
+    ...homeDrafts,
     unreadChannels,
     failedRuns,
     failedRunCount,
