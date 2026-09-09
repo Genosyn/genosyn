@@ -58,14 +58,16 @@ describe("employee page navigation", () => {
 
   test("keeps the old per-employee URLs answering", () => {
     const app = readAppFile("client/App.tsx");
+    const movedTabs = app.match(
+      /const EMPLOYEE_SETTINGS_MOVED\s*=\s*\[(?<tabs>[\s\S]*?)\]\s*as const/,
+    )?.groups?.tabs;
 
-    for (const tab of MOVED_TO_SETTINGS) {
-      assert.match(
-        app,
-        new RegExp(`"${tab}",`),
-        `${tab} must stay in EMPLOYEE_SETTINGS_MOVED so its legacy URL redirects`,
-      );
-    }
+    assert.ok(movedTabs, "client/App.tsx must declare the legacy employee redirect tabs");
+    assert.deepEqual(
+      [...movedTabs.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+      [...MOVED_TO_SETTINGS],
+      "every relocated tab must keep its legacy URL redirect",
+    );
     assert.match(app, /employees\/:empSlug\/\$\{tab\}/);
     assert.match(app, /employees\/\$\{empSlug\}\/settings\/\$\{tab\}/);
     // Skills and Routines left the sub-nav earlier and keep their own redirects.
