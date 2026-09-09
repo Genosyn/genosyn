@@ -30,6 +30,7 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.
 import { modelsRouter } from "./models.js";
 
 type ExecutionMode = "host" | "bubblewrap" | "disabled";
+type CodexStartOptions = Parameters<typeof CodexAppServer.start>[0];
 
 type MutableConfig = {
   sessionSecret: string;
@@ -196,7 +197,7 @@ describe("verified subscription model edits", () => {
     const previous = await connectedModel();
     let authRoot = "";
     let starts = 0;
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       starts++;
       authRoot = options.env.CODEX_HOME ?? "";
       assert.deepEqual(options.configOverrides, CODEX_CONFIG_OVERRIDES);
@@ -226,7 +227,7 @@ describe("verified subscription model edits", () => {
       { id: previous.id },
       { contextWindow: 32_000, contextWindowSource: "manual" },
     );
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       await AppDataSource.getRepository(AIModel).update(
         { id: previous.id },
         { contextWindow: 64_000, contextWindowSource: "manual" },
@@ -253,12 +254,13 @@ describe("verified subscription model edits", () => {
       isActive: false,
     });
     let requested = "";
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       await AppDataSource.getRepository(AIModel).update({ id: previous.id }, { isActive: false });
       await AppDataSource.getRepository(AIModel).update({ id: sibling.id }, { isActive: true });
       const server = fakeCodexVerification(options.cwd);
       const request = server.request.bind(server);
-      t.mock.method(server, "request", async (method, params, timeout) => {
+      t.mock.method(server, "request", async (...args: Parameters<CodexAppServer["request"]>) => {
+        const [method, params, timeout] = args;
         if (method === "thread/start")
           requested = String((params as Record<string, unknown>).model);
         assert.notEqual(
@@ -287,7 +289,7 @@ describe("verified subscription model edits", () => {
   test("a failed reply keeps the previous selected model and working credential", async (t) => {
     const previous = await connectedModel();
     let authRoot = "";
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       authRoot = options.env.CODEX_HOME ?? "";
       return fakeCodexVerification(options.cwd, { status: "failed" });
     });
@@ -303,7 +305,7 @@ describe("verified subscription model edits", () => {
 
   test("the absent workspace default never replaces a working model with auto", async (t) => {
     const previous = await connectedModel();
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       const server = fakeCodexVerification(options.cwd);
       t.mock.method(server, "request", async () => ({ data: [], nextCursor: null }));
       return server;
@@ -320,7 +322,7 @@ describe("verified subscription model edits", () => {
   test("credential replacement during verification returns conflict without restoring the old token", async (t) => {
     const previous = await connectedModel();
     const replacement = configWithSubscriptionAccessToken(previous, "newer-fixture-token");
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       await AppDataSource.getRepository(AIModel).update(
         { id: previous.id },
         { configJson: replacement },
@@ -344,7 +346,7 @@ describe("verified subscription model edits", () => {
       codexAuthEncrypted: encryptSecret(JSON.stringify(auth)),
     });
     await AppDataSource.getRepository(AIModel).save(previous);
-    t.mock.method(CodexAppServer, "start", async (options) => {
+    t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
       const authFile = path.join(options.env.CODEX_HOME!, "auth.json");
       assert.equal((await fs.stat(authFile)).mode & 0o777, 0o600);
       assert.deepEqual(JSON.parse(await fs.readFile(authFile, "utf8")), auth);
