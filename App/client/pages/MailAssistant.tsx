@@ -1,4 +1,13 @@
 import React from "react";
+import {
+  useAssistantChatSession,
+  type AssistantQueuedMessage,
+  type AssistantChatBootstrap,
+} from "@/lib/assistantChatSessions";
+import {
+  AssistantWorkStatus,
+  AssistantMessageQueue,
+} from "@/components/chat/AssistantMessageQueue";
 import { chatRetryText } from "../lib/chatRetry";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { useChatAttachments } from "../lib/stagedChatAttachments";
@@ -11,6 +20,7 @@ import {
   Bot,
   Brain,
   Check,
+  Clock,
   ExternalLink,
   FileText,
   Inbox,
@@ -70,60 +80,6 @@ import {
  * whether re-sending would duplicate the work.
  */
 
-/** How often a panel that lost its stream re-reads the in-flight turn. */
-const FOLLOW_POLL_MS = 2_000;
-
-/** Replace a row by id, or append it when this panel hasn't seen it yet. */
-function upsertAssistantMessage(
-  prev: MailAssistantMessage[] | null,
-  incoming: MailAssistantMessage,
-): MailAssistantMessage[] {
-  const list = prev ?? [];
-  const index = list.findIndex((m) => m.id === incoming.id);
-  if (index === -1) return [...list, incoming];
-  const next = [...list];
-  next[index] = incoming;
-  return next;
-}
-
-/**
- * Fold a freshly fetched conversation into what this panel is showing. The
- * server list wins for anything persisted; purely local rows (an optimistic
- * bubble, a transport-error notice) are kept unless the server now has the
- * real thing.
- */
-function mergeAssistantMessages(
-  prev: MailAssistantMessage[] | null,
-  incoming: MailAssistantMessage[],
-): MailAssistantMessage[] {
-  if (!prev || prev.length === 0) return incoming;
-  const known = new Set(incoming.map((m) => m.id));
-  const local = prev.filter((m) => {
-    if (known.has(m.id)) return false;
-    // A turn accepted while the stream was down persisted the human's
-    // message server-side; drop the optimistic twin rather than show both.
-    if (m.id.startsWith("temp-") && m.role === "user") {
-      return !incoming.some((row) => row.role === "user" && row.content === m.content);
-    }
-    return true;
-  });
-  return [...incoming, ...local];
-}
-
-/**
- * Only shown once the server has confirmed it has no reply running for this
- * message — so it can say plainly that nothing started, rather than leaving
- * the human guessing whether a retry would duplicate the work.
- */
-function formatSendFailure(detail: string): string {
-  const clean = detail.replace(/\s+/g, " ").trim() || "Unknown network error";
-  return [
-    `Genosyn didn’t start a reply to this message: ${clean}`,
-    "",
-    "Nothing was sent from your mailbox. Check that the Genosyn server is reachable from this browser, then try again.",
-  ].join("\n");
-}
-
 type Props = {
   company: Company;
   account: MailAccount;
@@ -145,36 +101,77 @@ export function MailAssistant({
 }: Props) {
   const dialog = useDialog();
   const navigate = useNavigate();
-  const [messages, setMessages] = React.useState<MailAssistantMessage[] | null>(null);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [roster, setRoster] = React.useState<MailAssistantRosterEntry[]>([]);
   const [draft, setDraft] = React.useState("");
-  /** Failure of something started from the composer — a /new, an upload. */
   const [composerError, setComposerError] = React.useState<string | null>(null);
-  /** True only while this panel holds the live SSE stream for a turn. */
-  const [streamOpen, setStreamOpen] = React.useState(false);
-  /** True once following the persisted turn has fallen back to polling. */
-  const [reconnecting, setReconnecting] = React.useState(false);
-  const [streaming, setStreaming] = React.useState<string | null>(null);
-  const [target, setTarget] = React.useState<{
-    id: string;
-    name: string;
-    slug: string;
-  } | null>(null);
-  /** Files chosen for the next message — uploaded already, bound on send. */
-
-  /**
-   * The brain for the next turn. Null means "whatever the employee's active
-   * model is" until the server tells us which one this email's chat has been
-   * running on, or the human picks one.
-   */
-  const [modelId, setModelId] = React.useState<string | null>(null);
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
-  // In-flight SSE turn — aborted when the mailbox changes or the panel
-  // unmounts, so a slow reply can't paint into the wrong conversation.
-  const streamAbortRef = React.useRef<AbortController | null>(null);
+  const scopeKey = `mail:${company.id}:${account.id}:${threadId}`;
+  const adapter = React.useMemo(
+    () => ({
+      load: () => mailApi.assistant(company.id, account.id, threadId),
+      send: (
+        item: AssistantQueuedMessage,
+        onEvent: (event: string, data: unknown) => void,
+        signal: AbortSignal,
+      ) =>
+        mailApi.assistantSend(
+          company.id,
+          account.id,
+          {
+            message: item.message,
+            threadId,
+            focusedMessageId: item.focusedMessageId ?? undefined,
+            employeeId: item.employeeId,
+            modelId: item.modelId,
+            attachmentIds: item.attachments.map((a) => a.id),
+          },
+          onEvent,
+          { signal },
+        ),
+      clear: () => mailApi.assistantClear(company.id, account.id, threadId),
+      createUserMessage: (item: AssistantQueuedMessage): MailAssistantMessage => ({
+        id: `temp-${item.id}`,
+        accountId: account.id,
+        threadId,
+        role: "user",
+        employeeId: null,
+        modelId: null,
+        content: item.message,
+        status: null,
+        actions: [],
+        suggestions: [],
+        attachments: item.attachments,
+        createdAt: item.queuedAt,
+      }),
+      initialTarget: (
+        bootstrap: AssistantChatBootstrap<MailAssistantMessage, MailAssistantRosterEntry>,
+      ) => {
+        const last = [...bootstrap.messages]
+          .reverse()
+          .find((row) => row.role === "assistant" && row.employeeId);
+        return bootstrap.roster.find((entry) => entry.id === last?.employeeId) ?? null;
+      },
+    }),
+    [company.id, account.id, threadId],
+  );
+  const session = useAssistantChatSession(scopeKey, adapter);
+  const {
+    messages,
+    roster,
+    loadError,
+    streaming,
+    streamOpen,
+    reconnecting,
+    target,
+    modelId,
+    setTarget,
+    setModelId,
+    queuedMessages,
+    queuePaused,
+  } = session;
+  const activeScopeRef = React.useRef(scopeKey);
+  activeScopeRef.current = scopeKey;
 
   const attachmentDraft = useChatAttachments({
     scopeKey: `${company.id}:${account.id}:${threadId}`,
@@ -195,54 +192,13 @@ export function MailAssistant({
   );
 
   React.useEffect(() => {
-    let cancelled = false;
-    setMessages(null);
-    setLoadError(null);
     setComposerError(null);
-    setTarget(null);
     setDraft("");
     setMentionQuery(null);
     setResourceQuery(null);
     setResourceStart(null);
-    setStreaming(null);
-    setStreamOpen(false);
-    setReconnecting(false);
     clearAttachments();
-    setModelId(null);
-    mailApi
-      .assistant(company.id, account.id, threadId)
-      .then((res) => {
-        if (cancelled) return;
-        // Merge rather than replace: a message sent while the bootstrap was
-        // in flight must survive (its optimistic bubble isn't in `res`).
-        // A `working` row in the response means a turn started elsewhere —
-        // another tab, or this panel before it was closed — is still running;
-        // the follow effect below takes it from here.
-        setMessages((prev) => mergeAssistantMessages(prev, res.messages));
-        setRoster(res.roster);
-        const lastAnswered = [...res.messages]
-          .reverse()
-          .find((m) => m.role === "assistant" && m.employeeId);
-        if (lastAnswered?.employeeId) {
-          const emp = res.roster.find((r) => r.id === lastAnswered.employeeId);
-          if (emp) {
-            setTarget((cur) => cur ?? { id: emp.id, name: emp.name, slug: emp.slug });
-          }
-        }
-        // Carry on with the brain this email's chat has been using, so
-        // reopening the panel doesn't quietly switch models mid-conversation.
-        setModelId((cur) => cur ?? res.modelId);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(errorMessage(err, "Could not load this email’s chat"));
-      });
-    return () => {
-      cancelled = true;
-      streamAbortRef.current?.abort();
-      streamAbortRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id, account.id, threadId]);
+  }, [scopeKey, clearAttachments]);
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
@@ -263,7 +219,9 @@ export function MailAssistant({
     [messages],
   );
   const workingId = workingMessage?.id ?? null;
-  const turnInFlight = streamOpen || workingId !== null;
+  const turnInFlight = streamOpen || workingId !== null || reconnecting;
+  const workingEmployee = roster.find((entry) => entry.id === workingMessage?.employeeId);
+  const queueing = turnInFlight || queuedMessages.length > 0;
 
   /** The models the employee on this conversation can actually answer on. */
   const targetModels = React.useMemo(
@@ -283,194 +241,64 @@ export function MailAssistant({
     return targetModels.find((m) => m.isActive)?.id ?? targetModels[0].id;
   }, [modelId, targetModels]);
 
-  // Follow a turn this panel is not streaming: the stream dropped, the panel
-  // was reopened mid-reply, or another tab started it. Polling the bootstrap
-  // is enough — the row finalizes exactly once, whoever is watching.
-  React.useEffect(() => {
-    if (!workingId || streamOpen) return;
-    let cancelled = false;
-    let timer = 0;
-    const tick = async () => {
-      try {
-        const res = await mailApi.assistant(company.id, account.id, threadId);
-        if (cancelled) return;
-        setRoster(res.roster);
-        setMessages((prev) => mergeAssistantMessages(prev, res.messages));
-        setReconnecting(false);
-      } catch {
-        // The server may be restarting. Keep waiting: the row outlives it,
-        // and boot recovery closes it out if the turn really was lost.
-        if (!cancelled) setReconnecting(true);
-      }
-      if (!cancelled) timer = window.setTimeout(tick, FOLLOW_POLL_MS);
-    };
-    timer = window.setTimeout(tick, FOLLOW_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [workingId, streamOpen, company.id, account.id, threadId]);
-
-  // Partial text from a stream that died has already been persisted on the
-  // finalized row, so drop the local copy once the turn resolves.
-  React.useEffect(() => {
-    if (!turnInFlight) {
-      setStreaming(null);
-      setReconnecting(false);
-    }
-  }, [turnInFlight]);
-
   const send = React.useCallback(
     async (text: string) => {
       const message = text.trim();
-      if ((!message && pending.length === 0) || turnInFlight || isUploading()) return;
+      if ((!message && pending.length === 0) || isUploading() || messages === null) return;
       setComposerError(null);
       if (message === "/new" && pending.length === 0) {
-        try {
-          await mailApi.assistantClear(company.id, account.id, threadId);
-          setMessages([]);
-          setTarget(null);
-          setDraft("");
-          clearAttachments();
-          setMentionQuery(null);
-          setResourceQuery(null);
-        } catch (err) {
-          setComposerError(errorMessage(err, "Could not start a new context"));
-        }
-        return;
-      }
-      setStreamOpen(true);
-      setReconnecting(false);
-      setDraft("");
-      setMentionQuery(null);
-      setResourceQuery(null);
-      // Hand the files to this turn and clear the tray: a second send must
-      // not re-attach what the first one already carried.
-      const attachments = pending.map(({ previewUrl: _previewUrl, ...attachment }) => attachment);
-      // Optimistic bubble; swapped for the persisted row on the `user` event.
-      const temp: MailAssistantMessage = {
-        id: `temp-${Date.now()}`,
-        accountId: account.id,
-        threadId,
-        role: "user",
-        employeeId: null,
-        modelId: null,
-        content: message,
-        status: null,
-        actions: [],
-        suggestions: [],
-        attachments,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...(prev ?? []), temp]);
-      // Once the server has persisted the in-flight row, this stream is only
-      // a subscriber: losing it is not losing the reply.
-      let accepted = false;
-      let accumulated = "";
-      const controller = new AbortController();
-      streamAbortRef.current?.abort();
-      streamAbortRef.current = controller;
-      try {
-        await mailApi.assistantSend(
-          company.id,
-          account.id,
-          {
-            message,
-            threadId,
-            focusedMessageId: focusedMessageId ?? undefined,
-            employeeId: target?.id,
-            attachmentIds: attachments.map((a) => a.id),
-            modelId: selectedModelId,
-          },
-          (event, data) => {
-            if (event === "user") {
-              accepted = true;
-              clearAttachments();
-              const row = data as MailAssistantMessage;
-              setMessages((prev) => (prev ?? []).map((m) => (m.id === temp.id ? row : m)));
-            } else if (event === "target") {
-              const emp = (
-                data as {
-                  employee: { id: string; name: string; slug: string } | null;
-                }
-              ).employee;
-              setTarget(emp);
-            } else if (event === "working") {
-              accepted = true;
-              clearAttachments();
-              setMessages((prev) => upsertAssistantMessage(prev, data as MailAssistantMessage));
-            } else if (event === "chunk") {
-              accumulated += (data as { text: string }).text;
-              setStreaming(accumulated);
-            } else if (event === "assistant") {
-              accepted = true;
-              setStreaming(null);
-              setMessages((prev) => upsertAssistantMessage(prev, data as MailAssistantMessage));
-            } else if (event === "error") {
-              throw new Error((data as { message: string }).message);
-            }
-          },
-          { signal: controller.signal },
-        );
-      } catch (err) {
-        // A deliberate cancel (mailbox switch, unmount) is not an error the
-        // human needs a bubble for. Neither is a dropped connection once the
-        // turn was accepted: the follow effect polls that row to its answer.
-        const aborted = (err as Error).name === "AbortError" || controller.signal.aborted;
-        if (aborted) return;
-        if (!accepted) {
-          // The connection can also die between the server accepting the turn
-          // and this stream hearing about it. Ask the server before telling
-          // the human nothing ran — the answer decides which is true.
-          try {
-            const res = await mailApi.assistant(company.id, account.id, threadId);
-            setRoster(res.roster);
-            setMessages((prev) => mergeAssistantMessages(prev, res.messages));
-            accepted = res.messages.some((m) => m.role === "assistant" && m.status === "working");
-          } catch {
-            // Server unreachable; fall through to the honest failure below.
-          }
-        }
-        if (accepted) {
-          clearAttachments();
-          setReconnecting(true);
+        if (turnInFlight || queuedMessages.length > 0) {
+          setComposerError("Wait for the reply and queued messages before starting a new context.");
           return;
         }
-        setDraft(message);
-        setMessages((prev) => [
-          ...(prev ?? []).filter((row) => row.id !== temp.id),
-          {
-            ...temp,
-            id: `temp-err-${Date.now()}`,
-            role: "assistant",
-            status: "error",
-            content: formatSendFailure((err as Error).message),
-            attachments: [],
-          },
-        ]);
-      } finally {
-        if (streamAbortRef.current === controller) streamAbortRef.current = null;
-        setStreamOpen(false);
-        scrollToBottom();
+        try {
+          await session.clear();
+        } catch (err) {
+          if (activeScopeRef.current === scopeKey) {
+            setComposerError(errorMessage(err, "Could not start a new context"));
+          }
+          return;
+        }
+        if (activeScopeRef.current !== scopeKey) return;
+      } else {
+        try {
+          session.send({
+            message,
+            attachments: pending.map(({ previewUrl: _previewUrl, ...attachment }) => attachment),
+            employeeId: target?.id,
+            modelId: selectedModelId,
+            focusedMessageId: focusedMessageId ?? undefined,
+          });
+        } catch (err) {
+          setComposerError(errorMessage(err, "Could not queue this message"));
+          return;
+        }
       }
+      // Transfer this draft once. Later stream events must never clear files
+      // the Member has already attached to their next follow-up.
+      setDraft("");
+      clearAttachments();
+      setMentionQuery(null);
+      setResourceQuery(null);
+      textareaRef.current?.focus();
     },
     [
-      turnInFlight,
-      company.id,
-      account.id,
-      threadId,
-      focusedMessageId,
-      target,
       pending,
       isUploading,
-      clearAttachments,
+      messages,
+      turnInFlight,
+      queuedMessages.length,
+      session,
+      scopeKey,
+      target,
       selectedModelId,
-      scrollToBottom,
+      clearAttachments,
+      focusedMessageId,
     ],
   );
 
   const { onPaste, dragProps } = useComposerFileDrop(addFiles, {
-    disabled: turnInFlight,
+    disabled: messages === null,
   });
 
   /**
@@ -484,23 +312,30 @@ export function MailAssistant({
       const index = list.findIndex((m) => m.id === failed.id);
       for (let i = index - 1; i >= 0; i -= 1) {
         if (list[i].role === "user") {
-          void send(chatRetryText(list[i]));
+          try {
+            setComposerError(null);
+            session.retry({
+              message: chatRetryText(list[i]),
+              attachments: [],
+              employeeId: failed.employeeId ?? target?.id,
+              modelId: failed.modelId ?? selectedModelId,
+              focusedMessageId: focusedMessageId ?? undefined,
+            });
+          } catch (err) {
+            setComposerError(errorMessage(err, "Could not retry this message"));
+          }
           return;
         }
       }
     },
-    [messages, send],
+    [messages, session, target?.id, selectedModelId, focusedMessageId],
   );
 
-  const markExecuted = React.useCallback((updated: MailAssistantMessage) => {
-    setMessages((prev) => (prev ?? []).map((m) => (m.id === updated.id ? updated : m)));
-  }, []);
+  const markExecuted = session.updateMessage;
 
   const clearConversation = async () => {
     try {
-      await mailApi.assistantClear(company.id, account.id, threadId);
-      setMessages([]);
-      setTarget(null);
+      await session.clear();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t clear the conversation" });
     }
@@ -644,7 +479,8 @@ export function MailAssistant({
         {messages !== null && messages.length > 0 && (
           <button
             onClick={() => void clearConversation()}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            disabled={turnInFlight || queuedMessages.length > 0 || session.loading}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Clear conversation"
           >
             <Trash2 size={14} />
@@ -698,16 +534,23 @@ export function MailAssistant({
             ))}
           </>
         )}
-        {streamOpen && workingId === null && (
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <Spinner size={12} />
-            {target ? `${target.name} is thinking…` : "Thinking…"}
-          </div>
-        )}
       </div>
 
       {/* Composer */}
       <div className="relative border-t border-slate-200 p-3 dark:border-slate-800">
+        {turnInFlight && (
+          <AssistantWorkStatus
+            name={workingEmployee?.name ?? target?.name ?? "The AI Employee"}
+            startedAt={workingMessage?.createdAt}
+            reconnecting={reconnecting}
+          />
+        )}
+        <AssistantMessageQueue
+          messages={queuedMessages}
+          paused={queuePaused}
+          onRemove={session.removeQueuedMessage}
+          onResume={session.resumeQueue}
+        />
         {mentionQuery !== null && resourceQuery === null && mentionCandidates.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
             {mentionCandidates.map((r, i) => (
@@ -780,7 +623,7 @@ export function MailAssistant({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={turnInFlight}
+            disabled={messages === null || uploading > 0}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Attach a file"
           >
@@ -792,7 +635,7 @@ export function MailAssistant({
             rows={2}
             placeholder={
               turnInFlight
-                ? `${target?.name ?? "The employee"} is still on your last message…`
+                ? `Add a follow-up for ${target?.name ?? "the AI Employee"}…`
                 : "Ask AI to summarize, reply, edit, or triage…"
             }
             onChange={(e) => {
@@ -815,14 +658,15 @@ export function MailAssistant({
           />
           <button
             onClick={() => void send(draft)}
-            disabled={(!draft.trim() && pending.length === 0) || turnInFlight || uploading > 0}
+            disabled={(!draft.trim() && pending.length === 0) || messages === null || uploading > 0}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-600 text-white transition-opacity hover:bg-indigo-500 disabled:opacity-40"
-            title="Send (Enter)"
+            aria-label={queueing ? "Queue message" : "Send message"}
+            title={queueing ? "Queue message (Enter)" : "Send (Enter)"}
           >
-            <Send size={14} />
+            {queueing ? <Clock size={14} /> : <Send size={14} />}
           </button>
         </div>
-        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400 dark:text-slate-500">
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 dark:text-slate-500">
           <span>
             <span className="font-mono">@</span> AI employee · <span className="font-mono">#</span>{" "}
             resource · <span className="font-mono">/new</span> new context
@@ -1023,7 +867,7 @@ function MessageRow({
           {isWorking ? (
             <WorkingBody
               name={emp?.name ?? "The employee"}
-              text={streamingText ?? null}
+              text={streamingText ?? (message.content || null)}
               reconnecting={Boolean(reconnecting)}
             />
           ) : isError || isSkipped ? (
@@ -1077,7 +921,10 @@ function WorkingBody({
     return (
       <div>
         <ChatMarkdown content={text} />
-        <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-slate-400 align-middle" />
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-300">
+          <Spinner size={12} />
+          {reconnecting ? "Reconnecting…" : "Still working…"}
+        </div>
       </div>
     );
   }

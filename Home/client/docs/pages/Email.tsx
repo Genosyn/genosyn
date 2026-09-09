@@ -386,6 +386,15 @@ export function Email() {
         Everything it actually does appears as a small action pill under its reply.
       </P>
       <P>
+        A visible working status stays beside the composer while the employee replies, including
+        after text starts appearing. You can keep typing, attach files, and press{" "}
+        <Strong>Queue message</Strong> to add a follow-up. Pending messages appear in order above
+        the composer; remove any message before it starts. Each one sends after the reply ahead of
+        it finishes. Switching emails or navigating elsewhere in the app keeps the queue with its
+        original conversation. If a reply fails, pending messages stay queued until you resume
+        them.
+      </P>
+      <P>
         Replies can also carry <Strong>action buttons</Strong> — concrete next steps the employee
         proposes that run with <em>your</em> authority when you click them: open a pre-filled reply,
         send a draft it just wrote, archive or label the thread, start a handover, or create an

@@ -83,6 +83,44 @@ function StagingFixture() {
     </div>
   );
 }
+function AssistantFixture() {
+  const [visible, setVisible] = React.useState(true);
+  const [alternate, setAlternate] = React.useState(false);
+  return (
+    <>
+      <div className="flex gap-4 p-2">
+        <button onClick={() => setVisible(!visible)}>
+          {visible ? "Close AI panel" : "Reopen AI panel"}
+        </button>
+        <button onClick={() => setAlternate(!alternate)}>Switch conversation</button>
+      </div>
+      {visible &&
+        (surface === "mail" ? (
+          <MailAssistant
+            company={company}
+            account={{ id: "account", email: "demo@example.test" } as MailAccount}
+            threadId={alternate ? "other-thread" : "thread"}
+            openCompose={() => {}}
+          />
+        ) : (
+          <RoutineAssistant
+            company={company}
+            routine={
+              {
+                id: alternate ? "other-routine" : "routine",
+                name: alternate ? "Other review" : "Review",
+                employeeId: employee.id,
+                employee,
+              } as RoutineWithMeta
+            }
+            collapsed={false}
+            onCollapsedChange={() => {}}
+            onClose={() => setVisible(false)}
+          />
+        ))}
+    </>
+  );
+}
 function Fixture() {
   if (surface === "staging") return <StagingFixture />;
   if (surface === "todo")
@@ -108,27 +146,7 @@ function Fixture() {
         onClose={() => {}}
       />
     );
-  if (surface === "mail")
-    return (
-      <MailAssistant
-        company={company}
-        account={{ id: "account", email: "demo@example.test" } as MailAccount}
-        threadId="thread"
-        openCompose={() => {}}
-      />
-    );
-  if (surface === "routine")
-    return (
-      <RoutineAssistant
-        company={company}
-        routine={
-          { id: "routine", name: "Review", employeeId: employee.id, employee } as RoutineWithMeta
-        }
-        collapsed={false}
-        onCollapsedChange={() => {}}
-        onClose={() => {}}
-      />
-    );
+  if (surface === "mail" || surface === "routine") return <AssistantFixture />;
   if (surface === "tldr")
     return (
       <TldrQuestions

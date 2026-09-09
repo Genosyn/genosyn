@@ -15,6 +15,7 @@ import {
   Sun,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
+import { clearAssistantChatSessions } from "@/lib/assistantChatSessions";
 import { createCompanyAndSwitch } from "../lib/companySwitch";
 import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
@@ -166,6 +167,7 @@ function TopNav({
 
   async function performLogout() {
     await api.post("/api/auth/logout");
+    clearAssistantChatSessions();
     await onAuthChanged();
     navigate("/login");
   }

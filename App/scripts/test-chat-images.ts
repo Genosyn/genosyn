@@ -1,9 +1,11 @@
 /** Run with `npm run test:chat-images`; uses local Chrome or GENOSYN_TEST_BROWSER.
+ * Add `-- "check name substring"` to run one regression group while iterating.
  * Uses actual React composers and real browser clipboard/file events. APIs are
  * stubbed here; server regression tests cover authorization, persistence and models.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import type { ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -18,6 +20,31 @@ import type { TldrQuestionsResponse } from "../client/lib/tldrQuestions";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let completedWorkbook: Buffer = Buffer.alloc(0);
+type ControlledReply = {
+  body: Record<string, unknown>;
+  response: ServerResponse;
+  assistant: Record<string, unknown>;
+  completed: boolean;
+};
+let controlledReplies = false;
+let activeReplies = 0;
+let maxActiveReplies = 0;
+const replies: ControlledReply[] = [];
+const assistantHistory = new Map<string, Array<Record<string, unknown>>>();
+function streamEvent(response: ServerResponse, event: string, data: unknown) {
+  response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+function finishReply(reply: ControlledReply, status: "ok" | "error" = "ok") {
+  assert.equal(reply.completed, false, "Each reply finishes only once");
+  reply.completed = true;
+  activeReplies--;
+  reply.assistant.status = status;
+  reply.assistant.content =
+    status === "ok" ? `Finished: ${reply.body.message}` : "Model temporarily unavailable";
+  streamEvent(reply.response, "assistant", reply.assistant);
+  streamEvent(reply.response, "done", {});
+  reply.response.end();
+}
 const server = await createServer({
   ...browserTestVite,
   configFile: path.join(root, "vite.config.ts"),
@@ -27,6 +54,63 @@ const server = await createServer({
     {
       name: "chat-image-browser-fixture",
       configureServer(dev) {
+        // Real HTTP streaming lets the member interact after partial text has
+        // appeared and before the AI finishes. Intercepted fulfill responses
+        // arrive all at once, which cannot exercise a busy composer or queue.
+        dev.middlewares.use(async (req, res, next) => {
+          const pathname = new URL(req.url ?? "/", "http://fixture").pathname;
+          if (
+            !controlledReplies ||
+            req.method !== "POST" ||
+            !pathname.endsWith("/assistant/messages")
+          )
+            return next();
+          let raw = "";
+          for await (const chunk of req) raw += chunk.toString();
+          const body = JSON.parse(raw) as Record<string, unknown>;
+          sends.push(body);
+          const createdAt = new Date().toISOString();
+          const user = {
+            id: `controlled-user-${replies.length}`,
+            role: "user",
+            content: body.message,
+            attachments: ((body.attachmentIds ?? []) as string[]).map((id) => ({
+              id,
+              filename: "screenshot.png",
+              mimeType: "image/png",
+              isImage: true,
+              sizeBytes: 68,
+            })),
+            actions: [],
+            suggestions: [],
+            createdAt,
+          };
+          const assistant = {
+            id: `controlled-assistant-${replies.length}`,
+            role: "assistant",
+            employeeId: employee.id,
+            content: `Checking: ${body.message}`,
+            status: "working",
+            attachments: [],
+            actions: [],
+            suggestions: [],
+            createdAt,
+          };
+          const key = `${pathname.replace(/\/messages$/, "")}:${body.threadId ?? ""}`;
+          const history = assistantHistory.get(key) ?? [];
+          history.push(user, assistant);
+          assistantHistory.set(key, history);
+          replies.push({ body, response: res, assistant, completed: false });
+          activeReplies++;
+          maxActiveReplies = Math.max(maxActiveReplies, activeReplies);
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.flushHeaders();
+          streamEvent(res, "user", user);
+          streamEvent(res, "target", { employee });
+          streamEvent(res, "working", { ...assistant, content: "" });
+          streamEvent(res, "chunk", { text: assistant.content });
+        });
         // Chromium downloads can bypass page request interception. Serve the
         // real workbook bytes so the browser exercises a complete HTTP download.
         dev.middlewares.use(
@@ -124,6 +208,8 @@ await context.route("**/api/**", async (route) => {
   const url = new URL(request.url());
   const pathname = url.pathname;
   const json = (body: unknown, status = 200) => route.fulfill({ json: body, status });
+  if (controlledReplies && request.method() === "POST" && pathname.endsWith("/assistant/messages"))
+    return route.continue();
   if (workbookMode && request.method() === "GET" && pathname.endsWith("/workbook-completed")) {
     return route.continue();
   }
@@ -291,7 +377,13 @@ await context.route("**/api/**", async (route) => {
   if (pathname.endsWith("/conversations/conversation"))
     return json({ conversation: { id: "conversation", surface: "help" }, messages: [] });
   if (pathname.endsWith("/assistant"))
-    return json({ messages: [], roster: [employee], modelId: "model" });
+    return json({
+      messages: controlledReplies
+        ? (assistantHistory.get(`${pathname}:${url.searchParams.get("threadId") ?? ""}`) ?? [])
+        : [],
+      roster: [employee],
+      modelId: "model",
+    });
   if (pathname.endsWith("/questions"))
     return json({
       questions: [],
@@ -357,7 +449,9 @@ async function waitUploads(page: Page, count: number) {
     .waitFor();
 }
 let checks = 0;
+const checkName = process.argv[2];
 async function check(name: string, run: () => Promise<void>) {
+  if (checkName && !name.includes(checkName)) return;
   console.log(`RUN ${name}`);
   await run();
   console.log(`PASS ${name}`);
@@ -393,7 +487,10 @@ try {
       const download = await downloadPromise;
       assert.equal(download.suggestedFilename(), "supplier-edited.xlsx");
       const downloaded = await fs.readFile((await download.path())!);
-      assert.ok(downloaded.equals(completedWorkbook), `Downloaded the completed workbook from ${download.url()}`);
+      assert.ok(
+        downloaded.equals(completedWorkbook),
+        `Downloaded the completed workbook from ${download.url()}`,
+      );
       const result = await readXlsx(downloaded);
       assert.equal(
         result.sheets[0].cells.find((cell) => cell.cell === "B1")?.value,
@@ -416,6 +513,162 @@ try {
       );
       await page.close();
       workbookMode = false;
+    },
+  );
+  await check(
+    "Mail and Routine show ongoing work and drain removable follow-ups serially across panel navigation",
+    async () => {
+      controlledReplies = true;
+      for (const surface of ["mail", "routine"]) {
+        assistantHistory.clear();
+        maxActiveReplies = 0;
+        const before = sends.length;
+        const page = await open(surface);
+        const composer = page.locator("textarea").first();
+        const queue = page.getByRole("region", { name: "Queued messages", exact: true });
+        const working = page.getByRole("status").filter({ hasText: "Alex is working" });
+        await composer.fill("Review the original request");
+        await page.getByRole("button", { name: "Send message", exact: true }).click();
+        await page.getByText("Checking: Review the original request", { exact: true }).waitFor();
+        await working.waitFor();
+        assert.equal(await composer.isEnabled(), true, surface);
+        assert.equal(await composer.getAttribute("placeholder"), "Add a follow-up for Alex…");
+        const firstReply = replies.at(-1)!;
+
+        await composer.fill("Use this attachment in the follow-up");
+        await paste(page);
+        await waitUploads(page, 1);
+        const queuedAttachmentId = `image-${uploads}`;
+        await page.getByRole("button", { name: "Queue message", exact: true }).click();
+        await queue.getByText("Use this attachment in the follow-up", { exact: true }).waitFor();
+        await queue.getByText("screenshot.png", { exact: true }).waitFor();
+        assert.equal(await composer.inputValue(), "");
+        await composer.fill("Remove this queued request");
+        await composer.press("Enter");
+        await queue.getByText("Remove this queued request", { exact: true }).waitFor();
+        await composer.fill("Check the totals afterwards");
+        await composer.press("Enter");
+        await queue.getByText("Check the totals afterwards", { exact: true }).waitFor();
+        assert.equal(
+          sends.length,
+          before + 1,
+          `${surface}: queued messages do not start concurrent work`,
+        );
+        await queue.getByRole("button", { name: "Remove queued message 2", exact: true }).click();
+        assert.equal(
+          await queue.getByText("Remove this queued request", { exact: true }).count(),
+          0,
+        );
+
+        // A later composer attachment has its own lifetime. Removing it must
+        // not mutate the image already captured by the queued message.
+        await paste(page);
+        await waitUploads(page, 1);
+        await page.getByRole("button", { name: "Remove screenshot.png", exact: true }).click();
+        assert.equal(await queue.getByText("screenshot.png", { exact: true }).count(), 1);
+        await working.waitFor();
+        await fs.mkdir(path.resolve(root, "../output/playwright"), { recursive: true });
+        await page.screenshot({
+          path: path.resolve(root, `../output/playwright/${surface}-assistant-queue.png`),
+          fullPage: true,
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          true,
+          `${surface}: queued messages fit a narrow screen`,
+        );
+        await page.screenshot({
+          path: path.resolve(root, `../output/playwright/${surface}-assistant-queue-mobile.png`),
+          fullPage: true,
+        });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+
+        await page.getByRole("button", { name: "Switch conversation", exact: true }).click();
+        await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+        assert.equal(
+          await queue.count(),
+          0,
+          `${surface}: a different conversation has its own queue`,
+        );
+        assert.equal(await working.count(), 0);
+        await page.getByRole("button", { name: "Switch conversation", exact: true }).click();
+        await queue.getByText("Use this attachment in the follow-up", { exact: true }).waitFor();
+        await working.waitFor();
+        await page.getByRole("button", { name: "Close AI panel", exact: true }).click();
+        const nextStarted = page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            response.request().postDataJSON()?.message === "Use this attachment in the follow-up",
+        );
+        finishReply(firstReply);
+        await nextStarted;
+        assert.equal(
+          sends.length,
+          before + 2,
+          `${surface}: the queue continues while the panel is closed`,
+        );
+        const secondReply = replies.at(-1)!;
+        assert.deepEqual(secondReply.body.attachmentIds, [queuedAttachmentId]);
+        await page.getByRole("button", { name: "Reopen AI panel", exact: true }).click();
+        await page
+          .getByText("Checking: Use this attachment in the follow-up", { exact: true })
+          .waitFor();
+        await queue.getByText("Check the totals afterwards", { exact: true }).waitFor();
+        await working.waitFor();
+        finishReply(secondReply);
+        await page.getByText("Checking: Check the totals afterwards", { exact: true }).waitFor();
+        const thirdReply = replies.at(-1)!;
+        assert.deepEqual(thirdReply.body.attachmentIds, []);
+        finishReply(thirdReply);
+        await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+        assert.equal(await working.count(), 0);
+        assert.equal(await queue.count(), 0);
+        assert.equal(maxActiveReplies, 1, `${surface}: only one reply runs at a time`);
+        assert.deepEqual(
+          sends.slice(before).map((body) => body.message),
+          [
+            "Review the original request",
+            "Use this attachment in the follow-up",
+            "Check the totals afterwards",
+          ],
+        );
+        await page.close();
+      }
+      controlledReplies = false;
+    },
+  );
+  await check(
+    "Mail and Routine retain and pause queued messages when an AI reply fails",
+    async () => {
+      controlledReplies = true;
+      for (const surface of ["mail", "routine"]) {
+        assistantHistory.clear();
+        const before = sends.length;
+        const page = await open(surface);
+        const composer = page.locator("textarea").first();
+        const queue = page.getByRole("region", { name: "Queued messages", exact: true });
+        await composer.fill("Start the review");
+        await composer.press("Enter");
+        await page.getByText("Checking: Start the review", { exact: true }).waitFor();
+        await composer.fill("Keep this follow-up after a failure");
+        await composer.press("Enter");
+        await queue.getByText("Keep this follow-up after a failure", { exact: true }).waitFor();
+        finishReply(replies.at(-1)!, "error");
+        await page.getByRole("button", { name: "Resume queue", exact: true }).waitFor();
+        assert.equal(sends.length, before + 1, `${surface}: a failure pauses pending work`);
+        await queue.getByText("Keep this follow-up after a failure", { exact: true }).waitFor();
+        await page.getByRole("button", { name: "Resume queue", exact: true }).click();
+        await page
+          .getByText("Checking: Keep this follow-up after a failure", { exact: true })
+          .waitFor();
+        assert.equal(sends.length, before + 2);
+        finishReply(replies.at(-1)!);
+        await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+        assert.equal(await queue.count(), 0);
+        await page.close();
+      }
+      controlledReplies = false;
     },
   );
   await check("every AI composer accepts pasted screenshots with a removable preview", async () => {
@@ -479,42 +732,53 @@ try {
     failSend = false;
     await page.close();
   });
-  await check("rejected sends retain images and text in every other AI composer", async () => {
-    failSend = true;
-    for (const surface of ["help", "mail", "routine", "base", "tldr", "todo"]) {
-      const page = await open(surface);
-      await page.locator("textarea").first().fill("Inspect this screenshot");
-      await paste(page);
-      await waitUploads(page, 1);
-      const sent = page.waitForRequest(
-        (request) =>
-          request.method() === "POST" &&
-          !request.headers()["content-type"]?.includes("multipart/form-data"),
-      );
-      await page
-        .locator("textarea")
-        .first()
-        .press(
-          surface === "base" || surface === "todo"
-            ? process.platform === "darwin"
-              ? "Meta+Enter"
-              : "Control+Enter"
-            : "Enter",
+  await check(
+    "rejected sends retain images and text in every other AI composer or its queue",
+    async () => {
+      failSend = true;
+      for (const surface of ["help", "mail", "routine", "base", "tldr", "todo"]) {
+        const page = await open(surface);
+        await page.locator("textarea").first().fill("Inspect this screenshot");
+        await paste(page);
+        await waitUploads(page, 1);
+        const sent = page.waitForRequest(
+          (request) =>
+            request.method() === "POST" &&
+            !request.headers()["content-type"]?.includes("multipart/form-data"),
         );
-      const request = await sent;
-      assert.equal(request.postDataJSON().attachmentIds.length, 1, surface);
-      await page.waitForFunction(
-        () => document.querySelector("textarea")?.value === "Inspect this screenshot",
-      );
-      assert.equal(
-        await page.getByRole("button", { name: "Remove screenshot.png", exact: true }).count(),
-        1,
-        surface,
-      );
-      await page.close();
-    }
-    failSend = false;
-  });
+        await page
+          .locator("textarea")
+          .first()
+          .press(
+            surface === "base" || surface === "todo"
+              ? process.platform === "darwin"
+                ? "Meta+Enter"
+                : "Control+Enter"
+              : "Enter",
+          );
+        const request = await sent;
+        assert.equal(request.postDataJSON().attachmentIds.length, 1, surface);
+        if (surface === "mail" || surface === "routine") {
+          const queue = page.getByRole("region", { name: "Queued messages", exact: true });
+          await queue.getByRole("button", { name: "Resume queue", exact: true }).waitFor();
+          await queue.getByText("Inspect this screenshot", { exact: true }).waitFor();
+          await queue.getByText("screenshot.png", { exact: true }).waitFor();
+          assert.equal(await page.locator("textarea").first().inputValue(), "");
+        } else {
+          await page.waitForFunction(
+            () => document.querySelector("textarea")?.value === "Inspect this screenshot",
+          );
+          assert.equal(
+            await page.getByRole("button", { name: "Remove screenshot.png", exact: true }).count(),
+            1,
+            surface,
+          );
+        }
+        await page.close();
+      }
+      failSend = false;
+    },
+  );
   await check(
     "an accepted image-only message can be retried after the AI reply fails",
     async () => {
@@ -529,9 +793,23 @@ try {
           await page.getByRole("button", { name: "Remove screenshot.png", exact: true }).count(),
           0,
         );
+        await page.locator("textarea").first().fill("Keep this unsent follow-up draft");
+        await paste(page);
+        await waitUploads(page, 1);
         const sent = page.waitForRequest((request) => request.method() === "POST");
         await page.getByRole("button", { name: "Try again", exact: true }).click();
-        assert.ok((await sent).postDataJSON().message.trim().length > 0, surface);
+        const retry = (await sent).postDataJSON();
+        assert.ok(retry.message.trim().length > 0, surface);
+        assert.notEqual(retry.message, "Keep this unsent follow-up draft");
+        assert.deepEqual(retry.attachmentIds, []);
+        assert.equal(
+          await page.locator("textarea").first().inputValue(),
+          "Keep this unsent follow-up draft",
+        );
+        assert.equal(
+          await page.getByRole("button", { name: "Remove screenshot.png", exact: true }).count(),
+          1,
+        );
         await page.close();
       }
       modelFailure = false;
@@ -626,6 +904,7 @@ try {
     await page.close();
   });
   assert.deepEqual(browserErrors, [], "No browser runtime errors");
+  assert.ok(checks > 0, `No browser regression group matched ${checkName}`);
   console.log(`${checks} browser regression groups passed.`);
 } finally {
   await browser.close();
