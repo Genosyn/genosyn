@@ -53,6 +53,8 @@ import { HealthCheckPeekModal } from "../components/home/HealthCheckPeekModal";
 import { NotificationPeekModal } from "../components/home/NotificationPeekModal";
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
+import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
+import { FormError } from "@/components/ui/FormError";
 import { RunLiveModal } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
@@ -108,6 +110,8 @@ type HomeOverlay =
 
 export default function HomePage({ company, me }: { company: Company; me: Me }) {
   const [data, setData] = React.useState<HomeData | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const homeRequest = React.useRef(0);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const background = useBackgroundAction();
 
@@ -123,18 +127,27 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const peopleRequest = React.useRef(0);
 
   const reload = React.useCallback(async () => {
+    const request = ++homeRequest.current;
     try {
       const d = await api.get<HomeData>(`/api/companies/${company.id}/home`);
+      if (request !== homeRequest.current) return;
       setData(d);
-    } catch {
+      setLoadError(null);
+    } catch (err) {
+      if (request !== homeRequest.current) return;
+      setLoadError(errorMessage(err, "Could not load what needs your attention."));
       // Keep whatever we had; transient fetch errors shouldn't blank the page.
     }
   }, [company.id]);
 
   React.useEffect(() => {
     setData(null);
+    setLoadError(null);
     setOverlay(null);
     reload();
+    return () => {
+      homeRequest.current += 1;
+    };
   }, [reload]);
 
   const reloadPeople = React.useCallback(async () => {
@@ -186,7 +199,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   // teammate answering in another tab should empty it here without a refresh.
   // `tldr_question` keeps the Discuss badge honest — a card asked from the
   // TLDRs page changes this count without touching the briefing row.
-  useLiveRefetch(["decision", "tldr", "tldr_question"], reload);
+  useLiveRefetch(["decision", "tldr", "tldr_question", "repository"], reload);
   useLiveRefetch("employee", reloadPeople);
 
   function dismissTldr(item: TldrItem) {
@@ -238,15 +251,31 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         </header>
         <SetupBanner company={company} />
         <PushPromptBanner />
-        {data === null ? (
-          <div className="flex min-h-[40vh] items-center justify-center">
-            <Spinner size={22} />
+        {loadError && (
+          <div className="mt-6 space-y-2">
+            <FormError message={loadError} />
+            <Button size="sm" variant="secondary" onClick={() => void reload()}>
+              Retry
+            </Button>
           </div>
+        )}
+        {data === null ? (
+          !loadError && (
+            <div className="flex min-h-[40vh] items-center justify-center">
+              <Spinner size={22} />
+            </div>
+          )
         ) : (
           <>
             {hasAnythingToShow(data) ? (
               <>
                 <DecisionStack company={company} data={data} onResolved={reload} />
+                <RepositoryWorkCard
+                  key={company.id}
+                  company={company}
+                  initialItems={data.repositoryWork}
+                  initialTotal={data.repositoryWorkCount}
+                />
                 <FailedRoutinesAlert
                   company={company}
                   data={data}
@@ -452,6 +481,7 @@ function HomeOverlayHost({
 function hasAnythingToShow(data: HomeData): boolean {
   return (
     data.decisions.length > 0 ||
+    data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
     statTotal(data) > 0 ||
@@ -486,8 +516,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Decisions your AI employees stack, failed routines, mentions, todos, and approvals appear
-        here the moment they arrive.
+        Repository AI work, Decisions, failed routines, mentions, todos, and approvals appear here
+        the moment they arrive.
       </p>
       <Link
         to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}

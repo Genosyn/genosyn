@@ -1,7 +1,8 @@
 /** Mount the production Home page; browser tests supply its read-only API fixtures. */
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { CompanySocketProvider, useCompanySocket } from "@/components/CompanySocket";
 import { DialogProvider } from "@/components/ui/Dialog";
 import { ThemeProvider } from "@/components/Theme";
 import type { Company, Me } from "@/lib/api";
@@ -21,12 +22,38 @@ const me = {
   email: "nawaz@example.test",
 } as Me;
 
+function OpenedRoute() {
+  const location = useLocation();
+  return <output aria-label="Opened route">{location.pathname}</output>;
+}
+
+function SocketStatus() {
+  const { status } = useCompanySocket();
+  return <output data-socket-status={status} hidden />;
+}
+
+function Harness() {
+  const routes = (
+    <Routes>
+      <Route path="/c/company" element={<HomePage company={company} me={me} />} />
+      <Route path="*" element={<OpenedRoute />} />
+    </Routes>
+  );
+  if (!new URLSearchParams(location.search).has("live")) return routes;
+  return (
+    <CompanySocketProvider companyId={company.id}>
+      <SocketStatus />
+      {routes}
+    </CompanySocketProvider>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <MemoryRouter initialEntries={["/c/company"]}>
       <ThemeProvider>
         <DialogProvider>
-          <HomePage company={company} me={me} />
+          <Harness />
         </DialogProvider>
       </ThemeProvider>
     </MemoryRouter>

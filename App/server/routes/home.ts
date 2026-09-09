@@ -1,7 +1,10 @@
 import { Request, Router } from "express";
+import { z } from "zod";
 import { Role } from "../db/entities/Membership.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import { validateParams, validateQuery } from "../middleware/validate.js";
 import { getHomeData } from "../services/home.js";
+import { listHomeRepositoryWork } from "../services/homeRepositoryWork.js";
 
 /**
  * Home page aggregation — everything the signed-in member might need to
@@ -20,6 +23,26 @@ homeRouter.get("/home", async (req, res) => {
       companyId: cid,
       userId: req.userId!,
       role: (req as Request & { role: Role }).role,
+      canReadRepositoryWork: !req.apiKey,
     }),
   );
 });
+
+const repositoryWorkParamsSchema = z.object({ cid: z.string().uuid() });
+const repositoryWorkQuerySchema = z
+  .object({
+    offset: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).max(50).default(8),
+  })
+  .strict();
+
+homeRouter.get(
+  "/home/repository-work",
+  requireBrowserSession,
+  validateParams(repositoryWorkParamsSchema),
+  validateQuery(repositoryWorkQuerySchema),
+  async (req, res) => {
+    const { offset, limit } = req.query as unknown as z.infer<typeof repositoryWorkQuerySchema>;
+    res.json(await listHomeRepositoryWork({ companyId: req.params.cid, offset, limit }));
+  },
+);

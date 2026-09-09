@@ -170,6 +170,12 @@ export function GettingStarted() {
         <DocLink to="/docs/employees">AI Employees</DocLink> to review the Soul, Skills, and
         connections after setup.
       </P>
+      <P>
+        Once employees are working in your repositories, Home shows a{" "}
+        <Strong>Repository AI work</Strong> card whenever a session needs attention. Open one to
+        review its changes or continue working with the employee. See{" "}
+        <DocLink to="/docs/repositories#work-sessions">Repository work sessions</DocLink>.
+      </P>
     </>
   );
 }

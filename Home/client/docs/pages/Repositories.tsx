@@ -230,6 +230,15 @@ export function Repositories() {
         running, what is waiting for you, and what has been accepted — the{" "}
         <DocLink to="#overview">Overview</DocLink> summarises the same sessions.
       </P>
+      <P>
+        On <Strong>Home</Strong>, <Strong>Repository AI work</Strong> brings together sessions
+        needing attention across the company&apos;s repositories: <Strong>Ready to review</Strong>,{" "}
+        <Strong>Pull request open</Strong>, <Strong>No changes made</Strong>, and{" "}
+        <Strong>Failed</Strong>. Open a session from the card to read its Activity, review Changes,
+        or ask the employee for another pass. Use <Strong>Show more</Strong> to reach the rest of
+        a longer queue. Archived sessions stay out of the card, and it
+        disappears when nothing needs attention.
+      </P>
 
       <H3 id="quick-start">Start with a useful brief</H3>
       <P>
