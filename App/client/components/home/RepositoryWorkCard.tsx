@@ -148,7 +148,8 @@ export function RepositoryWorkCard({
                           item.employee.id,
                           item.employee.avatarKey,
                         )}
-                        size={16}
+                        size="xs"
+                        kind="ai"
                       />
                       <span className="truncate">{item.employee.name}</span>
                     </span>
