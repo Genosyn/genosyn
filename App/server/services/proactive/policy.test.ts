@@ -11,8 +11,10 @@ import { BrowserSession } from "../../db/entities/BrowserSession.js";
 import { Company } from "../../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
+import { MailThread } from "../../db/entities/MailThread.js";
 import { McpServer } from "../../db/entities/McpServer.js";
 import { Routine } from "../../db/entities/Routine.js";
+import { Run } from "../../db/entities/Run.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { errorHandler } from "../../middleware/error.js";
 import { mcpInternalRouter } from "../../routes/mcpInternal.js";
@@ -25,6 +27,10 @@ import { resetRuntimeSettingsCacheForTests } from "../runtimeSettings.js";
 import { stopStanddowns } from "../standdowns.js";
 import { routineDeliveryPolicy } from "./policy.js";
 import { SELF_REVIEW_GENOSYN_TOOLS } from "./reviewPolicy.js";
+import { createProactiveWorkApproval, executeProactiveWorkApproval } from "./approvals.js";
+import { approvePendingApproval } from "../approvals.js";
+import { Membership } from "../../db/entities/Membership.js";
+import { User } from "../../db/entities/User.js";
 
 const testConfig = config as unknown as { port: number };
 let server: Server;
@@ -39,6 +45,8 @@ let configuredMcpRequests = 0;
 let toolResults: string[] = [];
 let observedModes: Array<string | null | undefined> = [];
 let observedReviewScopes: Array<boolean | undefined> = [];
+let observedProactiveScopes: Array<boolean | undefined> = [];
+let observedMailThreads: Array<string | null | undefined> = [];
 let offeredTools: string[] = [];
 
 before(async () => {
@@ -55,6 +63,8 @@ before(async () => {
       if (token) {
         observedModes.push(resolveMcpToken(token)?.mailDeliveryMode);
         observedReviewScopes.push(resolveMcpToken(token)?.selfReviewOnly);
+        observedProactiveScopes.push(resolveMcpToken(token)?.proactiveReview);
+        observedMailThreads.push(resolveMcpToken(token)?.mailThreadId);
       }
       next();
     },
@@ -131,6 +141,8 @@ beforeEach(async () => {
   toolResults = [];
   observedModes = [];
   observedReviewScopes = [];
+  observedProactiveScopes = [];
+  observedMailThreads = [];
   offeredTools = [];
   company = await insert(Company, {
     name: "Proactive Policy Co",
@@ -211,17 +223,33 @@ test("a persisted draft ceiling disables privileged sources and survives unknown
     mailDeliveryMode: null,
     allowPrivilegedToolSources: true,
   });
+  assert.deepEqual(routineDeliveryPolicy({ mailDeliveryMode: null }, false, "draft"), {
+    mailDeliveryMode: "draft",
+    allowPrivilegedToolSources: false,
+  });
+  assert.equal(
+    routineDeliveryPolicy({ mailDeliveryMode: "draft" }, false, "triage").mailDeliveryMode,
+    "triage",
+  );
+  assert.equal(
+    routineDeliveryPolicy({ mailDeliveryMode: "draft" }, false, "reply").mailDeliveryMode,
+    "draft",
+  );
 });
 
 test("scheduled Runs refuse sending even with a Send Grant and contradictory Soul and brief", async () => {
   const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
-  assert.equal(run.status, "completed", run.logContent);
+  assert.equal(run.status, "reviewed", run.logContent);
   assert.ok(
-    toolResults.some((result) => /preparation only|sending is not authorized/i.test(result)),
+    toolResults.some((result) => /unknown tool.*send_mail/i.test(result)),
     toolResults.join("\n"),
   );
   assert.ok(observedModes.length > 0);
   assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedProactiveScopes.every(Boolean));
+  assert.ok(offeredTools.includes("request_work_review"));
+  assert.equal(offeredTools.includes("send_mail"), false);
+  assert.equal(run.outcomeVerdict, "unverified");
   assert.equal(configuredMcpRequests, 0);
   assert.equal(await AppDataSource.getRepository(BrowserSession).count(), 0);
   assert.equal(
@@ -244,16 +272,19 @@ test("a renamed starter and deleted mailbox retain the ceiling on a manual Run",
   const fresh = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
   assert.equal(fresh.mailDeliveryMode, "draft");
   const run = await (await startRoutineRun(fresh, { triggerKind: "manual" })).completion;
-  assert.equal(run.status, "completed", run.logContent);
+  assert.equal(run.status, "reviewed", run.logContent);
   assert.ok(
-    toolResults.some((result) => /preparation only|sending is not authorized/i.test(result)),
+    toolResults.some((result) => /unknown tool.*send_mail/i.test(result)),
     toolResults.join("\n"),
   );
   assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedProactiveScopes.every(Boolean));
+  assert.ok(offeredTools.includes("request_work_review"));
+  assert.equal(offeredTools.includes("send_mail"), false);
   assert.equal(configuredMcpRequests, 0);
 });
 
-test("Check remediation keeps the same draft token and restricted tool sources", async () => {
+test("a review does not run delivery Checks or attempt impossible remediation", async () => {
   await createCheck({
     companyId: company.id,
     routineId: routine.id,
@@ -263,16 +294,78 @@ test("Check remediation keeps the same draft token and restricted tool sources",
     createdById: null,
   });
   const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
-  assert.equal(run.status, "completed", run.logContent);
-  assert.equal(run.checkRemediations, 2);
-  assert.ok(toolResults.length >= 3);
+  assert.equal(run.status, "reviewed", run.logContent);
+  assert.equal(run.checkRemediations, 0);
+  assert.equal(run.checksVerdict, null);
+  assert.ok(toolResults.length >= 1);
   assert.ok(
-    toolResults.every((result) => /preparation only|sending is not authorized/i.test(result)),
+    toolResults.every((result) => /unknown tool.*send_mail/i.test(result)),
     toolResults.join("\n"),
   );
   assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedProactiveScopes.every(Boolean));
+  assert.ok(offeredTools.includes("request_work_review"));
+  assert.equal(offeredTools.includes("send_mail"), false);
+  assert.equal(
+    (await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id }))
+      .consecutiveFailures,
+    0,
+  );
   assert.equal(configuredMcpRequests, 0);
   assert.equal(await AppDataSource.getRepository(BrowserSession).count(), 0);
+});
+
+test("an approved plan runs original Checks and retains a stronger email ceiling through remediation", async () => {
+  const user = await insert(User, {
+    email: "owner@example.test",
+    passwordHash: "x",
+    name: "Owner",
+  });
+  await insert(Membership, { companyId: company.id, userId: user.id, role: "owner" });
+  await AppDataSource.getRepository(Routine).update({ id: routine.id }, { mailDeliveryMode: null });
+  const thread = await insert(MailThread, {
+    companyId: company.id,
+    accountId: mailbox.id,
+    gmailThreadId: "source-thread",
+    subject: "Invoice follow-up",
+  });
+  await createCheck({
+    companyId: company.id,
+    routineId: routine.id,
+    name: "Required delivery evidence",
+    kind: "effect",
+    spec: JSON.stringify({ action: "invoice.send", min: 1 }),
+    createdById: null,
+  });
+  const approval = await createProactiveWorkApproval({
+    companyId: company.id,
+    employeeId: employee.id,
+    title: "Prepare the invoice reminder",
+    context: "An unpaid invoice needs attention.",
+    plan: "Prepare a draft reminder for human review. Do not send it.",
+    origin: { routineId: routine.id, mailThreadId: thread.id, mailDeliveryMode: "draft" },
+  });
+  const outcome = await approvePendingApproval({
+    companyId: company.id,
+    approvalId: approval.id,
+    userId: user.id,
+    execute: executeProactiveWorkApproval,
+  });
+  assert.equal(outcome.outcome === "decided" && outcome.approval.status, "execution_failed");
+  const approvedRun = await AppDataSource.getRepository(Run).findOneByOrFail({
+    routineId: routine.id,
+  });
+  assert.equal(approvedRun.checksVerdict, "failed", approvedRun.logContent);
+  assert.equal(approvedRun.checkRemediations, 2);
+  assert.ok(
+    toolResults.some((result) => /preparation only|sending is not authorized/i.test(result)),
+    toolResults.join("\n"),
+  );
+  assert.ok(observedProactiveScopes.every((flag) => flag === false));
+  assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedMailThreads.length > 0);
+  assert.ok(observedMailThreads.every((id) => id === thread.id));
+  assert.equal(configuredMcpRequests, 0);
 });
 
 test("ordinary legacy Routines keep their null delivery ceiling", async () => {

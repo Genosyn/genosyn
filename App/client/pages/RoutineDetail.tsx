@@ -72,6 +72,7 @@ import {
   RunEffectsPane,
   RunLogPane,
   RunOutcomeChip,
+  RunReviewNotice,
   RunStatusChip,
   formatDuration,
   overdueFor,
@@ -285,7 +286,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
                 </span>
               )}
               {routine.lastRun && <RunStatusChip status={routine.lastRun.status} size="xs" />}
-              {routine.lastRun?.outcomeVerdict && (
+              {routine.lastRun?.status !== "reviewed" && routine.lastRun?.outcomeVerdict && (
                 <RunOutcomeChip verdict={routine.lastRun.outcomeVerdict} size="xs" />
               )}
             </div>
@@ -638,7 +639,7 @@ function OverviewTab({
                     className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-900"
                   >
                     <RunStatusChip status={run.status} size="xs" />
-                    {run.outcomeVerdict && (
+                    {run.status !== "reviewed" && run.outcomeVerdict && (
                       <RunOutcomeChip
                         verdict={run.outcomeVerdict}
                         note={run.outcomeNote}
@@ -1198,10 +1199,12 @@ function RunsTab({
                 >
                   <div className="flex items-center gap-2">
                     <RunStatusChip status={r.status} size="xs" />
-                    {r.outcomeVerdict && (
+                    {r.status !== "reviewed" && r.outcomeVerdict && (
                       <RunOutcomeChip verdict={r.outcomeVerdict} note={r.outcomeNote} size="xs" />
                     )}
-                    {r.checksVerdict && <RunChecksChip verdict={r.checksVerdict} size="xs" />}
+                    {r.status !== "reviewed" && r.checksVerdict && (
+                      <RunChecksChip verdict={r.checksVerdict} size="xs" />
+                    )}
                     {r.exitCode !== null && (
                       <span className="text-[10px] text-slate-400 dark:text-slate-500">
                         exit {r.exitCode}
@@ -1259,6 +1262,9 @@ function RunsTab({
           )}
         </div>
       </div>
+      {(log?.status ?? activeRun?.status) === "reviewed" && (
+        <RunReviewNotice companySlug={company.slug} />
+      )}
       {/* What the server saw, under what the model said. Keyed on the run so
           switching selection in the list re-reads both, and on the terminal
           status so a run finishing while it is open picks up the Check results

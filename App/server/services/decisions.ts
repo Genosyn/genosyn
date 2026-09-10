@@ -499,7 +499,7 @@ export async function createDecision(params: {
     pickupStatus: params.automaticContinuation === false ? "skipped" : "none",
     pickupSummary:
       params.automaticContinuation === false
-        ? "This question came from work limited to preparation. A Member can answer it; the answer is saved in the Decision and journal for an approved standing Routine or a Member to continue. Answering does not start another AI session."
+        ? "This question came from work awaiting human review. Your answer is saved for the AI Employee. Answering does not start work; a proposed work plan needs its own human approval."
         : null,
     pickupStartedAt: null,
     pickupFinishedAt: null,

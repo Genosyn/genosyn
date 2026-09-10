@@ -999,7 +999,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: {
         initiativeId: { type: "string", format: "uuid" },
-        section: { type: "string", enum: ["evidence", "proposal", "routineBody", "acceptanceCriteria", "reviewNote"] },
+        section: {
+          type: "string",
+          enum: ["evidence", "proposal", "routineBody", "acceptanceCriteria", "reviewNote"],
+        },
         offset: { type: "integer", minimum: 0, maximum: 1000000 },
       },
       required: ["initiativeId"],
@@ -1977,53 +1980,99 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "request_work_review",
+    description:
+      "Submit a concrete proactive work plan to the Decision stack before acting. Available only in a proactive review turn. Only a human owner or admin can approve it; submission performs none of the proposed work. First read list_work_reviews to avoid repeating pending, declined or completed work without new evidence. Use a short action title, explain what happened and why it matters, and state exactly what will change, the expected result and any relevant risk. Finish the review after submitting. Existing Grants and delivery restrictions still apply after approval.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          maxLength: 200,
+          description:
+            "Short, plain action title naming the customer or resource, e.g. Investigate Acme's failed invoice export.",
+        },
+        context: {
+          type: "string",
+          maxLength: 4000,
+          description:
+            "What happened, why action is useful, source record IDs or links, and any real deadline. Explain unfamiliar terms. Never imply work already happened.",
+        },
+        plan: {
+          type: "string",
+          maxLength: 8000,
+          description:
+            "Specific steps, resources to change, expected result and relevant risks. Say whether you will investigate, edit a Repository, create a draft or publish/send. Keep the scope narrow and reviewable; do not request blanket authority.",
+        },
+      },
+      required: ["title", "context", "plan"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_work_reviews",
+    readOnly: true,
+    description:
+      "Read your recent proactive work reviews and their human approval status before proposing work. Reuse pending work and do not repeat declined or completed plans without changed evidence. An approved historical plan authorizes only its own work session.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "request_decision",
     description:
-      "Stack a Decision when a human's judgment changes what you do next. Write the question, the necessary context in `body`, and exact choices. It appears on the company's Home page. Stop that line of work and finish your turn. Normally an answer starts a fresh session, so include the context it needs. During preparation-only work, the Decision stays human-only and answering starts no session; record its id in your Workstream for an approved standing Routine or a Member to continue, and read the answer with list_decisions. Never ask for permission to do ordinary work.",
+      "Ask for a choice or missing information. Use request_work_review for approval to start proactive work. Check existing Decisions to avoid duplicates; explain the next step, then stop that work and finish your turn. An answer normally starts a fresh session. Preparation-only Decisions stay human-only and start none; read their saved answers with list_decisions.",
     inputSchema: {
       type: "object",
       properties: {
         title: {
           type: "string",
           description:
-            "The question, as a question. E.g. 'Send this pricing reply to Acme?'. Max 200 chars.",
+            "Short action and subject, e.g. 'Confirm Acme's support deadline'. Plain language; max 200 chars.",
         },
         body: {
           type: "string",
           description:
-            "Markdown context so a human can decide without asking you anything: the drafted text in full, what you already checked, and what each option costs.",
+            "Start with what happened, why it matters and your recommendation. Then source links, evidence, scope, costs and exact missing details. Include any draft being reviewed. Distinguish facts from unknowns.",
         },
         options: {
           type: "array",
           minItems: 1,
           maxItems: 6,
-          description: "The choices, in the order they should appear. Each becomes a button.",
+          description: "Prefer 2–3 distinct choices. Include a way to defer or decline work.",
           items: {
             type: "object",
             properties: {
-              label: { type: "string", description: "Button text, e.g. 'Send it'. Max 80 chars." },
-              detail: { type: "string", description: "Optional one line under the button." },
+              label: {
+                type: "string",
+                description: "Short action, e.g. 'Keep the current deadline'. Max 80 chars.",
+              },
+              detail: {
+                type: "string",
+                description:
+                  "What you will do if chosen, and any exact information needed in the Member's note.",
+              },
               tone: {
                 type: "string",
                 enum: ["primary", "neutral", "danger"],
-                description:
-                  "'primary' for the option you recommend, 'danger' for a destructive one.",
+                description: "One 'primary' recommendation; 'danger' for destructive actions.",
               },
             },
             required: ["label"],
             additionalProperties: false,
           },
         },
-        urgency: { type: "string", enum: ["low", "normal", "high"] },
+        urgency: {
+          type: "string",
+          enum: ["low", "normal", "high"],
+          description:
+            "Default normal. High needs a concrete near-term deadline or immediate harm explained in body.",
+        },
         assignee: {
           type: "string",
-          description:
-            "Optional. Handle or email of the one Member who should answer. Omit so anyone can.",
+          description: "Optional Member handle or email. Omit so anyone can answer.",
         },
         expiresInHours: {
           type: "number",
-          description:
-            "Optional. After this the question is moot and stops nagging anyone (1–720).",
+          description: "Hours until no answer is useful (1–720); omit otherwise.",
         },
       },
       required: ["title", "options"],
@@ -2041,7 +2090,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           enum: ["pending", "decided", "cancelled", "expired"],
         },
-        limit: { type: "integer", minimum: 1, maximum: 100, description: "Maximum rows before response budgeting (default 20)." },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          description: "Maximum rows before response budgeting (default 20).",
+        },
         offset: { type: "integer", minimum: 0, maximum: 1000000 },
         direction: {
           type: "string",
@@ -3371,7 +3425,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Id of an .xlsx chat upload, email attachment, downloaded file, or edited workbook.",
         },
         sheet: { type: "string", description: "Exact worksheet name, as returned by this tool." },
-        range: { type: "string", description: "Optional A1 cell or range, such as B4 or A1:F30. Requires sheet." },
+        range: {
+          type: "string",
+          description: "Optional A1 cell or range, such as B4 or A1:F30. Requires sheet.",
+        },
         maxCells: {
           type: "integer",
           minimum: 1,
@@ -3420,7 +3477,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             additionalProperties: false,
           },
         },
-        outputFilename: { type: "string", description: "Optional filename for the completed .xlsx copy." },
+        outputFilename: {
+          type: "string",
+          description: "Optional filename for the completed .xlsx copy.",
+        },
       },
       required: ["attachmentId", "edits"],
       additionalProperties: false,

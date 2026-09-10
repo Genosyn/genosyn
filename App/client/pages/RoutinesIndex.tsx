@@ -132,10 +132,9 @@ export default function RoutinesIndex({ company }: { company: Company }) {
       return;
     }
     const qs = runId ? `?run=${encodeURIComponent(runId)}` : "";
-    navigate(
-      `/c/${company.slug}/routines/${target.employee.slug}/${target.slug}${qs}`,
-      { replace: true },
-    );
+    navigate(`/c/${company.slug}/routines/${target.employee.slug}/${target.slug}${qs}`, {
+      replace: true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, routines]);
 
@@ -195,7 +194,8 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   /** Create a folder from the move menu, so filing never dead-ends on "none exist". */
   async function moveToNewFolder(routineIds: string[]) {
     const name = await dialog.prompt({
-      title: routineIds.length === 1 ? "Move to a new folder" : `Move ${routineIds.length} routines`,
+      title:
+        routineIds.length === 1 ? "Move to a new folder" : `Move ${routineIds.length} routines`,
       message: "Name the folder to create and file them into.",
       placeholder: "Finance",
       confirmLabel: "Create and move",
@@ -277,9 +277,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
         items={[
           { label: "Routines", to: `/c/${company.slug}/routines` },
           ...(folder
-            ? folder.path
-                .split("/")
-                .map((segment) => ({ label: segment }))
+            ? folder.path.split("/").map((segment) => ({ label: segment }))
             : unfiledView
               ? [{ label: "Unfiled" }]
               : []),
@@ -438,9 +436,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
             <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-2.5 text-sm dark:border-indigo-500/30 dark:bg-indigo-500/10">
               <button
                 type="button"
-                onClick={() =>
-                  setSelected(allShownSelected ? new Set() : new Set(shownIds))
-                }
+                onClick={() => setSelected(allShownSelected ? new Set() : new Set(shownIds))}
                 className="font-medium text-indigo-700 hover:underline dark:text-indigo-300"
               >
                 {allShownSelected ? "Clear selection" : `Select all ${shownIds.length}`}
@@ -588,9 +584,7 @@ function FolderMenu({
           {folders.map((f) => (
             <MenuItem
               key={f.id}
-              icon={
-                f.id === currentFolderId ? <Check size={13} /> : <Folder size={13} />
-              }
+              icon={f.id === currentFolderId ? <Check size={13} /> : <Folder size={13} />}
               active={f.id === currentFolderId}
               label={
                 <span style={{ paddingLeft: `${(f.depth - 1) * 10}px` }} title={f.path}>
@@ -652,9 +646,7 @@ function RoutineRow({
   onNewFolder: () => void;
   onRun: () => void;
 }) {
-  const to = r.employee
-    ? `/c/${company.slug}/routines/${r.employee.slug}/${r.slug}`
-    : null;
+  const to = r.employee ? `/c/${company.slug}/routines/${r.employee.slug}/${r.slug}` : null;
   const brokenSchedule = r.enabled && r.nextRunAt === null;
   const folder = r.folderId ? (folders.find((f) => f.id === r.folderId) ?? null) : null;
 
@@ -767,7 +759,7 @@ function RoutineRow({
         {r.lastRun ? (
           <div className="flex items-center gap-2">
             <RunStatusChip status={r.lastRun.status} size="xs" />
-            {r.lastRun.outcomeVerdict && (
+            {r.lastRun.status !== "reviewed" && r.lastRun.outcomeVerdict && (
               <RunOutcomeChip verdict={r.lastRun.outcomeVerdict} size="xs" />
             )}
             <span

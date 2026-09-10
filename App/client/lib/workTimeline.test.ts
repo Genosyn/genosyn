@@ -779,6 +779,21 @@ describe("an entry in sentences", () => {
     assert.doesNotMatch(narrative.headline, /still running|qualified Contacts/);
   });
 
+  test("a proactive review never claims its proposed work or delivery Checks were completed", () => {
+    const entry = finished({
+      status: "reviewed",
+      summary,
+      outcomeVerdict: "achieved",
+      checksVerdict: "failed",
+    });
+    const narrative = workNarrative(entry, { nowIso });
+    assert.equal(
+      narrative.headline,
+      "The proactive review finished. This Run did not carry out the proposed work.",
+    );
+    assert.deepEqual(narrative.body, []);
+  });
+
   const stopped = [
     ["failed", "This run failed. Open the run log for details."],
     ["timeout", "This run ran out of time before it finished."],
@@ -843,7 +858,10 @@ describe("an entry in sentences", () => {
       workNarrative(finished({ summary: "Does this need follow-up?" })).headline,
       "Does this need follow-up?",
     );
-    assert.equal(workNarrative(finished({ summary: "Updated the report…" })).headline, "Updated the report…");
+    assert.equal(
+      workNarrative(finished({ summary: "Updated the report…" })).headline,
+      "Updated the report…",
+    );
   });
 
   test("uses the Routine payload name when the subject is absent", () => {

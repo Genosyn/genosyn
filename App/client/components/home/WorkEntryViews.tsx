@@ -144,10 +144,12 @@ function WorkRunChips({ entry }: { entry: WorkEntry }) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <RunStatusChip status={entry.run.status} size="xs" />
-      {entry.run.outcomeVerdict && (
+      {entry.run.status !== "reviewed" && entry.run.outcomeVerdict && (
         <RunOutcomeChip verdict={entry.run.outcomeVerdict} note={entry.run.outcomeNote} size="xs" />
       )}
-      {entry.run.checksVerdict && <RunChecksChip verdict={entry.run.checksVerdict} size="xs" />}
+      {entry.run.status !== "reviewed" && entry.run.checksVerdict && (
+        <RunChecksChip verdict={entry.run.checksVerdict} size="xs" />
+      )}
     </span>
   );
 }

@@ -1327,8 +1327,24 @@ export async function approvePendingApproval(args: {
   const approval = claimed.approval;
   await recordDecisionAudit(approval, args.userId, "approval.approve");
 
+  // A proposed work session can take minutes. Return its durable claim now;
+  // the same finalizer records its result and prevents every later replay.
+  if (approval.kind === "proactive_work" && !args.execute) {
+    void executeClaimedApproval(approval).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[approvals] work finalization failed for ${approval.id}:`, err);
+    });
+    return { outcome: "decided", approval };
+  }
+  return executeClaimedApproval(approval, args.execute);
+}
+
+async function executeClaimedApproval(
+  approval: Approval,
+  execute: ApprovalExecutor = executeApproval,
+): Promise<ApprovalDecisionResult> {
   try {
-    await (args.execute ?? executeApproval)(approval);
+    await execute(approval);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     // eslint-disable-next-line no-console
@@ -1343,7 +1359,7 @@ export async function approvePendingApproval(args: {
     );
     await recordAudit({
       companyId: approval.companyId,
-      actorUserId: args.userId,
+      actorUserId: approval.decidedByUserId,
       action: "approval.execute_failed",
       targetType: "approval",
       targetId: approval.id,
@@ -1454,6 +1470,11 @@ export async function executeApproval(approval: Approval): Promise<void> {
     case "tainted_tool": {
       const { executeTaintedToolApproval } = await import("./taintPolicy.js");
       await executeTaintedToolApproval(approval);
+      return;
+    }
+    case "proactive_work": {
+      const { executeProactiveWorkApproval } = await import("./proactive/approvals.js");
+      await executeProactiveWorkApproval(approval);
       return;
     }
     default:
@@ -1617,6 +1638,20 @@ async function executeLightningPaymentApproval(approval: Approval): Promise<void
 
 export async function recordApprovalRejection(approval: Approval): Promise<void> {
   switch (approval.kind) {
+    case "proactive_work": {
+      await AppDataSource.getRepository(JournalEntry).save(
+        AppDataSource.getRepository(JournalEntry).create({
+          employeeId: approval.employeeId,
+          kind: "system",
+          title: `Proposed work declined: ${redactApprovalSummary(approval.title) ?? "Work review"}`,
+          body: "A Member declined this proposed work. Nothing was performed. Do not propose the same work again without materially changed evidence.",
+          routineId: approval.routineId || null,
+          runId: null,
+          authorUserId: approval.decidedByUserId,
+        }),
+      );
+      return;
+    }
     case "routine": {
       const routine = await AppDataSource.getRepository(Routine).findOneBy({
         id: approval.routineId,

@@ -39,6 +39,9 @@ export type McpTokenInfo = {
   mailDeliveryMode: MailDeliveryMode | null;
   /** Server-selected suggestion-only scope for an own-work review Run. */
   selfReviewOnly: boolean;
+  /** Proactive discovery can only read and submit a plan for human review. */
+  proactiveReview: boolean;
+  mailHandoverId: string | null;
   /**
    * The Repository work session this turn is executing, when the surface is
    * one. Unlike the ids above this is not provenance — it is authority. The
@@ -138,6 +141,8 @@ export function issueMcpToken(
     mailThreadId?: string | null;
     mailDeliveryMode?: MailDeliveryMode | null;
     selfReviewOnly?: boolean;
+    proactiveReview?: boolean;
+    mailHandoverId?: string | null;
     repositoryWorkSessionId?: string | null;
     authority?: "employee" | "member" | "untrusted";
     requesterUserId?: string;
@@ -174,6 +179,8 @@ export function issueMcpToken(
     mailThreadId: origin.mailThreadId ?? null,
     mailDeliveryMode: origin.mailDeliveryMode ?? null,
     selfReviewOnly: origin.selfReviewOnly ?? false,
+    proactiveReview: origin.proactiveReview ?? false,
+    mailHandoverId: origin.mailHandoverId ?? null,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
     authority,
     requesterUserId,

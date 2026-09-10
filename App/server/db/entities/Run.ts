@@ -1,7 +1,14 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
-export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout" | "interrupted";
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "reviewed"
+  | "failed"
+  | "skipped"
+  | "timeout"
+  | "interrupted";
 
 /**
  * How a completed Run measured against its Routine's acceptance criteria,

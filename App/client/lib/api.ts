@@ -593,6 +593,7 @@ export type ApprovalStatus =
   | "rejected"
   | "expired";
 export type ApprovalKind =
+  | "proactive_work"
   | "routine"
   | "lightning_payment"
   | "browser_action"
@@ -619,6 +620,10 @@ export type Approval = {
   summary: string | null;
   errorMessage: string | null;
   status: ApprovalStatus;
+  /** Redacted report from the approved proactive work, when available. */
+  outcomeSummary?: string | null;
+  /** Actual approved Routine Run, separate from the initial proactive review. */
+  outcomeRunId?: string | null;
   requestedAt: string;
   decidedAt: string | null;
   decidedByUserId: string | null;
@@ -889,6 +894,8 @@ export type Initiative = {
 
 export type RunStatus =
   | "running"
+  /** Proactive review finished; proposed work requires a separate Approval. */
+  | "reviewed"
   | "completed"
   | "failed"
   | "skipped"
@@ -1270,6 +1277,8 @@ export type OnboardingStatus = {
 export type UsageBucket = {
   runs: number;
   completed: number;
+  /** Evidence-review Runs consume resources without counting as delivered work. */
+  reviewed: number;
   failed: number;
   skipped: number;
   timeout: number;
@@ -3814,6 +3823,9 @@ export type HomeData = {
   /** The Decision Stack, highest urgency first. Empty on a clean day. */
   decisions: Decision[];
   pendingDecisionCount: number;
+  /** Proposed proactive work awaiting an owner or admin, separate from Decisions. */
+  proactiveApprovals?: HomeApproval[];
+  pendingProactiveApprovalCount?: number;
   myTodos: HomeTodo[];
   myTodoCount: number;
   reviewTodos: HomeTodo[];

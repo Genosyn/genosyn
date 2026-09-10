@@ -5,6 +5,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import type { chatWithEmployee } from "./chat.js";
@@ -39,7 +41,12 @@ const inOneHour = () => new Date(Date.now() + 60 * 60 * 1000);
 describe("scheduleWakeup", () => {
   test("needs a future time inside the horizon and a non-empty brief", async () => {
     await assert.rejects(
-      scheduleWakeup({ companyId, employeeId: employee.id, at: new Date(Date.now() - 1), brief: "x" }),
+      scheduleWakeup({
+        companyId,
+        employeeId: employee.id,
+        at: new Date(Date.now() - 1),
+        brief: "x",
+      }),
       WakeupError,
     );
     await assert.rejects(
@@ -103,6 +110,43 @@ describe("dispatchDueWakeups", () => {
       status: "pending",
     });
   }
+
+  test("legacy proactive wakeups cannot shed the source review and delivery restrictions", async () => {
+    await insert(AIModel, {
+      employeeId: employee.id,
+      provider: "anthropic",
+      model: "claude-x",
+      isActive: true,
+    });
+    const routine = await insert(Routine, {
+      employeeId: employee.id,
+      name: "Review customer issues",
+      slug: "review-issues",
+      cronExpr: "0 9 * * *",
+      body: "Inspect issues",
+      mailDeliveryMode: "draft",
+    });
+    const run = await insert(Run, {
+      startedAt: new Date(),
+      routineId: routine.id,
+      triggerKind: "schedule",
+      status: "completed",
+    });
+    const wakeup = await due();
+    await AppDataSource.getRepository(EmployeeWakeup).update(
+      { id: wakeup.id },
+      { sourceRoutineId: routine.id, sourceRunId: run.id },
+    );
+    let calls = 0;
+    await dispatchDueWakeups(new Date(), async (_company, _employee, _brief, _history, options) => {
+      calls++;
+      assert.equal(options?.proactiveReview, true);
+      assert.equal(options?.mailDeliveryMode, "draft");
+      assert.equal(options?.routineId, routine.id);
+      return { status: "ok", reply: "Waiting for human review.", attachmentIds: [], sidecars: {} };
+    });
+    assert.equal(calls, 1);
+  });
 
   test("no model → journal fallback, and the outcome says so", async () => {
     const wakeup = await due();

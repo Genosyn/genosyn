@@ -10,6 +10,7 @@ import { Decision } from "../db/entities/Decision.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import type { ChatResult, chatWithEmployee } from "./chat.js";
@@ -71,7 +72,10 @@ async function stackAndAnswer(
     employeeId: employee.id,
     title: "Send the pricing reply?",
     body: "## Draft\n\nHello **Acme**,",
-    options: [{ label: "Send it", tone: "primary", detail: "Goes out as written" }, { label: "Hold" }],
+    options: [
+      { label: "Send it", tone: "primary", detail: "Goes out as written" },
+      { label: "Hold" },
+    ],
     ...overrides,
   });
   const outcome = await decideDecision({
@@ -195,6 +199,43 @@ describe("decision pickup", () => {
     assert.match(brief, /Pricing for Acme/);
     assert.match(brief, new RegExp(thread.id));
     assert.match(brief, /threadId/);
+  });
+
+  test("legacy event and email Decisions retain proposal-only scope after an AI answer", async () => {
+    await giveModel();
+    const routine = await insert(Routine, {
+      employeeId: employee.id,
+      name: "Issue reported",
+      slug: "issue-reported",
+      cronExpr: "0 2 * * *",
+      body: "Fix reported issues",
+    });
+    const run = await insert(Run, {
+      startedAt: new Date(),
+      routineId: routine.id,
+      triggerKind: "event",
+      status: "completed",
+    });
+    const decision = await stackAndAnswer({ routineId: routine.id, runId: run.id });
+    let called = false;
+    await kickoffDecision({
+      companyId: company.id,
+      decisionId: decision.id,
+      authority: "employee",
+      runChat: async (_company, _employee, _message, _history, options) => {
+        called = true;
+        assert.equal(options?.proactiveReview, true);
+        assert.equal(options?.routineId, routine.id);
+        assert.equal(options?.toolAuthority, "employee");
+        return {
+          status: "ok",
+          reply: "Prepared a proposal for human review.",
+          attachmentIds: [],
+          sidecars: {},
+        };
+      },
+    });
+    assert.equal(called, true);
   });
 
   test("a chat-raised decision names the conversation", async () => {

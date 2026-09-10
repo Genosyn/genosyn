@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   Ban,
@@ -38,6 +39,8 @@ import { errorMessage } from "../../lib/errors";
  */
 
 const RUN_STATUS_STYLE: Record<RunStatus, string> = {
+  reviewed:
+    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
   running:
     "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
   completed:
@@ -61,6 +64,11 @@ const RUN_STATUS_STYLE: Record<RunStatus, string> = {
 export function RunStatusChip({ status, size = "sm" }: { status: RunStatus; size?: "xs" | "sm" }) {
   return (
     <span
+      title={
+        status === "reviewed"
+          ? "The proactive review finished. This Run did not carry out the proposed work."
+          : undefined
+      }
       className={
         "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
         (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
@@ -70,6 +78,20 @@ export function RunStatusChip({ status, size = "sm" }: { status: RunStatus; size
       {status === "running" && <Loader2 size={10} className="animate-spin" />}
       {status}
     </span>
+  );
+}
+
+export function RunReviewNotice({ companySlug }: { companySlug: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+      This Run reviewed the situation. It did not carry out the proposed work.{" "}
+      <Link
+        to={`/c/${companySlug}/decisions`}
+        className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+      >
+        Open Decision stack
+      </Link>
+    </div>
   );
 }
 
@@ -895,10 +917,12 @@ export function RunLiveModal({
       <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <RunStatusChip status={status} />
-          {log?.outcomeVerdict && (
+          {status !== "reviewed" && log?.outcomeVerdict && (
             <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
           )}
-          {log?.checksVerdict && <RunChecksChip verdict={log.checksVerdict} />}
+          {status !== "reviewed" && log?.checksVerdict && (
+            <RunChecksChip verdict={log.checksVerdict} />
+          )}
           {(log?.checkRemediations ?? 0) > 0 && (
             <span
               className="text-slate-500 dark:text-slate-400"
@@ -935,6 +959,7 @@ export function RunLiveModal({
           )}
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
+        {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
         {log?.outcomeNote && (
           <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
         )}

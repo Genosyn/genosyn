@@ -1,9 +1,16 @@
 import { Router } from "express";
+import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { validateQuery } from "../middleware/validate.js";
+import { listApprovalInbox, proactiveWorkRunId } from "../services/approvalInbox.js";
+import {
+  proactiveWorkOutcomeSummary,
+  reconcileProactiveWorkApprovals,
+} from "../services/proactive/approvals.js";
 import {
   requireAuth,
   requireBrowserSession,
@@ -49,8 +56,16 @@ function approvalResponse(approval: Approval) {
     employeeId: approval.employeeId,
     title: redactApprovalSummary(approval.title),
     summary: redactApprovalSummary(approval.summary),
+    ...(approval.kind === "proactive_work"
+      ? {
+          outcomeSummary: proactiveWorkOutcomeSummary(approval),
+          outcomeRunId: proactiveWorkRunId(approval),
+        }
+      : {}),
     errorMessage: approval.errorMessage
-      ? "The approved action failed. Review the server logs for details."
+      ? approval.kind === "proactive_work"
+        ? "The approved work could not finish. Review its reported outcome and any linked Run before requesting another attempt. It will not restart automatically."
+        : "The approved action failed. Review the server logs for details."
       : null,
     status: approval.status,
     requestedAt: approval.requestedAt,
@@ -76,21 +91,24 @@ async function loadApproval(companyId: string, approvalId: string): Promise<Appr
   });
 }
 
+const approvalListQuerySchema = z.object({ kind: z.literal("proactive_work").optional() }).strict();
+
 approvalsRouter.get(
   "/approvals",
   requireBrowserSession,
   requireCompanyRole("admin"),
+  validateQuery(approvalListQuerySchema),
   async (req, res) => {
     const { cid } = req.params as Record<string, string>;
-    const approvals = await AppDataSource.getRepository(Approval).find({
-      where: { companyId: cid },
-      order: { requestedAt: "DESC" },
-      take: 200,
-    });
+    await reconcileProactiveWorkApprovals(cid);
+    const { kind } = req.query as z.infer<typeof approvalListQuerySchema>;
+    const approvals = await listApprovalInbox(cid, kind);
 
     const routineIds = [
       ...new Set(
-        approvals.filter((a) => a.kind === "routine" && a.routineId).map((a) => a.routineId),
+        approvals
+          .filter((a) => (a.kind === "routine" || a.kind === "proactive_work") && a.routineId)
+          .map((a) => a.routineId),
       ),
     ];
     const employeeIds = [...new Set(approvals.map((a) => a.employeeId).filter(Boolean))];

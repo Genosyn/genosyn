@@ -18,6 +18,7 @@ import { getAgentSettings } from "../../runtimeSettings.js";
 import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js";
 import { resolveMcpToken } from "../../mcpTokens.js";
 import { selfReviewToolScope } from "../../proactive/reviewPolicy.js";
+import { proactiveReviewToolScope } from "../../proactive/workReviewPolicy.js";
 
 /**
  * Assemble the tools an employee's agent can reach this turn, and split them
@@ -81,6 +82,8 @@ import { selfReviewToolScope } from "../../proactive/reviewPolicy.js";
 export type ToolScope = {
   genosynTools: string[];
   surfaceOnly: boolean;
+  /** Discovery stays confined to this scope's explicit allowlist. */
+  discovery?: boolean;
 };
 
 export const RESIDENT_GENOSYN_TOOLS = [
@@ -152,7 +155,10 @@ export async function gatherEmployeeTools(params: {
   };
 
   // 1 + 2: in-process tools (no teardown needed).
-  const reviewScope = selfReviewToolScope(resolveMcpToken(params.genosynToken)?.selfReviewOnly);
+  const tokenInfo = resolveMcpToken(params.genosynToken);
+  const reviewScope =
+    selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
+    proactiveReviewToolScope(tokenInfo?.proactiveReview);
   const scope = reviewScope ?? params.toolScope ?? null;
   const allowPrivileged = (params.allowPrivilegedToolSources ?? true) && !scope?.surfaceOnly;
   const [genosynAll, browser, userServers] = await Promise.all([
@@ -194,7 +200,7 @@ export async function gatherEmployeeTools(params: {
   const guardedCoding = guardPrivilegedTools(coding, params.authorizePrivilegedToolCall);
 
   const tools: AgentTool[] = [
-    ...(reviewScope ? [] : params.localTools ?? []),
+    ...(reviewScope ? [] : (params.localTools ?? [])),
     ...guardedCoding,
     ...genosyn.tools,
   ];
@@ -262,7 +268,11 @@ export async function gatherEmployeeTools(params: {
   // tools were already sorted to the tail for exactly this. The briefing reads
   // the same flag so it doesn't promise a `find_tools` that isn't there.
   const discovery = getAgentSettings().toolDiscovery;
-  if (scope?.surfaceOnly || !discovery.enabled || tools.length < discovery.minCatalogueSize) {
+  if (
+    (scope?.surfaceOnly && !scope.discovery) ||
+    !discovery.enabled ||
+    tools.length < discovery.minCatalogueSize
+  ) {
     return {
       registry: buildRegistry({
         resident: tools,
@@ -278,6 +288,10 @@ export async function gatherEmployeeTools(params: {
 
   const wanted = new Set([
     ...RESIDENT_GENOSYN_TOOLS,
+    // The only action a proactive reviewer can take must be visible without a lookup.
+    ...(tokenInfo?.proactiveReview
+      ? ["request_work_review", "get_proactive_work", "list_workstreams"]
+      : []),
     // Coding tools stay resident because of *argument shape*, not frequency:
     // `write_file.content` and `edit_file.old_string` are large free-form
     // strings, and re-escaping a 20k-char file body inside `call_tool`'s

@@ -28,14 +28,14 @@ const Routine = z
     name: z.string(),
     slug: z.string(),
     cronExpr: z.string().openapi({
-    description:
-      "When the routine fires, as a cron expression in the server's local time zone. " +
-      "Accepted if BOTH `node-cron` validates it and `cron-parser` can compute a next " +
-      "run from it — the two disagree, and an expression only the first accepts saves " +
-      "and then never fires. Five fields is the normal shape; six-field second " +
-      "granularity is accepted but cannot be delivered faithfully by a 30-second " +
-      "heartbeat. The dashboard builds this from a schedule picker.",
-  }),
+      description:
+        "When the routine fires, as a cron expression in the server's local time zone. " +
+        "Accepted if BOTH `node-cron` validates it and `cron-parser` can compute a next " +
+        "run from it — the two disagree, and an expression only the first accepts saves " +
+        "and then never fires. Five fields is the normal shape; six-field second " +
+        "granularity is accepted but cannot be delivered faithfully by a 30-second " +
+        "heartbeat. The dashboard builds this from a schedule picker.",
+    }),
     enabled: z.boolean(),
     body: z.string().describe("Markdown brief that describes what the routine should do."),
     tags: z.array(Tag).describe("Company tags attached to this routine."),
@@ -66,7 +66,15 @@ const Run = z
   .object({
     id: z.string().uuid(),
     routineId: z.string().uuid(),
-    status: z.enum(["running", "completed", "failed", "skipped", "timeout", "interrupted"]),
+    status: z.enum([
+      "running",
+      "completed",
+      "reviewed",
+      "failed",
+      "skipped",
+      "timeout",
+      "interrupted",
+    ]),
     exitCode: z.number().nullable(),
     startedAt: z.string().datetime(),
     finishedAt: z.string().datetime().nullable(),
@@ -675,7 +683,16 @@ registry.registerPath({
   responses: {
     200: {
       description: "Created",
-      content: { "application/json": { schema: RoutineFolder.omit({ path: true, depth: true, routineCount: true, totalRoutineCount: true }) } },
+      content: {
+        "application/json": {
+          schema: RoutineFolder.omit({
+            path: true,
+            depth: true,
+            routineCount: true,
+            totalRoutineCount: true,
+          }),
+        },
+      },
     },
     400: {
       description:
@@ -723,7 +740,16 @@ registry.registerPath({
   responses: {
     200: {
       description: "Updated",
-      content: { "application/json": { schema: RoutineFolder.omit({ path: true, depth: true, routineCount: true, totalRoutineCount: true }) } },
+      content: {
+        "application/json": {
+          schema: RoutineFolder.omit({
+            path: true,
+            depth: true,
+            routineCount: true,
+            totalRoutineCount: true,
+          }),
+        },
+      },
     },
     400: {
       description: "Cycle, duplicate name among siblings, or nesting limit reached",

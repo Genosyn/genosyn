@@ -66,6 +66,43 @@ async function approval(overrides: Partial<Approval> = {}): Promise<Approval> {
 }
 
 describe("Home approval visibility", () => {
+  test("puts proactive plans in the admin review stack without duplicating other approvals", async () => {
+    for (let index = 0; index < 7; index++) {
+      await approval({
+        kind: "proactive_work",
+        title: `Investigate customer report ${index}`,
+        summary: "Read the reported failure. token=secret-review-token must stay private.",
+        requestedAt: new Date(2026, 8, 10, 10, index),
+      });
+    }
+    await approval();
+    const data = await getHomeData({ companyId: company.id, userId: owner.id, role: "owner" });
+    assert.equal(data.pendingProactiveApprovalCount, 7);
+    assert.equal(data.proactiveApprovals.length, 5);
+    assert.equal(data.proactiveApprovals[0].title, "Investigate customer report 0");
+    assert.equal(data.proactiveApprovals[0].employee?.id, employee.id);
+    assert.ok(!data.proactiveApprovals[0].summary?.includes("secret-review-token"));
+    assert.equal(data.pendingApprovalCount, 1);
+    assert.equal(data.approvals[0].kind, "browser_action");
+  });
+
+  test("never exposes proactive plans to ordinary Members or another company", async () => {
+    await approval({ kind: "proactive_work", summary: "Sensitive customer work" });
+    await approval({ kind: "proactive_work", companyId: "another-company" });
+    const data = await getHomeData({ companyId: company.id, userId: member.id, role: "member" });
+    assert.deepEqual(data.proactiveApprovals, []);
+    assert.equal(data.pendingProactiveApprovalCount, 0);
+    assert.equal(data.pendingApprovalCount, 0);
+    assert.deepEqual(data.approvals, []);
+    const ownerData = await getHomeData({ companyId: company.id, userId: owner.id, role: "owner" });
+    assert.equal(ownerData.pendingProactiveApprovalCount, 1);
+    const apiKeyData = await getHomeData({
+      companyId: company.id, userId: owner.id, role: "owner", canReadWorkReviews: false,
+    });
+    assert.deepEqual(apiKeyData.proactiveApprovals, []);
+    assert.equal(apiKeyData.pendingProactiveApprovalCount, 0);
+  });
+
   test("redacts credential material out of approval copy for everyone", async () => {
     await approval({
       title: "Replay POST with Authorization: Bearer sk-live-abc123",

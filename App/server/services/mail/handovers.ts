@@ -340,7 +340,9 @@ export async function runHandover(
     const result = await runChat(account.companyId, employee.id, prompt, [], {
       ...authority,
       mailThreadId: handover.threadId,
+      mailHandoverId: handover.id,
       mailDeliveryMode: handoverDeliveryMode(handover.mode),
+      proactiveReview: handover.sourceKind === "rule",
     });
     if (result.status === "ok") {
       handover.status = "completed";

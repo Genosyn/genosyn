@@ -86,12 +86,17 @@ export default function Proactive({ company }: { company: Company }) {
         </p>
       </div>
       <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
-        Proactive work is on by default. Genosyn assigns ready work as AI Employees get a connected
+        Proactive review is on by default. AI Employees read what happened and propose a plan in
+        the Decision stack. An owner or admin must approve that plan before they change records,
+        prepare replies, or start Repository work. Genosyn assigns ready work as AI Employees get a connected
         AI Model and the required resources and Grants, with one automatic assignment for each
         shared responsibility. Every ready employee also gets a daily review of its responsibilities
         and a weekly review of its work. The Soul guides their judgement; Grants and company
         Policies control what they can do.
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-medium">
+          <Link to={`/c/${company.slug}/decisions`}>
+            Review proposed work <span aria-hidden="true">→</span>
+          </Link>
           <Link to={`/c/${company.slug}/employees`}>
             AI Employees <span aria-hidden="true">→</span>
           </Link>

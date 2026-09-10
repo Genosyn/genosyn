@@ -552,6 +552,8 @@ function runOutcomeSentence(run: WorkEntryRun): string {
 function runFallbackSentence(run: WorkEntryRun | null, active: boolean): string {
   if (active) return "This routine is still running. Its outcome will appear when it finishes.";
   switch (run?.status) {
+    case "reviewed":
+      return "The proactive review finished. This Run did not carry out the proposed work.";
     case "failed":
       return "This run failed. Open the run log for details.";
     case "timeout":
@@ -626,7 +628,7 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
       if (completed) {
         const outcome = runOutcomeSentence(run);
         if (outcome) body.push(outcome);
-      } else if (!entry.active && run?.checksVerdict === "failed") {
+      } else if (!entry.active && run?.status !== "reviewed" && run?.checksVerdict === "failed") {
         body.push("A required Check failed.");
       }
       const routine = subject || run?.routineName.trim() || "Routine";

@@ -78,7 +78,7 @@ async function fixture(mode: MailHandover["mode"] = "work") {
 const reload = (id: string) => AppDataSource.getRepository(MailHandover).findOneByOrFail({ id });
 
 describe("queued proactive mail work", () => {
-  test("runs once as the employee, retaining draft ceiling even with a Send Grant", async () => {
+  test("reviews once as the employee, retaining review and draft ceilings even with a Send Grant", async () => {
     const { handover, thread } = await fixture();
     let calls = 0;
     const runChat: typeof chatWithEmployee = async (
@@ -91,6 +91,8 @@ describe("queued proactive mail work", () => {
       calls++;
       assert.equal(options?.toolAuthority, "employee");
       assert.equal(options?.mailDeliveryMode, "draft");
+      assert.equal(options?.proactiveReview, true);
+      assert.equal(options?.mailHandoverId, handover.id);
       assert.equal(options?.mailThreadId, thread.id);
       assert.match(prompt, /draft estimate/);
       return {

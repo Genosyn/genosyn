@@ -71,6 +71,7 @@ const MEMBER_TOOLS = [
   // company-scoped. A Member driving a turn can raise, read back, and retract a
   // question exactly as they could from the Decisions page.
   "request_decision",
+  "request_work_review",
   "list_decisions",
   "get_decision",
   "cancel_decision",
@@ -285,6 +286,8 @@ const MEMBER_TOOLS = [
 ] as const;
 
 const ADMIN_TOOLS = [
+  // Review plans can contain the same restricted details as the Approvals inbox.
+  "list_work_reviews",
   // External delivery requires the same Member authority as a forge Connection.
   "open_repository_work_session_pull_request",
   "create_skill",

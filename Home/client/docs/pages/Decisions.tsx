@@ -8,49 +8,78 @@ export function Decisions() {
         title="Decision stack"
         lead={
           <>
-            When an AI Employee reaches a fork it shouldn&apos;t take alone — a reply it could send,
-            a post it could publish, two vendors it could pick — it stacks the question for a human
-            instead of guessing. The stack is the first thing on your Home page, and every row is an
-            employee waiting on you.
+            Review what an AI Employee wants to do and give it the information it needs. The stack
+            on Home brings proposed work and employee questions together, with context and a clear
+            next step for each.
           </>
         }
       />
 
       <H2 id="what-lands-here">What lands here</H2>
       <P>
-        Employees add to the stack deliberately. They are told to ask only when a human&apos;s
-        judgement genuinely changes what happens next — not for permission to do the work they were
-        hired for, and not for something they could look up. A typical row is work that is already
-        finished except for the call: the email is drafted, the post is written, the shortlist is
-        down to two.
+        A <Strong>work proposal</Strong> asks you to authorize a specific piece of proactive work,
+        such as investigating a customer&apos;s bug report or preparing a quote. An employee can
+        read the available evidence to explain the proposal, but waits for an owner or admin to
+        approve before carrying it out. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
       </P>
       <P>
-        This matters most inside a <DocLink to="/docs/routines">Routine</DocLink>. A routine&apos;s
-        brief was written hours or weeks earlier and there is nobody to ask mid-run, so before the
-        stack existed an employee in that position had to guess. Now it can stop.
+        A <Strong>Decision</Strong> asks for your judgement or missing information: which approach
+        to take, what deadline you promised, or who should review a draft. Each choice explains what
+        the employee will do with your answer. A Decision answer does not replace approval to start
+        proactive work or bypass the employee&apos;s existing limits.
+      </P>
+
+      <H2 id="approving-work">Reviewing proposed work</H2>
+      <P>
+        Owners and admins see <Strong>Work awaiting your approval</Strong> in the stack.
+        Open a proposal to read what happened, the proposed plan, and its scope.
+        An owner or admin selects <Strong>Approve work</Strong>, reviews the confirmation, then
+        selects <Strong>Confirm and start work</Strong>. This authorizes that proposal; future
+        proactive work still needs its own review. Select <Strong>Decline</Strong> and then{" "}
+        <Strong>Confirm decline</Strong> if you do not want the work to proceed.
+      </P>
+      <P>
+        Approval keeps the original restrictions: work limited to drafts still cannot send mail,
+        and a Repository fix still needs its normal review before merging. Approving a plan does
+        not add resource access or waive a separate Approval.
+      </P>
+      <P>
+        A proactive Routine&apos;s initial Run finishes as <Strong>Reviewed</Strong>: the employee
+        examined evidence and left any proposed work for human review. Delivery is still
+        unverified. Approval starts a separate Routine Run that performs the approved work and
+        runs the original <DocLink to="/docs/routines#checks">Checks</DocLink> and outcome grading.
+        A proposal from an email handover instead starts an approved work session.
+      </P>
+      <P>
+        <Strong>Work approval history</Strong> shows whether the work is in progress, finished,
+        failed or declined. Read the <Strong>Reported outcome</Strong> for what the employee
+        says it did, and use <Strong>Review proposed work</Strong> to compare it with the plan.
       </P>
 
       <H2 id="answering">Answering a decision</H2>
       <UL>
         <LI>
           Open <Strong>Home</Strong>, or the <Strong>Decisions</Strong> section for the full list.
+          Use <Strong>Search decision stack</Strong> to find a customer, AI Employee, or detail
+          from the context or reported outcome.
         </LI>
         <LI>
-          Press <Strong>Show context</Strong> to read what the employee actually wrote — the draft,
-          what it already checked, and what each option costs. It is rendered as the employee wrote
-          it, so a drafted email reads like an email.
+          Read <Strong>Context from</Strong> the employee. Use <Strong>Read full context</Strong>
+          for longer explanations. The source link opens the original email, Routine Run, or
+          conversation.
         </LI>
         <LI>
           Need more detail? Press <Strong>Discuss</Strong> to ask the AI Employee that raised the
           decision about its reasoning, alternatives, or tradeoffs.
         </LI>
         <LI>
-          Press the option you want. You can add a note first; the employee reads it alongside your
-          choice.
+          Select the option you want and read its explanation. Selecting an option does not send
+          it. Add any names, dates, links or instructions the choice needs in the details field.
+          Then press <Strong>Send decision</Strong>.
         </LI>
         <LI>
-          Nothing to decide? The <Code>×</Code> dismisses the row and tells the employee nobody
-          picked an option, so it stops waiting.
+          Nothing to decide? Select <Strong>Dismiss…</Strong> and <Strong>Confirm dismissal</Strong> to remove the row without
+          choosing an option or starting follow-up work.
         </LI>
       </UL>
       <P>
@@ -63,7 +92,7 @@ export function Decisions() {
       </P>
 
       <Callout kind="info" title="A decision is answered once.">
-        Two people pressing different buttons at the same moment produce one answer, not two. The
+        Two people submitting different choices at the same moment produce one answer, not two. The
         second person is told the decision was already made.
       </Callout>
 
@@ -82,25 +111,24 @@ export function Decisions() {
       </P>
       <P>
         Discussion is for understanding the decision. It does not answer or dismiss it, or start
-        the proposed work. Return to the decision card and press an option when you have made your
-        choice. You can also use <Strong>Discuss</Strong> in <Strong>Already answered</Strong> to
+        the proposed work. Return to the decision card, select an option, and send your decision
+        when you have made your choice. You can also use <Strong>Discuss</Strong> in <Strong>Decision history</Strong> to
         understand an earlier outcome. If the asking employee has been deleted, its Discuss button
         is unavailable.
       </P>
 
       <H2 id="what-happens-next">What happens next</H2>
       <P>
-        Normally the employee starts working again immediately. Pressing an option starts a
-        session briefed with your choice, your note, and the context it stacked with the
-        question — so a reply you approved goes out in the next minute rather than waiting for that
-        employee&apos;s next scheduled run. The row shows the session running, then the
-        employee&apos;s own report of what it did.
+        The card explains what sending your decision will do. For an ordinary Decision, it
+        normally starts a session briefed with your choice, your details, and the original
+        context. The row shows the session running, then the employee&apos;s own report of what
+        it did. A recommendation is the employee&apos;s suggestion; nothing is selected for you.
       </P>
       <P>
-        Decisions raised during draft-only or triage work stay with humans, even if an AI
+        Decisions raised during preparation-only work stay with humans, even if an AI
         decision policy normally routes the employee&apos;s questions. Answering records your
-        choice and journal entry but starts no new session. The row explains this; an approved
-        standing Routine or a Member can continue with the answer while preserving the work&apos;s
+        choice and journal entry but starts no new session. The row explains this. The employee
+        must obtain any required work Approval before continuing, while preserving the work&apos;s
         delivery restrictions. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
       </P>
       <P>
@@ -115,7 +143,7 @@ export function Decisions() {
         earlier routing does not grant ongoing access.
       </P>
       <P>
-        The <Strong>Already answered</Strong> list keeps the trail: what was asked, what was chosen,
+        The <Strong>Decision history</Strong> list keeps the trail: what was asked, what was chosen,
         who chose it, any note, and what the employee did next.
       </P>
 
@@ -132,10 +160,12 @@ export function Decisions() {
         carry a deadline, after which it stops nagging anyone and shows as expired.
       </P>
 
-      <H2 id="not-approvals">Decisions are not approvals</H2>
+      <H2 id="not-approvals">Work approvals and Decision answers</H2>
       <P>
-        The two look similar and are deliberately separate. An <Strong>Approval</Strong> is Genosyn
-        holding back an action an employee already attempted — a gated{" "}
+        An <Strong>Approval</Strong> holds a specific action until an owner or admin authorizes
+        it. Proposed proactive work appears in the stack for review; approving it authorizes
+        that proposed work under the original delivery restrictions.
+        Other Approvals include a gated{" "}
         <DocLink to="/docs/routines">Routine</DocLink> tick, a payment over your threshold, a{" "}
         <DocLink to="/docs/browser">browser form submit</DocLink> — and the server performs that
         exact action once an admin approves it. That is why approvals are admin-only and ask you to

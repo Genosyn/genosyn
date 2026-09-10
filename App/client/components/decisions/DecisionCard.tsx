@@ -1,32 +1,16 @@
 import React from "react";
-import { ChevronDown, ChevronUp, GitBranch, X } from "lucide-react";
-import { api, Company, Decision, DecisionOption, DecisionUrgency } from "../../lib/api";
-import { errorMessage } from "../../lib/errors";
-import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
-import { Button } from "../ui/Button";
-import { ChatMarkdown } from "../ChatMarkdown";
-import { FormError } from "../ui/FormError";
-import { Spinner } from "../ui/Spinner";
-import { clsx } from "../ui/clsx";
-import { DecisionSourceLine } from "./DecisionSource";
-import { DecisionDiscussButton } from "./DecisionDiscussButton";
-import { formatRelative } from "./relative";
-
-/**
- * One row of the Decision Stack: the question an AI employee asked, where it
- * asked it from, its context, and a button per option.
- *
- * Shared by Home (where the stack is the first thing on the page) and the
- * Decisions page, because the interaction is identical in both and a second
- * copy would be the one that forgets to disable its buttons mid-flight.
- *
- * The context body is collapsed by default. An employee is told to paste the
- * whole draft in there, so an expanded stack of five would push everything else
- * off the screen — but the draft is also exactly what you need to decide, so it
- * is one click away and never a navigation. It renders as markdown: the model
- * writes headings, quoted drafts and links, and showing the raw `**` and `>`
- * markers made a drafted email read like a diff of one.
- */
+import { ArrowRight, ChevronDown, ChevronUp, GitBranch } from "lucide-react";
+import { api, Company, Decision, DecisionUrgency } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
+import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
+import { ChatMarkdown } from "@/components/ChatMarkdown";
+import { FormError } from "@/components/ui/FormError";
+import { Spinner } from "@/components/ui/Spinner";
+import { clsx } from "@/components/ui/clsx";
+import { DecisionSourceLine } from "@/components/decisions/DecisionSource";
+import { DecisionDiscussButton } from "@/components/decisions/DecisionDiscussButton";
+import { formatRelative } from "@/components/decisions/relative";
 
 const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | null> = {
   high: {
@@ -35,17 +19,12 @@ const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | nu
   },
   normal: null,
   low: {
-    label: "Whenever",
+    label: "Low priority",
     cls: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
   },
 };
 
-function optionVariant(option: DecisionOption): "primary" | "secondary" | "danger" {
-  if (option.tone === "primary") return "primary";
-  if (option.tone === "danger") return "danger";
-  return "secondary";
-}
-
+/** Shared review form: reading or selecting an option never submits a decision. */
 export function DecisionCard({
   company,
   decision,
@@ -53,53 +32,49 @@ export function DecisionCard({
 }: {
   company: Company;
   decision: Decision;
-  /** Called after the row leaves `pending`, so the owner can refetch. */
   onResolved: () => void;
 }) {
-  const [busy, setBusy] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const submitting = React.useRef(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [open, setOpen] = React.useState(false);
+  const [contextOpen, setContextOpen] = React.useState(false);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [dismissing, setDismissing] = React.useState(false);
   const [note, setNote] = React.useState("");
   const base = `/api/companies/${company.id}/decisions/${decision.id}`;
+  const fieldId = React.useId();
   const badge = URGENCY_BADGE[decision.urgency];
-  // Worth surfacing up front rather than in a tooltip: a one-liner explaining
-  // what an option actually costs is the reason the employee wrote it.
-  const hasDetails = decision.options.some((o) => o.detail);
+  const selected = decision.options.find((option) => option.id === selectedId);
+  const employeeName = decision.employee?.name ?? "The AI Employee";
 
-  async function choose(option: DecisionOption) {
-    setBusy(option.id);
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (submitting.current || (!dismissing && !selected)) return;
+    submitting.current = true;
+    setBusy(true);
     setError(null);
     try {
-      await api.post(`${base}/decide`, {
-        optionId: option.id,
-        ...(note.trim() ? { note: note.trim() } : {}),
-      });
-      // Say nothing on the way out: `onResolved()` refetches and the row
-      // leaves the stack, which is the answer landing. Never promise the work
-      // started either — the session is kicked off after this responds, and on
-      // an install with no AI Model connected it never starts at all.
+      if (dismissing) {
+        await api.post(`${base}/dismiss`, note.trim() ? { reason: note.trim() } : {});
+      } else {
+        await api.post(`${base}/decide`, {
+          optionId: selected!.id,
+          ...(note.trim() ? { note: note.trim() } : {}),
+        });
+      }
+      // The refreshed row records pickup status; submitting cannot promise that
+      // the employee has started or that any proposed action has succeeded.
       onResolved();
     } catch (err) {
       setError(errorMessage(err));
-      setBusy(null);
-    }
-  }
-
-  async function dismiss() {
-    setBusy("__dismiss");
-    setError(null);
-    try {
-      await api.post(`${base}/dismiss`, note.trim() ? { reason: note.trim() } : {});
-      onResolved();
-    } catch (err) {
-      setError(errorMessage(err));
-      setBusy(null);
+      submitting.current = false;
+      setBusy(false);
     }
   }
 
   return (
-    <li id={`decision-${decision.id}`} className="scroll-mt-4 px-4 py-3">
-      <div className="flex items-start gap-3">
+    <li id={`decision-${decision.id}`} className="scroll-mt-4 px-4 py-5 sm:px-5">
+      <div className="mb-3 flex items-center gap-2">
         {decision.employee ? (
           <Avatar
             name={decision.employee.name}
@@ -108,116 +83,211 @@ export function DecisionCard({
             src={employeeAvatarUrl(company.id, decision.employee.id, decision.employee.avatarKey)}
           />
         ) : (
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <GitBranch size={12} />
           </span>
         )}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {decision.title}
-            </span>
-            {badge && (
-              <span
-                className={clsx(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                  badge.cls,
-                )}
-              >
-                {badge.label}
-              </span>
+        <div className="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400">
+          <span className="font-medium text-slate-700 dark:text-slate-200">{employeeName}</span>
+          <span> · asked {formatRelative(decision.createdAt)}</span>
+          {decision.assignee && <span> · for {decision.assignee.name}</span>}
+        </div>
+        {badge && (
+          <span
+            className={clsx(
+              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              badge.cls,
             )}
-            {/* A policy rule handed this question to an AI decider first. The
-                chip stays quiet: the humans only get paged if the AI declines
-                or sits on it. */}
-            {decision.routedToEmployee && (
-              <span
-                className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                title="A decision-policy rule routed this question to an AI decider. A decline or 4 hours of silence pages humans as usual."
-              >
-                Routed to {decision.routedToEmployee.name} (AI)
-              </span>
-            )}
-          </div>
-          <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            {decision.employee?.name ?? "(deleted employee)"} · asked{" "}
-            {formatRelative(decision.createdAt)}
-            {decision.assignee ? ` · for ${decision.assignee.name}` : ""}
-            {decision.expiresAt ? ` · moot ${formatRelative(decision.expiresAt)}` : ""}
-          </div>
-          <DecisionSourceLine company={company} decision={decision} className="mt-1" />
-
-          {/* The toggle renders even with no context body, because it is also
-              what reveals the note field — a question with nothing to read is
-              still one you might want to answer in your own words. */}
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
           >
-            {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {open ? "Hide details" : decision.body ? "Show context" : "Add a note"}
-          </button>
-          {open && decision.body && (
-            <div className="mt-2 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+            {badge.label}
+          </span>
+        )}
+      </div>
+
+      <h3
+        id={`${fieldId}-title`}
+        className="break-words text-base font-semibold leading-snug text-slate-900 dark:text-slate-100"
+      >
+        {decision.title}
+      </h3>
+      <DecisionSourceLine company={company} decision={decision} className="mt-2" />
+      {decision.expiresAt && (
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Expires {formatRelative(decision.expiresAt)}
+        </p>
+      )}
+      {decision.routedToEmployee && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Routed to {decision.routedToEmployee.name} (AI)
+        </p>
+      )}
+
+      <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
+        <div className="mb-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          Context from {employeeName}
+        </div>
+        {decision.body ? (
+          <>
+            <div
+              id={`${fieldId}-context`}
+              className={clsx(
+                "break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300",
+                contextOpen ? "max-h-96 overflow-auto" : "max-h-32 overflow-hidden",
+              )}
+            >
               <ChatMarkdown content={decision.body} />
             </div>
-          )}
-
-          {open && (
-            <input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Add a note for them (optional)"
-              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            />
-          )}
-
-          <FormError message={error} className="mt-2" />
-
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-            {decision.options.map((option) => (
-              <Button
-                key={option.id}
-                size="sm"
-                variant={optionVariant(option)}
-                disabled={busy !== null}
-                title={option.detail ?? undefined}
-                onClick={() => choose(option)}
-              >
-                {busy === option.id ? <Spinner size={12} /> : null}
-                {option.label}
-              </Button>
-            ))}
-            <DecisionDiscussButton company={company} decision={decision} disabled={busy !== null} />
             <button
               type="button"
-              onClick={dismiss}
-              disabled={busy !== null}
-              title="Dismiss without choosing"
-              aria-label={`Dismiss ${decision.title}`}
-              className="ml-auto rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              onClick={() => setContextOpen((value) => !value)}
+              aria-expanded={contextOpen}
+              aria-controls={`${fieldId}-context`}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
             >
-              {busy === "__dismiss" ? <Spinner size={13} /> : <X size={15} />}
+              {contextOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              {contextOpen ? "Show less context" : "Read full context"}
             </button>
-          </div>
+          </>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            No context was included. Use Discuss to ask for the details you need before choosing.
+          </p>
+        )}
+      </div>
 
-          {hasDetails && (
-            <dl className="mt-2 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-              {decision.options
-                .filter((o) => o.detail)
-                .map((option) => (
-                  <div key={option.id} className="flex gap-1.5">
-                    <dt className="shrink-0 font-medium text-slate-600 dark:text-slate-300">
-                      {option.label}
-                    </dt>
-                    <dd className="min-w-0">— {option.detail}</dd>
-                  </div>
-                ))}
-            </dl>
+      <form onSubmit={submit} aria-labelledby={`${fieldId}-title`} className="mt-4">
+        <fieldset disabled={busy}>
+          <legend className="mb-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            Choose what should happen next
+          </legend>
+          <div className="space-y-2">
+            {decision.options.map((option, index) => {
+              const checked = !dismissing && selectedId === option.id;
+              const optionId = `${fieldId}-option-${index}`;
+              return (
+                <label
+                  key={option.id}
+                  className={clsx(
+                    "flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border p-3 transition focus-within:ring-2 focus-within:ring-indigo-500/30",
+                    busy && "cursor-wait opacity-60",
+                    checked
+                      ? "border-indigo-400 bg-indigo-50/70 dark:border-indigo-500 dark:bg-indigo-500/10"
+                      : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name={`${fieldId}-choice`}
+                    value={option.id}
+                    checked={checked}
+                    onChange={() => {
+                      setSelectedId(option.id);
+                      setDismissing(false);
+                      setError(null);
+                    }}
+                    aria-labelledby={`${optionId}-label`}
+                    aria-describedby={option.detail ? `${optionId}-detail` : undefined}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-600"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span
+                        id={`${optionId}-label`}
+                        className="break-words text-sm font-medium text-slate-900 dark:text-slate-100"
+                      >
+                        {option.label}
+                      </span>
+                      {option.tone === "primary" && (
+                        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                          Recommended
+                        </span>
+                      )}
+                      {option.tone === "danger" && (
+                        <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                          Destructive action
+                        </span>
+                      )}
+                    </span>
+                    {option.detail && (
+                      <span
+                        id={`${optionId}-detail`}
+                        className="mt-1 block break-words text-xs leading-relaxed text-slate-500 dark:text-slate-400"
+                      >
+                        {option.detail}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <label
+          htmlFor={`${fieldId}-note`}
+          className="mb-1.5 mt-4 block text-xs font-medium text-slate-700 dark:text-slate-200"
+        >
+          Details for {employeeName} <span className="font-normal text-slate-400">(optional)</span>
+        </label>
+        <textarea
+          id={`${fieldId}-note`}
+          value={note}
+          disabled={busy}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Add names, links, corrections, or instructions needed for your choice."
+          rows={2}
+          maxLength={4000}
+          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        />
+
+        <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
+          {dismissing ? (
+            <>
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                Dismiss this decision?
+              </span>{" "}
+              It will leave the stack without sending a choice or starting follow-up work.
+            </>
+          ) : selected ? (
+            <>
+              Sending your decision gives {employeeName} your choice and details for follow-up. Any
+              required Approvals still apply.
+            </>
+          ) : (
+            <>
+              Select an option, add any details it needs, then send your decision. Selecting an
+              option alone does nothing.
+            </>
           )}
         </div>
-      </div>
+        <FormError message={error} className="mt-3" />
+
+        <div className="mt-3 flex flex-wrap items-start gap-2">
+          <Button
+            type="submit"
+            size="sm"
+            variant={dismissing ? "secondary" : selected?.tone === "danger" ? "danger" : "primary"}
+            disabled={busy || (!dismissing && !selected)}
+          >
+            {busy ? <Spinner size={14} /> : !dismissing && <ArrowRight size={14} />}
+            {dismissing ? "Confirm dismissal" : "Send decision"}
+          </Button>
+          <DecisionDiscussButton company={company} decision={decision} disabled={busy} />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              setDismissing((value) => !value);
+              setError(null);
+            }}
+            className="sm:ml-auto"
+          >
+            {dismissing ? "Keep decision" : "Dismiss…"}
+          </Button>
+        </div>
+      </form>
     </li>
   );
 }

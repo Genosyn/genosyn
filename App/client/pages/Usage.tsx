@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { api, Company, UsageSummary } from "../lib/api";
+import { api, Company, UsageBucket, UsageSummary } from "../lib/api";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -70,7 +70,8 @@ export default function Usage() {
       <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
         Measured from routine runs. Tokens are the provider&apos;s own counts, summed per run;
         runs from before token accounting shipped count as zero. Dollar costs depend on your
-        model pricing, so they&apos;re left to you.
+        model pricing, so they&apos;re left to you. Reviewed Runs count toward tokens and compute
+        time and are excluded from completion rates.
       </p>
       {loadError ? (
         <FormError message={loadError} />
@@ -94,17 +95,17 @@ export default function Usage() {
 
 function TotalsCards({ summary }: { summary: UsageSummary }) {
   const t = summary.totals;
-  const successRate = t.runs ? Math.round((t.completed / t.runs) * 100) : 0;
+  const rate = completionRate(t);
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      <StatCard label="Runs" value={String(t.runs)} sub={`over ${summary.windowDays} days`} />
+      <StatCard label="Runs" value={String(t.runs)} sub={`${t.reviewed ?? 0} reviewed · over ${summary.windowDays} days`} />
       <StatCard
         label="Tokens"
         value={formatTokens((t.tokensIn ?? 0) + (t.tokensOut ?? 0))}
         sub={`${formatTokens(t.tokensIn ?? 0)} in · ${formatTokens(t.tokensOut ?? 0)} out`}
       />
       <StatCard label="Compute time" value={formatDuration(t.durationMs)} sub="wall-clock" />
-      <StatCard label="Completed" value={`${t.completed}`} sub={`${successRate}% success`} />
+      <StatCard label="Completed" value={`${t.completed}`} sub={rate === null ? "No delivery Runs" : `${rate}% completion`} />
       <StatCard
         label="Problems"
         value={String(t.failed + t.timeout + t.interrupted)}
@@ -142,7 +143,7 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
               <th className="py-2 text-right">Runs</th>
               <th className="py-2 text-right">Tokens</th>
               <th className="py-2 text-right">Compute</th>
-              <th className="py-2 text-right">Success</th>
+              <th className="py-2 text-right">Completion</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -156,7 +157,10 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
                     {e.name}
                   </Link>
                 </td>
-                <td className="py-2 text-right tabular-nums">{e.runs}</td>
+                <td className="py-2 text-right tabular-nums">
+                  {e.runs}
+                  {(e.reviewed ?? 0) > 0 && <div className="text-xs text-slate-500">{e.reviewed} reviewed</div>}
+                </td>
                 <td
                   className="py-2 text-right tabular-nums"
                   title={`${formatTokens(e.tokensIn ?? 0)} in · ${formatTokens(e.tokensOut ?? 0)} out`}
@@ -165,7 +169,7 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
                 </td>
                 <td className="py-2 text-right tabular-nums">{formatDuration(e.durationMs)}</td>
                 <td className="py-2 text-right tabular-nums">
-                  {e.runs ? Math.round((e.completed / e.runs) * 100) : 0}%
+                  {completionRate(e) === null ? "—" : `${completionRate(e)}%`}
                 </td>
               </tr>
             ))}
@@ -199,7 +203,7 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {rows.map((r) => {
               // Every status that produced a duration, or the average is wrong.
-              const finished = r.completed + r.failed + r.timeout + r.interrupted;
+              const finished = r.completed + (r.reviewed ?? 0) + r.failed + r.timeout + r.interrupted;
               const avg = finished > 0 ? r.durationMs / finished : 0;
               return (
                 <tr key={r.routineId}>
@@ -216,7 +220,10 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
                       <span className="text-slate-400 dark:text-slate-500">—</span>
                     )}
                   </td>
-                  <td className="py-2 text-right tabular-nums">{r.runs}</td>
+                  <td className="py-2 text-right tabular-nums">
+                    {r.runs}
+                    {(r.reviewed ?? 0) > 0 && <div className="text-xs text-slate-500">{r.reviewed} reviewed</div>}
+                  </td>
                   <td
                     className="py-2 text-right tabular-nums"
                     title={`${formatTokens(r.tokensIn ?? 0)} in · ${formatTokens(r.tokensOut ?? 0)} out`}
@@ -233,6 +240,11 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
       </CardBody>
     </Card>
   );
+}
+
+function completionRate(bucket: Pick<UsageBucket, "runs" | "reviewed" | "completed">): number | null {
+  const deliveryRuns = bucket.runs - (bucket.reviewed ?? 0);
+  return deliveryRuns > 0 ? Math.round((bucket.completed / deliveryRuns) * 100) : null;
 }
 
 function formatDuration(ms: number): string {

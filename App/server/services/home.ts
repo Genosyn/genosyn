@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -7,11 +7,7 @@ import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RunStatus } from "../db/entities/Run.js";
 import { Todo, TodoPriority } from "../db/entities/Todo.js";
-import {
-  countUnreadForUser,
-  listUnreadForUser,
-  NotificationDTO,
-} from "./notifications.js";
+import { countUnreadForUser, listUnreadForUser, NotificationDTO } from "./notifications.js";
 import { listAccessibleProjectIds } from "./projects.js";
 import { getSystemHealthSummary, SystemHealthSummary } from "./systemHealth.js";
 import { listChannelsForUser } from "./workspaceChat.js";
@@ -96,6 +92,8 @@ export type HomeData = {
   repositoryWorkCount: number;
   approvals: HomeApproval[];
   pendingApprovalCount: number;
+  proactiveApprovals: HomeApproval[];
+  pendingProactiveApprovalCount: number;
   /** Draft messages awaiting review, excluding emails already queued to send. */
   draftEmails: HomeDraftEmail[];
   draftEmailCount: number;
@@ -152,6 +150,8 @@ export async function getHomeData(params: {
   role: Role;
   /** Repository content is browser-only, even though Home also accepts API keys. */
   canReadRepositoryWork?: boolean;
+  /** Work plans share the Approvals inbox's browser-session-only visibility. */
+  canReadWorkReviews?: boolean;
 }): Promise<HomeData> {
   const { companyId, userId, role, canReadRepositoryWork = true } = params;
 
@@ -198,8 +198,16 @@ export async function getHomeData(params: {
   mine.sort(compareTodos);
 
   const approvalRepo = AppDataSource.getRepository(Approval);
+  const canReviewWork = params.canReadWorkReviews !== false && (role === "owner" || role === "admin");
+  const [proactiveApprovals, pendingProactiveApprovalCount] = canReviewWork
+    ? await approvalRepo.findAndCount({
+        where: { companyId, status: "pending", kind: "proactive_work" },
+        order: { requestedAt: "ASC" },
+        take: 5,
+      })
+    : ([[], 0] as [Approval[], number]);
   const [allPendingApprovals, pendingApprovalCount] = await approvalRepo.findAndCount({
-    where: { companyId, status: "pending" },
+    where: { companyId, status: "pending", kind: Not("proactive_work") },
     order: { requestedAt: "DESC" },
     // Wider than the five we render because the vault-capture filter below runs
     // in memory — `payloadJson` is opaque to SQL. Fifty is far past any real
@@ -216,12 +224,9 @@ export async function getHomeData(params: {
   const pendingApprovals = allPendingApprovals
     .filter((a) => canSeeVaultCaptures || !isVaultCaptureApproval(a))
     .slice(0, 5);
-  const routineIds = [
-    ...new Set(pendingApprovals.map((a) => a.routineId).filter(Boolean)),
-  ];
-  const approvalEmpIds = [
-    ...new Set(pendingApprovals.map((a) => a.employeeId).filter(Boolean)),
-  ];
+  const displayedApprovals = [...pendingApprovals, ...proactiveApprovals];
+  const routineIds = [...new Set(displayedApprovals.map((a) => a.routineId).filter(Boolean))];
+  const approvalEmpIds = [...new Set(displayedApprovals.map((a) => a.employeeId).filter(Boolean))];
   const [routines, approvalEmps] = await Promise.all([
     routineIds.length
       ? AppDataSource.getRepository(Routine).find({ where: { id: In(routineIds) } })
@@ -234,20 +239,29 @@ export async function getHomeData(params: {
   ]);
   const routineById = new Map(routines.map((r) => [r.id, r]));
   const approvalEmpById = new Map(approvalEmps.map((e) => [e.id, e]));
+  const approvalPreview = (a: Approval): HomeApproval => {
+    const routine = a.routineId ? routineById.get(a.routineId) : null;
+    const employee = a.employeeId ? approvalEmpById.get(a.employeeId) : null;
+    return {
+      id: a.id,
+      kind: a.kind,
+      title: redactApprovalSummary(a.title),
+      summary: redactApprovalSummary(a.summary),
+      requestedAt: a.requestedAt.toISOString(),
+      employee: employee ? { id: employee.id, name: employee.name, slug: employee.slug } : null,
+      routine: routine ? { id: routine.id, name: routine.name, slug: routine.slug } : null,
+    };
+  };
 
   const channels = await listChannelsForUser(companyId, userId);
   const unreadChannels: HomeChannel[] = channels
     .filter((c) => c.unreadCount > 0)
     .sort(
-      (a, b) =>
-        new Date(b.lastMessageAt ?? 0).getTime() -
-        new Date(a.lastMessageAt ?? 0).getTime(),
+      (a, b) => new Date(b.lastMessageAt ?? 0).getTime() - new Date(a.lastMessageAt ?? 0).getTime(),
     )
     .slice(0, 6)
     .map((c) => {
-      const others = c.members.filter(
-        (m) => !(m.kind === "user" && m.id === userId),
-      );
+      const others = c.members.filter((m) => !(m.kind === "user" && m.id === userId));
       const label =
         c.kind === "dm"
           ? others.map((m) => m.name).join(", ") || "Direct message"
@@ -353,22 +367,10 @@ export async function getHomeData(params: {
     reviewTodoCount: reviews.length,
     repositoryWork: repositoryWork.items,
     repositoryWorkCount: repositoryWork.total,
-    approvals: pendingApprovals.map((a) => {
-      const r = a.routineId ? routineById.get(a.routineId) : null;
-      const e = a.employeeId ? approvalEmpById.get(a.employeeId) : null;
-      return {
-        id: a.id,
-        kind: a.kind,
-        // Model-written copy that may quote a header or a URL it saw. The
-        // approvals inbox scrubs both fields on the way out; so does this.
-        title: redactApprovalSummary(a.title),
-        summary: redactApprovalSummary(a.summary),
-        requestedAt: a.requestedAt.toISOString(),
-        employee: e ? { id: e.id, name: e.name, slug: e.slug } : null,
-        routine: r ? { id: r.id, name: r.name, slug: r.slug } : null,
-      };
-    }),
+    approvals: pendingApprovals.map(approvalPreview),
     pendingApprovalCount,
+    proactiveApprovals: proactiveApprovals.map(approvalPreview),
+    pendingProactiveApprovalCount,
     ...homeDrafts,
     unreadChannels,
     failedRuns,

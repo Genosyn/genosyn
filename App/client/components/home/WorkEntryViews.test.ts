@@ -170,6 +170,24 @@ describe("Routine outcome blocks shared by the popup and employee day", () => {
     assert.match(visibleText(html), /required Check failed/);
   });
 
+  test("a proactive review is neutral and never presents a draft report or delivery grade as completed work", () => {
+    const html = renderEntry(
+      routineEntry({
+        status: "reviewed",
+        summary,
+        outcomeVerdict: "achieved",
+        checksVerdict: "passed",
+      }),
+    );
+    assert.match(
+      visibleText(html),
+      /The proactive review finished\. This Run did not carry out the proposed work\./,
+    );
+    assert.match(html, />reviewed</);
+    assert.doesNotMatch(html, />completed<|>achieved<|checks passed|bg-emerald/);
+    assert.ok(!html.includes(summary));
+  });
+
   test("escapes the outcome as text, including tags and special characters", () => {
     const html = renderEntry(
       routineEntry({ summary: '<script>alert("report")</script> & reviewed Contacts.' }),

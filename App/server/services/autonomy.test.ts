@@ -218,6 +218,58 @@ describe("promotion eligibility", () => {
     assert.equal(await computeAutonomyPromotions(), 0);
   });
 
+  test("reviewed Runs cannot push a failed delivery out of the promotion evidence window", async () => {
+    // Other real work supplies the employee-wide minimum. This Routine must
+    // still justify its own Waiver from its latest delivery Runs.
+    await seedCleanRecord({ browserApprovals: 0 });
+    const now = new Date();
+    const routine = await insert(Routine, {
+      employeeId: employee.id,
+      name: "Review overdue invoices",
+      slug: "review-overdue-invoices",
+      cronExpr: "0 9 * * 1",
+      body: "",
+      acceptanceCriteria: "Every overdue invoice was chased.",
+      requiresApproval: true,
+      enabled: true,
+    });
+    await insert(Run, {
+      routineId: routine.id,
+      status: "failed",
+      // Outside the employee-wide thirty-day window, but still one of this
+      // Routine's latest ten delivery Runs until real work supersedes it.
+      startedAt: new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000),
+    });
+    await insert(Run, {
+      routineId: routine.id,
+      status: "completed",
+      outcomeVerdict: "achieved",
+      checksVerdict: "passed",
+      startedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+    });
+    for (let n = 0; n < 6; n++) {
+      await insert(Approval, {
+        companyId,
+        employeeId: employee.id,
+        routineId: routine.id,
+        kind: "routine",
+        status: "approved",
+      });
+    }
+    assert.equal(await computeAutonomyPromotions(now), 0);
+
+    for (let n = 0; n < 9; n++) {
+      await insert(Run, {
+        routineId: routine.id,
+        status: "reviewed",
+        outcomeVerdict: "unverified",
+        startedAt: new Date(now.getTime() - (n + 1) * 1000),
+      });
+    }
+    assert.equal(await computeAutonomyPromotions(now), 0);
+    assert.equal((await promotions()).length, 0);
+  });
+
   test("an unverified Run in the window blocks every promotion", async () => {
     const routine = await seedCleanRecord();
     await insert(Run, {

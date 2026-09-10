@@ -585,7 +585,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <UL>
         <LI>
           <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{" "}
-          <Code>completed</Code>, <Code>failed</Code>, <Code>skipped</Code> (no model was
+          <Code>completed</Code>, <Code>reviewed</Code> (proactive evidence review only),{" "}
+          <Code>failed</Code>, <Code>skipped</Code> (no model was
           connected), <Code>timeout</Code>, or <Code>interrupted</Code> (the server stopped
           mid-run). A Run stopped by the step-limit backstop — the model kept calling tools without
           ever finishing — is marked <Code>failed</Code>, with the reason in the transcript.
@@ -709,6 +710,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <Strong>Check</Strong> is the third axis and the only one with no model in it: a
         machine-verifiable assertion the Run must pass before it finalizes green, written by an
         operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
+      </P>
+      <P>
+        A proactive Run with status <Strong>Reviewed</Strong> has examined evidence; delivery
+        remains unverified and its delivery Checks have not run. Approving its proposal in the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink> starts a separate Run with the
+        original Checks and outcome grading. A Check cannot authorize work beyond the approved plan.
       </P>
       <UL>
         <LI>

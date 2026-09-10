@@ -25,6 +25,7 @@ import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
 import { resolveMcpToken } from "../mcpTokens.js";
 import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
+import { proactiveReviewToolScope, PROACTIVE_REVIEW_BRIEF } from "../proactive/workReviewPolicy.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -170,9 +171,19 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
 
 async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
   // Token authority also narrows callers that omit or override the visible scope.
-  const reviewScope = selfReviewToolScope(resolveMcpToken(params.genosynToken)?.selfReviewOnly);
+  const tokenInfo = resolveMcpToken(params.genosynToken);
+  const reviewScope =
+    selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
+    proactiveReviewToolScope(tokenInfo?.proactiveReview);
+  if (tokenInfo?.proactiveReview)
+    params = { ...params, system: `${params.system}\n\n${PROACTIVE_REVIEW_BRIEF}` };
   if (reviewScope) {
-    params = { ...params, toolScope: reviewScope, allowPrivilegedToolSources: false, extraTools: [] };
+    params = {
+      ...params,
+      toolScope: reviewScope,
+      allowPrivilegedToolSources: false,
+      extraTools: [],
+    };
   }
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
@@ -265,7 +276,13 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       stopReason: result.stopReason,
     };
   } catch (err) {
-    reportAgentTurnFailure("request failed", params.employeeId, params.model.id, params.signal, err);
+    reportAgentTurnFailure(
+      "request failed",
+      params.employeeId,
+      params.model.id,
+      params.signal,
+      err,
+    );
     return {
       status: "error",
       error: formatModelError(params.model, err),
@@ -335,7 +352,13 @@ async function runRestrictedEmployeeTurn(
       stopReason: result.stopReason,
     };
   } catch (err) {
-    reportAgentTurnFailure("restricted request failed", params.employeeId, params.model.id, params.signal, err);
+    reportAgentTurnFailure(
+      "restricted request failed",
+      params.employeeId,
+      params.model.id,
+      params.signal,
+      err,
+    );
     return {
       status: "error",
       error: formatModelError(params.model, err),
@@ -395,7 +418,13 @@ async function runSubscriptionEmployeeAgent(
     });
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
-    reportAgentTurnFailure("subscription request failed", params.employeeId, params.model.id, params.signal, err);
+    reportAgentTurnFailure(
+      "subscription request failed",
+      params.employeeId,
+      params.model.id,
+      params.signal,
+      err,
+    );
     return {
       status: "error",
       error: formatModelError(params.model, err),

@@ -122,7 +122,7 @@ export function DecisionSourceLine({
         const inner = (
           <>
             <Icon size={11} className="shrink-0" />
-            <span className="max-w-[18rem] truncate">{chip.label}</span>
+            <span className="min-w-0 max-w-[18rem] truncate">{chip.label}</span>
           </>
         );
         return (
@@ -131,14 +131,14 @@ export function DecisionSourceLine({
               <Link
                 to={chip.to}
                 title={chip.title}
-                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
               >
                 {inner}
               </Link>
             ) : (
               <span
                 title={chip.title}
-                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
               >
                 {inner}
               </span>

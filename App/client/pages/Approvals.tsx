@@ -2,6 +2,7 @@ import React from "react";
 import { Check, X } from "lucide-react";
 import { api, Approval, ApprovalStatus, Company } from "../lib/api";
 import { approvalCopy } from "../components/approvals/approvalCopy";
+import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -143,6 +144,15 @@ export default function Approvals({ company }: { company: Company }) {
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((a) => {
+                  if (a.kind === "proactive_work")
+                    return (
+                      <WorkReviewCard
+                        key={a.id}
+                        company={company}
+                        approval={a}
+                        onResolved={reload}
+                      />
+                    );
                   const c = approvalCopy(a);
                   return (
                     <li key={a.id}>
@@ -188,6 +198,8 @@ export default function Approvals({ company }: { company: Company }) {
               </div>
               <ul className="flex flex-col gap-1">
                 {history.map((a) => {
+                  if (a.kind === "proactive_work")
+                    return <WorkReviewOutcome key={a.id} company={company} approval={a} />;
                   const c = approvalCopy(a);
                   return (
                     <li key={a.id}>

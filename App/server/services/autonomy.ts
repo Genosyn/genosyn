@@ -1,4 +1,4 @@
-import { In, IsNull, MoreThan } from "typeorm";
+import { In, IsNull, MoreThan, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -142,7 +142,7 @@ async function employeeRecord(employeeId: string, since: Date): Promise<Employee
     where: { routineId: In(routines.map((r) => r.id)), startedAt: MoreThan(since) },
     select: { routineId: true, status: true, outcomeVerdict: true, checksVerdict: true },
   });
-  const terminal = runs.filter((r) => r.status !== "running");
+  const terminal = runs.filter((r) => r.status !== "running" && r.status !== "reviewed");
   return {
     terminalRuns: terminal.length,
     failed: terminal.filter((r) => r.status === "failed" || r.status === "timeout").length,
@@ -184,7 +184,7 @@ export function routineAutonomyEvidence(args: {
   hasCriteria: boolean;
   hasChecks: boolean;
 }): RoutineAutonomyEvidence {
-  const terminal = args.runs.filter((r) => r.status !== "running");
+  const terminal = args.runs.filter((r) => r.status !== "running" && r.status !== "reviewed");
   const verified = terminal.filter(
     (r) =>
       r.status === "completed" && r.outcomeVerdict === "achieved" && r.checksVerdict !== "failed",
@@ -196,7 +196,11 @@ export function routineAutonomyEvidence(args: {
     checksPassed,
   };
   if (terminal.length === 0) {
-    return { ...base, promotable: false, reason: "This Routine has no finished Runs to judge yet." };
+    return {
+      ...base,
+      promotable: false,
+      reason: "This Routine has no finished Runs to judge yet.",
+    };
   }
   if (verified.length === terminal.length) return { ...base, promotable: true, reason: "" };
   if (!args.hasCriteria && !args.hasChecks) {
@@ -430,7 +434,9 @@ export async function computeAutonomyPromotions(
       );
       if (tally.approved < APPROVALS_MIN || tally.rejected > 0) continue;
       const recent = await AppDataSource.getRepository(Run).find({
-        where: { routineId: routine.id },
+        // Evidence reviews must not push actual delivery failures out of this
+        // bounded window. Exclude them before the database applies `take`.
+        where: { routineId: routine.id, status: Not("reviewed") },
         order: { startedAt: "DESC" },
         take: ROUTINE_RUNS_LOOKBACK,
         select: { status: true, outcomeVerdict: true, checksVerdict: true },
@@ -559,7 +565,9 @@ export async function contractAutonomyOnBadRun(args: {
   }
 }
 
-function demotionReason(run: Pick<Run, "id" | "status" | "outcomeVerdict" | "checksVerdict">): string {
+function demotionReason(
+  run: Pick<Run, "id" | "status" | "outcomeVerdict" | "checksVerdict">,
+): string {
   if (run.checksVerdict === "failed") return `Run ${run.id} failed a required Check`;
   if (run.outcomeVerdict === "off_goal") return `Run ${run.id} was graded off-goal`;
   return `Run ${run.id} ended ${run.status}`;

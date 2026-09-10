@@ -194,13 +194,20 @@ as a clean one.
 point of both. An **Approval** is the *system* interposing on an action an
 employee already attempted — a gated routine tick, a payment over a threshold,
 a guarded tool call — and the server replays that exact action once a human
-ticks it. It is binary, it is never the employee's idea, and because approving
-it fires a privileged side effect it is admin-gated and its payload is redacted
+ticks it. A proactive work Approval instead holds a concrete plan the employee
+proposed before acting. Both are binary, and because approving starts work or
+fires a privileged side effect they are admin-gated and their payload is redacted
 at every boundary. A **Decision** is the employee choosing to stop and ask:
 it writes the question and the options itself, answering one performs no side
 effect, and an ordinary Member can answer it. Never label a Decision "approve /
-reject", and never route a gated action through the Decision Stack — anything
-privileged the employee does afterwards still meets its own Approval.
+reject". The Decision stack also displays **Work awaiting approval**: distinct
+`Approval` rows of kind `proactive_work`, using the admin-gated Approval routes,
+never the Member-level Decision-answer route. Proactive starter Routines,
+event-triggered work, and automatic email handovers read evidence and submit a
+concrete plan before changing records or starting Repository work. Their
+server-owned review scope omits writes, coding, browser, external Connections
+and delegation. A human approves one plan; current Grants and delivery limits
+still apply. Neither an AI decision policy nor a Waiver can authorize it.
 
 **"Repository" is not a synonym for "codebase."** A Repository is any
 version-controlled workspace the company keeps: a service's source, a

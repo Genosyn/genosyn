@@ -2,6 +2,11 @@ import { withRepositoryGuidance } from "../services/repositoryGuidance.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { selfReviewToolError } from "../services/proactive/reviewPolicy.js";
+import { proactiveReviewToolError } from "../services/proactive/workReviewPolicy.js";
+import {
+  createProactiveWorkApproval,
+  listProactiveWorkReviews,
+} from "../services/proactive/approvals.js";
 import { boundWorkReviewPacket } from "../services/proactive/reviewPacketBudget.js";
 import { isActiveOwnReview, reviewTrackingRoutine } from "../services/proactive/reviewTracking.js";
 import { getOwnWorkReview, OwnWorkReviewError } from "../services/proactive/workReview.js";
@@ -119,10 +124,7 @@ import {
   taintGateApplies,
   WEB_TAINT_SOURCES,
 } from "../services/taintPolicy.js";
-import {
-  policyForbiddingTool,
-  recordToolPolicyViolation,
-} from "../services/companyPolicies.js";
+import { policyForbiddingTool, recordToolPolicyViolation } from "../services/companyPolicies.js";
 import {
   applyMailScope,
   applyMailSearchFilters,
@@ -175,11 +177,11 @@ import {
   serializeWorkstream,
   updateWorkstream,
 } from "../services/workstreams.js";
+import { InitiativeError, proposeInitiative } from "../services/initiatives.js";
 import {
-  InitiativeError,
-  proposeInitiative,
-} from "../services/initiatives.js";
-import { getInitiativeReview, getInitiativeDetailReview } from "../services/proactive/initiativeReview.js";
+  getInitiativeReview,
+  getInitiativeDetailReview,
+} from "../services/proactive/initiativeReview.js";
 import { getProactiveWork } from "../services/proactive/work.js";
 import { getTodoForEmployee, TodoReaderError } from "../services/proactive/todoReader.js";
 import {
@@ -405,7 +407,11 @@ import {
   sendEstimateBySlug,
 } from "../services/estimateActions.js";
 import { Customer } from "../db/entities/Customer.js";
-import { getQuoteEstimate, listQuoteEstimates, listQuoteProducts } from "../services/financeQuoteRead.js";
+import {
+  getQuoteEstimate,
+  listQuoteEstimates,
+  listQuoteProducts,
+} from "../services/financeQuoteRead.js";
 import { getFinanceSettings } from "../services/fx.js";
 import { disallowedRecipients, trustedRecipientDomains } from "../lib/recipientAllowlist.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
@@ -719,6 +725,8 @@ type McpRequest = Request & {
   mcpMailThreadId?: string | null;
   mcpMailDeliveryMode?: MailDeliveryMode | null;
   mcpSelfReviewOnly?: boolean;
+  mcpProactiveReview?: boolean;
+  mcpMailHandoverId?: string | null;
   /** The Repository work session this turn may act on, if any. */
   mcpRepositoryWorkSessionId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
@@ -766,6 +774,8 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpMailThreadId = info.mailThreadId;
   req.mcpMailDeliveryMode = info.mailDeliveryMode;
   req.mcpSelfReviewOnly = info.selfReviewOnly;
+  req.mcpProactiveReview = info.proactiveReview;
+  req.mcpMailHandoverId = info.mailHandoverId;
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
@@ -862,6 +872,17 @@ function requireDelegatedToolAuthority(
 }
 
 mcpInternalRouter.use(requireDelegatedToolAuthority);
+
+mcpInternalRouter.use((req: McpRequest, res, next) => {
+  if (!req.mcpProactiveReview || req.path === "/manifest") return next();
+  if (req.path === "/integrations/_list") return res.json({ tools: [] });
+  const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
+  const error = name
+    ? proactiveReviewToolError(true, name)
+    : "Proactive review cannot use external Connections or other work surfaces.";
+  if (error) return res.status(403).json({ error });
+  return next();
+});
 
 mcpInternalRouter.use(async (req: McpRequest, res, next) => {
   if (!req.mcpSelfReviewOnly || req.path === "/manifest") return next();
@@ -2332,24 +2353,47 @@ const listFinanceProductsSchema = z.object({
   currency: isoCurrency.optional(),
 }).strict();
 
-mcpInternalRouter.post("/tools/list_estimates", validateBody(listEstimatesSchema), async (req: McpRequest, res) => {
-  if (!(await requireFinance(req, res, "read"))) return;
-  const result = await listQuoteEstimates(req.mcpCompany!.id, req.body as z.infer<typeof listEstimatesSchema>);
-  if (!result) return res.status(404).json({ error: "Customer not found" });
-  res.json(result);
-});
+mcpInternalRouter.post(
+  "/tools/list_estimates",
+  validateBody(listEstimatesSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const result = await listQuoteEstimates(
+      req.mcpCompany!.id,
+      req.body as z.infer<typeof listEstimatesSchema>,
+    );
+    if (!result) return res.status(404).json({ error: "Customer not found" });
+    res.json(result);
+  },
+);
 
-mcpInternalRouter.post("/tools/get_estimate", validateBody(getEstimateSchema), async (req: McpRequest, res) => {
-  if (!(await requireFinance(req, res, "read"))) return;
-  const estimate = await getQuoteEstimate(req.mcpCompany!.id, (req.body as z.infer<typeof getEstimateSchema>).estimateSlug);
-  if (!estimate) return res.status(404).json({ error: "Estimate not found" });
-  res.json({ estimate: serializeEstimateFull(estimate) });
-});
+mcpInternalRouter.post(
+  "/tools/get_estimate",
+  validateBody(getEstimateSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const estimate = await getQuoteEstimate(
+      req.mcpCompany!.id,
+      (req.body as z.infer<typeof getEstimateSchema>).estimateSlug,
+    );
+    if (!estimate) return res.status(404).json({ error: "Estimate not found" });
+    res.json({ estimate: serializeEstimateFull(estimate) });
+  },
+);
 
-mcpInternalRouter.post("/tools/list_finance_products", validateBody(listFinanceProductsSchema), async (req: McpRequest, res) => {
-  if (!(await requireFinance(req, res, "read"))) return;
-  res.json(await listQuoteProducts(req.mcpCompany!.id, req.body as z.infer<typeof listFinanceProductsSchema>));
-});
+mcpInternalRouter.post(
+  "/tools/list_finance_products",
+  validateBody(listFinanceProductsSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    res.json(
+      await listQuoteProducts(
+        req.mcpCompany!.id,
+        req.body as z.infer<typeof listFinanceProductsSchema>,
+      ),
+    );
+  },
+);
 
 const createEstimateSchema = z
   .object({
@@ -8559,6 +8603,7 @@ mcpInternalRouter.post(
 /** Runs that have stopped. A `running` row's verdicts are not written yet. */
 const TERMINAL_RUN_STATUSES: RunStatus[] = [
   "completed",
+  "reviewed",
   "failed",
   "skipped",
   "timeout",
@@ -8806,7 +8851,9 @@ mcpInternalRouter.post(
   validateBody(z.object({}).strict()),
   async (req: McpRequest, res) => {
     try {
-      res.json(boundWorkReviewPacket(await getOwnWorkReview(req.mcpCompany!.id, req.mcpEmployee!.id)));
+      res.json(
+        boundWorkReviewPacket(await getOwnWorkReview(req.mcpCompany!.id, req.mcpEmployee!.id)),
+      );
     } catch (err) {
       if (!(err instanceof OwnWorkReviewError)) throw err;
       res.status(err.status).json({ error: err.message });
@@ -12404,6 +12451,59 @@ mcpInternalRouter.post(
 
 // ----- Decision Stack (questions an employee raised for a human) -----
 
+const workReviewSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    context: z.string().trim().min(1).max(4_000),
+    plan: z.string().trim().min(1).max(8_000),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/request_work_review",
+  validateBody(workReviewSchema),
+  async (req: McpRequest, res) => {
+    if (!req.mcpProactiveReview)
+      return res
+        .status(403)
+        .json({ error: "Work reviews are submitted from a proactive review turn." });
+    const body = req.body as z.infer<typeof workReviewSchema>;
+    const approval = await createProactiveWorkApproval({
+      companyId: req.mcpCompany!.id,
+      employeeId: req.mcpEmployee!.id,
+      ...body,
+      origin: {
+        routineId: req.mcpRoutineId,
+        runId: req.mcpRunId,
+        conversationId: req.mcpConversationId,
+        mailThreadId: req.mcpMailThreadId,
+        mailHandoverId: req.mcpMailHandoverId,
+        mailDeliveryMode: req.mcpMailDeliveryMode,
+        selfReviewOnly: req.mcpSelfReviewOnly,
+      },
+    });
+    return res.json({
+      approvalId: approval.id,
+      status: approval.status,
+      note: approval.status === "pending"
+        ? "Work proposed in the Decision stack. Only an owner or admin can approve it. Finish this review without performing the work; the approved plan starts separately after approval."
+        : `This work already has a ${approval.status} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
+    });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_work_reviews",
+  validateBody(z.object({}).strict()),
+  async (req: McpRequest, res) =>
+    res.json(
+      await listProactiveWorkReviews({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+      }),
+    ),
+);
+
 const requestDecisionSchema = z
   .object({
     title: z.string().min(1).max(200),
@@ -12478,7 +12578,8 @@ mcpInternalRouter.post(
         runId: req.mcpRunId ?? null,
         conversationId: req.mcpConversationId ?? null,
         mailThreadId: req.mcpMailThreadId ?? null,
-        automaticContinuation: mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
+        automaticContinuation:
+          !req.mcpProactiveReview && mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
       });
       await journal(
         self.id,
@@ -12498,11 +12599,14 @@ mcpInternalRouter.post(
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note: decision.pickupStatus === "skipped"
-          ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."
-          : decision.routedToEmployeeId
-            ? "Stacked. Your company's decision policy routes this to an AI teammate, who is being briefed now; if they decline or stall, humans are paged. Stop this line of work and finish your turn — when it is answered, you are started again in a fresh session briefed with the answer."
-            : "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
+        note:
+          req.mcpProactiveReview
+            ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work. Use request_work_review for a concrete plan and wait for human approval before acting."
+            : decision.pickupStatus === "skipped"
+            ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."
+            : decision.routedToEmployeeId
+              ? "Stacked. Your company's decision policy routes this to an AI teammate, who is being briefed now; if they decline or stall, humans are paged. Stop this line of work and finish your turn — when it is answered, you are started again in a fresh session briefed with the answer."
+              : "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
       });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
@@ -12536,17 +12640,25 @@ mcpInternalRouter.post(
 
 mcpInternalRouter.post(
   "/tools/get_decision",
-  validateBody(z.object({
-    decisionId: z.string().uuid(),
-    section: z.enum(["context", "optionDetail", "note"]).optional(),
-    optionId: z.string().min(1).max(200).optional(),
-    offset: z.number().int().min(0).max(1_000_000).optional(),
-  }).strict()),
+  validateBody(
+    z
+      .object({
+        decisionId: z.string().uuid(),
+        section: z.enum(["context", "optionDetail", "note"]).optional(),
+        optionId: z.string().min(1).max(200).optional(),
+        offset: z.number().int().min(0).max(1_000_000).optional(),
+      })
+      .strict(),
+  ),
   async (req: McpRequest, res, next) => {
     try {
-      res.json(await getEmployeeDecisionDetail({
-        ...req.body, companyId: req.mcpCompany!.id, employeeId: req.mcpEmployee!.id,
-      }));
+      res.json(
+        await getEmployeeDecisionDetail({
+          ...req.body,
+          companyId: req.mcpCompany!.id,
+          employeeId: req.mcpEmployee!.id,
+        }),
+      );
     } catch (error) {
       next(error);
     }
@@ -12899,14 +13011,22 @@ mcpInternalRouter.post(
 
 mcpInternalRouter.post(
   "/tools/get_initiative",
-  validateBody(z.object({
-    initiativeId: z.string().uuid(),
-    section: z.enum(["evidence", "proposal", "routineBody", "acceptanceCriteria", "reviewNote"]).optional(),
-    offset: z.number().int().min(0).max(1_000_000).optional(),
-  }).strict()),
+  validateBody(
+    z
+      .object({
+        initiativeId: z.string().uuid(),
+        section: z
+          .enum(["evidence", "proposal", "routineBody", "acceptanceCriteria", "reviewNote"])
+          .optional(),
+        offset: z.number().int().min(0).max(1_000_000).optional(),
+      })
+      .strict(),
+  ),
   async (req: McpRequest, res, next) => {
     try {
-      res.json(await getInitiativeDetailReview(req.mcpCompany!.id, req.body.initiativeId, req.body));
+      res.json(
+        await getInitiativeDetailReview(req.mcpCompany!.id, req.body.initiativeId, req.body),
+      );
     } catch (error) {
       next(error);
     }
@@ -13768,12 +13888,18 @@ mcpInternalRouter.post(
 
     // Preserve Member delegation for interactive calls. Trusted Routines and
     // mail work use the employee's own live write Grant, never a made-up Member.
-    const authority = req.mcpAuthority === "employee"
-      ? { toolAuthority: "employee" as const }
-      : req.mcpAuthority === "member" && req.mcpRequesterUserId &&
-          req.mcpRequesterSessionVersion !== null && req.mcpRequesterSessionVersion !== undefined
-        ? { requesterUserId: req.mcpRequesterUserId, requesterSessionVersion: req.mcpRequesterSessionVersion }
-        : null;
+    const authority =
+      req.mcpAuthority === "employee"
+        ? { toolAuthority: "employee" as const }
+        : req.mcpAuthority === "member" &&
+            req.mcpRequesterUserId &&
+            req.mcpRequesterSessionVersion !== null &&
+            req.mcpRequesterSessionVersion !== undefined
+          ? {
+              requesterUserId: req.mcpRequesterUserId,
+              requesterSessionVersion: req.mcpRequesterSessionVersion,
+            }
+          : null;
     if (!authority) return res.status(403).json({ error: "Trusted work authority is required." });
 
     // Express 4 does not await a handler, so every await below stays inside
@@ -13935,10 +14061,14 @@ mcpInternalRouter.post(
       const session = await openEmployeeRepositoryWorkSessionPullRequest({
         companyId: req.mcpCompany!.id,
         employeeId: req.mcpEmployee!.id,
-        ...req.body as z.infer<typeof openRepositoryWorkSessionPullRequestSchema>,
-        requester: req.mcpAuthority === "member" ? {
-          userId: req.mcpRequesterUserId!, sessionVersion: req.mcpRequesterSessionVersion!,
-        } : undefined,
+        ...(req.body as z.infer<typeof openRepositoryWorkSessionPullRequestSchema>),
+        requester:
+          req.mcpAuthority === "member"
+            ? {
+                userId: req.mcpRequesterUserId!,
+                sessionVersion: req.mcpRequesterSessionVersion!,
+              }
+            : undefined,
       });
       await recordAudit({
         companyId: req.mcpCompany!.id,
@@ -13948,9 +14078,17 @@ mcpInternalRouter.post(
         targetType: "repository",
         targetId: session.repositoryId,
         targetLabel: session.title,
-        metadata: { sessionId: session.id, pullRequestUrl: session.pullRequestUrl, branch: session.publishedBranch },
+        metadata: {
+          sessionId: session.id,
+          pullRequestUrl: session.pullRequestUrl,
+          branch: session.publishedBranch,
+        },
       });
-      res.json({ sessionId: session.id, status: session.status, pullRequestUrl: session.pullRequestUrl });
+      res.json({
+        sessionId: session.id,
+        status: session.status,
+        pullRequestUrl: session.pullRequestUrl,
+      });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
@@ -16060,15 +16198,24 @@ const readXlsxSchema = z.object({
   maxChars: z.number().int().min(1000).max(50_000).optional(),
 }).strict();
 
-const editXlsxSchema = z.object({
-  attachmentId: z.string().uuid(),
-  edits: z.array(z.object({
-    sheet: z.string().min(1).max(31),
-    cell: z.string().regex(/^\$?[a-z]{1,3}\$?[1-9][0-9]{0,6}$/i),
-    value: z.union([z.string().max(32767), z.number().finite(), z.boolean(), z.null()]),
-  }).strict()).min(1).max(400),
-  outputFilename: z.string().trim().min(1).max(200).optional(),
-}).strict();
+const editXlsxSchema = z
+  .object({
+    attachmentId: z.string().uuid(),
+    edits: z
+      .array(
+        z
+          .object({
+            sheet: z.string().min(1).max(31),
+            cell: z.string().regex(/^\$?[a-z]{1,3}\$?[1-9][0-9]{0,6}$/i),
+            value: z.union([z.string().max(32767), z.number().finite(), z.boolean(), z.null()]),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(400),
+    outputFilename: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/read_xlsx",
@@ -16135,7 +16282,12 @@ mcpInternalRouter.post(
       `Updated ${edited.applied.length} cell(s).`,
     );
     return res.json({
-      attachment: { id: row.id, filename: row.filename, mimeType: row.mimeType, sizeBytes: Number(row.sizeBytes) },
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+      },
       applied: edited.applied,
       warnings: edited.warnings,
     });
@@ -17379,20 +17531,32 @@ mcpInternalRouter.post("/tools/list_mail_accounts", async (req: McpRequest, res:
 const mailSenderActionSchema = z.object({ threadId: z.string().uuid() }).strict();
 
 for (const operation of ["mail_block_sender", "mail_unsubscribe"] as const) {
-  mcpInternalRouter.post(`/tools/${operation}`, validateBody(mailSenderActionSchema), async (req: McpRequest, res) => {
-    const { threadId } = req.body as z.infer<typeof mailSenderActionSchema>;
-    if (req.mcpMailThreadId && req.mcpMailThreadId !== threadId) {
-      return res.status(403).json({ error: "This handover can only act on its own email thread." });
-    }
-    const found = await loadGrantedMailThread(req, res, threadId, "draft");
-    if (!found) return;
-    try {
-      const result = await performMailSenderAction({ operation, ...found, employeeId: req.mcpEmployee!.id });
-      return res.json(result);
-    } catch (error) {
-      return res.status(400).json({ error: error instanceof Error ? error.message : "Could not update the sender." });
-    }
-  });
+  mcpInternalRouter.post(
+    `/tools/${operation}`,
+    validateBody(mailSenderActionSchema),
+    async (req: McpRequest, res) => {
+      const { threadId } = req.body as z.infer<typeof mailSenderActionSchema>;
+      if (req.mcpMailThreadId && req.mcpMailThreadId !== threadId) {
+        return res
+          .status(403)
+          .json({ error: "This handover can only act on its own email thread." });
+      }
+      const found = await loadGrantedMailThread(req, res, threadId, "draft");
+      if (!found) return;
+      try {
+        const result = await performMailSenderAction({
+          operation,
+          ...found,
+          employeeId: req.mcpEmployee!.id,
+        });
+        return res.json(result);
+      } catch (error) {
+        return res
+          .status(400)
+          .json({ error: error instanceof Error ? error.message : "Could not update the sender." });
+      }
+    },
+  );
 }
 
 const searchMailSchema = z

@@ -4,7 +4,9 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { chatWithEmployee } from "./chat.js";
+import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
 import { getActiveModel } from "./models.js";
 import { recordAudit } from "./audit.js";
 import { workBlocked } from "./standdowns.js";
@@ -136,7 +138,13 @@ export async function dispatchDueWakeups(
     } catch (err) {
       await repo.update(
         { id: wakeup.id },
-        { outcomeNote: `The wake session failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, OUTCOME_CAP) },
+        {
+          outcomeNote:
+            `The wake session failed: ${err instanceof Error ? err.message : String(err)}`.slice(
+              0,
+              OUTCOME_CAP,
+            ),
+        },
       );
       // eslint-disable-next-line no-console
       console.error(`[wakeups] fire failed for ${wakeup.id}:`, err);
@@ -173,14 +181,41 @@ async function fireWakeup(
     return;
   }
   const brief = await composeWakeBrief(wakeup);
+  let sourceOptions: Parameters<typeof chatWithEmployee>[4] = { toolAuthority: "employee" };
+  if (wakeup.sourceRoutineId) {
+    const routine = await AppDataSource.getRepository(Routine).findOneBy({
+      id: wakeup.sourceRoutineId,
+      employeeId: employee.id,
+    });
+    if (!routine || !routine.enabled) {
+      await repo.update(
+        { id: wakeup.id },
+        {
+          outcomeNote:
+            "The source Routine was disabled or removed. No follow-up work was performed.",
+        },
+      );
+      return;
+    }
+    const run = wakeup.sourceRunId
+      ? await AppDataSource.getRepository(Run).findOneBy({
+          id: wakeup.sourceRunId,
+          routineId: routine.id,
+        })
+      : null;
+    sourceOptions = {
+      ...sourceOptions,
+      routineId: routine.id,
+      mailDeliveryMode: routineDeliveryPolicy(routine).mailDeliveryMode,
+      selfReviewOnly: routine.selfReviewOnly,
+      proactiveReview: routineNeedsWorkReview(routine, run?.triggerKind ?? "schedule"),
+    };
+  }
   lease?.assertHeld();
-  const result = await runChat(
-    wakeup.companyId,
-    employee.id,
-    brief,
-    [],
-    { toolAuthority: "employee", signal: lease?.signal },
-  );
+  const result = await runChat(wakeup.companyId, employee.id, brief, [], {
+    ...sourceOptions,
+    signal: lease?.signal,
+  });
   const note = result.reply.trim().slice(0, OUTCOME_CAP) || "(no reply)";
   await repo.update({ id: wakeup.id }, { outcomeNote: note });
   await journal(employee.id, `Woke up: ${wakeup.brief.slice(0, 80)}`, note, wakeup.sourceRoutineId);

@@ -169,6 +169,11 @@ type ChatBaseOptions = {
    */
   mailThreadId?: string | null;
   mailDeliveryMode?: MailDeliveryMode | null;
+  proactiveReview?: boolean;
+  selfReviewOnly?: boolean;
+  mailHandoverId?: string | null;
+  routineId?: string | null;
+  runId?: string | null;
   /**
    * The Repository work session this turn is doing, for the surface that runs
    * an employee against a repository. Carried on the turn's MCP token so the
@@ -534,7 +539,8 @@ export async function streamChatWithEmployee(
   // A saved Decision discussion stays bound even when a follow-up quotes a TLDR.
   const discussionSource = decisionChatSource ?? tldrChatSource;
   const discussionLabel = decisionChatSource ? "Decision" : "TLDR";
-  const privilegedToolSourcesAllowed = contextAccess.privilegedToolSources;
+  const privilegedToolSourcesAllowed =
+    contextAccess.privilegedToolSources && !options.proactiveReview && !options.selfReviewOnly;
   const authorizePrivilegedToolCall =
     options.requesterUserId && requesterSessionVersion !== undefined && privilegedToolSourcesAllowed
       ? createPrivilegedMemberToolAuthorizer({
@@ -797,6 +803,11 @@ export async function streamChatWithEmployee(
       conversationId: options.conversationId ?? null,
       mailThreadId: options.mailThreadId ?? null,
       mailDeliveryMode: options.mailDeliveryMode ?? null,
+      proactiveReview: options.proactiveReview ?? false,
+      selfReviewOnly: options.selfReviewOnly ?? false,
+      mailHandoverId: options.mailHandoverId ?? null,
+      routineId: options.routineId ?? undefined,
+      runId: options.runId ?? undefined,
       repositoryWorkSessionId: options.repositoryWorkSessionId ?? null,
     };
     mcpToken = issueMcpToken(

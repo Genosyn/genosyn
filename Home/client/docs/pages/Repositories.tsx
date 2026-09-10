@@ -512,15 +512,21 @@ export function Repositories() {
       </Callout>
       <H2 id="proactive-work">Work that starts from email or a Routine</H2>
       <P>
-        An AI Employee handling a customer issue can start its own Work session when it already
-        has a <Strong>write Grant</Strong> on the Repository. Give it the expected scope and
-        verification steps in its Soul or Routine: investigate the reported issue, make a focused
-        fix, add a regression test, and prepare the result for review. Reading access alone does
-        not authorize unattended changes.
+        A customer&apos;s bug report first becomes a work proposal in the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink>. The AI Employee reads the available
+        evidence and explains the suggested investigation or fix. It cannot start a Work session
+        or change the Repository until an owner or admin approves the proposal.
       </P>
       <P>
-        The work runs separately. The employee can save its session id in a Workstream, arrange
-        a Wakeup, and check the final report before updating the customer. Each session keeps
+        After approval, the employee needs a <Strong>write Grant</Strong> on the Repository to
+        start the Work session. The approved plan should name the expected scope and verification
+        steps: investigate the reported issue, make a focused fix, run relevant tests, and prepare
+        the result for review. Approval does not add Grants or allow merging the result.
+      </P>
+      <P>
+        The work runs separately. The employee can save its session id in a Workstream and check
+        the final report before drafting a customer update. Follow-up work keeps the original
+        delivery limits and needs any applicable work approval. Each session keeps
         its own branch and working copy; its tools cannot send mail or reach other Connections.
         You can inspect its Activity and Changes from the Repository at any time.
       </P>

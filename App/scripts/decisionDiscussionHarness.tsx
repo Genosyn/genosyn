@@ -16,7 +16,7 @@ const company = {
   id: "company",
   slug: "discussion-company",
   name: "Decision discussion company",
-  role: "member",
+  role: new URLSearchParams(window.location.search).get("role") === "admin" ? "admin" : "member",
   financeAccess: "none",
 } as Company;
 const emp = {

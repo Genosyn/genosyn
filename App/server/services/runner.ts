@@ -11,8 +11,9 @@ import { employeeDir, ensureDir } from "./paths.js";
 import { nextRunFor } from "./cron.js";
 import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
-import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
-import { routineDeliveryPolicy } from "./proactive/policy.js";
+import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
+import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
+import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
 import { selfReviewToolScope } from "./proactive/reviewPolicy.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
@@ -140,6 +141,8 @@ export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): 
  */
 export type StartRunOptions = {
   triggerKind?: RunTrigger;
+  /** Server-only proof of the exact human-approved plan this Run may perform. */
+  proactiveApprovalId?: string;
   /** 1-based attempt within a retry chain. */
   attempt?: number;
   /** Effective ceiling for display when crash recovery extends the configured budget. */
@@ -170,9 +173,7 @@ export async function startRoutineRun(
   routine: Routine,
   opts: StartRunOptions = {},
 ): Promise<{ run: Run; completion: Promise<Run> }> {
-  if (
-    browserRunCreationBlocked({ employeeId: routine.employeeId, routineId: routine.id })
-  ) {
+  if (browserRunCreationBlocked({ employeeId: routine.employeeId, routineId: routine.id })) {
     throw new Error("This Routine is being removed.");
   }
   // The Routine's timeout is an absolute wall-clock budget, not merely an
@@ -189,6 +190,11 @@ export async function startRoutineRun(
   if (!emp) throw new Error("Employee not found for routine");
   const co = await coRepo.findOneBy({ id: emp.companyId });
   if (!co) throw new Error("Company not found for employee");
+  const proactiveApproval = opts.proactiveApprovalId
+    ? await (
+        await import("./proactive/approvals.js")
+      ).validateProactiveRoutineApproval(opts.proactiveApprovalId, routine, co.id)
+    : null;
   const runAuthority = {
     companyId: co.id,
     employeeId: emp.id,
@@ -347,13 +353,28 @@ export async function startRoutineRun(
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
-      const deliveryPolicy = routineDeliveryPolicy(routine);
+      const proactiveReview =
+        !proactiveApproval && routineNeedsWorkReview(routine, saved.triggerKind);
+      const deliveryPolicy = routineDeliveryPolicy(
+        routine,
+        proactiveReview,
+        proactiveApproval?.payload.origin.mailDeliveryMode ?? null,
+      );
       mcpToken = issueMcpToken(emp.id, co.id, {
         runId: saved.id,
         routineId: routine.id,
-        authority: "employee",
+        ...(proactiveApproval
+          ? {
+              authority: "member" as const,
+              requesterUserId: proactiveApproval.user.id,
+              requesterSessionVersion: proactiveApproval.user.sessionVersion,
+            }
+          : { authority: "employee" as const }),
         mailDeliveryMode: deliveryPolicy.mailDeliveryMode,
         selfReviewOnly: routine.selfReviewOnly,
+        proactiveReview,
+        mailThreadId: proactiveApproval?.payload.origin.mailThreadId ?? null,
+        mailHandoverId: proactiveApproval?.payload.origin.mailHandoverId ?? null,
       });
       // No model connected → skip cleanly.
       if (!model) {
@@ -369,19 +390,23 @@ export async function startRoutineRun(
         return saved;
       }
 
-      const parallelDelegationAvailable = deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model.authMode);
-      const unavailableCodingTools = !deliveryPolicy.allowPrivilegedToolSources || !codingRuntimeAvailability().available
-        ? [...CODING_TOOL_NAMES]
-        : config.agent.codingTools.executionMode === "bubblewrap"
-          ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-          : model.authMode === "subscription"
-            ? [...CODING_TOOL_NAMES]
-            : [];
+      const parallelDelegationAvailable =
+        deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model.authMode);
+      const unavailableCodingTools =
+        !deliveryPolicy.allowPrivilegedToolSources || !codingRuntimeAvailability().available
+          ? [...CODING_TOOL_NAMES]
+          : config.agent.codingTools.executionMode === "bubblewrap"
+            ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
+            : model.authMode === "subscription"
+              ? [...CODING_TOOL_NAMES]
+              : [];
       const unavailableSkillTools = [
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
       ];
-      const repositoryMaterializationAllowed = deliveryPolicy.allowPrivilegedToolSources && shouldMaterializeRepositoriesForTurn(model.authMode);
+      const repositoryMaterializationAllowed =
+        deliveryPolicy.allowPrivilegedToolSources &&
+        shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
       const goalsContext = await composeGoalsContext(co.id, emp.id);
       const policiesContext = await composePoliciesContext(co.id);
@@ -413,7 +438,7 @@ export async function startRoutineRun(
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
-      const system = composeEmployeeSystemPrompt({
+      let system = composeEmployeeSystemPrompt({
         co,
         emp,
         skills,
@@ -434,6 +459,7 @@ export async function startRoutineRun(
           `your Soul, your Memory, and your Skills.`,
         skillToolsets: skillToolsetMap(skills, unavailableSkillTools),
       });
+      if (proactiveApproval) system += `\n\n${proactiveApproval.brief}`;
       const goalBlock = await goalBriefBlock(co.id, routine.goalId);
       const lessonsBlock = await composeLessonsBlock(routine.id);
       const workstreamBlock = await composeWorkstreamBlock(routine.id);
@@ -444,10 +470,7 @@ export async function startRoutineRun(
       // had done. The effect ledger is that way.
       const priorAttemptBlock =
         saved.attempt > 1
-          ? renderPriorAttemptBlock(
-              await priorAttemptEffects(saved).catch(() => []),
-              saved.attempt,
-            )
+          ? renderPriorAttemptBlock(await priorAttemptEffects(saved).catch(() => []), saved.attempt)
           : null;
       // The machine-verifiable bar, folded in beside the acceptance criteria so
       // the employee aims at what it is graded against rather than discovering
@@ -455,15 +478,17 @@ export async function startRoutineRun(
       const checksBlock = composeChecksBlock(
         (await listChecks(routine.id, co.id).catch(() => [])).filter((c) => c.enabled),
       );
-      const routineMessage = composeRoutineMessage(
-        routine,
-        missedSlots,
-        goalBlock,
-        lessonsBlock,
-        workstreamBlock,
-        priorAttemptBlock,
-        checksBlock,
-      );
+      const routineMessage = proactiveApproval
+        ? `${proactiveApproval.brief}\n\n${checksBlock ?? ""}`
+        : composeRoutineMessage(
+            routine,
+            missedSlots,
+            goalBlock,
+            lessonsBlock,
+            workstreamBlock,
+            priorAttemptBlock,
+            checksBlock,
+          );
       const deliveryMessage = deliveryPolicy.mailDeliveryMode
         ? `${routineMessage}\n\nThis Routine prepares drafts for Member review. Sending and starting separate automation are unavailable. Use the built-in granted tools to prepare work; record blockers in a Workstream or Decision. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks to send.`
         : routineMessage;
@@ -538,6 +563,13 @@ export async function startRoutineRun(
             routineId: routine.id,
             runId: saved.id,
             allowPrivilegedToolSources: deliveryPolicy.allowPrivilegedToolSources,
+            authorizePrivilegedToolCall: proactiveApproval
+              ? createPrivilegedMemberToolAuthorizer({
+                  companyId: co.id,
+                  userId: proactiveApproval.user.id,
+                  sessionVersion: proactiveApproval.user.sessionVersion,
+                })
+              : undefined,
             toolScope: selfReviewToolScope(routine.selfReviewOnly),
             signal: controller.signal,
             callbacks: {
@@ -602,9 +634,15 @@ export async function startRoutineRun(
         saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
-        saved.status = "completed";
+        saved.status = proactiveReview ? "reviewed" : "completed";
         saved.exitCode = 0;
         log.line(workSummaryLogLine(result.finalText));
+        if (proactiveReview) {
+          saved.outcomeVerdict = "unverified";
+          saved.outcomeNote =
+            "Evidence reviewed and any proposed work left for human approval. Delivery work was not performed or verified; its Checks have not run.";
+          log.line(`\n[reviewed] ${saved.outcomeNote}`);
+        }
       }
 
       // ---- Checks (M58) ----
@@ -751,6 +789,11 @@ async function finalizeRunFromRunning(
       retryAt: run.retryAt,
       tokensIn: run.tokensIn,
       tokensOut: run.tokensOut,
+      checksVerdict: run.checksVerdict,
+      checkRemediations: run.checkRemediations,
+      ...(run.status === "reviewed"
+        ? { outcomeVerdict: run.outcomeVerdict, outcomeNote: run.outcomeNote }
+        : {}),
     },
   );
   if (result.affected === 1) {
@@ -876,17 +919,19 @@ function toolDeferLine(d: ToolDeferralInfo): string {
 async function writeJournalForRun(employeeId: string, routine: Routine, run: Run): Promise<void> {
   const journalRepo = AppDataSource.getRepository(JournalEntry);
   const verb =
-    run.status === "completed"
-      ? "completed"
-      : run.status === "failed"
-        ? "failed"
-        : run.status === "skipped"
-          ? "was skipped"
-          : run.status === "timeout"
-            ? "timed out"
-            : run.status === "interrupted"
-              ? "was interrupted"
-              : "finished";
+    run.status === "reviewed"
+      ? "was reviewed; proposed work needs human approval"
+      : run.status === "completed"
+        ? "completed"
+        : run.status === "failed"
+          ? "failed"
+          : run.status === "skipped"
+            ? "was skipped"
+            : run.status === "timeout"
+              ? "timed out"
+              : run.status === "interrupted"
+                ? "was interrupted"
+                : "finished";
   const title = `Routine "${routine.name}" ${verb}`;
   const bodyLines: string[] = [];
   if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);
@@ -1000,7 +1045,8 @@ async function runCheckPhase(args: {
   };
 
   let phase = await runChecksForRun({ ...base, attempt: 0 });
-  if (phase.verdict === "not_run") return { verdict: "not_run", results: [], remediations: 0, tokensIn, tokensOut };
+  if (phase.verdict === "not_run")
+    return { verdict: "not_run", results: [], remediations: 0, tokensIn, tokensOut };
   log.line(`\n[checks] ${describeCheckPhase(phase)}`);
 
   while (
@@ -1019,13 +1065,16 @@ async function runCheckPhase(args: {
       break;
     }
     remediations += 1;
-    log.line(`\n[checks] remediation ${remediations} of ${ROUTINE_CHECK_REMEDIATION_MAX} — asking for a fix.`);
+    log.line(
+      `\n[checks] remediation ${remediations} of ${ROUTINE_CHECK_REMEDIATION_MAX} — asking for a fix.`,
+    );
     // A fix round can change the work and then fail or be interrupted. The
     // previous report no longer describes that state unless a new one returns.
     log.line(workSummaryLogLine(""));
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remainingMs);
     try {
+      const tokenAuthority = resolveMcpToken(args.mcpToken);
       const result = await runEmployeeAgent({
         model: args.model,
         employeeId: args.emp.id,
@@ -1044,7 +1093,21 @@ async function runCheckPhase(args: {
         skillToolset: residentNamesForSkills(args.skills, args.unavailableSkillTools),
         routineId: args.routine.id,
         runId: args.run.id,
-        allowPrivilegedToolSources: routineDeliveryPolicy(args.routine).allowPrivilegedToolSources,
+        allowPrivilegedToolSources: routineDeliveryPolicy(
+          args.routine,
+          Boolean(tokenAuthority?.proactiveReview),
+          tokenAuthority?.mailDeliveryMode ?? null,
+        ).allowPrivilegedToolSources,
+        authorizePrivilegedToolCall:
+          tokenAuthority?.authority === "member" &&
+          tokenAuthority.requesterUserId &&
+          tokenAuthority.requesterSessionVersion !== null
+            ? createPrivilegedMemberToolAuthorizer({
+                companyId: args.co.id,
+                userId: tokenAuthority.requesterUserId,
+                sessionVersion: tokenAuthority.requesterSessionVersion,
+              })
+            : undefined,
         toolScope: selfReviewToolScope(args.routine.selfReviewOnly),
         signal: controller.signal,
         callbacks: {
@@ -1129,7 +1192,7 @@ async function updateRoutineBreaker(
     // long before this point. Kept because "no model connected" is not a
     // failure of the Routine's own work, and a future caller that does reach
     // here with one must not trip the breaker on it.
-    if (run.status === "skipped") return;
+    if (run.status === "skipped" || run.status === "reviewed") return;
     const threshold = getContainmentSettings().routineBreakerThreshold;
     const next = (routine.consecutiveFailures ?? 0) + 1;
     await repo.update({ id: routine.id }, { consecutiveFailures: next });

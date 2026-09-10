@@ -58,6 +58,7 @@ import { RunLiveModal } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
 import { DecisionCard } from "../components/decisions/DecisionCard";
+import { WorkReviewCard } from "@/components/decisions/WorkReviewCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -501,6 +502,7 @@ function HomeOverlayHost({
 function hasAnythingToShow(data: HomeData): boolean {
   return (
     data.decisions.length > 0 ||
+    (data.proactiveApprovals?.length ?? 0) > 0 ||
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
@@ -770,39 +772,48 @@ function DecisionStack({
   data: HomeData;
   onResolved: () => Promise<void> | void;
 }) {
-  if (data.decisions.length === 0) return null;
-  const hidden = data.pendingDecisionCount - data.decisions.length;
+  const canReview = company.role === "owner" || company.role === "admin";
+  const workReviews = canReview ? (data.proactiveApprovals ?? []) : [];
+  const workReviewCount = canReview ? (data.pendingProactiveApprovalCount ?? workReviews.length) : 0;
+  const total = data.pendingDecisionCount + workReviewCount;
+  if (data.decisions.length === 0 && workReviews.length === 0) return null;
+  const preview = data.decisions.slice(0, 3);
+  const workPreview = workReviews.slice(0, 3);
+  const hidden = total - preview.length - workPreview.length;
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-violet-50/50 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/10">
-      <div className="flex items-center gap-2 border-b border-violet-200/70 px-4 py-3 dark:border-violet-500/20">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
+    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
           <GitBranch size={15} />
         </span>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Decision stack</h2>
-        <span className="rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold tabular-nums text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
-          {data.pendingDecisionCount}
-        </span>
-        <span className="hidden truncate text-xs text-slate-500 sm:inline dark:text-slate-400">
-          Answer one and they carry on straight away
+        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          {total}
         </span>
         <Link
           to={`/c/${company.slug}/decisions`}
-          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-violet-700 hover:underline dark:text-violet-300"
+          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
         >
           All decisions <ChevronRight size={12} />
         </Link>
+        <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          Review proposed work and answer your AI Employees. Work marked for approval waits for an owner or admin.
+        </p>
       </div>
-      <ul className="divide-y divide-violet-100 bg-white/60 dark:divide-violet-500/15 dark:bg-slate-900/40">
-        {data.decisions.map((d) => (
+      <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+        {workPreview.map((approval) => (
+          <WorkReviewCard key={approval.id} company={company} approval={approval} onResolved={onResolved} />
+        ))}
+        {preview.map((d) => (
           <DecisionCard key={d.id} company={company} decision={d} onResolved={onResolved} />
         ))}
       </ul>
       {hidden > 0 && (
         <Link
           to={`/c/${company.slug}/decisions`}
-          className="block border-t border-violet-100 px-4 py-2 text-center text-xs font-medium text-violet-700 hover:bg-violet-100/50 dark:border-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/10"
+          className="block border-t border-slate-200 px-4 py-3 text-center text-xs font-medium text-indigo-700 hover:bg-slate-50 dark:border-slate-800 dark:text-indigo-300 dark:hover:bg-slate-800"
         >
-          {hidden} more waiting
+          View the full stack · {hidden} more waiting
         </Link>
       )}
     </section>

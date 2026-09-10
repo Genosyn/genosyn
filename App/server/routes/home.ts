@@ -24,6 +24,7 @@ homeRouter.get("/home", async (req, res) => {
       userId: req.userId!,
       role: (req as Request & { role: Role }).role,
       canReadRepositoryWork: !req.apiKey,
+      canReadWorkReviews: !req.apiKey,
     }),
   );
 });

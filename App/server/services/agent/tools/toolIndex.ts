@@ -119,7 +119,15 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   decisions: {
     label: "decisions",
     blurb: "Ask a human to choose, and read back what they chose.",
-    tools: ["request_decision", "list_decisions", "get_decision", "cancel_decision", "decide_decision"],
+    tools: [
+      "request_decision",
+      "list_decisions",
+      "get_decision",
+      "cancel_decision",
+      "decide_decision",
+      "request_work_review",
+      "list_work_reviews",
+    ],
   },
   journal: {
     label: "journal",
@@ -630,7 +638,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "tax",
   ],
   create_estimate: ["quote", "quotation", "proposal", "pricing", "raise an estimate"],
-  issue_estimate: ["issue quote", "issue quotation", "mark sent", "remove draft", "finalize quote", "number estimate"],
+  issue_estimate: [
+    "issue quote",
+    "issue quotation",
+    "mark sent",
+    "remove draft",
+    "finalize quote",
+    "number estimate",
+  ],
   send_estimate: ["send quote", "send quotation", "email estimate", "email quote"],
   create_invoice: ["bill", "billing", "charge", "receivable", "raise an invoice"],
   create_recurring_invoice: [
@@ -1401,6 +1416,20 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "check with someone",
   ],
   list_decisions: ["what did they choose", "answer", "my questions", "did they reply"],
+  request_work_review: [
+    "proactive work",
+    "human approval",
+    "propose work",
+    "review plan",
+    "permission to act",
+  ],
+  list_work_reviews: [
+    "pending work",
+    "declined work",
+    "proposed plans",
+    "approved work",
+    "avoid duplicate",
+  ],
   get_decision: ["full decision", "answer feedback", "decision context", "read chosen option"],
   cancel_decision: ["retract", "never mind", "withdraw question"],
   decline_handoff: ["reject", "refuse"],

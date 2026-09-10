@@ -46,6 +46,10 @@ export type ApprovalStatus =
  *                            snapshotted on `payloadJson` and replayed on
  *                            approve through the loopback internal API with
  *                            a fresh employee-authority token.
+ *   - `proactive_work`    — a concrete plan prepared during a read-only
+ *                            proactive review. Only a human owner/admin may
+ *                            start its bounded follow-up session; original
+ *                            delivery restrictions and live Grants still apply.
  */
 export type ApprovalKind =
   | "routine"
@@ -54,6 +58,7 @@ export type ApprovalKind =
   | "mcp_tool"
   | "ad_spend"
   | "autonomy_promotion"
+  | "proactive_work"
   | "tainted_tool";
 
 /**
@@ -68,7 +73,7 @@ export type ApprovalKind =
  *     replayed on approve.
  *
  * `routineId` stays a non-nullable column for sqlite ALTER-COLUMN reasons
- * — non-routine approvals leave it as the empty string. Read it through
+ * — approvals without a source Routine leave it as the empty string. Read it through
  * the kind dispatcher in `services/approvals.ts` rather than directly.
  */
 @Entity("approvals")

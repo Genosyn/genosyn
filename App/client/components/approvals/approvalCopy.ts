@@ -38,6 +38,15 @@ export type ApprovalCopySource = {
 
 export function approvalCopy(a: ApprovalCopySource): ApprovalCopy {
   switch (a.kind as ApprovalKind) {
+    case "proactive_work":
+      return {
+        title: a.title ?? "Proposed work",
+        subtitle: a.summary ?? "An AI Employee has proposed work for your review.",
+        consequence:
+          "Approving starts the AI Employee on the work described in this request. Other required Approvals still apply.",
+        Icon: ShieldCheck,
+        iconClass: "text-indigo-600",
+      };
     case "lightning_payment":
       return {
         title: a.title ?? "Lightning payment",

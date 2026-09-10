@@ -50,7 +50,7 @@ const TLDR_TIMEOUT_MS = 2 * 60_000;
 const STALE_GENERATION_MS = 5 * 60_000;
 const RETRY_DELAY_MS = 5 * 60_000;
 const MAX_SCHEDULED_PER_TICK = 3;
-const TERMINAL_RUN_STATUSES = ["completed", "failed", "skipped", "timeout", "interrupted"] as const;
+const TERMINAL_RUN_STATUSES = ["completed", "reviewed", "failed", "skipped", "timeout", "interrupted"] as const;
 
 export type TldrSourceStats = {
   journalEntries: number;

@@ -5,10 +5,12 @@ import { Decision, DecisionPickupStatus } from "../db/entities/Decision.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { chatWithEmployee } from "./chat.js";
 import { getActiveModel } from "./models.js";
 import { parseDecisionOptions } from "./decisions.js";
+import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
 
 /**
  * Pickup — the work session that starts the moment a human answers a Decision.
@@ -118,6 +120,43 @@ export async function kickoffDecision(args: {
       chatOptions = {
         requesterUserId: args.requesterUserId,
         requesterSessionVersion: args.requesterSessionVersion,
+      };
+    }
+    // Older Decisions could start a fresh full-authority chat when answered.
+    // Restore the original source restrictions even for an AI decision policy.
+    if (decision.routineId) {
+      const routine = await AppDataSource.getRepository(Routine).findOneBy({
+        id: decision.routineId,
+        employeeId: employee.id,
+      });
+      if (!routine || !routine.enabled) {
+        await settle(
+          decision,
+          "skipped",
+          "The source Routine was disabled or removed. The answer was saved.",
+        );
+        return;
+      }
+      const run = decision.runId
+        ? await AppDataSource.getRepository(Run).findOneBy({
+            id: decision.runId,
+            routineId: routine.id,
+          })
+        : null;
+      chatOptions = {
+        ...chatOptions,
+        routineId: routine.id,
+        mailDeliveryMode: routineDeliveryPolicy(routine).mailDeliveryMode,
+        selfReviewOnly: routine.selfReviewOnly,
+        proactiveReview: routineNeedsWorkReview(routine, run?.triggerKind ?? "schedule"),
+      };
+    }
+    if (decision.mailThreadId) {
+      chatOptions = {
+        ...chatOptions,
+        mailThreadId: decision.mailThreadId,
+        mailDeliveryMode: chatOptions.mailDeliveryMode ?? "draft",
+        proactiveReview: true,
       };
     }
     if (!(await getActiveModel(employee.id))) {

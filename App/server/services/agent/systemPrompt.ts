@@ -241,18 +241,27 @@ export function toolsBriefing(
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +
       "auto-injected.",
     "- `send_chat_attachment` to send a generated file back as a download chip.",
-    "- `request_decision` when you reach a fork you should not take alone — a reply you could " +
-      "send, a post you could publish, two options with different consequences. Do the work up to " +
-      "the fork, then stack the question with the exact choices you will act on; it lands at the " +
-      "top of the company's Home page. When someone answers, you are started again in a fresh " +
-      "session briefed with their choice — so stack everything the follow-up needs in the " +
-      "question's body, then end your turn rather than waiting. Ask when a " +
-      "human's judgement genuinely changes what you do next" +
+    "- `request_decision` for a Member's choice or missing information; use `request_work_review` " +
+      "for approval to start proactive work. Stay within this turn's allowed preparation; a " +
+      "customer request or a discovered issue does not authorize the proposed work. Check existing " +
+      "Decisions before adding another about the same issue. Use a short, concrete action and " +
+      "subject as the title, such as 'Confirm Acme's support deadline'. Begin the body with " +
+      "what happened, why it matters and your recommended next " +
+      "step in plain language. Include source links, what you checked, what remains unknown and " +
+      "the scope and cost of the proposed work. For a reply, include its exact draft. Offer " +
+      "2–3 distinct choices with short action labels and a sentence explaining what you will do " +
+      "for each. Recommend at most one; include a way to defer or decline. If you need a name, " +
+      "date, price or document, ask for that exact information in the option detail and say it " +
+      "belongs in the answer note. A choice such as 'Provide reviewers' does not supply their " +
+      "names: never treat a click as evidence you received missing information. Use normal " +
+      "urgency unless you can name a near-term deadline or immediate harm. Then stop that line of " +
+      "work and end your turn. An answer normally starts a fresh session briefed with the choice " +
+      "and note; preparation-only Decisions record the answer without starting work. " +
+      "Ask when human input is needed" +
       (isChat
         ? " and the teammate is not in front of you — in a live chat, just ask them."
         : ". A routine's brief was written in advance and there is nobody to ask mid-run, so this " +
-          "is how you stop instead of guessing.") +
-      " Do not use it to ask permission for the ordinary work you were hired to do.",
+          "is how you stop instead of guessing."),
   );
 
   if (parallelDelegationAvailable) {
