@@ -332,7 +332,8 @@ try {
       await automatic.waitFor();
       assert.equal(await automatic.getAttribute("aria-checked"), "true");
       assert.equal(await automatic.isEnabled(), true);
-      await page.getByText(/Proactive work is on by default/).waitFor();
+      await page.getByText(/Proactive review is on by default/).waitFor();
+      await page.getByText(/An owner or admin must approve that plan/).waitFor();
       await page
         .getByRole("link", { name: "Customer quote responsibility", exact: true })
         .waitFor();
@@ -408,6 +409,10 @@ try {
     const page = await open();
     await page.getByText("Waiting for ready AI Employees", { exact: true }).waitFor();
     assert.equal(await page.locator("article").count(), PROACTIVE_RECIPES.length);
+    assert.equal(
+      await page.getByRole("link", { name: "Review proposed work", exact: true }).getAttribute("href"),
+      "/c/company/decisions",
+    );
     assert.equal(
       await page.getByRole("link", { name: /AI Employees/ }).getAttribute("href"),
       "/c/company/employees",

@@ -33,6 +33,8 @@ describe("short-lived MCP tokens", () => {
       mailThreadId: null,
       mailDeliveryMode: null,
       selfReviewOnly: false,
+      proactiveReview: false,
+      mailHandoverId: null,
       repositoryWorkSessionId: null,
       authority: "employee",
       requesterUserId: null,
