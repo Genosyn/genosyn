@@ -506,7 +506,9 @@ function discuss(locator: Page | Locator) {
   return locator.getByRole("button", { name: "Discuss", exact: true });
 }
 function composer(page: Page) {
-  return page.locator("textarea");
+  // The URL can change before React replaces the Decision cards and their
+  // note fields. Wait for the actual chat composer, not any textarea on screen.
+  return page.getByPlaceholder("Message Alex Rivera…", { exact: true });
 }
 async function staged(page: Page, row = decision()) {
   await page.waitForURL(`${origin}${chatPath}`);
