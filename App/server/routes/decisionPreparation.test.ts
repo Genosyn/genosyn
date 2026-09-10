@@ -105,7 +105,10 @@ test("draft and triage requests stay human-only despite an enabled AI decision p
     assert.equal(decision.status, "pending");
     assert.equal(decision.pickupStatus, "skipped");
     assert.equal(decision.routedToEmployeeId, null);
-    assert.match(decision.pickupSummary!, /preparation/);
+    const summary = decision.pickupSummary ?? "";
+    assert.match(summary, /awaiting human review/);
+    assert.match(summary, /Answering does not start work/);
+    assert.match(summary, /proposed work plan needs its own human approval/);
     // A stale in-memory copy must not route a persistently restricted row.
     assert.equal(
       await tryRouteDecision(Object.assign(new Decision(), decision, { pickupStatus: "none" })),
