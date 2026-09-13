@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   CheckCircle2,
   Link2,
@@ -486,9 +486,9 @@ function DeclinedPanel({ preview }: { preview: BindPreview }) {
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400">{copy.note}</p>
         <div className="flex justify-end pt-1">
-          <Link to="/" className={buttonClassName({ variant: "secondary", size: "sm" })}>
+          <a href="/" className={buttonClassName({ variant: "secondary", size: "sm" })}>
             Open Genosyn
-          </Link>
+          </a>
         </div>
       </div>
     </AuthShell>
@@ -524,9 +524,9 @@ function LinkedPanel({ identity }: { identity: BoundIdentity }) {
           you leave the company.
         </p>
         <div className="flex justify-end pt-1">
-          <Link to="/" className={buttonClassName({ size: "sm" })}>
+          <a href="/" className={buttonClassName({ size: "sm" })}>
             Open Genosyn
-          </Link>
+          </a>
         </div>
       </div>
     </AuthShell>
@@ -563,9 +563,9 @@ function FailurePanel({ failure, onRetry }: { failure: BindFailure; onRetry: () 
             // Deliberately not "sign in as someone else" on a 403: the person
             // is already signed in, and /login would bounce them straight back
             // out to their own company home without explaining why.
-            <Link to="/" className={buttonClassName({ variant: "secondary", size: "sm" })}>
+            <a href="/" className={buttonClassName({ variant: "secondary", size: "sm" })}>
               Open Genosyn
-            </Link>
+            </a>
           )}
           {failure.retryable && (
             <Button size="sm" variant="secondary" onClick={onRetry}>

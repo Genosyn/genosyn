@@ -23,7 +23,7 @@ import {
   invitationTokenFromSearch,
 } from "../lib/invitationNavigation";
 
-export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
+export default function Login() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -56,17 +56,16 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
     setLoading(true);
     api
       .get<TwoFactorLoginStatus>("/api/auth/login/two-factor")
-      .then(async (status) => {
+      .then((status) => {
         if (status.requiresTwoFactor) {
           setTwoFactor(status.methods);
           return;
         }
-        await onAuth();
-        navigate(returnTo);
+        window.location.assign(returnTo);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [navigate, onAuth, searchParams, returnTo]);
+  }, [searchParams, returnTo]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,10 +78,10 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         setTwoFactor(result.methods);
         return;
       }
-      // Refresh App's auth state so the route tree flips from "anon" to
-      // "ready" before we navigate — otherwise "/" bounces back to /login.
-      await onAuth();
-      navigate(returnTo);
+      // Start a fresh document with the new session. Besides rebuilding App
+      // auth state, this lets the signed-in custom-JavaScript loader run only
+      // after the password page and its fields have been torn down.
+      window.location.assign(returnTo);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -96,8 +95,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         <TwoFactorPrompt
           methods={twoFactor}
           onComplete={async () => {
-            await onAuth();
-            navigate(returnTo);
+            window.location.assign(returnTo);
           }}
           onBack={() => {
             setTwoFactor(null);

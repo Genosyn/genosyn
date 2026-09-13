@@ -69,6 +69,7 @@ import { basesRouter } from "./routes/bases.js";
 import { backupsRouter } from "./routes/backups.js";
 import { backupDestinationsRouter } from "./routes/backupDestinations.js";
 import { adminRouter } from "./routes/admin.js";
+import { customJavaScriptRouter } from "./routes/customJavaScript.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
@@ -133,6 +134,7 @@ import {
 } from "./services/runtimeSecurity.js";
 import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
 import { bootPublicUrl } from "./services/publicUrl.js";
+import { bootCustomJavaScript } from "./services/customJavaScript.js";
 import { bootRuntimeSettings, importLegacyConfigOverrides } from "./services/runtimeSettings.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
@@ -156,6 +158,7 @@ async function main() {
   await initDb();
   await bindInstanceSecretsToDatabase();
   await bootPublicUrl();
+  await bootCustomJavaScript();
   // An install upgrading from an old-shape config.ts (or a Kubernetes overlay
   // that still renders one) carries the operational blocks this build reads
   // from the database instead. Move them into their AppSetting rows once, so
@@ -305,6 +308,11 @@ async function main() {
       next();
     });
   });
+
+  // Same-origin browser code selected at Admin → General. The shell requests
+  // it on every page, but the route only returns operator code for a valid
+  // signed-in session after the fixed loader identifies an eligible page.
+  app.use("/api/app", customJavaScriptRouter);
 
   // A human may temporarily sign into Genosyn inside an AI Employee's
   // persistent Browser. Once that context carries the Member session cookie,

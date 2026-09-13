@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Lock } from "lucide-react";
 import { api, SignupStatus } from "../lib/api";
 import { Button } from "../components/ui/Button";
@@ -13,7 +13,7 @@ import {
   invitationTokenFromSearch,
 } from "../lib/invitationNavigation";
 
-export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
+export default function Signup() {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -22,7 +22,6 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
   // null → still checking whether registration is open on this instance.
   const [open, setOpen] = React.useState<boolean | null>(null);
   const [setupRequired, setSetupRequired] = React.useState(false);
-  const navigate = useNavigate();
   const location = useLocation();
   const invitationToken = invitationTokenFromSearch(location.search);
 
@@ -54,10 +53,9 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
         name,
         ...(invitationToken ? { invitationToken } : {}),
       });
-      // See Login.tsx: refresh App's auth state before navigating so the
-      // route tree flips from "anon" to "ready".
-      await onAuth();
-      navigate(invitationPath(invitationToken));
+      // See Login.tsx: the authenticated App starts in a fresh document, after
+      // the password fields and signed-out route have been torn down.
+      window.location.assign(invitationPath(invitationToken));
     } catch (err) {
       setError((err as Error).message);
     } finally {

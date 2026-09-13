@@ -250,7 +250,7 @@ export function AdminOverview() {
             to={`${base}/general`}
             icon={Settings}
             title="General"
-            description="Set the browser-facing public URL for this instance."
+            description="Set the public URL and trusted browser JavaScript."
           />
           <NavCard
             to={`${base}/users`}

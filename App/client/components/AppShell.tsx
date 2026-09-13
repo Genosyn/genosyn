@@ -53,7 +53,6 @@ type AppShellProps = {
   me: Me;
   companies: Company[];
   current: Company;
-  onAuthChanged: () => Promise<void>;
   onCompaniesChanged: () => Promise<void>;
   children: React.ReactNode;
 };
@@ -77,7 +76,6 @@ export function AppShell({
   me,
   companies,
   current,
-  onAuthChanged,
   onCompaniesChanged,
   children,
 }: AppShellProps) {
@@ -119,7 +117,6 @@ export function AppShell({
                   me={me}
                   companies={companies}
                   current={current}
-                  onAuthChanged={onAuthChanged}
                   onCompaniesChanged={onCompaniesChanged}
                 />
                 <div className="flex min-h-0 flex-1">{children}</div>
@@ -136,13 +133,11 @@ function TopNav({
   me,
   companies,
   current,
-  onAuthChanged,
   onCompaniesChanged,
 }: {
   me: Me;
   companies: Company[];
   current: Company;
-  onAuthChanged: () => Promise<void>;
   onCompaniesChanged: () => Promise<void>;
 }) {
   const navigate = useNavigate();
@@ -168,8 +163,9 @@ function TopNav({
   async function performLogout() {
     await api.post("/api/auth/logout");
     clearAssistantChatSessions();
-    await onAuthChanged();
-    navigate("/login");
+    // Tear down the current document so trusted custom JavaScript loaded for
+    // the signed-in App cannot remain resident on the sign-in screen.
+    window.location.assign("/login");
   }
 
   function logout() {

@@ -37,6 +37,9 @@
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased">
     <div id="root"></div>
+    <!-- Database-backed, master-admin supplied browser code. The /api path is
+         deliberate: the service worker must never retain code after removal. -->
+    <script vite-ignore src="/api/app/custom-javascript-loader.js"></script>
     <script type="module" src="/main.tsx"></script>
   </body>
 </html>

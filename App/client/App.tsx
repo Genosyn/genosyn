@@ -220,6 +220,23 @@ type AuthState =
   | { status: "anon" }
   | { status: "ready"; me: Me; companies: Company[] };
 
+function isAnonymousPage(pathname: string): boolean {
+  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|sign(?:\/|$))/i.test(
+    pathname,
+  );
+}
+
+function FullPageRedirect({ to }: { to: string }) {
+  React.useEffect(() => {
+    window.location.replace(to);
+  }, [to]);
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Spinner size={24} />
+    </div>
+  );
+}
+
 export default function App() {
   const location = useLocation();
   const isPublicSigning = location.pathname.startsWith("/sign/");
@@ -240,6 +257,13 @@ export default function App() {
     } catch {
       clearAssistantChatSessions();
       authenticatedMemberRef.current = null;
+      // Auth failure from an App URL gets a fresh document. Besides keeping
+      // routing deterministic, this unloads any trusted custom JavaScript
+      // that ran while the previous Member session was valid.
+      if (!isAnonymousPage(window.location.pathname)) {
+        window.location.replace("/login");
+        return;
+      }
       setAuth({ status: "anon" });
     }
   }, [refreshAuthenticatedState]);
@@ -261,11 +285,11 @@ export default function App() {
           </div>
         ) : auth.status === "anon" ? (
           <Routes>
-            <Route path="/login" element={<Login onAuth={refresh} />} />
+            <Route path="/login" element={<Login />} />
             {/* Company SSO entry (M56 Phase B) — same page, seeded with the
               workspace slug so it can offer "Continue with …" directly. */}
-            <Route path="/login/sso/:companySlug" element={<Login onAuth={refresh} />} />
-            <Route path="/signup" element={<Signup onAuth={refresh} />} />
+            <Route path="/login/sso/:companySlug" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
             <Route path="/forgot" element={<Forgot />} />
             <Route path="/reset/:token" element={<Reset />} />
             <Route path="/verify-email/:token" element={<VerifyEmailLink onVerified={refresh} />} />
@@ -280,20 +304,20 @@ export default function App() {
           </Routes>
         ) : (
           <Routes>
-            {/* Auth refresh may swap route trees before the form's navigation
-              runs. Preserve the invitation during that handoff as well. */}
+            {/* An authenticated browser may still open an auth URL directly.
+              Leave its protected document with a full navigation, preserving
+              an invitation until that flow completes. */}
             <Route
               path="/login"
-              element={
-                <Navigate to={invitationPath(invitationTokenFromSearch(location.search))} replace />
-              }
+              element={<FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />}
             />
             <Route
               path="/signup"
-              element={
-                <Navigate to={invitationPath(invitationTokenFromSearch(location.search))} replace />
-              }
+              element={<FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />}
             />
+            <Route path="/login/sso/:companySlug" element={<FullPageRedirect to="/" />} />
+            <Route path="/forgot" element={<FullPageRedirect to="/" />} />
+            <Route path="/reset/:token" element={<FullPageRedirect to="/" />} />
             <Route path="/verify-email/:token" element={<VerifyEmailLink onVerified={refresh} />} />
             <Route
               path="*"
@@ -398,7 +422,6 @@ function CompanyRoutes({
       me={me}
       companies={companies}
       current={company}
-      onAuthChanged={onChanged}
       onCompaniesChanged={onCompaniesChanged}
     >
       <ChatSessionsProvider key={company.id}>

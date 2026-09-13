@@ -3537,10 +3537,15 @@ export type OauthAppDescriptor = {
 };
 
 // ───────────────────────── Admin instance settings ─────────────────────────
-// Installation-wide browser origin, persisted in app_settings and served by
-// /api/admin/instance-settings.
+// Installation-wide browser settings persisted in app_settings. The origin
+// and custom JavaScript use separate endpoints so saving one can never replace
+// a concurrent edit to the other.
 export type InstanceSettings = {
   publicUrl: string;
+  configured: boolean;
+};
+export type CustomJavaScriptSettings = {
+  customJavaScript: string;
   configured: boolean;
 };
 

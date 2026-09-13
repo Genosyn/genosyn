@@ -173,7 +173,7 @@ export function SelfHosting() {
           },
           {
             term: "Admin → General",
-            def: <>The browser-facing public URL. See below.</>,
+            def: <>The browser-facing public URL and custom browser JavaScript. See below.</>,
           },
           {
             term: "Admin → Integrations",
@@ -223,6 +223,28 @@ export function SelfHosting() {
         arrived on. Review the value in <Code>Admin → General</Code> after putting Genosyn behind a
         reverse proxy; you can replace it without restarting the app.
       </Callout>
+
+      <H2 id="custom-javascript">Custom JavaScript</H2>
+      <P>
+        Open <Code>Admin → General → Custom JavaScript</Code> to add Google Tag Manager, Google
+        Analytics, or another trusted browser script. Paste either raw JavaScript or the complete
+        vendor snippet with its <Code>&lt;script&gt;</Code> elements; an external script element must use
+        HTTPS and include <Code>async</Code>. Select <Strong>Save changes</Strong>. It runs on the
+        next eligible signed-in App page load without a restart. Clear the field and save again to
+        disable it.
+      </P>
+      <Callout kind="warn" title="Custom code has every Member's browser authority.">
+        It can read the page and make same-origin requests as whoever is signed in. Use only code
+        you trust, never place a secret in the field, and load third-party bundles over HTTPS.
+        Genosyn does not start custom code on login, sign-up, reset, verification, invitation,
+        signing, or chat-link page loads. If a broken snippet disrupts the App, load any page with
+        <Code>?safe=1</Code>, return to Admin → General, and clear it.
+      </Callout>
+      <P>
+        This setting measures the Genosyn App itself. It is separate from a Google Analytics{" "}
+        <Strong>Connection</Strong>, which gives granted AI Employees read-only access to a
+        company&apos;s GA4 reporting data.
+      </P>
 
       <H2 id="db-driver">Switching to Postgres</H2>
       <P>

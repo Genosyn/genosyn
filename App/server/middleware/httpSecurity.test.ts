@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isTrustedBrowserOrigin } from "./httpSecurity.js";
+import { contentSecurityPolicy, isTrustedBrowserOrigin } from "./httpSecurity.js";
 
 test("accepts same-host browser mutations independently of stored settings", () => {
   assert.equal(
@@ -45,4 +45,19 @@ test("keeps safe methods and bearer API requests compatible", () => {
     }),
     true,
   );
+});
+
+test("keeps third-party scripts blocked when custom JavaScript is disabled", () => {
+  const policy = contentSecurityPolicy();
+  assert.match(policy, /script-src 'self';/);
+  assert.match(policy, /frame-src 'self'$/);
+  assert.doesNotMatch(policy.match(/script-src [^;]+/)?.[0] ?? "", /https:|unsafe/);
+});
+
+test("allows HTTPS vendor bundles without allowing inline or evaluated scripts", () => {
+  const policy = contentSecurityPolicy(true);
+  const scriptDirective = policy.match(/script-src [^;]+/)?.[0] ?? "";
+  assert.equal(scriptDirective, "script-src 'self' https:");
+  assert.doesNotMatch(scriptDirective, /unsafe-inline|unsafe-eval/);
+  assert.match(policy, /frame-src 'self' https:$/);
 });

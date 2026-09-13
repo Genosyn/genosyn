@@ -19,8 +19,9 @@
  * container's browser, the agent's taint policy / member browsers / tool
  * discovery, and containment are at **Admin → Runtime** (see
  * `server/services/runtimeSettings.ts`); the global SMTP transport is at
- * **Admin → Email transport**; the browser-facing public URL is at
- * **Admin → General**; OAuth app credentials are at **Admin → Integrations**.
+ * **Admin → Email transport**; the browser-facing public URL and custom
+ * JavaScript are at **Admin → General**; OAuth app credentials are at
+ * **Admin → Integrations**.
  * Do not reintroduce any of them here — an operator should not have to edit a
  * file and restart a container to change how often a mailbox polls.
  *

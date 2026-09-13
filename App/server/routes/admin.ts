@@ -25,6 +25,12 @@ import {
 } from "../services/globalEmailTransport.js";
 import { getPublicUrlSettings, setPublicUrl } from "../services/publicUrl.js";
 import {
+  CustomJavaScriptValidationError,
+  getCustomJavaScriptSettings,
+  MAX_CUSTOM_JAVASCRIPT_LENGTH,
+  setCustomJavaScript,
+} from "../services/customJavaScript.js";
+import {
   getRuntimeSettingsSnapshot,
   resetRuntimeSettingsGroup,
   saveRuntimeSettingsGroup,
@@ -112,6 +118,34 @@ adminRouter.put(
       res.json(await setPublicUrl(publicUrl));
     } catch (err) {
       if (err instanceof Error) {
+        return res.status(400).json({ error: err.message });
+      }
+      next(err);
+    }
+  },
+);
+
+adminRouter.get("/custom-javascript", async (_req, res, next) => {
+  try {
+    res.json(await getCustomJavaScriptSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const customJavaScriptSchema = z.object({
+  customJavaScript: z.string().max(MAX_CUSTOM_JAVASCRIPT_LENGTH),
+});
+
+adminRouter.put(
+  "/custom-javascript",
+  validateBody(customJavaScriptSchema),
+  async (req, res, next) => {
+    try {
+      const { customJavaScript } = req.body as z.infer<typeof customJavaScriptSchema>;
+      res.json(await setCustomJavaScript(customJavaScript));
+    } catch (err) {
+      if (err instanceof CustomJavaScriptValidationError) {
         return res.status(400).json({ error: err.message });
       }
       next(err);

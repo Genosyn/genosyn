@@ -1,5 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import { config } from "../../config.js";
+import {
+  customJavaScriptAllowedForUrl,
+  hasCustomJavaScript,
+} from "../services/customJavaScript.js";
 import { getPublicUrl } from "../services/publicUrl.js";
 
 export type TrustedOriginInput = {
@@ -24,6 +28,24 @@ export function isTrustedBrowserOrigin(input: TrustedOriginInput): boolean {
   }
 }
 
+/**
+ * Keep the default App policy unchanged until an operator deliberately enables
+ * custom browser code. HTTPS is then allowed because GTM, GA, and similar
+ * bootstraps load their vendor bundle dynamically. Credential-bearing and
+ * safe-mode pages continue to receive the original policy.
+ */
+export function contentSecurityPolicy(customJavaScriptEnabled = false): string {
+  const scriptSources = customJavaScriptEnabled ? "'self' https:" : "'self'";
+  const frameSources = customJavaScriptEnabled ? "'self' https:" : "'self'";
+  return (
+    "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
+    `form-action 'self'; script-src ${scriptSources}; ` +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob: https:; font-src 'self' data:; " +
+    `connect-src 'self' https: wss:; frame-src ${frameSources}`
+  );
+}
+
 export function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -34,12 +56,11 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   if (process.env.NODE_ENV === "production" && !req.path.startsWith("/api/docs")) {
+    const customJavaScriptEnabled =
+      hasCustomJavaScript() && customJavaScriptAllowedForUrl(req.originalUrl);
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
-        "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-        "img-src 'self' data: blob: https:; font-src 'self' data:; " +
-        "connect-src 'self' https: wss:; frame-src 'self'",
+      contentSecurityPolicy(customJavaScriptEnabled),
     );
   }
   next();

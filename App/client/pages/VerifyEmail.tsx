@@ -58,12 +58,12 @@ export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
           <p className="text-sm text-slate-600 dark:text-slate-300">
             Your email is verified. You can continue to Genosyn.
           </p>
-          <Link
+          <a
             className="inline-flex h-10 items-center justify-center rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white transition hover:bg-indigo-700"
-            to={invitationPath(invitationToken)}
+            href={invitationPath(invitationToken)}
           >
             Continue
-          </Link>
+          </a>
         </div>
       ) : (
         <div className="space-y-4">
