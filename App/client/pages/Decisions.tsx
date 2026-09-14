@@ -113,7 +113,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
     } catch (err) {
       if (version !== workRequest.current) return;
       setWorkError(errorMessage(err, "Could not load email and work reviews"));
-      setWorkReviews([]);
+      setWorkReviews((current) => current ?? []);
     }
   }, [company.id, canReview, linkedReviewId]);
 

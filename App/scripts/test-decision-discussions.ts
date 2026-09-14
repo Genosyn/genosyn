@@ -342,6 +342,7 @@ type FixtureOptions = {
   reviews?: Approval[];
   approvalError?: boolean;
   mailEditConflict?: boolean;
+  mailConflictRefreshError?: boolean;
   mailSendResult?: "sent" | "not_sent" | "unverified";
   rows?: Decision[];
   surface?: "home" | "decisions" | "chat";
@@ -372,6 +373,7 @@ async function open(options: FixtureOptions = {}) {
   let listCalls = 0;
   let listError = options.listError ?? false;
   let decisionError = options.decisionError ?? false;
+  let failNextApprovalRead = false;
   let allowWrites = false;
   const conversations = options.history === false ? [] : [conversation()];
   let createdCount = 0;
@@ -390,7 +392,16 @@ async function open(options: FixtureOptions = {}) {
     if (request.method() === "GET") {
       reads.push(url.pathname + url.search);
       if (url.pathname === `${apiBase}/decisions`) return route.fulfill({ json: rows });
-      if (url.pathname === `${apiBase}/approvals`) return route.fulfill({ json: approvalRows });
+      if (url.pathname === `${apiBase}/approvals`) {
+        if (failNextApprovalRead) {
+          failNextApprovalRead = false;
+          return route.fulfill({
+            status: 503,
+            json: { error: "Email reviews are temporarily unavailable." },
+          });
+        }
+        return route.fulfill({ json: approvalRows });
+      }
       if (url.pathname === `${apiBase}/onboarding-status`)
         return route.fulfill({
           json: {
@@ -498,6 +509,7 @@ async function open(options: FixtureOptions = {}) {
               bodyText: "A newer server-side version of this email.",
             },
           };
+          failNextApprovalRead = options.mailConflictRefreshError ?? false;
           return route.fulfill({
             status: 409,
             json: {
@@ -1160,6 +1172,7 @@ try {
       rows: [],
       reviews: [mailReview()],
       mailEditConflict: true,
+      mailConflictRefreshError: true,
     });
     await fixture.page.getByRole("button", { name: "Edit email", exact: true }).click();
     const to = fixture.page.getByLabel("To", { exact: true });
@@ -1178,6 +1191,9 @@ try {
     await fixture.page.getByRole("button", { name: "Save changes", exact: true }).click();
     await fixture.page
       .getByText(/changed while you were editing.*unsaved text remains available/i)
+      .waitFor();
+    await fixture.page
+      .getByText("Email reviews are temporarily unavailable.", { exact: true })
       .waitFor();
     assert.equal(await editor.inputValue(), "My unsaved version must remain visible.");
     assert.equal(await to.inputValue(), "customer@acme.example");
