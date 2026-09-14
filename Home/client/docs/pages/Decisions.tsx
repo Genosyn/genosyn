@@ -168,8 +168,8 @@ export function Decisions() {
         Other Approvals include a gated{" "}
         <DocLink to="/docs/routines">Routine</DocLink> tick, a payment over your threshold, a{" "}
         <DocLink to="/docs/browser">browser form submit</DocLink> — and the server performs that
-        exact action once an admin approves it. That is why approvals are admin-only and ask you to
-        re-authenticate.
+        exact action once an admin approves it. That is why approvals are restricted to an owner or
+        admin in a logged-in browser session; ordinary Members and API keys cannot decide them.
       </P>
       <P>
         A decision performs nothing itself. It records which option a human picked and hands that

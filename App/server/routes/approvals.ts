@@ -16,7 +16,6 @@ import {
   requireBrowserSession,
   requireCompanyMember,
   requireCompanyRole,
-  requireRecentAuthentication,
 } from "../middleware/auth.js";
 import {
   approvePendingApproval,
@@ -27,20 +26,15 @@ import {
 } from "../services/approvals.js";
 
 /**
- * Human-in-the-loop inbox. Decisions are browser-session-only, admin-level,
- * recently authenticated actions. The service layer owns the atomic
- * pending-to-terminal transition so duplicate requests never replay a side
- * effect.
+ * Human-in-the-loop inbox. Approval decisions are browser-session-only,
+ * admin-level actions. The service layer owns the atomic pending-to-terminal
+ * transition so duplicate requests never replay a side effect.
  */
 export const approvalsRouter = Router({ mergeParams: true });
 approvalsRouter.use(requireAuth);
 approvalsRouter.use(requireCompanyMember);
 
-const approvalDecisionGuards = [
-  requireBrowserSession,
-  requireCompanyRole("admin"),
-  requireRecentAuthentication({ requireSecondFactor: true }),
-];
+const approvalDecisionGuards = [requireBrowserSession, requireCompanyRole("admin")];
 
 /**
  * Provider replay arguments and results can contain third-party credentials or

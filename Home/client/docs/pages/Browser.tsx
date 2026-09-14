@@ -301,9 +301,8 @@ export function Browser() {
         reviewed attempt. If the browser moved to a different page before the claim (or was
         reclaimed while idle), the employee is asked to submit again rather than firing blindly
         against whatever is now loaded. Rejecting writes the decision to the employee&apos;s
-        journal. Only owners and admins may open or decide these requests, and deciding requires
-        recent primary and second-factor authentication in a logged-in browser session rather than
-        an API key.
+        journal. Only owners and admins may open or decide these requests from a logged-in browser
+        session; an API key cannot decide them.
       </P>
       <P>
         For a TOTP-protected form, use <Code>browser_submit_with_vault_totp</Code>. It queues the

@@ -290,68 +290,31 @@ describe("approval route authorization", () => {
     assert.match(JSON.stringify(response.body), /\[redacted\]/);
   });
 
-  test("missing or stale primary authentication cannot decide an approval", async () => {
+  test("a valid browser session can decide without recent-authentication evidence", async () => {
     const missing = await createApproval();
     authenticatedAt = undefined;
     secondFactorAt = undefined;
-    const missingResponse = await call<{ code: string }>({
+    const missingResponse = await call<{ status: string; decidedByUserId: string }>({
       method: "POST",
       approvalId: missing.id,
       action: "approve",
     });
-    assert.equal(missingResponse.status, 403);
-    assert.equal(missingResponse.body.code, "REAUTHENTICATION_REQUIRED");
-    assert.equal((await storedApproval(missing.id)).status, "pending");
+    assert.equal(missingResponse.status, 200);
+    assert.equal(missingResponse.body.status, "approved");
+    assert.equal(missingResponse.body.decidedByUserId, owner.id);
 
     const stale = await createApproval();
     authenticatedAt = Date.now() - 16 * 60_000;
     secondFactorAt = authenticatedAt;
-    const staleResponse = await call<{ code: string }>({
+    actingUserId = admin.id;
+    const staleResponse = await call<{ status: string; decidedByUserId: string }>({
       method: "POST",
       approvalId: stale.id,
       action: "reject",
     });
-    assert.equal(staleResponse.status, 403);
-    assert.equal(staleResponse.body.code, "REAUTHENTICATION_REQUIRED");
-    assert.equal((await storedApproval(stale.id)).status, "pending");
-  });
-
-  test("missing, stale, or pre-primary second-factor evidence cannot decide", async () => {
-    const missing = await createApproval();
-    authenticatedAt = Date.now();
-    secondFactorAt = undefined;
-    const missingResponse = await call<{ code: string }>({
-      method: "POST",
-      approvalId: missing.id,
-      action: "approve",
-    });
-    assert.equal(missingResponse.status, 403);
-    assert.equal(missingResponse.body.code, "SECOND_FACTOR_REQUIRED");
-
-    const stale = await createApproval();
-    authenticatedAt = Date.now();
-    secondFactorAt = Date.now() - 16 * 60_000;
-    const staleResponse = await call<{ code: string }>({
-      method: "POST",
-      approvalId: stale.id,
-      action: "approve",
-    });
-    assert.equal(staleResponse.status, 403);
-    assert.equal(staleResponse.body.code, "SECOND_FACTOR_REQUIRED");
-
-    const beforePrimary = await createApproval();
-    authenticatedAt = Date.now();
-    secondFactorAt = authenticatedAt - 1;
-    const beforePrimaryResponse = await call<{ code: string }>({
-      method: "POST",
-      approvalId: beforePrimary.id,
-      action: "reject",
-    });
-    assert.equal(beforePrimaryResponse.status, 403);
-    assert.equal(beforePrimaryResponse.body.code, "SECOND_FACTOR_REQUIRED");
-    assert.equal((await storedApproval(missing.id)).status, "pending");
-    assert.equal((await storedApproval(stale.id)).status, "pending");
-    assert.equal((await storedApproval(beforePrimary.id)).status, "pending");
+    assert.equal(staleResponse.status, 200);
+    assert.equal(staleResponse.body.status, "rejected");
+    assert.equal(staleResponse.body.decidedByUserId, admin.id);
   });
 
   test("unauthenticated and non-member callers cannot decide", async () => {

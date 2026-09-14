@@ -877,10 +877,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Some routines should not auto-fire. Flip <Code>approvalRequired</Code> on and the runner
         stops the moment the routine would take a sensitive action — raising an ad budget, sending
         an email, hitting a third-party API. The action is recorded as an <Code>Approval</Code> row.
-        A company owner or admin must approve or reject it from a logged-in browser session with
-        recent primary and second-factor authentication; API keys and ordinary Members cannot open
-        the inbox or decide approvals. Approval claims are one-shot, so double-clicks and concurrent
-        reviewers cannot replay the action. If the approved action fails, the row moves to{" "}
+        A company owner or admin must approve or reject it from a logged-in browser session; API
+        keys and ordinary Members cannot open the inbox or decide approvals. Approval claims are
+        one-shot, so double-clicks and concurrent reviewers cannot replay the action. If the
+        approved action fails, the row moves to{" "}
         <Code>execution_failed</Code> for investigation instead of becoming eligible to run again.
         Replay payloads, provider results, and raw provider failures are never returned by the inbox
         API.
