@@ -1321,7 +1321,17 @@ try {
         decidedByEmployee: { id: "decider", name: "Dana", slug: "dana" },
       });
       const fixture = await open({ rows: [row] });
-      await fixture.page.getByText("Answered by Dana (AI)", { exact: false }).waitFor();
+      if (status === "decided") {
+        await fixture.page.getByText("Answered by Dana (AI)", { exact: true }).waitFor();
+      } else if (status === "cancelled") {
+        await fixture.page
+          .getByText("Closed without recording an answer by Dana (AI).", { exact: true })
+          .waitFor();
+      } else {
+        await fixture.page
+          .getByText("The deadline passed before an answer was recorded.", { exact: true })
+          .waitFor();
+      }
       await discuss(fixture.page).click();
       await staged(fixture.page, row);
       assert.deepEqual(fixture.writes, []);
