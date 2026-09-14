@@ -17,6 +17,7 @@ export type HomeRepositoryWork = {
   filesChanged: number;
   insertions: number;
   deletions: number;
+  hasPullRequest: boolean;
   updatedAt: string;
   repository: { id: string; name: string; slug: string; kind: RepositoryKind };
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
@@ -60,6 +61,7 @@ export async function listHomeRepositoryWork(params: {
       "session.filesChanged",
       "session.insertions",
       "session.deletions",
+      "session.pullRequestUrl",
       "session.updatedAt",
     ])
     .orderBy("session.updatedAt", "DESC")
@@ -97,6 +99,7 @@ export async function listHomeRepositoryWork(params: {
         filesChanged: session.filesChanged,
         insertions: session.insertions,
         deletions: session.deletions,
+        hasPullRequest: Boolean(session.pullRequestUrl),
         updatedAt: session.updatedAt.toISOString(),
         repository: {
           id: repository.id,

@@ -14,6 +14,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Attachment } from "../db/entities/Attachment.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
@@ -25,6 +26,7 @@ import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
 import { recordAttachmentBytes, ATTACHMENTS_MAX_BYTES } from "../services/uploads.js";
+import { repositoryCheckoutExists } from "../services/repositoryWorkspace.js";
 
 /**
  * The HTTP surface an open work session is driven through.
@@ -839,6 +841,131 @@ describe("archiving a session", () => {
   test("rejects a query it does not understand rather than guessing", async () => {
     const result = await call("GET", `${sessionsUrl()}?archived=maybe`);
     assert.equal(result.status, 400);
+  });
+});
+
+describe("throwing work away", () => {
+  test("lets an ordinary Member discard every state offered on Home", async () => {
+    for (const status of ["ready", "empty", "proposed", "failed"] as const) {
+      await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, { status });
+      const result = await call("POST", `${sessionsUrl()}/${session.id}/discard`, {});
+      assert.equal(result.status, 200, status);
+      assert.equal(result.body.id, session.id, status);
+      assert.equal(result.body.status, "discarded", status);
+      const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+        id: session.id,
+      });
+      assert.equal(row.status, "discarded", status);
+    }
+    const audits = await AppDataSource.getRepository(AuditEvent).findBy({
+      companyId: company.id,
+      action: "repository.work_session_discard",
+    });
+    assert.equal(audits.length, 4);
+    assert.ok(audits.every((audit) => audit.actorUserId === member.id));
+    assert.ok(audits.every((audit) => audit.targetId === repository.id));
+  });
+
+  test("treats a retry as success without writing a second audit event", async () => {
+    const first = await call("POST", `${sessionsUrl()}/${session.id}/discard`, {});
+    const retry = await call("POST", `${sessionsUrl()}/${session.id}/discard`, {});
+
+    assert.equal(first.status, 200);
+    assert.equal(retry.status, 200);
+    assert.equal(retry.body.status, "discarded");
+    assert.equal(
+      await AppDataSource.getRepository(AuditEvent).countBy({
+        companyId: company.id,
+        action: "repository.work_session_discard",
+      }),
+      1,
+    );
+  });
+
+  test("coalesces overlapping discard requests into one audited change", async () => {
+    const [first, second] = await Promise.all([
+      call("POST", `${sessionsUrl()}/${session.id}/discard`, {}),
+      call("POST", `${sessionsUrl()}/${session.id}/discard`, {}),
+    ]);
+
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(first.body.status, "discarded");
+    assert.equal(second.body.status, "discarded");
+    assert.equal(
+      await AppDataSource.getRepository(AuditEvent).countBy({
+        companyId: company.id,
+        action: "repository.work_session_discard",
+      }),
+      1,
+    );
+  });
+
+  test("does not let a non-member or signed-out visitor discard company work", async () => {
+    actingUserId = outsider.id;
+    assert.equal((await call("POST", `${sessionsUrl()}/${session.id}/discard`, {})).status, 403);
+    actingUserId = null;
+    assert.equal((await call("POST", `${sessionsUrl()}/${session.id}/discard`, {})).status, 401);
+    const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(row.status, "ready");
+  });
+
+  test("does not reach a session through a different Repository", async () => {
+    const other = await insert(Repository, {
+      companyId: company.id,
+      name: "Other",
+      slug: "other",
+      description: "",
+      origin: "local",
+      kind: "documents",
+      gitUrl: "",
+      defaultBranch: "main",
+      authMode: "none",
+      lastSyncStatus: "unknown",
+      lastSyncError: "",
+    });
+    const result = await call(
+      "POST",
+      `${baseUrl}/api/companies/${company.id}/repositories/${other.slug}/sessions/${session.id}/discard`,
+      {},
+    );
+    assert.equal(result.status, 400);
+    assert.match(String(result.body.error), /not found/);
+    const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(row.status, "ready");
+  });
+
+  test("refuses a live turn without changing its state", async () => {
+    await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+      status: "running",
+    });
+    await AppDataSource.getRepository(RepositoryWorkSessionTurn).update(
+      { sessionId: session.id, ordinal: 1 },
+      { status: "running" },
+    );
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/discard`, {});
+    assert.equal(result.status, 400);
+    assert.match(String(result.body.error), /still working/);
+    const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(row.status, "running");
+  });
+
+  test("does not clone an unreachable remote before discarding its local work", async () => {
+    repository.origin = "remote";
+    repository.gitUrl = "https://127.0.0.1:1/unreachable.git";
+    await AppDataSource.getRepository(Repository).save(repository);
+    assert.equal(repositoryCheckoutExists(repository), false);
+
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/discard`, {});
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, "discarded");
+    assert.equal(repositoryCheckoutExists(repository), false);
   });
 });
 

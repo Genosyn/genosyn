@@ -92,6 +92,9 @@ function sessions(count = 4, longNames = false): HomeRepositoryWork[] {
     filesChanged: index % 4 === 3 ? 0 : index + 1,
     insertions: index + 12,
     deletions: index + 2,
+    // A pull request survives a later failed revision, whose status is no
+    // longer `proposed`; Home still has to warn about that remote work.
+    hasPullRequest: index % 4 === 1 || index % 4 === 2,
     updatedAt: fixtureNow.toISOString(),
     repository: {
       id: `repository-${index % 2}`,
@@ -152,6 +155,8 @@ async function open(
     longNames?: boolean;
     homeError?: boolean;
     paginationError?: boolean;
+    discardError?: boolean;
+    holdDiscard?: boolean;
     holdPagination?: boolean;
     live?: boolean;
   } = {},
@@ -167,9 +172,14 @@ async function open(
   let items = sessions(options.count, options.longNames);
   let homeError = options.homeError ?? false;
   let paginationError = options.paginationError ?? false;
+  let discardError = options.discardError ?? false;
   let releasePagination: () => void = () => {};
   const paginationGate = new Promise<void>((resolve) => {
     releasePagination = resolve;
+  });
+  let releaseDiscard: () => void = () => {};
+  const discardGate = new Promise<void>((resolve) => {
+    releaseDiscard = resolve;
   });
   let holdRefresh = false;
   let releaseRefresh: () => void = () => {};
@@ -177,6 +187,7 @@ async function open(
     releaseRefresh = resolve;
   });
   const reads: string[] = [];
+  const posts: string[] = [];
   const sockets: WebSocketRoute[] = [];
   if (options.live) {
     await page.routeWebSocket(`${origin.replace(/^http/, "ws")}/api/ws?token=*`, (socket) => {
@@ -212,6 +223,26 @@ async function open(
       url.pathname === "/api/companies/company/workspace/ws-token"
     ) {
       return route.fulfill({ json: { token: "fixture-token" } });
+    }
+    const discardMatch = url.pathname.match(
+      /^\/api\/companies\/company\/repositories\/([^/]+)\/sessions\/([^/]+)\/discard$/,
+    );
+    if (url.origin === origin && request.method() === "POST" && discardMatch) {
+      posts.push(url.pathname);
+      if (options.holdDiscard) await discardGate;
+      if (discardError) {
+        return route.fulfill({
+          status: 503,
+          json: { error: "Repository work is temporarily unavailable." },
+        });
+      }
+      const [, repositorySlug, sessionId] = discardMatch;
+      const item = items.find(
+        (row) => row.id === sessionId && row.repository.slug === repositorySlug,
+      );
+      if (!item) return route.fulfill({ status: 404, json: { error: "Work session not found." } });
+      items = items.filter((row) => row.id !== sessionId);
+      return route.fulfill({ json: { ...item, status: "discarded" } });
     }
     if (url.origin !== origin || request.method() !== "GET") {
       unexpectedRequests.push(`${request.method()} ${url.href}`);
@@ -281,6 +312,8 @@ async function open(
   return {
     page,
     reads,
+    posts,
+    releaseDiscard,
     releasePagination,
     releaseRefresh,
     holdRefresh: () => {
@@ -289,6 +322,10 @@ async function open(
     recover: () => {
       homeError = false;
       paginationError = false;
+      discardError = false;
+    },
+    failHomeRefresh: () => {
+      homeError = true;
     },
     clearWork: () => {
       items = [];
@@ -389,6 +426,7 @@ try {
       }
       assert.equal(await card(page).getByText("Review work", { exact: true }).count(), 2);
       assert.equal(await card(page).getByText("Open session", { exact: true }).count(), 2);
+      assert.equal(await card(page).getByRole("button", { name: /^Throw away / }).count(), 4);
       await rows(page).first().getByText("· 1 file · +12 −2", { exact: true }).waitFor();
       await fits(page);
       await page.screenshot({
@@ -404,8 +442,16 @@ try {
       for (const [index, item] of sessions().entries()) {
         const { page } = await open();
         const expected = `/c/company/repositories/${item.repository.slug}/ai/${item.id}`;
-        const link = rows(page).nth(index).getByRole("link");
+        const row = rows(page).nth(index);
+        const link = row.getByRole("link");
         assert.equal(await link.getAttribute("href"), expected);
+        assert.equal(
+          await row
+            .getByRole("button", { name: `Throw away ${item.title}`, exact: true })
+            .evaluate((button) => button.closest("a") === null),
+          true,
+          "the destructive action must not be nested inside row navigation",
+        );
         await link.focus();
         await page.keyboard.press("Enter");
         await page.getByLabel("Opened route", { exact: true }).waitFor();
@@ -421,6 +467,135 @@ try {
       await page.close();
     },
   );
+  await check("throw-away confirmations explain local work and existing pull requests", async () => {
+    const fixture = await open();
+    const first = rows(fixture.page).first();
+    await first.getByRole("button", { name: /^Throw away / }).click();
+    await fixture.page
+      .getByRole("heading", { name: "Throw this work away?", exact: true })
+      .waitFor();
+    await fixture.page
+      .getByText(
+        "Nothing changed by Jamie Mallers is merged into Customer app. The local session branch is removed. Any remote branch or pull request created for this work stays open. The work session stays in Repository history.",
+        { exact: true },
+      )
+      .waitFor();
+    await fixture.page.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(fixture.posts.length, 0, "cancelling must leave the work untouched");
+    assert.equal(await rows(fixture.page).count(), 4);
+
+    const proposed = rows(fixture.page).nth(1);
+    await proposed.getByRole("button", { name: /^Throw away / }).click();
+    await fixture.page
+      .getByText(
+        "The local session branch is removed, but the existing pull request and its remote branch are not closed or deleted. The work session stays in Repository history.",
+        { exact: true },
+      )
+      .waitFor();
+    await fixture.page.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(fixture.posts.length, 0);
+
+    const failedRevision = rows(fixture.page).nth(2);
+    await failedRevision.getByRole("button", { name: /^Throw away / }).click();
+    await fixture.page
+      .getByText(
+        "The local session branch is removed, but the existing pull request and its remote branch are not closed or deleted. The work session stays in Repository history.",
+        { exact: true },
+      )
+      .waitFor();
+    await fixture.page.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(fixture.posts.length, 0);
+    await fixture.page.close();
+  });
+  await check("throwing work away posts to its exact Repository and removes only that row", async () => {
+    const fixture = await open();
+    const item = sessions()[2];
+    const row = rows(fixture.page).nth(2);
+    await row.getByRole("button", { name: /^Throw away / }).click();
+    const request = fixture.page.waitForRequest(
+      (value) => value.method() === "POST" && value.url().endsWith(`/${item.id}/discard`),
+    );
+    await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+    await request;
+    await fixture.page.getByText(item.title, { exact: true }).waitFor({ state: "detached" });
+    assert.deepEqual(fixture.posts, [
+      `/api/companies/company/repositories/${item.repository.slug}/sessions/${item.id}/discard`,
+    ]);
+    assert.equal(await rows(fixture.page).count(), 3);
+    assert.equal(await card(fixture.page).getByText("3", { exact: true }).count(), 1);
+    assert.equal(await fixture.page.getByLabel("Opened route", { exact: true }).count(), 0);
+    await fixture.page.close();
+  });
+  await check("a pending throw-away cannot be submitted twice", async () => {
+    const fixture = await open({ holdDiscard: true });
+    try {
+      await rows(fixture.page)
+        .first()
+        .getByRole("button", { name: /^Throw away / })
+        .click();
+      const request = fixture.page.waitForRequest(
+        (value) => value.method() === "POST" && value.url().endsWith("/session-1/discard"),
+      );
+      await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+      await request;
+      await rows(fixture.page).first().locator(".animate-spin").waitFor();
+      const buttons = card(fixture.page).getByRole("button", { name: /^Throw away / });
+      assert.equal(await buttons.count(), 4);
+      for (const button of await buttons.all()) assert.equal(await button.isDisabled(), true);
+      assert.equal(await rows(fixture.page).first().locator(".animate-spin").count(), 1);
+      assert.equal(fixture.posts.length, 1);
+      fixture.releaseDiscard();
+      await fixture.page
+        .getByText(sessions()[0].title, { exact: true })
+        .waitFor({ state: "detached" });
+      assert.equal(fixture.posts.length, 1);
+    } finally {
+      fixture.releaseDiscard();
+      await fixture.page.close();
+    }
+  });
+  await check("throwing away the last item restores Home's all-clear state", async () => {
+    const fixture = await open({ count: 1 });
+    await rows(fixture.page)
+      .first()
+      .getByRole("button", { name: /^Throw away / })
+      .click();
+    await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+    await fixture.page
+      .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+      .waitFor();
+    assert.equal(await card(fixture.page).count(), 0);
+    assert.equal(fixture.posts.length, 1);
+    await fixture.page.close();
+  });
+  await check("a failed throw-away keeps the row, explains the error, and can be retried", async () => {
+    const fixture = await open({ discardError: true });
+    const item = sessions()[0];
+    await rows(fixture.page)
+      .first()
+      .getByRole("button", { name: /^Throw away / })
+      .click();
+    await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+    await fixture.page
+      .getByRole("heading", { name: "Couldn’t throw the work away", exact: true })
+      .waitFor();
+    await fixture.page
+      .getByText("Repository work is temporarily unavailable.", { exact: true })
+      .waitFor();
+    assert.equal(await fixture.page.getByText(item.title, { exact: true }).count(), 1);
+    assert.equal(await rows(fixture.page).count(), 4);
+    await fixture.page.getByText("Close", { exact: true }).click();
+
+    fixture.recover();
+    await rows(fixture.page)
+      .first()
+      .getByRole("button", { name: /^Throw away / })
+      .click();
+    await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+    await fixture.page.getByText(item.title, { exact: true }).waitFor({ state: "detached" });
+    assert.equal(fixture.posts.length, 2);
+    await fixture.page.close();
+  });
   await check("show more appends the next page and removes the exhausted control", async () => {
     const fixture = await open({ count: 12, holdPagination: true });
     try {
@@ -429,11 +604,19 @@ try {
         .getByRole("button", { name: "Show more (4 remaining)", exact: true })
         .click();
       await card(fixture.page).getByRole("button", { name: "Loading…", exact: true }).waitFor();
-      assert.equal(await card(fixture.page).getByRole("button").isDisabled(), true);
+      assert.equal(
+        await card(fixture.page)
+          .getByRole("button", { name: "Loading…", exact: true })
+          .isDisabled(),
+        true,
+      );
       fixture.releasePagination();
       await rows(fixture.page).nth(11).waitFor();
       assert.equal(await rows(fixture.page).count(), 12);
-      assert.equal(await card(fixture.page).getByRole("button").count(), 0);
+      assert.equal(
+        await card(fixture.page).getByRole("button", { name: /Show more|Loading|Try again/ }).count(),
+        0,
+      );
       assert.equal(
         fixture.reads.filter((url) => url.includes("repository-work?offset=8&limit=8")).length,
         1,
@@ -466,6 +649,95 @@ try {
       2,
     );
     await fixture.page.close();
+  });
+  await check("throwing away expanded work preserves every remaining page", async () => {
+    const fixture = await open({ count: 12 });
+    await card(fixture.page)
+      .getByRole("button", { name: "Show more (4 remaining)", exact: true })
+      .click();
+    await rows(fixture.page).nth(11).waitFor();
+
+    const removed = sessions(12)[0];
+    await rows(fixture.page)
+      .first()
+      .getByRole("button", { name: /^Throw away / })
+      .click();
+    const refill = fixture.page.waitForResponse((value) =>
+      value.url().includes("/home/repository-work?offset=8&limit=3"),
+    );
+    await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+    await (await refill).finished();
+    await fixture.page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+    await fixture.page.getByText(removed.title, { exact: true }).waitFor({ state: "detached" });
+    await rows(fixture.page).nth(10).waitFor();
+    assert.equal(await rows(fixture.page).count(), 11);
+    assert.deepEqual(
+      await rows(fixture.page).getByRole("link").evaluateAll((links) =>
+        links.map((link) => link.getAttribute("href")),
+      ),
+      sessions(12)
+        .slice(1)
+        .map((item) => `/c/company/repositories/${item.repository.slug}/ai/${item.id}`),
+    );
+    assert.equal(
+      await card(fixture.page).getByRole("button", { name: /Show more/ }).count(),
+      0,
+    );
+    await fixture.page.close();
+  });
+  await check("a late page cannot undo a throw-away when the Home refresh fails", async () => {
+    const fixture = await open({ count: 12, holdPagination: true });
+    try {
+      const staleRequest = fixture.page.waitForRequest((value) =>
+        value.url().includes("repository-work?offset=8"),
+      );
+      await card(fixture.page)
+        .getByRole("button", { name: "Show more (4 remaining)", exact: true })
+        .click();
+      await staleRequest;
+      fixture.failHomeRefresh();
+
+      const removed = sessions(12)[0];
+      await rows(fixture.page)
+        .first()
+        .getByRole("button", { name: /^Throw away / })
+        .click();
+      await fixture.page.getByRole("button", { name: "Throw it away", exact: true }).click();
+      await fixture.page
+        .getByText("Home is temporarily unavailable.", { exact: true })
+        .waitFor();
+      await fixture.page.getByText(removed.title, { exact: true }).waitFor({ state: "detached" });
+      assert.equal(await rows(fixture.page).count(), 7);
+
+      const staleResponse = fixture.page.waitForResponse((value) =>
+        value.url().includes("repository-work?offset=8"),
+      );
+      fixture.releasePagination();
+      await (await staleResponse).finished();
+      await fixture.page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      assert.equal(await rows(fixture.page).count(), 7);
+      assert.equal(await fixture.page.getByText(removed.title, { exact: true }).count(), 0);
+
+      await card(fixture.page)
+        .getByRole("button", { name: "Show more (4 remaining)", exact: true })
+        .click();
+      await rows(fixture.page).nth(10).waitFor();
+      assert.equal(await rows(fixture.page).count(), 11);
+      assert.equal(await card(fixture.page).getByRole("button", { name: /Show more/ }).count(), 0);
+    } finally {
+      fixture.releasePagination();
+      await fixture.page.close();
+    }
   });
   for (const width of [1440, 390, 320]) {
     await check(`long repository work and metadata fit at ${width}px in dark mode`, async () => {
@@ -565,7 +837,10 @@ try {
           }),
       );
       assert.equal(await rows(fixture.page).count(), 1);
-      assert.equal(await card(fixture.page).getByRole("button").count(), 0);
+      assert.equal(
+        await card(fixture.page).getByRole("button", { name: /Show more|Loading|Try again/ }).count(),
+        0,
+      );
     } finally {
       fixture.releasePagination();
       await fixture.page.close();

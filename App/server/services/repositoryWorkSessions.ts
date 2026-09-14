@@ -77,6 +77,7 @@ import {
   WORK_SESSION_ATTACHMENTS_MAX,
   type WorkSessionAttachment,
 } from "./repositoryWorkSessionAttachments.js";
+import { emitResourceChange } from "./resourceEvents.js";
 
 /**
  * AI work sessions — "ask an employee to do something in this repository, then
@@ -557,6 +558,35 @@ export async function createRepositoryWorkSession(
 
 const preparingToolSessions = new Set<string>();
 
+/**
+ * Serialize state-changing choices for one work session inside the process
+ * that owns its checkout. Publish, revision, pull-request delivery, and
+ * discard all touch the same branch; letting two of them pass their status
+ * checks together can delete a branch while another action is using it.
+ *
+ * Repository work is process-local already (and disabled in shared
+ * multi-tenant mode), matching the existing per-Repository Git lock. This is
+ * deliberately a separate, non-reentrant queue because each operation calls
+ * helpers that acquire that Git lock themselves.
+ */
+const sessionMutationTails = new Map<string, Promise<void>>();
+
+async function withSessionMutation<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const previous = sessionMutationTails.get(sessionId);
+  sessionMutationTails.set(sessionId, current);
+  if (previous) await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (sessionMutationTails.get(sessionId) === current) sessionMutationTails.delete(sessionId);
+  }
+}
+
 /** Claim a tool-started session before awaiting, so parallel tool calls cannot duplicate work. */
 export async function createToolRepositoryWorkSession(
   args: StartWorkSessionArgs,
@@ -604,6 +634,12 @@ export async function prepareWorkSessionRevision(
   args: ReviseWorkSessionArgs,
 ): Promise<PreparedWorkSession> {
   assertRepositoryWorkAllowed();
+  return withSessionMutation(args.sessionId, () => prepareWorkSessionRevisionUnlocked(args));
+}
+
+async function prepareWorkSessionRevisionUnlocked(
+  args: ReviseWorkSessionArgs,
+): Promise<PreparedWorkSession> {
   return withSerializedTransaction(async (manager) => {
     const sessionRepo = manager.getRepository(RepositoryWorkSession);
     const session = await sessionRepo.findOneBy({ id: args.sessionId, companyId: args.companyId });
@@ -914,30 +950,36 @@ export async function runRepositoryWorkSession(
         : undefined,
     });
   } catch (error) {
-    const fresh = (await sessionRepo.findOneBy({ id: session.id })) ?? session;
-    const message = error instanceof Error ? error.message : String(error);
-    fresh.status = "failed";
-    fresh.error = message;
-    fresh.finishedAt = new Date();
-    // Whatever the employee had edited before the failure is kept on the
-    // branch, exactly as it would be on a finished turn — see `finishTurn`.
-    const directory = sessionWorktreePath(repo, fresh.id);
-    if (fresh.branch && fresh.baseCommit && fs.existsSync(path.join(directory, ".git"))) {
-      await checkpointUncommittedWork(repo, directory).catch(() => null);
-      const outcome = await summarizeSessionWork(repo, directory, fresh.baseCommit).catch(
-        () => null,
-      );
-      if (outcome && outcome.commits.length > 0) {
-        fresh.headCommit = outcome.headCommit;
-        fresh.filesChanged = outcome.diff.filesChanged;
-        fresh.insertions = outcome.diff.insertions;
-        fresh.deletions = outcome.diff.deletions;
+    return withSessionMutation(session.id, async () => {
+      const fresh = (await sessionRepo.findOneBy({ id: session.id })) ?? session;
+      // A stale running turn may be thrown away after its hard timeout. Its
+      // failure handler must not put the row back or recreate state after the
+      // Member's choice won.
+      if (fresh.status === "discarded" || fresh.status === "published") return fresh;
+      const message = error instanceof Error ? error.message : String(error);
+      fresh.status = "failed";
+      fresh.error = message;
+      fresh.finishedAt = new Date();
+      // Whatever the employee had edited before the failure is kept on the
+      // branch, exactly as it would be on a finished turn — see `finishTurn`.
+      const directory = sessionWorktreePath(repo, fresh.id);
+      if (fresh.branch && fresh.baseCommit && fs.existsSync(path.join(directory, ".git"))) {
+        await checkpointUncommittedWork(repo, directory).catch(() => null);
+        const outcome = await summarizeSessionWork(repo, directory, fresh.baseCommit).catch(
+          () => null,
+        );
+        if (outcome && outcome.commits.length > 0) {
+          fresh.headCommit = outcome.headCommit;
+          fresh.filesChanged = outcome.diff.filesChanged;
+          fresh.insertions = outcome.diff.insertions;
+          fresh.deletions = outcome.diff.deletions;
+        }
       }
-    }
-    await sessionRepo.save(fresh);
-    await failTurnRow(turn, message);
-    await pruneEmptySessionWorktree(repo, fresh).catch(() => {});
-    return fresh;
+      await sessionRepo.save(fresh);
+      await failTurnRow(turn, message);
+      await pruneEmptySessionWorktree(repo, fresh).catch(() => {});
+      return fresh;
+    });
   }
 }
 
@@ -991,11 +1033,16 @@ export async function noteSessionCommit(
   const session = await sessionRepo.findOneBy({ id: sessionId });
   if (!session || session.status !== "running" || !session.baseCommit) return;
   const outcome = await summarizeSessionWork(repo, directory, session.baseCommit);
-  session.headCommit = outcome.headCommit;
-  session.filesChanged = outcome.diff.filesChanged;
-  session.insertions = outcome.diff.insertions;
-  session.deletions = outcome.diff.deletions;
-  await sessionRepo.save(session);
+  await sessionRepo.update(
+    { id: session.id, companyId: session.companyId, status: "running" },
+    {
+      headCommit: outcome.headCommit,
+      filesChanged: outcome.diff.filesChanged,
+      insertions: outcome.diff.insertions,
+      deletions: outcome.diff.deletions,
+    },
+  );
+  emitResourceChange(session.companyId, "repository", session.repositoryId);
 }
 
 /**
@@ -1021,9 +1068,29 @@ async function finishTurn(args: {
    */
   notice?: string;
 }): Promise<RepositoryWorkSession> {
-  const { repo, session, turn, directory, reply, error } = args;
+  return withSessionMutation(args.session.id, () => finishTurnUnlocked(args));
+}
+
+async function finishTurnUnlocked(args: {
+  repo: Repository;
+  session: RepositoryWorkSession;
+  turn: RepositoryWorkSessionTurn;
+  directory: string;
+  reply: string;
+  error: string;
+  stopped?: boolean;
+  notice?: string;
+}): Promise<RepositoryWorkSession> {
+  const { repo, turn, directory, reply, error } = args;
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  const current = await sessionRepo.findOneBy({ id: args.session.id });
+  if (!current) return args.session;
+  // A running row older than the hard timeout is deliberately discardable.
+  // Re-read only after taking the mutation queue, so a slow turn that returns
+  // after that choice cannot save its earlier `running` snapshot over it.
+  if (current.status === "discarded" || current.status === "published") return current;
+  const session = current;
   const now = new Date();
 
   session.reply = reply;
@@ -1064,8 +1131,11 @@ async function finishTurn(args: {
     turn.status = args.stopped ? "stopped" : "ok";
   }
 
-  await turnRepo.save(turn);
+  // Write the session first. Until this save, the still-running turn remains
+  // the liveness marker that prevents discard; afterwards no code writes the
+  // session again, so a subsequent discard cannot be accidentally undone.
   await sessionRepo.save(session);
+  await turnRepo.save(turn);
   await pruneEmptySessionWorktree(repo, session).catch(() => {});
   return session;
 }
@@ -1295,9 +1365,12 @@ export async function renameRepositoryWorkSession(
   if (!session) throw new Error("Work session not found.");
   const trimmed = title.replace(/\s+/g, " ").trim();
   if (!trimmed) throw new Error("A session needs a name.");
-  session.title = trimmed.slice(0, WORK_SESSION_TITLE_MAX);
-  await sessionRepo.save(session);
-  return session;
+  await sessionRepo.update(
+    { id: session.id, companyId: session.companyId },
+    { title: trimmed.slice(0, WORK_SESSION_TITLE_MAX) },
+  );
+  emitResourceChange(session.companyId, "repository", session.repositoryId);
+  return sessionRepo.findOneByOrFail({ id: session.id, companyId: session.companyId });
 }
 
 /**
@@ -1331,9 +1404,12 @@ export async function setRepositoryWorkSessionArchived(
       "This employee is still working. Wait for the turn to finish, then archive it.",
     );
   }
-  session.archivedAt = archived ? new Date() : null;
-  await sessionRepo.save(session);
-  return session;
+  await sessionRepo.update(
+    { id: session.id, companyId: session.companyId },
+    { archivedAt: archived ? new Date() : null },
+  );
+  emitResourceChange(session.companyId, "repository", session.repositoryId);
+  return sessionRepo.findOneByOrFail({ id: session.id, companyId: session.companyId });
 }
 
 async function summarizeSessionWork(
@@ -1403,6 +1479,15 @@ export async function repositoryWorkSessionDiff(
  * and the credential is used here — never anywhere the model can observe.
  */
 export async function publishRepositoryWorkSession(
+  sessionId: string,
+  options: { push: boolean },
+): Promise<RepositoryWorkSession> {
+  return withSessionMutation(sessionId, () =>
+    publishRepositoryWorkSessionUnlocked(sessionId, options),
+  );
+}
+
+async function publishRepositoryWorkSessionUnlocked(
   sessionId: string,
   options: { push: boolean },
 ): Promise<RepositoryWorkSession> {
@@ -1529,7 +1614,7 @@ async function resolvePullRequestBase(
   return base;
 }
 
-export async function openRepositoryWorkSessionPullRequest(args: {
+type OpenRepositoryWorkSessionPullRequestArgs = {
   sessionId: string;
   title?: string;
   body?: string;
@@ -1537,7 +1622,19 @@ export async function openRepositoryWorkSessionPullRequest(args: {
   authorize?: (session: RepositoryWorkSession, repo: Repository) => Promise<void>;
   /** Seam for tests; defaults to the real push + GitHub API. */
   deps?: Partial<WorkSessionPullRequestDeps>;
-}): Promise<RepositoryWorkSession> {
+};
+
+export async function openRepositoryWorkSessionPullRequest(
+  args: OpenRepositoryWorkSessionPullRequestArgs,
+): Promise<RepositoryWorkSession> {
+  return withSessionMutation(args.sessionId, () =>
+    openRepositoryWorkSessionPullRequestUnlocked(args),
+  );
+}
+
+async function openRepositoryWorkSessionPullRequestUnlocked(
+  args: OpenRepositoryWorkSessionPullRequestArgs,
+): Promise<RepositoryWorkSession> {
   const deps = { ...defaultPullRequestDeps, ...(args.deps ?? {}) };
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const session = await sessionRepo.findOneBy({ id: args.sessionId });
@@ -1880,12 +1977,46 @@ export async function resolveRepositoryForge(repo: Repository): Promise<Resolved
   );
 }
 
+export type DiscardRepositoryWorkSessionResult = {
+  session: RepositoryWorkSession;
+  discardedNow: boolean;
+  cleanedNow: boolean;
+};
+
+type DiscardRepositoryWorkSessionDeps = {
+  /** Test seam for proving the compare-and-swap against an out-of-process write. */
+  beforeClaim?: (session: RepositoryWorkSession) => Promise<void>;
+  /** Test seam for proving a cleanup failure is never reported as success. */
+  removeWorktree?: typeof removeSessionWorktree;
+};
+
 export async function discardRepositoryWorkSession(
   sessionId: string,
-): Promise<RepositoryWorkSession> {
+  deps: DiscardRepositoryWorkSessionDeps = {},
+): Promise<DiscardRepositoryWorkSessionResult> {
+  return withSessionMutation(sessionId, () =>
+    discardRepositoryWorkSessionUnlocked(sessionId, deps),
+  );
+}
+
+async function discardRepositoryWorkSessionUnlocked(
+  sessionId: string,
+  deps: DiscardRepositoryWorkSessionDeps,
+): Promise<DiscardRepositoryWorkSessionResult> {
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const session = await sessionRepo.findOneBy({ id: sessionId });
   if (!session) throw new Error("Work session not found.");
+  if (session.status === "published") {
+    throw new Error("This work has already been accepted and cannot be thrown away.");
+  }
+  if (session.status === "discarded") {
+    // A retry after a lost HTTP response is a success. Repeat the cleanup too,
+    // in case the original request committed the row but stopped before it
+    // removed all local Git state.
+    const cleanedNow = await removeDiscardedSessionGitState(session, deps);
+    if (cleanedNow) emitResourceChange(session.companyId, "repository", session.repositoryId);
+    return { session, discardedNow: false, cleanedNow };
+  }
   // The turn in flight owns the worktree. Removing it underneath makes the
   // turn fail on a directory that vanished, which is then reported as if the
   // employee had broken something. The button is hidden for this, but the
@@ -1899,23 +2030,86 @@ export async function discardRepositoryWorkSession(
   if (session.status === "running" && (await repositoryWorkSessionIsLive(session))) {
     throw new Error("This employee is still working. Wait for the turn to finish, then try again.");
   }
+
+  // Claim the exact state we reviewed before touching Git. A revision claims
+  // the same row as `running`; whichever update wins makes the other action
+  // stop before it can remove or reuse the worktree. The in-process queue
+  // covers the slower publish path, while this compare-and-swap keeps the
+  // state boundary intact at the database too.
+  await deps.beforeClaim?.(session);
+  const claimed = await sessionRepo.update(
+    { id: session.id, companyId: session.companyId, status: session.status },
+    { status: "discarded" },
+  );
+  if (claimed.affected !== 1) {
+    const current = await sessionRepo.findOneBy({ id: session.id, companyId: session.companyId });
+    if (!current) throw new Error("Work session not found.");
+    if (current.status === "published") {
+      throw new Error("This work was accepted before it could be thrown away.");
+    }
+    if (current.status === "discarded") {
+      const cleanedNow = await removeDiscardedSessionGitState(current, deps);
+      if (cleanedNow) emitResourceChange(current.companyId, "repository", current.repositoryId);
+      return { session: current, discardedNow: false, cleanedNow };
+    }
+    if (current.status === "running") {
+      throw new Error("This employee started working again. Wait for the turn to finish.");
+    }
+    throw new Error("This work session changed. Review it and try again.");
+  }
+  await AppDataSource.getRepository(RepositoryWorkSessionTurn).update(
+    { sessionId: session.id, companyId: session.companyId, status: "running" },
+    {
+      status: "stopped",
+      error: "This work was thrown away after the turn stopped responding.",
+      finishedAt: new Date(),
+    },
+  );
+  const cleanedNow = await removeDiscardedSessionGitState(session, deps);
+  emitResourceChange(session.companyId, "repository", session.repositoryId);
+  return {
+    session: await sessionRepo.findOneByOrFail({ id: session.id, companyId: session.companyId }),
+    discardedNow: true,
+    cleanedNow,
+  };
+}
+
+async function removeDiscardedSessionGitState(
+  session: RepositoryWorkSession,
+  deps: DiscardRepositoryWorkSessionDeps,
+): Promise<boolean> {
   const repo = await AppDataSource.getRepository(Repository).findOneBy({
     id: session.repositoryId,
     companyId: session.companyId,
   });
-  if (repo) {
-    await removeSessionWorktree(repo, session.id).catch(() => {});
-    if (session.branch) {
-      await runRepositoryGit(repo, repositoryCheckoutDirectory(repo), [
-        "branch",
-        "-D",
-        session.branch,
-      ]).catch(() => {});
-    }
+  if (!repo) return false;
+  const worktreeExisted = fs.existsSync(sessionWorktreePath(repo, session.id));
+  const checkout = repositoryCheckoutDirectory(repo);
+  const checkoutExists = fs.existsSync(path.join(checkout, ".git"));
+  let localBranchExisted = false;
+  let ref = "";
+  if (session.branch && checkoutExists) {
+    assertSafeBranchName(session.branch);
+    ref = `refs/heads/${session.branch}`;
+    const matching = await runRepositoryGit(repo, checkout, [
+      "for-each-ref",
+      "--format=%(refname)",
+      ref,
+    ]);
+    localBranchExisted = Boolean(matching.trim());
   }
-  session.status = "discarded";
-  await sessionRepo.save(session);
-  return session;
+  await (deps.removeWorktree ?? removeSessionWorktree)(repo, session.id);
+  if (!session.branch || !localBranchExisted) return worktreeExisted;
+  await runRepositoryGit(repo, checkout, ["branch", "-D", session.branch]);
+  const remaining = await runRepositoryGit(repo, checkout, [
+    "for-each-ref",
+    "--format=%(refname)",
+    ref,
+  ]);
+  if (remaining.trim()) {
+    throw new Error(`Could not remove local work-session branch "${session.branch}".`);
+  }
+  return worktreeExisted || localBranchExisted;
 }
 
 // ──────────────────────────── the briefing ──────────────────────────────

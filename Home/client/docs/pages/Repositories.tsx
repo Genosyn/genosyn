@@ -235,9 +235,11 @@ export function Repositories() {
         needing attention across the company&apos;s repositories: <Strong>Ready to review</Strong>,{" "}
         <Strong>Pull request open</Strong>, <Strong>No changes made</Strong>, and{" "}
         <Strong>Failed</Strong>. Open a session from the card to read its Activity, review Changes,
-        or ask the employee for another pass. Use <Strong>Show more</Strong> to reach the rest of
-        a longer queue. Archived sessions stay out of the card, and it
-        disappears when nothing needs attention.
+        or ask the employee for another pass. Choose <Strong>Throw away</Strong> on the row to
+        remove its local branch and working copy without opening the session; Genosyn asks you to
+        confirm first, keeps the session in Repository history, and leaves any remote branch or
+        pull request open. Use <Strong>Show more</Strong> to reach the rest of a longer queue.
+        Archived sessions stay out of the card, and it disappears when nothing needs attention.
       </P>
 
       <H3 id="quick-start">Start with a useful brief</H3>
@@ -333,9 +335,10 @@ export function Repositories() {
         change type, and line counts; clicking one opens its diff, while <Strong>Expand all</Strong>{" "}
         opens every file, and a change small enough to read at a glance opens itself. The checkpoint
         list shows how the work built up, while the file list always reviews everything the session
-        branch contains. Merge, push, pull request, and discard live here rather than in the
-        transcript, and only the actions that apply to the current state are shown. If a request
-        fails, the affected surface keeps the rest of the session visible and offers{" "}
+        branch contains. Merge, push, and pull request actions live here rather than in the
+        transcript. <Strong>Throw away</Strong> is available here too, as well as directly on the
+        Home attention list, and only actions that apply to the current state are shown. If a
+        request fails, the affected surface keeps the rest of the session visible and offers{" "}
         <Strong>Retry</Strong>.
       </P>
       <KeyList

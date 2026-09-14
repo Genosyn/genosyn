@@ -1139,11 +1139,28 @@ repositoryContentRouter.post(
 
 repositoryContentRouter.post(
   "/repositories/:slug/sessions/:sessionId/discard",
-  withRepository(async (repo, req, res) => {
-    const session = await loadSession(repo, req.params.sessionId);
-    if (!session) throw new Error("Work session not found.");
-    const updated = await discardRepositoryWorkSession(session.id);
-    const [hydrated] = await hydrateSessions(repo.companyId, [updated]);
-    res.json(hydrated);
-  }),
+  withRepository(
+    async (repo, req, res) => {
+      const session = await loadSession(repo, req.params.sessionId);
+      if (!session) throw new Error("Work session not found.");
+      const discarded = await discardRepositoryWorkSession(session.id);
+      if (discarded.discardedNow || discarded.cleanedNow) {
+        await recordAudit({
+          companyId: repo.companyId,
+          actorUserId: req.userId ?? null,
+          action: "repository.work_session_discard",
+          targetType: "repository",
+          targetId: repo.id,
+          targetLabel: repo.name,
+          metadata: { sessionId: session.id, employeeId: session.employeeId },
+        });
+      }
+      const [hydrated] = await hydrateSessions(repo.companyId, [discarded.session]);
+      res.json(hydrated);
+    },
+    // Throwing work away must remain possible when a remote is offline or its
+    // credential has expired. The service removes whatever local state exists;
+    // there is no reason to clone a missing checkout first.
+    { workspace: false },
+  ),
 );

@@ -30,6 +30,7 @@ import {
   createRepositoryBranch,
   ensureRepositoryWorkspace,
   readRepositoryFile,
+  repositoryBranches,
   repositoryLog,
   repositoryStatus,
   writeRepositoryFile,
@@ -1077,10 +1078,166 @@ describe("reviewing and publishing", () => {
 
   test("discarding removes the branch and the worktree", async () => {
     const session = await readySession();
-    const discarded = await discardRepositoryWorkSession(session.id);
+    const { session: discarded } = await discardRepositoryWorkSession(session.id);
     assert.equal(discarded.status, "discarded");
     assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), false);
+    assert.equal(
+      (await repositoryBranches(repository)).some((branch) => branch.name === session.branch),
+      false,
+      "the local session branch is gone too",
+    );
     await assert.rejects(() => readRepositoryFile(repository, "docs/plan.md"), /not found/);
+  });
+
+  test("publishing wins when publish and discard are requested together", async () => {
+    const session = await readySession();
+
+    const publishing = publishRepositoryWorkSession(session.id, { push: false });
+    const discarding = discardRepositoryWorkSession(session.id);
+
+    assert.equal((await publishing).status, "published");
+    await assert.rejects(() => discarding, /already been accepted/);
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "published",
+    );
+    assert.equal(
+      (await readRepositoryFile(repository, "docs/plan.md")).content,
+      "# Plan\n\nShip it.\n",
+    );
+  });
+
+  test("discarding wins when discard and publish are requested together", async () => {
+    const session = await readySession();
+
+    const discarding = discardRepositoryWorkSession(session.id);
+    const publishing = publishRepositoryWorkSession(session.id, { push: false });
+
+    assert.equal((await discarding).session.status, "discarded");
+    await assert.rejects(() => publishing, /no reviewed work/);
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "discarded",
+    );
+    await assert.rejects(() => readRepositoryFile(repository, "docs/plan.md"), /not found/);
+  });
+
+  test("refuses accepted work but makes a repeated discard idempotent", async () => {
+    const published = await readySession();
+    await publishRepositoryWorkSession(published.id, { push: false });
+    await assert.rejects(
+      () => discardRepositoryWorkSession(published.id),
+      /already been accepted/,
+    );
+
+    const discarded = await readySession();
+    await discardRepositoryWorkSession(discarded.id);
+    assert.equal((await discardRepositoryWorkSession(discarded.id)).session.status, "discarded");
+  });
+
+  test("a retry repairs Git cleanup left behind by an earlier discard", async () => {
+    const session = await readySession();
+    await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+      status: "discarded",
+    });
+
+    const retry = await discardRepositoryWorkSession(session.id);
+
+    assert.equal(retry.session.status, "discarded");
+    assert.equal(retry.discardedNow, false);
+    assert.equal(retry.cleanedNow, true);
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), false);
+    assert.equal(
+      (await repositoryBranches(repository)).some((branch) => branch.name === session.branch),
+      false,
+    );
+  });
+
+  test("reports a local cleanup failure and lets a retry repair it", async () => {
+    const session = await readySession();
+    await assert.rejects(
+      () =>
+        discardRepositoryWorkSession(session.id, {
+          removeWorktree: async () => {
+            throw new Error("simulated filesystem refusal");
+          },
+        }),
+      /simulated filesystem refusal/,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "discarded",
+    );
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), true);
+
+    const repaired = await discardRepositoryWorkSession(session.id);
+    assert.equal(repaired.discardedNow, false);
+    assert.equal(repaired.cleanedNow, true);
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), false);
+  });
+
+  test("the discard compare-and-swap preserves work accepted by another process", async () => {
+    const session = await readySession();
+    await assert.rejects(
+      () =>
+        discardRepositoryWorkSession(session.id, {
+          beforeClaim: async () => {
+            await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+              status: "published",
+            });
+          },
+        }),
+      /accepted before it could be thrown away/,
+    );
+
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), true);
+    assert.equal(
+      (await repositoryBranches(repository)).some((branch) => branch.name === session.branch),
+      true,
+    );
+  });
+
+  test("the discard compare-and-swap preserves a revision started by another process", async () => {
+    const session = await readySession();
+    await assert.rejects(
+      () =>
+        discardRepositoryWorkSession(session.id, {
+          beforeClaim: async () => {
+            await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+              status: "running",
+            });
+          },
+        }),
+      /started working again/,
+    );
+
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), true);
+    assert.equal(
+      (await repositoryBranches(repository)).some((branch) => branch.name === session.branch),
+      true,
+    );
+  });
+
+  test("the discard compare-and-swap joins an out-of-process discard", async () => {
+    const session = await readySession();
+    const result = await discardRepositoryWorkSession(session.id, {
+      beforeClaim: async () => {
+        await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+          status: "discarded",
+        });
+      },
+    });
+
+    assert.equal(result.session.status, "discarded");
+    assert.equal(result.discardedNow, false);
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), false);
+    assert.equal(
+      (await repositoryBranches(repository)).some((branch) => branch.name === session.branch),
+      false,
+    );
   });
 
   test("a conflicting session is refused rather than merged badly", async () => {
@@ -1530,6 +1687,93 @@ describe("revising a session", () => {
     );
 
     await runRepositoryWorkSession(prepared);
+  });
+
+  test("revision wins when revision and discard are requested together", async () => {
+    const session = await firstTurn();
+    const revision = prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Keep going",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(() => {}),
+    });
+    const discarding = discardRepositoryWorkSession(session.id);
+
+    const prepared = await revision;
+    await assert.rejects(() => discarding, /still working/);
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "running",
+    );
+
+    await runRepositoryWorkSession(prepared);
+  });
+
+  test("discard wins when discard and revision are requested together", async () => {
+    const session = await firstTurn();
+    const discarding = discardRepositoryWorkSession(session.id);
+    const revision = prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Keep going",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(() => {}),
+    });
+
+    assert.equal((await discarding).session.status, "discarded");
+    await assert.rejects(() => revision, /thrown away/);
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "discarded",
+    );
+  });
+
+  test("a late successful turn cannot restore work discarded after its timeout", async () => {
+    const session = await firstTurn();
+    let entered!: () => void;
+    const turnEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prepared = await prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Keep going",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(async () => {
+        entered();
+        await held;
+      }),
+    });
+    const finishing = runRepositoryWorkSession(prepared);
+    await turnEntered;
+    await AppDataSource.getRepository(RepositoryWorkSessionTurn).update(prepared.turn.id, {
+      createdAt: new Date(Date.now() - CHAT_HARD_TIMEOUT_MS - 60_000),
+    });
+
+    const discarded = await discardRepositoryWorkSession(session.id).finally(release);
+    assert.equal(discarded.session.status, "discarded");
+    assert.equal((await finishing).status, "discarded");
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "discarded",
+    );
+    const turns = await AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
+      where: { sessionId: session.id },
+      order: { ordinal: "ASC" },
+    });
+    assert.equal(turns.some((turn) => turn.status === "running"), false);
+    assert.equal(turns.at(-1)?.status, "stopped");
   });
 
   test("publishes work that several turns built up", async () => {

@@ -297,6 +297,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                   company={company}
                   initialItems={data.repositoryWork}
                   initialTotal={data.repositoryWorkCount}
+                  onChanged={reload}
                 />
                 <FailedRoutinesAlert
                   company={company}

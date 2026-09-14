@@ -27,11 +27,13 @@ import { encryptRepoSecret } from "./repositories.js";
 import type { ForgePullRequest } from "./repositoryForge.js";
 import type { ChatResult, chatWithEmployee } from "./chat.js";
 import {
+  discardRepositoryWorkSession,
   openRepositoryWorkSessionPullRequest,
   publishRepositoryWorkSession,
   resolveRepositoryForge,
   resolveSessionCheckout,
   sessionCommit,
+  sessionWorktreePath,
   sessionWriteFile,
   startRepositoryWorkSession,
   type WorkSessionPullRequestDeps,
@@ -364,6 +366,67 @@ describe("opening a pull request", () => {
     );
     assert.equal(stored.status, "ready", "a refused pull request leaves the session reviewable");
     assert.equal(stored.pullRequestUrl, null);
+  });
+
+  test("waits for pull-request delivery before throwing the local work away", async () => {
+    const session = await readySession();
+    await asRemote();
+    const recorded = recorder();
+    let pushEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      pushEntered = resolve;
+    });
+    let releasePush!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releasePush = resolve;
+    });
+    const deps = stubDeps(recorded);
+    deps.push = (async (_repo: Repository, branch: string) => {
+      recorded.pushed.push(branch);
+      pushEntered();
+      await held;
+      return { branch };
+    }) as WorkSessionPullRequestDeps["push"];
+
+    const proposing = openRepositoryWorkSessionPullRequest({ sessionId: session.id, deps });
+    await entered;
+    let discardSettled = false;
+    let discardClaimStarted = false;
+    const discarding = discardRepositoryWorkSession(session.id, {
+      beforeClaim: async () => {
+        discardClaimStarted = true;
+      },
+    }).finally(() => {
+      discardSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(discardSettled, false, "discard must not remove a branch while it is being pushed");
+    assert.equal(discardClaimStarted, false, "discard must not claim the row during the push");
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), true);
+
+    releasePush();
+    assert.equal((await proposing).status, "proposed");
+    assert.equal((await discarding).session.status, "discarded");
+    assert.equal(recorded.created.length, 1);
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), false);
+    assert.equal((await storedSession(session.id)).status, "discarded");
+  });
+
+  test("a completed discard prevents pull-request delivery from starting", async () => {
+    const session = await readySession();
+    await asRemote();
+    const recorded = recorder();
+
+    const discarding = discardRepositoryWorkSession(session.id);
+    const proposing = openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      deps: stubDeps(recorded),
+    });
+
+    assert.equal((await discarding).session.status, "discarded");
+    await assert.rejects(() => proposing, /no committed work to propose/);
+    assert.deepEqual(recorded.pushed, []);
+    assert.deepEqual(recorded.created, []);
   });
 
   test("describes the work with the session's title and the employee's report", async () => {

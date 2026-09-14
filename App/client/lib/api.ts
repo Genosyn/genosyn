@@ -3805,6 +3805,8 @@ export type HomeRepositoryWork = {
   filesChanged: number;
   insertions: number;
   deletions: number;
+  /** The confirmation must warn that discard leaves remote review work in place. */
+  hasPullRequest: boolean;
   updatedAt: string;
   repository: { id: string; name: string; slug: string; kind: RepositoryKind };
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;

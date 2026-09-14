@@ -297,29 +297,51 @@ describe("Home Repository AI work", () => {
       gitUrl: "https://genosyn.invalid/acme/product.git",
       encryptedToken: "not-for-home",
     });
-    await workSession(local);
+    const localSession = await workSession(local);
     const autonomous = await workSession(remote, {
       status: "proposed",
       requestedByUserId: null,
+      pullRequestUrl: "https://forge.invalid/acme/product/pulls/42",
       filesChanged: 3,
       insertions: 20,
       deletions: 2,
       reply: "A long private transcript",
       error: "A long failure trace",
     });
+    const failedRevision = await workSession(remote, {
+      status: "failed",
+      title: "A failed revision with an existing pull request",
+      pullRequestUrl: "https://forge.invalid/acme/product/pulls/43",
+    });
 
     const result = await listHomeRepositoryWork({ companyId: company.id });
-    assert.equal(result.total, 2);
-    assert.deepEqual(result.items.map((row) => row.repository.slug).sort(), ["product", "strategy"]);
+    assert.equal(result.total, 3);
+    assert.deepEqual(result.items.map((row) => row.repository.slug).sort(), [
+      "product",
+      "product",
+      "strategy",
+    ]);
     const row = result.items.find((item) => item.id === autonomous.id)!;
     assert.deepEqual(row.repository, { id: remote.id, name: "Product", slug: "product", kind: "code" });
     assert.equal(row.filesChanged, 3);
     assert.equal(row.insertions, 20);
     assert.equal(row.deletions, 2);
+    assert.equal(row.hasPullRequest, true);
+    assert.equal(
+      result.items.find((item) => item.id === localSession.id)?.hasPullRequest,
+      false,
+      "ordinary local work must not receive a pull request warning",
+    );
+    assert.equal(
+      result.items.find((item) => item.id === failedRevision.id)?.hasPullRequest,
+      true,
+      "a later failed revision must not hide the pull request warning",
+    );
     const serialized = JSON.stringify(result);
     assert.ok(!serialized.includes("not-for-home"));
     assert.ok(!serialized.includes("A long private transcript"));
     assert.ok(!serialized.includes("A long failure trace"));
+    assert.ok(!serialized.includes("forge.invalid"));
     assert.equal(repositoryCheckoutExists(remote), false);
   });
 
