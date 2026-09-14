@@ -28,6 +28,9 @@ function mailReview(approval: HomeApproval) {
   return approval.review?.kind === "mail" ? approval.review : null;
 }
 
+type MailReviewDraft = NonNullable<ReturnType<typeof mailReview>>["draft"];
+type MailEditSession = { draft: MailReviewDraft; baseRevision: string };
+
 function threadHref(company: Company, approval: HomeApproval): string | null {
   const review = mailReview(approval);
   return review?.source.threadId
@@ -262,27 +265,21 @@ export function MailReviewCard({
 }) {
   const review = mailReview(approval);
   const fallbackTitle = review?.source.threadId ? "Customer reply" : "Email review";
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(() => review?.draft ?? null);
-  const [baseRevision, setBaseRevision] = React.useState<string | null>(
-    () => review?.revision ?? null,
-  );
+  const [editSession, setEditSession] = React.useState<MailEditSession | null>(null);
   const [stale, setStale] = React.useState(false);
   const [busy, setBusy] = React.useState<"save" | "reload" | "send" | "discard" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const acting = React.useRef(false);
   const editButtonRef = React.useRef<HTMLButtonElement>(null);
   const firstFieldRef = React.useRef<HTMLInputElement>(null);
+  const editing = editSession !== null;
+  const editingBaseRevision = editSession?.baseRevision ?? null;
 
   React.useEffect(() => {
-    if (editing) {
-      if (review?.revision !== baseRevision) setStale(true);
-      return;
-    }
-    setDraft(review?.draft ?? null);
-    setBaseRevision(review?.revision ?? null);
-    setStale(false);
-  }, [baseRevision, editing, review]);
+    // The edit session is a member-owned working copy. Background refreshes
+    // may mark it stale, but only an explicit reload may replace its text.
+    if (editingBaseRevision !== null && review?.revision !== editingBaseRevision) setStale(true);
+  }, [editingBaseRevision, review?.revision]);
   React.useEffect(() => {
     if (!editing) return;
     const frame = window.requestAnimationFrame(() => firstFieldRef.current?.focus());
@@ -291,6 +288,24 @@ export function MailReviewCard({
 
   function returnFocusToEditButton() {
     window.requestAnimationFrame(() => editButtonRef.current?.focus());
+  }
+
+  function updateDraftField(field: keyof MailReviewDraft, value: string) {
+    setEditSession((current) =>
+      current ? { ...current, draft: { ...current.draft, [field]: value } } : current,
+    );
+  }
+
+  function startEditing() {
+    if (!review) return;
+    setEditSession({ draft: { ...review.draft }, baseRevision: review.revision });
+    setStale(false);
+    setError(null);
+  }
+
+  function stopEditing() {
+    setEditSession(null);
+    setStale(false);
   }
 
   async function decide(action: "approve" | "reject") {
@@ -337,22 +352,31 @@ export function MailReviewCard({
   }
 
   async function save() {
-    if (!draft || acting.current) return;
+    const session = editSession;
+    if (!session || acting.current) return;
     acting.current = true;
     setBusy("save");
     setError(null);
     try {
       await api.patch<Approval>(
         `/api/companies/${company.id}/approvals/${approval.id}/mail-review`,
-        { expectedRevision: baseRevision, ...draft },
+        { expectedRevision: session.baseRevision, ...session.draft },
       );
-      setEditing(false);
+      stopEditing();
       await onResolved();
       returnFocusToEditButton();
     } catch (err) {
       const message = errorMessage(err, "Could not save the email");
       if (message.includes("changed while you were editing")) {
         setStale(true);
+        // Load the newer server revision behind the isolated edit session.
+        // If that read fails, the explicit reload action below remains a safe
+        // retry and the member's working copy is still untouched.
+        try {
+          await onResolved();
+        } catch {
+          // Keep the more useful conflict explanation visible.
+        }
         setError(`${message} Your unsaved text remains available above.`);
       } else {
         setError(message);
@@ -370,7 +394,7 @@ export function MailReviewCard({
     setError(null);
     try {
       await onResolved();
-      setEditing(false);
+      stopEditing();
       returnFocusToEditButton();
     } catch (err) {
       setError(errorMessage(err, "Could not reload the latest email"));
@@ -399,7 +423,7 @@ export function MailReviewCard({
         company={company}
         approval={approval}
         draftEditor={
-          editing && draft ? (
+          editSession ? (
             <div
               role="group"
               aria-label="Edit email"
@@ -429,31 +453,36 @@ export function MailReviewCard({
               <Input
                 ref={firstFieldRef}
                 label="To"
-                value={draft.to}
-                onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+                value={editSession.draft.to}
+                disabled={busy !== null}
+                onChange={(event) => updateDraftField("to", event.target.value)}
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   label="Cc"
-                  value={draft.cc}
-                  onChange={(event) => setDraft({ ...draft, cc: event.target.value })}
+                  value={editSession.draft.cc}
+                  disabled={busy !== null}
+                  onChange={(event) => updateDraftField("cc", event.target.value)}
                 />
                 <Input
                   label="Bcc"
-                  value={draft.bcc}
-                  onChange={(event) => setDraft({ ...draft, bcc: event.target.value })}
+                  value={editSession.draft.bcc}
+                  disabled={busy !== null}
+                  onChange={(event) => updateDraftField("bcc", event.target.value)}
                 />
               </div>
               <Input
                 label="Subject"
-                value={draft.subject}
-                onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
+                value={editSession.draft.subject}
+                disabled={busy !== null}
+                onChange={(event) => updateDraftField("subject", event.target.value)}
               />
               <Textarea
                 label="Email"
                 className="min-h-[220px]"
-                value={draft.bodyText}
-                onChange={(event) => setDraft({ ...draft, bodyText: event.target.value })}
+                value={editSession.draft.bodyText}
+                disabled={busy !== null}
+                onChange={(event) => updateDraftField("bodyText", event.target.value)}
                 hint="Saving updates this Genosyn review only. It does not create a mailbox draft."
               />
               <div className="flex flex-wrap gap-2">
@@ -466,10 +495,7 @@ export function MailReviewCard({
                   variant="ghost"
                   disabled={busy !== null}
                   onClick={() => {
-                    setDraft(review?.draft ?? null);
-                    setBaseRevision(review?.revision ?? null);
-                    setStale(false);
-                    setEditing(false);
+                    stopEditing();
                     setError(null);
                     returnFocusToEditButton();
                   }}
@@ -493,12 +519,7 @@ export function MailReviewCard({
             size="sm"
             variant="secondary"
             disabled={busy !== null || !review}
-            onClick={() => {
-              setDraft(review?.draft ?? null);
-              setBaseRevision(review?.revision ?? null);
-              setStale(false);
-              setEditing(true);
-            }}
+            onClick={startEditing}
           >
             <Pencil size={14} /> Edit email
           </Button>
