@@ -113,7 +113,7 @@ export function createFindToolsTool(ctx: DiscoveryContext): AgentTool {
       if (hits.length === 0) {
         lines.push(
           query
-            ? `Nothing matched ${JSON.stringify(query)}; full catalogue below. Search a domain or call an exact name.`
+            ? `No match for ${JSON.stringify(query)}; full catalogue below.`
             : "No tools matched.",
         );
       } else {

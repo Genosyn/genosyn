@@ -619,6 +619,12 @@ describe("mail rule HTTP API", () => {
 });
 
 test("round-trips proactive categories, work mode and exact sender spam filters", async () => {
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
+
   const created = await call<{ rule: SerializedRule }>(
     "POST",
     `/mail/accounts/${account.id}/rules`,
