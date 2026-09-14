@@ -35,7 +35,8 @@
     "test:onboarding": "tsx scripts/test-onboarding.ts",
     "test:mail-connect": "tsx scripts/test-mail-connect.ts",
     "test:model-setup": "tsx scripts/test-model-setup.ts",
-    "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts"
+    "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts",
+    "test:passkey-signin": "tsx scripts/test-passkey-signin.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

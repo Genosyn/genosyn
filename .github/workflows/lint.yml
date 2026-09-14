@@ -158,6 +158,8 @@ jobs:
         run: npm run build:client
       - name: Test signup, company setup, hiring, and account recovery
         run: npm run test:onboarding-fullstack
+      - name: Test passwordless passkey enrollment, sign-in, and replay protection
+        run: npm run test:passkey-signin
       - name: Save onboarding screenshots
         if: always()
         uses: actions/upload-artifact@v4

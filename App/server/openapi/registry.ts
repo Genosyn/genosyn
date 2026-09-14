@@ -40,7 +40,7 @@ registry.registerComponent("securitySchemes", "cookieAuth", {
   in: "cookie",
   name: "genosyn.sid",
   description:
-    "Browser session cookie set by `POST /api/auth/login`. Used by the web UI; " +
+    "Browser session cookie set by password, SSO, or passkey sign-in. Used by the web UI; " +
     "API clients should prefer Bearer auth.",
 });
 

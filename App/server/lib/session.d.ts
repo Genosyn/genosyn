@@ -8,7 +8,7 @@ declare module "express-serve-static-core" {
       userSessionId?: string;
       /** Absolute sign-in expiry, enforced by the server as well as the cookie. */
       expiresAt?: number;
-      /** Primary password or SSO completion time, used for step-up gates. */
+      /** Successful primary authentication time, used for step-up gates. */
       authenticatedAt?: number;
       /** Successful TOTP, recovery-code, or WebAuthn completion time. */
       secondFactorAt?: number;
@@ -28,6 +28,8 @@ declare module "express-serve-static-core" {
       ssoBrowserBinding?: string;
       /** Per-company SSO handshake binding — separate from the instance one. */
       companySsoBrowserBinding?: string;
+      /** Stable signed-cookie binding for passwordless passkey ceremonies in this browser. */
+      passkeyBrowserBinding?: string;
     } | null;
   }
 }

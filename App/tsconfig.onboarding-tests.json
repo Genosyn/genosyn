@@ -19,6 +19,7 @@
     "scripts/mailConnectHarness.tsx",
     "scripts/test-onboarding.ts",
     "scripts/test-onboarding-fullstack.ts",
+    "scripts/test-passkey-signin.ts",
     "scripts/test-model-setup.ts",
     "scripts/test-mail-connect.ts",
     "client/**/*.d.ts",

@@ -1,7 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 import { dateTimeColumnType } from "./columnTypes.js";
 
-/** Encrypted, single-use OAuth/OIDC handshake state shared by every replica. */
+/** Encrypted, single-use authentication handshake state shared by every replica. */
 @Entity("auth_flow_states")
 @Index(["tokenHash"], { unique: true })
 @Index(["expiresAt"])

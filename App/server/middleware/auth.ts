@@ -140,11 +140,17 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   return res.status(401).json({ error: "Unauthorized" });
 }
 
-export async function establishUserSession(req: Request, user: User): Promise<void> {
+export async function establishUserSession(
+  req: Request,
+  user: User,
+  options: { secondFactor?: boolean } = {},
+): Promise<void> {
   await revokeCurrentUserSession(req);
+  const authenticatedAt = Date.now();
   req.session = {
     ...(await createUserSession(user)),
-    authenticatedAt: Date.now(),
+    authenticatedAt,
+    ...(options.secondFactor ? { secondFactorAt: authenticatedAt } : {}),
   };
 }
 

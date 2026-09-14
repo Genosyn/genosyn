@@ -136,6 +136,8 @@ test("authentication endpoints explicitly distinguish public and protected opera
   const publicRoutes = new Set([
     "POST /api/auth/forgot-password",
     "POST /api/auth/login",
+    "POST /api/auth/login/passkey/options",
+    "POST /api/auth/login/passkey/verify",
     "POST /api/auth/reset-password",
     "POST /api/auth/signup",
     "POST /api/auth/verify-email",

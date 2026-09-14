@@ -42,7 +42,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/security",
         title: "Account security",
         blurb:
-          "Email verification and resend, plus optional 2FA with authenticator apps, passkeys, and USB security keys.",
+          "Passwordless passkey sign-in, email verification, and optional 2FA with authenticator apps and USB security keys.",
       },
       {
         path: "/docs/plans-billing",

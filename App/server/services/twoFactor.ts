@@ -2,17 +2,8 @@ import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import QRCode from "qrcode";
 import { generateSecret, generateURI, verify as verifyOtp } from "otplib";
-import {
-  generateAuthenticationOptions,
-  generateRegistrationOptions,
-  verifyAuthenticationResponse,
-  verifyRegistrationResponse,
-} from "@simplewebauthn/server";
-import type {
-  AuthenticationResponseJSON,
-  AuthenticatorTransportFuture,
-  RegistrationResponseJSON,
-} from "@simplewebauthn/server";
+import { generateRegistrationOptions, verifyRegistrationResponse } from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
 import { Company } from "../db/entities/Company.js";
@@ -24,7 +15,12 @@ import {
   type WebAuthnCredentialKind,
 } from "../db/entities/WebAuthnCredential.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
-import { getPublicUrl } from "./publicUrl.js";
+import {
+  beginWebAuthnAuthentication,
+  parseWebAuthnTransports,
+  verifyStoredWebAuthnAssertion,
+  webAuthnConfig,
+} from "./webAuthn.js";
 
 const RECOVERY_CODE_COUNT = 10;
 const RECOVERY_CODE_BYTES = 10;
@@ -62,24 +58,6 @@ export type TwoFactorStatus = {
   webAuthnCredentials: TwoFactorCredentialSummary[];
   recoveryCodesRemaining: number;
 };
-
-function webAuthnConfig(): { origin: string; rpID: string } {
-  const publicUrl = new URL(getPublicUrl());
-  return { origin: publicUrl.origin, rpID: publicUrl.hostname };
-}
-
-function parseTransports(value: string | null): AuthenticatorTransportFuture[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is AuthenticatorTransportFuture =>
-      ["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"].includes(String(item)),
-    );
-  } catch {
-    return [];
-  }
-}
 
 function parseRecoveryHashes(value: string | null): string[] {
   if (value === null) return [];
@@ -348,10 +326,10 @@ export async function beginWebAuthnEnrollment(args: {
     attestationType: "none",
     excludeCredentials: credentials.map((credential) => ({
       id: credential.credentialId,
-      transports: parseTransports(credential.transports),
+      transports: parseWebAuthnTransports(credential.transports),
     })),
     authenticatorSelection: {
-      residentKey: "preferred",
+      residentKey: args.kind === "passkey" ? "required" : "preferred",
       userVerification: "required",
     },
     preferredAuthenticatorType: args.kind === "security_key" ? "securityKey" : "localDevice",
@@ -423,20 +401,11 @@ export async function finishWebAuthnEnrollment(args: {
 }
 
 export async function beginWebAuthnLogin(userId: string) {
-  const credentials = await AppDataSource.getRepository(WebAuthnCredential).findBy({ userId });
-  if (credentials.length === 0) {
+  const options = await beginWebAuthnAuthentication(userId);
+  if (!options) {
     throw new TwoFactorError("No passkey or security key is enrolled", 400);
   }
-  const { rpID } = webAuthnConfig();
-  return generateAuthenticationOptions({
-    rpID,
-    timeout: 5 * 60 * 1000,
-    allowCredentials: credentials.map((credential) => ({
-      id: credential.credentialId,
-      transports: parseTransports(credential.transports),
-    })),
-    userVerification: "required",
-  });
+  return options;
 }
 
 export async function verifyWebAuthnLogin(args: {
@@ -444,36 +413,13 @@ export async function verifyWebAuthnLogin(args: {
   expectedChallenge: string;
   response: AuthenticationResponseJSON;
 }): Promise<boolean> {
-  const row = await AppDataSource.getRepository(WebAuthnCredential).findOneBy({
-    userId: args.userId,
-    credentialId: args.response.id,
-  });
-  if (!row) return false;
-  const { origin, rpID } = webAuthnConfig();
-  try {
-    const verification = await verifyAuthenticationResponse({
-      response: args.response,
+  return Boolean(
+    await verifyStoredWebAuthnAssertion({
       expectedChallenge: args.expectedChallenge,
-      expectedOrigin: origin,
-      expectedRPID: rpID,
-      credential: {
-        id: row.credentialId,
-        publicKey: new Uint8Array(Buffer.from(row.publicKey, "base64url")),
-        counter: row.counter,
-        transports: parseTransports(row.transports),
-      },
-      requireUserVerification: true,
-    });
-    if (!verification.verified) return false;
-    row.counter = verification.authenticationInfo.newCounter;
-    row.deviceType = verification.authenticationInfo.credentialDeviceType;
-    row.backedUp = verification.authenticationInfo.credentialBackedUp;
-    row.lastUsedAt = new Date();
-    await AppDataSource.getRepository(WebAuthnCredential).save(row);
-    return true;
-  } catch {
-    return false;
-  }
+      response: args.response,
+      expectedUserId: args.userId,
+    }),
+  );
 }
 
 export async function removeWebAuthnCredential(args: {

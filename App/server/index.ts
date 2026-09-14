@@ -31,6 +31,7 @@ import { ssoRouter } from "./routes/sso.js";
 import { companySsoAuthRouter } from "./routes/companySsoAuth.js";
 import { companySsoRouter } from "./routes/companySso.js";
 import { twoFactorRouter } from "./routes/twoFactor.js";
+import { passkeyLoginRouter } from "./routes/passkeyLogin.js";
 import { companiesRouter } from "./routes/companies.js";
 import { invitationsRouter } from "./routes/invitations.js";
 import { employeesRouter } from "./routes/employees.js";
@@ -375,6 +376,7 @@ async function main() {
   // same reason.
   app.use("/api/auth/sso/company", companySsoAuthRouter);
   app.use("/api/auth/sso", ssoRouter);
+  app.use("/api/auth", passkeyLoginRouter);
   app.use("/api/auth", twoFactorRouter);
   app.use("/api/auth", authRouter);
   // Web Push subscriptions for the PWA — user-scoped, so mounted outside

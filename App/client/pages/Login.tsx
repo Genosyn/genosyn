@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Building2, KeyRound, ShieldCheck } from "lucide-react";
-import { startAuthentication } from "@simplewebauthn/browser";
+import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
 import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import {
   api,
@@ -27,6 +27,7 @@ export default function Login() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [passkeyLoading, setPasskeyLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [sso, setSso] = React.useState<SsoPublicStatus | null>(null);
   const [twoFactor, setTwoFactor] = React.useState<TwoFactorLoginMethods | null>(null);
@@ -43,6 +44,7 @@ export default function Login() {
   // account — the callback redirected here with a single-use confirmation
   // token, and the person proves that account's password before linking.
   const ssoLinkToken = searchParams.get("ssoLink");
+  const supportsPasskeys = browserSupportsWebAuthn();
 
   React.useEffect(() => {
     api
@@ -89,6 +91,27 @@ export default function Login() {
     }
   }
 
+  async function signInWithPasskey() {
+    setError(null);
+    setPasskeyLoading(true);
+    try {
+      const started = await api.post<{
+        options: PublicKeyCredentialRequestOptionsJSON;
+        flowToken: string;
+      }>("/api/auth/login/passkey/options", {});
+      const response = await startAuthentication({ optionsJSON: started.options });
+      await api.post("/api/auth/login/passkey/verify", {
+        flowToken: started.flowToken,
+        response,
+      });
+      window.location.assign(returnTo);
+    } catch (err) {
+      setError(passkeySignInError(err));
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }
+
   if (twoFactor) {
     return (
       <AuthShell title={"Verify it's you"}>
@@ -127,6 +150,24 @@ export default function Login() {
     <AuthShell title="Welcome back">
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error ?? ssoError} />
+        {supportsPasskeys && (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={loading || passkeyLoading}
+              onClick={() => void signInWithPasskey()}
+            >
+              <KeyRound size={15} />
+              {passkeyLoading ? "Waiting for passkey…" : "Sign in with a passkey"}
+            </Button>
+            <div className="flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              or sign in with password
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            </div>
+          </>
+        )}
         <Input
           label="Email"
           type="email"
@@ -143,7 +184,7 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <Button type="submit" disabled={loading}>
+        <Button type="submit" disabled={loading || passkeyLoading}>
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         {sso?.enabled && (
@@ -179,6 +220,22 @@ export default function Login() {
       </form>
     </AuthShell>
   );
+}
+
+function passkeySignInError(error: unknown): string {
+  if (!(error instanceof Error)) return "Passkey sign-in failed. Try again.";
+  const webAuthnError = error as Error & {
+    code?: string;
+    cause?: { name?: string };
+  };
+  if (
+    webAuthnError.code === "ERROR_CEREMONY_ABORTED" ||
+    webAuthnError.name === "NotAllowedError" ||
+    webAuthnError.cause?.name === "NotAllowedError"
+  ) {
+    return "Passkey sign-in was cancelled or timed out.";
+  }
+  return error.message || "Passkey sign-in failed. Try again.";
 }
 
 function companySsoStartUrl(slug: string): string {

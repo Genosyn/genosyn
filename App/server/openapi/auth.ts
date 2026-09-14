@@ -51,6 +51,42 @@ const LoginResponse = z
   ])
   .openapi("LoginResponse");
 
+const PasskeyAuthenticationOptions = z
+  .object({
+    challenge: z.string(),
+    rpId: z.string(),
+    timeout: z.number().optional(),
+    userVerification: z.literal("required"),
+    allowCredentials: z
+      .array(
+        z.object({
+          id: z.string(),
+          type: z.literal("public-key"),
+          transports: z.array(z.string()).optional(),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough()
+  .openapi("PasskeyAuthenticationOptions");
+
+const PasskeyAuthenticationResponse = z
+  .object({
+    id: z.string(),
+    rawId: z.string(),
+    type: z.literal("public-key"),
+    response: z.object({
+      authenticatorData: z.string(),
+      clientDataJSON: z.string(),
+      signature: z.string(),
+      userHandle: z.string().nullable().optional(),
+    }),
+    clientExtensionResults: z.record(z.unknown()).optional(),
+    authenticatorAttachment: z.string().nullable().optional(),
+  })
+  .passthrough()
+  .openapi("PasskeyAuthenticationResponse");
+
 const ErrorResponse = z.object({ error: z.string() }).openapi("Error");
 
 registry.registerPath({
@@ -154,6 +190,78 @@ registry.registerPath({
     },
     401: {
       description: "Invalid credentials",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/login/passkey/options",
+  summary: "Start passwordless passkey sign-in",
+  description:
+    "Creates a five-minute, single-use WebAuthn challenge for a discoverable credential and " +
+    "binds it to the browser session that requested it. No account identifier is required.",
+  tags: ["Auth"],
+  security: publicSecurity,
+  request: {
+    body: { content: { "application/json": { schema: z.object({}) } } },
+  },
+  responses: {
+    200: {
+      description: "Passkey ceremony created",
+      content: {
+        "application/json": {
+          schema: z.object({
+            options: PasskeyAuthenticationOptions,
+            flowToken: z.string(),
+          }),
+        },
+      },
+    },
+    429: {
+      description: "Too many attempts — retry after the interval in the Retry-After header",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/login/passkey/verify",
+  summary: "Complete passwordless passkey sign-in",
+  description:
+    "Consumes the one-time challenge, verifies the discoverable credential with user " +
+    "verification, and creates a full browser session carrying second-factor evidence.",
+  tags: ["Auth"],
+  security: publicSecurity,
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            flowToken: z.string(),
+            response: PasskeyAuthenticationResponse,
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Logged in",
+      content: { "application/json": { schema: LoginUser } },
+    },
+    400: {
+      description: "The challenge expired, was already used, or came from another browser",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    401: {
+      description: "The passkey assertion could not be verified",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    429: {
+      description: "Too many attempts — retry after the interval in the Retry-After header",
       content: { "application/json": { schema: ErrorResponse } },
     },
   },

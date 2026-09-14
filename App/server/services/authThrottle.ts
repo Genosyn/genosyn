@@ -68,6 +68,64 @@ function resetExpiredWindow(row: AuthRateLimit, now: Date): void {
   }
 }
 
+const sqliteBucketTails = new Map<string, Promise<void>>();
+
+/** Serialize one SQLite bucket without making unrelated identities wait. */
+async function withSqliteBucketLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const previous = sqliteBucketTails.get(id) ?? Promise.resolve();
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sqliteBucketTails.set(id, tail);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (sqliteBucketTails.get(id) === tail) sqliteBucketTails.delete(id);
+  }
+}
+
+function consumeRow(row: AuthRateLimit, now: Date): void {
+  resetExpiredWindow(row, now);
+  if (row.blockedUntil && row.blockedUntil > now) {
+    throw new AuthRateLimitError(
+      Math.max(1, Math.ceil((row.blockedUntil.getTime() - now.getTime()) / 1000)),
+    );
+  }
+  row.attempts += 1;
+  if (row.attempts >= config.security.authRateLimit.maxAttempts) {
+    row.blockedUntil = new Date(
+      now.getTime() + config.security.authRateLimit.blockMinutes * 60_000,
+    );
+  }
+}
+
+/** Atomically admit and count one attempt against one persistent bucket. */
+async function consumeBucket(id: string): Promise<void> {
+  await ensureRow(id, new Date());
+  if (config.db.driver === "postgres") {
+    await AppDataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(AuthRateLimit);
+      const row = await repo.findOneOrFail({
+        where: { id },
+        lock: { mode: "pessimistic_write" },
+      });
+      consumeRow(row, new Date());
+      await repo.save(row);
+    });
+    return;
+  }
+
+  await withSqliteBucketLock(id, async () => {
+    const repo = AppDataSource.getRepository(AuthRateLimit);
+    const row = await repo.findOneByOrFail({ id });
+    consumeRow(row, new Date());
+    await repo.save(row);
+  });
+}
+
 export async function assertAuthAllowed(keys: string[]): Promise<void> {
   const now = new Date();
   for (const id of keys) {
@@ -102,6 +160,5 @@ export async function clearAuthFailures(keys: string[]): Promise<void> {
 
 /** Count every request for endpoints that intentionally hide account existence. */
 export async function consumeAuthAttempt(keys: string[]): Promise<void> {
-  await assertAuthAllowed(keys);
-  await recordAuthFailure(keys);
+  for (const id of keys) await consumeBucket(id);
 }

@@ -472,7 +472,7 @@ function AddWebAuthnModal({
           <p className="text-sm text-slate-600 dark:text-slate-300">
             {isSecurityKey
               ? "Name the key, confirm your password, then touch the key when your browser asks."
-              : "Name this device, confirm your password, then approve the prompt from your browser."}
+              : "Name this device, confirm your password, then approve the browser prompt. Once added, you can use it directly from the sign-in page."}
           </p>
           <Input
             label="Name"
@@ -623,7 +623,7 @@ export function AccountSecurity() {
                     <h2 className="text-sm font-semibold">Two-factor authentication</h2>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       {status.enabled
-                        ? "Sign-in requires your password and one enrolled method. Genosyn asks for your password again before any change below."
+                        ? "Passkeys can sign in directly. Password or SSO sign-in requires an enrolled second step. Genosyn asks for your password again before any change below."
                         : "Optional and currently off. Add any method below to turn it on."}
                     </p>
                   </div>
@@ -696,8 +696,8 @@ export function AccountSecurity() {
                       <KeyRound size={16} /> Passkeys and security keys
                     </h2>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      Touch ID, Face ID, Windows Hello, a password manager passkey, or a FIDO2 USB
-                      key such as YubiKey.
+                      Sign in directly with Touch ID, Face ID, Windows Hello, or a password-manager
+                      passkey. Discoverable FIDO2 USB keys work too.
                     </p>
                   </div>
                   {supportsWebAuthn && (

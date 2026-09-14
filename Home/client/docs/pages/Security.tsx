@@ -9,7 +9,7 @@ export function Security() {
         lead={
           <>
             Protect each human Member account with verified email, revocable sessions, and an
-            authenticator app, passkey, or FIDO2 USB security key such as YubiKey.
+            authenticator app, passwordless passkey, or FIDO2 USB security key such as YubiKey.
           </>
         }
       />
@@ -115,7 +115,17 @@ export function Security() {
         Give the credential a recognizable name, then choose <Strong>Add passkey</Strong>. Your
         browser can offer Touch ID, Face ID, Windows Hello, a password-manager passkey, or a nearby
         device. The private key stays in the authenticator; Genosyn stores only the public key and
-        verification counter.
+        verification counter. Once it is enrolled, choose <Strong>Sign in with a passkey</Strong>
+        on the login page and approve the browser&apos;s account picker — no email or password is
+        required.
+      </P>
+      <P>
+        New passkeys are created as discoverable credentials so the browser can find the account
+        without Genosyn asking who you are first. Most platform and password-manager passkeys added
+        on earlier versions are already discoverable. If an older credential does not appear in the
+        account picker, keep using it after password sign-in or remove and add it again. A USB key
+        can sign in directly only when it stores a discoverable credential; other FIDO2 keys remain
+        available as the second step after a password.
       </P>
       <Callout kind="info" title="Account security and Vault authenticators are separate">
         Everything on this page protects a human Member&apos;s Genosyn account and is never
@@ -143,14 +153,20 @@ export function Security() {
         <DocLink to="/docs/self-hosting#public-url">Configuration</DocLink>.
       </P>
 
-      <H2 id="sign-in">Sign in with 2FA</H2>
+      <H2 id="sign-in">Sign in with a passkey or 2FA</H2>
       <P>
-        Enter your email and password, or complete SSO as usual. If your account has two-factor
-        authentication enabled, Genosyn creates a five-minute verification step instead of a full
-        session. Use any enrolled passkey/security key, a current authenticator code, or an unused
-        recovery code. Eight failed second-factor attempts restart the sign-in flow. Failed-factor
-        counters also persist in the database across replacement cookies and application replicas,
-        so signing in with the password again does not reset the throttle.
+        <Strong>Sign in with a passkey</Strong> opens the browser&apos;s own passkey picker and
+        completes the whole sign-in after local user verification. That session carries both primary
+        and second-factor evidence, so recent-authentication controls do not ask for the same
+        credential twice. The five-minute challenge is single-use, stored across application
+        replicas, and bound to the browser that started it.
+      </P>
+      <P>
+        Password and SSO remain available. When the account has two-factor authentication enabled,
+        either one creates a five-minute verification step instead of a full session. Complete it
+        with any enrolled passkey/security key, a current authenticator code, or an unused recovery
+        code. Failed-factor and passkey attempts are throttled in the database across replacement
+        cookies and application replicas.
       </P>
 
       <H2 id="sso">SSO protections</H2>
