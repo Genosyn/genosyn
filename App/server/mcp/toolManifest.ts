@@ -93,6 +93,32 @@ const MAIL_ATTACHMENTS_PROPERTY = {
   },
 } as const;
 
+/**
+ * Durable files that can remain attached to a Decision-stack review across
+ * turns. Chat attachments are intentionally excluded: their ids are scoped to
+ * one conversation turn and cannot safely be resolved later when a Member
+ * presses Send. The review service snapshots and fingerprints the resolved
+ * bytes at request time, then rechecks the underlying Grant and delegated
+ * Finance ceiling before sending that exact snapshot.
+ */
+const MAIL_REVIEW_ATTACHMENTS_PROPERTY = {
+  type: "array",
+  maxItems: 10,
+  description:
+    "Optional durable files shown with this review. Give each item exactly one of `resourceSlug`, `invoiceSlug`, or `estimateSlug`. Genosyn fingerprints the exact bytes now and sends only that reviewed snapshot after rechecking the employee's live Grant and the requesting Member's Finance ceiling. Chat `attachmentId` values are turn-local and are not accepted here. Total attachment size is capped around 3 MB.",
+  items: {
+    type: "object",
+    properties: {
+      resourceSlug: MAIL_ATTACHMENTS_PROPERTY.items.properties.resourceSlug,
+      invoiceSlug: MAIL_ATTACHMENTS_PROPERTY.items.properties.invoiceSlug,
+      estimateSlug: MAIL_ATTACHMENTS_PROPERTY.items.properties.estimateSlug,
+      format: MAIL_ATTACHMENTS_PROPERTY.items.properties.format,
+      filename: MAIL_ATTACHMENTS_PROPERTY.items.properties.filename,
+    },
+    additionalProperties: false,
+  },
+} as const;
+
 const MARKETING_CAMPAIGN_PROPERTIES = {
   name: { type: "string", description: "Human-readable Campaign name." },
   objective: {
@@ -1980,6 +2006,113 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "request_mail_review",
+    description:
+      "Put an exact email in the Decision stack for a human to review. Nothing is written to Gmail/IMAP Drafts and nothing is sent by this call. The card shows what happened, work completed, the exact recipients/subject/body/files, and Send now / Edit email / Discard controls. For a reply, pass the source thread and omit recipients; they are safely inferred from its latest non-draft message. For a fresh email, pass accountId, to, subject, and optional cc/bcc. Use this instead of create_mail_draft for automatic customer work. A human send is a one-off reviewed action and does not expand your mailbox Grant; the live mailbox Connection, Grant, source, attachments, Suppressions, and company Policies are checked again immediately before delivery.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadId: {
+          type: "string",
+          description:
+            "Source email thread for a reply. Inferred when this turn already belongs to one. Omit only for a fresh compose.",
+        },
+        accountId: {
+          type: "string",
+          description:
+            "Mailbox to send a fresh email from. Required with to and subject when threadId is omitted.",
+        },
+        to: {
+          type: "string",
+          maxLength: 2000,
+          description:
+            "Exact To recipients for a fresh email. Omit for a reply; reply recipients come from the source thread.",
+        },
+        cc: {
+          type: "string",
+          maxLength: 2000,
+          description: "Optional exact Cc recipients for a fresh email. Omit for a reply.",
+        },
+        bcc: {
+          type: "string",
+          maxLength: 2000,
+          description: "Optional exact Bcc recipients for a fresh email. Omit for a reply.",
+        },
+        context: {
+          type: "string",
+          maxLength: 4000,
+          description:
+            "Plain-language summary of what happened and why this customer reply is useful.",
+        },
+        workSummary: {
+          type: "string",
+          maxLength: 8000,
+          description:
+            "Only work actually completed and verified before this reply. Leave empty when no separate work was needed.",
+        },
+        steps: {
+          type: "array",
+          maxItems: 12,
+          description:
+            "Short chronological steps already completed, never planned work stated as done.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", maxLength: 160 },
+              detail: { type: "string", maxLength: 1000 },
+            },
+            required: ["title"],
+            additionalProperties: false,
+          },
+        },
+        attachments: MAIL_REVIEW_ATTACHMENTS_PROPERTY,
+        subject: {
+          type: "string",
+          maxLength: 1000,
+          description:
+            "Required for a fresh email. Optional for a reply, where it is inferred from the thread when omitted.",
+        },
+        bodyText: {
+          type: "string",
+          maxLength: 200000,
+          description: "The exact plain-text email the human will see and may edit before sending.",
+        },
+      },
+      required: ["context", "bodyText"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "revise_mail_review",
+    description:
+      "Revise your own pending email in the Decision stack after a human asks for changes. Pass the Approval id from the review link and only the fields that should change. This updates the existing card; it never creates a Gmail/IMAP draft and never sends. Re-read the human's requested changes carefully and preserve every field they did not ask you to alter.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        approvalId: {
+          type: "string",
+          description: "The pending mail-send Approval id shown in the Decision-stack link.",
+        },
+        expectedRevision: {
+          type: "string",
+          description:
+            "The exact revision hash shown in the review discussion. Genosyn refuses a stale edit so a newer human or AI edit is never overwritten.",
+        },
+        to: { type: "string", maxLength: 2000 },
+        cc: { type: "string", maxLength: 2000 },
+        bcc: { type: "string", maxLength: 2000 },
+        subject: { type: "string", maxLength: 1000 },
+        bodyText: {
+          type: "string",
+          maxLength: 200000,
+          description: "The complete replacement plain-text body, not a patch or instruction.",
+        },
+      },
+      required: ["approvalId", "expectedRevision"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "request_work_review",
     description:
       "Submit a concrete proactive work plan to the Decision stack before acting. Available only in a proactive review turn. Only a human owner or admin can approve it; submission performs none of the proposed work. First read list_work_reviews to avoid repeating pending, declined or completed work without new evidence. Use a short action title, explain what happened and why it matters, and state exactly what will change, the expected result and any relevant risk. Finish the review after submitting. Existing Grants and delivery restrictions still apply after approval.",
@@ -2006,6 +2139,33 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["title", "context", "plan"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "revise_work_review",
+    description:
+      "Revise your own pending work plan in the Decision stack after a human asks for changes. Pass the Approval id and exact revision from the review discussion, plus only the complete fields that should change. This updates the existing card and starts no work. Genosyn refuses stale edits so you cannot overwrite a newer revision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        approvalId: {
+          type: "string",
+          description: "The pending proactive-work Approval id shown in the Decision-stack link.",
+        },
+        expectedRevision: {
+          type: "string",
+          description: "The exact revision hash shown in the review discussion.",
+        },
+        title: { type: "string", maxLength: 200 },
+        context: { type: "string", maxLength: 4000 },
+        plan: {
+          type: "string",
+          maxLength: 8000,
+          description: "The complete replacement plan, not a patch or instruction.",
+        },
+      },
+      required: ["approvalId", "expectedRevision"],
       additionalProperties: false,
     },
   },
@@ -3422,7 +3582,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       properties: {
         attachmentId: {
           type: "string",
-          description: "Id of an .xlsx chat upload, email attachment, downloaded file, or edited workbook.",
+          description:
+            "Id of an .xlsx chat upload, email attachment, downloaded file, or edited workbook.",
         },
         sheet: { type: "string", description: "Exact worksheet name, as returned by this tool." },
         range: {
@@ -3470,7 +3631,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
                   { type: "boolean" },
                   { type: "null" },
                 ],
-                description: "Literal cell value; null clears it. Text is never interpreted as a formula.",
+                description:
+                  "Literal cell value; null clears it. Text is never interpreted as a formula.",
               },
             },
             required: ["sheet", "cell", "value"],

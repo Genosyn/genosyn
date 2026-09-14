@@ -459,7 +459,7 @@ export function MailAssistant({
       ]
     : [
         "Summarize this email and what it needs from me.",
-        "Draft a reply to this email.",
+        "Prepare a reply to this email for me to review.",
         "Triage this email — label it and archive if nothing is needed.",
       ];
 

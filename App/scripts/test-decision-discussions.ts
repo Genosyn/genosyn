@@ -28,6 +28,11 @@ const apiBase = "/api/companies/company";
 const employeeBase = `${apiBase}/employees/asking-employee`;
 const firstDecisionId = "11111111-1111-4111-8111-111111111111";
 const secondDecisionId = "22222222-2222-4222-8222-222222222222";
+const workReviewId = "33333333-3333-4333-8333-333333333333";
+const mailReviewId = "44444444-4444-4444-8444-444444444444";
+const secondMailReviewId = "55555555-5555-4555-8555-555555555555";
+const revisionA = "a".repeat(64);
+const revisionB = "b".repeat(64);
 const fixtureNow = new Date("2026-09-09T12:00:00.000Z");
 const browserErrors: string[] = [];
 const unexpectedRequests: string[] = [];
@@ -189,11 +194,14 @@ function message(
     createdAt: fixtureNow.toISOString(),
   };
 }
-function homeData(rows: Decision[]): HomeData {
+function homeData(rows: Decision[], approvalRows: Approval[] = [], canReview = false): HomeData {
   const pending = rows.filter((row) => row.status === "pending");
+  const pendingReviews = canReview ? approvalRows.filter((row) => row.status === "pending") : [];
   return {
     decisions: pending,
     pendingDecisionCount: pending.length,
+    decisionApprovals: pendingReviews,
+    pendingDecisionApprovalCount: pendingReviews.length,
     repositoryWork: [],
     repositoryWorkCount: 0,
     draftEmails: [],
@@ -220,7 +228,7 @@ function homeData(rows: Decision[]): HomeData {
 }
 function workReview(changes: Partial<Approval> = {}): Approval {
   return {
-    id: "review-1",
+    id: workReviewId,
     companyId: "company",
     kind: "proactive_work",
     routineId: "routine-1",
@@ -233,7 +241,79 @@ function workReview(changes: Partial<Approval> = {}): Approval {
     requestedAt: fixtureNow.toISOString(),
     decidedAt: null,
     decidedByUserId: null,
+    review: {
+      kind: "work",
+      revision: revisionA,
+      context: "Acme reported a checkout error in their email.",
+      plan: "Investigate the checkout failure, prepare a fix in the Repository, and run the existing Checks. Nothing will be published or sent to the customer.",
+      source: {
+        routineId: "routine-1",
+        runId: null,
+        conversationId: null,
+        mailThreadId: null,
+        mailAccountId: null,
+        mailHandoverId: null,
+      },
+    },
     routine: { id: "routine-1", name: "Review customer reports", slug: "review-customer-reports" },
+    employee: { id: "asking-employee", name: "Alex Rivera", slug: "alex" },
+    ...changes,
+  };
+}
+function mailReview(changes: Partial<Approval> = {}): Approval {
+  return {
+    id: mailReviewId,
+    companyId: "company",
+    kind: "mail_send",
+    routineId: "routine-mail",
+    employeeId: "asking-employee",
+    title: "Reply to Acme about their checkout report",
+    summary: "A reviewed reply that exists only in Genosyn.",
+    errorMessage: null,
+    status: "pending",
+    requestedAt: fixtureNow.toISOString(),
+    decidedAt: null,
+    decidedByUserId: null,
+    review: {
+      kind: "mail",
+      revision: revisionA,
+      context: "Acme reported that checkout fails after they apply an annual-plan discount code.",
+      workSummary:
+        "I reproduced the issue, prepared a fix in the Repository, and ran the relevant Checks.",
+      steps: [
+        { title: "Reproduced the report", detail: "Confirmed the failure on annual plans." },
+        { title: "Prepared the fix", detail: "Updated discount validation and ran the Checks." },
+      ],
+      attachments: [
+        {
+          index: 0,
+          filename: "checkout-fix-summary.pdf",
+          contentType: "application/pdf",
+          sizeBytes: 2_048,
+        },
+      ],
+      source: {
+        accountId: "mail-account",
+        threadId: "customer-thread",
+        mailHandoverId: "handover-1",
+        routineId: "routine-mail",
+        runId: "source-run",
+        conversationId: null,
+      },
+      draft: {
+        to: "customer@acme.example",
+        cc: "success@genosyn.example",
+        bcc: "",
+        subject: "Re: Checkout error with annual-plan discount",
+        bodyText:
+          "Hi Priya,\n\nWe found the checkout issue and prepared a fix. I’ll let you know when it is available.\n\nBest,\nMorgan",
+      },
+    },
+    routine: {
+      id: "routine-mail",
+      name: "Customer email handover",
+      slug: "customer-email-handover",
+    },
     employee: { id: "asking-employee", name: "Alex Rivera", slug: "alex" },
     ...changes,
   };
@@ -246,6 +326,9 @@ function draft(row: Decision) {
       : "Help me understand this decision and its outcome.")
   );
 }
+function reviewDraft(row: Approval) {
+  return `Update [Review](${companyPath}/decisions#review-${row.id}).\n\n` + "Requested changes: ";
+}
 function gate() {
   let release: () => void = () => {};
   const promise = new Promise<void>((resolve) => {
@@ -256,8 +339,10 @@ function gate() {
 type Write = { path: string; body: Record<string, unknown> };
 type FixtureOptions = {
   role?: "admin" | "member";
-  workReviews?: Approval[];
+  reviews?: Approval[];
   approvalError?: boolean;
+  mailEditConflict?: boolean;
+  mailSendResult?: "sent" | "not_sent" | "unverified";
   rows?: Decision[];
   surface?: "home" | "decisions" | "chat";
   width?: number;
@@ -277,7 +362,7 @@ async function open(options: FixtureOptions = {}) {
   await page.clock.setFixedTime(fixtureNow);
   await page.addInitScript(() => localStorage.setItem("genosyn.pushPromptDismissed", "1"));
   const rows = options.rows ?? [decision()];
-  const approvalRows = options.workReviews ?? [];
+  const approvalRows = options.reviews ?? [];
   const reads: string[] = [];
   const writes: Write[] = [];
   const listGate = gate();
@@ -328,19 +413,16 @@ async function open(options: FixtureOptions = {}) {
           ? route.fulfill({ json: linked })
           : route.fulfill({ status: 404, json: { error: "Not found" } });
       }
+      if (url.pathname.startsWith(`${apiBase}/approvals/`)) {
+        const id = url.pathname.split("/").at(-1);
+        const linked = approvalRows.find((row) => row.id === id);
+        return linked
+          ? route.fulfill({ json: linked })
+          : route.fulfill({ status: 404, json: { error: "Not found" } });
+      }
       if (url.pathname === `${apiBase}/home`)
         return route.fulfill({
-          json: {
-            ...homeData(rows),
-            proactiveApprovals:
-              options.role === "admin"
-                ? approvalRows.filter((row) => row.status === "pending")
-                : [],
-            pendingProactiveApprovalCount:
-              options.role === "admin"
-                ? approvalRows.filter((row) => row.status === "pending").length
-                : 0,
-          },
+          json: homeData(rows, approvalRows, options.role === "admin"),
         });
       if (url.pathname === `${apiBase}/employees` || url.pathname === `${apiBase}/members`)
         return route.fulfill({ json: [] });
@@ -398,9 +480,46 @@ async function open(options: FixtureOptions = {}) {
             },
           });
       }
-    } else if (request.method() === "POST" && allowWrites) {
+    } else if ((request.method() === "POST" || request.method() === "PATCH") && allowWrites) {
       const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
       writes.push({ path: url.pathname, body });
+      const editMailMatch = url.pathname.match(
+        /^\/api\/companies\/company\/approvals\/([^/]+)\/mail-review$/,
+      );
+      if (request.method() === "PATCH" && editMailMatch) {
+        const row = approvalRows.find((item) => item.id === editMailMatch[1]);
+        assert.ok(row?.review?.kind === "mail");
+        if (options.mailEditConflict) {
+          row.review = {
+            ...row.review,
+            revision: revisionB,
+            draft: {
+              ...row.review.draft,
+              bodyText: "A newer server-side version of this email.",
+            },
+          };
+          return route.fulfill({
+            status: 409,
+            json: {
+              error:
+                "This email changed while you were editing it. Refresh and review the latest copy.",
+            },
+          });
+        }
+        assert.equal(body.expectedRevision, row.review.revision);
+        row.review = {
+          ...row.review,
+          revision: revisionB,
+          draft: {
+            to: String(body.to ?? row.review.draft.to),
+            cc: String(body.cc ?? row.review.draft.cc),
+            bcc: String(body.bcc ?? row.review.draft.bcc),
+            subject: String(body.subject ?? row.review.draft.subject),
+            bodyText: String(body.bodyText ?? row.review.draft.bodyText),
+          },
+        };
+        return route.fulfill({ json: row });
+      }
       const approvalMatch = url.pathname.match(
         /^\/api\/companies\/company\/approvals\/([^/]+)\/(approve|reject)$/,
       );
@@ -412,7 +531,33 @@ async function open(options: FixtureOptions = {}) {
           });
         const row = approvalRows.find((item) => item.id === approvalMatch[1]);
         assert.ok(row);
-        row.status = approvalMatch[2] === "approve" ? "approved" : "rejected";
+        assert.equal(body.reviewRevision, row.review?.revision);
+        if (approvalMatch[2] === "reject") {
+          row.status = "rejected";
+          row.decidedAt = fixtureNow.toISOString();
+        } else if (row.kind === "proactive_work") {
+          row.status = "executing";
+          row.decidedAt = fixtureNow.toISOString();
+        } else if (row.kind === "mail_send" && options.mailSendResult === "not_sent") {
+          row.status = "execution_failed";
+          row.mailDeliveryStatus = "not_sent";
+          row.errorMessage = "The reviewed email was not sent.";
+          row.decidedAt = fixtureNow.toISOString();
+        } else if (row.kind === "mail_send" && options.mailSendResult === "unverified") {
+          row.status = "execution_failed";
+          row.mailDeliveryStatus = "unverified";
+          row.errorMessage = "Genosyn could not confirm whether the reviewed email completed.";
+          row.decidedAt = fixtureNow.toISOString();
+        } else {
+          row.status = "approved";
+          row.mailDeliveryStatus = "sent";
+          row.mailOutcome = {
+            sentMessageId: "sent-message",
+            providerMessageRef: "provider-ref",
+            sentAt: fixtureNow.toISOString(),
+          };
+          row.decidedAt = fixtureNow.toISOString();
+        }
         return route.fulfill({ json: row });
       }
       if (url.pathname === `${employeeBase}/conversations`) {
@@ -464,16 +609,13 @@ async function open(options: FixtureOptions = {}) {
     await page
       .getByPlaceholder("Message Alex Rivera…", { exact: true })
       .waitFor({ timeout: 300000 });
-  else if (rows.length)
+  else if (rows.some((row) => row.status === "pending"))
     await page
       .getByRole("button", { name: "Discuss", exact: true })
       .first()
       .waitFor({ timeout: 300000 });
   else if (approvalRows.length && options.role === "admin")
-    await page
-      .getByRole("button", { name: "Approve work", exact: true })
-      .first()
-      .waitFor({ timeout: 300000 });
+    await page.locator(`#review-${approvalRows[0].id}`).waitFor({ timeout: 300000 });
   else
     await page
       .getByRole("heading", { name: "Decision stack", exact: true })
@@ -504,6 +646,9 @@ async function open(options: FixtureOptions = {}) {
 function card(page: Page, id = firstDecisionId) {
   return page.locator(`[id="decision-${id}"]`);
 }
+function reviewCard(page: Page, id = workReviewId) {
+  return page.locator(`[id="review-${id}"]`);
+}
 function discuss(locator: Page | Locator) {
   return locator.getByRole("button", { name: "Discuss", exact: true });
 }
@@ -519,6 +664,23 @@ async function staged(page: Page, row = decision()) {
   assert.equal(
     await page.getByText("Earlier unrelated planning details.", { exact: true }).count(),
     0,
+  );
+  assert.equal(
+    await page.getByRole("button", { name: "Send message", exact: true }).isEnabled(),
+    true,
+  );
+}
+async function stagedReview(page: Page, row: Approval) {
+  await page.waitForURL(`${origin}${chatPath}`);
+  await composer(page).waitFor();
+  assert.equal(await composer(page).inputValue(), reviewDraft(row));
+  assert.equal(
+    await page.getByText("Earlier unrelated planning details.", { exact: true }).count(),
+    0,
+  );
+  assert.doesNotMatch(
+    await composer(page).inputValue(),
+    /Acme|checkout|customer@|annual-plan|prepared a fix/i,
   );
   assert.equal(
     await page.getByRole("button", { name: "Send message", exact: true }).isEnabled(),
@@ -548,6 +710,12 @@ async function fitsViewport(page: Page) {
     true,
     "every Discuss action must remain on screen",
   );
+}
+async function quietNotice(page: Page, text: string) {
+  const notice = page.locator('[role="status"]').filter({ hasText: text });
+  await notice.waitFor({ state: "attached" });
+  assert.match((await notice.getAttribute("class")) ?? "", /\bsr-only\b/);
+  assert.equal(await notice.getAttribute("tabindex"), null);
 }
 let checks = 0;
 const filters = process.argv.slice(2).map((value) => value.toLowerCase());
@@ -594,29 +762,27 @@ try {
       const fixture = await open({ rows: [row] });
       await fixture.page.getByText(row.body, { exact: true }).waitFor();
       assert.equal(await fixture.page.getByRole("radio", { checked: true }).count(), 0);
-      assert.equal(
-        await fixture.page.getByRole("button", { name: "Send decision", exact: true }).isDisabled(),
-        true,
-      );
-      const first = fixture.page.getByRole("radio", { name: "Revise it first", exact: true });
-      assert.equal(await first.locator("..").getByText("Recommended", { exact: true }).count(), 0);
-      const recommended = fixture.page.getByRole("radio", { name: "Send the update", exact: true });
-      assert.equal(
-        await recommended.locator("..").getByText("Recommended", { exact: true }).count(),
-        1,
-      );
-      await recommended.check();
+      assert.equal(await fixture.page.getByRole("button", { name: /Confirm:/ }).count(), 0);
+      const recommended = fixture.page.getByRole("radio", { name: /^Send the update\b/ });
+      assert.equal(await fixture.page.getByText("Recommended", { exact: true }).count(), 1);
+      await fixture.page.getByText("Send the update", { exact: true }).click();
+      assert.equal(await recommended.isChecked(), true);
+      await fixture.page.getByRole("button", { name: "Add guidance", exact: true }).click();
       await fixture.page
-        .getByRole("textbox", { name: "Details for Alex Rivera (optional)" })
+        .getByRole("textbox", { name: "Guidance for Alex Rivera (optional)" })
         .fill("Use the revised delivery date.");
-      await fixture.page.getByRole("button", { name: "Read full context", exact: true }).click();
+      await fixture.page
+        .getByRole("button", { name: "Read the full context", exact: true })
+        .click();
       assert.deepEqual(fixture.writes, []);
       await fixture.page.screenshot({
         path: path.join(output, "decision-review-desktop.png"),
         fullPage: true,
       });
       fixture.allowWrites();
-      await fixture.page.getByRole("button", { name: "Send decision", exact: true }).click();
+      await fixture.page
+        .getByRole("button", { name: "Confirm: Send the update", exact: true })
+        .click();
       await fixture.page.getByText("Decision history", { exact: true }).waitFor();
       assert.deepEqual(fixture.writes, [
         {
@@ -640,13 +806,10 @@ try {
       });
       await fixture.page.getByText("No context was included.", { exact: false }).waitFor();
       assert.equal(await fixture.page.getByText("Recommended", { exact: true }).count(), 0);
-      await fixture.page.getByRole("button", { name: "Dismiss…", exact: true }).click();
+      await fixture.page.getByRole("button", { name: "Dismiss", exact: true }).click();
       assert.deepEqual(fixture.writes, []);
       await fixture.page.getByRole("button", { name: "Keep decision", exact: true }).click();
-      assert.equal(
-        await fixture.page.getByRole("button", { name: "Send decision", exact: true }).isDisabled(),
-        true,
-      );
+      assert.equal(await fixture.page.getByRole("button", { name: /Confirm:/ }).count(), 0);
       await fixture.page.close();
     },
   );
@@ -671,7 +834,7 @@ try {
       await fixture.page
         .getByRole("searchbox", { name: "Search decision stack" })
         .fill("nonexistent customer");
-      await fixture.page.getByText("No matching decisions", { exact: true }).waitFor();
+      await fixture.page.getByText("No matching items", { exact: true }).waitFor();
       assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
@@ -679,13 +842,13 @@ try {
   for (const surface of ["home", "decisions"] as const) {
     for (const action of ["approve", "reject"] as const) {
       await check(
-        `${surface}: proactive work ${action} needs explicit confirmation and uses the Approval endpoint`,
+        `${surface}: proactive work ${action} is one direct, revision-bound Approval action`,
         async () => {
           const fixture = await open({
             surface,
             rows: [],
             role: "admin",
-            workReviews: [workReview()],
+            reviews: [workReview()],
             width: surface === "home" ? 1440 : 360,
           });
           await fixture.page
@@ -693,17 +856,17 @@ try {
             .waitFor();
           assert.equal(
             await fixture.page
-              .getByRole("link", { name: "Routine: Review customer reports", exact: true })
+              .getByRole("link", { name: "Open Review customer reports", exact: true })
               .getAttribute("href"),
             `${companyPath}/routines/alex/review-customer-reports`,
           );
-          const stageLabel = action === "approve" ? "Approve work" : "Decline";
-          const confirmLabel = action === "approve" ? "Confirm and start work" : "Confirm decline";
-          await fixture.page.getByRole("button", { name: stageLabel, exact: true }).click();
+          await fixture.page
+            .getByText("What the AI Employee recommends", { exact: true })
+            .waitFor();
+          const actionLabel = action === "approve" ? "Approve & start" : "Don’t do this";
+          assert.equal(await fixture.page.getByRole("button", { name: "Go back" }).count(), 0);
+          assert.equal(await fixture.page.getByRole("dialog").count(), 0);
           assert.deepEqual(fixture.writes, []);
-          await fixture.page.getByRole("button", { name: "Go back", exact: true }).click();
-          assert.deepEqual(fixture.writes, []);
-          await fixture.page.getByRole("button", { name: stageLabel, exact: true }).click();
           await fitsViewport(fixture.page);
           if (action === "approve")
             await fixture.page.screenshot({
@@ -711,21 +874,34 @@ try {
               fullPage: true,
             });
           fixture.allowWrites();
-          await fixture.page.getByRole("button", { name: confirmLabel, exact: true }).click();
+          await fixture.page.getByRole("button", { name: actionLabel, exact: true }).click();
           if (surface === "home") {
-            await fixture.page.locator("#work-review-review-1").waitFor({ state: "detached" });
+            await reviewCard(fixture.page).waitFor({ state: "detached" });
           } else {
-            await fixture.page.getByText("Work approval history", { exact: true }).waitFor();
+            await fixture.page.getByText("Review history", { exact: true }).waitFor();
             await fixture.page
-              .getByText(action === "approve" ? "Work finished" : "Declined", { exact: true })
+              .getByText(action === "approve" ? "Work in progress" : "Not approved", {
+                exact: true,
+              })
               .waitFor();
             assert.equal(
-              await fixture.page.getByRole("button", { name: "Approve work", exact: true }).count(),
+              await fixture.page
+                .getByRole("button", { name: "Approve & start", exact: true })
+                .count(),
               0,
             );
           }
+          await quietNotice(
+            fixture.page,
+            action === "approve"
+              ? "Work review “Fix the checkout error reported by Acme” approved."
+              : "Work review “Fix the checkout error reported by Acme” declined.",
+          );
           assert.deepEqual(fixture.writes, [
-            { path: `${apiBase}/approvals/review-1/${action}`, body: {} },
+            {
+              path: `${apiBase}/approvals/${workReviewId}/${action}`,
+              body: { reviewRevision: revisionA },
+            },
           ]);
           await fixture.page.close();
         },
@@ -733,39 +909,51 @@ try {
     }
   }
   await check(
-    "proactive work failures remain visible and Members never fetch work Approvals",
+    "proactive work failures remain actionable and Members never fetch stack Approvals",
     async () => {
       const fixture = await open({
         role: "admin",
-        workReviews: [workReview()],
+        reviews: [workReview()],
         approvalError: true,
       });
-      await fixture.page.getByRole("button", { name: "Approve work", exact: true }).click();
       fixture.allowWrites();
-      await fixture.page
-        .getByRole("button", { name: "Confirm and start work", exact: true })
-        .click();
+      await fixture.page.getByRole("button", { name: "Approve & start", exact: true }).click();
       await fixture.page
         .getByRole("alert")
         .getByText("This work request has already changed.", { exact: true })
         .waitFor();
       assert.equal(
         await fixture.page
-          .getByRole("button", { name: "Confirm and start work", exact: true })
+          .getByRole("button", { name: "Approve & start", exact: true })
           .isEnabled(),
         true,
       );
       await fixture.page.close();
-      const member = await open({ workReviews: [workReview()] });
+      const member = await open({ reviews: [workReview()] });
       assert.equal(
         member.reads.some((url) => url === `${apiBase}/approvals`),
         false,
       );
       assert.equal(
-        await member.page.getByRole("button", { name: "Approve work", exact: true }).count(),
+        await member.page.getByRole("button", { name: "Approve & start", exact: true }).count(),
         0,
       );
       await member.page.close();
+    },
+  );
+  await check(
+    "request changes opens a safe Review discussion without copying untrusted review content",
+    async () => {
+      const review = workReview();
+      const fixture = await open({ role: "admin", rows: [], reviews: [review] });
+      await fixture.page.getByRole("button", { name: "Request changes", exact: true }).click();
+      await stagedReview(fixture.page, review);
+      assert.deepEqual(fixture.writes, []);
+      assert.equal(
+        fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length,
+        1,
+      );
+      await fixture.page.close();
     },
   );
   await check(
@@ -773,42 +961,300 @@ try {
     async () => {
       const fixture = await open({
         role: "admin",
-        workReviews: [
+        reviews: [
           workReview({
-            id: "finished",
+            id: "66666666-6666-4666-8666-666666666666",
             status: "approved",
             outcomeSummary: "Prepared the checkout fix for review. Nothing was published.",
             outcomeRunId: secondDecisionId,
           }),
-          workReview({ id: "running", status: "executing" }),
+          workReview({ id: "77777777-7777-4777-8777-777777777777", status: "executing" }),
           workReview({
-            id: "failed",
+            id: "88888888-8888-4888-8888-888888888888",
             status: "execution_failed",
             errorMessage: "The approved work could not finish.",
           }),
-          workReview({ id: "declined", status: "rejected" }),
+          workReview({ id: "99999999-9999-4999-8999-999999999999", status: "rejected" }),
         ],
       });
-      await fixture.page.getByText("Work approval history", { exact: true }).waitFor();
+      await fixture.page.getByText("Review history", { exact: true }).waitFor();
       await fixture.page
         .getByText("Prepared the checkout fix for review. Nothing was published.", { exact: true })
         .waitFor();
-      await fixture.page.getByText("In progress", { exact: true }).waitFor();
+      await fixture.page.getByText("Work in progress", { exact: true }).waitFor();
       await fixture.page.getByText("Work failed", { exact: true }).waitFor();
-      await fixture.page.getByText("Declined", { exact: true }).waitFor();
+      await fixture.page.getByText("Not approved", { exact: true }).waitFor();
       assert.equal(
         await fixture.page
-          .getByRole("link", { name: "Open Run and Checks", exact: true })
+          .getByRole("link", { name: "Open AI work, Effects, and Checks", exact: true })
           .getAttribute("href"),
         `${companyPath}/routines/alex/review-customer-reports?run=${secondDecisionId}`,
       );
       assert.equal(
-        await fixture.page.getByRole("button", { name: "Approve work", exact: true }).count(),
+        await fixture.page.getByRole("button", { name: "Approve & start", exact: true }).count(),
         0,
       );
       assert.deepEqual(fixture.writes, []);
       await fixture.page.screenshot({
         path: path.join(output, "proactive-work-history-desktop.png"),
+        fullPage: true,
+      });
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "mail review tells the customer story and links its source, AI work, and exact attachment",
+    async () => {
+      const review = mailReview();
+      const fixture = await open({ role: "admin", rows: [], reviews: [review] });
+      await fixture.page
+        .getByText(
+          "Acme reported that checkout fails after they apply an annual-plan discount code.",
+          {
+            exact: true,
+          },
+        )
+        .waitFor();
+      await fixture.page
+        .getByText("What the AI Employee reports it did", { exact: true })
+        .waitFor();
+      await fixture.page.getByText("Reproduced the report", { exact: true }).waitFor();
+      await fixture.page.getByText("Prepared the fix", { exact: true }).waitFor();
+      await fixture.page.getByText("Draft reply", { exact: true }).waitFor();
+      await fixture.page.getByText("customer@acme.example", { exact: true }).waitFor();
+      await fixture.page
+        .getByText("Re: Checkout error with annual-plan discount", { exact: true })
+        .waitFor();
+      assert.equal(
+        await fixture.page
+          .getByRole("link", { name: "Open original email", exact: true })
+          .getAttribute("href"),
+        `${companyPath}/mail/t/customer-thread?account=mail-account`,
+      );
+      assert.equal(
+        await fixture.page
+          .getByRole("link", { name: "Open AI work", exact: true })
+          .getAttribute("href"),
+        `${companyPath}/mail/t/customer-thread?account=mail-account#handover-handover-1`,
+      );
+      const attachment = fixture.page.getByRole("link", {
+        name: "checkout-fix-summary.pdf",
+        exact: true,
+      });
+      assert.equal(
+        await attachment.getAttribute("href"),
+        `${apiBase}/approvals/${mailReviewId}/mail-review/attachments/0`,
+      );
+      assert.equal(await attachment.getAttribute("download"), "checkout-fix-summary.pdf");
+      await fixture.page
+        .getByText(/exists only in Genosyn.*Nothing has been saved to Gmail or IMAP Drafts/)
+        .waitFor();
+      assert.deepEqual(fixture.writes, []);
+      await fixture.page.screenshot({
+        path: path.join(output, "mail-review-timeline-desktop.png"),
+        fullPage: true,
+      });
+      await fixture.page.close();
+    },
+  );
+  await check("fresh email reviews do not invent a customer thread or source link", async () => {
+    const review = mailReview({ id: secondMailReviewId, title: "Send the launch update to Acme" });
+    assert.equal(review.review?.kind, "mail");
+    review.review = {
+      ...review.review,
+      context: "Alex proposes a new launch update for Acme.",
+      attachments: [],
+      source: {
+        ...review.review.source,
+        threadId: null,
+        mailHandoverId: null,
+      },
+      draft: {
+        ...review.review.draft,
+        subject: "Genosyn launch update",
+      },
+    };
+    const fixture = await open({ role: "admin", rows: [], reviews: [review] });
+    await fixture.page.getByText("Proposed email", { exact: true }).waitFor();
+    await fixture.page.getByText("Draft email", { exact: true }).waitFor();
+    assert.equal(
+      await fixture.page.getByRole("link", { name: "Open original email", exact: true }).count(),
+      0,
+    );
+    assert.equal(
+      await fixture.page.getByRole("link", { name: "Open AI work", exact: true }).count(),
+      0,
+    );
+    assert.deepEqual(fixture.writes, []);
+    await fixture.page.close();
+  });
+  await check(
+    "Send now sends the exact revision directly and moves it to sent history",
+    async () => {
+      const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
+      fixture.allowWrites();
+      await fixture.page.getByRole("button", { name: "Send now", exact: true }).click();
+      await fixture.page.getByText("Review history", { exact: true }).waitFor();
+      await fixture.page.getByText("Sent", { exact: true }).waitFor();
+      await fixture.page
+        .getByText("The exact reviewed email was sent. No mailbox draft was created first.", {
+          exact: true,
+        })
+        .waitFor();
+      await fixture.page
+        .getByText("No email was saved to Gmail or IMAP Drafts before this review was resolved.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(await fixture.page.getByText(/exists only in Genosyn/).count(), 0);
+      await quietNotice(
+        fixture.page,
+        "Email review “Reply to Acme about their checkout report” sent.",
+      );
+      assert.deepEqual(fixture.writes, [
+        {
+          path: `${apiBase}/approvals/${mailReviewId}/approve`,
+          body: { reviewRevision: revisionA },
+        },
+      ]);
+      await fixture.page.close();
+    },
+  );
+  await check("Edit email saves only to the stack and Send now uses the new revision", async () => {
+    const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
+    await fixture.page.getByRole("button", { name: "Edit email", exact: true }).click();
+    await fixture.page.getByLabel("To", { exact: true }).fill("priya@acme.example");
+    await fixture.page.getByLabel("Cc", { exact: true }).fill("");
+    await fixture.page.getByLabel("Bcc", { exact: true }).fill("audit@genosyn.example");
+    await fixture.page.getByLabel("Subject", { exact: true }).fill("Re: Your checkout report");
+    await fixture.page
+      .getByLabel("Email", { exact: true })
+      .fill("Hi Priya,\n\nThe reviewed fix is ready for release.\n\nBest,\nMorgan");
+    assert.deepEqual(fixture.writes, []);
+    fixture.allowWrites();
+    await fixture.page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await fixture.page.getByText("priya@acme.example", { exact: true }).waitFor();
+    await fixture.page.getByText("Re: Your checkout report", { exact: true }).waitFor();
+    assert.deepEqual(fixture.writes[0], {
+      path: `${apiBase}/approvals/${mailReviewId}/mail-review`,
+      body: {
+        expectedRevision: revisionA,
+        to: "priya@acme.example",
+        cc: "",
+        bcc: "audit@genosyn.example",
+        subject: "Re: Your checkout report",
+        bodyText: "Hi Priya,\n\nThe reviewed fix is ready for release.\n\nBest,\nMorgan",
+      },
+    });
+    await fixture.page.getByRole("button", { name: "Send now", exact: true }).click();
+    await fixture.page.getByText("Sent", { exact: true }).waitFor();
+    assert.deepEqual(fixture.writes[1], {
+      path: `${apiBase}/approvals/${mailReviewId}/approve`,
+      body: { reviewRevision: revisionB },
+    });
+    await fixture.page.close();
+  });
+  await check("email edit CAS keeps unsaved text and can reload the newer review", async () => {
+    const fixture = await open({
+      role: "admin",
+      rows: [],
+      reviews: [mailReview()],
+      mailEditConflict: true,
+    });
+    await fixture.page.getByRole("button", { name: "Edit email", exact: true }).click();
+    const editor = fixture.page.getByLabel("Email", { exact: true });
+    await editor.fill("My unsaved version must remain visible.");
+    fixture.allowWrites();
+    await fixture.page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await fixture.page
+      .getByText(/changed while you were editing.*unsaved text remains available/i)
+      .waitFor();
+    assert.equal(await editor.inputValue(), "My unsaved version must remain visible.");
+    assert.equal(
+      await fixture.page.getByRole("button", { name: "Save changes", exact: true }).isDisabled(),
+      true,
+    );
+    await fixture.page
+      .getByRole("button", { name: "Discard edits and reload latest", exact: true })
+      .click();
+    await fixture.page
+      .getByText("A newer server-side version of this email.", { exact: true })
+      .waitFor();
+    assert.equal(fixture.writes.length, 1);
+    assert.equal(fixture.writes[0].body.expectedRevision, revisionA);
+    await fixture.page.close();
+  });
+  await check(
+    "Ask employee to edit opens a safe Review discussion without creating or sending a draft",
+    async () => {
+      const review = mailReview();
+      const fixture = await open({ role: "admin", rows: [], reviews: [review] });
+      await fixture.page.getByRole("button", { name: "Ask employee to edit", exact: true }).click();
+      await stagedReview(fixture.page, review);
+      assert.deepEqual(fixture.writes, []);
+      await fixture.page.close();
+    },
+  );
+  await check("Discard closes the email review without a mailbox draft or send", async () => {
+    const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
+    fixture.allowWrites();
+    await fixture.page.getByRole("button", { name: "Discard", exact: true }).click();
+    await fixture.page.getByText("Review history", { exact: true }).waitFor();
+    await fixture.page.getByText("Discarded", { exact: true }).waitFor();
+    await fixture.page
+      .getByText("Nothing was saved to the mailbox or sent.", { exact: true })
+      .waitFor();
+    assert.deepEqual(fixture.writes, [
+      {
+        path: `${apiBase}/approvals/${mailReviewId}/reject`,
+        body: { reviewRevision: revisionA },
+      },
+    ]);
+    await fixture.page.close();
+  });
+  await check(
+    "mail history distinguishes sent, known not-sent, and unverified outcomes",
+    async () => {
+      const fixture = await open({
+        role: "admin",
+        rows: [],
+        reviews: [
+          mailReview({
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            status: "approved",
+            mailDeliveryStatus: "sent",
+            mailOutcome: {
+              sentMessageId: "message-1",
+              providerMessageRef: "provider-1",
+              sentAt: fixtureNow.toISOString(),
+            },
+          }),
+          mailReview({
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            status: "execution_failed",
+            mailDeliveryStatus: "not_sent",
+            errorMessage: "The reviewed email was not sent.",
+          }),
+          mailReview({
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            status: "execution_failed",
+            mailDeliveryStatus: "unverified",
+            errorMessage: "Genosyn could not confirm whether the reviewed email completed.",
+          }),
+        ],
+      });
+      await fixture.page.getByText("Sent", { exact: true }).waitFor();
+      await fixture.page.getByText("Not sent", { exact: true }).waitFor();
+      await fixture.page.getByText("Send outcome unverified", { exact: true }).waitFor();
+      await fixture.page.getByText("The reviewed email was not sent.", { exact: true }).waitFor();
+      await fixture.page
+        .getByText("Genosyn could not confirm whether the reviewed email completed.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.deepEqual(fixture.writes, []);
+      await fixture.page.screenshot({
+        path: path.join(output, "mail-review-history-desktop.png"),
         fullPage: true,
       });
       await fixture.page.close();
@@ -856,7 +1302,7 @@ try {
         routedToEmployee: { id: "decider", name: "Dana", slug: "dana" },
       });
       const fixture = await open({ rows: [row] });
-      await fixture.page.getByText("Assigned to you (1)", { exact: true }).waitFor();
+      await fixture.page.getByText("Needs you (1)", { exact: true }).waitFor();
       await fixture.page.getByText("Routed to Dana (AI)", { exact: true }).waitFor();
       await discuss(fixture.page).click();
       await staged(fixture.page, row);
@@ -992,7 +1438,7 @@ try {
       assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
       assert.equal(await discuss(fixture.page).isEnabled(), true);
       assert.equal(
-        await fixture.page.getByRole("radio", { name: "Send the update", exact: true }).isEnabled(),
+        await fixture.page.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
         true,
       );
       assert.deepEqual(fixture.writes, []);
@@ -1092,7 +1538,7 @@ try {
       await card(fixture.page).waitFor();
       assert.equal(new URL(fixture.page.url()).hash, `#decision-${firstDecisionId}`);
       assert.equal(
-        await fixture.page.getByRole("radio", { name: "Send the update", exact: true }).isEnabled(),
+        await fixture.page.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
         true,
       );
       await fixture.page.close();
@@ -1146,20 +1592,27 @@ try {
       `${action} keeps its note, disables Discuss during submission, and retries safely`,
       async () => {
         const fixture = await open({ holdDecision: true, decisionError: true });
-        await fixture.page.getByRole("button", { name: "Read full context", exact: true }).click();
         await fixture.page
-          .getByRole("textbox", { name: "Details for Alex Rivera (optional)" })
-          .fill("  Please explain the timing first.  ");
+          .getByRole("button", { name: "Read the full context", exact: true })
+          .click();
         if (action === "decide") {
-          await fixture.page.getByRole("radio", { name: "Send the update", exact: true }).check();
+          await fixture.page.getByText("Send the update", { exact: true }).click();
+          await fixture.page.getByRole("button", { name: "Add guidance", exact: true }).click();
+          await fixture.page
+            .getByRole("textbox", { name: "Guidance for Alex Rivera (optional)" })
+            .fill("  Please explain the timing first.  ");
         } else {
-          await fixture.page.getByRole("button", { name: "Dismiss…", exact: true }).click();
+          await fixture.page.getByRole("button", { name: "Dismiss", exact: true }).click();
+          await fixture.page.getByRole("button", { name: "Add a reason", exact: true }).click();
+          await fixture.page
+            .getByRole("textbox", { name: "Reason for dismissing (optional)" })
+            .fill("  Please explain the timing first.  ");
         }
         assert.deepEqual(fixture.writes, [], "selection and staging dismissal must not submit");
         fixture.allowWrites();
         const actionButton = () =>
           fixture.page.getByRole("button", {
-            name: action === "decide" ? "Send decision" : "Confirm dismissal",
+            name: action === "decide" ? "Confirm: Send the update" : "Confirm dismissal",
             exact: true,
           });
         await actionButton().click();
@@ -1318,7 +1771,7 @@ try {
       );
       assert.equal(await discuss(card(fixture.page)).isEnabled(), true);
       assert.equal(
-        await fixture.page.getByRole("radio", { name: "Send the update", exact: true }).isEnabled(),
+        await fixture.page.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
         true,
       );
       assert.deepEqual(fixture.writes, []);

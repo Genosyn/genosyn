@@ -97,7 +97,7 @@ test("new companies are on by default and automatic work has a system actor and 
       { ...input(), delivery: "soul" },
       { automatic: true },
     ),
-    /prepares drafts/,
+    /email reviews in the Decision stack/,
   );
 });
 

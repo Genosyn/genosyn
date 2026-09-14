@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import {
+  INTERACTIVE_MEMBER_DENIED_TOOLS,
   MEMBER_TOOL_AUTHORITY,
   memberInternalCallbackPolicy,
   memberToolPolicy,
@@ -11,12 +12,15 @@ import {
 describe("interactive Member tool policy", () => {
   test("classifies every manifest tool exactly once and no removed tool", () => {
     const manifest = STATIC_TOOLS.map((tool) => tool.name).sort();
-    const classified = [...MEMBER_TOOL_AUTHORITY.keys()].sort();
+    const classified = [...MEMBER_TOOL_AUTHORITY.keys(), ...INTERACTIVE_MEMBER_DENIED_TOOLS].sort();
     assert.deepEqual(
       classified,
       manifest,
       "A built-in tool was added or removed without an interactive Member authority review",
     );
+    for (const name of INTERACTIVE_MEMBER_DENIED_TOOLS) {
+      assert.equal(MEMBER_TOOL_AUTHORITY.has(name), false, name);
+    }
   });
 
   test("keeps high-risk tool families out of the ordinary Member policy", () => {
@@ -33,6 +37,10 @@ describe("interactive Member tool policy", () => {
       "update_vault_login",
     ]) {
       assert.equal(memberToolPolicy(tool), "admin", tool);
+    }
+    for (const tool of ["revise_work_review", "revise_mail_review"] as const) {
+      assert.equal(memberToolPolicy(tool), null, tool);
+      assert.equal(INTERACTIVE_MEMBER_DENIED_TOOLS.has(tool), true, tool);
     }
     assert.equal(memberToolPolicy("create_invoice"), "finance.write");
     assert.equal(memberToolPolicy("list_invoices"), "finance.read");

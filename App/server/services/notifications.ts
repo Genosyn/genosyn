@@ -261,17 +261,29 @@ export async function notifyApprovalPending(approval: Approval): Promise<void> {
           title: `${employee.name} requested approval to run "${routine.name}"`,
           body: "Cron tick is gated; an admin needs to approve or reject.",
         }
-      : {
-          // Older rows can predate creation-time sanitization. Redact at this
-          // persistence boundary too, so neither bell rows nor push payloads
-          // turn legacy approval copy into a credential exfiltration path.
-          title: `${employee.name} requested approval: ${
-            redactApprovalSummary(approval.title) ?? "an action"
-          }`,
-          body:
-            redactApprovalSummary(approval.summary) ??
-            "An action is waiting for a human to approve or reject.",
-        };
+      : approval.kind === "mail_send"
+        ? {
+            title: `${employee.name} prepared an email for review`,
+            body: `${redactApprovalSummary(approval.title) ?? "An email"} is ready to edit, send, or discard in the Decision stack.`,
+          }
+        : approval.kind === "proactive_work"
+          ? {
+              title: `${employee.name} proposed work for review`,
+              body:
+                redactApprovalSummary(approval.title) ??
+                "Review what happened and choose whether to start the proposed work.",
+            }
+          : {
+              // Older rows can predate creation-time sanitization. Redact at this
+              // persistence boundary too, so neither bell rows nor push payloads
+              // turn legacy approval copy into a credential exfiltration path.
+              title: `${employee.name} requested approval: ${
+                redactApprovalSummary(approval.title) ?? "an action"
+              }`,
+              body:
+                redactApprovalSummary(approval.summary) ??
+                "An action is waiting for a human to approve or reject.",
+            };
 
   const inputs = memberships.map((m) => ({
     companyId: approval.companyId,
@@ -279,7 +291,10 @@ export async function notifyApprovalPending(approval: Approval): Promise<void> {
     kind: "approval_pending" as const,
     title: copy.title,
     body: copy.body,
-    link: `/c/${company.slug}/approvals`,
+    link:
+      approval.kind === "proactive_work" || approval.kind === "mail_send"
+        ? `/c/${company.slug}/decisions#review-${approval.id}`
+        : `/c/${company.slug}/approvals`,
     actorKind: "ai" as const,
     actorId: employee.id,
     entityKind: "approval" as const,

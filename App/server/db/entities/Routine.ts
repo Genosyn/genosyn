@@ -80,6 +80,9 @@ export class Routine {
    * Server-owned delivery ceiling for Proactive starters. Null preserves an
    * ordinary Routine's existing authority. Native editors cannot remove this
    * ceiling; renaming the Routine or deleting its mailbox does not lift it.
+   * `draft` is the backward-compatible stored marker; runtime enforcement
+   * interprets it as an exact Decision-stack email review and never as a
+   * Gmail/IMAP Drafts write.
    */
   @Column({ type: "varchar", nullable: true })
   mailDeliveryMode!: "draft" | null;

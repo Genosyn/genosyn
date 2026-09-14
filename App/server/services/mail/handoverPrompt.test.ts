@@ -29,19 +29,51 @@ const prompt = (messages: MailMessage[]) =>
   );
 
 describe("mail handover work brief", () => {
-  test("does cross-resource work before drafting and never forces a send over the Soul", () => {
-    assert.equal(handoverDeliveryMode("work"), "draft");
-    assert.equal(handoverDeliveryMode("draft"), "draft");
+  test("keeps work and draft replies in the Decision stack without provider drafts", () => {
+    assert.equal(handoverDeliveryMode("work"), "review");
+    assert.equal(handoverDeliveryMode("draft"), "review");
     assert.equal(handoverDeliveryMode("triage"), "triage");
     assert.equal(handoverDeliveryMode("reply"), "reply");
+    assert.equal(handoverDeliveryMode("reply", "rule"), "review");
+
+    for (const mode of ["work", "draft"] as const) {
+      const guidance = handoverModeGuidance(mode);
+      assert.match(guidance, /request_mail_review/);
+      assert.match(guidance, /Decision stack/);
+      assert.match(guidance, /(?:Never|Do not) create a Gmail or IMAP draft/);
+      assert.doesNotMatch(guidance, /create_mail_draft/);
+    }
+
     assert.match(handoverModeGuidance("reply"), /Soul.*authorize/);
-    assert.match(handoverModeGuidance("reply"), /unclear, save a draft/);
+    assert.match(handoverModeGuidance("reply"), /unclear, use request_mail_review/);
+    assert.doesNotMatch(handoverModeGuidance("reply"), /create_mail_draft/);
+  });
+
+  test("turns a rule handover into a bounded proactive review", () => {
     const result = prompt([inbound("Please quote the standard service.")]);
-    assert.match(result, /create_mail_draft/);
-    assert.match(result, /draft estimate/);
-    assert.match(result, /Work session with tests/);
+    assert.match(result, /Mode: PROACTIVE REVIEW/);
+    assert.match(result, /request_mail_review/);
+    assert.match(result, /request_work_review/);
+    assert.match(result, /Never send or create a Gmail or IMAP draft/);
     assert.match(result, /Workstream/);
+    assert.doesNotMatch(result, /create_mail_draft/);
     assert.doesNotMatch(result, /op:|`mail` tool/);
+  });
+
+  test("turns automatic triage into a filing plan instead of changing the thread", () => {
+    const result = composeHandoverPrompt(
+      { mode: "triage", sourceKind: "rule", instruction: "File obvious newsletters." },
+      { address: "team@example.com" },
+      { id: "thread", subject: "Weekly newsletter" },
+      [inbound("This week's newsletter.")],
+    );
+    assert.match(result, /Mode: PROACTIVE REVIEW/);
+    assert.match(result, /request_work_review/);
+    assert.match(
+      result,
+      /Do not change the thread, block its sender, compose a reply, or send mail/,
+    );
+    assert.doesNotMatch(result, /File the thread with update_mail_thread/);
   });
 
   test("keeps hostile email text inside JSON data, distinct from trusted instructions", () => {

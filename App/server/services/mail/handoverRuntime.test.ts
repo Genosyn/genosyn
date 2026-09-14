@@ -78,35 +78,46 @@ async function fixture(mode: MailHandover["mode"] = "work") {
 const reload = (id: string) => AppDataSource.getRepository(MailHandover).findOneByOrFail({ id });
 
 describe("queued proactive mail work", () => {
-  test("reviews once as the employee, retaining review and draft ceilings even with a Send Grant", async () => {
-    const { handover, thread } = await fixture();
-    let calls = 0;
-    const runChat: typeof chatWithEmployee = async (
-      _company,
-      _employee,
-      prompt,
-      _history,
-      options,
-    ) => {
-      calls++;
-      assert.equal(options?.toolAuthority, "employee");
-      assert.equal(options?.mailDeliveryMode, "draft");
-      assert.equal(options?.proactiveReview, true);
-      assert.equal(options?.mailHandoverId, handover.id);
-      assert.equal(options?.mailThreadId, thread.id);
-      assert.match(prompt, /draft estimate/);
-      return {
-        status: "ok",
-        reply: "Prepared estimate and draft reply.",
-        attachmentIds: [],
-        sidecars: {},
+  for (const mode of ["work", "draft", "reply", "triage"] as const) {
+    test(`${mode} reviews once as the employee, retaining proactive and stack-only ceilings even with a Send Grant`, async () => {
+      const { handover, thread } = await fixture(mode);
+      let calls = 0;
+      const runChat: typeof chatWithEmployee = async (
+        _company,
+        _employee,
+        prompt,
+        _history,
+        options,
+      ) => {
+        calls++;
+        assert.equal(options?.toolAuthority, "employee");
+        assert.equal(options?.mailDeliveryMode, mode === "triage" ? "triage" : "review");
+        assert.equal(options?.proactiveReview, true);
+        assert.equal(options?.mailHandoverId, handover.id);
+        assert.equal(options?.mailThreadId, thread.id);
+        assert.match(prompt, /Mode: PROACTIVE REVIEW/);
+        assert.match(prompt, /request_work_review/);
+        if (mode === "triage") {
+          assert.match(prompt, /Do not change the thread, block its sender/);
+          assert.doesNotMatch(prompt, /File the thread with update_mail_thread/);
+        } else {
+          assert.match(prompt, /request_mail_review/);
+          assert.match(prompt, /Never send or create a Gmail or IMAP draft/);
+        }
+        assert.doesNotMatch(prompt, /create_mail_draft/);
+        return {
+          status: "ok",
+          reply: "Proposed a bounded review.",
+          attachmentIds: [],
+          sidecars: {},
+        };
       };
-    };
-    await runHandover(handover.id, runChat);
-    await runHandover(handover.id, runChat);
-    assert.equal(calls, 1);
-    assert.equal((await reload(handover.id)).status, "completed");
-  });
+      await runHandover(handover.id, runChat);
+      await runHandover(handover.id, runChat);
+      assert.equal(calls, 1);
+      assert.equal((await reload(handover.id)).status, "completed");
+    });
+  }
 
   test("rechecks a revoked mailbox Grant before exposing any transcript", async () => {
     const { handover, grant } = await fixture();
@@ -117,6 +128,20 @@ describe("queued proactive mail work", () => {
     const row = await reload(handover.id);
     assert.equal(row.status, "failed");
     assert.match(row.errorMessage, /no access/);
+  });
+
+  test("triage requires a Draft Grant because it changes mailbox state", async () => {
+    const { handover, grant } = await fixture("triage");
+    await AppDataSource.getRepository(EmployeeMailAccountGrant).update(
+      { id: grant.id },
+      { accessLevel: "read" },
+    );
+    await runHandover(handover.id, async () => {
+      assert.fail("Read-only mail access must not start triage");
+    });
+    const row = await reload(handover.id);
+    assert.equal(row.status, "failed");
+    assert.match(row.errorMessage, /needs at least "draft"/);
   });
 
   test("rule edits, disabling and deleted employees invalidate queued work", async () => {

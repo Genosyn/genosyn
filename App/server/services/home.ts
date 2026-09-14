@@ -13,6 +13,12 @@ import { getSystemHealthSummary, SystemHealthSummary } from "./systemHealth.js";
 import { listChannelsForUser } from "./workspaceChat.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { isVaultCaptureApproval } from "./approvals.js";
+import {
+  proactiveWorkReviewDetails,
+  reconcileProactiveWorkApprovals,
+} from "./proactive/approvals.js";
+import { mailReviewDetails, reconcileMailReviewApprovals } from "./mail/reviewApprovals.js";
+import { approvalInboxSelect } from "./approvalInbox.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
 import { findLiveRunFailures } from "./runFailures.js";
@@ -47,6 +53,10 @@ export type HomeApproval = {
   kind: string;
   title: string | null;
   summary: string | null;
+  review:
+    | ReturnType<typeof proactiveWorkReviewDetails>
+    | ReturnType<typeof mailReviewDetails>
+    | null;
   requestedAt: string;
   employee: { id: string; name: string; slug: string } | null;
   routine: { id: string; name: string; slug: string } | null;
@@ -92,8 +102,8 @@ export type HomeData = {
   repositoryWorkCount: number;
   approvals: HomeApproval[];
   pendingApprovalCount: number;
-  proactiveApprovals: HomeApproval[];
-  pendingProactiveApprovalCount: number;
+  decisionApprovals: HomeApproval[];
+  pendingDecisionApprovalCount: number;
   /** Draft messages awaiting review, excluding emails already queued to send. */
   draftEmails: HomeDraftEmail[];
   draftEmailCount: number;
@@ -200,17 +210,33 @@ export async function getHomeData(params: {
   ]);
   mine.sort(compareTodos);
 
+  const canReviewWork =
+    params.canReadWorkReviews !== false && (role === "owner" || role === "admin");
+  // Home renders the same actionable reviews as the full Decision stack, so
+  // it must apply the same source-freshness boundary before showing a Send or
+  // Approve button. Ordinary Members cannot see these rows and should not pay
+  // the cost of hashing their sources.
+  if (canReviewWork) {
+    await Promise.all([
+      reconcileProactiveWorkApprovals(companyId),
+      reconcileMailReviewApprovals(companyId),
+    ]);
+  }
   const approvalRepo = AppDataSource.getRepository(Approval);
-  const canReviewWork = params.canReadWorkReviews !== false && (role === "owner" || role === "admin");
-  const [proactiveApprovals, pendingProactiveApprovalCount] = canReviewWork
+  const [decisionApprovals, pendingDecisionApprovalCount] = canReviewWork
     ? await approvalRepo.findAndCount({
-        where: { companyId, status: "pending", kind: "proactive_work" },
+        where: { companyId, status: "pending", kind: In(["proactive_work", "mail_send"]) },
+        select: approvalInboxSelect,
         order: { requestedAt: "ASC" },
         take: 5,
       })
     : ([[], 0] as [Approval[], number]);
   const [allPendingApprovals, pendingApprovalCount] = await approvalRepo.findAndCount({
-    where: { companyId, status: "pending", kind: Not("proactive_work") },
+    where: {
+      companyId,
+      status: "pending",
+      kind: Not(In(["proactive_work", "mail_send"])),
+    },
     order: { requestedAt: "DESC" },
     // Wider than the five we render because the vault-capture filter below runs
     // in memory — `payloadJson` is opaque to SQL. Fifty is far past any real
@@ -227,7 +253,7 @@ export async function getHomeData(params: {
   const pendingApprovals = allPendingApprovals
     .filter((a) => canSeeVaultCaptures || !isVaultCaptureApproval(a))
     .slice(0, 5);
-  const displayedApprovals = [...pendingApprovals, ...proactiveApprovals];
+  const displayedApprovals = [...pendingApprovals, ...decisionApprovals];
   const routineIds = [...new Set(displayedApprovals.map((a) => a.routineId).filter(Boolean))];
   const approvalEmpIds = [...new Set(displayedApprovals.map((a) => a.employeeId).filter(Boolean))];
   const [routines, approvalEmps] = await Promise.all([
@@ -250,11 +276,27 @@ export async function getHomeData(params: {
       kind: a.kind,
       title: redactApprovalSummary(a.title),
       summary: redactApprovalSummary(a.summary),
+      review:
+        a.kind === "proactive_work"
+          ? proactiveWorkReviewDetails(a)
+          : a.kind === "mail_send"
+            ? mailReviewDetails(a)
+            : null,
       requestedAt: a.requestedAt.toISOString(),
       employee: employee ? { id: employee.id, name: employee.name, slug: employee.slug } : null,
       routine: routine ? { id: routine.id, name: routine.name, slug: routine.slug } : null,
     };
   };
+  const decisionApprovalPreviews: HomeApproval[] = [];
+  for (const listed of decisionApprovals) {
+    const approval = await approvalRepo.findOneBy({
+      id: listed.id,
+      companyId,
+      status: "pending",
+      kind: In(["proactive_work", "mail_send"]),
+    });
+    if (approval) decisionApprovalPreviews.push(approvalPreview(approval));
+  }
 
   const channels = await listChannelsForUser(companyId, userId);
   const unreadChannels: HomeChannel[] = channels
@@ -343,7 +385,7 @@ export async function getHomeData(params: {
     listUnreadForUser({ companyId, userId, limit: 8 }),
     countUnreadForUser({ companyId, userId }),
     getSystemHealthSummary(companyId),
-    listPendingDecisions({ companyId, limit: 5 }),
+    listPendingDecisions({ companyId, limit: 5, viewer: { userId, role } }),
     listHomeTldrs({ companyId, userId, limit: 3 }),
     canReadRepositoryWork
       ? listHomeRepositoryWork({ companyId })
@@ -372,8 +414,8 @@ export async function getHomeData(params: {
     repositoryWorkCount: repositoryWork.total,
     approvals: pendingApprovals.map(approvalPreview),
     pendingApprovalCount,
-    proactiveApprovals: proactiveApprovals.map(approvalPreview),
-    pendingProactiveApprovalCount,
+    decisionApprovals: decisionApprovalPreviews,
+    pendingDecisionApprovalCount,
     ...homeDrafts,
     unreadChannels,
     failedRuns,

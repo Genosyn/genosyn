@@ -8,16 +8,22 @@ export function Decisions() {
         title="Decision stack"
         lead={
           <>
-            Review what an AI Employee wants to do and give it the information it needs. The stack
-            on Home brings proposed work and employee questions together, with context and a clear
-            next step for each.
+            Review customer replies, proposed work, and questions from your AI Employees in one
+            ordered queue. Every card tells the story first, then gives you the few actions that
+            make sense for that item.
           </>
         }
       />
 
       <H2 id="what-lands-here">What lands here</H2>
       <P>
-        A <Strong>work proposal</Strong> asks you to authorize a specific piece of proactive work,
+        An <Strong>email review</Strong> holds the exact reply or fresh email an AI Employee wants
+        to send. It shows the source email, Run, Routine, or conversation, any work already
+        completed, and the proposed recipients, subject, and body. The email exists only in Genosyn
+        until an owner or admin sends or discards it.
+      </P>
+      <P>
+        A <Strong>work review</Strong> asks you to authorize a specific piece of proactive work,
         such as investigating a customer&apos;s bug report or preparing a quote. An employee can
         read the available evidence to explain the proposal, but waits for an owner or admin to
         approve before carrying it out. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
@@ -29,57 +35,104 @@ export function Decisions() {
         proactive work or bypass the employee&apos;s existing limits.
       </P>
 
-      <H2 id="approving-work">Reviewing proposed work</H2>
+      <H2 id="reading-a-card">Read the timeline, then act</H2>
       <P>
-        Owners and admins see <Strong>Work awaiting your approval</Strong> in the stack.
-        Open a proposal to read what happened, the proposed plan, and its scope.
-        An owner or admin selects <Strong>Approve work</Strong>, reviews the confirmation, then
-        selects <Strong>Confirm and start work</Strong>. This authorizes that proposal; future
-        proactive work still needs its own review. Select <Strong>Decline</Strong> and then{" "}
-        <Strong>Confirm decline</Strong> if you do not want the work to proceed.
+        Cards are timelines rather than blocks of instructions. <Strong>What happened</Strong>
+        summarizes the source and links to the original email, Run, or conversation. The next step
+        shows what the AI Employee recommends, what it already did, or the exact question it needs
+        answered. The final controls are the actions available now. History keeps the same timeline
+        and adds what happened after you acted.
       </P>
       <P>
-        Approval keeps the original restrictions: work limited to drafts still cannot send mail,
-        and a Repository fix still needs its normal review before merging. Approving a plan does
-        not add resource access or waive a separate Approval.
+        <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
+        age order, so you do not have to learn three separate queues. The compact stack on Home
+        shows the same cards; open <Strong>Decisions</Strong> for search and the complete history.
+      </P>
+
+      <H2 id="reviewing-email">Reviewing an email</H2>
+      <UL>
+        <LI>
+          Read <Strong>What happened</Strong> and use <Strong>Open original email</Strong> when you
+          need the full conversation. If work happened first, the card lists the result and steps
+          before the reply.
+        </LI>
+        <LI>
+          Check the exact To, Cc, Bcc, subject, and message under <Strong>Draft reply</Strong> or{" "}
+          <Strong>Draft email</Strong>. Select <Strong>Edit email</Strong> to change them.{" "}
+          <Strong>Save changes</Strong> updates this review only.
+        </LI>
+        <LI>
+          Select <Strong>Ask employee to edit</Strong> to open a private conversation with a message
+          linked to this review. Opening it sends neither the chat message nor the email; add your
+          request and send it when ready.
+        </LI>
+        <LI>
+          Select <Strong>Send now</Strong> to send the exact reviewed version, or{" "}
+          <Strong>Discard</Strong> to close it without sending.
+        </LI>
+      </UL>
+      <Callout kind="info" title="This is not a mailbox draft.">
+        Preparing or editing an email review does not create anything in Gmail Drafts or an IMAP
+        Drafts folder. <Strong>Send now</Strong> sends the reviewed message directly;{" "}
+        <Strong>Discard</Strong> leaves the mailbox unchanged. A saved mailbox draft appears only
+        when a Member deliberately uses the Email composer or another explicit draft flow.
+      </Callout>
+
+      <H2 id="approving-work">Reviewing proposed work</H2>
+      <P>
+        A work review shows <Strong>What happened</Strong> and{" "}
+        <Strong>What the AI Employee recommends</Strong>. An owner or admin selects{" "}
+        <Strong>Approve &amp; start</Strong> to authorize exactly that plan. Select{" "}
+        <Strong>Request changes</Strong> to open a linked conversation with the employee, or{" "}
+        <Strong>Don&apos;t do this</Strong> to close it. Future proactive work still needs its own
+        review.
+      </P>
+      <P>
+        Approval keeps the original restrictions: work limited to an email review still cannot send
+        mail, and a Repository fix still needs its normal review before merging. Approving a plan
+        does not add resource access or waive a separate Approval.
       </P>
       <P>
         A proactive Routine&apos;s initial Run finishes as <Strong>Reviewed</Strong>: the employee
-        examined evidence and left any proposed work for human review. Delivery is still
-        unverified. Approval starts a separate Routine Run that performs the approved work and
-        runs the original <DocLink to="/docs/routines#checks">Checks</DocLink> and outcome grading.
-        A proposal from an email handover instead starts an approved work session.
+        examined evidence and left any proposed work for human review. Delivery is still unverified.
+        Approval starts a separate Routine Run that performs the approved work and runs the original{" "}
+        <DocLink to="/docs/routines#checks">Checks</DocLink> and outcome grading. A proposal from an
+        email handover instead starts approved handover work. For example, a customer bug report
+        first produces a work review describing the investigation and proposed Repository work. Only{" "}
+        <Strong>Approve &amp; start</Strong> lets the employee begin that work. When it has real
+        results, its exact customer reply returns as a separate email review. It is never saved to
+        Gmail or IMAP Drafts along the way.
       </P>
       <P>
-        <Strong>Work approval history</Strong> shows whether the work is in progress, finished,
-        failed or declined. Read the <Strong>Reported outcome</Strong> for what the employee
-        says it did, and use <Strong>Review proposed work</Strong> to compare it with the plan.
+        <Strong>Review history</Strong> shows whether the work is in progress, finished, failed or
+        declined. Read its outcome step for what the employee says it did and compare that with the
+        original plan. Email history records the exact reply as sent, discarded, not sent, or with a
+        send outcome Genosyn could not verify.
       </P>
 
       <H2 id="answering">Answering a decision</H2>
       <UL>
         <LI>
           Open <Strong>Home</Strong>, or the <Strong>Decisions</Strong> section for the full list.
-          Use <Strong>Search decision stack</Strong> to find a customer, AI Employee, or detail
-          from the context or reported outcome.
+          Use <Strong>Search decision stack</Strong> to find a customer, AI Employee, or detail from
+          the context or reported outcome.
         </LI>
         <LI>
-          Read <Strong>Context from</Strong> the employee. Use <Strong>Read full context</Strong>
-          for longer explanations. The source link opens the original email, Routine Run, or
-          conversation.
+          Read <Strong>What happened</Strong>. Use <Strong>Read the full context</Strong> for longer
+          explanations. The source link opens the original email, Routine Run, or conversation.
         </LI>
         <LI>
           Need more detail? Press <Strong>Discuss</Strong> to ask the AI Employee that raised the
           decision about its reasoning, alternatives, or tradeoffs.
         </LI>
         <LI>
-          Select the option you want and read its explanation. Selecting an option does not send
-          it. Add any names, dates, links or instructions the choice needs in the details field.
-          Then press <Strong>Send decision</Strong>.
+          Under <Strong>What do you need to decide?</Strong>, select the answer you want and read
+          its explanation. Add any names, dates, links or instructions with{" "}
+          <Strong>Add guidance</Strong>, then select <Strong>Confirm: {"{answer}"}</Strong>.
         </LI>
         <LI>
-          Nothing to decide? Select <Strong>Dismiss…</Strong> and <Strong>Confirm dismissal</Strong> to remove the row without
-          choosing an option or starting follow-up work.
+          Nothing to decide? Select <Strong>Dismiss</Strong> and <Strong>Confirm dismissal</Strong>{" "}
+          to close the row without choosing an answer.
         </LI>
       </UL>
       <P>
@@ -99,48 +152,49 @@ export function Decisions() {
       <H2 id="discussing">Discussing a decision</H2>
       <P>
         Press <Strong>Discuss</Strong> on a decision in <Strong>Home</Strong> or{" "}
-        <Strong>Decisions</Strong>. A new private conversation opens with the AI Employee that asked,
-        with a draft message linking to that exact decision. Add your question and press{" "}
+        <Strong>Decisions</Strong>. A new private conversation opens with the AI Employee that
+        asked, with a draft message linking to that exact decision. Add your question and press{" "}
         <Strong>Send</Strong> when you are ready. Opening the draft sends nothing.
       </P>
       <P>
         You can ask follow-up questions in the same conversation. The employee receives the
         decision&apos;s current context, options, and status each time you send, including the
-        recorded answer if someone has since chosen an option. Ask why it recommends an option,
-        what it has already checked, or what changes if you wait.
+        recorded answer if someone has since chosen an option. Ask why it recommends an option, what
+        it has already checked, or what changes if you wait.
       </P>
       <P>
-        Discussion is for understanding the decision. It does not answer or dismiss it, or start
-        the proposed work. Return to the decision card, select an option, and send your decision
-        when you have made your choice. You can also use <Strong>Discuss</Strong> in <Strong>Decision history</Strong> to
-        understand an earlier outcome. If the asking employee has been deleted, its Discuss button
-        is unavailable.
+        Discussion is for understanding the decision. It does not answer or dismiss it, or start the
+        proposed work. Return to the decision card, select an option, and confirm your answer when
+        you have made your choice. You can also use <Strong>Discuss</Strong> in{" "}
+        <Strong>Decision history</Strong> to understand an earlier outcome. If the asking employee
+        has been deleted, its Discuss button is unavailable.
       </P>
 
       <H2 id="what-happens-next">What happens next</H2>
       <P>
-        The card explains what sending your decision will do. For an ordinary Decision, it
-        normally starts a session briefed with your choice, your details, and the original
-        context. The row shows the session running, then the employee&apos;s own report of what
-        it did. A recommendation is the employee&apos;s suggestion; nothing is selected for you.
+        Answering an ordinary Decision records your choice and guidance. It does not send mail,
+        change a record, or authorize proposed work. Genosyn may then start a pickup session briefed
+        with your answer and the original context; that session still runs under the employee&apos;s
+        existing authority and meets every normal Approval. The history timeline shows the answer
+        first, then <Strong>What happened next</Strong>. A recommendation is the employee&apos;s
+        suggestion; nothing is selected for you.
       </P>
       <P>
-        Decisions raised during preparation-only work stay with humans, even if an AI
-        decision policy normally routes the employee&apos;s questions. Answering records your
-        choice and journal entry but starts no new session. The row explains this. The employee
-        must obtain any required work Approval before continuing, while preserving the work&apos;s
-        delivery restrictions. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
+        Decisions raised during preparation-only work stay with humans, even if an AI decision
+        policy normally routes the employee&apos;s questions. Answering records your choice and
+        journal entry but starts no new session. The row explains this. The employee must obtain any
+        required work Approval before continuing, while preserving the work&apos;s delivery
+        restrictions. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
       </P>
       <P>
         Your answer is also written to that employee&apos;s journal, and the last week of its
-        journal is part of every prompt it runs. That is the backstop: if no session can start — no
-        {" "}
+        journal is part of every prompt it runs. That is the backstop: if no session can start — no{" "}
         <DocLink to="/docs/models">AI Model</DocLink> is connected yet, or the server restarted
         mid-session — the row says so, and the employee still picks the work up on its next run. It
-        can also read the answer at any time with its <Code>list_decisions</Code> tool.
-        Long answers and context are available in full through <Code>get_decision</Code>.
-        AI Employees can read their own questions and those currently waiting for their answer;
-        earlier routing does not grant ongoing access.
+        can also read the answer at any time with its <Code>list_decisions</Code> tool. Long answers
+        and context are available in full through <Code>get_decision</Code>. AI Employees can read
+        their own questions and those currently waiting for their answer; earlier routing does not
+        grant ongoing access.
       </P>
       <P>
         The <Strong>Decision history</Strong> list keeps the trail: what was asked, what was chosen,
@@ -151,8 +205,8 @@ export function Decisions() {
       <P>
         Every row says which surface the employee was working when it asked, and links straight to
         it — the <DocLink to="/docs/routines">Routine</DocLink> and the exact run, the email thread,
-        or the chat. It is the context that decides how you read the question: &ldquo;send the
-        pricing reply to Acme?&rdquo; means one thing out of the nightly outreach routine and
+        or the chat. It is the context that decides how you read the question: &ldquo;Which pricing
+        option should we offer Acme?&rdquo; means one thing out of the nightly outreach routine and
         another out of a conversation you had five minutes ago.
       </P>
       <P>
@@ -162,10 +216,10 @@ export function Decisions() {
 
       <H2 id="not-approvals">Work approvals and Decision answers</H2>
       <P>
-        An <Strong>Approval</Strong> holds a specific action until an owner or admin authorizes
-        it. Proposed proactive work appears in the stack for review; approving it authorizes
-        that proposed work under the original delivery restrictions.
-        Other Approvals include a gated{" "}
+        An <Strong>Approval</Strong> holds a specific action until an owner or admin authorizes it.
+        Proposed proactive work appears in the stack for review; approving it authorizes that
+        proposed work under the original delivery restrictions. An email review is also an Approval:{" "}
+        <Strong>Send now</Strong> performs the exact reviewed send. Other Approvals include a gated{" "}
         <DocLink to="/docs/routines">Routine</DocLink> tick, a payment over your threshold, a{" "}
         <DocLink to="/docs/browser">browser form submit</DocLink> — and the server performs that
         exact action once an admin approves it. That is why approvals are restricted to an owner or
@@ -173,15 +227,15 @@ export function Decisions() {
       </P>
       <P>
         A decision performs nothing itself. It records which option a human picked and hands that
-        back to the employee, which is why an ordinary Member can answer one. The work session your
-        answer starts runs under the employee&apos;s own authority, so anything privileged it then
-        does still meets its own approval gate.
+        back to the employee, which is why an ordinary Member can answer one. Any later pickup
+        session runs under the employee&apos;s own authority, so anything privileged still meets its
+        own approval gate.
       </P>
 
       <H2 id="routing">Routing to an AI decider</H2>
       <P>
         By default every question waits for a human — no configuration, exactly the behavior above.
-        A <Strong>routing rule</Strong> (the <Strong>Routing</Strong> tab on the Decisions page,
+        A <Strong>routing rule</Strong> (opened with <Strong>Routing</Strong> on the Decisions page,
         admin-managed) changes that for one asking employee: it names who may answer on a
         human&apos;s behalf — the employee&apos;s <Strong>manager</Strong>, via the org chart&apos;s
         reports-to line, or a <Strong>named employee</Strong>. A decision the employee addressed to
@@ -207,8 +261,9 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        The stack renders only when an employee is actually blocked. A quiet Home page means your AI
-        team is unblocked, not that the feature is off.
+        The stack appears whenever an email or work review needs attention, or an employee is
+        waiting for an answer. A quiet Home page means nothing currently needs you, not that the
+        feature is off.
       </Callout>
     </>
   );

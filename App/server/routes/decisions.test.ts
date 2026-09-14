@@ -211,11 +211,9 @@ describe("decision route validation", () => {
 
   test("an option the decision does not offer is a 400", async () => {
     const decision = await stack();
-    const response = await call<{ error: string }>(
-      "POST",
-      `/decisions/${decision.id}/decide`,
-      { optionId: "wire-the-money" },
-    );
+    const response = await call<{ error: string }>("POST", `/decisions/${decision.id}/decide`, {
+      optionId: "wire-the-money",
+    });
     assert.equal(response.status, 400);
     assert.match(response.body.error, /not one this decision offers/);
   });
@@ -236,11 +234,9 @@ describe("decision route race handling", () => {
     const decision = await stack();
     const first = await call("POST", `/decisions/${decision.id}/decide`, { optionId: "send-it" });
     assert.equal(first.status, 200);
-    const second = await call<{ error: string }>(
-      "POST",
-      `/decisions/${decision.id}/decide`,
-      { optionId: "hold" },
-    );
+    const second = await call<{ error: string }>("POST", `/decisions/${decision.id}/decide`, {
+      optionId: "hold",
+    });
     assert.equal(second.status, 409);
     assert.match(second.body.error, /already decided/);
 
@@ -259,13 +255,34 @@ describe("decision route race handling", () => {
 
   test("a member can dismiss a pending decision without choosing", async () => {
     const decision = await stack();
-    const response = await call<{ status: string }>(
-      "POST",
-      `/decisions/${decision.id}/dismiss`,
-      { reason: "Handled by hand." },
-    );
+    const response = await call<{ status: string }>("POST", `/decisions/${decision.id}/dismiss`, {
+      reason: "Handled by hand.",
+    });
     assert.equal(response.status, 200);
     assert.equal(response.body.status, "cancelled");
+  });
+
+  test("a member cannot dismiss a decision assigned to somebody else", async () => {
+    const decision = await stack({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Owner-only choice",
+      options: [{ label: "Continue" }],
+      assigneeUserId: owner.id,
+    });
+
+    const blocked = await call<{ error: string }>("POST", `/decisions/${decision.id}/dismiss`, {});
+    assert.equal(blocked.status, 403);
+    assert.match(blocked.body.error, /specific teammate/);
+
+    actingUserId = owner.id;
+    const dismissed = await call<{ status: string }>(
+      "POST",
+      `/decisions/${decision.id}/dismiss`,
+      {},
+    );
+    assert.equal(dismissed.status, 200);
+    assert.equal(dismissed.body.status, "cancelled");
   });
 });
 

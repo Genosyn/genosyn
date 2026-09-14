@@ -62,7 +62,7 @@ test("review scope and token restrictions are independent of mail delivery setti
     allowPrivilegedToolSources: false,
   });
   assert.deepEqual(routineDeliveryPolicy({ mailDeliveryMode: "draft", selfReviewOnly: true }), {
-    mailDeliveryMode: "draft",
+    mailDeliveryMode: "review",
     allowPrivilegedToolSources: false,
   });
   const scope = selfReviewToolScope(true)!;

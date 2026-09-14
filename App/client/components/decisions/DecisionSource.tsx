@@ -60,7 +60,13 @@ function sourceChips(source: DecisionSource, company: Company): Chip[] {
         {
           icon: Mail,
           label: source.mailThread?.subject || "an email thread",
-          to: source.mailThread ? `/c/${slug}/mail/t/${source.mailThread.id}` : undefined,
+          to: source.mailThread
+            ? `/c/${slug}/mail/t/${encodeURIComponent(source.mailThread.id)}${
+                source.mailThread.accountId
+                  ? `?${new URLSearchParams({ account: source.mailThread.accountId })}`
+                  : ""
+              }`
+            : undefined,
           title: "The email this question is about",
         },
       ];
@@ -116,7 +122,7 @@ export function DecisionSourceLine({
 
   return (
     <div className={clsx("flex flex-wrap items-center gap-1 text-[11px]", className)}>
-      <span className="text-slate-400 dark:text-slate-500">{KIND_LABEL[source.kind]}</span>
+      <span className="text-slate-500 dark:text-slate-400">{KIND_LABEL[source.kind]}</span>
       {chips.map((chip, index) => {
         const Icon = chip.icon;
         const inner = (

@@ -95,7 +95,10 @@ test("a mail handover ceiling is enforced on Gmail even with a Send Grant or an 
       employeeId: "employee",
       mailDeliveryMode,
     });
-    await assert.rejects(() => gate("mail.send"), /preparation only/);
+    await assert.rejects(
+      () => gate("mail.send"),
+      mailDeliveryMode === "draft" ? /request_mail_review/ : /triage only/,
+    );
   }
   const account = await insert(MailAccount, {
     companyId: "company",
@@ -112,6 +115,6 @@ test("a mail handover ceiling is enforced on Gmail even with a Send Grant or an 
     employeeId: "employee",
     mailDeliveryMode: "draft",
   });
-  await gate("mail.draft");
-  await assert.rejects(() => gate("mail.send"), /preparation only/);
+  await assert.rejects(() => gate("mail.draft"), /Decision stack/);
+  await assert.rejects(() => gate("mail.send"), /request_mail_review/);
 });

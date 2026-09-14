@@ -28,6 +28,7 @@ import {
 } from "../lib/mailAnalysis";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
+import { FormSuccess } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 
 /**
@@ -72,7 +73,7 @@ export function MailAnalysisCard({
   companySlug: string;
   /** This Member's finance level — the money buttons are offered against it. */
   financeAccess: FinanceAccess;
-  /** Reload the thread — a draft reply and a triage action both change it. */
+  /** Reload the thread after a proposed action changes its surrounding state. */
   onChanged: () => void;
 }) {
   const dialog = useDialog();
@@ -80,6 +81,7 @@ export function MailAnalysisCard({
   const [row, setRow] = React.useState(analysis);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [retrying, setRetrying] = React.useState(false);
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => setRow(analysis), [analysis]);
 
@@ -97,11 +99,13 @@ export function MailAnalysisCard({
       if (!ok) return;
     }
     setBusyId(action.id);
+    setNotice(null);
     try {
       const result = await mailApi.runAnalysisAction(companyId, row.id, action.id);
-      // The button going struck-through is the confirmation; a navigation or
-      // a new draft on the thread is the rest of it.
+      // The button going struck-through is the confirmation; review actions
+      // then open the exact in-stack reply without touching mailbox Drafts.
       setRow(result.analysis);
+      setNotice(!result.navigateTo && action.kind === "draft_reply" ? result.message : null);
       onChanged();
       if (result.navigateTo) navigate(`/c/${companySlug}${result.navigateTo}`);
     } catch (err) {
@@ -114,6 +118,7 @@ export function MailAnalysisCard({
   const retry = async () => {
     if (retrying || busyId) return;
     setRetrying(true);
+    setNotice(null);
     try {
       const result = await mailApi.analyzeMessage(companyId, row.messageId);
       // A second failure shows in the card itself, where the first one is.
@@ -185,6 +190,8 @@ export function MailAnalysisCard({
             </button>
           </div>
           <p className="text-sm text-slate-700 dark:text-slate-200">{row.summary}</p>
+
+          <FormSuccess message={notice} className="mt-2 text-xs" />
 
           {row.actions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">

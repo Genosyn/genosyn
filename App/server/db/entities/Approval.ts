@@ -50,6 +50,9 @@ export type ApprovalStatus =
  *                            proactive review. Only a human owner/admin may
  *                            start its bounded follow-up session; original
  *                            delivery restrictions and live Grants still apply.
+ *   - `mail_send`         — an exact email reply held entirely inside the
+ *                            Decision stack. A human may edit it there; an
+ *                            owner/admin sends that exact payload on approval.
  */
 export type ApprovalKind =
   | "routine"
@@ -59,6 +62,7 @@ export type ApprovalKind =
   | "ad_spend"
   | "autonomy_promotion"
   | "proactive_work"
+  | "mail_send"
   | "tainted_tool";
 
 /**

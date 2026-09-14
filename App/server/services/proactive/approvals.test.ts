@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
@@ -6,6 +7,7 @@ import { Approval } from "../../db/entities/Approval.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
+import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { Membership } from "../../db/entities/Membership.js";
@@ -23,7 +25,9 @@ import {
   listProactiveWorkReviews,
   parseProactiveWorkPayload,
   proactiveWorkOutcomeSummary,
+  proactiveWorkReviewDetails,
   reconcileProactiveWorkApprovals,
+  reviseProactiveWorkApproval,
   validateProactiveRoutineApproval,
   type ProactiveWorkOrigin,
 } from "./approvals.js";
@@ -35,6 +39,10 @@ beforeEach(async () => {
   await refreshStanddowns();
 });
 after(closeTestDb);
+
+function digest(value: unknown): string {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
 
 async function fixture() {
   const companyId = "company";
@@ -115,6 +123,294 @@ test("work reviews remain inert and repeated polls reuse the exact pending plan"
   assert.equal(parseProactiveWorkPayload(approval.payloadJson).plan, f.request.plan);
 });
 
+test("only the proposing employee can revise the current pending plan", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  const originalRevision = proactiveWorkReviewDetails(approval)!.revision;
+  assert.equal(
+    await reviseProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: "another-employee",
+      approvalId: approval.id,
+      expectedRevision: originalRevision,
+      plan: "This must not be saved.",
+    }),
+    null,
+  );
+
+  const revised = await reviseProactiveWorkApproval({
+    companyId: f.companyId,
+    employeeId: f.employee.id,
+    approvalId: approval.id,
+    expectedRevision: originalRevision,
+    plan: "Investigate the checkout error first, then leave a narrow fix and regression test for Member review.",
+  });
+  assert.ok(revised);
+  const current = parseProactiveWorkPayload(revised.payloadJson);
+  assert.notEqual(proactiveWorkReviewDetails(revised)!.revision, originalRevision);
+  assert.match(current.plan, /^Investigate the checkout error/);
+  assert.equal(
+    await reviseProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      approvalId: approval.id,
+      expectedRevision: originalRevision,
+      title: "Stale overwrite",
+    }),
+    null,
+  );
+});
+
+test("new customer evidence invalidates an email-backed work review", async () => {
+  const f = await fixture();
+  const account = await insert(MailAccount, {
+    companyId: f.companyId,
+    connectionId: "connection",
+    address: "support@example.test",
+    status: "active",
+  });
+  const thread = await insert(MailThread, {
+    companyId: f.companyId,
+    accountId: account.id,
+    gmailThreadId: "customer-thread",
+    subject: "Checkout issue",
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: f.employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
+  await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "customer-message-1",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: "customer@example.test",
+    toEmails: account.address,
+    subject: thread.subject,
+    bodyText: "Checkout fails after I enter my card.",
+    sentAt: new Date("2026-09-01T09:00:00.000Z"),
+    labelIds: " INBOX ",
+  });
+  const approval = await createProactiveWorkApproval({
+    ...f.request,
+    origin: { mailThreadId: thread.id, mailDeliveryMode: "review" },
+  });
+  await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "customer-message-2",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: "customer@example.test",
+    toEmails: account.address,
+    subject: thread.subject,
+    bodyText: "Update: the failure only happens with saved cards.",
+    sentAt: new Date("2026-09-01T10:00:00.000Z"),
+    labelIds: " INBOX ",
+  });
+
+  const result = await approvePendingApproval({
+    companyId: f.companyId,
+    approvalId: approval.id,
+    userId: f.member.id,
+    execute: (row) =>
+      executeProactiveWorkApproval(row, async () => assert.fail("stale work must not start")),
+  });
+
+  assert.equal(result.outcome === "decided" && result.approval.status, "execution_failed");
+  assert.match(
+    result.outcome === "decided" ? (result.sideEffectError ?? "") : "",
+    /source instruction changed/i,
+  );
+});
+
+test("mail-backed pending and executing work collapses across employees and wording", async () => {
+  const f = await fixture();
+  const otherEmployee = await insert(AIEmployee, {
+    companyId: f.companyId,
+    name: "Riley",
+    slug: "riley",
+    role: "Engineering",
+  });
+  const account = await insert(MailAccount, {
+    companyId: f.companyId,
+    connectionId: "connection",
+    address: "support@example.test",
+    status: "active",
+  });
+  const thread = await insert(MailThread, {
+    companyId: f.companyId,
+    accountId: account.id,
+    gmailThreadId: "shared-customer-thread",
+    subject: "Checkout issue",
+  });
+  for (const employeeId of [f.employee.id, otherEmployee.id]) {
+    await insert(EmployeeMailAccountGrant, {
+      employeeId,
+      accountId: account.id,
+      accessLevel: "draft",
+    });
+  }
+  await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "shared-customer-message",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: "customer@example.test",
+    toEmails: account.address,
+    subject: thread.subject,
+    bodyText: "Checkout fails after I enter my card.",
+    sentAt: new Date("2026-09-01T09:00:00.000Z"),
+    labelIds: " INBOX ",
+  });
+  const origin = { mailThreadId: thread.id, mailDeliveryMode: "review" as const };
+  const [supportReview, engineeringReview] = await Promise.all([
+    createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      title: "Investigate the checkout report",
+      context: "A customer cannot complete checkout.",
+      plan: "Reproduce the checkout failure and leave a narrow fix for review.",
+      origin,
+    }),
+    createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: otherEmployee.id,
+      title: "Repair Acme's payment flow",
+      context: "The payment flow is failing for a customer.",
+      plan: "Inspect the payment path, add coverage, and leave the result for review.",
+      origin,
+    }),
+  ]);
+
+  assert.equal(engineeringReview.id, supportReview.id);
+  assert.equal(await AppDataSource.getRepository(Approval).count(), 1);
+  await AppDataSource.getRepository(Approval).update(
+    { id: supportReview.id },
+    { status: "executing", decidedAt: new Date(), decidedByUserId: f.member.id },
+  );
+  const whileExecuting = await createProactiveWorkApproval({
+    companyId: f.companyId,
+    employeeId: otherEmployee.id,
+    title: "Try a different checkout investigation",
+    context: "The same customer thread still needs attention.",
+    plan: "Start an alternate investigation and prepare a separate fix.",
+    origin,
+  });
+  assert.equal(whileExecuting.id, supportReview.id);
+  assert.equal(await AppDataSource.getRepository(Approval).count(), 1);
+});
+
+test("terminal mail-backed work stays suppressed until new inbound evidence", async () => {
+  const f = await fixture();
+  const account = await insert(MailAccount, {
+    companyId: f.companyId,
+    connectionId: "connection",
+    address: "support@example.test",
+    status: "active",
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: f.employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
+  const statuses = ["rejected", "approved", "execution_failed"] as const;
+
+  for (const [index, status] of statuses.entries()) {
+    const thread = await insert(MailThread, {
+      companyId: f.companyId,
+      accountId: account.id,
+      gmailThreadId: `terminal-thread-${index}`,
+      subject: `Customer issue ${index}`,
+    });
+    await insert(MailMessage, {
+      companyId: f.companyId,
+      accountId: account.id,
+      threadId: thread.id,
+      gmailMessageId: `customer-${index}-1`,
+      gmailThreadId: thread.gmailThreadId,
+      fromEmail: "customer@example.test",
+      toEmails: account.address,
+      subject: thread.subject,
+      bodyText: `Initial customer evidence ${index}.`,
+      sentAt: new Date(`2026-09-0${index + 1}T09:00:00.000Z`),
+      labelIds: " INBOX ",
+    });
+    const origin = { mailThreadId: thread.id, mailDeliveryMode: "review" as const };
+    const original = await createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      title: `Investigate customer issue ${index}`,
+      context: "The customer reported a reproducible problem.",
+      plan: "Investigate the report and leave the bounded result for Member review.",
+      origin,
+    });
+    await AppDataSource.getRepository(Approval).update(
+      { id: original.id },
+      { status, decidedAt: new Date(), decidedByUserId: f.member.id },
+    );
+
+    const rephrased = await createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      title: `Take another look at issue ${index}`,
+      context: "The same evidence could be described differently.",
+      plan: "Approach the same customer problem from another angle.",
+      origin,
+    });
+    assert.equal(rephrased.id, original.id, `${status} rephrasing`);
+
+    await insert(MailMessage, {
+      companyId: f.companyId,
+      accountId: account.id,
+      threadId: thread.id,
+      gmailMessageId: `employee-${index}-reply`,
+      gmailThreadId: thread.gmailThreadId,
+      fromEmail: account.address,
+      toEmails: "customer@example.test",
+      subject: thread.subject,
+      bodyText: "We investigated the report and will follow up if anything changes.",
+      sentAt: new Date(`2026-09-0${index + 1}T10:00:00.000Z`),
+      labelIds: " SENT ",
+    });
+    const afterOwnReply = await createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      title: `Reopen customer issue ${index}`,
+      context: "Our sent mirror changed the full email thread.",
+      plan: "Repeat the already reviewed work after our own reply.",
+      origin,
+    });
+    assert.equal(afterOwnReply.id, original.id, `${status} own SENT mirror`);
+
+    await insert(MailMessage, {
+      companyId: f.companyId,
+      accountId: account.id,
+      threadId: thread.id,
+      gmailMessageId: `customer-${index}-2`,
+      gmailThreadId: thread.gmailThreadId,
+      fromEmail: "customer@example.test",
+      toEmails: account.address,
+      subject: thread.subject,
+      bodyText: `New customer evidence ${index}.`,
+      sentAt: new Date(`2026-09-0${index + 1}T11:00:00.000Z`),
+      labelIds: " INBOX ",
+    });
+    const afterCustomerReply = await createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      title: `Review the customer's update ${index}`,
+      context: "The customer added material evidence.",
+      plan: "Review the new evidence and propose only the newly warranted work.",
+      origin,
+    });
+    assert.notEqual(afterCustomerReply.id, original.id, `${status} new inbound evidence`);
+  }
+});
+
 test("one human approval starts one bounded session with the original draft ceiling", async () => {
   const f = await fixture();
   const approval = await createProactiveWorkApproval(f.request);
@@ -162,6 +458,87 @@ test("one human approval starts one bounded session with the original draft ceil
   assert.match(saved.resultJson!, /Prepared a branch/);
 });
 
+test("approved Routine work requires positive Check and graded outcome evidence", async () => {
+  const f = await fixture();
+  await AppDataSource.getRepository(Routine).update(
+    { id: f.routine.id },
+    {
+      acceptanceCriteria: "The checkout regression is reproduced and the proposed fix is verified.",
+    },
+  );
+  const cases: Array<{
+    label: string;
+    checksVerdict: Run["checksVerdict"];
+    outcomeVerdict: Run["outcomeVerdict"];
+  }> = [
+    { label: "missing Checks", checksVerdict: null, outcomeVerdict: "achieved" },
+    { label: "unclear outcome", checksVerdict: "passed", outcomeVerdict: "unclear" },
+    { label: "unverified outcome", checksVerdict: "passed", outcomeVerdict: "unverified" },
+    { label: "missing graded outcome", checksVerdict: "passed", outcomeVerdict: null },
+  ];
+
+  for (const candidate of cases) {
+    const approval = await createProactiveWorkApproval({
+      ...f.request,
+      title: `Review ${candidate.label}`,
+    });
+    const result = await approvePendingApproval({
+      companyId: f.companyId,
+      approvalId: approval.id,
+      userId: f.member.id,
+      execute: (row) =>
+        executeProactiveWorkApproval(
+          row,
+          async () => assert.fail("Routine approvals must run through the Routine runner"),
+          async (routine) =>
+            insert(Run, {
+              routineId: routine.id,
+              startedAt: new Date(),
+              status: "completed",
+              checksVerdict: candidate.checksVerdict,
+              outcomeVerdict: candidate.outcomeVerdict,
+              outcomeNote: `Result for ${candidate.label}`,
+            }),
+        ),
+    });
+    assert.equal(
+      result.outcome === "decided" && result.approval.status,
+      "execution_failed",
+      candidate.label,
+    );
+    assert.match(
+      result.outcome === "decided" ? (result.sideEffectError ?? "") : "",
+      /required Checks and outcome satisfied/,
+      candidate.label,
+    );
+  }
+});
+
+test("approved Routine work accepts a null outcome only when no criteria exist", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  const result = await approvePendingApproval({
+    companyId: f.companyId,
+    approvalId: approval.id,
+    userId: f.member.id,
+    execute: (row) =>
+      executeProactiveWorkApproval(
+        row,
+        async () => assert.fail("Routine approvals must run through the Routine runner"),
+        async (routine) =>
+          insert(Run, {
+            routineId: routine.id,
+            startedAt: new Date(),
+            status: "completed",
+            checksVerdict: "not_run",
+            outcomeVerdict: null,
+            outcomeNote: null,
+          }),
+      ),
+  });
+  assert.equal(result.outcome === "decided" && result.approval.status, "approved");
+});
+
 test("rejection, changed instructions, revoked membership and Standdown never start work", async () => {
   const f = await fixture();
   const rejected = await createProactiveWorkApproval(f.request);
@@ -184,6 +561,7 @@ test("rejection, changed instructions, revoked membership and Standdown never st
     ...f.request,
     title: "Check the revised checkout report",
   });
+  assert.notEqual(approval.id, rejected.id);
   await AppDataSource.getRepository(Routine).update(
     { id: f.routine.id },
     { body: "Different scope" },
@@ -236,7 +614,7 @@ test("source ownership, missing source and delivery scope fail closed", async ()
       ...f.request,
       origin: { ...f.origin, mailDeliveryMode: "reply" },
     }),
-    /draft-only restriction/,
+    /Decision-stack review restriction/,
   );
   await assert.rejects(
     createProactiveWorkApproval({ ...f.request, origin: { ...f.origin, selfReviewOnly: true } }),
@@ -251,7 +629,10 @@ test("source ownership, missing source and delivery scope fail closed", async ()
     origin: { ...f.origin, mailDeliveryMode: "triage" },
   });
   assert.equal(triageReview.status, "pending");
-  assert.equal(parseProactiveWorkPayload(triageReview.payloadJson).origin.mailDeliveryMode, "triage");
+  assert.equal(
+    parseProactiveWorkPayload(triageReview.payloadJson).origin.mailDeliveryMode,
+    "triage",
+  );
 });
 
 test("email reviews retain source restrictions and invalidate edited rules", async () => {
@@ -270,7 +651,7 @@ test("email reviews retain source restrictions and invalidate edited rules", asy
   await insert(EmployeeMailAccountGrant, {
     employeeId: f.employee.id,
     accountId: account.id,
-    accessLevel: "send",
+    accessLevel: "draft",
   });
   const instruction = "Review incoming code issues.";
   const rule = await insert(MailRule, {
@@ -278,7 +659,7 @@ test("email reviews retain source restrictions and invalidate edited rules", asy
     accountId: account.id,
     name: "Support",
     actionsJson: JSON.stringify([
-      { type: "handToEmployee", employeeId: f.employee.id, mode: "work", instruction },
+      { type: "handToEmployee", employeeId: f.employee.id, mode: "reply", instruction },
     ]),
   });
   const handover = await insert(MailHandover, {
@@ -288,7 +669,7 @@ test("email reviews retain source restrictions and invalidate edited rules", asy
     employeeId: f.employee.id,
     sourceKind: "rule",
     ruleId: rule.id,
-    mode: "work",
+    mode: "reply",
     instruction,
   });
   const request = {
@@ -296,7 +677,7 @@ test("email reviews retain source restrictions and invalidate edited rules", asy
     origin: {
       mailThreadId: thread.id,
       mailHandoverId: handover.id,
-      mailDeliveryMode: "draft" as const,
+      mailDeliveryMode: "review" as const,
     },
   };
   const approval = await createProactiveWorkApproval(request);
@@ -311,6 +692,273 @@ test("email reviews retain source restrictions and invalidate edited rules", asy
     result.outcome === "decided" ? (result.sideEffectError ?? "") : "",
     /rule was disabled/,
   );
+});
+
+test("approved Rule triage preserves its filing-only delivery ceiling", async () => {
+  const f = await fixture();
+  const account = await insert(MailAccount, {
+    companyId: f.companyId,
+    connectionId: "connection",
+    address: "triage@example.test",
+  });
+  const thread = await insert(MailThread, {
+    companyId: f.companyId,
+    accountId: account.id,
+    gmailThreadId: "triage-thread",
+    subject: "Newsletter",
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: f.employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
+  const instruction = "File newsletters as read and archived.";
+  const rule = await insert(MailRule, {
+    companyId: f.companyId,
+    accountId: account.id,
+    name: "Newsletter triage",
+    actionsJson: JSON.stringify([
+      { type: "handToEmployee", employeeId: f.employee.id, mode: "triage", instruction },
+    ]),
+  });
+  const handover = await insert(MailHandover, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    employeeId: f.employee.id,
+    sourceKind: "rule",
+    ruleId: rule.id,
+    mode: "triage",
+    instruction,
+  });
+  const approval = await createProactiveWorkApproval({
+    ...f.request,
+    title: "File the newsletter",
+    context: "A configured Rule matched a newsletter.",
+    plan: "Mark this exact thread read and archive it.",
+    origin: {
+      mailThreadId: thread.id,
+      mailHandoverId: handover.id,
+      mailDeliveryMode: "triage",
+    },
+  });
+  const result = await approvePendingApproval({
+    companyId: f.companyId,
+    approvalId: approval.id,
+    userId: f.member.id,
+    execute: (row) =>
+      executeProactiveWorkApproval(
+        row,
+        async (_companyId, _employeeId, _prompt, _files, options) => {
+          assert.equal(options?.mailDeliveryMode, "triage");
+          return {
+            status: "ok",
+            stopReason: "end_turn",
+            reply: "Filed the approved thread without composing mail.",
+            attachmentIds: [],
+            sidecars: {},
+          };
+        },
+      ),
+  });
+  assert.equal(result.outcome === "decided" && result.approval.status, "approved");
+});
+
+test("pre-upgrade handover reviews still run, while a revision upgrades them to review mode", async () => {
+  const f = await fixture();
+  const account = await insert(MailAccount, {
+    companyId: f.companyId,
+    connectionId: "connection",
+    address: "support@example.test",
+    status: "active",
+  });
+  const thread = await insert(MailThread, {
+    companyId: f.companyId,
+    accountId: account.id,
+    gmailThreadId: "legacy-thread",
+    subject: "Legacy customer report",
+  });
+  const legacyMessage = await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "legacy-message",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: "customer@example.test",
+    toEmails: account.address,
+    subject: thread.subject,
+    bodyText: "The export button is broken.",
+    labelIds: " INBOX ",
+    sentAt: new Date("2026-09-01T09:00:00.000Z"),
+    createdAt: new Date("2026-09-01T09:00:00.000Z"),
+    updatedAt: new Date("2026-09-01T09:00:00.000Z"),
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: f.employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
+  const instruction = "Review customer product issues.";
+  const rule = await insert(MailRule, {
+    companyId: f.companyId,
+    accountId: account.id,
+    name: "Legacy support",
+    actionsJson: JSON.stringify([
+      { type: "handToEmployee", employeeId: f.employee.id, mode: "work", instruction },
+    ]),
+  });
+  const handover = await insert(MailHandover, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    employeeId: f.employee.id,
+    sourceKind: "rule",
+    ruleId: rule.id,
+    mode: "work",
+    instruction,
+  });
+  const origin = {
+    mailThreadId: thread.id,
+    mailHandoverId: handover.id,
+    mailDeliveryMode: "draft" as const,
+  };
+  const sourceFingerprint = digest([
+    f.employee.id,
+    {
+      handoverId: handover.id,
+      ruleId: rule.id,
+      sourceKind: handover.sourceKind,
+      instruction,
+      mode: handover.mode,
+    },
+    { threadId: thread.id, accountId: account.id },
+  ]);
+  const insertLegacy = (title: string, requestedAt = new Date("2026-09-01T09:30:00.000Z")) =>
+    insert(Approval, {
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      kind: "proactive_work",
+      routineId: "",
+      status: "pending",
+      requestedAt,
+      title,
+      summary: "Legacy customer evidence\n\nProposed work\nInvestigate the reported issue.",
+      payloadJson: JSON.stringify({
+        version: 1,
+        title,
+        context: "Legacy customer evidence",
+        plan: "Investigate the reported issue.",
+        origin,
+        sourceFingerprint,
+        dedupeKey: digest([null, thread.id, title, "Investigate the reported issue."]),
+      }),
+    });
+
+  const untouched = await insertLegacy("Investigate the legacy report");
+  const executed = await approvePendingApproval({
+    companyId: f.companyId,
+    approvalId: untouched.id,
+    userId: f.member.id,
+    execute: (row) =>
+      executeProactiveWorkApproval(
+        row,
+        async (_companyId, _employeeId, _prompt, _files, options) => {
+          assert.equal(options?.mailDeliveryMode, "review");
+          return {
+            status: "ok",
+            stopReason: "end_turn",
+            reply: "Investigated the issue and prepared the result for review.",
+            attachmentIds: [],
+            sidecars: {},
+          };
+        },
+      ),
+  });
+  assert.equal(executed.outcome === "decided" && executed.approval.status, "approved");
+
+  await AppDataSource.getRepository(MailMessage).update(
+    { id: legacyMessage.id },
+    { labelIds: " INBOX STARRED " },
+  );
+  const labelUpdated = await AppDataSource.getRepository(MailMessage).findOneByOrFail({
+    id: legacyMessage.id,
+  });
+  assert.ok(labelUpdated.updatedAt.getTime() > untouched.requestedAt.getTime());
+  assert.ok(labelUpdated.createdAt.getTime() < untouched.requestedAt.getTime());
+  const suppressedAfterLabelOnlyUpdate = await createProactiveWorkApproval({
+    ...f.request,
+    title: "Repeat after the customer email was starred",
+    context: "Only the existing customer's mailbox labels changed.",
+    plan: "Repeat the work already approved for the unchanged customer evidence.",
+    origin: { ...origin, mailDeliveryMode: "review" },
+  });
+  assert.equal(suppressedAfterLabelOnlyUpdate.id, untouched.id);
+
+  await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "legacy-sent-mirror",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: account.address,
+    toEmails: "customer@example.test",
+    subject: thread.subject,
+    bodyText: "We investigated the export failure.",
+    labelIds: " SENT ",
+    sentAt: new Date("2026-09-01T10:00:00.000Z"),
+    createdAt: new Date("2026-09-01T10:00:00.000Z"),
+    updatedAt: new Date("2026-09-01T10:00:00.000Z"),
+  });
+  const suppressedAfterSent = await createProactiveWorkApproval({
+    ...f.request,
+    title: "Repeat the legacy investigation",
+    context: "Only our own sent mirror changed the email thread.",
+    plan: "Repeat the work already approved for the unchanged customer evidence.",
+    origin: { ...origin, mailDeliveryMode: "review" },
+  });
+  assert.equal(suppressedAfterSent.id, untouched.id);
+
+  await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "legacy-customer-update",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: "customer@example.test",
+    toEmails: account.address,
+    subject: thread.subject,
+    bodyText: "The same export failure now affects PDF exports too.",
+    labelIds: " INBOX ",
+    sentAt: new Date("2026-09-01T11:00:00.000Z"),
+    createdAt: new Date("2026-09-01T11:00:00.000Z"),
+    updatedAt: new Date("2026-09-01T11:00:00.000Z"),
+  });
+  const rearmedByInbound = await createProactiveWorkApproval({
+    ...f.request,
+    title: "Review the customer's export update",
+    context: "The customer added new evidence about PDF exports.",
+    plan: "Investigate the new PDF-export evidence and leave the result for review.",
+    origin: { ...origin, mailDeliveryMode: "review" },
+  });
+  assert.notEqual(rearmedByInbound.id, untouched.id);
+
+  const toRevise = await insertLegacy(
+    "Refine the legacy investigation",
+    new Date(labelUpdated.updatedAt.getTime() + 60_000),
+  );
+  const revised = await reviseProactiveWorkApproval({
+    companyId: f.companyId,
+    employeeId: f.employee.id,
+    approvalId: toRevise.id,
+    expectedRevision: proactiveWorkReviewDetails(toRevise)!.revision,
+    plan: "Investigate the narrow export failure and leave the verified result for review.",
+  });
+  assert.ok(revised);
+  const revisedPayload = parseProactiveWorkPayload(revised.payloadJson);
+  assert.equal(revisedPayload.origin.mailDeliveryMode, "review");
+  assert.match(revisedPayload.inboundEvidenceFingerprint ?? "", /^[0-9a-f]{64}$/);
+  assert.match(revisedPayload.revision ?? "", /^[0-9a-f]{64}$/);
+  assert.notEqual(revisedPayload.sourceFingerprint, sourceFingerprint);
 });
 
 test("review history is bounded and redacted; expired work is failed without replay", async () => {
@@ -337,6 +985,49 @@ test("review history is bounded and redacted; expired work is failed without rep
   assert.ok(history[0].summary.length <= 500);
   assert.equal("payloadJson" in history[0], false);
   assert.doesNotMatch(JSON.stringify(history), /secret-value/);
+});
+
+test("reconciliation expires a pending work review after its source changes", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+
+  await reconcileProactiveWorkApprovals(f.companyId);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).status,
+    "pending",
+  );
+
+  f.routine.body = "Review current customer issues under the revised operating procedure.";
+  await AppDataSource.getRepository(Routine).save(f.routine);
+  await reconcileProactiveWorkApprovals(f.companyId);
+
+  const expired = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
+  assert.equal(expired.status, "expired");
+  assert.equal(expired.decidedAt, null);
+  assert.equal(expired.resultJson, null);
+});
+
+test("reconciliation preserves pending work when source lookup infrastructure fails", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  const employeeRepo = AppDataSource.getRepository(AIEmployee);
+  const findOneBy = employeeRepo.findOneBy.bind(employeeRepo);
+  const unavailable = new Error("database unavailable");
+  employeeRepo.findOneBy = async () => {
+    throw unavailable;
+  };
+  try {
+    await assert.rejects(reconcileProactiveWorkApprovals(f.companyId), (error) => {
+      assert.equal(error, unavailable);
+      return true;
+    });
+  } finally {
+    employeeRepo.findOneBy = findOneBy;
+  }
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).status,
+    "pending",
+  );
 });
 
 test("an interrupted approved session reports partial work without claiming completion", async () => {

@@ -290,7 +290,10 @@ export async function gatherEmployeeTools(params: {
     ...RESIDENT_GENOSYN_TOOLS,
     // The only action a proactive reviewer can take must be visible without a lookup.
     ...(tokenInfo?.proactiveReview
-      ? ["request_work_review", "get_proactive_work", "list_workstreams"]
+      ? ["request_mail_review", "request_work_review", "get_proactive_work", "list_workstreams"]
+      : []),
+    ...(tokenInfo?.mailDeliveryMode === "review"
+      ? ["request_mail_review", "revise_mail_review"]
       : []),
     // Coding tools stay resident because of *argument shape*, not frequency:
     // `write_file.content` and `edit_file.old_string` are large free-form

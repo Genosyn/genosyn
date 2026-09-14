@@ -14,6 +14,7 @@ import {
 import { errorMessage } from "../lib/errors";
 import { DecisionCard } from "../components/decisions/DecisionCard";
 import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
+import { MailReviewCard, MailReviewOutcome } from "@/components/decisions/MailReviewCard";
 import { DecisionOutcome } from "../components/decisions/DecisionOutcome";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -59,6 +60,10 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
     /^#decision-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
       .exec(location.hash)?.[1]
       ?.toLowerCase() ?? null;
+  const linkedReviewId =
+    /^#review-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+      .exec(location.hash)?.[1]
+      ?.toLowerCase() ?? null;
   const [rows, setRows] = React.useState<Decision[] | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -67,6 +72,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const [search, setSearch] = React.useState("");
   const [workReviews, setWorkReviews] = React.useState<Approval[] | null>(null);
   const [workError, setWorkError] = React.useState<string | null>(null);
+  const [resolutionNotice, setResolutionNotice] = React.useState<{ message: string } | null>(null);
   const canReview = company.role === "owner" || company.role === "admin";
   const workRequest = React.useRef(0);
 
@@ -79,17 +85,37 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
     }
     try {
       const approvals = await api.get<Approval[]>(
-        `/api/companies/${company.id}/approvals?kind=proactive_work`,
+        `/api/companies/${company.id}/approvals?kind=decision_stack`,
       );
+      let targetError: string | null = null;
+      if (linkedReviewId && !approvals.some((approval) => approval.id === linkedReviewId)) {
+        try {
+          const linked = await api.get<Approval>(
+            `/api/companies/${company.id}/approvals/${linkedReviewId}`,
+          );
+          if (linked.kind === "proactive_work" || linked.kind === "mail_send") {
+            approvals.push(linked);
+          } else {
+            targetError = "The linked Approval does not belong in the Decision stack.";
+          }
+        } catch (err) {
+          targetError = `Could not open the linked review: ${errorMessage(err)}`;
+        }
+      }
       if (version !== workRequest.current) return;
-      setWorkReviews(approvals.filter((approval) => approval.kind === "proactive_work"));
+      setWorkReviews(
+        approvals.filter(
+          (approval) => approval.kind === "proactive_work" || approval.kind === "mail_send",
+        ),
+      );
       setWorkError(null);
+      if (linkedReviewId) setLinkedError(targetError);
     } catch (err) {
       if (version !== workRequest.current) return;
-      setWorkError(errorMessage(err, "Could not load proposed work"));
+      setWorkError(errorMessage(err, "Could not load email and work reviews"));
       setWorkReviews([]);
     }
-  }, [company.id, canReview]);
+  }, [company.id, canReview, linkedReviewId]);
 
   React.useEffect(() => {
     setWorkReviews(null);
@@ -120,7 +146,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       }
       if (version !== reloadVersion.current) return;
       setRows(listed);
-      setLinkedError(targetError);
+      if (linkedDecisionId) setLinkedError(targetError);
       setLoadError(null);
     } catch (err) {
       if (version !== reloadVersion.current) return;
@@ -128,6 +154,21 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       setRows([]);
     }
   }, [company.id, linkedDecisionId]);
+
+  const reloadDecisionsAfterAction = React.useCallback(
+    async (announcement?: string) => {
+      await reload();
+      if (announcement) setResolutionNotice({ message: announcement });
+    },
+    [reload],
+  );
+  const reloadReviewsAfterAction = React.useCallback(
+    async (announcement?: string) => {
+      await reloadWork();
+      if (announcement) setResolutionNotice({ message: announcement });
+    },
+    [reloadWork],
+  );
 
   React.useEffect(() => {
     setRows(null);
@@ -148,20 +189,31 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   // The discussion transcript links back to its exact decision, including
   // history rows. Live refreshes must not repeatedly pull the reader back.
   React.useEffect(() => {
-    if (linkedDecisionId) {
+    if (linkedDecisionId || linkedReviewId) {
       setFilter("all");
       setSearch("");
     }
-  }, [location.key, linkedDecisionId]);
+  }, [location.key, linkedDecisionId, linkedReviewId]);
   React.useEffect(() => {
-    if (!rows || !linkedDecisionId) return;
+    if ((!rows && !workReviews) || (!linkedDecisionId && !linkedReviewId)) return;
     const targetKey = `${location.key}:${location.hash}`;
     if (scrolledTo.current === targetKey) return;
-    const target = document.getElementById(`decision-${linkedDecisionId}`);
+    const target = document.getElementById(
+      linkedDecisionId ? `decision-${linkedDecisionId}` : `review-${linkedReviewId}`,
+    );
     if (!target) return;
     target.scrollIntoView({ block: "center" });
     scrolledTo.current = targetKey;
-  }, [rows, filter, search, location.key, location.hash, linkedDecisionId]);
+  }, [
+    rows,
+    workReviews,
+    filter,
+    search,
+    location.key,
+    location.hash,
+    linkedDecisionId,
+    linkedReviewId,
+  ]);
 
   const query = search.trim().toLocaleLowerCase();
   const matches = (text: (string | null | undefined)[]) =>
@@ -184,7 +236,20 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const allPending = rows?.filter((r) => r.status === "pending").length ?? 0;
   const filteredWork =
     (canReview ? workReviews : [])?.filter(
-      (row) => !query || matches([row.title, row.summary, row.outcomeSummary, row.employee?.name]),
+      (row) =>
+        !query ||
+        matches([
+          row.title,
+          row.summary,
+          row.outcomeSummary,
+          row.employee?.name,
+          row.review?.kind === "work" ? row.review.context : null,
+          row.review?.kind === "work" ? row.review.plan : null,
+          row.review?.kind === "mail" ? row.review.context : null,
+          row.review?.kind === "mail" ? row.review.workSummary : null,
+          row.review?.kind === "mail" ? row.review.draft.subject : null,
+          row.review?.kind === "mail" ? row.review.draft.bodyText : null,
+        ]),
     ) ?? [];
   const shownWork = filteredWork.filter((approval) => approval.status === "pending");
   const workHistory = filteredWork.filter((approval) => approval.status !== "pending");
@@ -196,6 +261,20 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const history = filteredRows.filter((r) => r.status !== "pending");
   const shown = history.filter((r) => filter === "all" || r.status === filter);
   const working = history.filter((r) => r.pickupStatus === "running").length;
+  const needsYou = [
+    ...shownWork.map((approval) => ({
+      kind: "review" as const,
+      at: approval.requestedAt,
+      urgency: 1,
+      approval,
+    })),
+    ...[...mine, ...anyone].map((decision) => ({
+      kind: "decision" as const,
+      at: decision.createdAt,
+      urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
+      decision,
+    })),
+  ].sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at));
 
   return (
     <div className="page-shell p-4 sm:p-8">
@@ -214,9 +293,14 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       />
       {routingOpen && <RoutingModal company={company} onClose={() => setRoutingOpen(false)} />}
       <p className="mb-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-        Review proposed work and answer your AI Employees. Read the context and choose a next step
-        before confirming.
+        See what happened, what your AI Employee recommends, and the one action that needs you.
+        Reviewed email replies stay in Genosyn until an owner or admin sends or discards them.
       </p>
+      {resolutionNotice && (
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {resolutionNotice.message}
+        </div>
+      )}
       {rows?.length || workReviews?.length ? (
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <label className="flex min-w-0 flex-1 basis-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:basis-0 dark:border-slate-700 dark:bg-slate-900">
@@ -231,42 +315,31 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
             />
           </label>
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            {allPending + pendingWorkCount} waiting for review
+            {allPending + pendingWorkCount} open{" "}
+            {allPending + pendingWorkCount === 1 ? "item" : "items"}
           </span>
         </div>
       ) : null}
       <FormError message={linkedError} className="mb-4" />
+      {loadError && (
+        <div className="mb-5 space-y-2">
+          <FormError message={loadError} />
+          <Button size="sm" variant="secondary" onClick={() => void reload()}>
+            Retry Decisions
+          </Button>
+        </div>
+      )}
       {workError && (
         <div className="mb-5 space-y-2">
           <FormError message={workError} />
           <Button size="sm" variant="secondary" onClick={() => void reloadWork()}>
-            Retry proposed work
+            Retry email and work reviews
           </Button>
         </div>
       )}
       {canReview && workReviews === null && (
         <div className="mb-5 flex items-center gap-2 text-sm text-slate-500">
-          <Spinner size={14} /> Loading proposed work…
-        </div>
-      )}
-      {shownWork.length > 0 && (
-        <div className="mb-6">
-          <Section title={`Work awaiting your approval (${shownWork.length})`}>
-            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-              These plans are waiting for an owner or admin. Approving starts the work described in
-              the request.
-            </p>
-            <Stack>
-              {shownWork.map((approval) => (
-                <WorkReviewCard
-                  key={approval.id}
-                  company={company}
-                  approval={approval}
-                  onResolved={reloadWork}
-                />
-              ))}
-            </Stack>
-          </Section>
+          <Spinner size={14} /> Loading email and work reviews…
         </div>
       )}
       {canReview && (
@@ -277,74 +350,53 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           Other Approvals
         </Link>
       )}
-      {workHistory.length > 0 && (
-        <div className="mb-6">
-          <Section title="Work approval history">
-            <ul className="space-y-3">
-              {workHistory.map((approval) => (
-                <WorkReviewOutcome key={approval.id} company={company} approval={approval} />
-              ))}
-            </ul>
-          </Section>
-        </div>
-      )}
-      {loadError ? (
-        <FormError message={loadError} />
-      ) : rows === null ? (
+      {rows === null && workReviews === null ? (
         <Spinner />
-      ) : rows.length === 0 && !workReviews?.length && !workError && workReviews !== null ? (
+      ) : rows !== null &&
+        rows.length === 0 &&
+        !workReviews?.length &&
+        !loadError &&
+        !workError &&
+        workReviews !== null ? (
         <EmptyState
-          title="No decisions waiting"
-          description="Proposed work and decisions from your AI Employees appear here with context and a clear next step."
+          title="Decision stack is clear"
+          description="Email reviews, proposed work, and Decisions from your AI Employees appear here with context and a clear next step."
         />
       ) : query && !filteredRows.length && !filteredWork.length ? (
         <EmptyState
-          title="No matching decisions"
+          title="No matching items"
           description="Try a customer name, AI Employee, or a word from the context."
         />
       ) : (
         <div className="flex flex-col gap-6">
-          {pending.length > 0 && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {pending.length === 1
-                ? "One decision needs an answer."
-                : `${pending.length} decisions need an answer.`}{" "}
-              Selecting an option does nothing until you send your decision.
-            </p>
-          )}
-
-          {mine.length > 0 && (
-            <Section title={`Assigned to you (${mine.length})`}>
+          {needsYou.length > 0 && (
+            <Section title={`Needs you (${needsYou.length})`}>
               <Stack>
-                {mine.map((d) => (
-                  <DecisionCard key={d.id} company={company} decision={d} onResolved={reload} />
-                ))}
+                {needsYou.map((item) =>
+                  item.kind === "decision" ? (
+                    <DecisionCard
+                      key={item.decision.id}
+                      company={company}
+                      decision={item.decision}
+                      onResolved={reloadDecisionsAfterAction}
+                    />
+                  ) : item.approval.kind === "mail_send" ? (
+                    <MailReviewCard
+                      key={item.approval.id}
+                      company={company}
+                      approval={item.approval}
+                      onResolved={reloadReviewsAfterAction}
+                    />
+                  ) : (
+                    <WorkReviewCard
+                      key={item.approval.id}
+                      company={company}
+                      approval={item.approval}
+                      onResolved={reloadReviewsAfterAction}
+                    />
+                  ),
+                )}
               </Stack>
-            </Section>
-          )}
-
-          {(anyone.length > 0 ||
-            (!mine.length && !assignedElsewhere.length && !shownWork.length)) && (
-            <Section
-              title={
-                mine.length > 0
-                  ? `Open to any Member (${anyone.length})`
-                  : `Decisions to answer (${anyone.length})`
-              }
-            >
-              {anyone.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  {mine.length > 0
-                    ? "Nothing else open to the whole company."
-                    : "No decisions waiting for an answer."}
-                </div>
-              ) : (
-                <Stack>
-                  {anyone.map((d) => (
-                    <DecisionCard key={d.id} company={company} decision={d} onResolved={reload} />
-                  ))}
-                </Stack>
-              )}
             </Section>
           )}
 
@@ -352,18 +404,38 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
             <Section title={`Assigned to other Members (${assignedElsewhere.length})`}>
               <Stack>
                 {assignedElsewhere.map((d) => (
-                  <DecisionCard key={d.id} company={company} decision={d} onResolved={reload} />
+                  <DecisionCard
+                    key={d.id}
+                    company={company}
+                    decision={d}
+                    onResolved={reloadDecisionsAfterAction}
+                    canAnswer={company.role === "owner" || company.role === "admin"}
+                  />
                 ))}
               </Stack>
+            </Section>
+          )}
+
+          {workHistory.length > 0 && (
+            <Section title="Review history">
+              <ul className="space-y-3">
+                {workHistory.map((approval) =>
+                  approval.kind === "mail_send" ? (
+                    <MailReviewOutcome key={approval.id} company={company} approval={approval} />
+                  ) : (
+                    <WorkReviewOutcome key={approval.id} company={company} approval={approval} />
+                  ),
+                )}
+              </ul>
             </Section>
           )}
 
           {history.length > 0 && (
             <section>
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Decision history
-                </div>
+                </h2>
                 {working > 0 && (
                   <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
                     {working} being worked on now
@@ -374,6 +446,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
                     <button
                       key={f.id}
                       type="button"
+                      aria-pressed={filter === f.id}
                       onClick={() => setFilter(f.id)}
                       className={clsx(
                         "rounded-md px-2 py-0.5 text-[11px] font-medium transition",
@@ -409,9 +482,9 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {title}
-      </div>
+      </h2>
       {children}
     </section>
   );

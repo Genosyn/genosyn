@@ -1,5 +1,6 @@
 import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, test } from "node:test";
@@ -17,6 +18,7 @@ import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { hashApiToken } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error.js";
+import { listApprovalInbox } from "../services/approvalInbox.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { approvalsRouter } from "./approvals.js";
 
@@ -127,18 +129,61 @@ async function createApproval(overrides: Partial<Approval> = {}): Promise<Approv
   });
 }
 
+function exactMailReviewPayload(content: Buffer) {
+  return {
+    version: 1,
+    accountId: company.id,
+    threadId: null,
+    mailHandoverId: null,
+    context: "A customer asked for the reviewed document.",
+    workSummary: "Prepared the exact response and attachment for review.",
+    steps: [{ title: "Prepared response", detail: "No mailbox draft was created." }],
+    attachments: [
+      {
+        spec: { resourceSlug: "reviewed-document", format: "original" },
+        filename: "reviewed.txt",
+        contentType: "text/plain",
+        sizeBytes: content.length,
+        sha256: crypto.createHash("sha256").update(content).digest("hex"),
+        contentBase64: content.toString("base64"),
+      },
+    ],
+    financeAccessLimit: "full",
+    draft: {
+      to: "customer@example.test",
+      cc: "",
+      bcc: "",
+      subject: "Your reviewed document",
+      bodyText: "Here is the exact document we reviewed.",
+    },
+    threading: { inReplyTo: null, references: null },
+    sourceFingerprint: "1".repeat(64),
+    inboundEvidenceVersion: 1,
+    inboundEvidenceFingerprint: null,
+    messageFingerprint: "2".repeat(64),
+    origin: { routineId: null, runId: null, conversationId: null },
+    dedupeKey: "3".repeat(64),
+  };
+}
+
 type ApiResponse<T = Record<string, unknown>> = { status: number; body: T };
 
 async function call<T = Record<string, unknown>>(args: {
   method: string;
   approvalId?: string;
   action?: "approve" | "reject";
+  direct?: boolean;
   companyId?: string;
   bearerToken?: string;
+  query?: string;
 }): Promise<ApiResponse<T>> {
-  const suffix = args.approvalId ? `/approvals/${args.approvalId}/${args.action}` : "/approvals";
+  const suffix = args.approvalId
+    ? args.direct
+      ? `/approvals/${args.approvalId}`
+      : `/approvals/${args.approvalId}/${args.action}`
+    : "/approvals";
   const response = await fetch(
-    `${baseUrl}/api/companies/${args.companyId ?? company.id}${suffix}`,
+    `${baseUrl}/api/companies/${args.companyId ?? company.id}${suffix}${args.query ? `?${args.query}` : ""}`,
     {
       method: args.method,
       // Each test rebuilds the in-memory schema, which can exceed Express's
@@ -183,6 +228,133 @@ async function auditActions(): Promise<string[]> {
 }
 
 describe("approval route authorization", () => {
+  test("the Decision-stack query omits raw bytes while the API returns the complete safe review", async () => {
+    const attachment = Buffer.from("exact reviewed attachment bytes");
+    const contentBase64 = attachment.toString("base64");
+    const approval = await createApproval({
+      kind: "mail_send",
+      title: "Review customer email",
+      payloadJson: JSON.stringify(exactMailReviewPayload(attachment)),
+      resultJson: JSON.stringify({
+        sentMessageId: null,
+        providerMessageRef: "provider-message-ref",
+        sentAt: new Date().toISOString(),
+      }),
+      status: "approved",
+      decidedAt: new Date(),
+      decidedByUserId: owner.id,
+    });
+
+    const listed = await listApprovalInbox(company.id, "decision_stack");
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].id, approval.id);
+    // TypeScript class fields may exist as own properties with `undefined`,
+    // but TypeORM must not hydrate either large column for this list row.
+    assert.equal(listed[0].payloadJson, undefined);
+    assert.equal(listed[0].resultJson, undefined);
+
+    const response = await call<
+      Array<{
+        id: string;
+        review: {
+          kind: string;
+          draft: { subject: string; bodyText: string };
+          attachments: Array<{ filename: string; sizeBytes: number }>;
+        };
+        mailOutcome: { providerMessageRef: string };
+      }>
+    >({ method: "GET", query: "kind=decision_stack" });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.length, 1);
+    assert.equal(response.body[0].id, approval.id);
+    assert.equal(response.body[0].review.kind, "mail");
+    assert.equal(response.body[0].review.draft.subject, "Your reviewed document");
+    assert.equal(response.body[0].review.draft.bodyText, "Here is the exact document we reviewed.");
+    assert.deepEqual(response.body[0].review.attachments, [
+      { index: 0, filename: "reviewed.txt", contentType: "text/plain", sizeBytes: 31 },
+    ]);
+    assert.equal(response.body[0].mailOutcome.providerMessageRef, "provider-message-ref");
+    const serialized = JSON.stringify(response.body);
+    assert.doesNotMatch(serialized, /contentBase64/);
+    assert.equal(serialized.includes(contentBase64), false);
+
+    const download = await fetch(
+      `${baseUrl}/api/companies/${company.id}/approvals/${approval.id}/mail-review/attachments/0`,
+      { headers: { connection: "close" } },
+    );
+    assert.equal(download.status, 200);
+    assert.deepEqual(Buffer.from(await download.arrayBuffer()), attachment);
+  });
+
+  test("the Other Approvals filter excludes Decision-stack reviews", async () => {
+    const ordinary = await createApproval({ title: "Submit the form" });
+    await createApproval({
+      kind: "proactive_work",
+      title: "Review proposed work",
+      status: "rejected",
+    });
+    await createApproval({
+      kind: "mail_send",
+      title: "Review customer reply",
+      status: "rejected",
+    });
+
+    const response = await call<Array<{ id: string; kind: string }>>({
+      method: "GET",
+      query: "kind=other",
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      response.body.map(({ id, kind }) => ({ id, kind })),
+      [{ id: ordinary.id, kind: "browser_action" }],
+    );
+  });
+
+  test("an admin can resolve one durable Decision-stack review link", async () => {
+    const review = await createApproval({
+      kind: "proactive_work",
+      title: "Investigate the reported failure",
+      payloadJson: JSON.stringify({
+        version: 1,
+        title: "Investigate the reported failure",
+        context: "A customer reported a failed request.",
+        plan: "Reproduce it, fix it, and verify the result.",
+        origin: { routineId: "routine-source" },
+        sourceFingerprint: "source-fingerprint",
+        dedupeKey: "dedupe-key",
+      }),
+    });
+    const response = await call<{
+      id: string;
+      kind: string;
+      review: { kind: string; context: string };
+    }>({
+      method: "GET",
+      approvalId: review.id,
+      direct: true,
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.id, review.id);
+    assert.equal(response.body.kind, "proactive_work");
+    assert.equal(response.body.review.kind, "work");
+    assert.equal(response.body.review.context, "A customer reported a failed request.");
+
+    actingUserId = member.id;
+    assert.equal(
+      (
+        await call({
+          method: "GET",
+          approvalId: review.id,
+          direct: true,
+        })
+      ).status,
+      403,
+    );
+  });
+
   test("owner and admin browser sessions may decide approvals", async () => {
     const ownerApproval = await createApproval();
     const ownerResponse = await call<{ status: string; decidedByUserId: string }>({

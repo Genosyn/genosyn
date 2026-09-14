@@ -72,6 +72,7 @@ const MEMBER_TOOLS = [
   // question exactly as they could from the Decisions page.
   "request_decision",
   "request_work_review",
+  "request_mail_review",
   "list_decisions",
   "get_decision",
   "cancel_decision",
@@ -364,6 +365,18 @@ const ADMIN_TOOLS = [
   "list_revenue_field_evidence",
   "review_revenue_field_evidence",
 ] as const;
+
+/**
+ * Tools retained for trusted employee work but never delegated through the
+ * ordinary Member registry. Decision-stack review conversations receive
+ * narrower, locally bound editors that supply the Approval id and CAS
+ * revision themselves; exposing these argument-driven MCP tools as well would
+ * let an unrelated admin chat choose a different review by id.
+ */
+export const INTERACTIVE_MEMBER_DENIED_TOOLS = new Set([
+  "revise_work_review",
+  "revise_mail_review",
+] as const);
 
 const FINANCE_READ_TOOLS = [
   "list_finance_accounts",

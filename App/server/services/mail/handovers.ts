@@ -8,7 +8,11 @@ import {
   type MailAccessLevel,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
-import { MailHandover, type MailHandoverMode } from "../../db/entities/MailHandover.js";
+import {
+  MailHandover,
+  type MailHandoverMode,
+  type MailHandoverSource,
+} from "../../db/entities/MailHandover.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { workBlocked } from "../standdowns.js";
 import { composeHandoverPrompt, handoverDeliveryMode } from "./handoverPrompt.js";
@@ -41,13 +45,15 @@ let running = 0;
 let discoveryTimer: NodeJS.Timeout | null = null;
 
 /** Grant pre-flight shared by routes and rules: null when allowed, else a
- * human-readable reason. `reply` needs `send`; `draft`/`triage` need `draft`. */
+ * human-readable reason. A manual `reply` needs `send`; every other handover
+ * needs `draft` because even triage changes mailbox state. */
 export async function handoverGrantError(
   employeeId: string,
   accountId: string,
   mode: MailHandoverMode,
+  sourceKind: MailHandoverSource = "manual",
 ): Promise<string | null> {
-  const needed: MailAccessLevel = mode === "reply" ? "send" : "draft";
+  const needed: MailAccessLevel = sourceKind === "manual" && mode === "reply" ? "send" : "draft";
   const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
     employeeId,
     accountId,
@@ -324,7 +330,12 @@ export async function runHandover(
           "The rule behind this handover was disabled, removed, or changed. New mail will use its current configuration.",
         );
     }
-    const grantError = await handoverGrantError(employee.id, account.id, handover.mode);
+    const grantError = await handoverGrantError(
+      employee.id,
+      account.id,
+      handover.mode,
+      handover.sourceKind,
+    );
     if (grantError) throw new Error(grantError);
     const messages = await AppDataSource.getRepository(MailMessage).find({
       where: { threadId: thread.id, accountId: account.id, companyId: account.companyId },
@@ -341,7 +352,7 @@ export async function runHandover(
       ...authority,
       mailThreadId: handover.threadId,
       mailHandoverId: handover.id,
-      mailDeliveryMode: handoverDeliveryMode(handover.mode),
+      mailDeliveryMode: handoverDeliveryMode(handover.mode, handover.sourceKind),
       proactiveReview: handover.sourceKind === "rule",
     });
     if (result.status === "ok") {
@@ -397,8 +408,8 @@ export function resolveMailHandoverAuthority(
 
 /** Bell + push: the creator hears about manual handovers; owners/admins
  * hear about rule-driven failures (a silent broken automation is worse
- * than a noisy one). Rule successes stay quiet — the draft in the thread
- * is the signal. */
+ * than a noisy one). Rule successes stay quiet unless their work creates its
+ * own Decision-stack review, which owns that notification. */
 async function notifyHandoverFinished(handover: MailHandover): Promise<void> {
   const company = await AppDataSource.getRepository(Company).findOneBy({
     id: handover.companyId,

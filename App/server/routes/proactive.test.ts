@@ -139,6 +139,26 @@ test("catalogue covers all examples with known classifier categories and resourc
     assert.ok(recipe.acceptanceCriteria.length > 50);
   }
 });
+
+test("automatic email recipes describe Decision-stack reviews rather than mailbox drafts", () => {
+  const mailReviewRecipes = new Set([
+    "quote-requests",
+    "customer-code-issues",
+    "new-sales-enquiries",
+    "overdue-invoices",
+    "stalled-deals",
+    "meeting-followups",
+    "customer-commitments",
+  ]);
+  for (const recipe of PROACTIVE_RECIPES.filter(({ id }) => mailReviewRecipes.has(id))) {
+    const copy = `${recipe.description}\n${recipe.brief}`;
+    assert.match(copy, /Decision-stack|Decision stack/);
+    assert.doesNotMatch(
+      copy,
+      /reply draft|reminder drafts?|draft(?:ed|ing)? (?:a |an |the )?(?:reply|response|recap|clarification|customer update|personalized follow-up)/i,
+    );
+  }
+});
 test("overview is scoped and exposes readiness without model credentials or Souls", async () => {
   const other = await insert(AIEmployee, {
     companyId: randomUUID(),

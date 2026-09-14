@@ -333,7 +333,8 @@ try {
       assert.equal(await automatic.getAttribute("aria-checked"), "true");
       assert.equal(await automatic.isEnabled(), true);
       await page.getByText(/Proactive review is on by default/).waitFor();
-      await page.getByText(/An owner or admin must approve that plan/).waitFor();
+      await page.getByText(/exact proposed email in the Decision stack/).waitFor();
+      await page.getByText(/never creates a draft in Gmail or IMAP/).waitFor();
       await page
         .getByRole("link", { name: "Customer quote responsibility", exact: true })
         .waitFor();
@@ -410,7 +411,9 @@ try {
     await page.getByText("Waiting for ready AI Employees", { exact: true }).waitFor();
     assert.equal(await page.locator("article").count(), PROACTIVE_RECIPES.length);
     assert.equal(
-      await page.getByRole("link", { name: "Review proposed work", exact: true }).getAttribute("href"),
+      await page
+        .getByRole("link", { name: "Open Decision stack", exact: true })
+        .getAttribute("href"),
       "/c/company/decisions",
     );
     assert.equal(
@@ -444,31 +447,27 @@ try {
     assert.equal(await enable(page).isDisabled(), true);
     assert.deepEqual(installs, []);
   });
-  await check(
-    "draft is the default and send requires an explicit choice plus Send Grant",
-    async () => {
-      const page = await open();
-      await setup(page);
-      await ready(page);
-      assert.equal(
-        await page
-          .getByRole("combobox", { name: "Customer communication", exact: true })
-          .inputValue(),
-        "Prepare drafts for review",
-      );
-      assert.equal(await enable(page).isEnabled(), true);
-      await choose(page, "Customer communication", "May send when the Soul permits");
-      await page
-        .getByText("Grant Send access in Email → Settings → AI access.", { exact: true })
-        .waitFor();
-      assert.equal(await enable(page).isDisabled(), true);
-      await choose(page, "AI Employee", "Grace");
-      assert.equal(await enable(page).isEnabled(), true);
-      await submit(page);
-      assert.equal(installs[0].delivery, "soul");
-      assert.equal(installs[0].employeeId, "grace");
-    },
-  );
+  await check("automatic customer email has one Decision-stack review path", async () => {
+    const page = await open();
+    await setup(page);
+    await ready(page);
+    await page
+      .getByText("Customer communication is reviewed in Genosyn", { exact: true })
+      .waitFor();
+    await page
+      .getByText(/never creates a draft in Gmail or IMAP and never sends automatically/)
+      .waitFor();
+    assert.equal(
+      await page.getByRole("combobox", { name: "Customer communication", exact: true }).count(),
+      0,
+    );
+    assert.equal(await page.getByText("Prepare drafts for review", { exact: true }).count(), 0);
+    assert.equal(await page.getByText(/Draft mode blocks sending/).count(), 0);
+    assert.equal(await enable(page).isEnabled(), true);
+    await submit(page);
+    assert.equal(installs[0].delivery, "draft");
+    assert.equal(installs[0].employeeId, "ada");
+  });
   await check("mailbox state and AI analysis readiness are enforced", async () => {
     const page = await open();
     await setup(page);

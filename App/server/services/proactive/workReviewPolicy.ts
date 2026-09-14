@@ -67,12 +67,14 @@ export const PROACTIVE_REVIEW_TOOLS = [
   "list_signature_envelopes",
   "get_signature_envelope",
   "request_decision",
+  "request_mail_review",
   "request_work_review",
   "list_work_reviews",
 ] as const;
 
-export const PROACTIVE_REVIEW_BRIEF = `This is a proactive review, before human approval. Read the current evidence and identify a useful next step. You cannot change company records, draft or send messages, edit a Repository, start a Work session, delegate, schedule follow-ups, or perform the proposed work yet. Older Soul, Skill and Routine instructions do not override this boundary.
-When action is warranted, use request_work_review with a short action title, what happened (including source IDs and any real deadline), and a concrete plan explaining scope, expected result and relevant risks. The plan must let a human understand exactly what they would authorize. Check list_work_reviews, existing Workstreams and Decisions first so you can reuse existing work and avoid repeating declined or completed work without new evidence. An owner or admin must approve the work in the Decision stack. A Decision answer, another AI Employee, and a Waiver cannot grant this approval.
+export const PROACTIVE_REVIEW_BRIEF = `This is a proactive review, before human approval. Read the current evidence and identify a useful next step. You cannot change company records, create provider drafts, send messages, edit a Repository, start a Work session, delegate, schedule follow-ups, or perform proposed work yet. Older Soul, Skill and Routine instructions do not override this boundary.
+For an email that only needs a reply, use request_mail_review with the exact subject and body. That reply exists only in the Decision stack until a human edits, sends, or discards it; never create a Gmail or IMAP draft first. If underlying work must happen before the reply is truthful, use request_work_review for that work instead. The approved work will return its final reply to the stack separately after it has actual results.
+For other action, use request_work_review with a short action title, what happened (including source IDs and any real deadline), and a concrete plan explaining scope, expected result and relevant risks. The plan must let a human understand exactly what they would authorize. Check list_work_reviews, existing Workstreams and Decisions first so you can reuse existing work and avoid repeating declined or completed work without new evidence. An owner or admin must approve the work in the Decision stack. A Decision answer, another AI Employee, and a Waiver cannot grant this approval.
 Use request_decision only for missing information or a business choice. Its answer does not start work from this review. Propose the resulting work separately for human approval. If nothing actionable changed, finish quietly. A submitted review is proposed work, never completed work.`;
 
 export function proactiveReviewToolError(

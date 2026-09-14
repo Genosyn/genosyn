@@ -155,7 +155,10 @@ export async function kickoffDecision(args: {
       chatOptions = {
         ...chatOptions,
         mailThreadId: decision.mailThreadId,
-        mailDeliveryMode: chatOptions.mailDeliveryMode ?? "draft",
+        // Answering a question records information; it never authorizes an
+        // automatic mailbox draft or send. Any resulting reply returns as an
+        // exact Decision-stack review.
+        mailDeliveryMode: "review",
         proactiveReview: true,
       };
     }
@@ -170,13 +173,12 @@ export async function kickoffDecision(args: {
     }
 
     const runChat = args.runChat ?? chatWithEmployee;
-    const result = await runChat(
-      companyId,
-      employee.id,
-      await composePickupBrief(decision),
-      [],
-      chatOptions,
-    );
+    let pickupBrief = await composePickupBrief(decision);
+    if (chatOptions.mailDeliveryMode === "review") {
+      pickupBrief +=
+        "\n\nAny email you prepare must use request_mail_review. Keep its exact recipients, subject, body and files in the Decision stack; do not create a Gmail or IMAP draft and do not send it.";
+    }
+    const result = await runChat(companyId, employee.id, pickupBrief, [], chatOptions);
     const reply = result.reply.trim() || "(no reply)";
     if (result.status === "ok") {
       await settle(decision, "done", reply);
