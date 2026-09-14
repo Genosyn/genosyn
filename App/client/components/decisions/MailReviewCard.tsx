@@ -271,6 +271,7 @@ export function MailReviewCard({
   const [error, setError] = React.useState<string | null>(null);
   const acting = React.useRef(false);
   const editButtonRef = React.useRef<HTMLButtonElement>(null);
+  const editorFormRef = React.useRef<HTMLFormElement>(null);
   const firstFieldRef = React.useRef<HTMLInputElement>(null);
   const editing = editSession !== null;
   const editingBaseRevision = editSession?.baseRevision ?? null;
@@ -354,13 +355,28 @@ export function MailReviewCard({
   async function save() {
     const session = editSession;
     if (!session || acting.current) return;
+    // Read the submitted controls as well as React state. A fast fill followed
+    // immediately by Save can reach this handler before the controlled-state
+    // render commits; the DOM still contains the member's exact working copy.
+    const form = editorFormRef.current;
+    const fields = form ? new FormData(form) : null;
+    const workingDraft = fields
+      ? {
+          to: String(fields.get("to") ?? ""),
+          cc: String(fields.get("cc") ?? ""),
+          bcc: String(fields.get("bcc") ?? ""),
+          subject: String(fields.get("subject") ?? ""),
+          bodyText: String(fields.get("bodyText") ?? ""),
+        }
+      : session.draft;
+    setEditSession({ ...session, draft: workingDraft });
     acting.current = true;
     setBusy("save");
     setError(null);
     try {
       await api.patch<Approval>(
         `/api/companies/${company.id}/approvals/${approval.id}/mail-review`,
-        { expectedRevision: session.baseRevision, ...session.draft },
+        { expectedRevision: session.baseRevision, ...workingDraft },
       );
       stopEditing();
       await onResolved();
@@ -424,9 +440,13 @@ export function MailReviewCard({
         approval={approval}
         draftEditor={
           editSession ? (
-            <div
-              role="group"
+            <form
+              ref={editorFormRef}
               aria-label="Edit email"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void save();
+              }}
               className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/5"
             >
               {stale && (
@@ -453,6 +473,7 @@ export function MailReviewCard({
               <Input
                 ref={firstFieldRef}
                 label="To"
+                name="to"
                 value={editSession.draft.to}
                 disabled={busy !== null}
                 onChange={(event) => updateDraftField("to", event.target.value)}
@@ -460,12 +481,14 @@ export function MailReviewCard({
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   label="Cc"
+                  name="cc"
                   value={editSession.draft.cc}
                   disabled={busy !== null}
                   onChange={(event) => updateDraftField("cc", event.target.value)}
                 />
                 <Input
                   label="Bcc"
+                  name="bcc"
                   value={editSession.draft.bcc}
                   disabled={busy !== null}
                   onChange={(event) => updateDraftField("bcc", event.target.value)}
@@ -473,12 +496,14 @@ export function MailReviewCard({
               </div>
               <Input
                 label="Subject"
+                name="subject"
                 value={editSession.draft.subject}
                 disabled={busy !== null}
                 onChange={(event) => updateDraftField("subject", event.target.value)}
               />
               <Textarea
                 label="Email"
+                name="bodyText"
                 className="min-h-[220px]"
                 value={editSession.draft.bodyText}
                 disabled={busy !== null}
@@ -486,7 +511,7 @@ export function MailReviewCard({
                 hint="Saving updates this Genosyn review only. It does not create a mailbox draft."
               />
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" disabled={busy !== null || stale} onClick={() => void save()}>
+                <Button type="submit" size="sm" disabled={busy !== null || stale}>
                   {busy === "save" ? <Spinner size={14} /> : <CheckCircle2 size={14} />} Save
                   changes
                 </Button>
@@ -503,7 +528,7 @@ export function MailReviewCard({
                   Cancel
                 </Button>
               </div>
-            </div>
+            </form>
           ) : undefined
         }
       />

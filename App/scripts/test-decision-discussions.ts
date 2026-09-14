@@ -1182,6 +1182,7 @@ try {
       .waitFor();
     assert.equal(fixture.writes.length, 1);
     assert.equal(fixture.writes[0].body.expectedRevision, revisionA);
+    assert.equal(fixture.writes[0].body.bodyText, "My unsaved version must remain visible.");
     await fixture.page.close();
   });
   await check(
