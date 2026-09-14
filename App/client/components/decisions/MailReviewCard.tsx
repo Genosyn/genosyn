@@ -272,7 +272,6 @@ export function MailReviewCard({
   const acting = React.useRef(false);
   const editButtonRef = React.useRef<HTMLButtonElement>(null);
   const editorFormRef = React.useRef<HTMLFormElement>(null);
-  const firstFieldRef = React.useRef<HTMLInputElement>(null);
   const editing = editSession !== null;
   const editingBaseRevision = editSession?.baseRevision ?? null;
 
@@ -281,12 +280,6 @@ export function MailReviewCard({
     // may mark it stale, but only an explicit reload may replace its text.
     if (editingBaseRevision !== null && review?.revision !== editingBaseRevision) setStale(true);
   }, [editingBaseRevision, review?.revision]);
-  React.useEffect(() => {
-    if (!editing) return;
-    const frame = window.requestAnimationFrame(() => firstFieldRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [editing]);
-
   function returnFocusToEditButton() {
     window.requestAnimationFrame(() => editButtonRef.current?.focus());
   }
@@ -465,11 +458,11 @@ export function MailReviewCard({
                 </div>
               )}
               <Input
-                ref={firstFieldRef}
                 label="To"
                 name="to"
                 defaultValue={editSession.draft.to}
                 disabled={busy !== null}
+                autoFocus
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input

@@ -1162,7 +1162,17 @@ try {
       mailEditConflict: true,
     });
     await fixture.page.getByRole("button", { name: "Edit email", exact: true }).click();
+    const to = fixture.page.getByLabel("To", { exact: true });
     const editor = fixture.page.getByLabel("Email", { exact: true });
+    assert.equal(await to.evaluate((element) => element === document.activeElement), true);
+    await editor.focus();
+    await fixture.page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    assert.equal(await editor.evaluate((element) => element === document.activeElement), true);
     await editor.fill("My unsaved version must remain visible.");
     fixture.allowWrites();
     await fixture.page.getByRole("button", { name: "Save changes", exact: true }).click();
@@ -1170,6 +1180,7 @@ try {
       .getByText(/changed while you were editing.*unsaved text remains available/i)
       .waitFor();
     assert.equal(await editor.inputValue(), "My unsaved version must remain visible.");
+    assert.equal(await to.inputValue(), "customer@acme.example");
     assert.equal(
       await fixture.page.getByRole("button", { name: "Save changes", exact: true }).isDisabled(),
       true,
@@ -1182,6 +1193,7 @@ try {
       .waitFor();
     assert.equal(fixture.writes.length, 1);
     assert.equal(fixture.writes[0].body.expectedRevision, revisionA);
+    assert.equal(fixture.writes[0].body.to, "customer@acme.example");
     assert.equal(fixture.writes[0].body.bodyText, "My unsaved version must remain visible.");
     await fixture.page.close();
   });
