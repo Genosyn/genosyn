@@ -20,7 +20,7 @@ import { listHomeRepositoryWork, type HomeRepositoryWork } from "./homeRepositor
 import {
   listHomeDraftEmails,
   type HomeDraftEmail,
-  type HomeDraftEmailAccount,
+  type HomeEmailAccountCount,
 } from "./mail/drafts.js";
 
 /**
@@ -97,7 +97,10 @@ export type HomeData = {
   /** Draft messages awaiting review, excluding emails already queued to send. */
   draftEmails: HomeDraftEmail[];
   draftEmailCount: number;
-  draftEmailAccounts: HomeDraftEmailAccount[];
+  draftEmailAccounts: HomeEmailAccountCount[];
+  /** Starred conversations, matching the Email section's Starred view. */
+  starredEmailCount: number;
+  starredEmailAccounts: HomeEmailAccountCount[];
   unreadChannels: HomeChannel[];
   /** Routine runs that failed (or timed out) in the last 24h — surfaced so a
    *  human notices a broken routine without digging through the Journal. */

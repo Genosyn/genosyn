@@ -122,6 +122,8 @@ function homeData(items: HomeRepositoryWork[]): HomeData {
     draftEmails: [],
     draftEmailCount: 0,
     draftEmailAccounts: [],
+    starredEmailCount: 0,
+    starredEmailAccounts: [],
     notifications: [],
     unreadNotificationCount: 0,
     decisions: [],

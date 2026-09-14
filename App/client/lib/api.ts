@@ -3841,6 +3841,9 @@ export type HomeData = {
   draftEmailCount: number;
   draftEmails: HomeDraftEmail[];
   draftEmailAccounts: { id: string; email: string; count: number }[];
+  /** Starred conversations, matching the Email section's Starred view. */
+  starredEmailCount: number;
+  starredEmailAccounts: { id: string; email: string; count: number }[];
   unreadChannels: HomeChannel[];
   failedRuns: HomeFailedRun[];
   failedRunCount: number;

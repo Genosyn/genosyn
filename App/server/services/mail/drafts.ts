@@ -3,11 +3,13 @@ import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
+import { MailThread } from "../../db/entities/MailThread.js";
 import { Routine } from "../../db/entities/Routine.js";
 import { User } from "../../db/entities/User.js";
 import { recordAudit } from "../audit.js";
 import { discardMailDraft, notifyMailChanged } from "./actions.js";
 import { activeDraftQueueIds } from "./draftSendQueue.js";
+import { applyMailScope } from "./searchQuery.js";
 
 /**
  * The Drafts review queue.
@@ -97,12 +99,14 @@ export type HomeDraftEmail = {
   updatedAt: string;
 };
 
-export type HomeDraftEmailAccount = { id: string; email: string; count: number };
+export type HomeEmailAccountCount = { id: string; email: string; count: number };
 
 export type HomeDraftEmails = {
   draftEmails: HomeDraftEmail[];
   draftEmailCount: number;
-  draftEmailAccounts: HomeDraftEmailAccount[];
+  draftEmailAccounts: HomeEmailAccountCount[];
+  starredEmailCount: number;
+  starredEmailAccounts: HomeEmailAccountCount[];
 };
 
 const HOME_DRAFT_LIMIT = 5;
@@ -424,6 +428,8 @@ export async function listDrafts(
  * the Email review surface. Resolve each mailbox separately so an unrelated
  * send queue can never hide another mailbox's draft, and include every mailbox
  * with a backlog even when its drafts fall outside the five global previews.
+ * Starred totals use the thread-level Starred scope from the Email rail rather
+ * than counting messages, so a conversation always has one count everywhere.
  */
 export async function listHomeDraftEmails(companyId: string): Promise<HomeDraftEmails> {
   const accounts = await AppDataSource.getRepository(MailAccount).find({
@@ -433,41 +439,58 @@ export async function listHomeDraftEmails(companyId: string): Promise<HomeDraftE
   const summaries = await Promise.all(
     accounts.map(async (account) => {
       const queuedDraftIds = await activeDraftQueueIds(account.id);
-      const [rows, count] = await excludeDraftIds(baseDraftQuery(account), queuedDraftIds)
-        .select([
-          "m.id",
-          "m.accountId",
-          "m.threadId",
-          "m.subject",
-          "m.toEmails",
-          "m.ccEmails",
-          "m.bccEmails",
-          "m.updatedAt",
-        ])
-        .orderBy("m.updatedAt", "DESC")
-        .addOrderBy("m.id", "DESC")
-        .take(HOME_DRAFT_LIMIT)
-        .getManyAndCount();
+      const [draftResult, starredCount] = await Promise.all([
+        excludeDraftIds(baseDraftQuery(account), queuedDraftIds)
+          .select([
+            "m.id",
+            "m.accountId",
+            "m.threadId",
+            "m.subject",
+            "m.toEmails",
+            "m.ccEmails",
+            "m.bccEmails",
+            "m.updatedAt",
+          ])
+          .orderBy("m.updatedAt", "DESC")
+          .addOrderBy("m.id", "DESC")
+          .take(HOME_DRAFT_LIMIT)
+          .getManyAndCount(),
+        applyMailScope(
+          AppDataSource.getRepository(MailThread)
+            .createQueryBuilder("t")
+            .where("t.accountId = :homeAccountId", { homeAccountId: account.id })
+            .andWhere("t.companyId = :homeCompanyId", { homeCompanyId: companyId }),
+          "starred",
+        ).getCount(),
+      ]);
+      const [rows, count] = draftResult;
       return {
         account: { id: account.id, email: account.address, count },
-        drafts: rows.map((row): HomeDraftEmail => ({
-          id: row.id,
-          accountId: row.accountId,
-          threadId: row.threadId,
-          subject: row.subject,
-          // A quoted recipient display name may itself contain a comma.
-          recipientSummary:
-            row.toEmails.trim() ||
-            (row.ccEmails.trim() ? `Cc: ${row.ccEmails.trim()}` : "") ||
-            (row.bccEmails.trim() ? `Bcc: ${row.bccEmails.trim()}` : ""),
-          accountEmail: account.address,
-          updatedAt: row.updatedAt.toISOString(),
-        })),
+        starredAccount: { id: account.id, email: account.address, count: starredCount },
+        drafts: rows.map(
+          (row): HomeDraftEmail => ({
+            id: row.id,
+            accountId: row.accountId,
+            threadId: row.threadId,
+            subject: row.subject,
+            // A quoted recipient display name may itself contain a comma.
+            recipientSummary:
+              row.toEmails.trim() ||
+              (row.ccEmails.trim() ? `Cc: ${row.ccEmails.trim()}` : "") ||
+              (row.bccEmails.trim() ? `Bcc: ${row.bccEmails.trim()}` : ""),
+            accountEmail: account.address,
+            updatedAt: row.updatedAt.toISOString(),
+          }),
+        ),
       };
     }),
   );
   const draftEmailAccounts = summaries
     .map((summary) => summary.account)
+    .filter((account) => account.count > 0)
+    .sort((a, b) => a.email.localeCompare(b.email) || a.id.localeCompare(b.id));
+  const starredEmailAccounts = summaries
+    .map((summary) => summary.starredAccount)
     .filter((account) => account.count > 0)
     .sort((a, b) => a.email.localeCompare(b.email) || a.id.localeCompare(b.id));
   return {
@@ -477,6 +500,8 @@ export async function listHomeDraftEmails(companyId: string): Promise<HomeDraftE
       .slice(0, HOME_DRAFT_LIMIT),
     draftEmailCount: draftEmailAccounts.reduce((total, account) => total + account.count, 0),
     draftEmailAccounts,
+    starredEmailCount: starredEmailAccounts.reduce((total, account) => total + account.count, 0),
+    starredEmailAccounts,
   };
 }
 

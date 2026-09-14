@@ -11,6 +11,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { UserSession } from "../db/entities/UserSession.js";
@@ -152,12 +153,23 @@ async function addDraft(account: MailAccount) {
   });
 }
 
+async function addStarredThread(account: MailAccount, labelIds = " STARRED ") {
+  return insert(MailThread, {
+    companyId: account.companyId,
+    accountId: account.id,
+    gmailThreadId: testId("provider-thread"),
+    subject: "Saved conversation",
+    labelIds,
+  });
+}
+
 describe("Home draft email authorization and response", () => {
   test("requires authentication before revealing draft counts or previews", async () => {
     await draftMailbox();
     const response = await home();
     assert.equal(response.status, 401);
     assert.equal("draftEmailCount" in response.body, false);
+    assert.equal("starredEmailCount" in response.body, false);
   });
 
   test("rejects a forged signed session", async () => {
@@ -174,6 +186,9 @@ describe("Home draft email authorization and response", () => {
   test("allows an ordinary Member to review all company mailbox drafts", async () => {
     const own = await draftMailbox();
     const other = await draftMailbox(otherCompany.id);
+    await addStarredThread(own.account);
+    await addStarredThread(own.account, " STARRED TRASH ");
+    await addStarredThread(other.account);
     const response = await home((await signIn(member)).cookie);
     assert.equal(response.status, 200);
     assert.equal(response.body.draftEmailCount, 1);
@@ -182,6 +197,10 @@ describe("Home draft email authorization and response", () => {
       [own.draft.id],
     );
     assert.deepEqual(response.body.draftEmailAccounts, [
+      { id: own.account.id, email: own.account.address, count: 1 },
+    ]);
+    assert.equal(response.body.starredEmailCount, 1);
+    assert.deepEqual(response.body.starredEmailAccounts, [
       { id: own.account.id, email: own.account.address, count: 1 },
     ]);
     assert.equal(JSON.stringify(response.body).includes(other.account.address), false);
@@ -197,11 +216,16 @@ describe("Home draft email authorization and response", () => {
     const own = await draftMailbox();
     const other = await draftMailbox(otherCompany.id);
     await addDraft(other.account);
+    await addStarredThread(own.account);
+    await addStarredThread(other.account);
+    await addStarredThread(other.account);
     const { cookie } = await signIn(member);
     const one = await home(cookie);
     const two = await home(cookie, otherCompany.id);
     assert.equal(one.body.draftEmailCount, 1);
     assert.equal(two.body.draftEmailCount, 2);
+    assert.equal(one.body.starredEmailCount, 1);
+    assert.equal(two.body.starredEmailCount, 2);
     assert.ok(one.body.draftEmails.every((row) => row.accountId === own.account.id));
     assert.ok(two.body.draftEmails.every((row) => row.accountId === other.account.id));
   });

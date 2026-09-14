@@ -69,6 +69,7 @@ function preview(index = 1, accountId = "support"): HomeDraftEmail {
 function home(
   count = 0,
   drafts = Array.from({ length: Math.min(count, 5) }, (_, index) => preview(index + 1)),
+  starredCount = 0,
 ): HomeData {
   return {
     decisions: [],
@@ -91,6 +92,10 @@ function home(
     draftEmails: drafts,
     draftEmailCount: count,
     draftEmailAccounts: count ? [{ id: "support", email: "support@example.test", count }] : [],
+    starredEmailCount: starredCount,
+    starredEmailAccounts: starredCount
+      ? [{ id: "support", email: "support@example.test", count: starredCount }]
+      : [],
     systemHealth: { status: "ok", issueCount: 0, checks: [] },
     counts: { employees: 0, projects: 0 },
   };
@@ -152,8 +157,9 @@ type Options = {
 const card = (page: Page) =>
   page
     .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Draft emails", exact: true }) });
-const stat = (page: Page) => page.getByRole("link", { name: /^\d[\d,]* Draft emails$/i });
+    .filter({ has: page.getByRole("heading", { name: "Emails", exact: true }) });
+const draftSummary = (page: Page) => card(page).locator('a[href*="view=drafts"]').first();
+const starredSummary = (page: Page) => card(page).locator('a[href*="view=starred"]').first();
 const rows = (page: Page) => card(page).locator('a[href*="/mail/t/"]');
 async function routeIs(page: Page, expected: string) {
   // React Router commits navigation in a transition. A completed click or key
@@ -276,9 +282,15 @@ async function open(options: Options = {}) {
         return route.fulfill({
           json: {
             labels: [],
-            counts: { inboxUnread: 0, starred: 0, drafts: accountId === "support" ? 7 : 2 },
+            counts: {
+              inboxUnread: 0,
+              starred:
+                data.starredEmailAccounts.find((account) => account.id === accountId)?.count ?? 0,
+              drafts: accountId === "support" ? 7 : 2,
+            },
           },
         });
+      if (resource === "threads") return route.fulfill({ json: { threads: [], nextBefore: null } });
       if (resource === "drafts/send-queue") return route.fulfill({ json: { batch: null } });
       if (resource === "drafts") {
         const draft: MailDraft = {
@@ -372,7 +384,8 @@ async function open(options: Options = {}) {
   if (!options.start) {
     await page.locator('header[aria-label="Home greeting"]').waitFor();
     if (failHome) await page.getByRole("alert").waitFor();
-    else await (data.draftEmailCount ? card(page) : quiet(page)).waitFor();
+    else
+      await (data.draftEmailCount || data.starredEmailCount ? card(page) : quiet(page)).waitFor();
   }
   return {
     page,
@@ -422,7 +435,7 @@ async function fits(page: Page) {
     const box = await link.boundingBox();
     assert.ok(
       box && box.x >= 0 && box.x + box.width <= page.viewportSize()!.width + 1,
-      "Every draft link fits on screen",
+      "Every email link fits on screen",
     );
   }
 }
@@ -436,11 +449,8 @@ async function countIs(page: Page, count: number) {
   if (count === 0) {
     await quiet(page).waitFor();
     assert.equal(await card(page).count(), 0);
-    assert.equal(await stat(page).count(), 0);
   } else {
-    await page
-      .getByRole("link", { name: new RegExp(`^${count.toLocaleString()} Draft emails$`, "i") })
-      .waitFor();
+    await draftSummary(page).getByText(count.toLocaleString(), { exact: true }).waitFor();
     assert.equal(await card(page).count(), 1);
     assert.equal(await quiet(page).count(), 0);
   }
@@ -460,10 +470,10 @@ function add(name: string, run: (fixture: Fixture) => Promise<void>, options?: O
 }
 
 add(
-  "zero drafts leaves the all-clear state and no draft card or statistic",
+  "zero drafts and zero starred emails leave the all-clear state and no Emails section",
   async ({ page }) => {
     await countIs(page, 0);
-    assert.equal(await page.getByRole("link", { name: "Review drafts", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("heading", { name: "Emails", exact: true }).count(), 0);
   },
   { data: home() },
 );
@@ -471,11 +481,13 @@ add(
   "one draft shows its count, recipient and mailbox without claiming all clear",
   async ({ page }) => {
     await countIs(page, 1);
+    await starredSummary(page).getByText("0", { exact: true }).waitFor();
     assert.equal(await rows(page).count(), 1);
     assert.match(await rows(page).first().innerText(), /Customer update 1/);
     assert.match(await rows(page).first().innerText(), /customer1@example.test/);
     assert.match(await rows(page).first().innerText(), /support@example.test/);
     assert.equal(await card(page).getByRole("button", { name: /send/i }).count(), 0);
+    assert.equal(await page.getByRole("link", { name: /^1 Draft emails$/i }).count(), 0);
     await page.screenshot({
       path: path.join(output, "home-mail-drafts-desktop.png"),
       fullPage: true,
@@ -508,9 +520,11 @@ add(
   async ({ page }) => {
     await countIs(page, 9);
     assert.equal(await rows(page).count(), 5);
-    const sales = card(page).locator('a[href="/c/company/mail?view=drafts&account=sales"]');
-    assert.match(await sales.innerText(), /sales@example.test/);
-    assert.match(await sales.innerText(), /2/);
+    const salesRow = card(page).getByText("sales@example.test", { exact: true }).locator("..");
+    const sales = salesRow.getByRole("link", {
+      name: "sales@example.test: 2 drafts",
+      exact: true,
+    });
     await sales.click();
     await reviewLoaded(page, "sales");
   },
@@ -525,9 +539,9 @@ add(
   },
 );
 add(
-  "Review drafts opens the intended mailbox despite a previously selected mailbox",
+  "the Drafts summary opens the intended mailbox despite a previously selected mailbox",
   async ({ page, reads }) => {
-    await card(page).getByRole("link", { name: "Review drafts", exact: true }).click();
+    await draftSummary(page).click();
     await routeIs(page, "/c/company/mail?view=drafts&account=support");
     await reviewLoaded(page, "support");
     assert.equal(
@@ -538,10 +552,66 @@ add(
   },
   { savedAccount: "sales" },
 );
-add("the count link opens the Drafts review queue", async ({ page }) => {
-  await stat(page).click();
+add("the Drafts count opens the Drafts review queue", async ({ page }) => {
+  await draftSummary(page).click();
   await reviewLoaded(page, "support");
 });
+add(
+  "the Emails section shows the starred count and opens the Starred mailbox view",
+  async ({ page, reads }) => {
+    assert.equal(await card(page).count(), 1);
+    await draftSummary(page).getByText("0", { exact: true }).waitFor();
+    await starredSummary(page).getByText("4", { exact: true }).waitFor();
+    assert.equal(await card(page).getByText("Recent drafts", { exact: true }).count(), 0);
+    await starredSummary(page).focus();
+    await page.keyboard.press("Enter");
+    await routeIs(page, "/c/company/mail?view=starred&account=support");
+    await page.getByRole("heading", { name: "Starred", exact: true }).waitFor();
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem("genosyn.mail.account.company")),
+      "support",
+    );
+    assert.equal(
+      reads.some((read) => read.includes("/accounts/sales/")),
+      false,
+      "The saved mailbox must not load ahead of the mailbox with starred email",
+    );
+  },
+  { data: home(0, [], 4), savedAccount: "sales" },
+);
+add(
+  "Drafts and Starred links preserve different matching mailboxes",
+  async ({ page }) => {
+    assert.equal(
+      await draftSummary(page).getAttribute("href"),
+      "/c/company/mail?view=drafts&account=sales",
+    );
+    assert.equal(
+      await starredSummary(page).getAttribute("href"),
+      "/c/company/mail?view=starred&account=support",
+    );
+    const salesRow = card(page).getByText("sales@example.test", { exact: true }).locator("..");
+    const supportRow = card(page).getByText("support@example.test", { exact: true }).locator("..");
+    assert.equal(
+      await salesRow
+        .getByRole("link", { name: "sales@example.test: 2 drafts", exact: true })
+        .getAttribute("href"),
+      "/c/company/mail?view=drafts&account=sales",
+    );
+    assert.equal(
+      await supportRow
+        .getByRole("link", { name: "support@example.test: 4 starred", exact: true })
+        .getAttribute("href"),
+      "/c/company/mail?view=starred&account=support",
+    );
+  },
+  {
+    data: {
+      ...home(2, [preview(1, "sales")], 4),
+      draftEmailAccounts: [{ id: "sales", email: "sales@example.test", count: 2 }],
+    },
+  },
+);
 add(
   "keyboard navigation opens an individual draft for review without sending",
   async ({ page }) => {
@@ -590,6 +660,10 @@ for (const width of [1440, 768, 390, 320]) {
         draftEmailAccounts: [
           { id: "support", email: `${"mailbox".repeat(25)}@example.test`, count: 12 },
         ],
+        starredEmailCount: 123_456,
+        starredEmailAccounts: [
+          { id: "support", email: `${"mailbox".repeat(25)}@example.test`, count: 123_456 },
+        ],
       },
     },
   );
@@ -618,13 +692,17 @@ add(
   },
 );
 add(
-  "mail updates from any mailbox reveal new drafts and remove sent or discarded ones",
+  "mail updates refresh both Drafts and Starred counts from any mailbox",
   async ({ page, setData, event }) => {
     setData(home(2));
     event({ type: "mail.updated", accountId: "support" });
     await countIs(page, 2);
-    setData(home());
+    setData(home(0, [], 3));
     event({ type: "mail.updated", accountId: "sales" });
+    await draftSummary(page).getByText("0", { exact: true }).waitFor();
+    await starredSummary(page).getByText("3", { exact: true }).waitFor();
+    setData(home());
+    event({ type: "mail.updated", accountId: "support" });
     await countIs(page, 0);
   },
   { data: home() },
@@ -632,7 +710,7 @@ add(
 add(
   "manual mailbox switching survives a subsequent mail refresh",
   async ({ page, event }) => {
-    await card(page).getByRole("link", { name: "Review drafts", exact: true }).click();
+    await draftSummary(page).click();
     await reviewLoaded(page, "support");
     await page.getByRole("button", { name: "support@example.test", exact: true }).click();
     await page.getByRole("menuitem", { name: "sales@example.test", exact: true }).click();

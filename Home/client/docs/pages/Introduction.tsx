@@ -126,8 +126,9 @@ export function Introduction() {
       </P>
       <P>
         Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — unread mentions
-        and DMs, todos assigned to you, reviews and approvals waiting on your decision, the latest
-        unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
+        and DMs, todos assigned to you, reviews and approvals waiting on your decision, your{" "}
+        <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest unread{" "}
+        <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> beside your
         greeting, plus shortcuts to every section. The small bubbles sit in the header, leaving
         the cards below the full width of the page. Each bubble shows who is working now; choose
@@ -139,9 +140,9 @@ export function Introduction() {
         Home only shows you what it actually has. Every queue — the{" "}
         <DocLink to="/docs/decisions">decision stack</DocLink>, failed{" "}
         <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
-        <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, approvals, system
-        health — disappears when it&apos;s empty rather than sitting there reporting that nothing is
-        waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
+        <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, email, approvals,
+        system health — disappears when it&apos;s empty rather than sitting there reporting that
+        nothing is waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
         and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
         long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that. The{" "}

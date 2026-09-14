@@ -5,6 +5,7 @@ import { AppDataSource } from "../../db/datasource.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailDraftSendBatch } from "../../db/entities/MailDraftSendBatch.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
+import { MailThread } from "../../db/entities/MailThread.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../../test/dbHarness.js";
 import { listDrafts, listHomeDraftEmails } from "./drafts.js";
 
@@ -41,6 +42,20 @@ async function draft(
   });
 }
 
+async function thread(
+  account: MailAccount,
+  overrides: Partial<MailThread> = {},
+): Promise<MailThread> {
+  return insert(MailThread, {
+    companyId: account.companyId,
+    accountId: account.id,
+    gmailThreadId: testId("provider-thread"),
+    subject: "Saved conversation",
+    labelIds: " STARRED ",
+    ...overrides,
+  });
+}
+
 async function queue(
   account: MailAccount,
   items: Array<{ draftId: string; status: string }>,
@@ -62,6 +77,8 @@ describe("Home draft email reminders", () => {
       draftEmails: [],
       draftEmailCount: 0,
       draftEmailAccounts: [],
+      starredEmailCount: 0,
+      starredEmailAccounts: [],
     });
   });
 
@@ -71,6 +88,8 @@ describe("Home draft email reminders", () => {
       draftEmails: [],
       draftEmailCount: 0,
       draftEmailAccounts: [],
+      starredEmailCount: 0,
+      starredEmailAccounts: [],
     });
   });
 
@@ -83,6 +102,27 @@ describe("Home draft email reminders", () => {
     const result = await listHomeDraftEmails(COMPANY);
     assert.equal(result.draftEmailCount, 2);
     assert.deepEqual(new Set(result.draftEmails.map((row) => row.id)), new Set([one.id, two.id]));
+  });
+
+  test("matches the Starred view's conversation, trash, account, and company scope", async () => {
+    const own = await mailbox({ address: "zeta@example.test" });
+    const second = await mailbox({ address: "alpha@example.test" });
+    const other = await mailbox({ companyId: OTHER_COMPANY, address: "private@example.test" });
+    await thread(own);
+    await thread(second, { labelIds: " INBOX STARRED " });
+    await thread(own, { labelIds: " STARRED TRASH " });
+    await thread(own, { labelIds: " INBOX " });
+    await thread(other);
+    await thread(own, { companyId: OTHER_COMPANY });
+    await thread(own, { accountId: "removed-account" });
+
+    const result = await listHomeDraftEmails(COMPANY);
+    assert.equal(result.starredEmailCount, 2);
+    assert.deepEqual(result.starredEmailAccounts, [
+      { id: second.id, email: second.address, count: 1 },
+      { id: own.id, email: own.address, count: 1 },
+    ]);
+    assert.equal(JSON.stringify(result).includes("private@example.test"), false);
   });
 
   test("scopes both mailboxes and messages to the requested company and ignores orphan mirrors", async () => {
@@ -171,6 +211,8 @@ describe("Home draft email reminders", () => {
       draftEmails: [],
       draftEmailCount: 0,
       draftEmailAccounts: [],
+      starredEmailCount: 0,
+      starredEmailAccounts: [],
     });
   });
 

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
+  FilePenLine,
   GitBranch,
   GitPullRequest,
   Hourglass,
@@ -22,6 +23,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Star,
   Target,
   X,
 } from "lucide-react";
@@ -74,7 +76,7 @@ import { clsx } from "../components/ui/clsx";
  * Home — the landing page after sign-in. One aggregation call
  * (`GET /api/companies/:cid/home`) fills the cards: unread notifications,
  * todos assigned to me, reviews waiting on my sign-off, pending approvals,
- * draft emails, and unread channels. Every card deep-links into the full section.
+ * email summaries, and unread channels. Every card deep-links into the full section.
  *
  * Every queue here hides itself when it has nothing. An empty queue is not
  * news — a card that spends a grid slot to say "nothing is waiting on you"
@@ -307,7 +309,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                 {/* `empty:hidden` so the grid's own top margin goes away too on
                   a day when every card inside it has hidden itself. */}
                 <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
-                  <DraftEmailsCard company={company} data={data} />
+                  <EmailsCard company={company} data={data} />
                   <AttentionCard company={company} data={data} onOpen={setOverlay} />
                   <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
                   <MyTodosCard company={company} data={data} onOpen={setOverlay} />
@@ -506,6 +508,8 @@ function hasAnythingToShow(data: HomeData): boolean {
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
+    data.draftEmailCount > 0 ||
+    data.starredEmailCount > 0 ||
     statTotal(data) > 0 ||
     data.notifications.length > 0 ||
     data.myTodos.length > 0 ||
@@ -538,8 +542,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Repository AI work, Decisions, failed routines, mentions, todos, draft emails, and
-        approvals appear here the moment they arrive.
+        Repository AI work, Decisions, failed routines, mentions, todos, emails, and approvals
+        appear here the moment they arrive.
       </p>
       <Link
         to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
@@ -656,8 +660,7 @@ function statTotal(data: HomeData): number {
     data.unreadNotificationCount +
     data.myTodoCount +
     data.reviewTodoCount +
-    data.pendingApprovalCount +
-    data.draftEmailCount
+    data.pendingApprovalCount
   );
 }
 
@@ -707,22 +710,10 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
       to: `/c/${company.slug}/approvals`,
       accent: "text-amber-600 bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300",
     },
-    {
-      label: "Draft emails",
-      value: data.draftEmailCount,
-      icon: <Mail size={15} />,
-      to: draftReviewHref(company, data.draftEmailAccounts[0]?.id),
-      accent: "text-indigo-600 bg-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300",
-    },
   ].filter((s) => s.value > 0);
   if (stats.length === 0) return null;
   return (
-    <div
-      className={clsx(
-        "mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4",
-        stats.length === 5 && "xl:grid-cols-5",
-      )}
-    >
+    <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
       {stats.map((s) => (
         <Link
           key={s.label}
@@ -1142,51 +1133,121 @@ function HomeCard({
   );
 }
 
-// ───────────────────────── draft emails card ────────────────────────────────
+// ───────────────────────── emails card ──────────────────────────────────────
 
-function draftReviewHref(company: Company, accountId?: string): string {
-  const params = new URLSearchParams({ view: "drafts" });
+function mailViewHref(company: Company, view: "drafts" | "starred", accountId?: string): string {
+  const params = new URLSearchParams({ view });
   if (accountId) params.set("account", accountId);
   return `/c/${company.slug}/mail?${params.toString()}`;
 }
 
-function DraftEmailsCard({ company, data }: { company: Company; data: HomeData }) {
-  if (data.draftEmailCount === 0) return null;
+function EmailsCard({ company, data }: { company: Company; data: HomeData }) {
+  if (data.draftEmailCount === 0 && data.starredEmailCount === 0) return null;
+
+  const accounts = new Map<
+    string,
+    { id: string; email: string; draftCount: number; starredCount: number }
+  >();
+  for (const account of data.draftEmailAccounts) {
+    accounts.set(account.id, {
+      id: account.id,
+      email: account.email,
+      draftCount: account.count,
+      starredCount: 0,
+    });
+  }
+  for (const account of data.starredEmailAccounts) {
+    const current = accounts.get(account.id);
+    accounts.set(account.id, {
+      id: account.id,
+      email: account.email,
+      draftCount: current?.draftCount ?? 0,
+      starredCount: account.count,
+    });
+  }
+  const emailAccounts = [...accounts.values()].sort(
+    (a, b) => a.email.localeCompare(b.email) || a.id.localeCompare(b.id),
+  );
+  const firstAccountId = emailAccounts[0]?.id;
+  const draftAccountId = data.draftEmailAccounts[0]?.id ?? firstAccountId;
+  const starredAccountId = data.starredEmailAccounts[0]?.id ?? firstAccountId;
+
   return (
     <HomeCard
-      title="Draft emails"
+      title="Emails"
       icon={<Mail size={15} />}
-      count={data.draftEmailCount}
-      linkTo={draftReviewHref(company, data.draftEmailAccounts[0]?.id)}
-      linkLabel="Review drafts"
+      linkTo={`/c/${company.slug}/mail${
+        firstAccountId ? `?account=${encodeURIComponent(firstAccountId)}` : ""
+      }`}
+      linkLabel="Open email"
     >
-      <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
-        {data.draftEmailCount === 1 ? "1 draft is" : `${data.draftEmailCount} drafts are`} waiting
-        for you to review and send.
-      </p>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-        {data.draftEmails.map((draft) => (
-          <li key={draft.id}>
-            <Link
-              to={`/c/${company.slug}/mail/t/${encodeURIComponent(draft.threadId)}?${new URLSearchParams({ account: draft.accountId })}`}
-              className="flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:bg-slate-800/60"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {draft.subject.trim() || "(No subject)"}
-                </span>
-                <span className="block truncate text-xs text-slate-600 dark:text-slate-300">
-                  {draft.recipientSummary || "No recipient yet"}
-                </span>
-                <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
-                  {draft.accountEmail} · {formatRelative(draft.updatedAt)}
-                </span>
-              </span>
-              <ChevronRight size={14} className="shrink-0 text-slate-400" />
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <div className="grid grid-cols-2 divide-x divide-slate-100 border-b border-slate-100 dark:divide-slate-800 dark:border-slate-800">
+        <Link
+          to={mailViewHref(company, "drafts", draftAccountId)}
+          className="group min-w-0 px-4 py-3 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:bg-slate-800/60"
+        >
+          <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <FilePenLine size={13} className="text-indigo-500" />
+            Drafts
+          </span>
+          <span className="mt-1 block text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+            {data.draftEmailCount.toLocaleString()}
+          </span>
+          <span className="block truncate text-[11px] text-slate-500 group-hover:text-slate-600 dark:text-slate-400 dark:group-hover:text-slate-300">
+            Waiting for review
+          </span>
+        </Link>
+        <Link
+          to={mailViewHref(company, "starred", starredAccountId)}
+          className="group min-w-0 px-4 py-3 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:bg-slate-800/60"
+        >
+          <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <Star size={13} className="text-amber-500" />
+            Starred
+          </span>
+          <span className="mt-1 block text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+            {data.starredEmailCount.toLocaleString()}
+          </span>
+          <span className="block truncate text-[11px] text-slate-500 group-hover:text-slate-600 dark:text-slate-400 dark:group-hover:text-slate-300">
+            Saved for later
+          </span>
+        </Link>
+      </div>
+      {data.draftEmailCount > 0 && (
+        <>
+          <div className="px-4 py-3">
+            <h3 className="text-xs font-medium text-slate-700 dark:text-slate-200">
+              Recent drafts
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Review these messages before they are sent.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-800 dark:border-slate-800">
+            {data.draftEmails.map((draft) => (
+              <li key={draft.id}>
+                <Link
+                  to={`/c/${company.slug}/mail/t/${encodeURIComponent(draft.threadId)}?${new URLSearchParams({ account: draft.accountId })}`}
+                  className="flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:bg-slate-800/60"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {draft.subject.trim() || "(No subject)"}
+                    </span>
+                    <span className="block truncate text-xs text-slate-600 dark:text-slate-300">
+                      {draft.recipientSummary || "No recipient yet"}
+                    </span>
+                    <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      {draft.accountEmail} · {formatRelative(draft.updatedAt)}
+                    </span>
+                  </span>
+                  <ChevronRight size={14} className="shrink-0 text-slate-400" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <div className="space-y-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
         {data.draftEmailCount > data.draftEmails.length && (
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1194,19 +1255,38 @@ function DraftEmailsCard({ company, data }: { company: Company; data: HomeData }
             to see the rest.
           </p>
         )}
-        {data.draftEmailAccounts.map((account) => (
-          <Link
-            key={account.id}
-            to={draftReviewHref(company, account.id)}
-            className="flex min-w-0 items-center gap-2 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            <span className="min-w-0 flex-1 truncate">{account.email}</span>
-            <span className="shrink-0 tabular-nums">
-              {account.count} {account.count === 1 ? "draft" : "drafts"}
-            </span>
-            <ChevronRight size={12} className="shrink-0" />
-          </Link>
-        ))}
+        <ul className="space-y-2">
+          {emailAccounts.map((account) => (
+            <li key={account.id} className="flex min-w-0 items-center gap-3 text-xs">
+              <span className="min-w-0 flex-1 truncate text-slate-500 dark:text-slate-400">
+                {account.email}
+              </span>
+              <span className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                {account.draftCount > 0 && (
+                  <Link
+                    to={mailViewHref(company, "drafts", account.id)}
+                    aria-label={`${account.email}: ${account.draftCount.toLocaleString()} ${
+                      account.draftCount === 1 ? "draft" : "drafts"
+                    }`}
+                    className="rounded px-2 py-1.5 tabular-nums text-indigo-600 hover:bg-indigo-50 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
+                  >
+                    {account.draftCount.toLocaleString()}{" "}
+                    {account.draftCount === 1 ? "draft" : "drafts"}
+                  </Link>
+                )}
+                {account.starredCount > 0 && (
+                  <Link
+                    to={mailViewHref(company, "starred", account.id)}
+                    aria-label={`${account.email}: ${account.starredCount.toLocaleString()} starred`}
+                    className="rounded px-2 py-1.5 tabular-nums text-indigo-600 hover:bg-indigo-50 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
+                  >
+                    {account.starredCount.toLocaleString()} starred
+                  </Link>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
     </HomeCard>
   );
