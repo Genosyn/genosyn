@@ -139,6 +139,7 @@ async function memberWithPasskey() {
 type OptionsBody = {
   options: { challenge: string; allowCredentials?: unknown };
   flowToken: string;
+  error?: string;
 };
 
 type HttpResult<T = Record<string, unknown>> = {
