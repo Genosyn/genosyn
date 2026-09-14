@@ -291,12 +291,6 @@ export function MailReviewCard({
     window.requestAnimationFrame(() => editButtonRef.current?.focus());
   }
 
-  function updateDraftField(field: keyof MailReviewDraft, value: string) {
-    setEditSession((current) =>
-      current ? { ...current, draft: { ...current.draft, [field]: value } } : current,
-    );
-  }
-
   function startEditing() {
     if (!review) return;
     setEditSession({ draft: { ...review.draft }, baseRevision: review.revision });
@@ -355,9 +349,9 @@ export function MailReviewCard({
   async function save() {
     const session = editSession;
     if (!session || acting.current) return;
-    // Read the submitted controls as well as React state. A fast fill followed
-    // immediately by Save can reach this handler before the controlled-state
-    // render commits; the DOM still contains the member's exact working copy.
+    // The form owns the working copy while it is open. Reading its controls
+    // directly means unrelated React renders cannot replace freshly typed
+    // text before Save captures the member's exact review.
     const form = editorFormRef.current;
     const fields = form ? new FormData(form) : null;
     const workingDraft = fields
@@ -474,40 +468,35 @@ export function MailReviewCard({
                 ref={firstFieldRef}
                 label="To"
                 name="to"
-                value={editSession.draft.to}
+                defaultValue={editSession.draft.to}
                 disabled={busy !== null}
-                onChange={(event) => updateDraftField("to", event.target.value)}
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   label="Cc"
                   name="cc"
-                  value={editSession.draft.cc}
+                  defaultValue={editSession.draft.cc}
                   disabled={busy !== null}
-                  onChange={(event) => updateDraftField("cc", event.target.value)}
                 />
                 <Input
                   label="Bcc"
                   name="bcc"
-                  value={editSession.draft.bcc}
+                  defaultValue={editSession.draft.bcc}
                   disabled={busy !== null}
-                  onChange={(event) => updateDraftField("bcc", event.target.value)}
                 />
               </div>
               <Input
                 label="Subject"
                 name="subject"
-                value={editSession.draft.subject}
+                defaultValue={editSession.draft.subject}
                 disabled={busy !== null}
-                onChange={(event) => updateDraftField("subject", event.target.value)}
               />
               <Textarea
                 label="Email"
                 name="bodyText"
                 className="min-h-[220px]"
-                value={editSession.draft.bodyText}
+                defaultValue={editSession.draft.bodyText}
                 disabled={busy !== null}
-                onChange={(event) => updateDraftField("bodyText", event.target.value)}
                 hint="Saving updates this Genosyn review only. It does not create a mailbox draft."
               />
               <div className="flex flex-wrap gap-2">
