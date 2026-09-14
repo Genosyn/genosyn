@@ -91,7 +91,7 @@ export const CATEGORY_TONE_CLASSES: Record<string, string> = {
 export function analysisActionDetail(action: MailAnalysisAction): string | null {
   switch (action.kind) {
     case "draft_reply":
-      return action.targetTo ? `Reply to ${action.targetTo}` : null;
+      return "Owner/admin review in Needs you";
     case "unsubscribe":
       return action.targetHost ? `via ${action.targetHost}` : null;
     case "hand_over": {
@@ -120,7 +120,7 @@ export function analysisActionDetail(action: MailAnalysisAction): string | null 
 export function analysisActionHint(action: MailAnalysisAction): string {
   switch (action.kind) {
     case "draft_reply":
-      return "Saves a Gmail draft for you to review — nothing sends until you send it";
+      return "Adds the reply to Needs you for an owner or admin to review — nothing is written to Gmail or IMAP Drafts";
     case "create_invoice":
       return "Creates a draft invoice — no number, no ledger entry, nothing emailed";
     case "create_estimate":
@@ -260,7 +260,7 @@ function accessLabel(level: MailAssistantRosterEntry["accessLevel"]): string {
 /**
  * What the mailbox can actually do today, in one sentence for the settings
  * card. Reading is not the same as being able to offer the useful buttons:
- * an employee on Read can categorise mail but cannot propose a draft reply.
+ * an employee on Read can categorise mail but cannot prepare a reply review.
  */
 export function analysisReadinessNote(args: {
   enabled: boolean;
@@ -279,7 +279,7 @@ export function analysisReadinessNote(args: {
   return args.resolved.accessLevel === "read"
     ? {
         tone: "warn",
-        text: `${base} On Read access they can summarise and triage, but cannot offer to draft a reply — raise them to Draft for that.`,
+        text: `${base} On Read access they can summarise and triage, but cannot prepare a reply for Needs you — raise them to Draft for that.`,
       }
     : { tone: "ok", text: base };
 }

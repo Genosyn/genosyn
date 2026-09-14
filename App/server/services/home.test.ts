@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
+import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
+import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
+import { Routine } from "../db/entities/Routine.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { User } from "../db/entities/User.js";
@@ -14,6 +19,8 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.
 import { getHomeData } from "./home.js";
 import { createDecision } from "./decisions.js";
 import { listHomeRepositoryWork } from "./homeRepositoryWork.js";
+import { createMailReviewApproval } from "./mail/reviewApprovals.js";
+import { createProactiveWorkApproval } from "./proactive/approvals.js";
 import { repositoryCheckoutExists } from "./repositoryWorkspace.js";
 
 /**
@@ -31,6 +38,7 @@ let company: Company;
 let owner: User;
 let member: User;
 let employee: AIEmployee;
+let sourceRoutine: Routine;
 
 beforeEach(async () => {
   owner = await insert(User, { email: "owner@example.test", name: "Owner", passwordHash: "x" });
@@ -45,17 +53,56 @@ beforeEach(async () => {
     role: "Support",
     soulBody: "",
   });
+  sourceRoutine = await insert(Routine, {
+    employeeId: employee.id,
+    name: "Review customer reports",
+    slug: "review-customer-reports",
+    cronExpr: "0 9 * * *",
+    body: "Review new customer reports and propose useful work.",
+  });
 });
 
 async function approval(overrides: Partial<Approval> = {}): Promise<Approval> {
+  const kind = overrides.kind ?? "browser_action";
+  if (
+    kind === "proactive_work" &&
+    (overrides.companyId === undefined || overrides.companyId === company.id) &&
+    overrides.payloadJson === undefined
+  ) {
+    const title = overrides.title ?? "Investigate customer report";
+    const created = await createProactiveWorkApproval({
+      companyId: company.id,
+      employeeId: employee.id,
+      title,
+      context: "A customer reported a problem.",
+      plan: "Investigate the report and verify the result.",
+      origin: { routineId: sourceRoutine.id },
+    });
+    created.summary = overrides.summary ?? created.summary;
+    created.requestedAt = overrides.requestedAt ?? created.requestedAt;
+    return AppDataSource.getRepository(Approval).save(created);
+  }
+  const payloadJson =
+    overrides.payloadJson ??
+    (kind === "proactive_work"
+      ? JSON.stringify({
+          version: 1,
+          title: overrides.title ?? "Investigate customer report",
+          context: "A customer reported a problem.",
+          plan: "Investigate the report and verify the result.",
+          origin: { routineId: "routine-source" },
+          sourceFingerprint: "source-fingerprint",
+          dedupeKey: "dedupe-key",
+        })
+      : "{}");
   return insert(Approval, {
     companyId: company.id,
-    kind: "browser_action",
+    kind,
     routineId: "",
     employeeId: employee.id,
     title: "Submit the form",
     summary: "Send reviewed data",
-    payloadJson: "{}",
+    payloadJson,
     resultJson: null,
     errorMessage: null,
     status: "pending",
@@ -77,30 +124,86 @@ describe("Home approval visibility", () => {
     }
     await approval();
     const data = await getHomeData({ companyId: company.id, userId: owner.id, role: "owner" });
-    assert.equal(data.pendingProactiveApprovalCount, 7);
-    assert.equal(data.proactiveApprovals.length, 5);
-    assert.equal(data.proactiveApprovals[0].title, "Investigate customer report 0");
-    assert.equal(data.proactiveApprovals[0].employee?.id, employee.id);
-    assert.ok(!data.proactiveApprovals[0].summary?.includes("secret-review-token"));
+    assert.equal(data.pendingDecisionApprovalCount, 7);
+    assert.equal(data.decisionApprovals.length, 5);
+    assert.equal(data.decisionApprovals[0].title, "Investigate customer report 0");
+    assert.equal(data.decisionApprovals[0].employee?.id, employee.id);
+    assert.ok(!data.decisionApprovals[0].summary?.includes("secret-review-token"));
     assert.equal(data.pendingApprovalCount, 1);
     assert.equal(data.approvals[0].kind, "browser_action");
   });
 
-  test("never exposes proactive plans to ordinary Members or another company", async () => {
+  test("never exposes Decision-stack Approvals to ordinary Members or another company", async () => {
     await approval({ kind: "proactive_work", summary: "Sensitive customer work" });
     await approval({ kind: "proactive_work", companyId: "another-company" });
     const data = await getHomeData({ companyId: company.id, userId: member.id, role: "member" });
-    assert.deepEqual(data.proactiveApprovals, []);
-    assert.equal(data.pendingProactiveApprovalCount, 0);
+    assert.deepEqual(data.decisionApprovals, []);
+    assert.equal(data.pendingDecisionApprovalCount, 0);
     assert.equal(data.pendingApprovalCount, 0);
     assert.deepEqual(data.approvals, []);
     const ownerData = await getHomeData({ companyId: company.id, userId: owner.id, role: "owner" });
-    assert.equal(ownerData.pendingProactiveApprovalCount, 1);
+    assert.equal(ownerData.pendingDecisionApprovalCount, 1);
     const apiKeyData = await getHomeData({
-      companyId: company.id, userId: owner.id, role: "owner", canReadWorkReviews: false,
+      companyId: company.id,
+      userId: owner.id,
+      role: "owner",
+      canReadWorkReviews: false,
     });
-    assert.deepEqual(apiKeyData.proactiveApprovals, []);
-    assert.equal(apiKeyData.pendingProactiveApprovalCount, 0);
+    assert.deepEqual(apiKeyData.decisionApprovals, []);
+    assert.equal(apiKeyData.pendingDecisionApprovalCount, 0);
+  });
+
+  test("puts an exact email review in the Decision stack, not ordinary Approvals", async () => {
+    const connection = await insert(IntegrationConnection, {
+      companyId: company.id,
+      provider: "imap",
+      label: "Support inbox",
+      authMode: "apikey",
+      encryptedConfig: "unused-in-this-test",
+      accountHint: "support@example.test",
+      status: "connected",
+    });
+    const account = await insert(MailAccount, {
+      companyId: company.id,
+      connectionId: connection.id,
+      provider: "imap",
+      address: "support@example.test",
+      status: "active",
+    });
+    await insert(EmployeeMailAccountGrant, {
+      employeeId: employee.id,
+      accountId: account.id,
+      accessLevel: "draft",
+    });
+    await createMailReviewApproval({
+      companyId: company.id,
+      employeeId: employee.id,
+      accountId: account.id,
+      to: "customer@example.test",
+      subject: "Shipping date",
+      context: "A customer asked when the fix will ship.",
+      bodyText: "The fix is scheduled for Tuesday.",
+    });
+
+    const data = await getHomeData({
+      companyId: company.id,
+      userId: owner.id,
+      role: "owner",
+    });
+    assert.equal(data.pendingDecisionApprovalCount, 1);
+    assert.equal(data.decisionApprovals[0].review?.kind, "mail");
+    assert.equal(data.pendingApprovalCount, 0);
+    assert.deepEqual(data.approvals, []);
+
+    connection.status = "error";
+    await AppDataSource.getRepository(IntegrationConnection).save(connection);
+    const stale = await getHomeData({
+      companyId: company.id,
+      userId: owner.id,
+      role: "owner",
+    });
+    assert.equal(stale.pendingDecisionApprovalCount, 0);
+    assert.deepEqual(stale.decisionApprovals, []);
   });
 
   test("redacts credential material out of approval copy for everyone", async () => {
@@ -272,7 +375,13 @@ describe("Home Repository AI work", () => {
   test("lists every unarchived state needing a Member and excludes running or decided work", async () => {
     const repo = await repository();
     for (const status of [
-      "ready", "empty", "proposed", "failed", "running", "published", "discarded",
+      "ready",
+      "empty",
+      "proposed",
+      "failed",
+      "running",
+      "published",
+      "discarded",
     ] as const) {
       await workSession(repo, { status, title: status });
       await workSession(repo, { status, title: `Archived ${status}`, archivedAt: new Date() });
@@ -280,10 +389,12 @@ describe("Home Repository AI work", () => {
 
     const data = await getHomeData({ companyId: company.id, userId: member.id, role: "member" });
     assert.equal(data.repositoryWorkCount, 4);
-    assert.deepEqual(
-      data.repositoryWork.map((session) => session.title).sort(),
-      ["empty", "failed", "proposed", "ready"],
-    );
+    assert.deepEqual(data.repositoryWork.map((session) => session.title).sort(), [
+      "empty",
+      "failed",
+      "proposed",
+      "ready",
+    ]);
     assert.equal(data.repositoryWork[0].employee?.name, "Rey");
   });
 
@@ -322,7 +433,12 @@ describe("Home Repository AI work", () => {
       "strategy",
     ]);
     const row = result.items.find((item) => item.id === autonomous.id)!;
-    assert.deepEqual(row.repository, { id: remote.id, name: "Product", slug: "product", kind: "code" });
+    assert.deepEqual(row.repository, {
+      id: remote.id,
+      name: "Product",
+      slug: "product",
+      kind: "code",
+    });
     assert.equal(row.filesChanged, 3);
     assert.equal(row.insertions, 20);
     assert.equal(row.deletions, 2);
@@ -363,7 +479,10 @@ describe("Home Repository AI work", () => {
 
     const result = await listHomeRepositoryWork({ companyId: company.id });
     assert.equal(result.total, 1);
-    assert.deepEqual(result.items.map((row) => row.id), [visible.id]);
+    assert.deepEqual(
+      result.items.map((row) => row.id),
+      [visible.id],
+    );
     assert.equal(result.items[0].employee, null);
     assert.ok(!JSON.stringify(result).includes("Private employee"));
   });
@@ -373,19 +492,27 @@ describe("Home Repository AI work", () => {
     const at = new Date("2026-09-09T09:00:00.000Z");
     const sessions: RepositoryWorkSession[] = [];
     for (let index = 9; index >= 0; index -= 1) {
-      sessions.push(await workSession(repo, {
-        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-        updatedAt: at,
-      }));
+      sessions.push(
+        await workSession(repo, {
+          id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+          updatedAt: at,
+        }),
+      );
     }
     const expected = sessions.map((session) => session.id).sort();
     const home = await getHomeData({ companyId: company.id, userId: member.id, role: "member" });
     assert.equal(home.repositoryWorkCount, 10);
-    assert.deepEqual(home.repositoryWork.map((row) => row.id), expected.slice(0, 8));
+    assert.deepEqual(
+      home.repositoryWork.map((row) => row.id),
+      expected.slice(0, 8),
+    );
 
     const next = await listHomeRepositoryWork({ companyId: company.id, offset: 8, limit: 8 });
     assert.equal(next.total, 10);
-    assert.deepEqual(next.items.map((row) => row.id), expected.slice(8));
+    assert.deepEqual(
+      next.items.map((row) => row.id),
+      expected.slice(8),
+    );
     assert.deepEqual(
       await listHomeRepositoryWork({ companyId: company.id, offset: 10, limit: 8 }),
       { items: [], total: 10 },
@@ -393,12 +520,18 @@ describe("Home Repository AI work", () => {
 
     const newest = await workSession(repo, { updatedAt: new Date(at.getTime() + 1000) });
     const refreshed = await listHomeRepositoryWork({ companyId: company.id, limit: 1 });
-    assert.deepEqual(refreshed.items.map((row) => row.id), [newest.id]);
+    assert.deepEqual(
+      refreshed.items.map((row) => row.id),
+      [newest.id],
+    );
   });
 
   test("uses a bounded readable instruction when an older session has no title", async () => {
     const repo = await repository();
-    await workSession(repo, { title: "  ", instruction: `Review\n\n${"the strategy ".repeat(100)}` });
+    await workSession(repo, {
+      title: "  ",
+      instruction: `Review\n\n${"the strategy ".repeat(100)}`,
+    });
     const result = await listHomeRepositoryWork({ companyId: company.id });
     assert.equal(result.items[0].title.length, 200);
     assert.match(result.items[0].title, /^Review the strategy/);

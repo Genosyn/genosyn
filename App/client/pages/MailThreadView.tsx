@@ -50,9 +50,9 @@ import { clsx } from "../components/ui/clsx";
 
 /**
  * One conversation: messages (sanitized HTML, remote images blocked until
- * asked), drafts you or an AI employee wrote (edit → send), a reply
- * composer, thread actions, and the "Hand to AI" flow with the handover
- * timeline. Every mutation writes through to Gmail.
+ * asked), Member-authored mailbox drafts (edit → send), a reply composer,
+ * thread actions, and the "Hand to AI" flow with the handover timeline. AI
+ * reply previews go to the Decision stack rather than provider Drafts.
  */
 
 // Dedicated DOMPurify instance so our hooks don't change how the rest of the
@@ -102,15 +102,15 @@ function sanitizeEmailHtml(
 }
 
 const MODE_LABELS: Record<MailHandoverMode, string> = {
-  work: "Do the work and draft a reply",
-  draft: "Write a draft (human sends)",
+  work: "Do the work and prepare a reply",
+  draft: "Prepare a reply for review",
   reply: "Reply directly (sends mail)",
   triage: "Triage only (labels / archive)",
 };
 
 const DEFAULT_INSTRUCTIONS: Record<MailHandoverMode, string> = {
   work: "Complete the underlying work with your granted company resources, then prepare a reply with the resulting artifacts for review.",
-  draft: "Draft a reply to this email in our usual tone.",
+  draft: "Prepare a reply to this email in our usual tone for me to review in Genosyn.",
   reply: "Reply to this email.",
   triage: "Categorize this email with an appropriate label and archive it if no action is needed.",
 };
@@ -147,6 +147,7 @@ export default function MailThreadView() {
   const { threadId } = useParams();
   const background = useBackgroundAction();
   const navigate = useNavigate();
+  const scrolledToHandover = React.useRef<string | null>(null);
 
   const forward = React.useCallback(
     (m: MailMessage) => {
@@ -208,6 +209,19 @@ export default function MailThreadView() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changeTick]);
+
+  React.useEffect(() => {
+    const match = /^#handover-([0-9a-f-]+)$/i.exec(window.location.hash);
+    if (!match || !handovers.some((handover) => handover.id === match[1])) return;
+    if (scrolledToHandover.current === match[1]) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(`handover-${match[1]}`);
+      target?.scrollIntoView({ block: "center" });
+      target?.focus();
+      scrolledToHandover.current = match[1];
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [handovers]);
 
   // Opening a thread marks it read, like every mail client.
   React.useEffect(() => {
@@ -386,7 +400,13 @@ export default function MailThreadView() {
           {handovers.length > 0 && (
             <div className="mb-3 space-y-2">
               {handovers.map((h) => (
-                <HandoverCard key={h.id} handover={h} companyId={company.id} onChanged={load} />
+                <HandoverCard
+                  key={h.id}
+                  handover={h}
+                  companyId={company.id}
+                  companySlug={company.slug}
+                  onChanged={load}
+                />
               ))}
             </div>
           )}
@@ -868,9 +888,7 @@ function ReplyComposer({
   const [error, setError] = React.useState<string | null>(null);
   const attach = useMailAttachments(companyId, accountId);
   // Paste a screenshot or drop a file straight into the reply box.
-  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) =>
-    attach.addFiles(files),
-  );
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => attach.addFiles(files));
 
   React.useEffect(() => {
     if (!open || recipients) return;
@@ -963,7 +981,9 @@ function ReplyComposer({
         rows={6}
         placeholder="Write your reply…"
         autoFocus
-        className={dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined}
+        className={
+          dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined
+        }
       />
       <div className="mt-2">
         <AttachmentBar
@@ -1003,10 +1023,12 @@ function ReplyComposer({
 function HandoverCard({
   handover,
   companyId,
+  companySlug,
   onChanged,
 }: {
   handover: MailHandover;
   companyId: string;
+  companySlug: string;
   onChanged: () => Promise<void>;
 }) {
   const dialog = useDialog();
@@ -1017,18 +1039,30 @@ function HandoverCard({
     completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
     failed: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
   };
+  const progressLabel =
+    handover.sourceKind === "rule" && handover.mode !== "triage"
+      ? handover.mode === "work"
+        ? "preparing work for review"
+        : "preparing a reply for review"
+      : handover.mode === "work"
+        ? "doing the work and preparing a reply"
+        : handover.mode === "draft"
+          ? "preparing a reply for review"
+          : handover.mode === "reply"
+            ? "replying"
+            : "triaging";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div
+      id={`handover-${handover.id}`}
+      tabIndex={-1}
+      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-800 dark:bg-slate-950"
+    >
       <div className="flex items-center gap-2 text-sm">
         <Bot size={14} className="shrink-0 text-slate-400" />
         <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">
           <span className="font-medium">{handover.employee?.name ?? "AI employee"}</span>
           {" · "}
-          {handover.mode === "draft"
-            ? "drafting a reply"
-            : handover.mode === "reply"
-              ? "replying"
-              : "triaging"}
+          {progressLabel}
           {handover.sourceKind === "rule" && <span className="text-slate-400"> · via rule</span>}
         </span>
         <span
@@ -1069,6 +1103,17 @@ function HandoverCard({
           {handover.errorMessage || handover.resultSummary}
         </div>
       )}
+      {handover.status === "completed" &&
+        ((handover.sourceKind === "rule" && handover.mode !== "triage") ||
+          handover.mode === "draft" ||
+          handover.mode === "work") && (
+          <Link
+            to={`/c/${companySlug}/decisions`}
+            className="mt-2 inline-flex text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Open Decision stack
+          </Link>
+        )}
     </div>
   );
 }
@@ -1191,7 +1236,8 @@ function HandToAiModal({
             <div className="space-y-1.5">
               {(Object.keys(MODE_LABELS) as MailHandoverMode[]).map((m) => {
                 const disabled =
-                  (m === "reply" && !canSend) || ((m === "draft" || m === "triage" || m === "work") && !canDraft);
+                  (m === "reply" && !canSend) ||
+                  ((m === "draft" || m === "triage" || m === "work") && !canDraft);
                 return (
                   <label
                     key={m}

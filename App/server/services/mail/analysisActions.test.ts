@@ -5,6 +5,7 @@ import type { FindOptionsWhere } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
+import { Approval } from "../../db/entities/Approval.js";
 import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
@@ -12,6 +13,7 @@ import { Estimate } from "../../db/entities/Estimate.js";
 import { EstimateLineItem } from "../../db/entities/EstimateLineItem.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../../db/entities/InvoiceLineItem.js";
+import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
 import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
@@ -25,6 +27,7 @@ import {
   resolveOrCreateCustomer,
   type MailAnalysisActor,
 } from "./analysisActions.js";
+import { parseMailReviewPayload } from "./reviewApprovals.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -35,14 +38,15 @@ const OTHER_COMPANY_ID = "co_mail_analysis_actions_other";
 const ACTOR: MailAnalysisActor = {
   userId: "user_analysis_actions",
   sessionVersion: 0,
+  role: "owner",
   financeAccess: "full",
 };
 /** A Member the owner turned down to read-only finance access. */
 const READ_ONLY_FINANCE: MailAnalysisActor = { ...ACTOR, financeAccess: "read" };
 /**
- * Every mailbox fixture points at a connection row that does not exist, so the
- * three Gmail-backed kinds fail at `accessTokenForAccount` — deterministically,
- * without a socket, and only after everything this module owns has run.
+ * Mailbox fixtures start without a Connection, so provider-backed actions fail
+ * at `accessTokenForAccount` deterministically and without a socket. Tests for
+ * the stack-only reply add a live Connection row but never decrypt or call it.
  */
 const NO_CONNECTION = /Google connection behind this mailbox was deleted/;
 
@@ -160,6 +164,36 @@ async function storedActions(analysisId: string): Promise<MailAnalysisAction[]> 
     id: analysisId,
   });
   return parseAnalysisActions(row.actionsJson);
+}
+
+async function grantAnalysisEmployeeDraftAccess(
+  account: MailAccount,
+  analysis: MailInboundAnalysis,
+): Promise<void> {
+  const employeeId = analysis.employeeId;
+  if (!employeeId) throw new Error("The fixture analysis needs an AI Employee.");
+  await insert(IntegrationConnection, {
+    id: account.connectionId,
+    companyId: account.companyId,
+    provider: "google",
+    label: "Inbox",
+    authMode: "oauth2",
+    encryptedConfig: "unused-by-stack-only-review",
+    accountHint: account.address,
+    status: "connected",
+  });
+  await insert(AIEmployee, {
+    id: employeeId,
+    companyId: account.companyId,
+    name: "Inbox analyst",
+    slug: `inbox-analyst-${analysis.id}`,
+    role: "Inbox analyst",
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
 }
 
 async function countOf<T extends object>(
@@ -622,7 +656,7 @@ describe("hand_over", () => {
 });
 
 describe("the mailbox-backed buttons", () => {
-  test("a draft reply reaches the mailbox credential and leaves the button armed", async () => {
+  test("a prepared reply goes only to the Decision stack without touching the mailbox", async () => {
     const { account, analysis } = await scene([
       {
         id: "0",
@@ -633,9 +667,42 @@ describe("the mailbox-backed buttons", () => {
         targetTo: "ada@northwind-labs.example",
       },
     ]);
+    await grantAnalysisEmployeeDraftAccess(account, analysis);
 
-    await assert.rejects(() => executeAnalysisAction(account, analysis, "0", ACTOR), NO_CONNECTION);
-    assert.equal((await storedActions(analysis.id))[0].executedAt, undefined);
+    const result = await executeAnalysisAction(account, analysis, "0", ACTOR);
+    const approval = await AppDataSource.getRepository(Approval).findOneByOrFail({
+      companyId: COMPANY_ID,
+      kind: "mail_send",
+    });
+    const review = parseMailReviewPayload(approval.payloadJson);
+
+    assert.equal(result.navigateTo, `/decisions#review-${approval.id}`);
+    assert.equal(result.message, "Reply added to Needs you");
+    assert.equal(review.draft.bodyText, "Thanks — invoice on the way.");
+    assert.equal(review.threadId, analysis.threadId);
+    assert.equal(await countOf(MailMessage, { companyId: COMPANY_ID }), 1);
+    assert.ok((await storedActions(analysis.id))[0].executedAt);
+  });
+
+  test("an ordinary Member queues the review for admins without receiving a private deep-link", async () => {
+    const { account, analysis } = await scene([
+      {
+        id: "0",
+        kind: "draft_reply",
+        label: "Prepare a reply",
+        bodyText: "Thanks — we are looking into this.",
+      },
+    ]);
+    await grantAnalysisEmployeeDraftAccess(account, analysis);
+
+    const result = await executeAnalysisAction(account, analysis, "0", {
+      ...ACTOR,
+      role: "member",
+    });
+
+    assert.equal(result.navigateTo, null);
+    assert.equal(result.message, "Reply queued for an owner or admin to review");
+    assert.equal(await countOf(Approval, { companyId: COMPANY_ID, kind: "mail_send" }), 1);
   });
 
   test("a thread action reaches the mailbox credential and leaves the button armed", async () => {
@@ -937,8 +1004,8 @@ describe("buttons that write to Finance", () => {
   });
 });
 
-describe("the recipient a draft reply promises", () => {
-  test("uses the address the button showed, not whoever is newest on the thread", async () => {
+describe("the recipient a prepared reply shows", () => {
+  test("snapshots the current thread recipient in the Decision stack", async () => {
     const { account, analysis, thread } = await scene([
       {
         id: "0",
@@ -948,8 +1015,10 @@ describe("the recipient a draft reply promises", () => {
         targetTo: "ada@northwind-labs.example",
       },
     ]);
-    // A later message from someone else is what `replyContext` would otherwise
-    // pick, and the Member was promised Ada.
+    await grantAnalysisEmployeeDraftAccess(account, analysis);
+    // A later inbound message becomes the current reply target. The analysis
+    // button deliberately promises a review, not an address; the exact final
+    // recipient is shown in Needs you before anything can be sent.
     await insert(MailMessage, {
       companyId: account.companyId,
       accountId: account.id,
@@ -964,16 +1033,17 @@ describe("the recipient a draft reply promises", () => {
       sentAt: new Date("2030-01-01T00:00:00Z"),
     });
 
-    // The Gmail call fails (the fixture connection does not exist), but only
-    // after the recipient has been resolved — which is the part under test.
-    await assert.rejects(() => executeAnalysisAction(account, analysis, "0", ACTOR), NO_CONNECTION);
+    await executeAnalysisAction(account, analysis, "0", ACTOR);
+    const approval = await AppDataSource.getRepository(Approval).findOneByOrFail({
+      companyId: COMPANY_ID,
+      kind: "mail_send",
+    });
+    const review = parseMailReviewPayload(approval.payloadJson);
     const [stored] = await storedActions(analysis.id);
+
+    assert.equal(review.draft.to, "someone-else@elsewhere.example");
     assert.equal(stored.kind, "draft_reply");
-    assert.equal(
-      stored.kind === "draft_reply" ? stored.targetTo : null,
-      "ada@northwind-labs.example",
-    );
-    // A Gmail failure must not burn the button.
-    assert.equal(stored.executedAt, undefined);
+    assert.ok(stored.executedAt);
+    assert.equal(await countOf(MailMessage, { companyId: COMPANY_ID }), 2);
   });
 });

@@ -123,9 +123,15 @@ decisionsRouter.post(
       companyId: cid,
       decisionId: id,
       userId: req.userId!,
+      role: req.companyRole!,
       reason: body.reason ?? null,
     });
     if (result.outcome === "not_found") return res.status(404).json({ error: "Not found" });
+    if (result.outcome === "forbidden") {
+      return res
+        .status(403)
+        .json({ error: "This decision was raised for a specific teammate to answer." });
+    }
     if (result.outcome === "conflict") {
       return res.status(409).json({ error: `Decision is already ${result.decision.status}` });
     }

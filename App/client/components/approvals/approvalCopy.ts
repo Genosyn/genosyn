@@ -47,6 +47,15 @@ export function approvalCopy(a: ApprovalCopySource): ApprovalCopy {
         Icon: ShieldCheck,
         iconClass: "text-indigo-600",
       };
+    case "mail_send":
+      return {
+        title: a.title ?? "Email review",
+        subtitle: a.summary ?? "An exact email is ready for review.",
+        consequence:
+          "Approving sends the exact email shown in Genosyn. It does not create a Gmail or IMAP draft first.",
+        Icon: ShieldCheck,
+        iconClass: "text-indigo-600",
+      };
     case "lightning_payment":
       return {
         title: a.title ?? "Lightning payment",

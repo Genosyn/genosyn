@@ -86,16 +86,17 @@ export default function Proactive({ company }: { company: Company }) {
         </p>
       </div>
       <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
-        Proactive review is on by default. AI Employees read what happened and propose a plan in
-        the Decision stack. An owner or admin must approve that plan before they change records,
-        prepare replies, or start Repository work. Genosyn assigns ready work as AI Employees get a connected
-        AI Model and the required resources and Grants, with one automatic assignment for each
-        shared responsibility. Every ready employee also gets a daily review of its responsibilities
-        and a weekly review of its work. The Soul guides their judgement; Grants and company
-        Policies control what they can do.
+        Proactive review is on by default. AI Employees put a bounded work plan or an exact proposed
+        email in the Decision stack. An owner or admin approves work before records change or
+        Repository work starts. Proposed emails stay only in Genosyn until an owner or admin chooses
+        Send now or Discard; Genosyn never creates a draft in Gmail or IMAP. Ready work is assigned
+        as AI Employees get a connected AI Model and the required resources and Grants, with one
+        automatic assignment for each shared responsibility. Every ready employee also gets a daily
+        review of its responsibilities and a weekly review of its work. The Soul guides their
+        judgement; Grants and company Policies control what they can do.
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-medium">
           <Link to={`/c/${company.slug}/decisions`}>
-            Review proposed work <span aria-hidden="true">→</span>
+            Open Decision stack <span aria-hidden="true">→</span>
           </Link>
           <Link to={`/c/${company.slug}/employees`}>
             AI Employees <span aria-hidden="true">→</span>
@@ -271,7 +272,7 @@ export default function Proactive({ company }: { company: Company }) {
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {kind === "email"
-                    ? "New incoming messages start the right work. Existing mail is never replayed on setup."
+                    ? "New incoming messages start the right work. Exact proposed replies return to the Decision stack for review; no draft is created in Gmail or IMAP. Existing mail is never replayed on setup."
                     : "Scheduled checks catch overdue work; relevant changes also wake selected Routines. Times use the server’s timezone."}
                 </p>
               </div>
@@ -344,7 +345,7 @@ function Setup({
 }) {
   const [employeeId, setEmployeeId] = React.useState("");
   const [accountId, setAccountId] = React.useState("");
-  const [delivery, setDelivery] = React.useState<"draft" | "soul">("draft");
+  const delivery = "draft" as const;
   const [instruction, setInstruction] = React.useState(recipe.brief);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -430,18 +431,14 @@ function Setup({
           </Select>
         )}
         {recipe.kind === "email" && (
-          <div>
-            <Select
-              label="Customer communication"
-              value={delivery}
-              onChange={(event) => setDelivery(event.target.value as "draft" | "soul")}
-            >
-              <option value="draft">Prepare drafts for review</option>
-              <option value="soul">May send when the Soul permits</option>
-            </Select>
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              Draft mode blocks sending from this email handover. Sending requires both this choice
-              and a Send Grant; company Policies still apply. Inbox cleanup never needs to reply.
+          <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-950/30">
+            <p className="text-sm font-medium text-indigo-950 dark:text-indigo-100">
+              Customer communication is reviewed in Genosyn
+            </p>
+            <p className="mt-1 text-xs leading-5 text-indigo-800 dark:text-indigo-200">
+              The exact proposed email appears in the Decision stack. It never creates a draft in
+              Gmail or IMAP and never sends automatically. An owner or admin chooses Send now or
+              Discard.
             </p>
           </div>
         )}
@@ -464,8 +461,9 @@ function Setup({
         </label>
         <p className="text-xs text-slate-500">
           Choose who owns this responsibility and how they work. Existing Grants are checked here;
-          setup never adds access. Scheduled starters draft customer communication and preserve
-          source restrictions.
+          setup never adds access. Scheduled starters put proposed customer communication in the
+          Decision stack for review; they never create a draft in Gmail or IMAP and preserve source
+          restrictions.
         </p>
         {already && (
           <p className="text-sm text-indigo-600">

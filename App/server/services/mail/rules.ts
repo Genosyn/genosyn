@@ -173,6 +173,15 @@ export async function validateMailRuleConfiguration(args: {
       companyId: args.companyId,
     });
     if (!employee) return "Rule names an AI Employee that is not in this company";
+    if (args.requireReady !== false) {
+      const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
+        employeeId: employee.id,
+        accountId: args.accountId,
+      });
+      if (!grant || MAIL_ACCESS_RANK[grant.accessLevel] < MAIL_ACCESS_RANK.draft) {
+        return `${employee.name} needs at least Draft access to this mailbox for an email handover`;
+      }
+    }
   }
 
   if (args.conditions.ai) {
@@ -497,7 +506,10 @@ async function applyRuleAction(
         employeeId: employee.id,
         accountId: account.id,
       });
-      const needed = action.mode === "reply" ? "send" : "draft";
+      // Every Rule handover needs write authority: triage may label, archive,
+      // star, or mark read, while every other mode creates a Decision-stack
+      // review (including legacy rows whose stored mode is `reply`).
+      const needed = "draft";
       const ok = grant && MAIL_ACCESS_RANK[grant.accessLevel] >= MAIL_ACCESS_RANK[needed];
       await createMailHandover({
         account,

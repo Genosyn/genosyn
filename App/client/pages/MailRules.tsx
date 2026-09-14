@@ -317,6 +317,17 @@ function RuleEditor({
     [employees, grants],
   );
   const firstEligibleEmployee = employeeOptions.find((option) => option.eligible);
+  const draftGrantByEmployee = React.useMemo(
+    () =>
+      new Map(
+        grants.map((grant) => [
+          grant.employeeId,
+          grant.accessLevel === "draft" || grant.accessLevel === "send",
+        ]),
+      ),
+    [grants],
+  );
+  const firstHandoverEmployee = employees.find((employee) => draftGrantByEmployee.get(employee.id));
   const selectedAiEmployee = conditions.ai
     ? employeeOptions.find((option) => option.employee.id === conditions.ai?.employeeId)
     : undefined;
@@ -358,7 +369,7 @@ function RuleEditor({
           case "handToEmployee":
             return {
               type,
-              employeeId: employees[0]?.id ?? "",
+              employeeId: firstHandoverEmployee?.id ?? "",
               instruction: "",
               mode: "draft" as MailHandoverMode,
             };
@@ -392,6 +403,10 @@ function RuleEditor({
         return "Every 'apply label' action needs a label name.";
       if (a.type === "handToEmployee" && !a.employeeId)
         return "Pick an employee for the hand-to-AI action.";
+      if (a.type === "handToEmployee" && !draftGrantByEmployee.get(a.employeeId)) {
+        const employee = employees.find((candidate) => candidate.id === a.employeeId);
+        return `${employee?.name ?? "This AI employee"} needs a Draft Grant on this mailbox before the rule can hand over email.`;
+      }
     }
     return null;
   };
@@ -679,8 +694,13 @@ function RuleEditor({
                           onChange={(e) => patchAction(i, { employeeId: e.target.value })}
                         >
                           {employees.map((emp) => (
-                            <option key={emp.id} value={emp.id}>
+                            <option
+                              key={emp.id}
+                              value={emp.id}
+                              disabled={!draftGrantByEmployee.get(emp.id)}
+                            >
                               {emp.name}
+                              {!draftGrantByEmployee.get(emp.id) ? " — needs Draft Grant" : ""}
                             </option>
                           ))}
                         </Select>
@@ -692,20 +712,25 @@ function RuleEditor({
                             })
                           }
                         >
-                          <option value="work">Do the work and draft a reply</option>
-                          <option value="draft">Draft a reply (human sends)</option>
-                          <option value="reply">Reply directly (sends mail)</option>
+                          <option value="work">Propose work, then prepare a reply</option>
+                          <option value="draft">Prepare a reply for review</option>
+                          {action.mode === "reply" && (
+                            <option value="reply">
+                              Prepare a reply for review (existing rule)
+                            </option>
+                          )}
                           <option value="triage">Triage (label / archive)</option>
                         </Select>
                         <Textarea
                           rows={2}
-                          placeholder="Instruction, e.g. 'Categorize by product area and draft a first response.'"
+                          placeholder="Instruction, e.g. 'Categorize by product area and prepare a first response for review.'"
                           value={action.instruction}
                           onChange={(e) => patchAction(i, { instruction: e.target.value })}
                         />
                         <p className="flex items-center gap-1 text-xs text-slate-400">
-                          <Bot size={11} /> The employee needs a matching grant on this mailbox
-                          (draft, or send for &quot;reply&quot;).
+                          <Bot size={11} /> The AI Employee needs a Draft Grant on this mailbox.
+                          Triage changes labels and read state. Automatic rules never send email
+                          without review.
                         </p>
                       </>
                     )}

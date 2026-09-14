@@ -23,10 +23,10 @@ const STARTER_REQUESTS = [
   },
   {
     title: "Triage my inbox",
-    description: "Review email safely and prepare drafts for approval.",
+    description: "Review email safely and prepare replies in Needs you.",
     icon: Mail,
     prompt:
-      "Review my unread email, group it into needs a reply, needs a decision, and FYI, then draft replies for the messages that need one. Do not send anything.",
+      "Review my unread email, group it into needs a reply, needs a decision, and FYI, then put finished replies for the messages that need one in Needs you. Do not create mailbox drafts or send anything.",
   },
   {
     title: "Plan your first week",

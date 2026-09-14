@@ -90,6 +90,8 @@ const MAIL_GATED_TOOLS = new Set([
   "list_mail_accounts",
   "search_mail",
   "get_mail_thread",
+  "request_mail_review",
+  "revise_mail_review",
   "create_mail_draft",
   "edit_mail_draft",
   "update_mail_thread",

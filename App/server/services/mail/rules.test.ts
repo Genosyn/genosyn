@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
+import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AuditEvent } from "../../db/entities/AuditEvent.js";
+import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
+import { MailHandover } from "../../db/entities/MailHandover.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { MailThread } from "../../db/entities/MailThread.js";
@@ -570,6 +573,44 @@ describe("unsubscribe action isolation", () => {
       action: "mail.rule.action_error",
     });
     assert.match(failure.metadataJson, /No safe one-click method/);
+  });
+});
+
+describe("Rule handover authority", () => {
+  test("a matching triage action records a failed handover under a Read-only Grant", async () => {
+    const { account, message } = await mailboxFixture();
+    const employee = await insert(AIEmployee, {
+      companyId: COMPANY_ID,
+      name: "Inbox filer",
+      slug: "inbox-filer",
+      role: "Support",
+    });
+    await insert(EmployeeMailAccountGrant, {
+      employeeId: employee.id,
+      accountId: account.id,
+      accessLevel: "read",
+    });
+    const rule = await createRule(account, {
+      name: "File newsletters",
+      conditions: { from: "acme" },
+      actions: [
+        {
+          type: "handToEmployee",
+          employeeId: employee.id,
+          instruction: "Mark this read and archive it.",
+          mode: "triage",
+        },
+      ],
+    });
+
+    await runRulesForNewMessage(account, message.id);
+
+    const handover = await AppDataSource.getRepository(MailHandover).findOneByOrFail({
+      ruleId: rule.id,
+      threadId: message.threadId,
+    });
+    assert.equal(handover.status, "failed");
+    assert.match(handover.errorMessage, /needs at least the "draft" access level/);
   });
 });
 

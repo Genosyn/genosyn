@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { IsNull } from "typeorm";
+import { IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -1256,22 +1256,36 @@ async function claimApprovalDecision(args: {
   approvalId: string;
   userId: string;
   status: "executing" | "rejected";
+  expectedPayloadJson?: string;
 }): Promise<ApprovalDecisionResult> {
   const repo = AppDataSource.getRepository(Approval);
   const decidedAt = new Date();
-  const update = await repo.update(
-    {
-      id: args.approvalId,
-      companyId: args.companyId,
-      status: "pending",
-    },
-    {
-      status: args.status,
-      decidedAt,
-      decidedByUserId: args.userId,
-      errorMessage: null,
-    },
-  );
+  const criteria = {
+    id: args.approvalId,
+    companyId: args.companyId,
+    status: "pending" as const,
+    ...(args.expectedPayloadJson === undefined ? {} : { payloadJson: args.expectedPayloadJson }),
+  };
+  const decision = {
+    status: args.status,
+    decidedAt,
+    decidedByUserId: args.userId,
+    errorMessage: null,
+  };
+  // A mail-send claim is known not to have contacted the mailbox yet. Persist
+  // that fact in the same CAS that leaves `pending`, before the decision audit
+  // or any other fallible work. The generic fallback explicitly excludes mail
+  // rows so no race can claim one without its durable delivery marker.
+  let update =
+    args.status === "executing"
+      ? await repo.update(
+          { ...criteria, kind: "mail_send" },
+          { ...decision, resultJson: JSON.stringify({ deliveryStatus: "not_sent" }) },
+        )
+      : await repo.update(criteria, decision);
+  if (args.status === "executing" && update.affected !== 1) {
+    update = await repo.update({ ...criteria, kind: Not("mail_send") }, decision);
+  }
 
   const approval = await repo.findOneBy({
     id: args.approvalId,
@@ -1314,6 +1328,7 @@ export async function approvePendingApproval(args: {
   companyId: string;
   approvalId: string;
   userId: string;
+  expectedPayloadJson?: string;
   execute?: ApprovalExecutor;
 }): Promise<ApprovalDecisionResult> {
   const claimed = await claimApprovalDecision({
@@ -1321,6 +1336,7 @@ export async function approvePendingApproval(args: {
     approvalId: args.approvalId,
     userId: args.userId,
     status: "executing",
+    expectedPayloadJson: args.expectedPayloadJson,
   });
   if (claimed.outcome !== "decided") return claimed;
 
@@ -1396,6 +1412,7 @@ export async function rejectPendingApproval(args: {
   companyId: string;
   approvalId: string;
   userId: string;
+  expectedPayloadJson?: string;
   recordRejection?: ApprovalRejectionRecorder;
 }): Promise<ApprovalDecisionResult> {
   const claimed = await claimApprovalDecision({
@@ -1403,6 +1420,7 @@ export async function rejectPendingApproval(args: {
     approvalId: args.approvalId,
     userId: args.userId,
     status: "rejected",
+    expectedPayloadJson: args.expectedPayloadJson,
   });
   if (claimed.outcome !== "decided") return claimed;
 
@@ -1475,6 +1493,11 @@ export async function executeApproval(approval: Approval): Promise<void> {
     case "proactive_work": {
       const { executeProactiveWorkApproval } = await import("./proactive/approvals.js");
       await executeProactiveWorkApproval(approval);
+      return;
+    }
+    case "mail_send": {
+      const { executeMailReviewApproval } = await import("./mail/reviewApprovals.js");
+      await executeMailReviewApproval(approval);
       return;
     }
     default:
@@ -1638,6 +1661,11 @@ async function executeLightningPaymentApproval(approval: Approval): Promise<void
 
 export async function recordApprovalRejection(approval: Approval): Promise<void> {
   switch (approval.kind) {
+    case "mail_send": {
+      const { recordMailReviewRejection } = await import("./mail/reviewApprovals.js");
+      await recordMailReviewRejection(approval);
+      return;
+    }
     case "proactive_work": {
       await AppDataSource.getRepository(JournalEntry).save(
         AppDataSource.getRepository(JournalEntry).create({

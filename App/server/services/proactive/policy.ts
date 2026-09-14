@@ -13,10 +13,15 @@ export function routineDeliveryPolicy(
 } {
   // Unknown stored values also stay restricted during mixed-version deployments.
   const restricted = routine.mailDeliveryMode != null;
+  // `draft` is the persisted compatibility marker used by shipped starter
+  // Routines. Automatic work must no longer materialize provider drafts: at
+  // runtime that marker means an exact Decision-stack review. Triage remains
+  // the narrower inherited ceiling; every other inherited mode is reduced to
+  // review so an old `reply`/`draft` origin cannot widen the Routine.
   const mailDeliveryMode = restricted
     ? originDeliveryMode === "triage"
       ? "triage"
-      : "draft"
+      : "review"
     : originDeliveryMode;
   return {
     mailDeliveryMode,

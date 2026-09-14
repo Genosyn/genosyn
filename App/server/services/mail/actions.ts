@@ -1,4 +1,5 @@
 import { AppDataSource } from "../../db/datasource.js";
+import type { EntityManager } from "typeorm";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
@@ -7,7 +8,7 @@ import { parseAddressList } from "../../lib/emailAddress.js";
 import { broadcastToCompany } from "../realtime.js";
 import { fetchMailAttachmentsBytes } from "./attachments.js";
 import { mailboxForAccount } from "./mailbox/index.js";
-import { CANONICAL_LABELS, type Mailbox } from "./mailbox/types.js";
+import { CANONICAL_LABELS, type Mailbox, type MailboxMessage } from "./mailbox/types.js";
 import type { MimeAttachment, MimeFields } from "./mime.js";
 import { readAttachments, releaseAttachments } from "./outbox.js";
 import { assertRecipientsAllowed } from "./suppression.js";
@@ -58,6 +59,10 @@ export type ThreadAction =
 export type MailActionDependencies = {
   mailbox?: (account: MailAccount) => Promise<Mailbox>;
   notify?: (account: MailAccount) => void;
+  /** Called after all local preparation, immediately before provider delivery. */
+  onSendAttempt?: () => Promise<void> | void;
+  /** Called immediately after the provider accepts a send, before mirror work. */
+  onSendAccepted?: (message: MailboxMessage) => Promise<void> | void;
 };
 
 export async function performThreadAction(
@@ -212,6 +217,9 @@ export type ComposeFields = {
    *  Resources / rendered invoices rather than the staging outbox). Takes
    *  precedence over `attachmentIds`; the two are never mixed on one call. */
   attachments?: MimeAttachment[];
+  /** Exact reply headers captured with a reviewed payload. Ordinary compose
+   * paths omit this and derive them from the live thread as before. */
+  reviewedThreading?: { inReplyTo?: string; references?: string };
 };
 
 /**
@@ -251,17 +259,21 @@ function carryAuthorship(from: MailMessage, to: MailMessage): void {
 
 /** Reply-threading headers + default subject, derived from the newest
  * non-draft message of the thread. */
-async function replyContext(thread: MailThread): Promise<{
+export async function mailReplyContext(
+  thread: MailThread,
+  manager: EntityManager = AppDataSource.manager,
+): Promise<{
   subject: string;
   inReplyTo?: string;
   references?: string;
   defaultTo: string;
   defaultCcPool: string;
+  sourceMessage: MailMessage | null;
 }> {
-  const msgRepo = AppDataSource.getRepository(MailMessage);
+  const msgRepo = manager.getRepository(MailMessage);
   const messages = await msgRepo.find({
     where: { threadId: thread.id },
-    order: { sentAt: "DESC" },
+    order: { sentAt: "DESC", createdAt: "DESC" },
   });
   const last = messages.find((m) => !columnHasLabel(m.labelIds, CANONICAL_LABELS.draft));
   if (!last) {
@@ -269,14 +281,11 @@ async function replyContext(thread: MailThread): Promise<{
       subject: thread.subject,
       defaultTo: "",
       defaultCcPool: "",
+      sourceMessage: null,
     };
   }
-  const subject = /^re:/i.test(last.subject)
-    ? last.subject
-    : `Re: ${last.subject}`;
-  const references = [last.referencesHeader, last.messageIdHeader]
-    .filter(Boolean)
-    .join(" ");
+  const subject = /^re:/i.test(last.subject) ? last.subject : `Re: ${last.subject}`;
+  const references = [last.referencesHeader, last.messageIdHeader].filter(Boolean).join(" ");
   return {
     subject,
     inReplyTo: last.messageIdHeader || undefined,
@@ -286,15 +295,14 @@ async function replyContext(thread: MailThread): Promise<{
     // to the composer is both unambiguous and immune to malformed source names.
     defaultTo: last.fromEmail,
     defaultCcPool: [last.toEmails, last.ccEmails].filter(Boolean).join(", "),
+    sourceMessage: last,
   };
 }
 
-/** Everyone on the last message except the mailbox itself — the reply-all set. */
-export async function replyAllRecipients(
+export function replyAllRecipientsFromContext(
   account: MailAccount,
-  thread: MailThread,
-): Promise<{ to: string; cc: string }> {
-  const ctx = await replyContext(thread);
+  ctx: Awaited<ReturnType<typeof mailReplyContext>>,
+): { to: string; cc: string } {
   const self = account.address.toLowerCase();
   const recipientEmails = (value: string) =>
     parseAddressList(value).addresses.filter((email) => email !== self);
@@ -303,14 +311,20 @@ export async function replyAllRecipients(
   // mailbox itself sent (then defaultTo is our own address, which we drop and
   // let the cc pool carry the real recipients).
   const toList = recipientEmails(ctx.defaultTo);
-  const cc = recipientEmails(ctx.defaultCcPool).filter(
-    (email) => !toList.includes(email),
-  );
+  const cc = recipientEmails(ctx.defaultCcPool).filter((email) => !toList.includes(email));
   let to = toList;
   if (to.length === 0 && cc.length > 0) {
     to = [cc.shift()!]; // promote one cc into To so there's always a recipient
   }
   return { to: to.join(", "), cc: cc.join(", ") };
+}
+
+/** Everyone on the last message except the mailbox itself — the reply-all set. */
+export async function replyAllRecipients(
+  account: MailAccount,
+  thread: MailThread,
+): Promise<{ to: string; cc: string }> {
+  return replyAllRecipientsFromContext(account, await mailReplyContext(thread));
 }
 
 /**
@@ -330,7 +344,9 @@ export async function sendMailMessage(
   await assertRecipientsAllowed(account.companyId, fields);
   const mailbox = await (dependencies.mailbox ?? mailboxForAccount)(account);
   const mime = await composeMime(account, fields, thread);
+  await dependencies.onSendAttempt?.();
   const sent = await mailbox.sendMessage({ mime, thread: thread?.gmailThreadId });
+  await dependencies.onSendAccepted?.(sent);
   releaseAttachments(account.id, fields.attachmentIds ?? []);
   const { row } = await upsertMailMessage(account, sent);
   await recomputeThread(account, sent.threadRef);
@@ -520,11 +536,16 @@ async function composeMime(
   let references: string | undefined;
   let to = fields.to;
   if (thread) {
-    const ctx = await replyContext(thread);
-    if (!subject) subject = ctx.subject;
-    inReplyTo = ctx.inReplyTo;
-    references = ctx.references;
-    if (!to) to = ctx.defaultTo;
+    if (fields.reviewedThreading) {
+      inReplyTo = fields.reviewedThreading.inReplyTo;
+      references = fields.reviewedThreading.references;
+    } else {
+      const ctx = await mailReplyContext(thread);
+      if (!subject) subject = ctx.subject;
+      inReplyTo = ctx.inReplyTo;
+      references = ctx.references;
+      if (!to) to = ctx.defaultTo;
+    }
   }
   if (!to) throw new Error("Recipient (to) is required");
   const added =

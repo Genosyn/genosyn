@@ -1,4 +1,4 @@
-import { In, LessThanOrEqual } from "typeorm";
+import { In, IsNull, LessThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -152,7 +152,7 @@ export function normalizeDecisionOptions(inputs: DecisionOptionInput[]): Decisio
     }
     seen.add(id);
     const detail = input.detail
-      ? ((redactApprovalSummary(input.detail) ?? "").trim().slice(0, 240) || null)
+      ? (redactApprovalSummary(input.detail) ?? "").trim().slice(0, 240) || null
       : null;
     out.push({ id, label, detail, tone: input.tone ?? "neutral" });
     if (out.length >= MAX_DECISION_OPTIONS) break;
@@ -332,7 +332,9 @@ async function findByIds<T extends { id: string }>(
   wanted: string[],
 ): Promise<Map<string, T>> {
   if (wanted.length === 0) return new Map();
-  const rows = await AppDataSource.getRepository(entity).find({ where: { id: In(wanted) } as never });
+  const rows = await AppDataSource.getRepository(entity).find({
+    where: { id: In(wanted) } as never,
+  });
   return new Map(rows.map((r) => [r.id, r]));
 }
 
@@ -433,13 +435,27 @@ export async function listDecisions(params: {
 export async function listPendingDecisions(params: {
   companyId: string;
   limit: number;
+  /** Home should contain work for this Member, not another Member's queue. */
+  viewer?: { userId: string; role: Role };
 }): Promise<{ decisions: DecisionDTO[]; total: number }> {
   await Promise.all([
     expireStaleDecisions(params.companyId),
     reconcileStalePickups(params.companyId),
   ]);
+  const canAnswerAssigned = params.viewer?.role === "owner" || params.viewer?.role === "admin";
+  const where =
+    params.viewer && !canAnswerAssigned
+      ? [
+          { companyId: params.companyId, status: "pending" as const, assigneeUserId: IsNull() },
+          {
+            companyId: params.companyId,
+            status: "pending" as const,
+            assigneeUserId: params.viewer.userId,
+          },
+        ]
+      : { companyId: params.companyId, status: "pending" as const };
   const [rows, total] = await AppDataSource.getRepository(Decision).findAndCount({
-    where: { companyId: params.companyId, status: "pending" },
+    where,
     // Sorting is finished in memory: urgency is a string column, so ordering on
     // it in SQL would sort alphabetically ("high" < "low" < "normal") rather
     // than by weight. The pending set is small and already capped.
@@ -607,9 +623,12 @@ export async function decideDecision(params: {
   }
   if (decision.status !== "pending") return { outcome: "conflict", decision };
   if (decision.expiresAt && decision.expiresAt.getTime() <= Date.now()) {
-    await repo.update({ id: decision.id, companyId: params.companyId, status: "pending" }, {
-      status: "expired",
-    });
+    await repo.update(
+      { id: decision.id, companyId: params.companyId, status: "pending" },
+      {
+        status: "expired",
+      },
+    );
     const expired = await repo.findOneBy({ id: decision.id, companyId: params.companyId });
     return { outcome: "conflict", decision: expired ?? decision };
   }
@@ -700,6 +719,7 @@ async function writeDecisionJournal(
 
 export type CancelOutcome =
   | { outcome: "not_found" }
+  | { outcome: "forbidden"; decision: Decision }
   | { outcome: "conflict"; decision: Decision }
   | { outcome: "cancelled"; decision: Decision };
 
@@ -713,6 +733,8 @@ export async function cancelDecision(params: {
   decisionId: string;
   /** The human dismissing it, when a human is doing the dismissing. */
   userId?: string | null;
+  /** The human's company role, required whenever userId is present. */
+  role?: Role;
   /** The employee retracting its own question. */
   employeeId?: string | null;
   reason?: string | null;
@@ -724,6 +746,9 @@ export async function cancelDecision(params: {
   // must never cancel another's.
   if (params.employeeId && decision.employeeId !== params.employeeId) {
     return { outcome: "not_found" };
+  }
+  if (params.userId && (!params.role || !canDecide(decision, params.userId, params.role))) {
+    return { outcome: "forbidden", decision };
   }
   if (decision.status !== "pending") return { outcome: "conflict", decision };
 

@@ -242,14 +242,17 @@ export function toolsBriefing(
       "auto-injected.",
     "- `send_chat_attachment` to send a generated file back as a download chip.",
     "- `request_decision` for a Member's choice or missing information; use `request_work_review` " +
-      "for approval to start proactive work. Stay within this turn's allowed preparation; a " +
+      "for approval to start proactive work, and `request_mail_review` for an exact customer email " +
+      "a human can edit, send, or discard from the Decision stack. A mail review is not a provider " +
+      "draft: never create a Gmail or IMAP draft for the same reply or fresh message. Use `revise_work_review` or " +
+      "`revise_mail_review` only to update your own pending card after requested changes. Stay within this turn's allowed preparation; a " +
       "customer request or a discovered issue does not authorize the proposed work. Check existing " +
-      "Decisions before adding another about the same issue. Use a short, concrete action and " +
+      "Decisions before adding another about the same issue. For a Decision, use a short, concrete action and " +
       "subject as the title, such as 'Confirm Acme's support deadline'. Begin the body with " +
       "what happened, why it matters and your recommended next " +
       "step in plain language. Include source links, what you checked, what remains unknown and " +
-      "the scope and cost of the proposed work. For a reply, include its exact draft. Offer " +
-      "2–3 distinct choices with short action labels and a sentence explaining what you will do " +
+      "the scope and cost of the proposed work. Offer 2–3 distinct choices with short action labels " +
+      "and a sentence explaining what you will do " +
       "for each. Recommend at most one; include a way to defer or decline. If you need a name, " +
       "date, price or document, ask for that exact information in the option detail and say it " +
       "belongs in the answer note. A choice such as 'Provide reviewers' does not supply their " +

@@ -13,13 +13,7 @@ import { Notification } from "../db/entities/Notification.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
-import {
-  closeTestDb,
-  initTestDb,
-  insert,
-  resetTestDb,
-  testCompanyId,
-} from "../test/dbHarness.js";
+import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import {
   cancelDecision,
   canDecide,
@@ -77,10 +71,7 @@ async function stack(companyId: string, employeeId: string, overrides: Partial<D
     employeeId,
     title: "Send the pricing reply to Acme?",
     body: "Hi there — here is the quote you asked for.",
-    options: [
-      { label: "Send it", tone: "primary" },
-      { label: "Hold for now" },
-    ],
+    options: [{ label: "Send it", tone: "primary" }, { label: "Hold for now" }],
     ...overrides,
   });
   return decision;
@@ -109,9 +100,7 @@ describe("decision options", () => {
   });
 
   test("credential material in an option label is redacted before storage", () => {
-    const [option] = normalizeDecisionOptions([
-      { label: "Use Authorization: Bearer sk-live-123" },
-    ]);
+    const [option] = normalizeDecisionOptions([{ label: "Use Authorization: Bearer sk-live-123" }]);
     assert.ok(!option.label.includes("sk-live-123"), option.label);
   });
 
@@ -354,12 +343,34 @@ describe("retracting a decision", () => {
       companyId,
       decisionId: decision.id,
       userId: ownerId,
+      role: "owner",
       reason: "We already sent it manually.",
     });
     assert.equal(result.outcome, "cancelled");
     const journal = await AppDataSource.getRepository(JournalEntry).find({ where: { employeeId } });
     assert.equal(journal.length, 1);
     assert.match(journal[0].title, /dismissed the decision/);
+  });
+
+  test("a Member cannot dismiss a decision assigned to somebody else", async () => {
+    const { companyId, employeeId, ownerId, memberId } = await scenario();
+    const decision = await stack(companyId, employeeId, { assigneeUserId: ownerId });
+
+    const blocked = await cancelDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: memberId,
+      role: "member",
+    });
+    assert.equal(blocked.outcome, "forbidden");
+
+    const owner = await cancelDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: ownerId,
+      role: "owner",
+    });
+    assert.equal(owner.outcome, "cancelled");
   });
 });
 
@@ -408,6 +419,37 @@ describe("the stack itself", () => {
     const { decisions, total } = await listPendingDecisions({ companyId, limit: 5 });
     assert.equal(decisions.length, 5);
     assert.equal(total, 7);
+  });
+
+  test("a Member's Home slice excludes Decisions assigned to somebody else", async () => {
+    const { companyId, employeeId, ownerId, memberId } = await scenario();
+    await stack(companyId, employeeId, { title: "Open to anyone" });
+    await stack(companyId, employeeId, {
+      title: "For this Member",
+      assigneeUserId: memberId,
+    });
+    await stack(companyId, employeeId, {
+      title: "For the owner",
+      assigneeUserId: ownerId,
+    });
+
+    const memberStack = await listPendingDecisions({
+      companyId,
+      limit: 10,
+      viewer: { userId: memberId, role: "member" },
+    });
+    assert.equal(memberStack.total, 2);
+    assert.deepEqual(
+      memberStack.decisions.map((decision) => decision.title),
+      ["Open to anyone", "For this Member"],
+    );
+
+    const ownerStack = await listPendingDecisions({
+      companyId,
+      limit: 10,
+      viewer: { userId: ownerId, role: "owner" },
+    });
+    assert.equal(ownerStack.total, 3);
   });
 
   test("one company's stack never contains another's", async () => {

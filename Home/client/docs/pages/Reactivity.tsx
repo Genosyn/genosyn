@@ -8,9 +8,11 @@ export function Reactivity() {
         title="Proactive work"
         lead={
           <>
-            Proactive work is on by default. AI Employees notice what needs attention and bring
-            you a plan before acting. Genosyn assigns ready responsibilities as their AI Models,
-            resources, and Grants become available.
+            Proactive work is on by default. AI Employees notice what needs attention and bring you
+            a clear review before acting. A customer reply arrives as the exact email for you to
+            send, edit, discuss, or discard; underlying work arrives as a plan to approve first.
+            Genosyn assigns ready responsibilities as their AI Models, resources, and Grants become
+            available.
             <Strong> Triggers</Strong> fire a <DocLink to="/docs/routines">Routine</DocLink> the
             moment something changes, <Strong>Wakeups</Strong> let an employee check back later,{" "}
             <Strong>Workstreams</Strong> carry working state across Runs, and{" "}
@@ -30,29 +32,33 @@ export function Reactivity() {
         and work waits until an AI Employee has a connected AI Model and the required resource
         access.
       </P>
-      <Callout kind="info" title="Review the plan before work starts">
+      <Callout kind="info" title="Review the next action before it happens">
         Proactive Routines, automatic email handovers and Routines started by a Trigger or webhook
-        first read the available evidence. They bring proposed work to the{" "}
-        <DocLink to="/docs/decisions">Decision stack</DocLink> and wait for an owner or admin to
-        approve. Until then, they cannot start a Repository Work session, prepare a saved draft,
-        send mail or change business records. Approval authorizes that proposed work and keeps
-        the original Grants and delivery restrictions. Retrying keeps the review requirement.
+        first read the available evidence. They bring an exact email reply or a proposed work plan
+        to the <DocLink to="/docs/decisions">Decision stack</DocLink> and wait for an owner or
+        admin. Until then, they cannot start a Repository Work session, create a Gmail or IMAP
+        draft, send mail or change business records. <Strong>Send now</Strong> authorizes only the
+        reviewed email; <Strong>Approve &amp; start</Strong> authorizes only the reviewed work.
+        Original Grants and delivery restrictions remain in force, and retrying keeps the review
+        requirement.
         <Strong> Improve my work</Strong> keeps its separate Revision proposal process below.
       </Callout>
       <P>
-        A proactive Run finishes as <Strong>Reviewed</Strong> after examining evidence. This
-        leaves delivery unverified. When you approve its proposal, a separate Routine Run does
-        the approved work with the original Checks and outcome grading. Email handover proposals
-        instead continue in an approved work session. The stack&apos;s <Strong>Reported outcome</Strong>{" "}
-        summarizes the result; open the Run to inspect its independent verification.
+        A proactive Run finishes as <Strong>Reviewed</Strong> after examining evidence. This leaves
+        delivery unverified. A reply-only email can now show its exact in-Genosyn review without
+        creating provider-side state. When you approve underlying work, a separate Routine Run or
+        approved email handover carries out the plan under the original Checks and outcome grading.
+        Any final customer reply returns to the stack as a separate review after the work has real
+        results. The outcome step in the stack summarizes the work; open the Run to inspect its
+        independent verification.
       </P>
       <H2 id="daily-ownership">A useful next step across the app</H2>
       <P>
         Every ready AI Employee receives <Strong>Advance my responsibilities</Strong>, scheduled for
         weekdays at 08:00 in the server&apos;s timezone. Open its <Strong>Review work</Strong>
         link to customize the schedule or brief. This daily Routine reads current assignments,
-        deadlines and granted records, inspects the original evidence, and proposes the useful
-        next step for your review. It also checks due Workstreams and suggestions from previous Runs.
+        deadlines and granted records, inspects the original evidence, and proposes the useful next
+        step for your review. It also checks due Workstreams and suggestions from previous Runs.
       </P>
       <KeyList
         rows={[
@@ -95,10 +101,12 @@ export function Reactivity() {
         work is coordinated with its existing owner.
       </P>
       <P>
-        The daily starter asks for approval before doing the proposed work. After approval,
-        customer communication remains limited to drafts. It does not start new automation, spend
-        money, launch outreach, or send signature reminders. Missing business information becomes
-        a Decision with specific details for you to supply. Creating this daily Routine alone does not add
+        The daily starter asks for approval before doing the proposed work. After approval, customer
+        communication remains limited to review: an exact reply must return to the Decision stack
+        for a Member to send or discard. It does not start new automation, spend money, launch
+        outreach, or send signature reminders. Missing business information becomes a Decision with
+        specific details for you to supply. Answering that question records information; it does not
+        approve work or perform a side effect. Creating this daily Routine alone does not add
         half-hourly checks; existing immediate assignment handling and specialist Routines continue
         their work.
       </P>
@@ -144,18 +152,19 @@ export function Reactivity() {
         messages match the existing AI analysis category and are handed to the assigned employee;
         setup never replays historical mail. Turn on AI analysis in Email → Settings and keep the
         mailbox active. Classification alone does not complete the work: the employee reads the
-        request and proposes work for review through its own Grants. A failed analysis does not
-        fire a rule. The following describes what each starter can do after work approval.
+        request and either prepares an exact reply review or proposes underlying work through its
+        own Grants. A failed analysis does not fire a rule. The following describes what each
+        starter can do after work approval.
       </P>
       <KeyList
         rows={[
           {
             term: "Quote requests",
-            def: "Match or create the Customer, verify pricing, prepare an estimate, and attach its actual PDF to a reply draft. Missing prices or scope become a clarification, never an invented quote.",
+            def: "Match or create the Customer, verify pricing, prepare an estimate, and return an exact customer reply for review. Missing prices or scope become a clarification, never an invented quote.",
           },
           {
             term: "Customer code issues",
-            def: "Start an isolated Work session in a granted Repository, investigate the report, prepare a fix with tests, and track it to PR review. A queued session is never reported as a finished fix.",
+            def: "First show the customer report and proposed investigation in a work review. After approval, start an isolated Work session in a granted Repository, investigate, prepare a fix with tests, and track it to PR review. The customer reply returns for separate review only after there are real results.",
           },
           {
             term: "Sales enquiries",
@@ -201,23 +210,32 @@ export function Reactivity() {
         <DocLink to="/docs/improvement">The improvement loop</DocLink> for the review process and
         notifications.
       </P>
-      <H2 id="delivery">Decide how much can happen unattended</H2>
+      <H2 id="delivery">Review customer delivery separately</H2>
       <P>
-        Email starters default to <Strong>Prepare drafts for review</Strong>. This is enforced
-        during the handover even if the employee has a Send Grant. Choose
-        <Strong> May send when the Soul permits</Strong> only when you want the employee to send and
-        its mailbox Grant allows it. This controls delivery after you approve the work; it does
-        not bypass the initial review. The Soul sets your commercial judgement, tone, and limits; it
-        cannot grant itself access or override a company Policy or Approval. Draft and triage
-        handovers cannot create unrestricted deferred work or delegate around their delivery
-        restriction.
+        Automatic email starters keep customer delivery separate from work approval. If a message
+        only needs a reply, the reply goes straight to an email review. If the employee must
+        investigate, change a record, or work in a Repository first, you approve that plan before
+        the work starts; completing it still does not send mail. The employee returns the exact
+        final message to the stack, where an owner or admin can <Strong>Send now</Strong>,{" "}
+        <Strong>Edit email</Strong>, <Strong>Ask employee to edit</Strong>, or{" "}
+        <Strong>Discard</Strong>.
       </P>
       <P>
-        Scheduled starters also carry an enforced draft ceiling, preserved when their instructions
-        or schedules are edited and after work approval. Review and send their email from Email → Drafts. A quotation PDF
-        made from a draft estimate visibly says DRAFT and remains unissued; attaching or mailing it
-        never accepts the estimate, creates an invoice, or posts to the ledger. See
-        <DocLink to="/docs/finance"> Finance</DocLink> for its lifecycle.
+        Those review messages live only in Genosyn. They never appear in Gmail Drafts or an IMAP
+        Drafts folder, even when the employee has a Send Grant. Editing updates the review only;
+        sending delivers the exact reviewed version directly. Genosyn checks the live mailbox
+        Connection, Grant, source email, attachments, Suppressions, and company Policies again at
+        delivery. The Soul sets commercial judgement, tone, and limits, but cannot grant itself
+        access or override a company Policy or Approval. See{" "}
+        <DocLink to="/docs/decisions#reviewing-email">Reviewing an email reply</DocLink>.
+      </P>
+      <P>
+        Scheduled starters with the safe email-preparation ceiling also put each exact reply or
+        fresh outbound email in the Decision stack. They do not create Gmail or IMAP drafts;
+        selecting <Strong>Send now</Strong> is the only delivery action. A quotation PDF made from a
+        draft estimate visibly says DRAFT and remains unissued; attaching or mailing it never
+        accepts the estimate, creates an invoice, or posts to the ledger. See{" "}
+        <DocLink to="/docs/finance">Finance</DocLink> for its lifecycle.
       </P>
       <P>
         Repository publication needs the employee&apos;s Write Grant plus an explicitly granted,
@@ -225,7 +243,8 @@ export function Reactivity() {
         session branch; it cannot merge or publish the default branch. Repositories using a private
         token or SSH credential still need Member publication.{" "}
         <Strong>Follow through on open work</Strong> lets the same employee revisit saved sessions
-        and propose the next step for your review; check its assignment under Your standing work. See
+        and propose the next step for your review; check its assignment under Your standing work.
+        See
         <DocLink to="/docs/repositories"> Repositories</DocLink>.
       </P>
       <P>
@@ -242,10 +261,9 @@ export function Reactivity() {
         family changes anywhere in the company — a deal moves, mail lands, a Run finishes, a{" "}
         <DocLink to="/docs/goals">Goal</DocLink> updates — the Routine fires without waiting for its
         next cron slot. The resulting Run reads evidence and requests work approval before acting.
-        Triggers are managed by admins on the routine&apos;s{" "}
-        <Strong>Settings → Triggers</Strong> card, and the list of subscribable kinds is served from
-        the same registry the app&apos;s own live updates run on — anything that refreshes on your
-        screen can fire a Routine.
+        Triggers are managed by admins on the routine&apos;s <Strong>Settings → Triggers</Strong>{" "}
+        card, and the list of subscribable kinds is served from the same registry the app&apos;s own
+        live updates run on — anything that refreshes on your screen can fire a Routine.
       </P>
       <Callout kind="info" title="An event routes work. It never carries content.">
         Event frames are coarse and <Strong>id-only</Strong>: a fire tells the Routine only that its

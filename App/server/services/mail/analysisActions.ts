@@ -1,6 +1,6 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { Customer } from "../../db/entities/Customer.js";
-import type { FinanceAccess } from "../../db/entities/Membership.js";
+import type { FinanceAccess, Role } from "../../db/entities/Membership.js";
 import type { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
@@ -17,13 +17,14 @@ import {
 } from "../finance.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { normalizeAccountDomain } from "../revenue/accounts.js";
-import { createMailDraft, performThreadAction } from "./actions.js";
+import { performThreadAction } from "./actions.js";
 import {
   MAIL_ANALYSIS_FINANCE_KINDS,
   parseAnalysisActions,
   type MailAnalysisAction,
 } from "./analysis.js";
 import { createMailHandover, handoverGrantError } from "./handovers.js";
+import { createMailReviewApproval } from "./reviewApprovals.js";
 import { unsubscribeFromMessage } from "./unsubscribe.js";
 
 /**
@@ -71,6 +72,7 @@ const SHARED_MAIL_DOMAINS = new Set([
 export type MailAnalysisActor = {
   userId: string;
   sessionVersion: number;
+  role: Role;
   /**
    * The pressing Member's finance level, resolved the same way the finance
    * routes resolve it. The money buttons write real finance rows, and the
@@ -84,7 +86,7 @@ export type MailAnalysisActionResult = {
   analysis: MailInboundAnalysis;
   /** Where the client should take the Member next, when there is somewhere. */
   navigateTo: string | null;
-  /** One line for the toast. Always says what actually happened. */
+  /** One line for the inline confirmation. Always says what actually happened. */
   message: string;
 };
 
@@ -103,12 +105,12 @@ export class MailAnalysisActionError extends Error {}
  * armed for a retry rather than being burnt by an outage. That is the right
  * trade for every kind here: the failure a Member actually hits is a dead
  * Google connection or an expired token — nothing happened, and they want the
- * button back after reconnecting. The residual risk, a call that failed
- * *after* Gmail acted, costs at worst a duplicate that is visible and
- * removable — a second draft in the review queue, a second draft invoice with
- * no number and no ledger entry, a repeat of an idempotent triage action, or
- * a repeat of a one-click unsubscribe the sender has already seen. Burning
- * the button would strand the common case to avoid the rare harmless one.
+ * button back after reconnecting. Review creation is itself deduplicated. For
+ * the remaining effects, a call that failed *after* the provider acted costs
+ * at worst a visible draft invoice with no number or ledger entry, a repeat of
+ * an idempotent triage action, or a repeated one-click unsubscribe the sender
+ * has already seen. Burning the button would strand the common case to avoid
+ * the rare harmless one.
  */
 export async function executeAnalysisAction(
   account: MailAccount,
@@ -186,27 +188,38 @@ async function runAction(
   }
   switch (action.kind) {
     case "draft_reply": {
-      const draft = await createMailDraft(
-        account,
-        {
-          // The address the Member read under the label, not whoever happens
-          // to be newest on the thread. `targetTo` is the server's own
-          // snapshot of this message's sender; a reply that quietly goes
-          // somewhere else is the one thing this button must never do.
-          to: action.targetTo ?? "",
-          subject: action.subject,
-          bodyText: action.bodyText,
-        },
-        context.thread,
-        // The words are the employee's, so the Drafts review queue must say
-        // so — that queue exists precisely to read AI-written mail before it
-        // goes out. Attributing it to the Member who pressed the button would
-        // hide it from the one screen built to catch it.
-        { employeeId: analysis.employeeId },
-      );
+      const employeeId = analysis.employeeId;
+      if (!employeeId) {
+        throw new MailAnalysisActionError(
+          "The AI Employee that prepared this reply is no longer recorded. Analyse the email again.",
+        );
+      }
+      // Keep model-written mail inside Genosyn. This deliberately does not
+      // call the mailbox draft API or create a draft MailMessage: the exact
+      // reply is snapshotted into the Decision stack and reaches the provider
+      // only if an owner or admin later presses Send now.
+      const review = await createMailReviewApproval({
+        companyId: account.companyId,
+        employeeId,
+        threadId: context.thread.id,
+        context: `${context.message.fromName || context.message.fromEmail}: ${analysis.summary}`,
+        steps: [{ title: "Prepared a reply for review" }],
+        subject: action.subject ?? undefined,
+        bodyText: action.bodyText,
+      });
       return {
-        navigateTo: null,
-        message: `Draft reply saved to ${draft.toEmails || account.address}`,
+        navigateTo:
+          actor.role === "owner" || actor.role === "admin"
+            ? `/decisions#review-${review.approval.id}`
+            : null,
+        message:
+          actor.role === "owner" || actor.role === "admin"
+            ? review.created
+              ? "Reply added to Needs you"
+              : "This email already has a Decision-stack review"
+            : review.created
+              ? "Reply queued for an owner or admin to review"
+              : "An owner or admin already has this email review",
       };
     }
 

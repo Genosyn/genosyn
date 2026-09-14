@@ -13,6 +13,11 @@ import { getOwnWorkReview, OwnWorkReviewError } from "../services/proactive/work
 import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
 import { performMailSenderAction } from "../services/mail/blockedSenders.js";
 import {
+  createMailReviewApproval,
+  mailReviewDetails,
+  reviseMailReviewApproval,
+} from "../services/mail/reviewApprovals.js";
+import {
   mailDeliveryAllowsDeferredWork,
   mailDeliveryToolError,
   type MailDeliveryMode,
@@ -2341,17 +2346,21 @@ const quoteReadPage = {
   limit: z.number().int().min(1).max(100).default(25),
   offset: z.number().int().min(0).safe().default(0),
 };
-const listEstimatesSchema = z.object({
-  ...quoteReadPage,
-  customerSlug: z.string().min(1).max(200).optional(),
-  status: z.enum(["draft", "sent", "accepted", "declined", "void"]).optional(),
-}).strict();
+const listEstimatesSchema = z
+  .object({
+    ...quoteReadPage,
+    customerSlug: z.string().min(1).max(200).optional(),
+    status: z.enum(["draft", "sent", "accepted", "declined", "void"]).optional(),
+  })
+  .strict();
 const getEstimateSchema = z.object({ estimateSlug: z.string().min(1).max(200) }).strict();
-const listFinanceProductsSchema = z.object({
-  ...quoteReadPage,
-  includeArchived: z.boolean().default(false),
-  currency: isoCurrency.optional(),
-}).strict();
+const listFinanceProductsSchema = z
+  .object({
+    ...quoteReadPage,
+    includeArchived: z.boolean().default(false),
+    currency: isoCurrency.optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/list_estimates",
@@ -2465,9 +2474,7 @@ mcpInternalRouter.post(
   },
 );
 
-const estimateActionSchema = z
-  .object({ estimateSlug: z.string().min(1).max(200) })
-  .strict();
+const estimateActionSchema = z.object({ estimateSlug: z.string().min(1).max(200) }).strict();
 
 mcpInternalRouter.post(
   "/tools/issue_estimate",
@@ -2491,7 +2498,8 @@ mcpInternalRouter.post(
         note: "Estimate issued and marked Sent. Nothing was emailed and there is no ledger effect. Use the returned estimate.slug for subsequent calls and non-draft PDF attachments. Replace any previously attached draft PDF; existing email attachments do not update automatically.",
       });
     } catch (err) {
-      res.status(err instanceof EstimateActionError ? err.status : 400)
+      res
+        .status(err instanceof EstimateActionError ? err.status : 400)
         .json({ error: (err as Error).message });
     }
   },
@@ -2530,12 +2538,14 @@ mcpInternalRouter.post(
       res.json({
         estimate: serializeEstimateFull(estimate),
         send,
-        note: send.status === "sent"
-          ? "Estimate emailed to the Customer's on-file address. Use the returned estimate.slug for subsequent calls and attachments. Calling send_estimate again sends another email."
-          : "The estimate is issued, but email delivery was not confirmed. Inspect send.status and send.errorMessage. Use the returned estimate.slug for subsequent calls; only retry sending when authorized.",
+        note:
+          send.status === "sent"
+            ? "Estimate emailed to the Customer's on-file address. Use the returned estimate.slug for subsequent calls and attachments. Calling send_estimate again sends another email."
+            : "The estimate is issued, but email delivery was not confirmed. Inspect send.status and send.errorMessage. Use the returned estimate.slug for subsequent calls; only retry sending when authorized.",
       });
     } catch (err) {
-      res.status(err instanceof EstimateActionError ? err.status : 400)
+      res
+        .status(err instanceof EstimateActionError ? err.status : 400)
         .json({ error: (err as Error).message });
     }
   },
@@ -12449,7 +12459,7 @@ mcpInternalRouter.post(
   },
 );
 
-// ----- Decision Stack (questions an employee raised for a human) -----
+// ----- Decision Stack (questions and exact actions raised for a human) -----
 
 const workReviewSchema = z
   .object({
@@ -12458,6 +12468,171 @@ const workReviewSchema = z
     plan: z.string().trim().min(1).max(8_000),
   })
   .strict();
+
+const mailReviewSchema = z
+  .object({
+    threadId: z.string().uuid().optional(),
+    accountId: z.string().uuid().optional(),
+    to: z.string().max(2_000).optional(),
+    cc: z.string().max(2_000).optional(),
+    bcc: z.string().max(2_000).optional(),
+    context: z.string().trim().min(1).max(4_000),
+    workSummary: z.string().trim().max(8_000).optional(),
+    steps: z
+      .array(
+        z
+          .object({
+            title: z.string().trim().min(1).max(160),
+            detail: z.string().trim().min(1).max(1_000).optional(),
+          })
+          .strict(),
+      )
+      .max(12)
+      .optional(),
+    attachments: resourceAttachmentSpecsSchema.optional(),
+    subject: z.string().trim().min(1).max(1_000).optional(),
+    bodyText: z.string().trim().min(1).max(200_000),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/request_mail_review",
+  validateBody(mailReviewSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof mailReviewSchema>;
+    const threadId = body.threadId ?? req.mcpMailThreadId ?? null;
+    if (!threadId && (!body.accountId || !body.to || !body.subject)) {
+      return res.status(400).json({
+        error: "Pass accountId, to, and subject for a fresh email, or threadId for a reply.",
+      });
+    }
+    if (req.mcpMailThreadId && req.mcpMailThreadId !== threadId) {
+      return res.status(403).json({
+        error: "This email work can prepare a reply only for its own source thread.",
+      });
+    }
+    if (req.mcpMailDeliveryMode === "triage") {
+      return res.status(403).json({
+        error: "This work is triage only. It cannot prepare an email for sending.",
+      });
+    }
+    if (threadId && (body.to !== undefined || body.cc !== undefined || body.bcc !== undefined)) {
+      return res.status(400).json({
+        error:
+          "Reply recipients come from the source thread. Omit to, cc, and bcc; a human can edit them in the Decision stack.",
+      });
+    }
+    try {
+      const result = await createMailReviewApproval({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        accountId: body.accountId,
+        threadId,
+        mailHandoverId: req.mcpMailHandoverId,
+        routineId: req.mcpRoutineId,
+        runId: req.mcpRunId,
+        conversationId: req.mcpConversationId,
+        context: body.context,
+        workSummary: body.workSummary,
+        steps: body.steps,
+        attachments: body.attachments,
+        financeAccessLimit: delegatedMemberFinanceAccess(req),
+        to: body.to,
+        cc: body.cc,
+        bcc: body.bcc,
+        subject: body.subject,
+        bodyText: body.bodyText,
+      });
+      return res.json({
+        approvalId: result.approval.id,
+        status: result.approval.status,
+        created: result.created,
+        note: result.created
+          ? "Email added to the Decision stack. Nothing was saved to the mailbox or sent. A human can edit it, send it now, or discard it."
+          : "The same email, or an email for this source thread, already has a review record. Do not create a duplicate or send around it.",
+      });
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Could not prepare the email review.",
+      });
+    }
+  },
+);
+
+const reviseMailReviewSchema = z
+  .object({
+    approvalId: z.string().uuid(),
+    expectedRevision: z.string().regex(/^[0-9a-f]{64}$/),
+    to: z.string().max(2_000).optional(),
+    cc: z.string().max(2_000).optional(),
+    bcc: z.string().max(2_000).optional(),
+    subject: z.string().trim().min(1).max(1_000).optional(),
+    bodyText: z.string().trim().min(1).max(200_000).optional(),
+  })
+  .strict()
+  .refine(
+    (body) =>
+      body.to !== undefined ||
+      body.cc !== undefined ||
+      body.bcc !== undefined ||
+      body.subject !== undefined ||
+      body.bodyText !== undefined,
+    { message: "Change at least one email field." },
+  );
+
+mcpInternalRouter.post(
+  "/tools/revise_mail_review",
+  validateBody(reviseMailReviewSchema),
+  async (req: McpRequest, res) => {
+    if (req.mcpMailDeliveryMode === "triage") {
+      return res.status(403).json({
+        error: "This work is triage only. It cannot revise an email for sending.",
+      });
+    }
+    const hasMailProvenance =
+      req.mcpMailThreadId !== null && req.mcpMailThreadId !== undefined
+        ? true
+        : req.mcpMailHandoverId !== null && req.mcpMailHandoverId !== undefined;
+    if (hasMailProvenance && !req.mcpMailThreadId) {
+      return res.status(403).json({
+        error: "This email revision is missing its source thread.",
+      });
+    }
+    if (!hasMailProvenance) {
+      return res.status(403).json({
+        error:
+          "Email reviews can be revised only from the exact email work that created them or their source-bound review discussion.",
+      });
+    }
+    const body = req.body as z.infer<typeof reviseMailReviewSchema>;
+    try {
+      const approval = await reviseMailReviewApproval({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        actorUserId:
+          req.mcpAuthority === "member" ? (req.mcpRequesterUserId ?? undefined) : undefined,
+        conversationId: req.mcpConversationId ?? undefined,
+        expectedThreadId: hasMailProvenance ? req.mcpMailThreadId! : undefined,
+        expectedMailHandoverId: hasMailProvenance ? (req.mcpMailHandoverId ?? null) : undefined,
+        ...body,
+      });
+      if (!approval) {
+        return res.status(409).json({
+          error: "This email review is no longer pending or belongs to another AI Employee.",
+        });
+      }
+      return res.json({
+        approvalId: approval.id,
+        review: mailReviewDetails(approval),
+        note: "The existing Decision-stack email was updated. Nothing was saved to the mailbox or sent.",
+      });
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Could not revise the email review.",
+      });
+    }
+  },
+);
 
 mcpInternalRouter.post(
   "/tools/request_work_review",
@@ -12485,11 +12660,19 @@ mcpInternalRouter.post(
     return res.json({
       approvalId: approval.id,
       status: approval.status,
-      note: approval.status === "pending"
-        ? "Work proposed in the Decision stack. Only an owner or admin can approve it. Finish this review without performing the work; the approved plan starts separately after approval."
-        : `This work already has a ${approval.status} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
+      note:
+        approval.status === "pending"
+          ? "Work proposed in the Decision stack. Only an owner or admin can approve it. Finish this review without performing the work; the approved plan starts separately after approval."
+          : `This work already has a ${approval.status} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
     });
   },
+);
+
+mcpInternalRouter.post("/tools/revise_work_review", (_req: McpRequest, res) =>
+  res.status(403).json({
+    error:
+      "Work reviews can be revised only from their source-bound review discussion in the Decision stack.",
+  }),
 );
 
 mcpInternalRouter.post(
@@ -12599,10 +12782,9 @@ mcpInternalRouter.post(
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note:
-          req.mcpProactiveReview
-            ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work. Use request_work_review for a concrete plan and wait for human approval before acting."
-            : decision.pickupStatus === "skipped"
+        note: req.mcpProactiveReview
+          ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work. Use request_work_review for a concrete plan and wait for human approval before acting."
+          : decision.pickupStatus === "skipped"
             ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."
             : decision.routedToEmployeeId
               ? "Stacked. Your company's decision policy routes this to an AI teammate, who is being briefed now; if they decline or stall, humans are paged. Stop this line of work and finish your turn — when it is answered, you are started again in a fresh session briefed with the answer."
@@ -12688,6 +12870,9 @@ mcpInternalRouter.post(
     if (result.outcome === "not_found") {
       return res.status(404).json({ error: "No decision of yours has that id." });
     }
+    if (result.outcome === "forbidden") {
+      return res.status(403).json({ error: "This decision is assigned to another Member." });
+    }
     if (result.outcome === "conflict") {
       return res.status(400).json({
         error: `That decision is already ${result.decision.status}; only pending ones can be cancelled.`,
@@ -12760,7 +12945,11 @@ mcpInternalRouter.post(
 const scheduleWakeupSchema = z
   .object({
     at: z.string().datetime({ offset: true }).optional(),
-    inHours: z.number().positive().max(24 * 90).optional(),
+    inHours: z
+      .number()
+      .positive()
+      .max(24 * 90)
+      .optional(),
     brief: z.string().min(1).max(4_000),
   })
   .strict()
@@ -14047,11 +14236,13 @@ mcpInternalRouter.post(
   },
 );
 
-const openRepositoryWorkSessionPullRequestSchema = z.object({
-  sessionId: z.string().uuid(),
-  title: z.string().trim().min(1).max(300).optional(),
-  body: z.string().max(20000).optional(),
-}).strict();
+const openRepositoryWorkSessionPullRequestSchema = z
+  .object({
+    sessionId: z.string().uuid(),
+    title: z.string().trim().min(1).max(300).optional(),
+    body: z.string().max(20000).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/open_repository_work_session_pull_request",
@@ -14399,7 +14590,8 @@ mcpInternalRouter.post(
       const live = runningSessionTurn(session.id);
       if (!live) {
         return res.status(400).json({
-          error: "This turn is not running in a way that can show steps, so the list was not recorded.",
+          error:
+            "This turn is not running in a way that can show steps, so the list was not recorded.",
         });
       }
       live.recorder.steps(steps);
@@ -16190,13 +16382,15 @@ mcpInternalRouter.post(
 
 // ───────────────────────── Excel workbooks ─────────────────────────
 
-const readXlsxSchema = z.object({
-  attachmentId: z.string().uuid(),
-  sheet: z.string().min(1).max(31).optional(),
-  range: z.string().min(1).max(40).optional(),
-  maxCells: z.number().int().min(1).max(1000).optional(),
-  maxChars: z.number().int().min(1000).max(50_000).optional(),
-}).strict();
+const readXlsxSchema = z
+  .object({
+    attachmentId: z.string().uuid(),
+    sheet: z.string().min(1).max(31).optional(),
+    range: z.string().min(1).max(40).optional(),
+    maxCells: z.number().int().min(1).max(1000).optional(),
+    maxChars: z.number().int().min(1000).max(50_000).optional(),
+  })
+  .strict();
 
 const editXlsxSchema = z
   .object({
@@ -16256,7 +16450,9 @@ mcpInternalRouter.post(
       return res.status(error.status).json({ error: error.message });
     }
     if (edited.bytes.length > ATTACHMENTS_MAX_BYTES) {
-      return res.status(413).json({ error: "The edited workbook exceeds the 25 MB attachment limit." });
+      return res
+        .status(413)
+        .json({ error: "The edited workbook exceeds the 25 MB attachment limit." });
     }
     const row = await recordAttachmentBytes({
       companyId: co.id,

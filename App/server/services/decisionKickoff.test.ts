@@ -201,6 +201,31 @@ describe("decision pickup", () => {
     assert.match(brief, /threadId/);
   });
 
+  test("a mail-raised Decision pickup can only return an email to the stack", async () => {
+    await giveModel();
+    const thread = await insert(MailThread, {
+      companyId: company.id,
+      accountId: "acct-1",
+      gmailThreadId: "g-review",
+      subject: "Customer question",
+      lastMessageAt: new Date(),
+    });
+    const decision = await stackAndAnswer({ mailThreadId: thread.id });
+    await kickoffDecision({
+      companyId: company.id,
+      decisionId: decision.id,
+      requesterUserId: member.id,
+      requesterSessionVersion: 0,
+      runChat: async (_company, _employee, message, _history, options) => {
+        assert.equal(options?.mailDeliveryMode, "review");
+        assert.equal(options?.mailThreadId, thread.id);
+        assert.match(message, /request_mail_review/);
+        assert.match(message, /do not create a Gmail or IMAP draft/i);
+        return { status: "ok", reply: "Prepared for review.", attachmentIds: [], sidecars: {} };
+      },
+    });
+  });
+
   test("legacy event and email Decisions retain proposal-only scope after an AI answer", async () => {
     await giveModel();
     const routine = await insert(Routine, {

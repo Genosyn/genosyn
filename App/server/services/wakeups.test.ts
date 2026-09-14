@@ -141,7 +141,7 @@ describe("dispatchDueWakeups", () => {
     await dispatchDueWakeups(new Date(), async (_company, _employee, _brief, _history, options) => {
       calls++;
       assert.equal(options?.proactiveReview, true);
-      assert.equal(options?.mailDeliveryMode, "draft");
+      assert.equal(options?.mailDeliveryMode, "review");
       assert.equal(options?.routineId, routine.id);
       return { status: "ok", reply: "Waiting for human review.", attachmentIds: [], sidecars: {} };
     });

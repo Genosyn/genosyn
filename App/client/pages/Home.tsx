@@ -61,6 +61,7 @@ import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
 import { DecisionCard } from "../components/decisions/DecisionCard";
 import { WorkReviewCard } from "@/components/decisions/WorkReviewCard";
+import { MailReviewCard } from "@/components/decisions/MailReviewCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -117,6 +118,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const homeRequest = React.useRef(0);
   const mailRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
+  const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
   const background = useBackgroundAction();
 
   // The todo peek needs the company's people to fill its assignee and reviewer
@@ -144,10 +146,19 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     }
   }, [company.id]);
 
+  const reloadDecisionStack = React.useCallback(
+    async (announcement?: string) => {
+      await reload();
+      if (announcement) setDecisionNotice({ message: announcement });
+    },
+    [reload],
+  );
+
   React.useEffect(() => {
     setData(null);
     setLoadError(null);
     setOverlay(null);
+    setDecisionNotice(null);
     void reload();
     return () => {
       homeRequest.current += 1;
@@ -216,7 +227,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   // teammate answering in another tab should empty it here without a refresh.
   // `tldr_question` keeps the Discuss badge honest — a card asked from the
   // TLDRs page changes this count without touching the briefing row.
-  useLiveRefetch(["decision", "tldr", "tldr_question", "repository"], reload);
+  useLiveRefetch(["approval", "decision", "tldr", "tldr_question", "repository"], reload);
   useLiveRefetch("employee", reloadPeople);
 
   function dismissTldr(item: TldrItem) {
@@ -281,6 +292,11 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             </Button>
           </div>
         )}
+        {decisionNotice && (
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {decisionNotice.message}
+          </div>
+        )}
         {data === null ? (
           !loadError && (
             <div className="flex min-h-[40vh] items-center justify-center">
@@ -291,7 +307,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           <>
             {hasAnythingToShow(data) ? (
               <>
-                <DecisionStack company={company} data={data} onResolved={reload} />
+                <DecisionStack company={company} data={data} onResolved={reloadDecisionStack} />
                 <RepositoryWorkCard
                   key={company.id}
                   company={company}
@@ -505,7 +521,7 @@ function HomeOverlayHost({
 function hasAnythingToShow(data: HomeData): boolean {
   return (
     data.decisions.length > 0 ||
-    (data.proactiveApprovals?.length ?? 0) > 0 ||
+    (data.decisionApprovals?.length ?? 0) > 0 ||
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
@@ -762,16 +778,30 @@ function DecisionStack({
 }: {
   company: Company;
   data: HomeData;
-  onResolved: () => Promise<void> | void;
+  onResolved: (announcement?: string) => Promise<void> | void;
 }) {
   const canReview = company.role === "owner" || company.role === "admin";
-  const workReviews = canReview ? (data.proactiveApprovals ?? []) : [];
-  const workReviewCount = canReview ? (data.pendingProactiveApprovalCount ?? workReviews.length) : 0;
-  const total = data.pendingDecisionCount + workReviewCount;
-  if (data.decisions.length === 0 && workReviews.length === 0) return null;
-  const preview = data.decisions.slice(0, 3);
-  const workPreview = workReviews.slice(0, 3);
-  const hidden = total - preview.length - workPreview.length;
+  const reviews = canReview ? (data.decisionApprovals ?? []) : [];
+  const reviewCount = canReview ? (data.pendingDecisionApprovalCount ?? reviews.length) : 0;
+  const total = data.pendingDecisionCount + reviewCount;
+  if (data.decisions.length === 0 && reviews.length === 0) return null;
+  const preview = [
+    ...reviews.map((approval) => ({
+      kind: "review" as const,
+      at: approval.requestedAt,
+      urgency: 1,
+      approval,
+    })),
+    ...data.decisions.map((decision) => ({
+      kind: "decision" as const,
+      at: decision.createdAt,
+      urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
+      decision,
+    })),
+  ]
+    .sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at))
+    .slice(0, 3);
+  const hidden = Math.max(0, total - preview.length);
   return (
     <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
@@ -786,19 +816,37 @@ function DecisionStack({
           to={`/c/${company.slug}/decisions`}
           className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
         >
-          All decisions <ChevronRight size={12} />
+          Open stack <ChevronRight size={12} />
         </Link>
         <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          Review proposed work and answer your AI Employees. Work marked for approval waits for an owner or admin.
+          See what happened, review the recommendation, then take one clear next step.
         </p>
       </div>
       <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-        {workPreview.map((approval) => (
-          <WorkReviewCard key={approval.id} company={company} approval={approval} onResolved={onResolved} />
-        ))}
-        {preview.map((d) => (
-          <DecisionCard key={d.id} company={company} decision={d} onResolved={onResolved} />
-        ))}
+        {preview.map((item) =>
+          item.kind === "decision" ? (
+            <DecisionCard
+              key={item.decision.id}
+              company={company}
+              decision={item.decision}
+              onResolved={onResolved}
+            />
+          ) : item.approval.kind === "mail_send" ? (
+            <MailReviewCard
+              key={item.approval.id}
+              company={company}
+              approval={item.approval}
+              onResolved={onResolved}
+            />
+          ) : (
+            <WorkReviewCard
+              key={item.approval.id}
+              company={company}
+              approval={item.approval}
+              onResolved={onResolved}
+            />
+          ),
+        )}
       </ul>
       {hidden > 0 && (
         <Link

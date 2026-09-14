@@ -212,11 +212,11 @@ after(async () => {
 
 test("a persisted draft ceiling disables privileged sources and survives unknown non-null values", () => {
   assert.deepEqual(routineDeliveryPolicy({ mailDeliveryMode: "draft" }), {
-    mailDeliveryMode: "draft",
+    mailDeliveryMode: "review",
     allowPrivilegedToolSources: false,
   });
   assert.deepEqual(routineDeliveryPolicy({ mailDeliveryMode: "future-mode" as "draft" }), {
-    mailDeliveryMode: "draft",
+    mailDeliveryMode: "review",
     allowPrivilegedToolSources: false,
   });
   assert.deepEqual(routineDeliveryPolicy({ mailDeliveryMode: null }), {
@@ -232,8 +232,12 @@ test("a persisted draft ceiling disables privileged sources and survives unknown
     "triage",
   );
   assert.equal(
+    routineDeliveryPolicy({ mailDeliveryMode: "draft" }, false, "review").mailDeliveryMode,
+    "review",
+  );
+  assert.equal(
     routineDeliveryPolicy({ mailDeliveryMode: "draft" }, false, "reply").mailDeliveryMode,
-    "draft",
+    "review",
   );
 });
 
@@ -245,8 +249,9 @@ test("scheduled Runs refuse sending even with a Send Grant and contradictory Sou
     toolResults.join("\n"),
   );
   assert.ok(observedModes.length > 0);
-  assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedModes.every((mode) => mode === "review"));
   assert.ok(observedProactiveScopes.every(Boolean));
+  assert.ok(offeredTools.includes("request_mail_review"));
   assert.ok(offeredTools.includes("request_work_review"));
   assert.equal(offeredTools.includes("send_mail"), false);
   assert.equal(run.outcomeVerdict, "unverified");
@@ -277,8 +282,9 @@ test("a renamed starter and deleted mailbox retain the ceiling on a manual Run",
     toolResults.some((result) => /unknown tool.*send_mail/i.test(result)),
     toolResults.join("\n"),
   );
-  assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedModes.every((mode) => mode === "review"));
   assert.ok(observedProactiveScopes.every(Boolean));
+  assert.ok(offeredTools.includes("request_mail_review"));
   assert.ok(offeredTools.includes("request_work_review"));
   assert.equal(offeredTools.includes("send_mail"), false);
   assert.equal(configuredMcpRequests, 0);
@@ -302,8 +308,9 @@ test("a review does not run delivery Checks or attempt impossible remediation", 
     toolResults.every((result) => /unknown tool.*send_mail/i.test(result)),
     toolResults.join("\n"),
   );
-  assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedModes.every((mode) => mode === "review"));
   assert.ok(observedProactiveScopes.every(Boolean));
+  assert.ok(offeredTools.includes("request_mail_review"));
   assert.ok(offeredTools.includes("request_work_review"));
   assert.equal(offeredTools.includes("send_mail"), false);
   assert.equal(
@@ -358,13 +365,16 @@ test("an approved plan runs original Checks and retains a stronger email ceiling
   assert.equal(approvedRun.checksVerdict, "failed", approvedRun.logContent);
   assert.equal(approvedRun.checkRemediations, 2);
   assert.ok(
-    toolResults.some((result) => /preparation only|sending is not authorized/i.test(result)),
+    toolResults.some((result) => /request_mail_review|decision stack/i.test(result)),
     toolResults.join("\n"),
   );
   assert.ok(observedProactiveScopes.every((flag) => flag === false));
-  assert.ok(observedModes.every((mode) => mode === "draft"));
+  assert.ok(observedModes.every((mode) => mode === "review"));
   assert.ok(observedMailThreads.length > 0);
   assert.ok(observedMailThreads.every((id) => id === thread.id));
+  assert.ok(offeredTools.includes("request_mail_review"));
+  assert.equal(offeredTools.includes("create_mail_draft"), false);
+  assert.equal(offeredTools.includes("send_mail"), false);
   assert.equal(configuredMcpRequests, 0);
 });
 

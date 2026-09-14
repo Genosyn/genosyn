@@ -193,6 +193,13 @@ export function Email() {
         as a review queue built for that job — one row per draft rather than one per thread, so a
         night&apos;s work is a single scannable list instead of a folder to click through.
       </P>
+      <Callout kind="info" title="Automatic replies stay in the Decision stack.">
+        When a rule or proactive email responsibility prepares a customer reply, the exact message
+        appears in the <DocLink to="/docs/decisions#reviewing-email">Decision stack</DocLink>
+        instead. It is not saved to Gmail Drafts or an IMAP Drafts folder. Review it there, use{" "}
+        <Strong>Edit email</Strong> or <Strong>Ask employee to edit</Strong> if needed, then select{" "}
+        <Strong>Send now</Strong> or <Strong>Discard</Strong>.
+      </Callout>
       <P>
         <Strong>Home → Emails</Strong> keeps <Strong>Drafts</Strong> and <Strong>Starred</Strong>{" "}
         together. Their totals cover every company mailbox; select either count to open that view in
@@ -313,7 +320,7 @@ export function Email() {
         <Strong>Create the invoice</Strong>. Someone asking what it would cost gets{" "}
         <Strong>Draft an estimate</Strong>. A newsletter you never signed up for gets{" "}
         <Strong>Unsubscribe</Strong>. Anything that needs an answer gets{" "}
-        <Strong>Draft a reply</Strong>, with the reply already written.
+        <Strong>Prepare a reply</Strong>, with the reply already written.
       </P>
       <P>
         The buttons vary because the reasoning does. There is no fixed list per sender and no rule
@@ -324,9 +331,10 @@ export function Email() {
       <P>What a button does when you press it:</P>
       <UL>
         <LI>
-          <Strong>Draft a reply</Strong> — saves a real draft on the thread and puts it in the{" "}
-          <DocLink to="/docs/email#drafts">Drafts review queue</DocLink>. Nothing sends until you
-          send it.
+          <Strong>Prepare a reply</Strong> — puts the exact reply in <Strong>Needs you</Strong>,
+          where an owner or admin can edit, send, ask the employee to revise, or discard it. It
+          exists only in Genosyn until they press <Strong>Send now</Strong>; Gmail and IMAP Drafts
+          stay untouched.
         </LI>
         <LI>
           <Strong>Create the invoice</Strong> / <Strong>Draft an estimate</Strong> — pulls the line
@@ -350,12 +358,13 @@ export function Email() {
         </LI>
       </UL>
       <Callout kind="tip" title="Nothing runs by itself.">
-        Analysis only ever <em>proposes</em>. Buttons act with your access, not the employee&apos;s
-        — which is why an employee on <Strong>Draft</Strong> can offer to write a reply you then
-        send. What you see under each label is the fact the server checked, not the employee&apos;s
-        claim about it: the total an invoice adds up to, the host an unsubscribe would talk to, the
-        address a reply would go to. Buttons that consume something are marked done once they run,
-        so a reload cannot fire them twice. Acting with <em>your</em> access cuts both ways: if your{" "}
+        Analysis only ever <em>proposes</em>. Each button is checked against the pressing
+        Member&apos;s access and the employee&apos;s Grant. An employee on <Strong>Draft</Strong>{" "}
+        can prepare a reply, but only an owner or admin can send its Decision-stack review. What you
+        see under each label is the fact the server checked, not the employee&apos;s claim about it:
+        the total an invoice adds up to or the host an unsubscribe would talk to. Buttons that
+        consume something are marked done once they run, so a reload cannot fire them twice. Acting
+        with <em>your</em> access cuts both ways: if your{" "}
         <DocLink to="/docs/finance">finance</DocLink> access is read-only, the invoice and estimate
         buttons appear greyed out with the reason, because they would be refused anyway — you still
         see what the email was read as.
@@ -377,7 +386,7 @@ export function Email() {
         always tells you who would read the next email to arrive, so an on switch never means
         nothing is happening. Turn it off and new mail simply arrives plain.
       </P>
-      <Callout kind="info" title="Read access categorises; Draft access can reply.">
+      <Callout kind="info" title="Read access categorises; Draft access can prepare replies.">
         An employee on <Strong>Read</Strong> can summarise and triage but will not offer to write a
         reply. Raise them to <Strong>Draft</Strong> under{" "}
         <DocLink to="/docs/email#access">AI access</DocLink> for that.
@@ -411,8 +420,7 @@ export function Email() {
         <Strong>Queue message</Strong> to add a follow-up. Pending messages appear in order above
         the composer; remove any message before it starts. Each one sends after the reply ahead of
         it finishes. Switching emails or navigating elsewhere in the app keeps the queue with its
-        original conversation. If a reply fails, pending messages stay queued until you resume
-        them.
+        original conversation. If a reply fails, pending messages stay queued until you resume them.
       </P>
       <P>
         Replies can also carry <Strong>action buttons</Strong> — concrete next steps the employee
@@ -465,20 +473,22 @@ export function Email() {
       </P>
       <UL>
         <LI>
-          <Strong>Do the work and draft a reply.</Strong> The employee handles the underlying
+          <Strong>Do the work and prepare a reply.</Strong> The employee handles the underlying
           request through its Grants, such as preparing a Customer and quote or starting a
-          Repository Work session, then drafts a reply with the resulting artifacts. Sending is
-          blocked for this handover even if the employee has a Send Grant.
+          Repository Work session, then puts the resulting reply in the Decision stack. It creates
+          no mailbox draft and cannot send from this handover, even with a Send Grant.
         </LI>
         <LI>
-          <Strong>Draft a reply.</Strong> The employee writes a reply as a real draft on the thread.
-          Nothing is sent — you review the draft and press <Strong>Send</Strong> when it is right.
-          This is the default and the safe way to put AI on your inbox.
+          <Strong>Prepare a reply for review.</Strong> The employee writes the exact reply inside
+          Genosyn&apos;s Decision stack. Nothing is saved to Gmail or IMAP Drafts. Review and edit
+          it there, then select <Strong>Send now</Strong> or <Strong>Discard</Strong>. This is the
+          default and the safe way to put AI on your inbox.
         </LI>
         <LI>
           <Strong>Reply directly.</Strong> After completing the underlying work, the employee may
-          send if its Soul and your instruction authorize that kind of reply. Otherwise it saves
-          a draft. Only offered to employees with <Strong>Send</Strong> access.
+          send if its Soul and your instruction authorize that kind of reply. Otherwise it puts the
+          exact proposed reply in the Decision stack for review. Only offered to employees with{" "}
+          <Strong>Send</Strong> access.
         </LI>
         <LI>
           <Strong>Triage.</Strong> No writing — the employee reads the thread and files it: applies
@@ -489,21 +499,31 @@ export function Email() {
         A handover you start runs with the employee&apos;s <DocLink to="/docs/soul">Soul</DocLink>{" "}
         and <DocLink to="/docs/skills">Skills</DocLink>, while every action is limited by both your
         current access and the employee&apos;s Grants. Starting or retrying one requires a logged-in
-        browser session. Rule-created handovers remain trusted automation and use the
-        employee&apos;s Grants. Progress and results appear on the thread and on the{" "}
+        browser session. Progress and results appear on the thread and on the{" "}
         <Strong>AI handovers</Strong> page, and Genosyn notifies you when the handover finishes.
         Paused mailboxes and active Standdowns defer queued work; removed Grants or changed rules
-        are checked again before it starts. Ready email responsibilities are assigned automatically
-        by default as AI Employees gain a connected AI Model and the required Grants, once the
-        mailbox and its AI analysis reader are ready. This covers quote requests, customer code
-        issues, sales enquiries, confirmed spam, and unwanted newsletters. Open{" "}
-        <DocLink to="/docs/reactivity">Proactive</DocLink> to review or customize those assignments.
-        Turning <Strong>Automatic setup</Strong> off only stops future automatic assignments;
-        existing work keeps running until you pause it individually. Historical mail is never
-        replayed by setup, and automatically assigned email work prepares drafts by default.
-        If preparation needs missing information, the employee can raise a Decision for a Member.
-        The answer is saved for the approved standing Routine or a Member to continue; answering
-        does not start a separate session that could send around the draft restriction.
+        are checked again before it starts.
+      </P>
+      <P>
+        A handover created automatically by a rule begins differently: it can read the new email,
+        but it cannot change records, start Repository work, create a mailbox draft, or send. If the
+        email only needs an answer, it puts the exact reply in the{" "}
+        <DocLink to="/docs/decisions#reviewing-email">Decision stack</DocLink>. If the request needs
+        underlying work — a customer bug report, for example — it first creates a work review with
+        the evidence and plan. <Strong>Approve &amp; start</Strong> authorizes that work; after it
+        finishes, the proposed customer reply returns as a separate email review. Only{" "}
+        <Strong>Send now</Strong> sends it, with no Gmail or IMAP draft created first.
+      </P>
+      <P>
+        Ready email responsibilities are assigned automatically by default as AI Employees gain a
+        connected AI Model and the required Grants, once the mailbox and its AI analysis reader are
+        ready. This covers quote requests, customer code issues, sales enquiries, confirmed spam,
+        and unwanted newsletters. Open <DocLink to="/docs/reactivity">Proactive</DocLink> to review
+        or customize those assignments. Turning <Strong>Automatic setup</Strong> off only stops
+        future automatic assignments; existing work keeps running until you pause it individually.
+        Historical mail is never replayed by setup. If preparation needs missing information, the
+        employee can raise a Decision for a Member. That answer records the missing information; it
+        does not approve the work or perform a send.
       </P>
 
       <H2 id="access">Giving AI Employees mailbox access</H2>
@@ -557,13 +577,13 @@ export function Email() {
         <em>when an email matches these conditions, do these actions.</em> Static filters match on
         sender (including an exact email address), recipient, subject, body text, and whether
         there&apos;s an attachment. The <Strong>AI category</Strong> filter reuses the completed
-        incoming analysis without another model call; it only matches while analysis is enabled
-        and the message has a successful result. Every filled
-        filter must match. You can then turn on <Strong>AI judgment</Strong>, choose an eligible AI
-        employee, and describe the messages that count in plain language. Static filters run first;
-        the AI Employee sees only mail that passes them, and its answer must also be yes before any
-        action runs. Each message that reaches AI judgment uses the employee&apos;s active model, so
-        narrow static filters are also the simplest way to control cost on a busy mailbox.
+        incoming analysis without another model call; it only matches while analysis is enabled and
+        the message has a successful result. Every filled filter must match. You can then turn on{" "}
+        <Strong>AI judgment</Strong>, choose an eligible AI employee, and describe the messages that
+        count in plain language. Static filters run first; the AI Employee sees only mail that
+        passes them, and its answer must also be yes before any action runs. Each message that
+        reaches AI judgment uses the employee&apos;s active model, so narrow static filters are also
+        the simplest way to control cost on a busy mailbox.
       </P>
       <P>
         For example, create a rule called <Strong>Remove marketing spam</Strong>, turn on AI
@@ -574,9 +594,16 @@ export function Email() {
         review. Matching rules normally compose, so labelling, filing, safe unsubscribe, and
         handovers can work together. An enabled exact-sender Spam rule takes priority and stops
         broader proactive work on that message. The employee&apos;s <code>mail_block_sender</code>{" "}
-        tool creates this mailbox-local rule after filing confirmed spam; disable or delete it
-        under <Strong>Email → Rules</Strong> to unblock. It does not create an outbound Suppression.
+        tool creates this mailbox-local rule after filing confirmed spam; disable or delete it under{" "}
+        <Strong>Email → Rules</Strong> to unblock. It does not create an outbound Suppression.
       </P>
+      <Callout kind="info" title="Automatic customer work is reviewed before action.">
+        A rule that hands mail to an AI Employee does not create a provider draft or start the
+        requested business work immediately. A reply-only request becomes an exact email review in
+        the <DocLink to="/docs/decisions">Decision stack</DocLink>. Work such as investigating a bug
+        becomes a work review first, then returns its final reply to the stack after approval and
+        completion.
+      </Callout>
       <Callout kind="warn" title="Safe unsubscribe never clicks a link in the email body.">
         The action only uses one HTTPS URL advertised by RFC unsubscribe headers that the receiving
         mail server confirms were covered by a valid DKIM signature — which Genosyn can only verify
@@ -598,8 +625,10 @@ export function Email() {
       <P>
         Rules are reactive — they fire when mail arrives. For scheduled email work (&ldquo;every
         morning, summarize yesterday&apos;s unread support threads&rdquo;), give an employee a{" "}
-        <DocLink to="/docs/routines">Routine</DocLink> instead: a granted employee can search, read,
-        draft, and send through the same mailbox from any routine, no new machinery required.
+        <DocLink to="/docs/routines">Routine</DocLink> instead. Genosyn&apos;s automatic starter
+        Routines use the safe preparation ceiling: any reply or fresh outbound message becomes an
+        exact Decision-stack review and never a Gmail or IMAP draft. A custom unrestricted Routine
+        can still use the mailbox actions allowed by its Grants and company Policies.
       </P>
 
       <H2 id="ai-tools">What employees can do with mail</H2>
@@ -614,6 +643,14 @@ export function Email() {
         without a human forwarding anything. Every action an employee takes is checked against its
         grant level and recorded in the audit log and the employee&apos;s journal, so you can always
         see what it did after the fact.
+      </P>
+      <P>
+        Proactive email work has a stricter, server-owned boundary regardless of those general
+        capabilities. Its review turn uses <Code>request_mail_review</Code> to hold an exact reply
+        or fresh outbound email inside Genosyn, and approved underlying work must use the same route
+        for the final customer message. A mailbox Grant cannot turn that review into an unattended
+        send. The Connection, mailbox Grant, exact source, attachments, Suppressions, and company
+        Policies are checked again immediately before delivery.
       </P>
 
       <Callout kind="warn" title="Disconnecting is safe.">

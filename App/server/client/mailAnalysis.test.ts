@@ -133,12 +133,15 @@ describe("analysis category tones", () => {
 });
 
 describe("analysis action detail", () => {
-  test("names the verified recipient of a draft reply", () => {
+  test("points a prepared reply to the Decision stack", () => {
     assert.equal(
       analysisActionDetail(analysisAction("draft_reply", { targetTo: "ada@example.com" })),
-      "Reply to ada@example.com",
+      "Owner/admin review in Needs you",
     );
-    assert.equal(analysisActionDetail(analysisAction("draft_reply")), null);
+    assert.equal(
+      analysisActionDetail(analysisAction("draft_reply")),
+      "Owner/admin review in Needs you",
+    );
   });
 
   test("names the host an unsubscribe would talk to", () => {
@@ -267,7 +270,7 @@ describe("analysis action hints", () => {
     assert.deepEqual(
       ACTION_KINDS.map((kind) => analysisActionHint(analysisAction(kind))),
       [
-        "Saves a Gmail draft for you to review — nothing sends until you send it",
+        "Adds the reply to Needs you for an owner or admin to review — nothing is written to Gmail or IMAP Drafts",
         "Creates a draft invoice — no number, no ledger entry, nothing emailed",
         "Creates a draft estimate — nothing is sent to the customer",
         "Sends the sender's verified one-click unsubscribe request",
@@ -475,7 +478,7 @@ describe("analysis readiness note", () => {
     });
   });
 
-  test("warns that a reader on read access cannot offer to draft a reply", () => {
+  test("warns that a reader on read access cannot prepare a reply review", () => {
     const note = analysisReadinessNote({
       enabled: true,
       resolved: { employeeName: "Jamie", modelLabel: "claude-sonnet", accessLevel: "read" },
@@ -484,7 +487,7 @@ describe("analysis readiness note", () => {
     assert.equal(note.tone, "warn");
     assert.equal(
       note.text,
-      "Jamie reads new mail on claude-sonnet. On Read access they can summarise and triage, but cannot offer to draft a reply — raise them to Draft for that.",
+      "Jamie reads new mail on claude-sonnet. On Read access they can summarise and triage, but cannot prepare a reply for Needs you — raise them to Draft for that.",
     );
     assert.match(note.text, /Draft/);
   });

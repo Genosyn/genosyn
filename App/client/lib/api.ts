@@ -605,11 +605,49 @@ export type ApprovalKind =
    * evidence sentence — are server-set.
    */
   | "autonomy_promotion"
+  | "mail_send"
   /**
    * A high-risk call held because the turn had already read web content
    * (M53b). Approving replays the recorded call verbatim.
    */
   | "tainted_tool";
+export type WorkApprovalReview = {
+  kind: "work";
+  revision: string;
+  context: string;
+  plan: string;
+  source: {
+    routineId: string | null;
+    runId: string | null;
+    conversationId: string | null;
+    mailThreadId: string | null;
+    mailAccountId: string | null;
+    mailHandoverId: string | null;
+  };
+};
+export type MailApprovalReview = {
+  kind: "mail";
+  revision: string;
+  context: string;
+  workSummary: string;
+  steps: Array<{ title: string; detail: string | null }>;
+  attachments: Array<{
+    index: number;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+  }>;
+  source: {
+    accountId: string;
+    threadId: string | null;
+    mailHandoverId: string | null;
+    routineId: string | null;
+    runId: string | null;
+    conversationId: string | null;
+  };
+  draft: { to: string; cc: string; bcc: string; subject: string; bodyText: string };
+};
+export type ApprovalReview = WorkApprovalReview | MailApprovalReview;
 export type Approval = {
   id: string;
   companyId: string;
@@ -624,6 +662,16 @@ export type Approval = {
   outcomeSummary?: string | null;
   /** Actual approved Routine Run, separate from the initial proactive review. */
   outcomeRunId?: string | null;
+  /** Structured, redacted content for the chronological Decision-stack card. */
+  review?: ApprovalReview | null;
+  /** Exact provider send recorded after a reviewed email is approved. */
+  mailOutcome?: {
+    sentMessageId: string | null;
+    providerMessageRef: string;
+    sentAt: string;
+  } | null;
+  /** Whether a reviewed send succeeded, stopped before delivery, or may have reached the mailbox. */
+  mailDeliveryStatus?: "sent" | "not_sent" | "unverified" | null;
   requestedAt: string;
   decidedAt: string | null;
   decidedByUserId: string | null;
@@ -2872,7 +2920,10 @@ export type RepositoryWorkSessionDetail = {
   session: RepositoryWorkSession;
   turns: RepositoryWorkSessionTurn[];
 };
-export type WorkSessionModel = Pick<AIModel, "id" | "provider" | "model" | "status" | "isActive"> & {
+export type WorkSessionModel = Pick<
+  AIModel,
+  "id" | "provider" | "model" | "status" | "isActive"
+> & {
   label: string;
   /** The server supplies the efforts this model currently supports. */
   effortLevels?: ModelEffort[];
@@ -3155,6 +3206,7 @@ export type HomeApproval = {
   kind: string;
   title: string | null;
   summary: string | null;
+  review?: ApprovalReview | null;
   requestedAt: string;
   employee: { id: string; name: string; slug: string } | null;
   routine: { id: string; name: string; slug: string } | null;
@@ -3830,9 +3882,9 @@ export type HomeData = {
   /** The Decision Stack, highest urgency first. Empty on a clean day. */
   decisions: Decision[];
   pendingDecisionCount: number;
-  /** Proposed proactive work awaiting an owner or admin, separate from Decisions. */
-  proactiveApprovals?: HomeApproval[];
-  pendingProactiveApprovalCount?: number;
+  /** Action Approvals shown alongside questions in the Decision stack. */
+  decisionApprovals?: HomeApproval[];
+  pendingDecisionApprovalCount?: number;
   myTodos: HomeTodo[];
   myTodoCount: number;
   reviewTodos: HomeTodo[];

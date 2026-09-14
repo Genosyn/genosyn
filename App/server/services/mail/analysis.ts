@@ -674,7 +674,7 @@ export function verifyActions(
   const actions: MailAnalysisAction[] = [];
   const seenKinds = new Set<string>();
   for (const [index, action] of submission.actions.entries()) {
-    // One of each. A row of four "Draft a reply" buttons is a worse answer
+    // One of each. A row of four "Prepare a reply" buttons is a worse answer
     // than one, and the model occasionally reaches for it under pressure.
     if (seenKinds.has(action.kind)) continue;
     const id = `${index}`;
@@ -725,7 +725,7 @@ export function analysisSystemPrompt(employee: AIEmployee, facts: MailAnalysisFa
   const soul = employee.soulBody.trim().slice(0, MAIL_ANALYSIS_SOUL_CHARS);
   const buttons = [
     facts.canDraft
-      ? "- `draft_reply` — write the reply yourself in `bodyText`. It is saved as a Gmail draft for a human to read and send; it never sends itself. Use it whenever the sender is owed an answer, and write the actual answer, not a placeholder."
+      ? "- `draft_reply` — write the reply yourself in `bodyText`. It is held only in Genosyn's Decision stack for a human to edit, send, or discard; it is never saved to Gmail or IMAP Drafts. Use it whenever the sender is owed an answer, and write the actual answer, not a placeholder."
       : "- `draft_reply` — unavailable: you do not have Draft access to this mailbox.",
     "- `create_invoice` — the sender is asking to be billed, or has approved work you should bill for. Extract real line items from the email; `unitPriceCents` is minor units, so $50.00 is 5000. Give the ISO 4217 `currency` the email states, or USD if it states none. Creates a DRAFT invoice with no number, no ledger effect, and no email.",
     "- `create_estimate` — the sender is asking for a quote, estimate, or pricing. Same line-item and currency rules. Creates a DRAFT estimate.",
@@ -757,7 +757,7 @@ export function analysisSystemPrompt(employee: AIEmployee, facts: MailAnalysisFa
     buttons,
     roster,
     "",
-    `Propose at most ${MAIL_ANALYSIS_MAX_ACTIONS} buttons, at most one of each kind, ordered most useful first. Propose none at all when the email genuinely needs nothing — an empty row is a good answer, and an invented button is not. Labels are short and imperative: "Draft a reply", "Create the invoice", "Unsubscribe".`,
+    `Propose at most ${MAIL_ANALYSIS_MAX_ACTIONS} buttons, at most one of each kind, ordered most useful first. Propose none at all when the email genuinely needs nothing — an empty row is a good answer, and an invented button is not. Labels are short and imperative: "Prepare a reply", "Create the invoice", "Unsubscribe".`,
     "",
     "The summary is one sentence a busy human reads instead of the email. Say what the sender wants and what it will cost or commit, when the email says so. Do not editorialise and do not restate the subject line.",
     "",

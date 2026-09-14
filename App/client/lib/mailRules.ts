@@ -175,7 +175,13 @@ export function mailRuleSummaryParts(
         case "unsubscribe":
           return "unsubscribe safely";
         case "handToEmployee":
-          return `hand to ${action.employeeName ?? "AI"} (${action.mode})`;
+          return `hand to ${action.employeeName ?? "AI"} (${
+            action.mode === "triage"
+              ? "triage"
+              : action.mode === "work"
+                ? "work review"
+                : "email review"
+          })`;
       }
     }),
   };

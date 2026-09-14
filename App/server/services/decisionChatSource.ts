@@ -38,7 +38,7 @@ export class DecisionDiscussionScopeError extends Error {
   }
 }
 
-function linkedDecisionIds(message: string, companySlug: string): string[] {
+export function linkedDecisionIds(message: string, companySlug: string): string[] {
   const ids: string[] = [];
   for (const match of message.matchAll(DECISION_LINK_RE)) {
     if (match[1] === companySlug && UUID_RE.test(match[2] ?? "")) {

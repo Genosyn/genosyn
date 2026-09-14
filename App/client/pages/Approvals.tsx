@@ -2,7 +2,6 @@ import React from "react";
 import { Check, X } from "lucide-react";
 import { api, Approval, ApprovalStatus, Company } from "../lib/api";
 import { approvalCopy } from "../components/approvals/approvalCopy";
-import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -14,9 +13,10 @@ import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
- * Company-wide approvals inbox. One row per gated action, across every
- * kind the server queues: routine ticks (`requiresApproval`), Lightning
- * payments over a Connection's threshold, browser form submits
+ * Company-wide inbox for action gates outside the Decision stack. Email and
+ * proposed-work reviews live only in the Decision stack; this page covers
+ * routine ticks (`requiresApproval`), Lightning payments over a Connection's
+ * threshold, browser form submits
  * (`browserApprovalRequired` — the AI re-fires via `browser_resume` after
  * approval, in the same turn or any later one), guarded MCP tool calls,
  * and ad-spend mutations. `approvalCopy` in
@@ -51,7 +51,7 @@ export default function Approvals({ company }: { company: Company }) {
       return;
     }
     try {
-      const list = await api.get<Approval[]>(base);
+      const list = await api.get<Approval[]>(`${base}?kind=other`);
       setRows(list);
       setLoadError(null);
     } catch (err) {
@@ -84,7 +84,7 @@ export default function Approvals({ company }: { company: Company }) {
     background(
       () => api.post<Approval & { executeError?: string }>(`${base}/${row.id}/${action}`),
       {
-        title: "Couldn’t record the decision",
+        title: "Couldn’t update this Approval",
         error: (error) => `${errorMessage(error)} The approval is pending again.`,
         onSuccess: (updated) => {
           setRows(
@@ -144,15 +144,6 @@ export default function Approvals({ company }: { company: Company }) {
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((a) => {
-                  if (a.kind === "proactive_work")
-                    return (
-                      <WorkReviewCard
-                        key={a.id}
-                        company={company}
-                        approval={a}
-                        onResolved={reload}
-                      />
-                    );
                   const c = approvalCopy(a);
                   return (
                     <li key={a.id}>
@@ -198,8 +189,6 @@ export default function Approvals({ company }: { company: Company }) {
               </div>
               <ul className="flex flex-col gap-1">
                 {history.map((a) => {
-                  if (a.kind === "proactive_work")
-                    return <WorkReviewOutcome key={a.id} company={company} approval={a} />;
                   const c = approvalCopy(a);
                   return (
                     <li key={a.id}>

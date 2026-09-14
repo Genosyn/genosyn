@@ -58,6 +58,11 @@ import {
   DecisionDiscussionScopeError,
   type DecisionChatSource,
 } from "./decisionChatSource.js";
+import {
+  ApprovalReviewDiscussionScopeError,
+  createApprovalReviewChatSource,
+  type ApprovalReviewChatSource,
+} from "./approvalReviewChatSource.js";
 
 /**
  * Chat seam.
@@ -399,7 +404,7 @@ function composeDiscussionSystemPrompt(
   co: Company,
   emp: AIEmployee,
   sourcePrompt: string,
-  resourceLabel: "TLDR" | "Decision",
+  resourceLabel: "TLDR" | "Decision" | "Review",
 ): string {
   return [
     `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate opened a direct discussion with you about a company ${resourceLabel}. Reply in your own voice, guided by your Soul, while staying inside the discussion-only boundary below.`,
@@ -514,6 +519,7 @@ export async function streamChatWithEmployee(
           requesterSessionVersion,
         })
       : null;
+  let approvalReviewChatSource: ApprovalReviewChatSource | null = null;
   let decisionChatSource: DecisionChatSource | null = null;
   if (
     requesterMembership &&
@@ -522,7 +528,7 @@ export async function streamChatWithEmployee(
     options.surface === "chat"
   ) {
     try {
-      decisionChatSource = await createDecisionChatSource({
+      approvalReviewChatSource = await createApprovalReviewChatSource({
         message,
         companyId: co.id,
         companySlug: co.slug,
@@ -531,14 +537,35 @@ export async function streamChatWithEmployee(
         requesterSessionVersion,
         conversationId: options.conversationId,
       });
+      if (!approvalReviewChatSource) {
+        decisionChatSource = await createDecisionChatSource({
+          message,
+          companyId: co.id,
+          companySlug: co.slug,
+          employeeId: emp.id,
+          requesterUserId: options.requesterUserId,
+          requesterSessionVersion,
+          conversationId: options.conversationId,
+        });
+      }
     } catch (error) {
-      if (!(error instanceof DecisionDiscussionScopeError)) throw error;
+      if (
+        !(error instanceof ApprovalReviewDiscussionScopeError) &&
+        !(error instanceof DecisionDiscussionScopeError)
+      )
+        throw error;
       return { status: "error", reply: error.message, attachmentIds: [], sidecars: {} };
     }
   }
-  // A saved Decision discussion stays bound even when a follow-up quotes a TLDR.
-  const discussionSource = decisionChatSource ?? tldrChatSource;
-  const discussionLabel = decisionChatSource ? "Decision" : "TLDR";
+  // A saved review/Decision discussion stays bound even when a follow-up quotes
+  // another reference. Review is first because its restricted editor is the
+  // narrowest authority and must never fall through to ordinary chat tools.
+  const discussionSource = approvalReviewChatSource ?? decisionChatSource ?? tldrChatSource;
+  const discussionLabel = approvalReviewChatSource
+    ? "Review"
+    : decisionChatSource
+      ? "Decision"
+      : "TLDR";
   const privilegedToolSourcesAllowed =
     contextAccess.privilegedToolSources && !options.proactiveReview && !options.selfReviewOnly;
   const authorizePrivilegedToolCall =
@@ -670,9 +697,13 @@ export async function streamChatWithEmployee(
 
     const skills = await AppDataSource.getRepository(Skill).find({ where: { employeeId: emp.id } });
     const parallelDelegationAvailable =
-      privilegedToolSourcesAllowed && !options.mailDeliveryMode && supportsParallelDelegation(model.authMode);
+      privilegedToolSourcesAllowed &&
+      !options.mailDeliveryMode &&
+      supportsParallelDelegation(model.authMode);
     const unavailableCodingTools =
-      !privilegedToolSourcesAllowed || Boolean(options.mailDeliveryMode) || !codingRuntimeAvailability().available
+      !privilegedToolSourcesAllowed ||
+      Boolean(options.mailDeliveryMode) ||
+      !codingRuntimeAvailability().available
         ? [...CODING_TOOL_NAMES]
         : config.agent.codingTools.executionMode === "bubblewrap"
           ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
@@ -786,6 +817,19 @@ export async function streamChatWithEmployee(
         "",
         "## Untrusted chat surface",
         "This message has no authenticated Genosyn Member behind it. Company tools, coding tools, browser access, and configured MCP servers are unavailable. Answer only from the conversation and your non-sensitive briefing.",
+      ].join("\n");
+    }
+    if (options.mailDeliveryMode === "review" || options.mailDeliveryMode === "draft") {
+      system += [
+        "",
+        "## Email delivery review",
+        "Any customer email from this work — a reply or a fresh outbound message — must use `request_mail_review` with its exact recipients, subject, body and files. It remains only in the Decision stack until an owner or admin sends or discards it. Never create a Gmail or IMAP draft and never send around the review.",
+      ].join("\n");
+    } else if (options.mailDeliveryMode === "reply") {
+      system += [
+        "",
+        "## Email delivery",
+        "This work may send a reply only when its trusted instruction, Soul, Grants and company Policies authorize that exact action. If sending is not clearly authorized, use `request_mail_review`. Never create a Gmail or IMAP draft.",
       ].join("\n");
     }
     const messages = buildMessages(history, message, options.images);

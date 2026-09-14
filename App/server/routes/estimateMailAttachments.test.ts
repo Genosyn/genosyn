@@ -9,12 +9,14 @@ import { chromium } from "playwright-core";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
@@ -25,6 +27,10 @@ import { errorHandler } from "../middleware/error.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { GmailMailbox } from "../services/mail/mailbox/gmail.js";
 import type { MimeFields } from "../services/mail/mime.js";
+import {
+  executeMailReviewApproval,
+  parseMailReviewPayload,
+} from "../services/mail/reviewApprovals.js";
 import { ATTACHMENT_TOTAL_MAX_BYTES } from "../services/resourceAttachments.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { FakeMailbox } from "../test/fakeMailbox.js";
@@ -119,9 +125,18 @@ beforeEach(async () => {
     employeeId: employee.id,
     accessLevel: "invoice",
   });
+  const connection = await insert(IntegrationConnection, {
+    companyId: company.id,
+    provider: "google",
+    label: "Sales inbox",
+    authMode: "oauth2",
+    encryptedConfig: "unused-in-this-test",
+    accountHint: "sales@example.com",
+    status: "connected",
+  });
   account = await insert(MailAccount, {
     companyId: company.id,
-    connectionId: randomUUID(),
+    connectionId: connection.id,
     address: "sales@example.com",
   });
   mailGrant = await insert(EmployeeMailAccountGrant, {
@@ -198,6 +213,7 @@ async function call(tool: string, body: unknown) {
       customer?: { slug: string };
       estimate?: { slug: string };
       message?: { messageId: string };
+      approvalId?: string;
     },
   };
 }
@@ -237,6 +253,7 @@ async function memberAuthority(financeAccess: "none" | "read" | "full") {
     requesterUserId: user.id,
     requesterSessionVersion: user.sessionVersion,
   });
+  return user;
 }
 
 test("customer request becomes a new Customer, estimate and reply draft with the actual PDF", async () => {
@@ -352,6 +369,68 @@ test("a Member with full Finance can prepare the quotation through the employee"
   assert.equal(response.status, 200, response.body.error);
 });
 
+test("a Member-driven mail review cannot borrow the AI Employee's broader Finance Grant", async () => {
+  await memberAuthority("read");
+  const response = await call("request_mail_review", {
+    threadId: thread.id,
+    context: "The customer asked for a quotation.",
+    bodyText: "Here is the requested quotation.",
+    attachments: [{ estimateSlug: estimate.slug }],
+  });
+  assert.equal(response.status, 400);
+  assert.match(response.body.error ?? "", /finance access/i);
+  assert.equal(await AppDataSource.getRepository(Approval).count(), 0);
+  assert.equal(renderedHtml.length, 0);
+  assert.equal(mailbox.calls.length, 0);
+});
+
+test("mail review reauthorization retains the Member's original Finance ceiling", async () => {
+  await AppDataSource.getRepository(Estimate).update(estimate.id, {
+    status: "sent",
+    number: "EST-0007",
+    numberSeq: 7,
+  });
+  await memberAuthority("read");
+  const response = await call("request_mail_review", {
+    threadId: thread.id,
+    context: "The customer asked for the issued quotation.",
+    bodyText: "Here is the requested quotation.",
+    attachments: [{ estimateSlug: estimate.slug }],
+  });
+  assert.equal(response.status, 200, response.body.error);
+  const approval = await AppDataSource.getRepository(Approval).findOneByOrFail({
+    id: response.body.approvalId!,
+  });
+  assert.equal(parseMailReviewPayload(approval.payloadJson).financeAccessLimit, "read");
+
+  await AppDataSource.getRepository(Estimate).update(estimate.id, { status: "draft" });
+  const reviewer = await insert(User, {
+    email: "reviewer@example.test",
+    passwordHash: "hash",
+    name: "Reviewer",
+  });
+  await insert(Membership, {
+    companyId: company.id,
+    userId: reviewer.id,
+    role: "owner",
+  });
+  await AppDataSource.getRepository(Approval).update(approval.id, {
+    status: "executing",
+    decidedAt: new Date(),
+    decidedByUserId: reviewer.id,
+  });
+  const claimed = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
+  await assert.rejects(
+    executeMailReviewApproval(claimed, {
+      mailbox: async () => mailbox,
+      notify: () => undefined,
+    }),
+    /Invoicing finance access/i,
+  );
+  assert.equal(renderedHtml.length, 1);
+  assert.equal(mailbox.calls.length, 0);
+});
+
 for (const corrupt of ["estimate", "customer"] as const) {
   test(`a foreign-company ${corrupt} is never rendered`, async () => {
     const entity = corrupt === "estimate" ? Estimate : Customer;
@@ -432,7 +511,10 @@ test("issuing a quotation lets the employee replace its draft PDF in the existin
   assert.deepEqual(mime.attachments?.[0].content, pdfBytes);
   assert.match(renderedHtml[1], /CUSTOMER-EST-0001/);
   assert.doesNotMatch(renderedHtml[1], /DRAFT/);
-  assert.equal(mailbox.calls.some((entry) => entry.method.startsWith("send")), false);
+  assert.equal(
+    mailbox.calls.some((entry) => entry.method.startsWith("send")),
+    false,
+  );
   assert.equal(await AppDataSource.getRepository(LedgerEntry).count(), 0);
 });
 

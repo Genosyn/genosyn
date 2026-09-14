@@ -15,10 +15,11 @@ export type MailHandoverSource = "manual" | "rule";
  * queue through the chat seam, so the employee works with its full Soul /
  * Memory / Skills and its mail tools.
  *
- * Modes: `draft` asks for a Gmail draft in the thread (human reviews and
- * sends), `reply` lets the employee send directly (requires the `send`
- * grant), `triage` asks for labelling / archiving only. The mode shapes the
- * instruction we compose; the grant level is what actually enforces it.
+ * Modes: `draft` asks for an exact reply held in Genosyn's Decision stack
+ * (human edits, sends, or discards it), `reply` lets the employee send
+ * directly (requires the `send` grant), and `triage` asks for labelling /
+ * archiving only. The mode shapes the instruction we compose; the grant level
+ * is what actually enforces it.
  *
  * Not a `Handoff` — that entity is AI→AI delegation. See ROADMAP vocabulary.
  */

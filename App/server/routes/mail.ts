@@ -2139,6 +2139,7 @@ mailRouter.post("/mail/analyses/:id/actions/:actionId", requireBrowserSession, a
       {
         userId: req.userId!,
         sessionVersion: req.session!.sessionVersion!,
+        role: req.companyRole!,
         financeAccess: effectiveFinanceAccess(req),
       },
     );
@@ -2149,7 +2150,7 @@ mailRouter.post("/mail/analyses/:id/actions/:actionId", requireBrowserSession, a
     });
   } catch (err) {
     // Both a refused button (`MailAnalysisActionError`) and a downstream
-    // failure (Gmail, the finance ledger) are the Member's to see and retry,
+    // failure (a review/source check, the mailbox, or the finance ledger) are the Member's to see and retry,
     // so both answer 400 with the real reason rather than a 500.
     res.status(400).json({
       error: err instanceof Error ? err.message : "The action could not be completed",

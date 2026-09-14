@@ -237,6 +237,11 @@ test("proactive review exposes no Integration tools and rejects alternate invoca
 test("the review can read evidence while token authentication remains required", async () => {
   assert.equal((await tool("get_self")).status, 200);
   assert.equal((await tool("list_decisions")).status, 200);
+  assert.equal(
+    (await tool("request_mail_review")).status,
+    400,
+    "the proactive allowlist should pass mail reviews through to route validation",
+  );
   assert.equal((await tool("get_self", {}, null)).status, 401);
   assert.equal((await tool("get_self", {}, mint({ authority: "untrusted" }))).status, 403);
   await assertNoWorkStarted();
@@ -281,6 +286,7 @@ test("the model registry cannot widen a proactive token with local tools, Skills
   });
   try {
     const names = [...gathered.registry.all.keys()];
+    assert.ok(gathered.registry.resident.some((entry) => entry.name === "request_mail_review"));
     assert.ok(gathered.registry.resident.some((entry) => entry.name === "request_work_review"));
     assert.ok(
       names.every(
@@ -316,6 +322,7 @@ test("the model registry cannot widen a proactive token with local tools, Skills
     assert.equal(localCalls, 0);
     const evidence = await gathered.registry.resolve("get_self")!.run({});
     assert.equal(evidence.isError, false);
+    assert.ok(gathered.registry.resolve("request_mail_review"));
     await assertNoWorkStarted();
   } finally {
     await gathered.close();

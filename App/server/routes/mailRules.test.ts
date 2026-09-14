@@ -319,6 +319,43 @@ describe("mail rule HTTP API", () => {
     assert.equal(accepted.body.rule.conditions.ai?.employeeName, employee.name);
   });
 
+  test("enabled triage handovers require a Draft Grant", async () => {
+    const path = `/mail/accounts/${account.id}/rules`;
+    const request = {
+      name: "File newsletters",
+      enabled: true,
+      conditions: { from: "newsletter@" },
+      actions: [
+        {
+          type: "handToEmployee",
+          employeeId: employee.id,
+          mode: "triage",
+          instruction: "Mark newsletters read and archive them.",
+        },
+      ],
+    };
+    const withoutGrant = await call<ApiError>("POST", path, request);
+    assert.equal(withoutGrant.status, 400);
+    assert.match(withoutGrant.body.error ?? "", /needs at least Draft access/);
+
+    const grant = await insert(EmployeeMailAccountGrant, {
+      employeeId: employee.id,
+      accountId: account.id,
+      accessLevel: "read",
+    });
+    const readOnly = await call<ApiError>("POST", path, request);
+    assert.equal(readOnly.status, 400);
+    assert.match(readOnly.body.error ?? "", /needs at least Draft access/);
+
+    await AppDataSource.getRepository(EmployeeMailAccountGrant).update(
+      { id: grant.id },
+      { accessLevel: "draft" },
+    );
+    const accepted = await call<{ rule: SerializedRule }>("POST", path, request);
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    assert.equal(accepted.body.rule.actions[0]?.mode, "triage");
+  });
+
   test("rejects cross-company AI Employees and hydrates deleted employees safely", async () => {
     const otherCompany = await insert(Company, {
       name: "Other Company",
@@ -581,23 +618,48 @@ describe("mail rule HTTP API", () => {
   });
 });
 
-
 test("round-trips proactive categories, work mode and exact sender spam filters", async () => {
-  const created = await call<{ rule: SerializedRule }>("POST", `/mail/accounts/${account.id}/rules`, {
-    name: "Quote intake", conditions: { category: "quote_request" },
-    actions: [{ type: "handToEmployee", employeeId: employee.id, mode: "work", instruction: "Prepare the quote and a draft reply." }],
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
   });
+
+  const created = await call<{ rule: SerializedRule }>(
+    "POST",
+    `/mail/accounts/${account.id}/rules`,
+    {
+      name: "Quote intake",
+      conditions: { category: "quote_request" },
+      actions: [
+        {
+          type: "handToEmployee",
+          employeeId: employee.id,
+          mode: "work",
+          instruction: "Prepare the quote and a draft reply.",
+        },
+      ],
+    },
+  );
   assert.equal(created.status, 200, JSON.stringify(created.body));
   assert.deepEqual(created.body.rule.conditions, { category: "quote_request" });
   assert.equal(created.body.rule.actions[0].mode, "work");
-  const blocked = await call<{ rule: SerializedRule }>("POST", `/mail/accounts/${account.id}/rules`, {
-    name: "Blocked sender", conditions: { fromExact: "spam@example.com" }, actions: [{ type: "spam" }],
-  });
+  const blocked = await call<{ rule: SerializedRule }>(
+    "POST",
+    `/mail/accounts/${account.id}/rules`,
+    {
+      name: "Blocked sender",
+      conditions: { fromExact: "spam@example.com" },
+      actions: [{ type: "spam" }],
+    },
+  );
   assert.equal(blocked.status, 200, JSON.stringify(blocked.body));
   assert.deepEqual(blocked.body.rule.conditions, { fromExact: "spam@example.com" });
   assert.deepEqual(blocked.body.rule.actions, [{ type: "spam" }]);
   const invalid = await call("POST", `/mail/accounts/${account.id}/rules`, {
-    name: "Invalid category", conditions: { category: "invented" }, actions: [{ type: "archive" }],
+    name: "Invalid category",
+    conditions: { category: "invented" },
+    actions: [{ type: "archive" }],
   });
   assert.equal(invalid.status, 400);
 });

@@ -218,7 +218,7 @@ function validateSetup(overview: ProactiveOverview, input: ProactiveSetupInput):
     throw new ProactiveSetupError("This starter does not use a mailbox.");
   if (recipe.kind === "routine" && input.delivery !== "draft")
     throw new ProactiveSetupError(
-      "Scheduled starters prepare drafts; configure further authority on the Routine after review.",
+      "Scheduled starters prepare Decision-stack reviews; configure further authority on the Routine after review.",
     );
   const employee = overview.employees.find((entry) => entry.id === input.employeeId);
   if (!employee) throw new ProactiveSetupError("AI Employee not found", 404);
@@ -236,7 +236,7 @@ export async function installProactiveStarter(
   options: { automatic?: boolean } = {},
 ): Promise<ProactiveInstallation> {
   if (options.automatic && input.delivery !== "draft")
-    throw new ProactiveSetupError("Automatic setup prepares drafts.");
+    throw new ProactiveSetupError("Automatic setup prepares email reviews in the Decision stack.");
   const overview = await getProactiveOverview(companyId);
   const recipe = validateSetup(overview, input);
   const accountId = input.accountId ?? null;
