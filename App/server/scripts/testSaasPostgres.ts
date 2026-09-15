@@ -50,8 +50,14 @@ function configure(url: URL, dataDir: string): void {
   // Entity column types and migration paths are chosen at module evaluation.
   // No datasource or service imports are allowed above this assignment.
   Object.assign(config.db, { driver: "postgres", postgresUrl: url.toString() });
-  Object.assign(config.security, { multiTenant: true });
-  Object.assign(config, { dataDir });
+  Object.assign(config.security, {
+    multiTenant: true,
+    encryptionSecret: "test-only-postgres-encryption-secret-00000000000000000000000000000000",
+  });
+  Object.assign(config, {
+    dataDir,
+    sessionSecret: "test-only-postgres-session-secret-000000000000000000000000000000000",
+  });
 }
 
 function parentMessage(command: string): Promise<void> {
@@ -192,12 +198,216 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     );
 
     const { AIEmployee } = await import("../db/entities/AIEmployee.js");
+    const { AuditEvent } = await import("../db/entities/AuditEvent.js");
+    const { Base } = await import("../db/entities/Base.js");
+    const { BaseField } = await import("../db/entities/BaseField.js");
+    const { BaseFormSubmission } = await import("../db/entities/BaseFormSubmission.js");
+    const { BaseRecord } = await import("../db/entities/BaseRecord.js");
+    const { BaseTable } = await import("../db/entities/BaseTable.js");
+    const { Company } = await import("../db/entities/Company.js");
     const { User } = await import("../db/entities/User.js");
     const { UserSession } = await import("../db/entities/UserSession.js");
     const { SchedulerLease } = await import("../db/entities/SchedulerLease.js");
+    const { PublicBaseFormClosedError, createBaseForm, submitBaseFormResponse, updateBaseForm } =
+      await import("../services/baseForms.js");
     const { overrideRuntimeSettingsForTests } = await import("../services/runtimeSettings.js");
     const { withCompanyAgentCapacity, CompanyAgentCapacityError } =
       await import("../services/companyAgentCapacity.js");
+    const users = AppDataSource.getRepository(User);
+
+    const formsOwner = await users.save(
+      users.create({
+        email: "forms-postgres@example.com",
+        name: "Forms Postgres Owner",
+        passwordHash: "unused",
+        sessionVersion: 0,
+      }),
+    );
+    const companies = AppDataSource.getRepository(Company);
+    const formsCompany = await companies.save(
+      companies.create({
+        name: "Forms Postgres Company",
+        slug: "forms-postgres-company",
+        ownerId: formsOwner.id,
+      }),
+    );
+    const bases = AppDataSource.getRepository(Base);
+    const formsBase = await bases.save(
+      bases.create({
+        companyId: formsCompany.id,
+        name: "Responses",
+        slug: "responses",
+        color: "violet",
+        createdById: formsOwner.id,
+      }),
+    );
+    const tables = AppDataSource.getRepository(BaseTable);
+    const formsTable = await tables.save(
+      tables.create({
+        baseId: formsBase.id,
+        name: "Signups",
+        slug: "signups",
+        sortOrder: 1_000,
+        archivedAt: null,
+      }),
+    );
+    const fields = AppDataSource.getRepository(BaseField);
+    const nameField = await fields.save(
+      fields.create({
+        tableId: formsTable.id,
+        name: "Name",
+        type: "text",
+        configJson: "{}",
+        isPrimary: true,
+        sortOrder: 1_000,
+      }),
+    );
+
+    const concurrentFormTitle = "C".repeat(160);
+    const concurrentForms = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        createBaseForm({
+          companyId: formsCompany.id,
+          baseSlug: formsBase.slug,
+          tableId: formsTable.id,
+          title: concurrentFormTitle,
+          actorUserId: formsOwner.id,
+        }),
+      ),
+    );
+    const concurrentFormIds = new Set(concurrentForms.map(({ form }) => form.id));
+    const concurrentFormSlugs = new Set(concurrentForms.map(({ form }) => form.slug));
+    const expectedConcurrentSlugs = new Set(
+      Array.from({ length: 12 }, (_, index) => {
+        const tail = index === 0 ? "" : `-${index + 1}`;
+        return `${"c".repeat(120 - tail.length)}${tail}`;
+      }),
+    );
+    assert.equal(concurrentFormIds.size, 12);
+    assert.deepEqual(concurrentFormSlugs, expectedConcurrentSlugs);
+    assert.ok([...concurrentFormSlugs].every((slug) => slug.length <= 120));
+    const concurrentCreateAudits = await AppDataSource.getRepository(AuditEvent).findBy({
+      companyId: formsCompany.id,
+      action: "form.create",
+    });
+    assert.equal(
+      concurrentCreateAudits.filter((audit) => concurrentFormIds.has(audit.targetId)).length,
+      12,
+    );
+    console.log("PASS Postgres Forms: concurrent same-title creates receive bounded unique slugs");
+
+    const createdForm = await createBaseForm({
+      companyId: formsCompany.id,
+      baseSlug: formsBase.slug,
+      tableId: formsTable.id,
+      title: "Postgres signups",
+      actorUserId: formsOwner.id,
+    });
+    const questionId = randomUUID();
+    const publishedForm = await updateBaseForm({
+      companyId: formsCompany.id,
+      baseSlug: formsBase.slug,
+      tableId: formsTable.id,
+      formSlug: createdForm.form.slug,
+      actorUserId: formsOwner.id,
+      patch: {
+        questions: [
+          {
+            id: questionId,
+            fieldId: nameField.id,
+            label: "Your name",
+            description: "",
+            required: true,
+          },
+        ],
+        published: true,
+      },
+    });
+    assert.ok(publishedForm.form.publicUrl, "Published Form did not expose its Member URL");
+    const formToken = new URL(publishedForm.form.publicUrl).pathname.split("/").pop();
+    assert.ok(formToken, "Published Form URL did not contain a bearer token");
+
+    const sharedSubmissionId = randomUUID();
+    const sharedResults = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        submitBaseFormResponse({
+          token: formToken,
+          clientSubmissionId: sharedSubmissionId,
+          values: { [questionId]: "One retried respondent" },
+        }),
+      ),
+    );
+    assert.ok(sharedResults.every((result) => result.ok));
+    assert.equal(
+      await AppDataSource.getRepository(BaseRecord).countBy({ tableId: formsTable.id }),
+      1,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(BaseFormSubmission).countBy({
+        formId: publishedForm.form.id,
+      }),
+      1,
+    );
+
+    const distinctResults = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        submitBaseFormResponse({
+          token: formToken,
+          clientSubmissionId: randomUUID(),
+          values: { [questionId]: `Postgres respondent ${index + 1}` },
+        }),
+      ),
+    );
+    assert.ok(distinctResults.every((result) => result.ok));
+    const submissions = await AppDataSource.getRepository(BaseFormSubmission).findBy({
+      formId: publishedForm.form.id,
+    });
+    assert.equal(submissions.length, 9);
+    assert.equal(new Set(submissions.map((submission) => submission.recordId)).size, 9);
+    assert.equal(
+      await AppDataSource.getRepository(BaseRecord).countBy({ tableId: formsTable.id }),
+      9,
+    );
+
+    await updateBaseForm({
+      companyId: formsCompany.id,
+      baseSlug: formsBase.slug,
+      tableId: formsTable.id,
+      formSlug: publishedForm.form.slug,
+      actorUserId: formsOwner.id,
+      patch: { acceptingResponses: false },
+    });
+    assert.deepEqual(
+      await submitBaseFormResponse({
+        token: formToken,
+        clientSubmissionId: sharedSubmissionId,
+        values: { [questionId]: "Ignored retry body" },
+      }),
+      { ok: true },
+    );
+    await assert.rejects(
+      () =>
+        submitBaseFormResponse({
+          token: formToken,
+          clientSubmissionId: randomUUID(),
+          values: { [questionId]: "Late respondent" },
+        }),
+      PublicBaseFormClosedError,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(BaseRecord).countBy({ tableId: formsTable.id }),
+      9,
+    );
+    const formAudits = await AppDataSource.getRepository(AuditEvent).findBy({
+      companyId: formsCompany.id,
+      action: "form.submission.create",
+    });
+    assert.equal(formAudits.length, 9);
+    assert.ok(formAudits.every((audit) => !audit.metadataJson.includes("respondent")));
+    console.log(
+      "PASS Postgres Forms: concurrent idempotency, distinct responses, close and audit redaction",
+    );
+
     overrideRuntimeSettingsForTests({ agent: { maxConcurrentTurnsPerCompany: 2 } });
     const employees = AppDataSource.getRepository(AIEmployee);
     const first = await employees.save(
@@ -279,7 +489,6 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
 
     const { createUserSession, resolveUserSession, revokeCurrentUserSession } =
       await import("../services/userSessions.js");
-    const users = AppDataSource.getRepository(User);
     const user = await users.save(
       users.create({
         email: "smoke@example.com",

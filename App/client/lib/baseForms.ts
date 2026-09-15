@@ -2,6 +2,7 @@ import type {
   BaseField,
   BaseFieldType,
   BaseForm,
+  BaseFormQuestion,
   PublicBaseFormFieldType,
   PublicBaseFormQuestion,
   SelectOption,
@@ -23,6 +24,42 @@ export const PUBLIC_FORM_FIELD_TYPES = [
 export type PublicFormValue = string | number | boolean | string[] | null;
 export type PublicFormValues = Record<string, PublicFormValue>;
 export type PublicFormUrlNotice = "local-only" | "insecure-http" | "unconfigured";
+export type EditableBaseForm = Pick<
+  BaseForm,
+  | "title"
+  | "description"
+  | "submitLabel"
+  | "successTitle"
+  | "successMessage"
+  | "allowAnotherResponse"
+  | "questions"
+>;
+
+export type BaseFormPublishBlocker =
+  | { kind: "no-questions" }
+  | { kind: "required-choice-without-options"; question: BaseFormQuestion }
+  | null;
+
+export type BaseFormShareState = {
+  mode: "unavailable" | "draft" | "accepting" | "closed";
+  published: boolean;
+  publishBlocker: BaseFormPublishBlocker;
+  publishBlocked: boolean;
+  urlNotice: PublicFormUrlNotice | null;
+};
+
+export type PreparedPublicFormSubmission =
+  | {
+      ok: false;
+      errors: Record<string, string>;
+      firstInvalidQuestionId: string;
+    }
+  | {
+      ok: true;
+      errors: Record<string, never>;
+      firstInvalidQuestionId: null;
+      body: { submissionId: string; values: PublicFormValues };
+    };
 
 type ClientCrypto = {
   randomUUID?: () => string;
@@ -71,6 +108,70 @@ export function createClientUuid(
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** The exact portion of a Form that the editor saves and considers dirty. */
+export function editableBaseForm(form: BaseForm): EditableBaseForm {
+  return {
+    title: form.title,
+    description: form.description,
+    submitLabel: form.submitLabel,
+    successTitle: form.successTitle,
+    successMessage: form.successMessage,
+    allowAnotherResponse: form.allowAnotherResponse,
+    questions: form.questions,
+  };
+}
+
+/**
+ * Live response counts and publication state may change while the editor is
+ * open. Neither is an unsaved edit, so only compare the patch the editor owns.
+ */
+export function equivalentEditableBaseForms(a: BaseForm | null, b: BaseForm | null): boolean {
+  if (!a || !b) return a === b;
+  return JSON.stringify(editableBaseForm(a)) === JSON.stringify(editableBaseForm(b));
+}
+
+export function createBaseFormQuestion(
+  field: BaseField,
+  id = createClientUuid(),
+): BaseFormQuestion | null {
+  if (!isPublicFormFieldType(field.type)) return null;
+  return {
+    id,
+    fieldId: field.id,
+    label: field.name,
+    description: "",
+    required: false,
+  };
+}
+
+export function updateBaseFormQuestion(
+  questions: BaseFormQuestion[],
+  id: string,
+  patch: Partial<BaseFormQuestion>,
+): BaseFormQuestion[] {
+  return questions.map((question) => (question.id === id ? { ...question, ...patch } : question));
+}
+
+export function moveBaseFormQuestion(
+  questions: BaseFormQuestion[],
+  id: string,
+  direction: -1 | 1,
+): BaseFormQuestion[] {
+  const index = questions.findIndex((question) => question.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= questions.length) return questions;
+  const next = [...questions];
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+export function removeBaseFormQuestion(
+  questions: BaseFormQuestion[],
+  id: string,
+): BaseFormQuestion[] {
+  return questions.filter((question) => question.id !== id);
 }
 
 /** Distinguishes a usable local URL from one that is safe to share publicly. */
@@ -135,6 +236,42 @@ export function selectOptionsForField(field: BaseField): SelectOption[] {
     });
   }
   return options;
+}
+
+export function baseFormPublishBlocker(
+  form: Pick<BaseForm, "questions">,
+  fields: BaseField[],
+): BaseFormPublishBlocker {
+  if (form.questions.length === 0) return { kind: "no-questions" };
+  const question = form.questions.find((candidate) => {
+    if (!candidate.required) return false;
+    const field = fields.find((item) => item.id === candidate.fieldId);
+    if (!field || (field.type !== "select" && field.type !== "multiselect")) return false;
+    return selectOptionsForField(field).length === 0;
+  });
+  return question ? { kind: "required-choice-without-options", question } : null;
+}
+
+export function baseFormShareState(
+  form: BaseForm,
+  fields: BaseField[],
+  tableArchived: boolean,
+): BaseFormShareState {
+  const published = !!form.publishedAt;
+  const publishBlocker = baseFormPublishBlocker(form, fields);
+  return {
+    mode: tableArchived
+      ? "unavailable"
+      : !published
+        ? "draft"
+        : form.acceptingResponses
+          ? "accepting"
+          : "closed",
+    published,
+    publishBlocker,
+    publishBlocked: publishBlocker !== null,
+    urlNotice: publicFormUrlNotice(form.publicUrl, form.publicUrlConfigured),
+  };
 }
 
 export function formFieldTypeLabel(type: PublicBaseFormFieldType): string {
@@ -211,6 +348,47 @@ export function validatePublicFormValues(
     }
   }
   return errors;
+}
+
+export function publicFormRequiredProgress(
+  questions: PublicBaseFormQuestion[],
+  values: PublicFormValues,
+): { required: number; completed: number; percent: number } {
+  const requiredQuestions = questions.filter((question) => question.required);
+  const completed = requiredQuestions.filter((question) =>
+    publicFormValueIsAnswered(question, values[question.id]),
+  ).length;
+  return {
+    required: requiredQuestions.length,
+    completed,
+    percent: requiredQuestions.length
+      ? Math.round((completed / requiredQuestions.length) * 100)
+      : 100,
+  };
+}
+
+/** Validate and snapshot one public response before the network request. */
+export function preparePublicFormSubmission(
+  questions: PublicBaseFormQuestion[],
+  values: PublicFormValues,
+  existingSubmissionId?: string | null,
+): PreparedPublicFormSubmission {
+  const errors = validatePublicFormValues(questions, values);
+  const firstInvalid = questions.find((question) => errors[question.id]);
+  if (firstInvalid) {
+    return { ok: false, errors, firstInvalidQuestionId: firstInvalid.id };
+  }
+  return {
+    ok: true,
+    errors: {},
+    firstInvalidQuestionId: null,
+    body: {
+      submissionId: existingSubmissionId ?? createClientUuid(),
+      values: Object.fromEntries(
+        Object.entries(values).map(([id, value]) => [id, Array.isArray(value) ? [...value] : value]),
+      ),
+    },
+  };
 }
 
 export function baseFormStatus(

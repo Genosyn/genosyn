@@ -16,7 +16,7 @@ import { FormError, FormSuccess } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Spinner";
 import { api, type BaseField, type BaseForm, type BaseFormDetail } from "@/lib/api";
-import { publicFormUrlNotice, selectOptionsForField } from "@/lib/baseForms";
+import { baseFormShareState } from "@/lib/baseForms";
 import { copyToClipboard } from "@/lib/clipboard";
 import { errorMessage } from "@/lib/errors";
 
@@ -98,16 +98,11 @@ export function BaseFormShareModal({
     }
   }
 
-  const published = !!form.publishedAt;
-  const requiredChoiceQuestionWithoutOptions = form.questions.find((question) => {
-    if (!question.required) return false;
-    const field = fields.find((candidate) => candidate.id === question.fieldId);
-    if (!field || (field.type !== "select" && field.type !== "multiselect")) return false;
-    return selectOptionsForField(field).length === 0;
-  });
-  const publishBlocked =
-    form.questions.length === 0 || requiredChoiceQuestionWithoutOptions !== undefined;
-  const urlNotice = publicFormUrlNotice(form.publicUrl, form.publicUrlConfigured);
+  const shareState = baseFormShareState(form, fields, tableArchived);
+  const requiredChoiceQuestionWithoutOptions =
+    shareState.publishBlocker?.kind === "required-choice-without-options"
+      ? shareState.publishBlocker.question
+      : null;
 
   return (
     <Modal
@@ -137,7 +132,7 @@ export function BaseFormShareModal({
               then return here to publish or share the form.
             </p>
           </div>
-        ) : !published ? (
+        ) : !shareState.published ? (
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
               <Send size={18} />
@@ -151,7 +146,7 @@ export function BaseFormShareModal({
             </p>
             <Button
               className="mt-4"
-              disabled={busy !== null || publishBlocked}
+              disabled={busy !== null || shareState.publishBlocked}
               onClick={() => void patchForm("publish", { published: true })}
             >
               {busy === "publish" ? <Spinner size={14} /> : <Send size={14} />}
@@ -210,19 +205,19 @@ export function BaseFormShareModal({
                   The public link could not be loaded. Reset it below to create a working link.
                 </p>
               )}
-              {urlNotice && (
+              {shareState.urlNotice && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                   <div className="font-semibold">
-                    {urlNotice === "local-only"
+                    {shareState.urlNotice === "local-only"
                       ? "Local-only link"
-                      : urlNotice === "insecure-http"
+                      : shareState.urlNotice === "insecure-http"
                         ? "Not safe for internet sharing"
                         : "Public URL not configured"}
                   </div>
                   <div className="mt-0.5">
-                    {urlNotice === "local-only"
+                    {shareState.urlNotice === "local-only"
                       ? "This link uses a loopback address and only works on the machine running Genosyn. Set the public HTTPS URL at Admin → General before sharing it."
-                      : urlNotice === "insecure-http"
+                      : shareState.urlNotice === "insecure-http"
                         ? "This HTTP link can work on a trusted local network, but responses are not protected in transit. Configure HTTPS before sharing it over the internet."
                         : "Set the public HTTPS URL at Admin → General before sharing this form outside your network."}
                   </div>

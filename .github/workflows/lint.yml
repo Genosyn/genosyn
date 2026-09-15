@@ -120,6 +120,10 @@ jobs:
         run: npm run test:proactive
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test public Base Forms, validation, and submissions
+        run: npm run test:base-forms-browser
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Save browser screenshots
         if: always()
         uses: actions/upload-artifact@v4

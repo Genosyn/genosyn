@@ -10,10 +10,9 @@ import { Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import { api, type BaseColor, type PublicBaseForm } from "@/lib/api";
 import {
-  createClientUuid,
   initialPublicFormValues,
-  publicFormValueIsAnswered,
-  validatePublicFormValues,
+  preparePublicFormSubmission,
+  publicFormRequiredProgress,
   type PublicFormValue,
   type PublicFormValues,
 } from "@/lib/baseForms";
@@ -110,24 +109,23 @@ export default function PublicForm() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form || submitting || !form.acceptingResponses) return;
-    const errors = validatePublicFormValues(form.questions, values);
-    setFieldErrors(errors);
-    const firstInvalid = form.questions.find((question) => errors[question.id]);
-    if (firstInvalid) {
+    const prepared = preparePublicFormSubmission(
+      form.questions,
+      values,
+      submissionIdRef.current,
+    );
+    setFieldErrors(prepared.errors);
+    if (!prepared.ok) {
       setSubmitError("Complete the highlighted questions, then submit again.");
-      focusQuestion(firstInvalid.id);
+      focusQuestion(prepared.firstInvalidQuestionId);
       return;
     }
 
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const submissionId = submissionIdRef.current ?? createClientUuid();
-      submissionIdRef.current = submissionId;
-      await api.post<{ ok: true }>(`${endpoint}/responses`, {
-        submissionId,
-        values,
-      });
+      submissionIdRef.current = prepared.body.submissionId;
+      await api.post<{ ok: true }>(`${endpoint}/responses`, prepared.body);
       setCompleted(true);
       setDirty(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -204,11 +202,7 @@ export default function PublicForm() {
     );
   }
 
-  const required = form.questions.filter((question) => question.required);
-  const requiredDone = required.filter((question) =>
-    publicFormValueIsAnswered(question, values[question.id]),
-  ).length;
-  const progress = required.length ? Math.round((requiredDone / required.length) * 100) : 100;
+  const progress = publicFormRequiredProgress(form.questions, values);
 
   return (
     <PublicFormShell companyName={form.companyName}>
@@ -229,25 +223,25 @@ export default function PublicForm() {
                 </p>
               )}
               <div className="mt-5 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-                <span>{required.length ? "* Required" : "No required questions"}</span>
-                {required.length > 0 && (
+                <span>{progress.required ? "* Required" : "No required questions"}</span>
+                {progress.required > 0 && (
                   <span className="tabular-nums">
-                    {requiredDone} of {required.length} required
+                    {progress.completed} of {progress.required} required
                   </span>
                 )}
               </div>
-              {required.length > 0 && (
+              {progress.required > 0 && (
                 <div
                   role="progressbar"
                   aria-label="Required questions completed"
                   aria-valuemin={0}
-                  aria-valuemax={required.length}
-                  aria-valuenow={requiredDone}
+                  aria-valuemax={progress.required}
+                  aria-valuenow={progress.completed}
                   className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
                 >
                   <div
                     className={clsx("h-full rounded-full transition-[width]", ACCENT[form.color])}
-                    style={{ width: `${progress}%` }}
+                    style={{ width: `${progress.percent}%` }}
                   />
                 </div>
               )}

@@ -35,6 +35,7 @@
     "test:onboarding": "tsx scripts/test-onboarding.ts",
     "test:mail-connect": "tsx scripts/test-mail-connect.ts",
     "test:model-setup": "tsx scripts/test-model-setup.ts",
+    "test:base-forms-browser": "tsx scripts/test-base-forms-browser.ts",
     "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts",
     "test:passkey-signin": "tsx scripts/test-passkey-signin.ts"
   },

@@ -234,6 +234,68 @@ function tokenColumns(companyId: string): { tokenHash: string; tokenEncrypted: s
   };
 }
 
+const BASE_FORM_SLUG_UNIQUE_INDEX = "IDX_317e303d475dabbcaa53845bb2";
+const BASE_FORM_CREATE_MAX_ATTEMPTS = 50;
+
+/**
+ * TypeORM leaves constraint failures in each driver's native shape. Only the
+ * `(tableId, slug)` collision is expected here: a concurrent create may pick
+ * the same available suffix between our lookup and insert. Keep token-hash or
+ * unrelated database failures out of the retry path.
+ */
+function isBaseFormSlugConflict(error: unknown): boolean {
+  const codes: string[] = [];
+  const messages: string[] = [];
+  const constraints: string[] = [];
+  const seen = new Set<object>();
+
+  const collect = (value: unknown): void => {
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    const candidate = value as {
+      code?: unknown;
+      errno?: unknown;
+      message?: unknown;
+      constraint?: unknown;
+      driverError?: unknown;
+      cause?: unknown;
+    };
+    for (const code of [candidate.code, candidate.errno]) {
+      if (typeof code === "string" || typeof code === "number") {
+        codes.push(String(code).toUpperCase());
+      }
+    }
+    if (typeof candidate.message === "string") {
+      messages.push(candidate.message.toUpperCase());
+    }
+    if (typeof candidate.constraint === "string") {
+      constraints.push(candidate.constraint.toUpperCase());
+    }
+    collect(candidate.driverError);
+    collect(candidate.cause);
+  };
+  collect(error);
+
+  const uniqueViolation =
+    codes.some(
+      (code) => code === "23505" || code === "2067" || code.startsWith("SQLITE_CONSTRAINT"),
+    ) ||
+    messages.some(
+      (message) => message.includes("UNIQUE CONSTRAINT") || message.includes("DUPLICATE KEY"),
+    );
+  if (!uniqueViolation) return false;
+
+  const index = BASE_FORM_SLUG_UNIQUE_INDEX.toUpperCase();
+  return (
+    constraints.includes(index) ||
+    messages.some(
+      (message) =>
+        message.includes(index) ||
+        (message.includes("BASE_FORMS.TABLEID") && message.includes("BASE_FORMS.SLUG")),
+    )
+  );
+}
+
 async function uniqueFormSlug(tableId: string, title: string): Promise<string> {
   const repo = AppDataSource.getRepository(BaseForm);
   const maxLength = 120;
@@ -330,24 +392,43 @@ export async function createBaseForm(args: {
     throw new BaseFormRequestError(409, "Restore this table before creating a Form");
   }
   const repo = AppDataSource.getRepository(BaseForm);
-  const form = await repo.save(
-    repo.create({
-      companyId: args.companyId,
-      tableId: scope.table.id,
-      slug: await uniqueFormSlug(scope.table.id, args.title),
-      title: args.title,
-      description: "",
-      submitLabel: "Submit",
-      successTitle: "Response submitted",
-      successMessage: "Thanks for your response.",
-      allowAnotherResponse: false,
-      questionsJson: "[]",
-      publishedAt: null,
-      acceptingResponses: true,
-      ...tokenColumns(args.companyId),
-      createdById: args.actorUserId,
-    }),
-  );
+  let form: BaseForm | null = null;
+  for (let attempt = 0; attempt < BASE_FORM_CREATE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      form = await repo.save(
+        repo.create({
+          companyId: args.companyId,
+          tableId: scope.table.id,
+          slug: await uniqueFormSlug(scope.table.id, args.title),
+          title: args.title,
+          description: "",
+          submitLabel: "Submit",
+          successTitle: "Response submitted",
+          successMessage: "Thanks for your response.",
+          allowAnotherResponse: false,
+          questionsJson: "[]",
+          publishedAt: null,
+          acceptingResponses: true,
+          ...tokenColumns(args.companyId),
+          createdById: args.actorUserId,
+        }),
+      );
+      break;
+    } catch (error) {
+      if (!isBaseFormSlugConflict(error)) throw error;
+      // The winning insert committed a real slug. Re-read the first available
+      // suffix and try again; every retry remains bounded by uniqueFormSlug.
+      if (attempt === BASE_FORM_CREATE_MAX_ATTEMPTS - 1) {
+        throw new BaseFormRequestError(
+          409,
+          "Several Forms were created at the same time. Try again.",
+        );
+      }
+    }
+  }
+  if (!form) {
+    throw new BaseFormRequestError(409, "Several Forms were created at the same time. Try again.");
+  }
   await recordAudit({
     companyId: args.companyId,
     actorUserId: args.actorUserId,

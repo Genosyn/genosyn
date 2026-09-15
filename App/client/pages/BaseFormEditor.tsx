@@ -42,43 +42,23 @@ import {
 import {
   PUBLIC_FORM_FIELD_TYPES,
   baseFormStatus,
+  createBaseFormQuestion,
   createClientUuid,
+  editableBaseForm,
+  equivalentEditableBaseForms,
   formFieldTypeLabel,
   isPublicFormFieldType,
+  moveBaseFormQuestion,
   publicFormFields,
+  removeBaseFormQuestion,
   selectOptionsForField,
+  updateBaseFormQuestion,
 } from "@/lib/baseForms";
 import { errorMessage } from "@/lib/errors";
 import { useBases } from "./BasesLayout";
 import { BaseFormShareModal } from "./BaseFormShareModal";
 
-type EditableFormPatch = Pick<
-  BaseForm,
-  | "title"
-  | "description"
-  | "submitLabel"
-  | "successTitle"
-  | "successMessage"
-  | "allowAnotherResponse"
-  | "questions"
->;
-
-function editableForm(form: BaseForm): EditableFormPatch {
-  return {
-    title: form.title,
-    description: form.description,
-    submitLabel: form.submitLabel,
-    successTitle: form.successTitle,
-    successMessage: form.successMessage,
-    allowAnotherResponse: form.allowAnotherResponse,
-    questions: form.questions,
-  };
-}
-
-function equivalentEditableForms(a: BaseForm | null, b: BaseForm | null): boolean {
-  if (!a || !b) return a === b;
-  return JSON.stringify(editableForm(a)) === JSON.stringify(editableForm(b));
-}
+type EditableFormPatch = ReturnType<typeof editableBaseForm>;
 
 export default function BaseFormEditor({ company }: { company: Company }) {
   const {
@@ -143,7 +123,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
     };
   }, [endpoint]);
 
-  const dirty = !equivalentEditableForms(persisted?.form ?? null, draft);
+  const dirty = !equivalentEditableBaseForms(persisted?.form ?? null, draft);
   const dirtyRef = React.useRef(dirty);
   dirtyRef.current = dirty;
 
@@ -267,7 +247,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
     setSaving(true);
     setSaveError(null);
     try {
-      const next = await api.patch<BaseFormDetail>(endpoint, editableForm(draft));
+      const next = await api.patch<BaseFormDetail>(endpoint, editableBaseForm(draft));
       acceptDetail(next);
       setSaved(true);
       return true;
@@ -287,37 +267,23 @@ export default function BaseFormEditor({ company }: { company: Company }) {
 
   function updateQuestion(id: string, patch: Partial<BaseFormQuestion>) {
     if (!draft) return;
-    editForm({
-      questions: draft.questions.map((question) =>
-        question.id === id ? { ...question, ...patch } : question,
-      ),
-    });
+    editForm({ questions: updateBaseFormQuestion(draft.questions, id, patch) });
   }
 
   function addQuestion(field: BaseField) {
-    if (!draft || !isPublicFormFieldType(field.type)) return;
+    if (!draft) return;
+    const question = createBaseFormQuestion(field, createClientUuid());
+    if (!question) return;
     editForm({
-      questions: [
-        ...draft.questions,
-        {
-          id: createClientUuid(),
-          fieldId: field.id,
-          label: field.name,
-          description: "",
-          required: false,
-        },
-      ],
+      questions: [...draft.questions, question],
     });
     setAddOpen(false);
   }
 
   function moveQuestion(id: string, direction: -1 | 1) {
     if (!draft) return;
-    const index = draft.questions.findIndex((question) => question.id === id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= draft.questions.length) return;
-    const questions = [...draft.questions];
-    [questions[index], questions[target]] = [questions[target], questions[index]];
+    const questions = moveBaseFormQuestion(draft.questions, id, direction);
+    if (questions === draft.questions) return;
     editForm({ questions });
   }
 
@@ -530,9 +496,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
                   onMove={(direction) => moveQuestion(question.id, direction)}
                   onRemove={() =>
                     editForm({
-                      questions: draft.questions.filter(
-                        (candidate) => candidate.id !== question.id,
-                      ),
+                      questions: removeBaseFormQuestion(draft.questions, question.id),
                     })
                   }
                   onEditChoices={() => field && setChoiceField(field)}
