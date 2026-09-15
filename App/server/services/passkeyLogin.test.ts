@@ -177,7 +177,6 @@ describe("WebAuthn authentication primitives", () => {
     const verified = await verifyStoredWebAuthnAssertion({
       expectedChallenge: challenge,
       response: assertion({ passkey, challenge, userId: user.id, counter: 7 }),
-      requireUserHandle: true,
     });
 
     assert.equal(verified?.user.id, user.id);
@@ -191,34 +190,36 @@ describe("WebAuthn authentication primitives", () => {
     assert.ok((stored.lastUsedAt?.getTime() ?? 0) >= before);
   });
 
-  test("requires and account-binds a user handle for discoverable sign-in", async () => {
+  test("accepts an omitted user handle and rejects one bound to another account", async () => {
     const { user, passkey, credential } = await memberWithPasskey();
-    const challenge = randomBytes(32).toString("base64url");
+    const handlelessChallenge = randomBytes(32).toString("base64url");
+    const verified = await verifyStoredWebAuthnAssertion({
+      expectedChallenge: handlelessChallenge,
+      response: assertion({ passkey, challenge: handlelessChallenge, userHandle: null }),
+    });
 
-    for (const response of [
-      assertion({ passkey, challenge, userHandle: null }),
-      assertion({
-        passkey,
-        challenge,
-        userHandle: Buffer.from("another-user", "utf8").toString("base64url"),
-      }),
-    ]) {
-      assert.equal(
-        await verifyStoredWebAuthnAssertion({
-          expectedChallenge: challenge,
-          response,
-          requireUserHandle: true,
+    assert.equal(verified?.user.id, user.id);
+    assert.equal(verified?.credential.id, credential.id);
+
+    const mismatchedChallenge = randomBytes(32).toString("base64url");
+    assert.equal(
+      await verifyStoredWebAuthnAssertion({
+        expectedChallenge: mismatchedChallenge,
+        response: assertion({
+          passkey,
+          challenge: mismatchedChallenge,
+          userHandle: Buffer.from("another-user", "utf8").toString("base64url"),
+          counter: 2,
         }),
-        null,
-      );
-    }
+      }),
+      null,
+    );
 
     const stored = await AppDataSource.getRepository(WebAuthnCredential).findOneByOrFail({
       id: credential.id,
     });
-    assert.equal(stored.counter, 0);
-    assert.equal(stored.lastUsedAt, null);
-    assert.equal(user.id.length > 0, true);
+    assert.equal(stored.counter, 1);
+    assert.ok(stored.lastUsedAt);
   });
 
   test("rejects independently signed challenge, origin, RP ID, and signature failures", async () => {
@@ -261,7 +262,6 @@ describe("WebAuthn authentication primitives", () => {
         await verifyStoredWebAuthnAssertion({
           expectedChallenge,
           response,
-          requireUserHandle: true,
         }),
         null,
       );
@@ -280,7 +280,6 @@ describe("WebAuthn authentication primitives", () => {
       await verifyStoredWebAuthnAssertion({
         expectedChallenge: firstChallenge,
         response: assertion({ passkey, challenge: firstChallenge, userId: user.id, counter: 4 }),
-        requireUserHandle: true,
       }),
     );
 
@@ -289,7 +288,6 @@ describe("WebAuthn authentication primitives", () => {
       await verifyStoredWebAuthnAssertion({
         expectedChallenge: freshChallenge,
         response: assertion({ passkey, challenge: freshChallenge, userId: user.id, counter: 4 }),
-        requireUserHandle: true,
       }),
       null,
     );
@@ -314,7 +312,6 @@ describe("WebAuthn authentication primitives", () => {
         verifyStoredWebAuthnAssertion({
           expectedChallenge: challenge,
           response: assertion({ passkey, challenge, userId: user.id, counter: 1 }),
-          requireUserHandle: true,
         }),
       ),
     );
