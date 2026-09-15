@@ -631,6 +631,9 @@ try {
         exact: true,
       });
       await allClear.waitFor();
+      await fixture.page.waitForFunction(
+        () => document.activeElement?.hasAttribute("data-home-all-clear") === true,
+      );
       assert.equal(
         await allClear.evaluate((element) => element === document.activeElement),
         true,
