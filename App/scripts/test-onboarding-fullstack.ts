@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { chromium, type Browser, type Page } from "playwright-core";
+import { chromium, type APIResponse, type Browser, type Page } from "playwright-core";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.resolve(appRoot, "../output/playwright");
@@ -272,7 +272,7 @@ try {
   const customersApi = `/api/companies/${company.id}/customers`;
   for (let index = 0; index < 31; index += 1) {
     const featured = index === 0;
-    const response = await page.request.post(`${origin}${customersApi}`, {
+    const response: APIResponse = await page.request.post(`${origin}${customersApi}`, {
       data: {
         name: featured ? "Needle Holdings" : `Browser Customer ${String(index).padStart(2, "0")}`,
         domain: featured ? "needle.example.test" : `customer-${index}.example.test`,
