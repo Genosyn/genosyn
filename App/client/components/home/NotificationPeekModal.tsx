@@ -2,10 +2,9 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
 
-import { DecisionCard } from "@/components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "@/components/ui/Avatar";
 import { Button, buttonClassName } from "@/components/ui/Button";
-import type { Company, Decision, Notification, NotificationEntityKind } from "@/lib/api";
+import type { Company, Notification, NotificationEntityKind } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 
 /**
@@ -18,9 +17,7 @@ import { Modal } from "@/components/ui/Modal";
  * could lose the thing that was trying to reach you by brushing it.
  *
  * Now the click opens this, reading marks read, and the destination is a
- * button you press on purpose. Where the linked thing is already on the page —
- * a pending decision — it is embedded outright, so the notification can be
- * answered rather than merely read.
+ * button you press on purpose.
  */
 
 /** What the "go there" button should call the destination. */
@@ -52,16 +49,11 @@ function destinationLabel(entityKind: NotificationEntityKind | null): string {
 export function NotificationPeekModal({
   company,
   notification,
-  /** The pending decision this notification is about, when Home already has it. */
-  decision,
   onClose,
-  onChanged,
 }: {
   company: Company;
   notification: Notification;
-  decision: Decision | null;
   onClose: () => void;
-  onChanged: () => void;
 }) {
   const actor = notification.actor;
   const actorSrc = actor?.id
@@ -115,24 +107,6 @@ export function NotificationPeekModal({
           <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-200">
             {notification.body}
           </p>
-        )}
-
-        {/* A blocked employee is the one notification kind you can finish
-            here: the same card the Decision Stack renders, so answering from
-            a notification and answering from the stack are the same act. */}
-        {decision && (
-          <div className="overflow-hidden rounded-xl border border-violet-200 dark:border-violet-500/30">
-            <ul className="divide-y divide-violet-100 dark:divide-violet-500/15">
-              <DecisionCard
-                company={company}
-                decision={decision}
-                onResolved={() => {
-                  onChanged();
-                  onClose();
-                }}
-              />
-            </ul>
-          </div>
         )}
       </div>
     </Modal>

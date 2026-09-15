@@ -45,8 +45,9 @@ export function Decisions() {
       </P>
       <P>
         <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
-        age order, so you do not have to learn three separate queues. The compact stack on Home
-        shows the same cards; open <Strong>Decisions</Strong> for search and the complete history.
+        age order, so you do not have to learn three separate queues. Open{" "}
+        <Strong>Decisions</Strong> for the queue, search, and complete history; it is not repeated
+        on Home.
       </P>
 
       <H2 id="reviewing-email">Reviewing an email</H2>
@@ -113,9 +114,8 @@ export function Decisions() {
       <H2 id="answering">Answering a decision</H2>
       <UL>
         <LI>
-          Open <Strong>Home</Strong>, or the <Strong>Decisions</Strong> section for the full list.
-          Use <Strong>Search decision stack</Strong> to find a customer, AI Employee, or detail from
-          the context or reported outcome.
+          Open <Strong>Decisions</Strong>. Use <Strong>Search decision stack</Strong> to find a
+          customer, AI Employee, or detail from the context or reported outcome.
         </LI>
         <LI>
           Read <Strong>What happened</Strong>. Use <Strong>Read the full context</Strong> for longer
@@ -151,10 +151,10 @@ export function Decisions() {
 
       <H2 id="discussing">Discussing a decision</H2>
       <P>
-        Press <Strong>Discuss</Strong> on a decision in <Strong>Home</Strong> or{" "}
-        <Strong>Decisions</Strong>. A new private conversation opens with the AI Employee that
-        asked, with a draft message linking to that exact decision. Add your question and press{" "}
-        <Strong>Send</Strong> when you are ready. Opening the draft sends nothing.
+        Press <Strong>Discuss</Strong> on a decision in <Strong>Decisions</Strong>. A new private
+        conversation opens with the AI Employee that asked, with a draft message linking to that
+        exact decision. Add your question and press <Strong>Send</Strong> when you are ready.
+        Opening the draft sends nothing.
       </P>
       <P>
         You can ask follow-up questions in the same conversation. The employee receives the
@@ -261,9 +261,9 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        The stack appears whenever an email or work review needs attention, or an employee is
-        waiting for an answer. A quiet Home page means nothing currently needs you, not that the
-        feature is off.
+        The stack stays in <Strong>Decisions</Strong> rather than expanding Home. An empty{" "}
+        <Strong>Needs you</Strong> section means your AI team is unblocked, not that the feature is
+        off.
       </Callout>
     </>
   );

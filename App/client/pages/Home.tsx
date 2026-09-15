@@ -59,9 +59,6 @@ import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
 import { RunLiveModal } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
-import { DecisionCard } from "../components/decisions/DecisionCard";
-import { WorkReviewCard } from "@/components/decisions/WorkReviewCard";
-import { MailReviewCard } from "@/components/decisions/MailReviewCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -118,7 +115,6 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const homeRequest = React.useRef(0);
   const mailRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
-  const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
   const background = useBackgroundAction();
 
   // The todo peek needs the company's people to fill its assignee and reviewer
@@ -146,19 +142,10 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     }
   }, [company.id]);
 
-  const reloadDecisionStack = React.useCallback(
-    async (announcement?: string) => {
-      await reload();
-      if (announcement) setDecisionNotice({ message: announcement });
-    },
-    [reload],
-  );
-
   React.useEffect(() => {
     setData(null);
     setLoadError(null);
     setOverlay(null);
-    setDecisionNotice(null);
     void reload();
     return () => {
       homeRequest.current += 1;
@@ -223,10 +210,9 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [reload, reloadPeople]);
-  // The stack is the first thing on the page, so it has to be current: a
-  // teammate answering in another tab should empty it here without a refresh.
-  // `tldr_question` keeps the Discuss badge honest — a card asked from the
-  // TLDRs page changes this count without touching the briefing row.
+  // Keep Home counts and briefings current when their source rows change in
+  // another tab. Decisions stay on their dedicated page, but their events can
+  // still change notifications and TLDR discussion counts shown here.
   useLiveRefetch(["approval", "decision", "tldr", "tldr_question", "repository"], reload);
   useLiveRefetch("employee", reloadPeople);
 
@@ -292,11 +278,6 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             </Button>
           </div>
         )}
-        {decisionNotice && (
-          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-            {decisionNotice.message}
-          </div>
-        )}
         {data === null ? (
           !loadError && (
             <div className="flex min-h-[40vh] items-center justify-center">
@@ -307,7 +288,6 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           <>
             {hasAnythingToShow(data) ? (
               <>
-                <DecisionStack company={company} data={data} onResolved={reloadDecisionStack} />
                 <RepositoryWorkCard
                   key={company.id}
                   company={company}
@@ -344,7 +324,6 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
       <HomeOverlayHost
         company={company}
         me={me}
-        data={data}
         overlay={overlay}
         employees={employees}
         members={members}
@@ -367,7 +346,6 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
 function HomeOverlayHost({
   company,
   me,
-  data,
   overlay,
   employees,
   members,
@@ -376,7 +354,6 @@ function HomeOverlayHost({
 }: {
   company: Company;
   me: Me;
-  data: HomeData | null;
   overlay: HomeOverlay | null;
   employees: Employee[];
   members: Member[];
@@ -400,13 +377,7 @@ function HomeOverlayHost({
         <NotificationPeekModal
           company={company}
           notification={overlay.notification}
-          decision={
-            overlay.notification.entityKind === "decision"
-              ? (data?.decisions.find((d) => d.id === overlay.notification.entityId) ?? null)
-              : null
-          }
           onClose={onClose}
-          onChanged={onChanged}
         />
       );
     case "todo":
@@ -520,8 +491,6 @@ function HomeOverlayHost({
  */
 function hasAnythingToShow(data: HomeData): boolean {
   return (
-    data.decisions.length > 0 ||
-    (data.decisionApprovals?.length ?? 0) > 0 ||
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
@@ -559,8 +528,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Repository AI work, Decisions, failed routines, mentions, todos, emails, and approvals
-        appear here the moment they arrive.
+        Repository AI work, failed routines, mentions, todos, emails, and approvals appear here the
+        moment they arrive.
       </p>
       <Link
         to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
@@ -759,107 +728,6 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
   );
 }
 
-// ───────────────────────── decision stack ────────────────────────────────────
-
-/**
- * The Decision Stack — the first thing on Home, above everything else.
- *
- * These are questions AI employees stopped to ask rather than guess at, so
- * every row here is an employee that is *blocked* until somebody answers. That
- * is why it outranks the failure alert below it: a failed routine already
- * happened, a pending decision is work not happening yet.
- *
- * Renders nothing when the stack is empty. A clean day should look clean.
- */
-function DecisionStack({
-  company,
-  data,
-  onResolved,
-}: {
-  company: Company;
-  data: HomeData;
-  onResolved: (announcement?: string) => Promise<void> | void;
-}) {
-  const canReview = company.role === "owner" || company.role === "admin";
-  const reviews = canReview ? (data.decisionApprovals ?? []) : [];
-  const reviewCount = canReview ? (data.pendingDecisionApprovalCount ?? reviews.length) : 0;
-  const total = data.pendingDecisionCount + reviewCount;
-  if (data.decisions.length === 0 && reviews.length === 0) return null;
-  const preview = [
-    ...reviews.map((approval) => ({
-      kind: "review" as const,
-      at: approval.requestedAt,
-      urgency: 1,
-      approval,
-    })),
-    ...data.decisions.map((decision) => ({
-      kind: "decision" as const,
-      at: decision.createdAt,
-      urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
-      decision,
-    })),
-  ]
-    .sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at))
-    .slice(0, 3);
-  const hidden = Math.max(0, total - preview.length);
-  return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-          <GitBranch size={15} />
-        </span>
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Decision stack</h2>
-        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {total}
-        </span>
-        <Link
-          to={`/c/${company.slug}/decisions`}
-          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
-        >
-          Open stack <ChevronRight size={12} />
-        </Link>
-        <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          See what happened, review the recommendation, then take one clear next step.
-        </p>
-      </div>
-      <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-        {preview.map((item) =>
-          item.kind === "decision" ? (
-            <DecisionCard
-              key={item.decision.id}
-              company={company}
-              decision={item.decision}
-              onResolved={onResolved}
-            />
-          ) : item.approval.kind === "mail_send" ? (
-            <MailReviewCard
-              key={item.approval.id}
-              company={company}
-              approval={item.approval}
-              onResolved={onResolved}
-            />
-          ) : (
-            <WorkReviewCard
-              key={item.approval.id}
-              company={company}
-              approval={item.approval}
-              onResolved={onResolved}
-            />
-          ),
-        )}
-      </ul>
-      {hidden > 0 && (
-        <Link
-          to={`/c/${company.slug}/decisions`}
-          className="block border-t border-slate-200 px-4 py-3 text-center text-xs font-medium text-indigo-700 hover:bg-slate-50 dark:border-slate-800 dark:text-indigo-300 dark:hover:bg-slate-800"
-        >
-          View the full stack · {hidden} more waiting
-        </Link>
-      )}
-    </section>
-  );
-}
-
 // ───────────────────────── failed routines alert ─────────────────────────────
 
 function failedRunLink(company: Company, r: HomeFailedRun): string {
@@ -1040,9 +908,9 @@ function FailedRoutinesAlert({
 // ──────────────────────────────── TLDRs ──────────────────────────────────
 
 /**
- * The newest unread company briefings. These sit below blocked Decisions and
- * failed Routines because they are context, not an interruption, but above
- * the small queue cards so the day's work can be understood at a glance.
+ * The newest unread company briefings. These sit below failed Routines because
+ * they are context, not an interruption, but above the small queue cards so
+ * the day's work can be understood at a glance.
  */
 function HomeTldrPanel({
   company,
@@ -1741,8 +1609,8 @@ function MessagesCard({
 
 /**
  * Pending approvals — gates the system put in front of an action an employee
- * already attempted. Not the decision stack above, which the employee raised
- * itself; see `AGENTS.md` on why the two never share a surface.
+ * already attempted. Decisions raised by an employee stay on their dedicated
+ * page; see `AGENTS.md` on why the two never share a surface.
  *
  * Hidden when there is nothing to approve. The count in the header is the
  * company's full backlog, so it can exceed the rows shown when the server

@@ -17,6 +17,7 @@ import type {
   ConversationSummary,
   Decision,
   HomeData,
+  Notification,
 } from "../client/lib/api";
 import { browserTestVite } from "./browserTestVite";
 
@@ -194,7 +195,12 @@ function message(
     createdAt: fixtureNow.toISOString(),
   };
 }
-function homeData(rows: Decision[], approvalRows: Approval[] = [], canReview = false): HomeData {
+function homeData(
+  rows: Decision[],
+  approvalRows: Approval[] = [],
+  canReview = false,
+  notification?: Notification,
+): HomeData {
   const pending = rows.filter((row) => row.status === "pending");
   const pendingReviews = canReview ? approvalRows.filter((row) => row.status === "pending") : [];
   return {
@@ -209,8 +215,8 @@ function homeData(rows: Decision[], approvalRows: Approval[] = [], canReview = f
     draftEmailAccounts: [],
     starredEmailCount: 0,
     starredEmailAccounts: [],
-    notifications: [],
-    unreadNotificationCount: 0,
+    notifications: notification ? [notification] : [],
+    unreadNotificationCount: notification ? 1 : 0,
     myTodos: [],
     myTodoCount: 0,
     reviewTodos: [],
@@ -356,6 +362,7 @@ type FixtureOptions = {
   listResults?: Array<"ok" | "error">;
   details?: Decision[];
   hash?: string;
+  notification?: Notification;
 };
 async function open(options: FixtureOptions = {}) {
   const page = await context.newPage();
@@ -433,7 +440,7 @@ async function open(options: FixtureOptions = {}) {
       }
       if (url.pathname === `${apiBase}/home`)
         return route.fulfill({
-          json: homeData(rows, approvalRows, options.role === "admin"),
+          json: homeData(rows, approvalRows, options.role === "admin", options.notification),
         });
       if (url.pathname === `${apiBase}/employees` || url.pathname === `${apiBase}/members`)
         return route.fulfill({ json: [] });
@@ -494,6 +501,8 @@ async function open(options: FixtureOptions = {}) {
     } else if ((request.method() === "POST" || request.method() === "PATCH") && allowWrites) {
       const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
       writes.push({ path: url.pathname, body });
+      if (request.method() === "POST" && url.pathname === `${apiBase}/notifications/mark-read`)
+        return route.fulfill({ json: { ok: true } });
       const editMailMatch = url.pathname.match(
         /^\/api\/companies\/company\/approvals\/([^/]+)\/mail-review$/,
       );
@@ -617,7 +626,14 @@ async function open(options: FixtureOptions = {}) {
       timeout: 60000,
     },
   );
-  if (options.surface === "chat")
+  if (options.surface === "home")
+    await page
+      .getByRole("heading", {
+        name: options.notification ? "Needs your attention" : "Nothing needs you right now",
+        exact: true,
+      })
+      .waitFor({ timeout: 300000 });
+  else if (options.surface === "chat")
     await page
       .getByPlaceholder("Message Alex Rivera…", { exact: true })
       .waitFor({ timeout: 300000 });
@@ -752,6 +768,87 @@ async function check(name: string, run: () => Promise<void>) {
 }
 try {
   await fs.mkdir(output, { recursive: true });
+  await check("Home omits pending Decisions and Decision-stack Approvals", async () => {
+    const row = decision();
+    const work = workReview();
+    const mail = mailReview();
+    const fixture = await open({
+      surface: "home",
+      role: "admin",
+      rows: [row],
+      reviews: [work, mail],
+    });
+    await fixture.page
+      .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+      .waitFor();
+    assert.equal(
+      await fixture.page.getByRole("heading", { name: "Decision stack", exact: true }).count(),
+      0,
+    );
+    assert.equal(await card(fixture.page, row.id).count(), 0);
+    assert.equal(await reviewCard(fixture.page, work.id).count(), 0);
+    assert.equal(await reviewCard(fixture.page, mail.id).count(), 0);
+    for (const title of [row.title, work.title, mail.title])
+      assert.equal(await fixture.page.getByText(title, { exact: true }).count(), 0);
+    assert.equal(
+      await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).count(),
+      0,
+    );
+    assert.equal(
+      await fixture.page.getByRole("heading", { name: "Review history", exact: true }).count(),
+      0,
+    );
+    assert.equal(await discuss(fixture.page).count(), 0);
+    assert.deepEqual(fixture.writes, []);
+    await fixture.page.close();
+  });
+  await check("a Decision notification links to Decisions without embedding its card", async () => {
+    const row = decision();
+    const decisionLink = `${companyPath}/decisions#decision-${row.id}`;
+    const notification: Notification = {
+      id: "decision-notification",
+      kind: "decision_pending",
+      title: "Alex needs your decision",
+      body: "Please choose the owner for the retention response.",
+      link: decisionLink,
+      actor: {
+        kind: "ai",
+        id: "asking-employee",
+        name: "Alex Rivera",
+        avatarKey: null,
+        slug: "alex",
+      },
+      entityKind: "decision",
+      entityId: row.id,
+      readAt: null,
+      createdAt: fixtureNow.toISOString(),
+    };
+    const fixture = await open({ surface: "home", rows: [row], notification });
+    assert.equal(await card(fixture.page, row.id).count(), 0);
+    fixture.allowWrites();
+    const markedRead = fixture.page.waitForResponse(
+      (response) => new URL(response.url()).pathname === `${apiBase}/notifications/mark-read`,
+    );
+    await fixture.page.getByText(notification.title, { exact: true }).click();
+    await markedRead;
+    const dialog = fixture.page.getByRole("dialog", { name: notification.title, exact: true });
+    await dialog.getByText(notification.body, { exact: true }).waitFor();
+    assert.equal(await dialog.locator(`#decision-${row.id}`).count(), 0);
+    assert.equal(await dialog.getByText(row.body, { exact: true }).count(), 0);
+    assert.equal(await dialog.getByRole("button", { name: "Discuss", exact: true }).count(), 0);
+    const openDecisions = dialog.getByRole("link", { name: "Open decisions", exact: true });
+    assert.equal(await openDecisions.getAttribute("href"), decisionLink);
+    await openDecisions.click();
+    await fixture.page.waitForURL(`${origin}${decisionLink}`);
+    await card(fixture.page, row.id).waitFor();
+    assert.deepEqual(fixture.writes, [
+      {
+        path: `${apiBase}/notifications/mark-read`,
+        body: { notificationId: notification.id },
+      },
+    ]);
+    await fixture.page.close();
+  });
   await check(
     "review form shows context and consequences, and selecting an option never submits",
     async () => {
@@ -851,74 +948,64 @@ try {
       await fixture.page.close();
     },
   );
-  for (const surface of ["home", "decisions"] as const) {
-    for (const action of ["approve", "reject"] as const) {
-      await check(
-        `${surface}: proactive work ${action} is one direct, revision-bound Approval action`,
-        async () => {
-          const fixture = await open({
-            surface,
-            rows: [],
-            role: "admin",
-            reviews: [workReview()],
-            width: surface === "home" ? 1440 : 360,
+  for (const action of ["approve", "reject"] as const) {
+    await check(
+      `decisions: proactive work ${action} is one direct, revision-bound Approval action`,
+      async () => {
+        const fixture = await open({
+          surface: "decisions",
+          rows: [],
+          role: "admin",
+          reviews: [workReview()],
+          width: 360,
+        });
+        await fixture.page
+          .getByText("Acme reported a checkout error in their email.", { exact: true })
+          .waitFor();
+        assert.equal(
+          await fixture.page
+            .getByRole("link", { name: "Open Review customer reports", exact: true })
+            .getAttribute("href"),
+          `${companyPath}/routines/alex/review-customer-reports`,
+        );
+        await fixture.page.getByText("What the AI Employee recommends", { exact: true }).waitFor();
+        const actionLabel = action === "approve" ? "Approve & start" : "Don’t do this";
+        assert.equal(await fixture.page.getByRole("button", { name: "Go back" }).count(), 0);
+        assert.equal(await fixture.page.getByRole("dialog").count(), 0);
+        assert.deepEqual(fixture.writes, []);
+        await fitsViewport(fixture.page);
+        if (action === "approve")
+          await fixture.page.screenshot({
+            path: path.join(output, "proactive-work-review-decisions.png"),
+            fullPage: true,
           });
-          await fixture.page
-            .getByText("Acme reported a checkout error in their email.", { exact: true })
-            .waitFor();
-          assert.equal(
-            await fixture.page
-              .getByRole("link", { name: "Open Review customer reports", exact: true })
-              .getAttribute("href"),
-            `${companyPath}/routines/alex/review-customer-reports`,
-          );
-          await fixture.page
-            .getByText("What the AI Employee recommends", { exact: true })
-            .waitFor();
-          const actionLabel = action === "approve" ? "Approve & start" : "Don’t do this";
-          assert.equal(await fixture.page.getByRole("button", { name: "Go back" }).count(), 0);
-          assert.equal(await fixture.page.getByRole("dialog").count(), 0);
-          assert.deepEqual(fixture.writes, []);
-          await fitsViewport(fixture.page);
-          if (action === "approve")
-            await fixture.page.screenshot({
-              path: path.join(output, `proactive-work-review-${surface}.png`),
-              fullPage: true,
-            });
-          fixture.allowWrites();
-          await fixture.page.getByRole("button", { name: actionLabel, exact: true }).click();
-          if (surface === "home") {
-            await reviewCard(fixture.page).waitFor({ state: "detached" });
-          } else {
-            await fixture.page.getByText("Review history", { exact: true }).waitFor();
-            await fixture.page
-              .getByText(action === "approve" ? "Work in progress" : "Not approved", {
-                exact: true,
-              })
-              .waitFor();
-            assert.equal(
-              await fixture.page
-                .getByRole("button", { name: "Approve & start", exact: true })
-                .count(),
-              0,
-            );
-          }
-          await quietNotice(
-            fixture.page,
-            action === "approve"
-              ? "Work review “Fix the checkout error reported by Acme” approved."
-              : "Work review “Fix the checkout error reported by Acme” declined.",
-          );
-          assert.deepEqual(fixture.writes, [
-            {
-              path: `${apiBase}/approvals/${workReviewId}/${action}`,
-              body: { reviewRevision: revisionA },
-            },
-          ]);
-          await fixture.page.close();
-        },
-      );
-    }
+        fixture.allowWrites();
+        await fixture.page.getByRole("button", { name: actionLabel, exact: true }).click();
+        await fixture.page.getByText("Review history", { exact: true }).waitFor();
+        await fixture.page
+          .getByText(action === "approve" ? "Work in progress" : "Not approved", {
+            exact: true,
+          })
+          .waitFor();
+        assert.equal(
+          await fixture.page.getByRole("button", { name: "Approve & start", exact: true }).count(),
+          0,
+        );
+        await quietNotice(
+          fixture.page,
+          action === "approve"
+            ? "Work review “Fix the checkout error reported by Acme” approved."
+            : "Work review “Fix the checkout error reported by Acme” declined.",
+        );
+        assert.deepEqual(fixture.writes, [
+          {
+            path: `${apiBase}/approvals/${workReviewId}/${action}`,
+            body: { reviewRevision: revisionA },
+          },
+        ]);
+        await fixture.page.close();
+      },
+    );
   }
   await check(
     "proactive work failures remain actionable and Members never fetch stack Approvals",
@@ -1289,32 +1376,25 @@ try {
       await fixture.page.close();
     },
   );
-  for (const surface of ["home", "decisions"] as const) {
-    await check(
-      `${surface}: Discuss opens a fresh draft with the asking employee without sending`,
-      async () => {
-        const fixture = await open({ surface });
-        assert.equal(await discuss(fixture.page).count(), 1);
-        if (surface === "home")
-          await fixture.page.screenshot({
-            path: path.join(output, "decision-discuss-home-desktop.png"),
-            fullPage: true,
-          });
-        await discuss(fixture.page).click();
-        await staged(fixture.page);
-        assert.deepEqual(fixture.writes, []);
-        assert.equal(
-          fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length,
-          1,
-        );
-        assert.equal(
-          fixture.reads.some((url) => url.includes("/conversations/older-chat")),
-          false,
-        );
-        await fixture.page.close();
-      },
-    );
-  }
+  await check(
+    "decisions: Discuss opens a fresh draft with the asking employee without sending",
+    async () => {
+      const fixture = await open({ surface: "decisions" });
+      assert.equal(await discuss(fixture.page).count(), 1);
+      await discuss(fixture.page).click();
+      await staged(fixture.page);
+      assert.deepEqual(fixture.writes, []);
+      assert.equal(
+        fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length,
+        1,
+      );
+      assert.equal(
+        fixture.reads.some((url) => url.includes("/conversations/older-chat")),
+        false,
+      );
+      await fixture.page.close();
+    },
+  );
   await check("an employee with no earlier conversations opens an unsaved discussion", async () => {
     const fixture = await open({ history: false });
     await discuss(fixture.page).click();
@@ -1685,58 +1765,56 @@ try {
       },
     );
   }
-  for (const surface of ["home", "decisions"] as const) {
-    await check(
-      `${surface}: Discuss and existing decision actions remain usable on a narrow phone`,
-      async () => {
-        const row = decision({
-          title:
-            "Who should validate the customer's response and confirm the pricing basis for 250–300 members?",
-          options: [
-            {
-              id: "review",
-              label: "Provide reviewers and an approved commercial basis for the customer response",
-              detail:
-                "Name the reviewers and pricing assumptions so Alex can prepare a complete response for review.",
-              tone: "primary",
-            },
-            {
-              id: "hold",
-              label: "Hold pending my product and commercial review",
-              detail: "Keep this open until the details are confirmed.",
-              tone: "neutral",
-            },
-          ],
-          source: {
-            kind: "mail",
-            routine: null,
-            run: null,
-            conversation: null,
-            mailThread: {
-              id: "customer-email",
-              accountId: "mailbox",
-              subject:
-                "Customer inquiry: annual billing, support coverage, and the current subscription agreement",
-            },
+  await check(
+    "decisions: Discuss and existing decision actions remain usable on a narrow phone",
+    async () => {
+      const row = decision({
+        title:
+          "Who should validate the customer's response and confirm the pricing basis for 250–300 members?",
+        options: [
+          {
+            id: "review",
+            label: "Provide reviewers and an approved commercial basis for the customer response",
+            detail:
+              "Name the reviewers and pricing assumptions so Alex can prepare a complete response for review.",
+            tone: "primary",
           },
-        });
-        const fixture = await open({ surface, width: 360, rows: [row] });
-        await fitsViewport(fixture.page);
-        await fixture.page.screenshot({
-          path: path.join(output, `decision-discuss-${surface}-mobile.png`),
-          fullPage: true,
-        });
-        await discuss(fixture.page).click();
-        await staged(fixture.page, row);
-        assert.equal(
-          await fixture.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-          true,
-        );
-        assert.deepEqual(fixture.writes, []);
-        await fixture.page.close();
-      },
-    );
-  }
+          {
+            id: "hold",
+            label: "Hold pending my product and commercial review",
+            detail: "Keep this open until the details are confirmed.",
+            tone: "neutral",
+          },
+        ],
+        source: {
+          kind: "mail",
+          routine: null,
+          run: null,
+          conversation: null,
+          mailThread: {
+            id: "customer-email",
+            accountId: "mailbox",
+            subject:
+              "Customer inquiry: annual billing, support coverage, and the current subscription agreement",
+          },
+        },
+      });
+      const fixture = await open({ surface: "decisions", width: 360, rows: [row] });
+      await fitsViewport(fixture.page);
+      await fixture.page.screenshot({
+        path: path.join(output, "decision-discuss-decisions-mobile.png"),
+        fullPage: true,
+      });
+      await discuss(fixture.page).click();
+      await staged(fixture.page, row);
+      assert.equal(
+        await fixture.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      assert.deepEqual(fixture.writes, []);
+      await fixture.page.close();
+    },
+  );
   await check(
     "source links reset history filters and scroll to a decision after rows load",
     async () => {

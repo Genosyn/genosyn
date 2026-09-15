@@ -130,24 +130,27 @@ export function Introduction() {
         <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest unread{" "}
         <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> beside your
-        greeting, plus shortcuts to every section. The small bubbles sit in the header, leaving
-        the cards below the full width of the page. Each bubble shows who is working now; choose
-        one to open that employee&apos;s work timeline for the day, with times and a plain-English
-        account of what they did. The details stay in the popup until you ask for them. When
-        something needs you — or a fresh recap is ready — it&apos;s the first thing you see.
+        greeting, plus shortcuts to every section. The small bubbles sit in the header, leaving the
+        cards below the full width of the page. Each bubble shows who is working now; choose one to
+        open that employee&apos;s work timeline for the day, with times and a plain-English account
+        of what they did. The details stay in the popup until you ask for them. When something needs
+        you — or a fresh recap is ready — it&apos;s the first thing you see.
       </P>
       <P>
-        Home only shows you what it actually has. Every queue — the{" "}
-        <DocLink to="/docs/decisions">decision stack</DocLink>, failed{" "}
+        Home only shows you what it actually has. Every queue — failed{" "}
         <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
         <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, email, approvals,
         system health — disappears when it&apos;s empty rather than sitting there reporting that
-        nothing is waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
-        and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
-        long as your day is busy, and on a quiet one it says{" "}
+        nothing is waiting. Dismissing a TLDR removes it from your Home only; its history remains
+        available, and colleagues keep seeing it until they dismiss it themselves. So the page is
+        only ever as long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that. The{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> stay available in
         the header, because a quiet day for you can still be a busy one for your AI Employees.
+      </P>
+      <P>
+        Questions and their history stay in the{" "}
+        <DocLink to="/docs/decisions">decision stack</DocLink> instead of being repeated on Home.
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the

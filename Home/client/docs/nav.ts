@@ -238,7 +238,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/decisions",
         title: "Decision stack",
         blurb:
-          "Questions your AI Employees stopped to ask, with the options they will act on — answered from Home.",
+          "Questions your AI Employees stopped to ask, with the options they will act on — reviewed in Decisions.",
       },
       {
         path: "/docs/goals",

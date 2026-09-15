@@ -252,7 +252,7 @@ async function open(options: FixtureOptions = {}) {
   await page.locator('header[aria-label="Home greeting"]').waitFor({ timeout: 300000 });
   await page
     .getByRole("heading", {
-      name: options.quiet ? "Nothing needs you right now" : "Decision stack",
+      name: options.quiet ? "Nothing needs you right now" : "Your todos",
       exact: true,
     })
     .waitFor();
@@ -302,9 +302,9 @@ async function fits(page: Page) {
     "Home itself must not have hidden horizontal overflow",
   );
 }
-async function fillsContent(page: Page, title = "Decision stack") {
+async function fillsContent(page: Page, title?: string) {
   const header = await box(greeting(page));
-  const content = await box(card(page, title));
+  const content = await box(title ? card(page, title) : card(page, "Your todos").locator(".."));
   assert.ok(Math.abs(content.x - header.x) < 1, "card must align with the greeting's left edge");
   assert.ok(
     Math.abs(content.width - header.width) < 1,
@@ -366,6 +366,16 @@ try {
         );
         assert.equal(avatar.width, 24);
         assert.equal(avatar.height, 24);
+        assert.equal(
+          await page.getByRole("heading", { name: "Decision stack", exact: true }).count(),
+          0,
+        );
+        assert.equal(
+          await page
+            .getByText("Which retention commitment needs attention?", { exact: true })
+            .count(),
+          0,
+        );
         await fillsContent(page);
         await fits(page);
         const todo = await box(card(page, "Your todos"));
