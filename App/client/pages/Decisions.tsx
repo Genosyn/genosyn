@@ -28,11 +28,11 @@ import { clsx } from "../components/ui/clsx";
 import { EnabledToggle } from "./RevenueSignals";
 
 /**
- * The Decision Stack in full — every question an AI employee raised for a
- * human, what is still waiting, and what happened to the ones already answered.
+ * The Decision Stack in full — every question an AI Employee raised for a
+ * Member, what is still waiting, and what happened to the ones already answered.
  *
- * The Home page shows the top of this stack; this page is where you come to
- * work through it. The split that matters is **assigned to you** versus
+ * Pending Decisions live on this page. The split that matters is
+ * **assigned to you** versus
  * **anyone can answer**: an employee that named a Member did so because that
  * person holds the context, and burying those in one long list is how a
  * question addressed to somebody specific sits for three days.
@@ -49,7 +49,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "decided", label: "Answered" },
   { id: "cancelled", label: "Dismissed" },
-  { id: "expired", label: "Expired" },
+  { id: "expired", label: "Expired (legacy)" },
 ];
 
 export default function Decisions({ company, me }: { company: Company; me: Me }) {

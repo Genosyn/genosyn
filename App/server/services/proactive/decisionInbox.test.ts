@@ -96,7 +96,7 @@ async function tool(name: string, args: unknown = {}) {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
-test("raised remains the default and assigned access ends at answer, rerouting or expiry", async () => {
+test("raised remains the default and assigned access ends at answer or rerouting", async () => {
   const own = await add({
     status: "decided",
     note: "Keep the existing scope.",
@@ -119,14 +119,22 @@ test("raised remains the default and assigned access ends at answer, rerouting o
   assert.equal(ownDetail.decision.note, "Keep the existing scope.");
   await detail(assigned.id);
   await assert.rejects(detail(unrelated.id), DecisionReaderError);
-  for (const change of [
-    { status: "decided" as const },
-    { status: "pending" as const, routedToEmployeeId: other.id },
-    { routedToEmployeeId: employee.id, expiresAt: new Date(Date.now() - 1000) },
-  ]) {
-    await AppDataSource.getRepository(Decision).update(assigned.id, change);
-    await assert.rejects(detail(assigned.id), DecisionReaderError);
-  }
+  await AppDataSource.getRepository(Decision).update(assigned.id, { status: "decided" });
+  await assert.rejects(detail(assigned.id), DecisionReaderError);
+  await AppDataSource.getRepository(Decision).update(assigned.id, {
+    status: "pending",
+    routedToEmployeeId: other.id,
+  });
+  await assert.rejects(detail(assigned.id), DecisionReaderError);
+  await AppDataSource.getRepository(Decision).update(assigned.id, {
+    routedToEmployeeId: employee.id,
+    expiresAt: new Date(Date.now() - 1000),
+  });
+  await detail(assigned.id);
+  assert.deepEqual(
+    (await inbox({ direction: "assigned" })).decisions.map((row) => row.id),
+    [assigned.id],
+  );
 });
 
 test("bounded list pagination visits every eligible Decision without losing long human notes", async () => {

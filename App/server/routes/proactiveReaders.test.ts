@@ -253,7 +253,7 @@ test("Decision directions preserve raised default, add only current assignments,
   });
   await addDecision({ employeeId: randomUUID(), routedToEmployeeId: randomUUID() });
   await addDecision({ companyId: randomUUID(), routedToEmployeeId: employee.id });
-  await addDecision({
+  const legacyDeadline = await addDecision({
     employeeId: randomUUID(),
     routedToEmployeeId: employee.id,
     expiresAt: new Date(Date.now() - 1000),
@@ -264,7 +264,7 @@ test("Decision directions preserve raised default, add only current assignments,
   assert.equal(inbox.status, 200);
   assert.deepEqual(
     new Set(inbox.body.decisions.map((row) => row.id)),
-    new Set([both.id, assigned.id]),
+    new Set([both.id, assigned.id, legacyDeadline.id]),
   );
   const context = inbox.body.decisions.find((row) => row.id === assigned.id)!;
   assert.equal(context.contextTruncated, true);
@@ -273,9 +273,9 @@ test("Decision directions preserve raised default, add only current assignments,
   const combined = await tool<DecisionsReply>("list_decisions", { direction: "both" });
   assert.deepEqual(
     new Set(combined.body.decisions.map((row) => row.id)),
-    new Set([raised.id, both.id, assigned.id]),
+    new Set([raised.id, both.id, assigned.id, legacyDeadline.id]),
   );
-  assert.equal(combined.body.decisions.length, 3);
+  assert.equal(combined.body.decisions.length, 4);
   assert.deepEqual(
     (await tool<DecisionsReply>("list_decisions", { direction: "assigned", status: "decided" }))
       .body.decisions,
@@ -284,9 +284,11 @@ test("Decision directions preserve raised default, add only current assignments,
   assert.equal((await tool("list_decisions", { direction: "all" })).status, 400);
   await AppDataSource.getRepository(Decision).update(assigned.id, { routedToEmployeeId: null });
   assert.deepEqual(
-    (await tool<DecisionsReply>("list_decisions", { direction: "assigned" })).body.decisions.map(
-      (row) => row.id,
+    new Set(
+      (await tool<DecisionsReply>("list_decisions", { direction: "assigned" })).body.decisions.map(
+        (row) => row.id,
+      ),
     ),
-    [both.id],
+    new Set([both.id, legacyDeadline.id]),
   );
 });

@@ -853,6 +853,8 @@ try {
     "review form shows context and consequences, and selecting an option never submits",
     async () => {
       const row = decision({
+        // A row written by an older release may still carry this retired field.
+        expiresAt: new Date(fixtureNow.getTime() + 6 * 60 * 60 * 1000).toISOString(),
         options: [
           {
             id: "revise",
@@ -870,6 +872,7 @@ try {
       });
       const fixture = await open({ rows: [row] });
       await fixture.page.getByText(row.body, { exact: true }).waitFor();
+      assert.equal(await fixture.page.getByText(/^Expires /).count(), 0);
       assert.equal(await fixture.page.getByRole("radio", { checked: true }).count(), 0);
       assert.equal(await fixture.page.getByRole("button", { name: /Confirm:/ }).count(), 0);
       const recommended = fixture.page.getByRole("radio", { name: /^Send the update\b/ });
@@ -1438,7 +1441,10 @@ try {
           .waitFor();
       } else {
         await fixture.page
-          .getByText("The deadline passed before an answer was recorded.", { exact: true })
+          .getByText(
+            "This Decision expired before deadlines were retired. Pending Decisions now stay open until someone answers them, a Member dismisses them, or the AI Employee retracts them.",
+            { exact: true },
+          )
           .waitFor();
       }
       await discuss(fixture.page).click();
@@ -1833,7 +1839,7 @@ try {
         decision({ id: secondDecisionId, title: "Expired alternative", status: "expired" }),
       );
       const fixture = await open({ rows });
-      await fixture.page.getByRole("button", { name: "Expired", exact: true }).click();
+      await fixture.page.getByRole("button", { name: "Expired (legacy)", exact: true }).click();
       assert.equal(await card(fixture.page, targetId).count(), 0);
       await fixture.page.evaluate((id) => {
         window.location.hash = `decision-${id}`;

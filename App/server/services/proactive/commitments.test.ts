@@ -269,7 +269,7 @@ test("Decisions recover skipped answers and routed questions but never duplicate
   await addDecision({ decidedAt: at(-8) });
   await addDecision({ employeeId: randomUUID() });
   await addDecision({ companyId: randomUUID() });
-  await addDecision({
+  const legacyDeadline = await addDecision({
     employeeId: randomUUID(),
     routedToEmployeeId: employee.id,
     status: "pending",
@@ -278,9 +278,10 @@ test("Decisions recover skipped answers and routed questions but never duplicate
   const result = await opportunities();
   assert.deepEqual(
     new Set(result.decisions.items.map((row) => row.id)),
-    new Set([skipped.id, failed.id, routed.id]),
+    new Set([skipped.id, failed.id, routed.id, legacyDeadline.id]),
   );
   assert.match(result.decisions.items.find((row) => row.id === routed.id)!.reason, /routed to you/);
+  assert.equal(result.decisions.items.find((row) => row.id === legacyDeadline.id)!.dueAt, null);
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE/);
 });
 

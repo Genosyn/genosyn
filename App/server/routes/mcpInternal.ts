@@ -12721,6 +12721,8 @@ const requestDecisionSchema = z
       .max(MAX_DECISION_OPTIONS),
     urgency: z.enum(["low", "normal", "high"]).optional(),
     assignee: z.string().min(1).max(200).optional(),
+    // Rolling compatibility for a model turn holding an older tool manifest.
+    // The value is accepted but deliberately ignored; Decisions do not expire.
     expiresInHours: z.number().min(1).max(720).optional(),
   })
   .strict();
@@ -12770,9 +12772,6 @@ mcpInternalRouter.post(
         options: body.options,
         urgency: body.urgency,
         assigneeUserId,
-        expiresAt: body.expiresInHours
-          ? new Date(Date.now() + body.expiresInHours * 60 * 60 * 1000)
-          : null,
         routineId: req.mcpRoutineId ?? null,
         runId: req.mcpRunId ?? null,
         conversationId: req.mcpConversationId ?? null,

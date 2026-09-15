@@ -293,9 +293,10 @@ describe("answering a decision", () => {
     assert.equal(result.outcome, "not_found");
   });
 
-  test("a lapsed deadline expires the row instead of answering it", async () => {
+  test("a retired deadline on a pending Decision does not prevent an answer", async () => {
     const { companyId, employeeId, ownerId } = await scenario();
-    const decision = await stack(companyId, employeeId, {
+    const decision = await stack(companyId, employeeId);
+    await AppDataSource.getRepository(Decision).update(decision.id, {
       expiresAt: new Date(Date.now() - 60_000),
     });
     const result = await decideDecision({
@@ -305,8 +306,8 @@ describe("answering a decision", () => {
       role: "owner",
       optionId: "send-it",
     });
-    assert.equal(result.outcome, "conflict");
-    assert.equal(result.outcome === "conflict" && result.decision.status, "expired");
+    assert.equal(result.outcome, "decided");
+    assert.equal(result.outcome === "decided" && result.decision.status, "decided");
   });
 });
 
@@ -395,20 +396,23 @@ describe("the stack itself", () => {
     assert.equal(decisions[0].employee?.name, "Rey");
   });
 
-  test("a lapsed deadline drops the row off the stack on the next read", async () => {
+  test("a retired deadline cannot remove a pending Decision from the list", async () => {
     const { companyId, employeeId } = await scenario();
     await stack(companyId, employeeId, { title: "Still live" });
-    await stack(companyId, employeeId, {
-      title: "Long gone",
+    const legacy = await stack(companyId, employeeId, {
+      title: "Legacy deadline",
+    });
+    await AppDataSource.getRepository(Decision).update(legacy.id, {
       expiresAt: new Date(Date.now() - 1_000),
     });
 
     const { decisions, total } = await listPendingDecisions({ companyId, limit: 10 });
-    assert.equal(total, 1);
+    assert.equal(total, 2);
     assert.deepEqual(
-      decisions.map((d) => d.title),
-      ["Still live"],
+      new Set(decisions.map((d) => d.title)),
+      new Set(["Still live", "Legacy deadline"]),
     );
+    assert.ok(decisions.every((decision) => decision.expiresAt === null));
   });
 
   test("the count reports the whole stack even when the slice is smaller", async () => {

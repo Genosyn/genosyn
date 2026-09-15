@@ -210,8 +210,9 @@ export function Decisions() {
         another out of a conversation you had five minutes ago.
       </P>
       <P>
-        An employee can retract its own question if the situation moves on. A decision can also
-        carry a deadline, after which it stops nagging anyone and shows as expired.
+        A Decision stays pending until someone answers it, a Member dismisses it, or the AI
+        Employee retracts its own question because the situation has moved on. It never expires
+        merely because time has passed.
       </P>
 
       <H2 id="not-approvals">Work approvals and Decision answers</H2>

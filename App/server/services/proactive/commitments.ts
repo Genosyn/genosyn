@@ -121,11 +121,10 @@ export async function getCommitmentOpportunities(
         "decision.routedToEmployeeId",
         "decision.decidedAt",
         "decision.createdAt",
-        "decision.expiresAt",
       ])
       .where("decision.companyId = :companyId", { companyId })
       .andWhere(
-        "((decision.routedToEmployeeId = :employeeId AND decision.status = :pending AND (decision.expiresAt IS NULL OR decision.expiresAt > :now)) OR (decision.employeeId = :employeeId AND decision.status = :decided AND decision.pickupStatus IN (:...pickups) AND decision.decidedAt BETWEEN :since AND :now))",
+        "((decision.routedToEmployeeId = :employeeId AND decision.status = :pending) OR (decision.employeeId = :employeeId AND decision.status = :decided AND decision.pickupStatus IN (:...pickups) AND decision.decidedAt BETWEEN :since AND :now))",
         {
           employeeId,
           pending: "pending",
@@ -285,7 +284,7 @@ export async function getCommitmentOpportunities(
             ? "A pending Decision is routed to you; inspect its choices before answering."
             : "Your Decision has an answer and no successful automatic pickup. Read it and preserve the originating work's authority limits.",
         updatedAt: (decision.decidedAt ?? decision.createdAt).toISOString(),
-        dueAt: decision.expiresAt?.toISOString() ?? null,
+        dueAt: null,
         tools: ["get_decision"],
       })),
     ),

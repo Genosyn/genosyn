@@ -101,6 +101,9 @@ describe("decision tools are published", () => {
     for (const name of ["request_decision", "list_decisions", "cancel_decision"]) {
       assert.ok(names.has(name), `${name} is missing from the manifest`);
     }
+    const request = STATIC_TOOLS.find((tool) => tool.name === "request_decision");
+    assert.ok(request);
+    assert.equal("expiresInHours" in (request.inputSchema.properties ?? {}), false);
   });
 });
 
@@ -180,8 +183,7 @@ describe("request_decision", () => {
     assert.equal(response.status, 400);
   });
 
-  test("turns expiresInHours into a real deadline", async () => {
-    const before = Date.now();
+  test("accepts an older client's deadline without making the Decision expire", async () => {
     const response = await tool<{ decisionId: string }>("request_decision", {
       title: "Ship the changelog today?",
       options: [{ label: "Ship" }],
@@ -190,9 +192,8 @@ describe("request_decision", () => {
     const row = (await AppDataSource.getRepository(Decision).findOneBy({
       id: response.body.decisionId,
     }))!;
-    assert.ok(row.expiresAt, "expected a deadline");
-    const delta = row.expiresAt!.getTime() - before;
-    assert.ok(delta > 5.5 * 3600_000 && delta < 6.5 * 3600_000, `deadline was ${delta}ms out`);
+    assert.equal(response.status, 200);
+    assert.equal(row.expiresAt, null);
   });
 });
 
@@ -241,7 +242,7 @@ describe("list_decisions", () => {
     assert.equal(listed.body.decisions[0].note, "Go ahead.");
   });
 
-  test("sweeps a lapsed deadline to expired on read", async () => {
+  test("keeps a pending Decision with a retired deadline pending on read", async () => {
     const raised = await tool<{ decisionId: string }>("request_decision", {
       title: "Moot by now",
       options: [{ label: "Yes" }],
@@ -251,7 +252,7 @@ describe("list_decisions", () => {
       { expiresAt: new Date(Date.now() - 1000) },
     );
     const listed = await tool<{ decisions: Array<{ status: string }> }>("list_decisions", {});
-    assert.equal(listed.body.decisions[0].status, "expired");
+    assert.equal(listed.body.decisions[0].status, "pending");
   });
 });
 

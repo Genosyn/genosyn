@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Decision, type DecisionStatus } from "../../db/entities/Decision.js";
-import { expireStaleDecisions, parseDecisionOptions } from "../decisions.js";
+import { parseDecisionOptions } from "../decisions.js";
 import { redactSensitiveText } from "../approvalRedaction.js";
 import { UUID_RE } from "../bases.js";
 
@@ -82,21 +82,20 @@ async function requireReader(companyId: string, employeeId: string) {
 /** Assigned means a current pending routing; historical routing never widens the inbox. */
 export async function listEmployeeDecisionInbox(args: InboxArgs) {
   await requireReader(args.companyId, args.employeeId);
-  await expireStaleDecisions(args.companyId);
   const direction = args.direction ?? "raised";
   const query = AppDataSource.getRepository(Decision)
     .createQueryBuilder("decision")
     .where("decision.companyId = :companyId", { companyId: args.companyId });
   const raised = "decision.employeeId = :employeeId";
   const assigned =
-    "(decision.routedToEmployeeId = :employeeId AND decision.status = :pending AND (decision.expiresAt IS NULL OR decision.expiresAt > :now))";
+    "(decision.routedToEmployeeId = :employeeId AND decision.status = :pending)";
   query.andWhere(
     direction === "both"
       ? `(${raised} OR ${assigned})`
       : direction === "assigned"
         ? assigned
         : raised,
-    { employeeId: args.employeeId, pending: "pending", now: new Date() },
+    { employeeId: args.employeeId, pending: "pending" },
   );
   if (args.status) query.andWhere("decision.status = :status", { status: args.status });
   return query
@@ -154,7 +153,6 @@ export async function getEmployeeDecisionDetail(args: {
 }) {
   await requireReader(args.companyId, args.employeeId);
   if (!UUID_RE.test(args.decisionId)) throw new DecisionReaderError("Decision not found");
-  await expireStaleDecisions(args.companyId);
   const row = await AppDataSource.getRepository(Decision).findOneBy({
     id: args.decisionId,
     companyId: args.companyId,
@@ -162,9 +160,7 @@ export async function getEmployeeDecisionDetail(args: {
   if (
     !row ||
     (row.employeeId !== args.employeeId &&
-      (row.routedToEmployeeId !== args.employeeId ||
-        row.status !== "pending" ||
-        (row.expiresAt !== null && row.expiresAt.getTime() <= Date.now())))
+      (row.routedToEmployeeId !== args.employeeId || row.status !== "pending"))
   )
     throw new DecisionReaderError("Decision not found");
   if (!args.section) {

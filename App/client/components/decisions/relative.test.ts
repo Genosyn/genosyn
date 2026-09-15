@@ -4,10 +4,8 @@ import { describe, test } from "node:test";
 import { formatDuration, formatRelative } from "./relative";
 
 /**
- * The stack shows four timestamps per row and two of them are in the future
- * (an expiry, a scheduled run), so the past/future split is the part worth
- * pinning down — "-4h ago" on a deadline is the kind of thing that makes
- * people stop trusting the row.
+ * The past/future split is worth pinning down so a timestamp affected by clock
+ * skew or a scheduled time never renders as the nonsensical "-4h ago".
  */
 
 function iso(msFromNow: number): string {

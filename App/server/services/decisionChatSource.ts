@@ -80,7 +80,6 @@ export function renderUntrustedDecision(decision: Decision): string {
         status: decision.status,
         urgency: decision.urgency,
         createdAt: decision.createdAt.toISOString(),
-        expiresAt: decision.expiresAt?.toISOString() ?? null,
         chosenOptionId: decision.chosenOptionId,
         chosenOptionLabel: decision.chosenOptionLabel,
         note: decision.note,

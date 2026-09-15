@@ -68,6 +68,7 @@ async function fixture() {
     conversationId: "source-private-conversation",
     mailThreadId: "source-mail",
     createdAt: CREATED,
+    expiresAt: CREATED,
   });
   const link = `[Decision](/c/${company.slug}/decisions#decision-${decision.id})`;
   const input: DecisionChatSourceInput = {
@@ -172,6 +173,7 @@ describe("Decision discussion source", () => {
     assert.equal(data.status, "pending");
     assert.equal(data.urgency, "high");
     assert.equal(data.createdAt, CREATED.toISOString());
+    assert.equal("expiresAt" in data, false);
     assert.deepEqual(data.sourceReferences, {
       routineId: "source-routine",
       runId: "source-run",

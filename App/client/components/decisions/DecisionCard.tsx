@@ -163,12 +163,11 @@ export function DecisionCard({
                 </p>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-              {decision.expiresAt && <span>Expires {formatRelative(decision.expiresAt)}</span>}
-              {decision.routedToEmployee && (
+            {decision.routedToEmployee && (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                 <span>Routed to {decision.routedToEmployee.name} (AI)</span>
-              )}
-            </div>
+              </div>
+            )}
           </ReviewTimelineItem>
 
           <ReviewTimelineItem icon={ListChecks} title="What do you need to decide?" tone="accent">

@@ -1,9 +1,8 @@
 /**
- * "2h ago" / "in 4h" for the Decision Stack.
+ * "2h ago" / "in 4h" for Decision and work-review timestamps.
  *
- * Negative deltas read as future because two of the four timestamps on a
- * decision (an expiry, a scheduled next run) are ahead of now, and "-4h ago"
- * is the kind of thing that makes people distrust the whole row.
+ * Negative deltas read as future so clock skew and genuinely scheduled times
+ * never render as the nonsensical "-4h ago".
  */
 export function formatRelative(iso: string): string {
   const date = new Date(iso);

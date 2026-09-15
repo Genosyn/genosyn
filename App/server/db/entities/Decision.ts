@@ -1,6 +1,7 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
+/** `expired` is retained only so Decisions expired by older releases stay readable. */
 export type DecisionStatus = "pending" | "decided" | "cancelled" | "expired";
 
 /** How loudly a pending Decision sorts to the top of the stack. */
@@ -36,8 +37,9 @@ export type DecisionOption = {
 };
 
 /**
- * A question an AI Employee stopped to ask a human, with the answers it will
- * accept. The Decision Stack on Home is the list of these still pending.
+ * A question an AI Employee stopped to ask the company, with the answers it
+ * will accept. Pending Decisions stay open until they are answered, a Member
+ * dismisses them, or the AI Employee retracts the question.
  *
  * **Not an {@link Approval}.** An Approval is the *system* interposing on an
  * action the employee already tried — a routine tick, a payment over a
@@ -156,7 +158,10 @@ export class Decision {
   @Column({ type: dateTimeColumnType, nullable: true })
   decidedAt!: Date | null;
 
-  /** After this, the question is moot and the row sweeps itself to `expired`. */
+  /**
+   * Retired deadline from older releases. It is deliberately ignored: pending
+   * Decisions no longer expire, while historical `expired` rows remain readable.
+   */
   @Column({ type: dateTimeColumnType, nullable: true })
   expiresAt!: Date | null;
 

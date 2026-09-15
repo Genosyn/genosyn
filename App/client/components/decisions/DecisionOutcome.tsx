@@ -64,7 +64,7 @@ export function DecisionOutcome({ company, decision }: { company: Company; decis
       ? "The answer"
       : status === "cancelled"
         ? "The decision was dismissed"
-        : "The decision expired";
+        : "Expired under an earlier version";
   const pickup = decision.pickupStatus === "none" ? null : PICKUP_TIMELINE[decision.pickupStatus];
 
   return (
@@ -162,7 +162,9 @@ export function DecisionOutcome({ company, decision }: { company: Company; decis
               </p>
             ) : (
               <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                The deadline passed before an answer was recorded.
+                This Decision expired before deadlines were retired. Pending Decisions now stay
+                open until someone answers them, a Member dismisses them, or the AI Employee
+                retracts them.
               </p>
             )}
 

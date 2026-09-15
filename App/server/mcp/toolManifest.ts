@@ -2230,10 +2230,6 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Optional Member handle or email. Omit so anyone can answer.",
         },
-        expiresInHours: {
-          type: "number",
-          description: "Hours until no answer is useful (1–720); omit otherwise.",
-        },
       },
       required: ["title", "options"],
       additionalProperties: false,
@@ -2249,6 +2245,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         status: {
           type: "string",
           enum: ["pending", "decided", "cancelled", "expired"],
+          description:
+            "Optional status filter. Expired is legacy history; pending Decisions no longer expire.",
         },
         limit: {
           type: "integer",

@@ -136,7 +136,7 @@ describe("stall sweep", () => {
     assert.equal((await notifications("approval_stale")).length, 0);
   });
 
-  test("a blocked decision assigned to a departed member pages the owners instead", async () => {
+  test("a blocked Decision with a retired deadline pages the owners instead of a departed Member", async () => {
     const { companyId, employeeId, ownerId, outsiderId } = await scenario();
     const decision = await insert(Decision, {
       companyId,
@@ -149,7 +149,10 @@ describe("stall sweep", () => {
     });
     await AppDataSource.getRepository(Decision).update(
       { id: decision.id },
-      { createdAt: new Date(Date.now() - 2 * DAY_MS) },
+      {
+        createdAt: new Date(Date.now() - 2 * DAY_MS),
+        expiresAt: new Date(Date.now() - DAY_MS),
+      },
     );
 
     await sweepStalledWork(new Date());

@@ -217,7 +217,7 @@ describe("linked Decision detail route", () => {
     assert.equal(detail.body.chosenOptionLabel, "Wait");
   });
 
-  test("reconciles expiry and stale pickup state consistently with the stack", async () => {
+  test("ignores a retired deadline while reconciling stale pickup state", async () => {
     const row = await stack({
       expiresAt: new Date(Date.now() - 60_000),
       pickupStatus: "running",
@@ -225,7 +225,8 @@ describe("linked Decision detail route", () => {
     });
     const detail = await get<DecisionDTO>(`/decisions/${row.id}`);
     assert.equal(detail.status, 200);
-    assert.equal(detail.body.status, "expired");
+    assert.equal(detail.body.status, "pending");
+    assert.equal(detail.body.expiresAt, null);
     assert.equal(detail.body.pickupStatus, "failed");
     assert.match(detail.body.pickupSummary ?? "", /server stopped/i);
   });

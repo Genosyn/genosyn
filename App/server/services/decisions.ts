@@ -97,6 +97,7 @@ export type DecisionDTO = {
   pickupSummary: string | null;
   pickupStartedAt: string | null;
   pickupFinishedAt: string | null;
+  /** Always null. Retained in the response shape for compatibility with older clients. */
   expiresAt: string | null;
   createdAt: string;
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
@@ -261,7 +262,8 @@ export function serializeDecision(
     pickupSummary: decision.pickupSummary,
     pickupStartedAt: decision.pickupStartedAt?.toISOString() ?? null,
     pickupFinishedAt: decision.pickupFinishedAt?.toISOString() ?? null,
-    expiresAt: decision.expiresAt?.toISOString() ?? null,
+    // Older rows may still carry a retired deadline. Never present it as live policy.
+    expiresAt: null,
     createdAt: decision.createdAt.toISOString(),
     employee: employee
       ? {
@@ -276,20 +278,6 @@ export function serializeDecision(
 }
 
 /**
- * Flip every pending row whose deadline has passed to `expired`.
- *
- * Called at the top of each read rather than from a cron: the stack is only
- * wrong if somebody is looking at it, and a conditional UPDATE on an indexed
- * `(companyId, status)` is cheaper than a scheduled sweep of every company.
- */
-export async function expireStaleDecisions(companyId: string): Promise<void> {
-  await AppDataSource.getRepository(Decision).update(
-    { companyId, status: "pending", expiresAt: LessThanOrEqual(new Date()) },
-    { status: "expired" },
-  );
-}
-
-/**
  * How long a `running` pickup can go quiet before we call it dead. Matches the
  * chat seam's own hard timeout, so a genuinely long session is never cut short
  * by somebody loading the page.
@@ -298,9 +286,9 @@ const STALE_PICKUP_MS = 7 * 60 * 60 * 1000;
 
 /**
  * Flip pickups that were still `running` when the process died back to
- * `failed`. Same read-path philosophy as {@link expireStaleDecisions}: the row
- * is only wrong when somebody is looking at it, so a conditional UPDATE on the
- * indexed `(companyId, status)` beats a scheduled sweep of every company.
+ * `failed`. The row is only wrong when somebody is looking at it, so a
+ * conditional UPDATE on the indexed `(companyId, status)` beats a scheduled
+ * sweep of every company.
  *
  * Without this a crash mid-session leaves a spinner on the stack that nothing
  * would ever clear.
@@ -393,10 +381,7 @@ export async function getDecision(params: {
   companyId: string;
   decisionId: string;
 }): Promise<DecisionDTO | null> {
-  await Promise.all([
-    expireStaleDecisions(params.companyId),
-    reconcileStalePickups(params.companyId),
-  ]);
+  await reconcileStalePickups(params.companyId);
   const row = await AppDataSource.getRepository(Decision).findOneBy({
     id: params.decisionId,
     companyId: params.companyId,
@@ -411,10 +396,7 @@ export async function listDecisions(params: {
   status?: DecisionStatus;
   limit?: number;
 }): Promise<DecisionDTO[]> {
-  await Promise.all([
-    expireStaleDecisions(params.companyId),
-    reconcileStalePickups(params.companyId),
-  ]);
+  await reconcileStalePickups(params.companyId);
   const rows = await AppDataSource.getRepository(Decision).find({
     where: {
       companyId: params.companyId,
@@ -438,10 +420,7 @@ export async function listPendingDecisions(params: {
   /** Home should contain work for this Member, not another Member's queue. */
   viewer?: { userId: string; role: Role };
 }): Promise<{ decisions: DecisionDTO[]; total: number }> {
-  await Promise.all([
-    expireStaleDecisions(params.companyId),
-    reconcileStalePickups(params.companyId),
-  ]);
+  await reconcileStalePickups(params.companyId);
   const canAnswerAssigned = params.viewer?.role === "owner" || params.viewer?.role === "admin";
   const where =
     params.viewer && !canAnswerAssigned
@@ -474,7 +453,6 @@ export async function createDecision(params: {
   options: DecisionOptionInput[];
   urgency?: DecisionUrgency;
   assigneeUserId?: string | null;
-  expiresAt?: Date | null;
   routineId?: string | null;
   runId?: string | null;
   conversationId?: string | null;
@@ -519,7 +497,7 @@ export async function createDecision(params: {
         : null,
     pickupStartedAt: null,
     pickupFinishedAt: null,
-    expiresAt: params.expiresAt ?? null,
+    expiresAt: null,
   });
   await repo.save(decision);
 
@@ -622,17 +600,6 @@ export async function decideDecision(params: {
     return { outcome: "forbidden", decision };
   }
   if (decision.status !== "pending") return { outcome: "conflict", decision };
-  if (decision.expiresAt && decision.expiresAt.getTime() <= Date.now()) {
-    await repo.update(
-      { id: decision.id, companyId: params.companyId, status: "pending" },
-      {
-        status: "expired",
-      },
-    );
-    const expired = await repo.findOneBy({ id: decision.id, companyId: params.companyId });
-    return { outcome: "conflict", decision: expired ?? decision };
-  }
-
   const option = parseDecisionOptions(decision.optionsJson).find((o) => o.id === params.optionId);
   if (!option) return { outcome: "unknown_option", decision };
 

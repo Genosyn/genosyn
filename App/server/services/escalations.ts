@@ -1,4 +1,4 @@
-import { In, IsNull, LessThan, MoreThan } from "typeorm";
+import { In, IsNull, LessThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -127,20 +127,11 @@ async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Prom
 async function sweepStaleDecisions(now: Date, assertLeaseHeld: () => void): Promise<void> {
   const cutoff = new Date(now.getTime() - STALL_AFTER_MS);
   const stale = await AppDataSource.getRepository(Decision).find({
-    where: [
-      {
-        status: "pending",
-        createdAt: LessThan(cutoff),
-        stallRemindedAt: IsNull(),
-        expiresAt: IsNull(),
-      },
-      {
-        status: "pending",
-        createdAt: LessThan(cutoff),
-        stallRemindedAt: IsNull(),
-        expiresAt: MoreThan(now),
-      },
-    ],
+    where: {
+      status: "pending",
+      createdAt: LessThan(cutoff),
+      stallRemindedAt: IsNull(),
+    },
     order: { createdAt: "ASC" },
     take: MAX_PER_SWEEP,
   });
