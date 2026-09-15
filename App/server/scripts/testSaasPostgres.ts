@@ -291,7 +291,9 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
       action: "form.create",
     });
     assert.equal(
-      concurrentCreateAudits.filter((audit) => concurrentFormIds.has(audit.targetId)).length,
+      concurrentCreateAudits.filter(
+        (audit) => audit.targetId !== null && concurrentFormIds.has(audit.targetId),
+      ).length,
       12,
     );
     console.log("PASS Postgres Forms: concurrent same-title creates receive bounded unique slugs");
