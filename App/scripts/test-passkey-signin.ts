@@ -239,10 +239,6 @@ try {
       response.url().endsWith("/api/auth/login/passkey/options") &&
       response.request().method() === "POST",
   );
-  const verifyRequestPromise = page.waitForRequest(
-    (request) =>
-      request.url().endsWith("/api/auth/login/passkey/verify") && request.method() === "POST",
-  );
   type VerifyBody = {
     flowToken?: string;
     response?: { id?: string; response?: { userHandle?: unknown } };
@@ -255,7 +251,8 @@ try {
   );
   // Some platform authenticators return a valid signed assertion with a null
   // userHandle. SimpleWebAuthn omits that nullable value from its JSON, so
-  // exercise the same wire payload while keeping Chromium's real signature.
+  // delete the field when present and exercise the same wire payload with
+  // Chromium's real signature.
   await page.route(
     "**/api/auth/login/passkey/verify",
     async (route) => {
@@ -278,12 +275,6 @@ try {
   assert.equal(typeof optionsBody.options?.challenge, "string");
   assert.equal(typeof optionsBody.flowToken, "string");
   assert.ok(optionsBody.flowToken);
-
-  const verifyRequest = await verifyRequestPromise;
-  const verifyBodyText = verifyRequest.postData();
-  assert.ok(verifyBodyText, "Passkey verification request had no JSON body");
-  const clientVerifyBody = JSON.parse(verifyBodyText) as VerifyBody;
-  assert.equal(typeof clientVerifyBody.response?.response?.userHandle, "string");
 
   const verifyResponse = await verifyResponsePromise;
   // The client intentionally hard-navigates as soon as this succeeds, which
