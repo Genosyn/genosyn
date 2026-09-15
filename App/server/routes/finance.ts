@@ -28,7 +28,7 @@ import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Product } from "../db/entities/Product.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
 import { toSlug } from "../lib/slug.js";
@@ -216,6 +216,7 @@ import {
   reverseBillPayment,
   voidBill,
 } from "../services/bills.js";
+import { hydrateCustomers, listCustomers } from "../services/customers.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -261,34 +262,6 @@ const currencySchema = z
 
 // ─────────────────────── Customer contacts ────────────────────────────
 
-type CustomerWithContacts = Customer & { contacts: CustomerContact[] };
-
-/**
- * Attach the `contacts` array to one or many customer rows in a single
- * query. Returns hydrated copies — `Customer` itself is untouched so
- * archived-filter math doesn't see a derived field.
- */
-async function hydrateCustomers(
-  companyId: string,
-  customers: Customer[],
-): Promise<CustomerWithContacts[]> {
-  if (customers.length === 0) return [];
-  const contacts = await AppDataSource.getRepository(CustomerContact).find({
-    where: { companyId, customerId: In(customers.map((c) => c.id)) },
-    order: { sortOrder: "ASC", createdAt: "ASC" },
-  });
-  const byCustomer = new Map<string, CustomerContact[]>();
-  for (const ct of contacts) {
-    const arr = byCustomer.get(ct.customerId) ?? [];
-    arr.push(ct);
-    byCustomer.set(ct.customerId, arr);
-  }
-  return customers.map((c) => ({
-    ...c,
-    contacts: byCustomer.get(c.id) ?? [],
-  }));
-}
-
 const contactWriteSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().email().max(200).or(z.literal("")).optional(),
@@ -316,16 +289,29 @@ async function clearOtherPrimaries(customerId: string, exceptId: string | null):
   }
 }
 
-financeRouter.get("/customers", async (req, res) => {
+const customerListQuerySchema = z
+  .object({
+    q: z.string().trim().max(200).optional(),
+    archived: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    offset: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  })
+  .strict();
+
+financeRouter.get("/customers", validateQuery(customerListQuerySchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const includeArchived = String(req.query.archived ?? "") === "true";
-  const customers = await AppDataSource.getRepository(Customer).find({
-    where: { companyId: cid },
-    order: { createdAt: "DESC" },
+  const query = req.query as unknown as z.infer<typeof customerListQuerySchema>;
+  const pageRequested = query.limit !== undefined || query.offset !== undefined;
+  const result = await listCustomers(cid, {
+    q: query.q,
+    includeArchived: query.archived,
+    limit: query.limit,
+    offset: query.offset,
   });
-  const filtered = includeArchived ? customers : customers.filter((c) => !c.archivedAt);
-  const hydrated = await hydrateCustomers(cid, filtered);
-  res.json(hydrated);
+  res.json(pageRequested ? result : result.customers);
 });
 
 const customerWriteSchema = z.object({

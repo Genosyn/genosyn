@@ -4124,6 +4124,14 @@ export type Customer = {
   contacts: CustomerContact[];
 };
 
+/** A server-filtered window for the standalone Customers list. */
+export type CustomerListPage = {
+  customers: Customer[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 /** A signed agreement uploaded against a customer (the Customers section).
  *  `customer` is a lightweight stub the list endpoint attaches; null when the
  *  contract isn't linked to an account. */

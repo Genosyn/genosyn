@@ -27,6 +27,10 @@ export function Customers() {
           right in the customer list.
         </LI>
         <LI>
+          <Strong>Search and pagination</Strong> — find accounts by customer or contact details,
+          browse them 25 at a time, and include archived accounts when you need them.
+        </LI>
+        <LI>
           <Strong>Contacts</Strong> — any number of named people at an account, each with a role,
           email, and phone.
         </LI>
@@ -59,6 +63,15 @@ export function Customers() {
         the same company, use{" "}
         <DocLink to="/docs/revenue#account-merge">Revenue → Accounts → Merge</DocLink> to
         transactionally consolidate both Revenue and Finance history and archive the duplicate.
+      </P>
+      <P>
+        The customer list searches customer names, domains, billing email addresses, phone numbers,
+        tax IDs, and the names, roles, email addresses, and phone numbers of their contacts.
+        Multiple words can match across those fields, so a search such as <Code>Acme finance</Code>{" "}
+        can find Acme through a contact&apos;s Finance role. Results are shown 25 at a time with a
+        visible range and Previous / Next controls. Search, page, and <Code>Show archived</Code> are
+        kept in the page URL, so browser Back and Forward restore the same view. Archived customers
+        remain hidden unless <Code>Show archived</Code> is selected.
       </P>
 
       <H2 id="overview">Customer overview</H2>

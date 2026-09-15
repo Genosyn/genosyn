@@ -269,6 +269,212 @@ try {
   assert(skills.some((skill) => skill.name === "Release checklist"));
   record("Skill created for the AI Employee");
 
+  const customersApi = `/api/companies/${company.id}/customers`;
+  for (let index = 0; index < 31; index += 1) {
+    const featured = index === 0;
+    const response = await page.request.post(`${origin}${customersApi}`, {
+      data: {
+        name: featured ? "Needle Holdings" : `Browser Customer ${String(index).padStart(2, "0")}`,
+        domain: featured ? "needle.example.test" : `customer-${index}.example.test`,
+        email: featured ? "billing@needle.example.test" : `billing-${index}@example.test`,
+        taxNumber: index >= 1 && index <= 26 ? "PAGE-EDGE" : undefined,
+        contacts: featured
+          ? [
+              {
+                name: "Ada Browser",
+                email: "ada.browser@example.test",
+                role: "Finance Director",
+                isPrimary: true,
+              },
+            ]
+          : [],
+      },
+    });
+    assert.equal(response.status(), 200, await response.text());
+  }
+  const archivedResponse = await page.request.post(`${origin}${customersApi}`, {
+    data: {
+      name: "Archived Browser Customer",
+      domain: "archived-browser.example.test",
+      email: "archived-browser@example.test",
+    },
+  });
+  const archivedBody = await archivedResponse.text();
+  assert.equal(archivedResponse.status(), 200, archivedBody);
+  const archivedCustomer = JSON.parse(archivedBody) as {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  const archiveResponse = await page.request.patch(
+    `${origin}${customersApi}/${archivedCustomer.slug}`,
+    { data: { archived: true } },
+  );
+  assert.equal(archiveResponse.status(), 200, await archiveResponse.text());
+
+  await go(`/c/${company.slug}/customers`);
+  await page.getByRole("heading", { name: "Customers", exact: true }).waitFor();
+  const customerTable = page.getByRole("table", { name: "Customers", exact: true });
+  const customerResultsStatus = page.locator('p[role="status"][aria-live="polite"]');
+  const customerRange = page.locator("span.tabular-nums");
+  const waitForCustomerRange = async (expected: string) => {
+    await customerRange.filter({ hasText: expected }).waitFor();
+    assert.equal(await customerRange.textContent(), expected);
+  };
+  await waitForCustomerRange("1–25 of 31 customers");
+  assert.equal(await customerResultsStatus.textContent(), "1–25 of 31 customers");
+  assert.equal(await customerTable.locator("tbody tr").count(), 25);
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("page") === "2");
+  await waitForCustomerRange("26–31 of 31 customers");
+  assert.equal(await customerTable.locator("tbody tr").count(), 6);
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("page") === null);
+  await waitForCustomerRange("1–25 of 31 customers");
+
+  const customerSearch = page.getByLabel("Search customers", { exact: true });
+  await customerSearch.fill("Browser Customer");
+  await page.waitForURL((url) => url.searchParams.get("q") === "Browser Customer");
+  await waitForCustomerRange("1–25 of 30 customers");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.waitForURL(
+    (url) =>
+      url.searchParams.get("q") === "Browser Customer" && url.searchParams.get("page") === "2",
+  );
+  await waitForCustomerRange("26–30 of 30 customers");
+
+  // A draft debounce must not overwrite state restored by browser navigation.
+  await customerSearch.fill("Needle Holdings");
+  await page.goBack();
+  await page.waitForURL(
+    (url) =>
+      url.searchParams.get("q") === "Browser Customer" && url.searchParams.get("page") === null,
+  );
+  await customerSearch.waitFor();
+  await page.waitForFunction(() => {
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Search customers"]');
+    return input?.value === "Browser Customer";
+  });
+  await delay(400);
+  assert.equal(new URL(page.url()).searchParams.get("q"), "Browser Customer");
+  assert.equal(new URL(page.url()).searchParams.get("page"), null);
+
+  // Archiving the only row on a later page must announce an update and
+  // return to the new last page once the server confirms the smaller total.
+  await customerSearch.fill("PAGE-EDGE");
+  await page.waitForURL((url) => url.searchParams.get("q") === "PAGE-EDGE");
+  await waitForCustomerRange("1–25 of 26 customers");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.waitForURL(
+    (url) => url.searchParams.get("q") === "PAGE-EDGE" && url.searchParams.get("page") === "2",
+  );
+  await waitForCustomerRange("26–26 of 26 customers");
+  const edgeCustomerHref = await customerTable
+    .locator("tbody")
+    .getByRole("link")
+    .getAttribute("href");
+  assert(edgeCustomerHref);
+  const edgeCustomerSlug = new URL(edgeCustomerHref, origin).pathname.split("/").at(-1);
+  assert(edgeCustomerSlug);
+  const edgeMutationUrl = `${origin}${customersApi}/${edgeCustomerSlug}`;
+  let releaseEdgeMutation!: () => void;
+  const edgeMutationRelease = new Promise<void>((resolve) => {
+    releaseEdgeMutation = resolve;
+  });
+  await page.route(edgeMutationUrl, async (route) => {
+    await edgeMutationRelease;
+    await route.continue();
+  });
+  const edgeMutationResponse = page.waitForResponse(
+    (response) => response.url() === edgeMutationUrl && response.request().method() === "PATCH",
+  );
+  await customerTable.getByRole("button", { name: "Row menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
+  await page.getByText("Updating customer list…", { exact: true }).waitFor();
+  assert.equal(await customerResultsStatus.textContent(), "Updating customers…");
+  releaseEdgeMutation();
+  assert.equal((await edgeMutationResponse).status(), 200);
+  await page.unroute(edgeMutationUrl);
+  await page.waitForURL(
+    (url) => url.searchParams.get("q") === "PAGE-EDGE" && url.searchParams.get("page") === null,
+  );
+  await waitForCustomerRange("1–25 of 25 customers");
+
+  await customerSearch.fill("Needle Holdings");
+  await page.waitForURL((url) => url.searchParams.get("q") === "Needle Holdings");
+  await page.getByRole("link", { name: "Needle Holdings", exact: true }).waitFor();
+  assert.equal(await customerTable.locator("tbody tr").count(), 1);
+  await waitForCustomerRange("1–1 of 1 customer");
+
+  await customerSearch.fill("Ada Browser");
+  await page.waitForURL((url) => url.searchParams.get("q") === "Ada Browser");
+  await page.getByRole("link", { name: "Needle Holdings", exact: true }).waitFor();
+  assert.equal(await customerTable.locator("tbody tr").count(), 1);
+
+  await customerSearch.fill("no matching customer exists");
+  await page.waitForURL((url) => url.searchParams.get("q") === "no matching customer exists");
+  await page
+    .getByRole("heading", { name: "No customers match your search", exact: true })
+    .waitFor();
+  assert.equal(await customerResultsStatus.textContent(), "No customers match your search.");
+  await page.getByRole("button", { name: "Clear search", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("q") === null);
+  await waitForCustomerRange("1–25 of 30 customers");
+
+  await customerSearch.fill("Archived Browser Customer");
+  await page.waitForURL((url) => url.searchParams.get("q") === "Archived Browser Customer");
+  await page
+    .getByRole("heading", { name: "No customers match your search", exact: true })
+    .waitFor();
+  await page.getByLabel("Show archived", { exact: true }).check();
+  await page.waitForURL((url) => url.searchParams.get("archived") === "true");
+  await page.getByRole("link", { name: "Archived Browser Customer", exact: true }).waitFor();
+  await waitForCustomerRange("1–1 of 1 customer");
+
+  await customerSearch.fill("Needle Holdings");
+  await page.waitForURL((url) => url.searchParams.get("q") === "Needle Holdings");
+  const needleRow = customerTable.getByRole("row").filter({ hasText: "Needle Holdings" });
+  const needleMenu = needleRow.getByRole("button", { name: "Row menu", exact: true });
+  const needleMutationUrl = `${origin}${customersApi}/needle-holdings`;
+  let markMutationStarted!: () => void;
+  const mutationStarted = new Promise<void>((resolve) => {
+    markMutationStarted = resolve;
+  });
+  let releaseMutation!: () => void;
+  const mutationRelease = new Promise<void>((resolve) => {
+    releaseMutation = resolve;
+  });
+  await page.route(needleMutationUrl, async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.continue();
+      return;
+    }
+    markMutationStarted();
+    await mutationRelease;
+    await route.continue();
+  });
+  const mutationResponse = page.waitForResponse(
+    (response) => response.url() === needleMutationUrl && response.request().method() === "PATCH",
+  );
+  await needleMenu.click();
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
+  await mutationStarted;
+  assert.equal(await needleMenu.isDisabled(), true);
+  releaseMutation();
+  assert.equal((await mutationResponse).status(), 200);
+  await page.unroute(needleMutationUrl);
+  await page.waitForFunction(() => {
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) =>
+      candidate.textContent?.includes("Needle Holdings"),
+    );
+    return row?.querySelector<HTMLButtonElement>('[aria-label="Row menu"]')?.disabled === false;
+  });
+  await page.screenshot({ path: path.join(output, "customers-search-pagination.png") });
+  record(
+    "Searched and paged Customers with URL state, contacts, navigation, mutations and archives",
+  );
+
   await page.locator("header").getByRole("button", { name: companyName, exact: true }).click();
   await page.getByRole("button", { name: "+ New company", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("Second QA Company");
