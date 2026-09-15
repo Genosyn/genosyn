@@ -215,6 +215,46 @@ export async function markAllRead(params: { companyId: string; userId: string })
 }
 
 /**
+ * Mark every unread bell for one shared entity as read for every recipient.
+ *
+ * Resolving or snoozing a shared row changes it for the whole company, so a
+ * stale bell must not keep telling another Member that the old state still
+ * needs attention. Grouping the normal `notification.read` frame by recipient
+ * keeps each connected badge in sync with the bulk update.
+ */
+export async function markEntityNotificationsRead(params: {
+  companyId: string;
+  entityKind: NotificationEntityKind;
+  entityId: string;
+}): Promise<void> {
+  const unread = await repo().find({
+    where: {
+      companyId: params.companyId,
+      entityKind: params.entityKind,
+      entityId: params.entityId,
+      readAt: IsNull(),
+    },
+    select: ["id", "userId"],
+  });
+  if (unread.length === 0) return;
+
+  await repo().update({ id: In(unread.map((row) => row.id)) }, { readAt: new Date() });
+  const idsByUser = new Map<string, string[]>();
+  for (const row of unread) {
+    const ids = idsByUser.get(row.userId) ?? [];
+    ids.push(row.id);
+    idsByUser.set(row.userId, ids);
+  }
+  for (const [userId, notificationIds] of idsByUser) {
+    broadcastToCompany(params.companyId, {
+      type: "notification.read",
+      userId,
+      notificationIds,
+    });
+  }
+}
+
+/**
  * Best-effort cleanup when an entity disappears (e.g. todo deleted, message
  * soft-deleted). Drops dangling notification rows so the bell doesn't link
  * to 404 pages. Safe to call from a route handler — failures are swallowed

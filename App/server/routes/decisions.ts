@@ -9,7 +9,9 @@ import {
   getDecision,
   hydrateDecisions,
   listDecisions,
+  restoreDecision,
 } from "../services/decisions.js";
+import { snoozeDecision } from "../services/decisionSnoozes.js";
 
 /**
  * The Decision Stack — questions AI Employees raised for a human.
@@ -41,6 +43,12 @@ const decideSchema = z
   .strict();
 
 const dismissSchema = z.object({ reason: z.string().max(4_000).optional() }).strict();
+const snoozeSchema = z
+  .object({
+    duration: z.enum(["one_hour", "one_day", "two_days", "one_week", "one_month"]),
+  })
+  .strict();
+const restoreSchema = z.object({}).strict();
 
 decisionsRouter.get("/decisions", async (req, res) => {
   const { cid } = req.params as Record<string, string>;
@@ -137,5 +145,64 @@ decisionsRouter.post(
     }
     const [dto] = await hydrateDecisions([result.decision]);
     res.json(dto);
+  },
+);
+
+decisionsRouter.post(
+  "/decisions/:id/snooze",
+  validateParams(idParamsSchema),
+  validateBody(snoozeSchema),
+  async (req, res) => {
+    const { cid, id } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof snoozeSchema>;
+    const result = await snoozeDecision({
+      companyId: cid,
+      decisionId: id,
+      userId: req.userId!,
+      role: req.companyRole!,
+      duration: body.duration,
+    });
+    if (result.outcome === "not_found") return res.status(404).json({ error: "Not found" });
+    if (result.outcome === "forbidden") {
+      return res
+        .status(403)
+        .json({ error: "This decision was raised for a specific teammate to answer." });
+    }
+    if (result.outcome === "conflict") {
+      return res.status(409).json({ error: `Decision is already ${result.decision.status}` });
+    }
+    const [dto] = await hydrateDecisions([result.decision]);
+    return res.json(dto);
+  },
+);
+
+decisionsRouter.post(
+  "/decisions/:id/restore",
+  validateParams(idParamsSchema),
+  validateBody(restoreSchema),
+  async (req, res) => {
+    const { cid, id } = req.params as Record<string, string>;
+    const result = await restoreDecision({
+      companyId: cid,
+      decisionId: id,
+      userId: req.userId!,
+      role: req.companyRole!,
+    });
+    if (result.outcome === "not_found") return res.status(404).json({ error: "Not found" });
+    if (result.outcome === "forbidden") {
+      return res
+        .status(403)
+        .json({ error: "This decision was raised for a specific teammate to answer." });
+    }
+    if (result.outcome === "not_restorable") {
+      return res
+        .status(409)
+        .json({ error: "This decision was retracted by its AI Employee and cannot be restored." });
+    }
+    if (result.outcome === "conflict") {
+      return res.status(409).json({ error: `Decision is already ${result.decision.status}` });
+    }
+    const [dto] = await hydrateDecisions([result.decision]);
+    return res.json(dto);
   },
 );

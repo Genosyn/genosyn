@@ -9,11 +9,16 @@ import {
   Clock,
   Clock3,
   Info,
+  RotateCcw,
 } from "lucide-react";
-import { Company, Decision, DecisionStatus } from "../../lib/api";
+import { api, Company, Decision, DecisionStatus } from "../../lib/api";
+import { errorMessage } from "../../lib/errors";
 import { ChatMarkdown } from "../ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
+import { Button } from "../ui/Button";
 import { clsx } from "../ui/clsx";
+import { FormError } from "../ui/FormError";
+import { Spinner } from "../ui/Spinner";
 import { DecisionPickup } from "./DecisionPickup";
 import { DecisionSourceLine } from "./DecisionSource";
 import { DecisionDiscussButton } from "./DecisionDiscussButton";
@@ -49,8 +54,21 @@ const PICKUP_TIMELINE = {
   skipped: { icon: CircleSlash, tone: "neutral" },
 } as const;
 
-export function DecisionOutcome({ company, decision }: { company: Company; decision: Decision }) {
+export function DecisionOutcome({
+  company,
+  decision,
+  onRestored,
+  canRestore,
+}: {
+  company: Company;
+  decision: Decision;
+  onRestored: (announcement?: string) => Promise<void> | void;
+  canRestore: boolean;
+}) {
   const [contextOpen, setContextOpen] = React.useState(false);
+  const [restoring, setRestoring] = React.useState(false);
+  const [restoreError, setRestoreError] = React.useState<string | null>(null);
+  const restoringRef = React.useRef(false);
   const fieldId = React.useId();
   const status = decision.status as Exclude<DecisionStatus, "pending">;
   const style = RESOLVED_STYLE[status];
@@ -66,6 +84,23 @@ export function DecisionOutcome({ company, decision }: { company: Company; decis
         ? "The decision was dismissed"
         : "Expired under an earlier version";
   const pickup = decision.pickupStatus === "none" ? null : PICKUP_TIMELINE[decision.pickupStatus];
+  const mayRestore = status === "cancelled" && decision.decidedByUserId !== null && canRestore;
+
+  async function restore() {
+    if (!mayRestore || restoringRef.current) return;
+    restoringRef.current = true;
+    setRestoring(true);
+    setRestoreError(null);
+    try {
+      await api.post(`/api/companies/${company.id}/decisions/${decision.id}/restore`, {});
+      await onRestored(`Decision “${decision.title}” restored to the stack.`);
+    } catch (err) {
+      setRestoreError(errorMessage(err));
+    } finally {
+      restoringRef.current = false;
+      setRestoring(false);
+    }
+  }
 
   return (
     <li id={`decision-${decision.id}`} className="scroll-mt-4">
@@ -162,9 +197,9 @@ export function DecisionOutcome({ company, decision }: { company: Company; decis
               </p>
             ) : (
               <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                This Decision expired before deadlines were retired. Pending Decisions now stay
-                open until someone answers them, a Member dismisses them, or the AI Employee
-                retracts them.
+                This Decision expired before deadlines were retired. Pending Decisions now stay open
+                until someone answers them, a Member dismisses them, or the AI Employee retracts
+                them.
               </p>
             )}
 
@@ -185,8 +220,22 @@ export function DecisionOutcome({ company, decision }: { company: Company; decis
           )}
         </ReviewTimeline>
 
-        <div className="mt-4 flex justify-end border-t border-slate-100 pt-3 dark:border-slate-800">
-          <DecisionDiscussButton company={company} decision={decision} />
+        <FormError message={restoreError} className="mt-3" />
+        <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end dark:border-slate-800">
+          {mayRestore && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={restoring}
+              onClick={() => void restore()}
+              className="w-full sm:w-auto"
+            >
+              {restoring ? <Spinner size={14} /> : <RotateCcw size={14} />}
+              Undismiss
+            </Button>
+          )}
+          <DecisionDiscussButton company={company} decision={decision} disabled={restoring} />
         </div>
       </article>
     </li>

@@ -23,6 +23,7 @@ import {
   listPendingDecisions,
   normalizeDecisionOptions,
   parseDecisionOptions,
+  restoreDecision,
 } from "./decisions.js";
 
 before(initTestDb);
@@ -381,6 +382,155 @@ describe("retracting a decision", () => {
       role: "owner",
     });
     assert.equal(owner.outcome, "cancelled");
+  });
+});
+
+describe("restoring a dismissed decision", () => {
+  test("clears terminal and routing fields, makes the row visible, and re-pages once", async () => {
+    const { companyId, employeeId, ownerId } = await scenario();
+    const routedTo = await insert(AIEmployee, {
+      companyId,
+      name: "Kai",
+      slug: `kai-${companyId.slice(3, 11)}`,
+      role: "Operations",
+      soulBody: "",
+    });
+    const decision = await stack(companyId, employeeId);
+    await cancelDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: ownerId,
+      role: "owner",
+      reason: "Handled another way.",
+    });
+    await AppDataSource.getRepository(Decision).update(decision.id, {
+      chosenOptionId: "send-it",
+      chosenOptionLabel: "Send it",
+      decidedByEmployeeId: routedTo.id,
+      routedToEmployeeId: routedTo.id,
+      routedAt: new Date(),
+      snoozedUntil: new Date(Date.now() + 60_000),
+    });
+
+    const result = await restoreDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: ownerId,
+      role: "owner",
+    });
+
+    assert.equal(result.outcome, "restored");
+    const restored = await AppDataSource.getRepository(Decision).findOneByOrFail({
+      id: decision.id,
+    });
+    assert.equal(restored.status, "pending");
+    assert.equal(restored.chosenOptionId, null);
+    assert.equal(restored.chosenOptionLabel, null);
+    assert.equal(restored.note, null);
+    assert.equal(restored.decidedByUserId, null);
+    assert.equal(restored.decidedByEmployeeId, null);
+    assert.equal(restored.decidedAt, null);
+    assert.equal(restored.routedToEmployeeId, null);
+    assert.equal(restored.routedAt, null);
+    assert.equal(restored.snoozedUntil, null);
+    assert.deepEqual(
+      (await listDecisions({ companyId })).map((row) => row.id),
+      [decision.id],
+    );
+
+    const notifications = await AppDataSource.getRepository(Notification).find({
+      where: { companyId, entityId: decision.id },
+      order: { createdAt: "ASC" },
+    });
+    assert.equal(notifications.length, 2);
+    assert.equal(
+      notifications.filter((notification) => notification.readAt !== null).length,
+      1,
+      "the original page was cleared by the dismissal",
+    );
+    assert.equal(
+      notifications.filter((notification) => notification.readAt === null).length,
+      1,
+      "restoring sends a fresh unread page",
+    );
+    const journal = await AppDataSource.getRepository(JournalEntry).find({
+      where: { employeeId },
+    });
+    assert.equal(journal.length, 2);
+    assert.equal(journal.filter((entry) => /restored the decision/.test(entry.title)).length, 1);
+  });
+
+  test("a concurrent restore has one winner and every other caller conflicts", async () => {
+    const { companyId, employeeId, ownerId } = await scenario();
+    const decision = await stack(companyId, employeeId);
+    await cancelDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: ownerId,
+      role: "owner",
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        restoreDecision({
+          companyId,
+          decisionId: decision.id,
+          userId: ownerId,
+          role: "owner",
+        }),
+      ),
+    );
+
+    assert.equal(results.filter((result) => result.outcome === "restored").length, 1);
+    assert.equal(results.filter((result) => result.outcome === "conflict").length, 11);
+    const notifications = await AppDataSource.getRepository(Notification).find({
+      where: { companyId, entityId: decision.id },
+    });
+    assert.equal(notifications.filter((notification) => notification.readAt === null).length, 1);
+  });
+
+  test("an AI Employee retraction is final", async () => {
+    const { companyId, employeeId, ownerId } = await scenario();
+    const decision = await stack(companyId, employeeId);
+    await cancelDecision({ companyId, decisionId: decision.id, employeeId });
+
+    const result = await restoreDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: ownerId,
+      role: "owner",
+    });
+    assert.equal(result.outcome, "not_restorable");
+  });
+
+  test("enforces the assignee and company boundary", async () => {
+    const first = await scenario();
+    const second = await scenario();
+    const decision = await stack(first.companyId, first.employeeId, {
+      assigneeUserId: first.ownerId,
+    });
+    await cancelDecision({
+      companyId: first.companyId,
+      decisionId: decision.id,
+      userId: first.ownerId,
+      role: "owner",
+    });
+
+    const forbidden = await restoreDecision({
+      companyId: first.companyId,
+      decisionId: decision.id,
+      userId: first.memberId,
+      role: "member",
+    });
+    assert.equal(forbidden.outcome, "forbidden");
+
+    const hidden = await restoreDecision({
+      companyId: second.companyId,
+      decisionId: decision.id,
+      userId: second.ownerId,
+      role: "owner",
+    });
+    assert.equal(hidden.outcome, "not_found");
   });
 });
 

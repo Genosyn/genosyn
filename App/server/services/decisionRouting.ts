@@ -9,6 +9,8 @@ import { chatWithEmployee } from "./chat.js";
 import { getActiveModel } from "./models.js";
 import { recordAudit } from "./audit.js";
 import { notifyDecisionPending, parseDecisionOptions } from "./decisions.js";
+import { markEntityNotificationsRead } from "./notifications.js";
+import { emitResourceChange } from "./resourceEvents.js";
 
 /**
  * Decision routing (M53): the "who decides what" layer, no longer hardcoded
@@ -292,11 +294,21 @@ export async function decideDecisionAsEmployee(params: {
       decidedByEmployeeId: params.deciderEmployeeId,
       decidedByUserId: null,
       decidedAt: new Date(),
+      snoozedUntil: null,
     },
   );
   if (!claim.affected) return { outcome: "conflict" };
 
   const updated = (await repo.findOneBy({ id: decision.id, companyId: params.companyId }))!;
+  await markEntityNotificationsRead({
+    companyId: updated.companyId,
+    entityKind: "decision",
+    entityId: updated.id,
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[decisions] routed-answer notification cleanup failed", err);
+  });
+  emitResourceChange(updated.companyId, "decision", undefined, { trigger: false });
   await recordAudit({
     companyId: params.companyId,
     actorEmployeeId: params.deciderEmployeeId,

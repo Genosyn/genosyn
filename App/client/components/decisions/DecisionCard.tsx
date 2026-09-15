@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clock3,
   GitBranch,
   Info,
   ListChecks,
@@ -15,6 +16,7 @@ import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { FormError } from "@/components/ui/FormError";
+import { Menu, MenuHeader, MenuItem } from "@/components/ui/Menu";
 import { Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import { DecisionSourceLine } from "@/components/decisions/DecisionSource";
@@ -34,6 +36,18 @@ const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | nu
   },
 };
 
+type SnoozeDuration = "one_hour" | "one_day" | "two_days" | "one_week" | "one_month";
+
+const SNOOZE_OPTIONS: { duration: SnoozeDuration; label: string }[] = [
+  { duration: "one_hour", label: "1 hour" },
+  { duration: "one_day", label: "1 day" },
+  { duration: "two_days", label: "2 days" },
+  { duration: "one_week", label: "1 week" },
+  { duration: "one_month", label: "1 month" },
+];
+
+type PendingAction = "answer" | "dismiss" | "snooze";
+
 /** A pending question, shown as the story so far followed by one clear choice. */
 export function DecisionCard({
   company,
@@ -46,12 +60,11 @@ export function DecisionCard({
   onResolved: (announcement?: string) => Promise<void> | void;
   canAnswer?: boolean;
 }) {
-  const [busy, setBusy] = React.useState(false);
+  const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
   const submitting = React.useRef(false);
   const [error, setError] = React.useState<string | null>(null);
   const [contextOpen, setContextOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [dismissing, setDismissing] = React.useState(false);
   const [guidanceOpen, setGuidanceOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
   const base = `/api/companies/${company.id}/decisions/${decision.id}`;
@@ -59,35 +72,58 @@ export function DecisionCard({
   const badge = URGENCY_BADGE[decision.urgency];
   const selected = decision.options.find((option) => option.id === selectedId);
   const employeeName = decision.employee?.name ?? "The AI Employee";
+  const busy = pendingAction !== null;
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (submitting.current || (!dismissing && !selected)) return;
+  async function perform(
+    action: PendingAction,
+    request: () => Promise<unknown>,
+    announcement: string,
+  ) {
+    if (!canAnswer || submitting.current) return;
     submitting.current = true;
-    setBusy(true);
+    setPendingAction(action);
     setError(null);
     try {
-      if (dismissing) {
-        await api.post(`${base}/dismiss`, note.trim() ? { reason: note.trim() } : {});
-      } else {
-        await api.post(`${base}/decide`, {
-          optionId: selected!.id,
-          ...(note.trim() ? { note: note.trim() } : {}),
-        });
-      }
+      await request();
       // The refreshed row records pickup status; submitting cannot promise that
       // the employee has started or that any proposed action has succeeded.
-      await onResolved(
-        dismissing
-          ? `Decision “${decision.title}” dismissed.`
-          : `Decision “${decision.title}” answered.`,
-      );
+      await onResolved(announcement);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       submitting.current = false;
-      setBusy(false);
+      setPendingAction(null);
     }
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    await perform(
+      "answer",
+      () =>
+        api.post(`${base}/decide`, {
+          optionId: selected.id,
+          ...(note.trim() ? { note: note.trim() } : {}),
+        }),
+      `Decision “${decision.title}” answered.`,
+    );
+  }
+
+  async function dismiss() {
+    await perform(
+      "dismiss",
+      () => api.post(`${base}/dismiss`, {}),
+      `Decision “${decision.title}” dismissed.`,
+    );
+  }
+
+  async function snooze(duration: SnoozeDuration, label: string) {
+    await perform(
+      "snooze",
+      () => api.post(`${base}/snooze`, { duration }),
+      `Decision “${decision.title}” snoozed for ${label}.`,
+    );
   }
 
   return (
@@ -185,7 +221,7 @@ export function DecisionCard({
                 {decision.options.length > 0 ? (
                   <div className="grid gap-2 sm:grid-cols-2">
                     {decision.options.map((option, index) => {
-                      const checked = !dismissing && selectedId === option.id;
+                      const checked = selectedId === option.id;
                       const optionId = `${fieldId}-option-${index}`;
                       return (
                         <label
@@ -210,7 +246,6 @@ export function DecisionCard({
                             aria-describedby={option.detail ? `${optionId}-detail` : undefined}
                             onChange={() => {
                               setSelectedId(option.id);
-                              setDismissing(false);
                               setError(null);
                             }}
                             className="sr-only"
@@ -269,13 +304,7 @@ export function DecisionCard({
                   className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline disabled:opacity-60 dark:text-indigo-400"
                 >
                   <MessageSquarePlus size={13} />
-                  {guidanceOpen
-                    ? "Hide guidance"
-                    : note.trim()
-                      ? "Edit guidance"
-                      : dismissing
-                        ? "Add a reason"
-                        : "Add guidance"}
+                  {guidanceOpen ? "Hide guidance" : note.trim() ? "Edit guidance" : "Add guidance"}
                 </button>
               )}
 
@@ -285,7 +314,7 @@ export function DecisionCard({
                     htmlFor={`${fieldId}-note`}
                     className="mb-1.5 block text-xs font-medium text-slate-700 dark:text-slate-200"
                   >
-                    {dismissing ? "Reason for dismissing" : `Guidance for ${employeeName}`}{" "}
+                    Guidance for {employeeName}{" "}
                     <span className="font-normal text-slate-500 dark:text-slate-400">
                       (optional)
                     </span>
@@ -295,11 +324,7 @@ export function DecisionCard({
                     value={note}
                     disabled={busy}
                     onChange={(event) => setNote(event.target.value)}
-                    placeholder={
-                      dismissing
-                        ? "Add a reason if it will help the team understand this dismissal."
-                        : "Add names, links, corrections, or instructions for this answer."
-                    }
+                    placeholder="Add names, links, corrections, or instructions for this answer."
                     rows={3}
                     maxLength={4000}
                     className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
@@ -307,16 +332,7 @@ export function DecisionCard({
                 </div>
               )}
 
-              {canAnswer && dismissing && (
-                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                  <span className="font-medium text-slate-800 dark:text-slate-100">
-                    Dismiss this decision?
-                  </span>{" "}
-                  It will leave the stack without recording an answer or starting follow-up work.
-                </div>
-              )}
-
-              {canAnswer && !dismissing && selected && (
+              {canAnswer && selected && (
                 <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                   Confirming records this answer for {employeeName}. Any required Approvals still
                   apply to the work that follows.
@@ -326,48 +342,81 @@ export function DecisionCard({
               {canAnswer && <FormError message={error} className="mt-3" />}
 
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-                {canAnswer &&
-                  (dismissing ? (
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="secondary"
-                      disabled={busy}
-                      className="w-full sm:w-auto"
-                    >
-                      {busy && <Spinner size={14} />}
-                      Confirm dismissal
-                    </Button>
-                  ) : (
-                    selected && (
-                      <Button
-                        type="submit"
-                        size="sm"
-                        variant={selected.tone === "danger" ? "danger" : "primary"}
-                        disabled={busy}
-                        className="w-full min-w-0 sm:w-auto"
-                        title={`Confirm: ${selected.label}`}
-                      >
-                        {busy ? <Spinner size={14} /> : <ArrowRight size={14} />}
-                        <span className="min-w-0 truncate">Confirm: {selected.label}</span>
-                      </Button>
-                    )
-                  ))}
+                {canAnswer && selected && (
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant={selected.tone === "danger" ? "danger" : "primary"}
+                    disabled={busy}
+                    className="w-full min-w-0 sm:w-auto"
+                    title={`Confirm: ${selected.label}`}
+                  >
+                    {pendingAction === "answer" ? <Spinner size={14} /> : <ArrowRight size={14} />}
+                    <span className="min-w-0 truncate">Confirm: {selected.label}</span>
+                  </Button>
+                )}
                 <DecisionDiscussButton company={company} decision={decision} disabled={busy} />
                 {canAnswer && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => {
-                      setDismissing((value) => !value);
-                      setError(null);
-                    }}
-                    className="w-full sm:ml-auto sm:w-auto"
-                  >
-                    {dismissing ? "Keep decision" : "Dismiss"}
-                  </Button>
+                  <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row">
+                    <Menu
+                      align="right"
+                      width={200}
+                      trigger={({ ref, onClick, open }) => (
+                        <Button
+                          ref={ref}
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => {
+                            setError(null);
+                            onClick();
+                          }}
+                          aria-haspopup="menu"
+                          aria-expanded={open}
+                          className="w-full sm:w-auto"
+                        >
+                          {pendingAction === "snooze" ? (
+                            <Spinner size={14} />
+                          ) : (
+                            <Clock3 size={14} />
+                          )}
+                          Snooze
+                          <ChevronDown
+                            size={13}
+                            className={clsx("transition-transform", open && "rotate-180")}
+                          />
+                        </Button>
+                      )}
+                    >
+                      {(close) => (
+                        <>
+                          <MenuHeader>Snooze for</MenuHeader>
+                          {SNOOZE_OPTIONS.map((option) => (
+                            <MenuItem
+                              key={option.duration}
+                              label={option.label}
+                              onSelect={() => {
+                                close();
+                                void snooze(option.duration, option.label);
+                              }}
+                            />
+                          ))}
+                        </>
+                      )}
+                    </Menu>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => void dismiss()}
+                      className="w-full sm:w-auto"
+                    >
+                      {pendingAction === "dismiss" && <Spinner size={14} />}
+                      Dismiss
+                    </Button>
+                  </div>
                 )}
               </div>
             </form>

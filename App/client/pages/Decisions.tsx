@@ -52,6 +52,12 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "expired", label: "Expired (legacy)" },
 ];
 
+function isFutureSnooze(decision: Decision, now: number): boolean {
+  if (decision.status !== "pending" || !decision.snoozedUntil) return false;
+  const until = Date.parse(decision.snoozedUntil);
+  return Number.isFinite(until) && until > now;
+}
+
 export default function Decisions({ company, me }: { company: Company; me: Me }) {
   const location = useLocation();
   const scrolledTo = React.useRef<string | null>(null);
@@ -132,7 +138,20 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const reload = React.useCallback(async () => {
     const version = ++reloadVersion.current;
     try {
-      const listed = await api.get<Decision[]>(`/api/companies/${company.id}/decisions`);
+      const [recent, dismissed] = await Promise.all([
+        api.get<Decision[]>(`/api/companies/${company.id}/decisions`),
+        api.get<Decision[]>(`/api/companies/${company.id}/decisions?status=cancelled&limit=200`),
+      ]);
+      // The main feed is a mixed-status 200-row window. Keep dismissed
+      // Decisions independently addressable so an older question never loses
+      // its Undismiss path just because newer activity filled that window.
+      const listed = [...recent];
+      const listedIds = new Set(listed.map((row) => row.id));
+      for (const decision of dismissed) {
+        if (listedIds.has(decision.id)) continue;
+        listed.push(decision);
+        listedIds.add(decision.id);
+      }
       let targetError: string | null = null;
       // A saved discussion can outlive the newest 200 rows on this page.
       if (linkedDecisionId && !listed.some((row) => row.id === linkedDecisionId)) {
@@ -218,22 +237,23 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const query = search.trim().toLocaleLowerCase();
   const matches = (text: (string | null | undefined)[]) =>
     text.some((value) => value?.toLocaleLowerCase().includes(query));
-  const filteredRows =
-    rows?.filter(
-      (row) =>
-        !query ||
-        matches([
-          row.title,
-          row.body,
-          row.employee?.name,
-          row.assignee?.name,
-          row.source.mailThread?.subject,
-          row.source.routine?.name,
-          ...row.options.flatMap((option) => [option.label, option.detail]),
-        ]),
-    ) ?? [];
+  const now = Date.now();
+  const visibleRows = rows?.filter((row) => !isFutureSnooze(row, now)) ?? [];
+  const filteredRows = visibleRows.filter(
+    (row) =>
+      !query ||
+      matches([
+        row.title,
+        row.body,
+        row.employee?.name,
+        row.assignee?.name,
+        row.source.mailThread?.subject,
+        row.source.routine?.name,
+        ...row.options.flatMap((option) => [option.label, option.detail]),
+      ]),
+  );
   const pending = filteredRows.filter((r) => r.status === "pending");
-  const allPending = rows?.filter((r) => r.status === "pending").length ?? 0;
+  const allPending = visibleRows.filter((r) => r.status === "pending").length;
   const filteredWork =
     (canReview ? workReviews : [])?.filter(
       (row) =>
@@ -301,7 +321,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           {resolutionNotice.message}
         </div>
       )}
-      {rows?.length || workReviews?.length ? (
+      {visibleRows.length || workReviews?.length ? (
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <label className="flex min-w-0 flex-1 basis-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:basis-0 dark:border-slate-700 dark:bg-slate-900">
             <Search size={16} className="shrink-0 text-slate-400" />
@@ -353,7 +373,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       {rows === null && workReviews === null ? (
         <Spinner />
       ) : rows !== null &&
-        rows.length === 0 &&
+        visibleRows.length === 0 &&
         !workReviews?.length &&
         !loadError &&
         !workError &&
@@ -467,7 +487,18 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {shown.map((d) => (
-                    <DecisionOutcome key={d.id} company={company} decision={d} />
+                    <DecisionOutcome
+                      key={d.id}
+                      company={company}
+                      decision={d}
+                      onRestored={reloadDecisionsAfterAction}
+                      canRestore={
+                        !d.assignee ||
+                        d.assignee.id === me.id ||
+                        company.role === "owner" ||
+                        company.role === "admin"
+                      }
+                    />
                   ))}
                 </ul>
               )}

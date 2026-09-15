@@ -735,6 +735,8 @@ export type Decision = {
   pickupSummary: string | null;
   pickupStartedAt: string | null;
   pickupFinishedAt: string | null;
+  /** While future, the pending Decision is hidden from human attention surfaces. */
+  snoozedUntil: string | null;
   expiresAt: string | null;
   createdAt: string;
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;

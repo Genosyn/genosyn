@@ -1,4 +1,4 @@
-import { In, IsNull, LessThanOrEqual } from "typeorm";
+import { In, IsNull, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -18,7 +18,8 @@ import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { recordAudit } from "./audit.js";
-import { createNotifications } from "./notifications.js";
+import { createNotifications, markEntityNotificationsRead } from "./notifications.js";
+import { emitResourceChange } from "./resourceEvents.js";
 import { toSlug } from "../lib/slug.js";
 
 /**
@@ -97,6 +98,8 @@ export type DecisionDTO = {
   pickupSummary: string | null;
   pickupStartedAt: string | null;
   pickupFinishedAt: string | null;
+  /** While future, hidden from human attention surfaces without resolving it. */
+  snoozedUntil: string | null;
   /** Always null. Retained in the response shape for compatibility with older clients. */
   expiresAt: string | null;
   createdAt: string;
@@ -262,6 +265,7 @@ export function serializeDecision(
     pickupSummary: decision.pickupSummary,
     pickupStartedAt: decision.pickupStartedAt?.toISOString() ?? null,
     pickupFinishedAt: decision.pickupFinishedAt?.toISOString() ?? null,
+    snoozedUntil: decision.snoozedUntil?.toISOString() ?? null,
     // Older rows may still carry a retired deadline. Never present it as live policy.
     expiresAt: null,
     createdAt: decision.createdAt.toISOString(),
@@ -397,11 +401,30 @@ export async function listDecisions(params: {
   limit?: number;
 }): Promise<DecisionDTO[]> {
   await reconcileStalePickups(params.companyId);
-  const rows = await AppDataSource.getRepository(Decision).find({
-    where: {
+  const now = new Date();
+  const visiblePending = [
+    {
       companyId: params.companyId,
-      ...(params.status ? { status: params.status } : {}),
+      status: "pending" as const,
+      snoozedUntil: IsNull(),
     },
+    {
+      companyId: params.companyId,
+      status: "pending" as const,
+      snoozedUntil: LessThanOrEqual(now),
+    },
+  ];
+  const where =
+    params.status === "pending"
+      ? visiblePending
+      : params.status
+        ? { companyId: params.companyId, status: params.status }
+        : [
+            { companyId: params.companyId, status: Not<Decision["status"]>("pending") },
+            ...visiblePending,
+          ];
+  const rows = await AppDataSource.getRepository(Decision).find({
+    where,
     order: { createdAt: "DESC" },
     take: params.limit ?? 200,
   });
@@ -422,17 +445,25 @@ export async function listPendingDecisions(params: {
 }): Promise<{ decisions: DecisionDTO[]; total: number }> {
   await reconcileStalePickups(params.companyId);
   const canAnswerAssigned = params.viewer?.role === "owner" || params.viewer?.role === "admin";
-  const where =
+  const audience =
     params.viewer && !canAnswerAssigned
-      ? [
-          { companyId: params.companyId, status: "pending" as const, assigneeUserId: IsNull() },
-          {
-            companyId: params.companyId,
-            status: "pending" as const,
-            assigneeUserId: params.viewer.userId,
-          },
-        ]
-      : { companyId: params.companyId, status: "pending" as const };
+      ? [{ assigneeUserId: IsNull() }, { assigneeUserId: params.viewer.userId }]
+      : [{}];
+  const now = new Date();
+  const where = audience.flatMap((entry) => [
+    {
+      companyId: params.companyId,
+      status: "pending" as const,
+      ...entry,
+      snoozedUntil: IsNull(),
+    },
+    {
+      companyId: params.companyId,
+      status: "pending" as const,
+      ...entry,
+      snoozedUntil: LessThanOrEqual(now),
+    },
+  ]);
   const [rows, total] = await AppDataSource.getRepository(Decision).findAndCount({
     where,
     // Sorting is finished in memory: urgency is a string column, so ordering on
@@ -490,6 +521,7 @@ export async function createDecision(params: {
     note: null,
     decidedByUserId: null,
     decidedAt: null,
+    snoozedUntil: null,
     pickupStatus: params.automaticContinuation === false ? "skipped" : "none",
     pickupSummary:
       params.automaticContinuation === false
@@ -537,7 +569,11 @@ export async function createDecision(params: {
  * routed Decision falls back to the human flow.
  */
 export async function notifyDecisionPending(decision: Decision): Promise<void> {
-  const [company, employee, memberships] = await Promise.all([
+  const [current, company, employee, memberships] = await Promise.all([
+    AppDataSource.getRepository(Decision).findOneBy({
+      id: decision.id,
+      companyId: decision.companyId,
+    }),
     AppDataSource.getRepository(Company).findOneBy({ id: decision.companyId }),
     AppDataSource.getRepository(AIEmployee).findOneBy({ id: decision.employeeId }),
     AppDataSource.getRepository(Membership).find({
@@ -546,7 +582,15 @@ export async function notifyDecisionPending(decision: Decision): Promise<void> {
         : { companyId: decision.companyId, role: In(["owner", "admin"]) },
     }),
   ]);
-  if (!company || !employee || memberships.length === 0) return;
+  if (
+    !current ||
+    current.status !== "pending" ||
+    (current.snoozedUntil?.getTime() ?? 0) > Date.now() ||
+    !company ||
+    !employee ||
+    memberships.length === 0
+  )
+    return;
 
   await createNotifications(
     memberships.map((m) => ({
@@ -614,6 +658,7 @@ export async function decideDecision(params: {
       note,
       decidedByUserId: params.userId,
       decidedAt,
+      snoozedUntil: null,
     },
   );
   if (!result.affected) {
@@ -622,6 +667,8 @@ export async function decideDecision(params: {
   }
 
   const updated = (await repo.findOneBy({ id: decision.id, companyId: params.companyId }))!;
+  await markDecisionNotificationsRead(updated);
+  emitResourceChange(updated.companyId, "decision", undefined, { trigger: false });
   await recordDecisionOutcome(updated, option.label, note, params.userId);
   return { outcome: "decided", decision: updated };
 }
@@ -722,7 +769,13 @@ export async function cancelDecision(params: {
   const note = params.reason?.trim() ? params.reason.trim().slice(0, 4_000) : null;
   const result = await repo.update(
     { id: decision.id, companyId: params.companyId, status: "pending" },
-    { status: "cancelled", note, decidedByUserId: params.userId ?? null, decidedAt: new Date() },
+    {
+      status: "cancelled",
+      note,
+      decidedByUserId: params.userId ?? null,
+      decidedAt: new Date(),
+      snoozedUntil: null,
+    },
   );
   if (!result.affected) {
     const current = await repo.findOneBy({ id: decision.id, companyId: params.companyId });
@@ -730,6 +783,8 @@ export async function cancelDecision(params: {
   }
 
   const updated = (await repo.findOneBy({ id: decision.id, companyId: params.companyId }))!;
+  await markDecisionNotificationsRead(updated);
+  emitResourceChange(updated.companyId, "decision", undefined, { trigger: false });
   await recordAudit({
     companyId: decision.companyId,
     ...(params.userId ? { actorUserId: params.userId } : {}),
@@ -750,4 +805,92 @@ export async function cancelDecision(params: {
     );
   }
   return { outcome: "cancelled", decision: updated };
+}
+
+async function markDecisionNotificationsRead(decision: Decision): Promise<void> {
+  await markEntityNotificationsRead({
+    companyId: decision.companyId,
+    entityKind: "decision",
+    entityId: decision.id,
+  }).catch((err) => {
+    // The Decision transition is already durable. A stale bell is secondary
+    // and the next authorized read still reflects the row's true state.
+    // eslint-disable-next-line no-console
+    console.warn("[decisions] notification cleanup failed", err);
+  });
+}
+
+export type RestoreOutcome =
+  | { outcome: "not_found" }
+  | { outcome: "forbidden"; decision: Decision }
+  | { outcome: "not_restorable"; decision: Decision }
+  | { outcome: "conflict"; decision: Decision }
+  | { outcome: "restored"; decision: Decision };
+
+/** Restore a Decision a Member dismissed; an employee retraction stays final. */
+export async function restoreDecision(params: {
+  companyId: string;
+  decisionId: string;
+  userId: string;
+  role: Role;
+}): Promise<RestoreOutcome> {
+  const repo = AppDataSource.getRepository(Decision);
+  const decision = await repo.findOneBy({ id: params.decisionId, companyId: params.companyId });
+  if (!decision) return { outcome: "not_found" };
+  if (!canDecide(decision, params.userId, params.role)) {
+    return { outcome: "forbidden", decision };
+  }
+  if (decision.status !== "cancelled") return { outcome: "conflict", decision };
+  if (!decision.decidedByUserId) return { outcome: "not_restorable", decision };
+
+  const result = await repo.update(
+    {
+      id: decision.id,
+      companyId: params.companyId,
+      status: "cancelled",
+      decidedByUserId: Not(IsNull()),
+    },
+    {
+      status: "pending",
+      chosenOptionId: null,
+      chosenOptionLabel: null,
+      note: null,
+      decidedByUserId: null,
+      decidedByEmployeeId: null,
+      decidedAt: null,
+      routedToEmployeeId: null,
+      routedAt: null,
+      snoozedUntil: null,
+      // Restoring is itself the re-page. Do not let the stall sweep send a
+      // duplicate notification on the same scheduler heartbeat.
+      stallRemindedAt: new Date(),
+    },
+  );
+  if (!result.affected) {
+    const current = await repo.findOneBy({ id: decision.id, companyId: params.companyId });
+    return { outcome: "conflict", decision: current ?? decision };
+  }
+
+  const updated = (await repo.findOneBy({ id: decision.id, companyId: params.companyId }))!;
+  emitResourceChange(updated.companyId, "decision", undefined, { trigger: false });
+  const user = await AppDataSource.getRepository(User).findOneBy({ id: params.userId });
+  const who = user ? user.name || user.email : "A teammate";
+  await Promise.all([
+    recordAudit({
+      companyId: updated.companyId,
+      actorUserId: params.userId,
+      action: "decision.restore",
+      targetType: "decision",
+      targetId: updated.id,
+      targetLabel: updated.title,
+      metadata: {},
+    }),
+    writeDecisionJournal(
+      updated,
+      `${who} restored the decision "${updated.title}" to the Decision stack`,
+      "The earlier dismissal no longer applies. This question is waiting for an answer again.",
+    ),
+    notifyDecisionPending(updated),
+  ]);
+  return { outcome: "restored", decision: updated };
 }

@@ -36,6 +36,7 @@ import {
   sweepPendingStandingQuestions,
 } from "./tldrStandingQuestions.js";
 import { sweepStalledWork } from "./escalations.js";
+import { releaseDueDecisionSnoozes } from "./decisionSnoozes.js";
 import { sweepGoals } from "./goals.js";
 import { sweepRoutedDecisions } from "./decisionRouting.js";
 import { sweepAutonomyPromotions } from "./autonomy.js";
@@ -549,10 +550,17 @@ async function tick(): Promise<void> {
         console.error("[cron] TLDR suggested action release failed:", err);
       });
 
-      // Phase 7 — end the silences. Re-page humans about Approvals, Decisions,
-      // and Handoffs that have sat unanswered past their stall threshold.
-      // Idempotent per row (deduplicated against the notification feed), so
-      // running it on every heartbeat costs three bounded queries.
+      // Phase 7 — return snoozed Decisions to their human audience, then end
+      // the other silences. Each wake is a conditional claim, so restarts,
+      // concurrent extensions and multiple schedulers cannot page twice.
+      lease.assertHeld();
+      await releaseDueDecisionSnoozes(now, lease.assertHeld).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] Decision snooze wake failed:", err);
+      });
+
+      // Re-page humans about Approvals, Decisions, and Handoffs that have sat
+      // unanswered past their stall threshold. Idempotent per row.
       lease.assertHeld();
       await sweepStalledWork(now, lease.assertHeld).catch((err) => {
         // eslint-disable-next-line no-console

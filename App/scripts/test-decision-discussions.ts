@@ -35,6 +35,15 @@ const secondMailReviewId = "55555555-5555-4555-8555-555555555555";
 const revisionA = "a".repeat(64);
 const revisionB = "b".repeat(64);
 const fixtureNow = new Date("2026-09-09T12:00:00.000Z");
+const HOUR_MS = 60 * 60 * 1000;
+type SnoozeDuration = "one_hour" | "one_day" | "two_days" | "one_week" | "one_month";
+const SNOOZE_OPTIONS: Array<{ duration: SnoozeDuration; label: string; milliseconds: number }> = [
+  { duration: "one_hour", label: "1 hour", milliseconds: HOUR_MS },
+  { duration: "one_day", label: "1 day", milliseconds: 24 * HOUR_MS },
+  { duration: "two_days", label: "2 days", milliseconds: 2 * 24 * HOUR_MS },
+  { duration: "one_week", label: "1 week", milliseconds: 7 * 24 * HOUR_MS },
+  { duration: "one_month", label: "1 month", milliseconds: 30 * 24 * HOUR_MS },
+];
 const browserErrors: string[] = [];
 const unexpectedRequests: string[] = [];
 const replies: Reply[] = [];
@@ -159,6 +168,7 @@ function decision(changes: Partial<Decision> = {}): Decision {
     pickupSummary: null,
     pickupStartedAt: null,
     pickupFinishedAt: null,
+    snoozedUntil: null,
     expiresAt: null,
     createdAt: fixtureNow.toISOString(),
     employee: { id: "asking-employee", name: "Alex Rivera", slug: "alex", avatarKey: null },
@@ -200,8 +210,13 @@ function homeData(
   approvalRows: Approval[] = [],
   canReview = false,
   notification?: Notification,
+  now = fixtureNow,
 ): HomeData {
-  const pending = rows.filter((row) => row.status === "pending");
+  const pending = rows.filter(
+    (row) =>
+      row.status === "pending" &&
+      (!row.snoozedUntil || Date.parse(row.snoozedUntil) <= now.getTime()),
+  );
   const pendingReviews = canReview ? approvalRows.filter((row) => row.status === "pending") : [];
   return {
     decisions: pending,
@@ -363,6 +378,7 @@ type FixtureOptions = {
   details?: Decision[];
   hash?: string;
   notification?: Notification;
+  decisionListLimit?: number;
 };
 async function open(options: FixtureOptions = {}) {
   const page = await context.newPage();
@@ -371,6 +387,14 @@ async function open(options: FixtureOptions = {}) {
   await page.addInitScript(() => localStorage.setItem("genosyn.pushPromptDismissed", "1"));
   const rows = options.rows ?? [decision()];
   const approvalRows = options.reviews ?? [];
+  let requestNow = new Date(fixtureNow);
+  const visibleRows = () =>
+    rows.filter(
+      (row) =>
+        row.status !== "pending" ||
+        !row.snoozedUntil ||
+        Date.parse(row.snoozedUntil) <= requestNow.getTime(),
+    );
   const reads: string[] = [];
   const writes: Write[] = [];
   const listGate = gate();
@@ -398,7 +422,16 @@ async function open(options: FixtureOptions = {}) {
     if (!url.pathname.startsWith("/api/")) return route.continue();
     if (request.method() === "GET") {
       reads.push(url.pathname + url.search);
-      if (url.pathname === `${apiBase}/decisions`) return route.fulfill({ json: rows });
+      if (url.pathname === `${apiBase}/decisions`) {
+        const status = url.searchParams.get("status");
+        const requestedLimit = Number(
+          url.searchParams.get("limit") ?? options.decisionListLimit ?? 200,
+        );
+        const matching = status
+          ? visibleRows().filter((row) => row.status === status)
+          : visibleRows();
+        return route.fulfill({ json: matching.slice(0, requestedLimit) });
+      }
       if (url.pathname === `${apiBase}/approvals`) {
         if (failNextApprovalRead) {
           failNextApprovalRead = false;
@@ -440,7 +473,13 @@ async function open(options: FixtureOptions = {}) {
       }
       if (url.pathname === `${apiBase}/home`)
         return route.fulfill({
-          json: homeData(rows, approvalRows, options.role === "admin", options.notification),
+          json: homeData(
+            rows,
+            approvalRows,
+            options.role === "admin",
+            options.notification,
+            requestNow,
+          ),
         });
       if (url.pathname === `${apiBase}/employees` || url.pathname === `${apiBase}/members`)
         return route.fulfill({ json: [] });
@@ -592,7 +631,7 @@ async function open(options: FixtureOptions = {}) {
       )
         return route.continue();
       const match = url.pathname.match(
-        /^\/api\/companies\/company\/decisions\/([^/]+)\/(decide|dismiss)$/,
+        /^\/api\/companies\/company\/decisions\/([^/]+)\/(decide|dismiss|snooze|restore)$/,
       );
       if (match) {
         if (options.holdDecision) await decisionGate.promise;
@@ -603,10 +642,36 @@ async function open(options: FixtureOptions = {}) {
           });
         const row = rows.find((item) => item.id === match[1]);
         assert.ok(row);
-        row.status = match[2] === "decide" ? "decided" : "cancelled";
-        row.chosenOptionLabel =
-          row.options.find((option) => option.id === body.optionId)?.label ?? null;
-        row.note = (body.note ?? body.reason ?? null) as string | null;
+        if (match[2] === "snooze") {
+          const option = SNOOZE_OPTIONS.find((item) => item.duration === body.duration);
+          assert.ok(option, `unknown snooze duration ${String(body.duration)}`);
+          assert.equal(row.status, "pending");
+          row.snoozedUntil = new Date(requestNow.getTime() + option.milliseconds).toISOString();
+        } else if (match[2] === "restore") {
+          if (row.status !== "cancelled" || !row.decidedByUserId)
+            return route.fulfill({
+              status: 409,
+              json: {
+                error: "This decision was retracted by its AI Employee and cannot be restored.",
+              },
+            });
+          row.status = "pending";
+          row.chosenOptionLabel = null;
+          row.note = null;
+          row.decidedAt = null;
+          row.decidedByUserId = null;
+          row.decidedBy = null;
+          row.snoozedUntil = null;
+        } else {
+          row.status = match[2] === "decide" ? "decided" : "cancelled";
+          row.chosenOptionLabel =
+            row.options.find((option) => option.id === body.optionId)?.label ?? null;
+          row.note = (body.note ?? body.reason ?? null) as string | null;
+          row.decidedAt = requestNow.toISOString();
+          row.decidedByUserId = "member";
+          row.decidedBy = { id: "member", name: "Morgan" };
+          row.snoozedUntil = null;
+        }
         return route.fulfill({ json: row });
       }
     }
@@ -631,7 +696,7 @@ async function open(options: FixtureOptions = {}) {
       .getByRole("heading", {
         name: options.notification
           ? "Needs your attention"
-          : rows.some((row) => row.status === "pending")
+          : visibleRows().some((row) => row.status === "pending")
             ? "Pending Decisions"
             : "Nothing needs you right now",
         exact: true,
@@ -641,7 +706,7 @@ async function open(options: FixtureOptions = {}) {
     await page
       .getByPlaceholder("Message Alex Rivera…", { exact: true })
       .waitFor({ timeout: 300000 });
-  else if (rows.some((row) => row.status === "pending"))
+  else if (visibleRows().some((row) => row.status === "pending"))
     await page
       .getByRole("button", { name: "Discuss", exact: true })
       .first()
@@ -673,6 +738,10 @@ async function open(options: FixtureOptions = {}) {
     },
     releaseDetail: detailGate.release,
     releaseDecision: decisionGate.release,
+    advanceTime: async (milliseconds: number) => {
+      requestNow = new Date(requestNow.getTime() + milliseconds);
+      await page.clock.setFixedTime(requestNow);
+    },
   };
 }
 function card(page: Page, id = firstDecisionId) {
@@ -792,9 +861,7 @@ try {
       rows: [row, ...morePending, answered],
       reviews: [work, mail],
     });
-    await fixture.page
-      .getByRole("heading", { name: "Pending Decisions", exact: true })
-      .waitFor();
+    await fixture.page.getByRole("heading", { name: "Pending Decisions", exact: true }).waitFor();
     assert.equal(
       await fixture.page
         .getByRole("link", { name: "Open Decision stack", exact: true })
@@ -856,53 +923,212 @@ try {
     ]);
     await fixture.page.close();
   });
-  await check("a Decision notification links to the Decision stack without embedding its card", async () => {
-    const row = decision();
-    const decisionLink = `${companyPath}/decisions#decision-${row.id}`;
-    const notification: Notification = {
-      id: "decision-notification",
-      kind: "decision_pending",
-      title: "Alex needs your decision",
-      body: "Please choose the owner for the retention response.",
-      link: decisionLink,
-      actor: {
-        kind: "ai",
-        id: "asking-employee",
-        name: "Alex Rivera",
-        avatarKey: null,
-        slug: "alex",
-      },
-      entityKind: "decision",
-      entityId: row.id,
-      readAt: null,
-      createdAt: fixtureNow.toISOString(),
-    };
-    const fixture = await open({ surface: "home", rows: [row], notification });
-    assert.equal(await card(fixture.page, row.id).count(), 1);
-    fixture.allowWrites();
-    const markedRead = fixture.page.waitForResponse(
-      (response) => new URL(response.url()).pathname === `${apiBase}/notifications/mark-read`,
-    );
-    await fixture.page.getByText(notification.title, { exact: true }).click();
-    await markedRead;
-    const dialog = fixture.page.getByRole("dialog", { name: notification.title, exact: true });
-    await dialog.getByText(notification.body, { exact: true }).waitFor();
-    assert.equal(await dialog.locator(`#decision-${row.id}`).count(), 0);
-    assert.equal(await dialog.getByText(row.body, { exact: true }).count(), 0);
-    assert.equal(await dialog.getByRole("button", { name: "Discuss", exact: true }).count(), 0);
-    const openDecisions = dialog.getByRole("link", { name: "Open Decision stack", exact: true });
-    assert.equal(await openDecisions.getAttribute("href"), decisionLink);
-    await openDecisions.click();
-    await fixture.page.waitForURL(`${origin}${decisionLink}`);
-    await card(fixture.page, row.id).waitFor();
-    assert.deepEqual(fixture.writes, [
-      {
-        path: `${apiBase}/notifications/mark-read`,
-        body: { notificationId: notification.id },
-      },
-    ]);
-    await fixture.page.close();
+  await check("all Snooze choices send their exact duration and hide the Decision", async () => {
+    for (const option of SNOOZE_OPTIONS) {
+      const row = decision();
+      const fixture = await open({ rows: [row] });
+      fixture.allowWrites();
+      await card(fixture.page, row.id).getByRole("button", { name: "Snooze", exact: true }).click();
+      const menu = fixture.page.getByRole("menu");
+      await menu.waitFor();
+      assert.equal(await menu.getByRole("menuitem").count(), SNOOZE_OPTIONS.length);
+      await menu.getByRole("menuitem", { name: option.label, exact: true }).click();
+      await fixture.page
+        .getByRole("heading", { name: "Decision stack is clear", exact: true })
+        .waitFor();
+      await quietNotice(fixture.page, `Decision “${row.title}” snoozed for ${option.label}.`);
+      assert.equal(await card(fixture.page, row.id).count(), 0);
+      assert.equal(
+        row.snoozedUntil,
+        new Date(fixtureNow.getTime() + option.milliseconds).toISOString(),
+      );
+      assert.deepEqual(fixture.writes, [
+        {
+          path: `${apiBase}/decisions/${row.id}/snooze`,
+          body: { duration: option.duration },
+        },
+      ]);
+      await fixture.page.close();
+    }
   });
+  await check(
+    "a one-hour Snooze returns after fixture time advances and the stack reloads",
+    async () => {
+      const row = decision();
+      const fixture = await open({ rows: [row] });
+      fixture.allowWrites();
+      await card(fixture.page, row.id).getByRole("button", { name: "Snooze", exact: true }).click();
+      await fixture.page.getByRole("menuitem", { name: "1 hour", exact: true }).click();
+      await fixture.page
+        .getByRole("heading", { name: "Decision stack is clear", exact: true })
+        .waitFor();
+      await fixture.advanceTime(HOUR_MS);
+      await fixture.page.reload({ waitUntil: "commit" });
+      await card(fixture.page, row.id).waitFor();
+      await fixture.page.getByRole("heading", { name: "Needs you (1)", exact: true }).waitFor();
+      assert.equal(
+        await card(fixture.page, row.id)
+          .getByRole("button", { name: "Snooze", exact: true })
+          .isEnabled(),
+        true,
+      );
+      assert.deepEqual(fixture.writes, [
+        {
+          path: `${apiBase}/decisions/${row.id}/snooze`,
+          body: { duration: "one_hour" },
+        },
+      ]);
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "Dismiss is one click, enters history, and Undismiss restores the Decision",
+    async () => {
+      const row = decision();
+      const fixture = await open({ rows: [row] });
+      const pendingCard = card(fixture.page, row.id);
+      assert.equal(
+        await fixture.page.getByRole("button", { name: "Confirm dismissal", exact: true }).count(),
+        0,
+      );
+      assert.equal(await fixture.page.getByRole("dialog").count(), 0);
+      fixture.allowWrites();
+      await pendingCard.getByRole("button", { name: "Dismiss", exact: true }).click();
+      await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
+      await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
+      await quietNotice(fixture.page, `Decision “${row.title}” dismissed.`);
+      assert.deepEqual(fixture.writes, [
+        {
+          path: `${apiBase}/decisions/${row.id}/dismiss`,
+          body: {},
+        },
+      ]);
+
+      await card(fixture.page, row.id)
+        .getByRole("button", { name: "Undismiss", exact: true })
+        .click();
+      await fixture.page.getByRole("heading", { name: "Needs you (1)", exact: true }).waitFor();
+      await card(fixture.page, row.id)
+        .getByRole("radio", { name: /^Send the update\b/ })
+        .waitFor();
+      await quietNotice(fixture.page, `Decision “${row.title}” restored to the stack.`);
+      assert.deepEqual(fixture.writes, [
+        {
+          path: `${apiBase}/decisions/${row.id}/dismiss`,
+          body: {},
+        },
+        {
+          path: `${apiBase}/decisions/${row.id}/restore`,
+          body: {},
+        },
+      ]);
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "dismissed history remains available outside the recent mixed-status window",
+    async () => {
+      const newer = decision({
+        id: secondDecisionId,
+        status: "decided",
+        chosenOptionId: "send",
+        chosenOptionLabel: "Send the update",
+        decidedAt: fixtureNow.toISOString(),
+        decidedByUserId: "member",
+        decidedBy: { id: "member", name: "Morgan" },
+      });
+      const dismissed = decision({
+        id: "66666666-6666-4666-8666-666666666666",
+        title: "An older dismissed question",
+        status: "cancelled",
+        decidedAt: new Date(fixtureNow.getTime() - 24 * HOUR_MS).toISOString(),
+        decidedByUserId: "member",
+        decidedBy: { id: "member", name: "Morgan" },
+      });
+      const fixture = await open({ rows: [newer, dismissed], decisionListLimit: 1 });
+      await card(fixture.page, dismissed.id).waitFor();
+      await card(fixture.page, dismissed.id)
+        .getByRole("button", { name: "Undismiss", exact: true })
+        .waitFor();
+      assert.equal(
+        fixture.reads.some((url) => url === `${apiBase}/decisions?status=cancelled&limit=200`),
+        true,
+      );
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "an AI Employee retraction stays in history without an Undismiss action",
+    async () => {
+      const row = decision({
+        status: "cancelled",
+        decidedAt: fixtureNow.toISOString(),
+        decidedByUserId: null,
+        decidedBy: null,
+      });
+      const fixture = await open({ rows: [row] });
+      await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
+      await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
+      assert.equal(
+        await card(fixture.page, row.id)
+          .getByRole("button", { name: "Undismiss", exact: true })
+          .count(),
+        0,
+      );
+      assert.deepEqual(fixture.writes, []);
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "a Decision notification links to the Decision stack without embedding its card",
+    async () => {
+      const row = decision();
+      const decisionLink = `${companyPath}/decisions#decision-${row.id}`;
+      const notification: Notification = {
+        id: "decision-notification",
+        kind: "decision_pending",
+        title: "Alex needs your decision",
+        body: "Please choose the owner for the retention response.",
+        link: decisionLink,
+        actor: {
+          kind: "ai",
+          id: "asking-employee",
+          name: "Alex Rivera",
+          avatarKey: null,
+          slug: "alex",
+        },
+        entityKind: "decision",
+        entityId: row.id,
+        readAt: null,
+        createdAt: fixtureNow.toISOString(),
+      };
+      const fixture = await open({ surface: "home", rows: [row], notification });
+      assert.equal(await card(fixture.page, row.id).count(), 1);
+      fixture.allowWrites();
+      const markedRead = fixture.page.waitForResponse(
+        (response) => new URL(response.url()).pathname === `${apiBase}/notifications/mark-read`,
+      );
+      await fixture.page.getByText(notification.title, { exact: true }).click();
+      await markedRead;
+      const dialog = fixture.page.getByRole("dialog", { name: notification.title, exact: true });
+      await dialog.getByText(notification.body, { exact: true }).waitFor();
+      assert.equal(await dialog.locator(`#decision-${row.id}`).count(), 0);
+      assert.equal(await dialog.getByText(row.body, { exact: true }).count(), 0);
+      assert.equal(await dialog.getByRole("button", { name: "Discuss", exact: true }).count(), 0);
+      const openDecisions = dialog.getByRole("link", { name: "Open Decision stack", exact: true });
+      assert.equal(await openDecisions.getAttribute("href"), decisionLink);
+      await openDecisions.click();
+      await fixture.page.waitForURL(`${origin}${decisionLink}`);
+      await card(fixture.page, row.id).waitFor();
+      assert.deepEqual(fixture.writes, [
+        {
+          path: `${apiBase}/notifications/mark-read`,
+          body: { notificationId: notification.id },
+        },
+      ]);
+      await fixture.page.close();
+    },
+  );
   await check("a review notification opens its exact Decision-stack card", async () => {
     const review = workReview();
     const reviewLink = `${companyPath}/decisions#review-${review.id}`;
@@ -1042,9 +1268,15 @@ try {
       });
       await fixture.page.getByText("No context was included.", { exact: false }).waitFor();
       assert.equal(await fixture.page.getByText("Recommended", { exact: true }).count(), 0);
-      await fixture.page.getByRole("button", { name: "Dismiss", exact: true }).click();
+      assert.equal(
+        await fixture.page.getByRole("button", { name: "Dismiss", exact: true }).count(),
+        1,
+      );
+      assert.equal(
+        await fixture.page.getByRole("button", { name: "Confirm dismissal", exact: true }).count(),
+        0,
+      );
       assert.deepEqual(fixture.writes, []);
-      await fixture.page.getByRole("button", { name: "Keep decision", exact: true }).click();
       assert.equal(await fixture.page.getByRole("button", { name: /Confirm:/ }).count(), 0);
       await fixture.page.close();
     },
@@ -1836,65 +2068,49 @@ try {
       await fixture.page.close();
     },
   );
-  for (const action of ["decide", "dismiss"] as const) {
-    await check(
-      `${action} keeps its note, disables Discuss during submission, and retries safely`,
-      async () => {
-        const fixture = await open({ holdDecision: true, decisionError: true });
-        await fixture.page
-          .getByRole("button", { name: "Read the full context", exact: true })
-          .click();
-        if (action === "decide") {
-          await fixture.page.getByText("Send the update", { exact: true }).click();
-          await fixture.page.getByRole("button", { name: "Add guidance", exact: true }).click();
-          await fixture.page
-            .getByRole("textbox", { name: "Guidance for Alex Rivera (optional)" })
-            .fill("  Please explain the timing first.  ");
-        } else {
-          await fixture.page.getByRole("button", { name: "Dismiss", exact: true }).click();
-          await fixture.page.getByRole("button", { name: "Add a reason", exact: true }).click();
-          await fixture.page
-            .getByRole("textbox", { name: "Reason for dismissing (optional)" })
-            .fill("  Please explain the timing first.  ");
-        }
-        assert.deepEqual(fixture.writes, [], "selection and staging dismissal must not submit");
-        fixture.allowWrites();
-        const actionButton = () =>
-          fixture.page.getByRole("button", {
-            name: action === "decide" ? "Confirm: Send the update" : "Confirm dismissal",
-            exact: true,
-          });
-        await actionButton().click();
-        assert.equal(await discuss(fixture.page).isDisabled(), true);
-        fixture.releaseDecision();
-        await fixture.page
-          .getByRole("alert")
-          .getByText("This decision changed. Try again.", { exact: true })
-          .waitFor();
-        assert.equal(await discuss(fixture.page).isEnabled(), true);
-        fixture.recoverDecision();
-        await actionButton().click();
-        await fixture.page.getByText("Decision history", { exact: true }).waitFor();
-        assert.equal(await discuss(fixture.page).isEnabled(), true);
-        const expected =
-          action === "decide"
-            ? { optionId: "send", note: "Please explain the timing first." }
-            : { reason: "Please explain the timing first." };
-        assert.deepEqual(
-          fixture.writes,
-          Array.from({ length: 2 }, () => ({
-            path: `${apiBase}/decisions/${firstDecisionId}/${action}`,
-            body: expected,
-          })),
-        );
-        assert.equal(
-          fixture.reads.some((url) => url.includes("conversations")),
-          false,
-        );
-        await fixture.page.close();
-      },
-    );
-  }
+  await check(
+    "decide keeps its note, disables Discuss during submission, and retries safely",
+    async () => {
+      const fixture = await open({ holdDecision: true, decisionError: true });
+      await fixture.page
+        .getByRole("button", { name: "Read the full context", exact: true })
+        .click();
+      await fixture.page.getByText("Send the update", { exact: true }).click();
+      await fixture.page.getByRole("button", { name: "Add guidance", exact: true }).click();
+      await fixture.page
+        .getByRole("textbox", { name: "Guidance for Alex Rivera (optional)" })
+        .fill("  Please explain the timing first.  ");
+      assert.deepEqual(fixture.writes, [], "selecting an answer must not submit");
+      fixture.allowWrites();
+      const actionButton = () =>
+        fixture.page.getByRole("button", { name: "Confirm: Send the update", exact: true });
+      await actionButton().click();
+      assert.equal(await discuss(fixture.page).isDisabled(), true);
+      fixture.releaseDecision();
+      await fixture.page
+        .getByRole("alert")
+        .getByText("This decision changed. Try again.", { exact: true })
+        .waitFor();
+      assert.equal(await discuss(fixture.page).isEnabled(), true);
+      fixture.recoverDecision();
+      await actionButton().click();
+      await fixture.page.getByText("Decision history", { exact: true }).waitFor();
+      assert.equal(await discuss(fixture.page).isEnabled(), true);
+      const expected = { optionId: "send", note: "Please explain the timing first." };
+      assert.deepEqual(
+        fixture.writes,
+        Array.from({ length: 2 }, () => ({
+          path: `${apiBase}/decisions/${firstDecisionId}/decide`,
+          body: expected,
+        })),
+      );
+      assert.equal(
+        fixture.reads.some((url) => url.includes("conversations")),
+        false,
+      );
+      await fixture.page.close();
+    },
+  );
   await check(
     "decisions: Discuss and existing decision actions remain usable on a narrow phone",
     async () => {
@@ -1931,6 +2147,34 @@ try {
       });
       const fixture = await open({ surface: "decisions", width: 360, rows: [row] });
       await fitsViewport(fixture.page);
+      for (const name of ["Snooze", "Dismiss"] as const) {
+        const action = card(fixture.page, row.id).getByRole("button", { name, exact: true });
+        assert.equal(
+          await action.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.left >= 0 && rect.right <= innerWidth && rect.width > 0;
+          }),
+          true,
+          `${name} must remain on screen at phone width`,
+        );
+      }
+      await card(fixture.page, row.id).getByRole("button", { name: "Snooze", exact: true }).click();
+      const snoozeMenu = fixture.page.getByRole("menu");
+      await snoozeMenu.waitFor();
+      assert.deepEqual(
+        await snoozeMenu.getByRole("menuitem").allTextContents(),
+        SNOOZE_OPTIONS.map((option) => option.label),
+      );
+      assert.equal(
+        await snoozeMenu.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.left >= 0 && rect.right <= innerWidth && rect.width > 0;
+        }),
+        true,
+        "the Snooze menu must remain on screen at phone width",
+      );
+      await fixture.page.keyboard.press("Escape");
+      await snoozeMenu.waitFor({ state: "detached" });
       await fixture.page.screenshot({
         path: path.join(output, "decision-discuss-decisions-mobile.png"),
         fullPage: true,

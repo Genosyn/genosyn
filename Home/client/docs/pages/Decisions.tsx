@@ -131,8 +131,15 @@ export function Decisions() {
           <Strong>Add guidance</Strong>, then select <Strong>Confirm: {"{answer}"}</Strong>.
         </LI>
         <LI>
-          Nothing to decide? Select <Strong>Dismiss</Strong> and <Strong>Confirm dismissal</Strong>{" "}
-          to close the row without choosing an answer.
+          Need more time? Select <Strong>Snooze</Strong>, then choose an hour, one or two days, a
+          week, or a month. The question leaves Home and the Decision stack temporarily, then
+          returns when that time is up. Snoozing does not answer or dismiss it, or start any work.
+        </LI>
+        <LI>
+          Nothing to decide? Select <Strong>Dismiss</Strong>. It closes immediately without choosing
+          an answer and moves to <Strong>Decision history</Strong>. A Decision a Member dismissed
+          has an <Strong>Undismiss</Strong> action there to return it to the stack; a question the
+          AI Employee retracted does not.
         </LI>
       </UL>
       <P>
@@ -151,9 +158,9 @@ export function Decisions() {
 
       <H2 id="discussing">Discussing a decision</H2>
       <P>
-        Press <Strong>Discuss</Strong> on a decision in the <Strong>Decision stack</Strong>. A new private
-        conversation opens with the AI Employee that asked, with a draft message linking to that
-        exact decision. Add your question and press <Strong>Send</Strong> when you are ready.
+        Press <Strong>Discuss</Strong> on a decision in the <Strong>Decision stack</Strong>. A new
+        private conversation opens with the AI Employee that asked, with a draft message linking to
+        that exact decision. Add your question and press <Strong>Send</Strong> when you are ready.
         Opening the draft sends nothing.
       </P>
       <P>
@@ -210,9 +217,9 @@ export function Decisions() {
         another out of a conversation you had five minutes ago.
       </P>
       <P>
-        A Decision stays pending until someone answers it, a Member dismisses it, or the AI
-        Employee retracts its own question because the situation has moved on. It never expires
-        merely because time has passed.
+        A Decision stays pending until someone answers it, a Member dismisses it, or the AI Employee
+        retracts its own question because the situation has moved on. It never expires merely
+        because time has passed.
       </P>
 
       <H2 id="not-approvals">Work approvals and Decision answers</H2>
@@ -237,11 +244,11 @@ export function Decisions() {
       <P>
         By default every question waits for a human — no configuration, exactly the behavior above.
         A <Strong>routing rule</Strong> (opened with <Strong>Routing</Strong> on the{" "}
-        <Strong>Decision stack</Strong> page, admin-managed) changes that for one asking employee: it
-        names who may answer on a
-        human&apos;s behalf — the employee&apos;s <Strong>manager</Strong>, via the org chart&apos;s
-        reports-to line, or a <Strong>named employee</Strong>. A decision the employee addressed to
-        a specific person is never routed.
+        <Strong>Decision stack</Strong> page, admin-managed) changes that for one asking employee:
+        it names who may answer on a human&apos;s behalf — the employee&apos;s{" "}
+        <Strong>manager</Strong>, via the org chart&apos;s reports-to line, or a{" "}
+        <Strong>named employee</Strong>. A decision the employee addressed to a specific person is
+        never routed.
       </P>
       <P>
         A routed question skips the creation-time bell. Instead, the decider is briefed in a

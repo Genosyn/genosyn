@@ -1,4 +1,4 @@
-import { In, IsNull, LessThan } from "typeorm";
+import { In, IsNull, LessThan, LessThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -8,7 +8,11 @@ import { Handoff } from "../db/entities/Handoff.js";
 import { Membership } from "../db/entities/Membership.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { Routine } from "../db/entities/Routine.js";
-import { createNotifications, type CreateNotificationInput } from "./notifications.js";
+import {
+  createNotifications,
+  markEntityNotificationsRead,
+  type CreateNotificationInput,
+} from "./notifications.js";
 import { managingMemberIdForEmployee } from "./reportingLine.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 
@@ -54,9 +58,7 @@ async function ownersAndAdmins(companyId: string): Promise<string[]> {
 }
 
 async function isCompanyMember(companyId: string, userId: string): Promise<boolean> {
-  return (
-    (await AppDataSource.getRepository(Membership).countBy({ companyId, userId })) > 0
-  );
+  return (await AppDataSource.getRepository(Membership).countBy({ companyId, userId })) > 0;
 }
 
 function hoursSince(from: Date, now: Date): number {
@@ -75,6 +77,26 @@ async function claimStallReminder(
 ): Promise<boolean> {
   const claim = await AppDataSource.getRepository(entity).update(
     { id, stallRemindedAt: IsNull() },
+    { stallRemindedAt: now },
+  );
+  return claim.affected === 1;
+}
+
+/**
+ * Re-check the Decision-specific eligibility in the claim itself. A snooze can
+ * land after the stale-row query but before this update; matching the snapshot's
+ * null/due branch makes that newer deadline win instead of producing a bell for
+ * a question that just left the stack.
+ */
+async function claimDecisionStallReminder(decision: Decision, now: Date): Promise<boolean> {
+  const claim = await AppDataSource.getRepository(Decision).update(
+    {
+      id: decision.id,
+      companyId: decision.companyId,
+      status: "pending",
+      stallRemindedAt: IsNull(),
+      snoozedUntil: decision.snoozedUntil ? LessThanOrEqual(now) : IsNull(),
+    },
     { stallRemindedAt: now },
   );
   return claim.affected === 1;
@@ -105,8 +127,7 @@ async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Prom
       approval.kind === "routine" && routine
         ? `run "${routine.name}"`
         : (redactApprovalSummary(approval.title) ?? "an action");
-    const decisionStackReview =
-      approval.kind === "proactive_work" || approval.kind === "mail_send";
+    const decisionStackReview = approval.kind === "proactive_work" || approval.kind === "mail_send";
     const inputs: CreateNotificationInput[] = userIds.map((userId) => ({
       companyId: approval.companyId,
       userId,
@@ -131,11 +152,20 @@ async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Prom
 async function sweepStaleDecisions(now: Date, assertLeaseHeld: () => void): Promise<void> {
   const cutoff = new Date(now.getTime() - STALL_AFTER_MS);
   const stale = await AppDataSource.getRepository(Decision).find({
-    where: {
-      status: "pending",
-      createdAt: LessThan(cutoff),
-      stallRemindedAt: IsNull(),
-    },
+    where: [
+      {
+        status: "pending",
+        createdAt: LessThan(cutoff),
+        stallRemindedAt: IsNull(),
+        snoozedUntil: IsNull(),
+      },
+      {
+        status: "pending",
+        createdAt: LessThan(cutoff),
+        stallRemindedAt: IsNull(),
+        snoozedUntil: LessThanOrEqual(now),
+      },
+    ],
     order: { createdAt: "ASC" },
     take: MAX_PER_SWEEP,
   });
@@ -161,7 +191,7 @@ async function sweepStaleDecisions(now: Date, assertLeaseHeld: () => void): Prom
       : await ownersAndAdmins(decision.companyId);
     if (userIds.length === 0) continue;
     assertLeaseHeld();
-    if (!(await claimStallReminder(Decision, decision.id, now))) continue;
+    if (!(await claimDecisionStallReminder(decision, now))) continue;
     const inputs: CreateNotificationInput[] = userIds.map((userId) => ({
       companyId: decision.companyId,
       userId,
@@ -175,7 +205,37 @@ async function sweepStaleDecisions(now: Date, assertLeaseHeld: () => void): Prom
       entityId: decision.id,
     }));
     assertLeaseHeld();
+    const beforeNotify = await AppDataSource.getRepository(Decision).findOneBy({
+      id: decision.id,
+      companyId: decision.companyId,
+    });
+    if (
+      !beforeNotify ||
+      beforeNotify.status !== "pending" ||
+      (beforeNotify.snoozedUntil?.getTime() ?? 0) > now.getTime()
+    )
+      continue;
     await createNotifications(inputs);
+    // Close the other half of the race: if snoozing landed after the claim but
+    // before the bell write, its own cleanup may have run first. Re-read after
+    // creation and clear the just-created bell when the row is now hidden (or
+    // was settled concurrently). If snoozing lands after this check, its
+    // cleanup sees and clears the bell instead.
+    const current = await AppDataSource.getRepository(Decision).findOneBy({
+      id: decision.id,
+      companyId: decision.companyId,
+    });
+    if (
+      !current ||
+      current.status !== "pending" ||
+      (current.snoozedUntil?.getTime() ?? 0) > now.getTime()
+    ) {
+      await markEntityNotificationsRead({
+        companyId: decision.companyId,
+        entityKind: "decision",
+        entityId: decision.id,
+      });
+    }
   }
 }
 

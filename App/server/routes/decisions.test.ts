@@ -14,7 +14,7 @@ import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { createDecision } from "../services/decisions.js";
+import { cancelDecision, createDecision } from "../services/decisions.js";
 import { decisionsRouter } from "./decisions.js";
 
 /**
@@ -197,6 +197,44 @@ describe("decision route authorization", () => {
     assert.equal(response.status, 200);
     assert.deepEqual(response.body, []);
   });
+
+  test("snooze and restore keep the same assignee and tenant boundaries", async () => {
+    const decision = await stack({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Owner-only choice",
+      options: [{ label: "Continue" }],
+      assigneeUserId: owner.id,
+    });
+
+    const snoozeBlocked = await call("POST", `/decisions/${decision.id}/snooze`, {
+      duration: "one_day",
+    });
+    assert.equal(snoozeBlocked.status, 403);
+
+    actingUserId = owner.id;
+    const otherTenant = await call(
+      "POST",
+      `/decisions/${decision.id}/snooze`,
+      { duration: "one_day" },
+      otherCompany.id,
+    );
+    assert.equal(otherTenant.status, 404);
+
+    await call("POST", `/decisions/${decision.id}/dismiss`, {});
+    actingUserId = member.id;
+    const restoreBlocked = await call("POST", `/decisions/${decision.id}/restore`, {});
+    assert.equal(restoreBlocked.status, 403);
+
+    actingUserId = owner.id;
+    const restoreOtherTenant = await call(
+      "POST",
+      `/decisions/${decision.id}/restore`,
+      {},
+      otherCompany.id,
+    );
+    assert.equal(restoreOtherTenant.status, 404);
+  });
 });
 
 describe("decision route validation", () => {
@@ -227,6 +265,29 @@ describe("decision route validation", () => {
     const response = await call("GET", "/decisions?status=whatever");
     assert.equal(response.status, 400);
   });
+
+  test("snooze accepts only a strict preset body", async () => {
+    const decision = await stack();
+    const invalidDuration = await call("POST", `/decisions/${decision.id}/snooze`, {
+      duration: "tomorrow",
+    });
+    assert.equal(invalidDuration.status, 400);
+
+    const unknownField = await call("POST", `/decisions/${decision.id}/snooze`, {
+      duration: "one_day",
+      until: "2026-01-01T00:00:00.000Z",
+    });
+    assert.equal(unknownField.status, 400);
+  });
+
+  test("restore rejects fields instead of accepting client-written state", async () => {
+    const decision = await stack();
+    await call("POST", `/decisions/${decision.id}/dismiss`, {});
+    const response = await call("POST", `/decisions/${decision.id}/restore`, {
+      status: "pending",
+    });
+    assert.equal(response.status, 400);
+  });
 });
 
 describe("decision route race handling", () => {
@@ -253,13 +314,16 @@ describe("decision route race handling", () => {
     assert.equal(row.status, "decided");
   });
 
-  test("a member can dismiss a pending decision without choosing", async () => {
+  test("an empty-body dismiss immediately cancels a pending decision", async () => {
     const decision = await stack();
-    const response = await call<{ status: string }>("POST", `/decisions/${decision.id}/dismiss`, {
-      reason: "Handled by hand.",
-    });
+    const response = await call<{ status: string; note: string | null }>(
+      "POST",
+      `/decisions/${decision.id}/dismiss`,
+      {},
+    );
     assert.equal(response.status, 200);
     assert.equal(response.body.status, "cancelled");
+    assert.equal(response.body.note, null);
   });
 
   test("a member cannot dismiss a decision assigned to somebody else", async () => {
@@ -283,6 +347,66 @@ describe("decision route race handling", () => {
     );
     assert.equal(dismissed.status, 200);
     assert.equal(dismissed.body.status, "cancelled");
+  });
+
+  test("a snooze records its due time and removes the row from the pending list", async () => {
+    const decision = await stack();
+    const response = await call<{ status: string; snoozedUntil: string }>(
+      "POST",
+      `/decisions/${decision.id}/snooze`,
+      { duration: "two_days" },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, "pending");
+    assert.ok(new Date(response.body.snoozedUntil).getTime() > Date.now());
+
+    const list = await call<Array<{ id: string }>>("GET", "/decisions?status=pending");
+    assert.equal(list.status, 200);
+    assert.deepEqual(list.body, []);
+  });
+
+  test("a human-dismissed Decision can be restored once", async () => {
+    const decision = await stack();
+    await call("POST", `/decisions/${decision.id}/dismiss`, {});
+    const dismissed = await call<Array<{ id: string }>>("GET", "/decisions?status=cancelled");
+    assert.deepEqual(
+      dismissed.body.map((row) => row.id),
+      [decision.id],
+    );
+
+    const restored = await call<{ status: string }>(
+      "POST",
+      `/decisions/${decision.id}/restore`,
+      {},
+    );
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.status, "pending");
+
+    const second = await call<{ error: string }>(
+      "POST",
+      `/decisions/${decision.id}/restore`,
+      {},
+    );
+    assert.equal(second.status, 409);
+    assert.match(second.body.error, /already pending/);
+    assert.deepEqual((await call<unknown[]>("GET", "/decisions?status=cancelled")).body, []);
+  });
+
+  test("an AI Employee retraction cannot be restored by a Member", async () => {
+    const decision = await stack();
+    await cancelDecision({
+      companyId: company.id,
+      decisionId: decision.id,
+      employeeId: employee.id,
+    });
+
+    const response = await call<{ error: string }>(
+      "POST",
+      `/decisions/${decision.id}/restore`,
+      {},
+    );
+    assert.equal(response.status, 409);
+    assert.match(response.body.error, /retracted by its AI Employee/);
   });
 });
 

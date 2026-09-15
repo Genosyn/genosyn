@@ -13,6 +13,7 @@ import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
+import { snoozeDecision } from "./decisionSnoozes.js";
 import { sweepStalledWork } from "./escalations.js";
 
 before(initTestDb);
@@ -150,10 +151,7 @@ describe("stall sweep", () => {
     await sweepStalledWork(new Date());
     const rows = await notifications("approval_stale");
     assert.equal(rows.length, 2);
-    assert.deepEqual(
-      rows.map((r) => r.entityId).sort(),
-      [first.id, second.id].sort(),
-    );
+    assert.deepEqual(rows.map((r) => r.entityId).sort(), [first.id, second.id].sort());
   });
 
   test("deleting the reminder notification does not re-arm the nag", async () => {
@@ -194,6 +192,111 @@ describe("stall sweep", () => {
     // activity must not reach them, and the page must still reach someone.
     assert.equal(rows[0].userId, ownerId);
     assert.equal(rows[0].link, `/c/${companySlug}/decisions#decision-${decision.id}`);
+  });
+
+  test("an actively snoozed Decision does not receive a stale reminder", async () => {
+    const { companyId, employeeId } = await scenario();
+    const decision = await insert(Decision, {
+      companyId,
+      employeeId,
+      title: "Choose the renewal term?",
+      body: "",
+      optionsJson: JSON.stringify([{ id: "annual", label: "Annual" }]),
+      status: "pending",
+      snoozedUntil: new Date(Date.now() + DAY_MS),
+    });
+    await AppDataSource.getRepository(Decision).update(decision.id, {
+      createdAt: new Date(Date.now() - 2 * DAY_MS),
+    });
+
+    await sweepStalledWork(new Date());
+
+    assert.equal((await notifications("decision_stale")).length, 0);
+    const row = await AppDataSource.getRepository(Decision).findOneByOrFail({ id: decision.id });
+    assert.equal(row.stallRemindedAt, null);
+  });
+
+  test("a snooze landing after stale selection wins before the reminder claim", async () => {
+    const { companyId, employeeId } = await scenario();
+    const now = new Date();
+    const snoozedUntil = new Date(now.getTime() + DAY_MS);
+    const decision = await insert(Decision, {
+      companyId,
+      employeeId,
+      title: "Choose the renewal term?",
+      body: "",
+      optionsJson: JSON.stringify([{ id: "annual", label: "Annual" }]),
+      status: "pending",
+    });
+    await AppDataSource.getRepository(Decision).update(decision.id, {
+      createdAt: new Date(now.getTime() - 2 * DAY_MS),
+    });
+
+    let leaseChecks = 0;
+    const raceWrites: Promise<unknown>[] = [];
+    await sweepStalledWork(now, () => {
+      leaseChecks += 1;
+      // For a Decision, the second lease check happens after the stale query
+      // and recipient lookup, immediately before the conditional claim.
+      if (leaseChecks === 2) {
+        raceWrites.push(
+          AppDataSource.getRepository(Decision).update(decision.id, { snoozedUntil }),
+        );
+      }
+    });
+    await Promise.all(raceWrites);
+
+    assert.equal(raceWrites.length, 1);
+    assert.equal((await notifications("decision_stale")).length, 0);
+    const row = await AppDataSource.getRepository(Decision).findOneByOrFail({ id: decision.id });
+    assert.equal(row.snoozedUntil?.toISOString(), snoozedUntil.toISOString());
+    assert.equal(row.stallRemindedAt, null);
+  });
+
+  test("a snooze landing after the reminder claim still suppresses its bell", async () => {
+    const { companyId, employeeId, ownerId } = await scenario();
+    const now = new Date();
+    const snoozedUntil = new Date(now.getTime() + DAY_MS);
+    const decision = await insert(Decision, {
+      companyId,
+      employeeId,
+      title: "Choose the renewal term?",
+      body: "",
+      optionsJson: JSON.stringify([{ id: "annual", label: "Annual" }]),
+      status: "pending",
+    });
+    await AppDataSource.getRepository(Decision).update(decision.id, {
+      createdAt: new Date(now.getTime() - 2 * DAY_MS),
+    });
+
+    let leaseChecks = 0;
+    const raceWrites: Promise<unknown>[] = [];
+    await sweepStalledWork(now, () => {
+      leaseChecks += 1;
+      // The third check is after the claim and immediately before the final
+      // state read that guards notification creation.
+      if (leaseChecks === 3) {
+        raceWrites.push(
+          snoozeDecision({
+            companyId,
+            decisionId: decision.id,
+            userId: ownerId,
+            role: "owner",
+            duration: "one_day",
+            now,
+          }),
+        );
+      }
+    });
+    await Promise.all(raceWrites);
+
+    assert.equal(raceWrites.length, 1);
+    assert.equal(
+      (await notifications("decision_stale")).filter((notification) => !notification.readAt).length,
+      0,
+    );
+    const row = await AppDataSource.getRepository(Decision).findOneByOrFail({ id: decision.id });
+    assert.equal(row.snoozedUntil?.toISOString(), snoozedUntil.toISOString());
   });
 
   test("an overdue handoff escalates, and one still inside its deadline does not", async () => {

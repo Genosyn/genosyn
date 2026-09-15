@@ -62,6 +62,7 @@ export type DecisionOption = {
  */
 @Entity("decisions")
 @Index(["companyId", "status"])
+@Index(["status", "snoozedUntil"])
 export class Decision {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -157,6 +158,14 @@ export class Decision {
 
   @Column({ type: dateTimeColumnType, nullable: true })
   decidedAt!: Date | null;
+
+  /**
+   * While this is in the future the pending Decision stays out of human
+   * attention surfaces. The scheduler clears it at the due time and pages the
+   * same audience again, so a snooze survives restarts and eventually wakes.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  snoozedUntil!: Date | null;
 
   /**
    * Retired deadline from older releases. It is deliberately ignored: pending
