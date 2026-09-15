@@ -476,6 +476,8 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "money",
           "billing",
           "estimates",
+          "customer statements",
+          "statements",
         ],
       },
     ],

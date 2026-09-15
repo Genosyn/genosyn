@@ -4,15 +4,15 @@ import { Link, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Download, ExternalLink, Printer } from "lucide-react";
 import {
   api,
-  CustomerStatement as Statement,
-  CustomerStatementResponse,
+  type Company,
+  type CustomerStatement as Statement,
+  type CustomerStatementResponse,
   formatMoney,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
-import { CustomersOutletCtx } from "./CustomersLayout";
 
 /**
  * Customer statement — a statement of account for one customer: a
@@ -62,10 +62,21 @@ function presetRange(p: Exclude<Preset, "custom">, now = new Date()): {
   }
 }
 
-export default function CustomerStatement() {
-  const { company } = useOutletContext<CustomersOutletCtx>();
+export type CustomerStatementSurface = "customers" | "finance";
+
+export default function CustomerStatement({
+  surface = "customers",
+  customerSwitcher,
+}: {
+  surface?: CustomerStatementSurface;
+  customerSwitcher?: React.ReactNode;
+}) {
+  const { company } = useOutletContext<{ company: Company }>();
   const { customerSlug } = useParams();
   const customersUrl = `/c/${company.slug}/customers`;
+  const financeUrl = `/c/${company.slug}/finance`;
+  const statementsUrl = `${financeUrl}/customer-statements`;
+  const backUrl = surface === "finance" ? statementsUrl : `${customersUrl}/${customerSlug}`;
 
   const [preset, setPreset] = React.useState<Preset>("all");
   const today = React.useMemo(() => iso(new Date()), []);
@@ -119,23 +130,34 @@ export default function CustomerStatement() {
   const statement = data?.statement ?? null;
   const customerName = data?.customer.name ?? customerSlug ?? "";
   const baseUrl = `/api/companies/${company.id}/customers/${customerSlug}/statement`;
+  const breadcrumbs =
+    surface === "finance"
+      ? [
+          { label: "Finance", to: financeUrl },
+          { label: "Customer statements", to: statementsUrl },
+          { label: customerName },
+        ]
+      : [
+          { label: "Customers", to: customersUrl },
+          { label: customerName, to: `${customersUrl}/${customerSlug}` },
+          { label: "Statement" },
+        ];
 
   return (
     <div className="page-shell p-8">
       <div className="mb-6">
-        <Breadcrumbs
-          items={[
-            { label: "Customers", to: customersUrl },
-            { label: customerName, to: `${customersUrl}/${customerSlug}` },
-            { label: "Statement" },
-          ]}
-        />
+        <Breadcrumbs items={breadcrumbs} />
       </div>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link
-            to={`${customersUrl}/${customerSlug}`}
+            to={backUrl}
+            aria-label={
+              surface === "finance"
+                ? "Back to customer statements"
+                : `Back to ${customerName}`
+            }
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
@@ -166,6 +188,8 @@ export default function CustomerStatement() {
           </Button>
         </div>
       </div>
+
+      {customerSwitcher}
 
       {/* Controls — period presets, custom range, currency switcher. */}
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -232,7 +256,7 @@ export default function CustomerStatement() {
           <Spinner size={20} />
         </div>
       ) : statement ? (
-        <StatementBody statement={statement} customersUrl={customersUrl} dim={loading} />
+        <StatementBody statement={statement} financeUrl={financeUrl} dim={loading} />
       ) : null}
     </div>
   );
@@ -240,16 +264,15 @@ export default function CustomerStatement() {
 
 function StatementBody({
   statement,
-  customersUrl,
+  financeUrl,
   dim,
 }: {
   statement: Statement;
-  customersUrl: string;
+  financeUrl: string;
   dim: boolean;
 }) {
   const cur = statement.currency;
   const money = (cents: number) => formatMoney(cents, cur);
-  const financeBase = customersUrl.replace(/\/customers$/, "/finance");
   const a = statement.aging;
 
   return (
@@ -328,7 +351,7 @@ function StatementBody({
                       <td className="px-4 py-3">
                         {t.invoiceSlug ? (
                           <Link
-                            to={`${financeBase}/invoices/${t.invoiceSlug}`}
+                            to={`${financeUrl}/invoices/${t.invoiceSlug}`}
                             className="font-mono text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
                           >
                             {t.reference}

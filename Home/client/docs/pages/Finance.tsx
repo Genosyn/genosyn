@@ -26,6 +26,10 @@ export function Finance() {
           and email / print-to-PDF rendering.
         </LI>
         <LI>
+          <Strong>Customer statements</Strong> — per-customer account activity, balances, and aging,
+          with print and PDF output.
+        </LI>
+        <LI>
           <Strong>Recurring invoices</Strong> — invoice templates that fire on a repeating schedule
           (monthly retainers, annual licences). Each run materializes a fresh invoice into the
           regular invoice list.
@@ -134,6 +138,20 @@ export function Finance() {
         <Code>Acme Corp</Code> → <Code>acme-corp</Code>) is uppercased and prefixed onto every
         invoice and estimate number issued to that customer, so numbers stay unique and
         self-identify across accounts.
+      </P>
+
+      <H2 id="customer-statements">Customer statements</H2>
+      <P>
+        Open <Code>Finance → Customer statements</Code> and choose a customer to view their
+        statement of account. The chooser is searchable and includes archived customers, so past
+        account history stays available. You can switch the period, select a currency when the
+        customer has been billed in more than one, open the print view, or download a PDF. Invoice
+        numbers link back to their full documents in Finance.
+      </P>
+      <P>
+        This is the same statement available from a customer&apos;s overview in the Customers
+        section. See <DocLink to="/docs/customers#statements">Customer statements</DocLink> for how
+        periods, currencies, and aging work.
       </P>
 
       <H2 id="invoices">Invoices</H2>

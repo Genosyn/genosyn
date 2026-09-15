@@ -211,6 +211,7 @@ import FinanceVendors from "./pages/FinanceVendors";
 import FinanceBills from "./pages/FinanceBills";
 import FinanceBillNew from "./pages/FinanceBillNew";
 import FinanceBillDetail from "./pages/FinanceBillDetail";
+import FinanceCustomerStatements from "./pages/FinanceCustomerStatements";
 import ExploreLayout from "./pages/ExploreLayout";
 import ExploreIndex from "./pages/ExploreIndex";
 import ExploreChartDetail from "./pages/ExploreChartDetail";
@@ -687,6 +688,11 @@ function CompanyRoutes({
             <Route path="invoices/new" element={<FinanceInvoiceNew />} />
             <Route path="invoices/:invoiceSlug" element={<FinanceInvoiceDetail />} />
             <Route path="invoices/:invoiceSlug/edit" element={<FinanceInvoiceNew />} />
+            <Route path="customer-statements" element={<FinanceCustomerStatements />} />
+            <Route
+              path="customer-statements/:customerSlug"
+              element={<FinanceCustomerStatements />}
+            />
             <Route path="credit-notes" element={<FinanceCreditNotes />} />
             <Route path="credit-notes/:creditSlug" element={<FinanceCreditNoteDetail />} />
             <Route path="recurring-invoices" element={<FinanceRecurringInvoices />} />

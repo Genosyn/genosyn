@@ -4143,7 +4143,7 @@ export type CustomerContract = {
 
 // ───────────────────────── Customer statement ──────────────────────────
 
-export type StatementTxnKind = "invoice" | "payment";
+export type StatementTxnKind = "invoice" | "payment" | "adjustment";
 
 export type StatementTxn = {
   date: string;
