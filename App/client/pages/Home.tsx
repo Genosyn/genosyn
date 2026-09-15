@@ -59,6 +59,7 @@ import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
 import { RunLiveModal } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
+import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -115,6 +116,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const homeRequest = React.useRef(0);
   const mailRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
+  const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
   const background = useBackgroundAction();
 
   // The todo peek needs the company's people to fill its assignee and reviewer
@@ -142,10 +144,19 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     }
   }, [company.id]);
 
+  const reloadPendingDecisions = React.useCallback(
+    async (announcement?: string) => {
+      await reload();
+      if (announcement) setDecisionNotice({ message: announcement });
+    },
+    [reload],
+  );
+
   React.useEffect(() => {
     setData(null);
     setLoadError(null);
     setOverlay(null);
+    setDecisionNotice(null);
     void reload();
     return () => {
       homeRequest.current += 1;
@@ -210,9 +221,8 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [reload, reloadPeople]);
-  // Keep Home counts and briefings current when their source rows change in
-  // another tab. Decisions stay on their dedicated page, but their events can
-  // still change notifications and TLDR discussion counts shown here.
+  // Keep Home counts, briefings, and the pending Decision preview current when
+  // their source rows change in another tab.
   useLiveRefetch(["approval", "decision", "tldr", "tldr_question", "repository"], reload);
   useLiveRefetch("employee", reloadPeople);
 
@@ -278,6 +288,11 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             </Button>
           </div>
         )}
+        {decisionNotice && (
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {decisionNotice.message}
+          </div>
+        )}
         {data === null ? (
           !loadError && (
             <div className="flex min-h-[40vh] items-center justify-center">
@@ -288,6 +303,11 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           <>
             {hasAnythingToShow(data) ? (
               <>
+                <HomePendingDecisions
+                  company={company}
+                  data={data}
+                  onResolved={reloadPendingDecisions}
+                />
                 <RepositoryWorkCard
                   key={company.id}
                   company={company}
@@ -491,6 +511,7 @@ function HomeOverlayHost({
  */
 function hasAnythingToShow(data: HomeData): boolean {
   return (
+    data.decisions.length > 0 ||
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
@@ -528,8 +549,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Repository AI work, failed routines, mentions, todos, emails, and approvals appear here the
-        moment they arrive.
+        Pending Decisions, Repository AI work, failed routines, mentions, todos, emails, and
+        approvals appear here the moment they arrive.
       </p>
       <Link
         to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
@@ -540,6 +561,70 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
           : "See what your AI employees are doing"}{" "}
         <ChevronRight size={12} />
       </Link>
+    </section>
+  );
+}
+
+// ───────────────────────── pending Decisions ─────────────────────────────────
+
+/**
+ * A short, actionable preview of the pending Decision stack. Home deliberately
+ * omits work/email reviews and every resolved row; the dedicated page owns the
+ * complete queue, search, routing, and history.
+ */
+function HomePendingDecisions({
+  company,
+  data,
+  onResolved,
+}: {
+  company: Company;
+  data: HomeData;
+  onResolved: (announcement?: string) => Promise<void> | void;
+}) {
+  const preview = data.decisions.slice(0, 3);
+  if (preview.length === 0) return null;
+  const hidden = Math.max(0, data.pendingDecisionCount - preview.length);
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+          <GitBranch size={15} />
+        </span>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Pending Decisions
+        </h2>
+        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          {data.pendingDecisionCount}
+        </span>
+        <Link
+          to={`/c/${company.slug}/decisions`}
+          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
+        >
+          Open Decision stack <ChevronRight size={12} />
+        </Link>
+        <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          Questions your AI Employees stopped to ask rather than guess.
+        </p>
+      </div>
+      <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+        {preview.map((decision) => (
+          <DecisionCard
+            key={decision.id}
+            company={company}
+            decision={decision}
+            onResolved={onResolved}
+          />
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <Link
+          to={`/c/${company.slug}/decisions`}
+          className="block border-t border-slate-200 px-4 py-3 text-center text-xs font-medium text-indigo-700 hover:bg-slate-50 dark:border-slate-800 dark:text-indigo-300 dark:hover:bg-slate-800"
+        >
+          View the full stack · {hidden} more pending
+        </Link>
+      )}
     </section>
   );
 }

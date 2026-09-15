@@ -252,7 +252,7 @@ async function open(options: FixtureOptions = {}) {
   await page.locator('header[aria-label="Home greeting"]').waitFor({ timeout: 300000 });
   await page
     .getByRole("heading", {
-      name: options.quiet ? "Nothing needs you right now" : "Your todos",
+      name: options.quiet ? "Nothing needs you right now" : "Pending Decisions",
       exact: true,
     })
     .waitFor();
@@ -367,16 +367,16 @@ try {
         assert.equal(avatar.width, 24);
         assert.equal(avatar.height, 24);
         assert.equal(
-          await page.getByRole("heading", { name: "Decision stack", exact: true }).count(),
-          0,
+          await page.getByRole("heading", { name: "Pending Decisions", exact: true }).count(),
+          1,
         );
         assert.equal(
           await page
             .getByText("Which retention commitment needs attention?", { exact: true })
             .count(),
-          0,
+          1,
         );
-        await fillsContent(page);
+        await fillsContent(page, "Pending Decisions");
         await fits(page);
         const todo = await box(card(page, "Your todos"));
         const messages = await box(card(page, "Unread messages"));

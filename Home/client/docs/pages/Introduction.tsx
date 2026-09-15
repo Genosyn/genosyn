@@ -125,8 +125,8 @@ export function Introduction() {
         minutes if Docker is already running.
       </P>
       <P>
-        Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — unread mentions
-        and DMs, todos assigned to you, reviews and approvals waiting on your decision, your{" "}
+        Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — pending Decisions,
+        unread mentions and DMs, todos assigned to you, reviews and Approvals waiting on you, your{" "}
         <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest unread{" "}
         <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> beside your
@@ -139,7 +139,7 @@ export function Introduction() {
       <P>
         Home only shows you what it actually has. Every queue — failed{" "}
         <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
-        <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, email, approvals,
+        <DocLink to="/docs/tasks">todos</DocLink>, pending Decisions, reviews, unread messages, email, Approvals,
         system health — disappears when it&apos;s empty rather than sitting there reporting that
         nothing is waiting. Dismissing a TLDR removes it from your Home only; its history remains
         available, and colleagues keep seeing it until they dismiss it themselves. So the page is
@@ -149,11 +149,13 @@ export function Introduction() {
         the header, because a quiet day for you can still be a busy one for your AI Employees.
       </P>
       <P>
-        Questions and their history stay in the{" "}
-        <DocLink to="/docs/decisions">decision stack</DocLink> instead of being repeated on Home.
+        Home previews pending Decisions so you can unblock an AI Employee immediately. Email and
+        work reviews, search, routing, and complete history stay on the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink> page.
       </P>
       <P>
-        <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the
+        <Strong>Clicking a row on Home keeps you on Home.</Strong> A pending Decision can be answered
+        or dismissed directly in its preview. An unread channel opens the
         messages themselves, scrolled to the line where your unread run starts, with the full
         Workspace composer under it — <Code>@</Code> an AI Employee and watch it start typing right
         there (see <DocLink to="/docs/workspace-chat">Workspace chat</DocLink>); a todo opens its

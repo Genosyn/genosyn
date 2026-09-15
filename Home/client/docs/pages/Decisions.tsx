@@ -45,9 +45,9 @@ export function Decisions() {
       </P>
       <P>
         <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
-        age order, so you do not have to learn three separate queues. Open{" "}
-        <Strong>Decision stack</Strong> for the queue, search, and complete history; it is not repeated
-        on Home.
+        age order, so you do not have to learn three separate queues. Home previews pending
+        questions only. Open <Strong>Decision stack</Strong> for email and work reviews, search, and
+        complete history.
       </P>
 
       <H2 id="reviewing-email">Reviewing an email</H2>
@@ -263,9 +263,9 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        The stack stays on the <Strong>Decision stack</Strong> page rather than expanding Home. An empty{" "}
-        <Strong>Needs you</Strong> section means your AI team is unblocked, not that the feature is
-        off.
+        Home previews the pending questions that need you. The full queue and its history stay on
+        the <Strong>Decision stack</Strong> page. An empty <Strong>Needs you</Strong> section means
+        your AI team is unblocked, not that the feature is off.
       </Callout>
     </>
   );

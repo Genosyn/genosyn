@@ -629,7 +629,11 @@ async function open(options: FixtureOptions = {}) {
   if (options.surface === "home")
     await page
       .getByRole("heading", {
-        name: options.notification ? "Needs your attention" : "Nothing needs you right now",
+        name: options.notification
+          ? "Needs your attention"
+          : rows.some((row) => row.status === "pending")
+            ? "Pending Decisions"
+            : "Nothing needs you right now",
         exact: true,
       })
       .waitFor({ timeout: 300000 });
@@ -768,27 +772,52 @@ async function check(name: string, run: () => Promise<void>) {
 }
 try {
   await fs.mkdir(output, { recursive: true });
-  await check("Home omits pending Decisions and Decision-stack Approvals", async () => {
+  await check("Home shows pending Decisions without reviews or history", async () => {
     const row = decision();
+    const morePending = [
+      decision({ id: secondDecisionId, title: "Second pending Decision" }),
+      decision({ id: "66666666-6666-4666-8666-666666666666", title: "Third pending Decision" }),
+      decision({ id: "77777777-7777-4777-8777-777777777777", title: "Fourth pending Decision" }),
+    ];
+    const answered = decision({
+      id: "88888888-8888-4888-8888-888888888888",
+      title: "An earlier answered Decision",
+      status: "decided",
+    });
     const work = workReview();
     const mail = mailReview();
     const fixture = await open({
       surface: "home",
       role: "admin",
-      rows: [row],
+      rows: [row, ...morePending, answered],
       reviews: [work, mail],
     });
     await fixture.page
-      .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+      .getByRole("heading", { name: "Pending Decisions", exact: true })
       .waitFor();
     assert.equal(
-      await fixture.page.getByRole("heading", { name: "Decision stack", exact: true }).count(),
-      0,
+      await fixture.page
+        .getByRole("link", { name: "Open Decision stack", exact: true })
+        .getAttribute("href"),
+      `${companyPath}/decisions`,
     );
-    assert.equal(await card(fixture.page, row.id).count(), 0);
+    const pendingSection = fixture.page.locator("section").filter({
+      has: fixture.page.getByRole("heading", { name: "Pending Decisions", exact: true }),
+    });
+    assert.equal(await pendingSection.locator('[id^="decision-"]').count(), 3);
+    assert.equal(await pendingSection.getByText("4", { exact: true }).count(), 1);
+    const moreLink = pendingSection.getByRole("link", {
+      name: "View the full stack · 1 more pending",
+      exact: true,
+    });
+    assert.equal(await moreLink.getAttribute("href"), `${companyPath}/decisions`);
+    assert.equal(await card(fixture.page, row.id).count(), 1);
+    assert.equal(await fixture.page.getByText(row.title, { exact: true }).count(), 1);
+    assert.equal(await fixture.page.getByText(morePending[2].title, { exact: true }).count(), 0);
+    assert.equal(await fixture.page.getByText(answered.title, { exact: true }).count(), 0);
     assert.equal(await reviewCard(fixture.page, work.id).count(), 0);
     assert.equal(await reviewCard(fixture.page, mail.id).count(), 0);
-    for (const title of [row.title, work.title, mail.title])
+    for (const title of [work.title, mail.title])
       assert.equal(await fixture.page.getByText(title, { exact: true }).count(), 0);
     assert.equal(
       await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).count(),
@@ -798,8 +827,33 @@ try {
       await fixture.page.getByRole("heading", { name: "Review history", exact: true }).count(),
       0,
     );
-    assert.equal(await discuss(fixture.page).count(), 0);
+    assert.equal(await discuss(fixture.page).count(), 3);
     assert.deepEqual(fixture.writes, []);
+    await fixture.page.close();
+  });
+  await check("Home answers a pending Decision without adding history", async () => {
+    const row = decision();
+    const fixture = await open({ surface: "home", rows: [row] });
+    await fixture.page.getByText("Send the update", { exact: true }).click();
+    fixture.allowWrites();
+    await fixture.page
+      .getByRole("button", { name: "Confirm: Send the update", exact: true })
+      .click();
+    await fixture.page
+      .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+      .waitFor();
+    await quietNotice(fixture.page, `Decision “${row.title}” answered.`);
+    assert.equal(await card(fixture.page, row.id).count(), 0);
+    assert.equal(
+      await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).count(),
+      0,
+    );
+    assert.deepEqual(fixture.writes, [
+      {
+        path: `${apiBase}/decisions/${row.id}/decide`,
+        body: { optionId: "send" },
+      },
+    ]);
     await fixture.page.close();
   });
   await check("a Decision notification links to the Decision stack without embedding its card", async () => {
@@ -824,7 +878,7 @@ try {
       createdAt: fixtureNow.toISOString(),
     };
     const fixture = await open({ surface: "home", rows: [row], notification });
-    assert.equal(await card(fixture.page, row.id).count(), 0);
+    assert.equal(await card(fixture.page, row.id).count(), 1);
     fixture.allowWrites();
     const markedRead = fixture.page.waitForResponse(
       (response) => new URL(response.url()).pathname === `${apiBase}/notifications/mark-read`,
