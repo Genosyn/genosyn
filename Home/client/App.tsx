@@ -59,33 +59,10 @@ export function App() {
   return <Landing />;
 }
 
-/**
- * The landing page, in the order the argument is made.
- *
- * The old sequence was nine bands whose tones alternated white / tint / white /
- * / white / tint like a checkerboard — the fallback rule you apply when
- * nothing about the content tells you where to break. This one groups by
- * meaning and changes tone exactly once, at the band that is literally about
- * work happening in the dark:
- *
- *   01 One Tuesday          the claim, and the board that is its evidence
- *   02 A day on the roster  one role, hour by hour
- *   03 The roster           who else you can hire
- *   04 The shift      NIGHT. what actually ran while nobody was there
- *   05 What a role is made of
- *   06 Setting one up
- *   07 Where the work happens
- *   08 Your own hardware
- *   09 Install
- *   10 Colophon             the one place a person speaks
- *
- * The sheet numbers in each band's rail are that table of contents, which is
- * why they run in sequence and why adding a band means renumbering rather than
- * appending.
- */
+/** The landing page follows the numbered story from product proof through installation. */
 function Landing() {
   return (
-    <div className="min-h-screen bg-ground text-ink">
+    <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <Nav />
       <main>
         <Hero />

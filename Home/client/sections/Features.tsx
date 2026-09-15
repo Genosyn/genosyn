@@ -14,44 +14,7 @@ import {
   TextLink,
 } from "@/sections/Kit";
 
-/**
- * The product band — an index, and the place the legend is stated.
- *
- * What was here: a centred header, a bordered slab with a radial wash in one
- * corner, six products as tiles with pastel icon squares that grew on hover, a
- * green-ticked checklist beside them, and the other eight products demoted to
- * a row of pill chips underneath. Two problems, and only the second one is
- * about styling.
- *
- * The first is editorial. Fourteen products either matter or they do not; a
- * layout that features six and reduces eight to garnish is a layout that has
- * not decided, and the chips read as an admission that the suite is padded.
- * They are all listed here, in one structure, in the order data.ts declares
- * them — so the answer to "what is actually in this thing" takes one screen
- * and no clicks.
- *
- * The second is that a set of things on this site is a stack of rows sharing
- * one hairline, never a grid of bordered boxes.
- *
- * ## Why this band carries the legend
- *
- * HEADCOUNT's claim is that colour is the org chart, and this band states it
- * twice: Fig. 7's sidebar names all seven departments, and the index below
- * names the product each one owns. The wall in the hero spends all seven hues
- * without spelling one of them out, and Claims names only the one department
- * it is showing at that second, so this band is where a reader gets the key.
- *
- * So every row gets its department twice: as the 3px spine on its
- * left edge, which is what makes the column scannable at arm's length, and as
- * a `Chip` under the product name, which is what makes it decodable. Four
- * seconds after this band scrolls into view a reader should be able to read
- * the wall in the hero without a key.
- *
- * `product.accent` and `productIcon` are still deliberately not read. Those
- * fields carry fourteen pastel ring colours and fourteen glyphs, which is
- * fourteen hues meaning "this is a different one" — the exact decoration this
- * system replaced. The hue here comes from the department and nowhere else.
- */
+/** The complete product index, paired with an app-like company dashboard preview. */
 
 /**
  * Every product's department. This is the org chart, so it is a fixed map
@@ -188,12 +151,9 @@ export function Features() {
           <CompanyPreview />
         </Plate>
 
-        <div className="mt-14">
-          {/* The header is not a Row — it carries no rule of its own, and the
-              first row's own hairline is the boundary under it. It is indented
-              by the spine width so its labels sit on the same left edge as the
-              row text below. */}
-          <div className={`${COLUMNS} pb-3 pl-4`}>
+        <div className="mt-14 space-y-2">
+          {/* The header uses the same grid as every row so all three columns align. */}
+          <div className={`${COLUMNS} !mb-1 px-4 pb-2`}>
             <Sheet>Product · Department</Sheet>
             <Sheet className="hidden sm:inline">What it holds</Sheet>
             <Sheet className="hidden sm:inline">Worked by</Sheet>
@@ -205,12 +165,7 @@ export function Features() {
               <Row key={product.slug} href={`/products/${product.slug}`} dept={dept}>
                 <div className={COLUMNS}>
                   <span className="min-w-0">
-                    {/* A row head, at the same 15px `t-h3` the wall's panes
-                        use. It was mono uppercase in the previous pass, which
-                        made fourteen product names read as fourteen field
-                        labels — mono is for strings the software emitted, and
-                        "Paid Marketing" is not one. */}
-                    <span className="t-h3 block text-[15px] text-ink group-hover:text-ground">
+                    <span className="block text-[15px] font-medium text-slate-900 group-hover:text-indigo-700">
                       {product.name}
                     </span>
                     {dept && (
@@ -219,22 +174,9 @@ export function Features() {
                       </span>
                     )}
                   </span>
-                  {/* A product added to data.ts without a line here still
-                      renders something true rather than an empty column. */}
-                  <Body className="group-hover:text-ground">
-                    {HOLDS[product.slug] ?? product.summary}
-                  </Body>
-                  {/* Set in sans, not in `Sheet`. Two reasons, and the first
-                      is the same one that moved the product name out of mono
-                      a column to the left: "AI Executive Assistant" is a role
-                      on the shipped roster, not a string the software emitted,
-                      and mono is reserved for the latter. The second is that
-                      `Sheet` is what the column HEADER is set in — a header
-                      and its fourteen values in one identical uppercase mono
-                      face gives the column no head at all. It stays `muted`,
-                      the quietest value allowed to carry text, so the column
-                      reads as subordinate to what it holds. */}
-                  <span className="text-[15px] leading-[1.6] text-muted group-hover:text-ground">
+                  {/* A new product still gets truthful fallback copy until its concise label lands. */}
+                  <Body>{HOLDS[product.slug] ?? product.summary}</Body>
+                  <span className="text-[15px] leading-[1.6] text-slate-500">
                     {WORKED_BY[product.slug] ?? product.category}
                   </span>
                 </div>

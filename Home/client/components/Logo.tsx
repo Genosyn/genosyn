@@ -3,26 +3,13 @@ type LogoMarkProps = {
   variant?: "tile" | "plain";
 };
 
-/**
- * Genosyn mark — the circle.
- *
- * This is the original mark, restored. A previous revision replaced it with a
- * square cut at 39.583% (09:30 of 24 hours) to tie the mark to the site's
- * organising idea. That was a reasonable thing to draw and the wrong thing to
- * change: a logo is an identity people already recognise, not a slot for the
- * current design's argument, and a redesign does not get to rename the
- * company's face on its way past.
- *
- * `variant="plain"` (default) is a stroked circle in `currentColor`, so the
- * lockup adapts to whatever it sits in. `variant="tile"` fills a rounded
- * square behind it for constrained slots such as the favicon.
- *
- * The tile fill is the site's own ink and the mark is drawn in the page's
- * ground, so the favicon is the same two values as the page. The geometry,
- * stroke weight and proportions are untouched from the original mark.
- */
+type LogoProps = {
+  className?: string;
+};
+
+/** The same monochrome circle mark used by the App. */
 export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
-  const fg = variant === "tile" ? "#f2f0ec" : "currentColor";
+  const fg = variant === "tile" ? "#ffffff" : "currentColor";
 
   const Mark = <circle cx="16" cy="16" r="9" fill="none" stroke={fg} strokeWidth="2.4" />;
 
@@ -34,7 +21,7 @@ export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
         className={className}
         aria-hidden="true"
       >
-        <rect width="32" height="32" rx="8" fill="#14120f" />
+        <rect width="32" height="32" rx="8" fill="#0f172a" />
         {Mark}
       </svg>
     );
@@ -53,23 +40,30 @@ export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
 }
 
 /**
- * Genosyn lockup — the mark plus the wordmark.
- *
- * The wordmark is live HTML text rather than an SVG `<text>` node, which is
- * how it used to be drawn. An SVG `<text>` carrying an explicit `font-family`
- * silently renders in a fallback face for as long as the webfont has not
- * arrived, and at a *different* width, so the logo used to reflow the header
- * on every cold load. As HTML it participates in the normal font stack and
- * the `display=swap` behaviour every other string on the page gets.
- *
- * Sized by `font-size`, not height: pass a text size (the mark scales with
- * it via `em`). Colour comes from `currentColor` as before.
+ * The App's circle-and-wordmark SVG. Its height remains em-based so existing
+ * Home callers that size the lockup with a text utility keep the same API.
  */
-export function Logo({ className = "" }: { className?: string }) {
+export function Logo({ className = "" }: LogoProps) {
   return (
-    <span className={`inline-flex items-center gap-[0.55em] ${className}`}>
-      <LogoMark className="h-[1.3em] w-[1.3em] shrink-0" />
-      <span className="t-field text-[1em] uppercase leading-none tracking-[0.2em]">Genosyn</span>
-    </span>
+    <svg
+      viewBox="0 0 140 32"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`h-[1.85em] w-auto ${className}`}
+      role="img"
+      aria-label="Genosyn"
+    >
+      <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" strokeWidth="2.4" />
+      <text
+        x="36"
+        y="22"
+        fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+        fontSize="17"
+        fontWeight="700"
+        letterSpacing="2.4"
+        fill="currentColor"
+      >
+        GENOSYN
+      </text>
+    </svg>
   );
 }

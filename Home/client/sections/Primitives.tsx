@@ -188,7 +188,7 @@ export function Primitives() {
  */
 function RecordHead() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-hairline px-5 pt-5 pb-4 sm:px-6">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-slate-200 bg-slate-50/70 px-5 pb-4 pt-5 sm:px-6">
       <Chip dept="finance">Finance</Chip>
       <span className="t-h3 text-[15px] text-ink">AI Bookkeeper</span>
       <Field className="w-full sm:ml-auto sm:w-auto">5 SKILLS · 4 GRANTS · 1 ROUTINE</Field>
@@ -205,7 +205,7 @@ function Record() {
         {SOUL_LINES.map((line) => (
           <li
             key={line}
-            className="border-t border-hairline py-2.5 first:border-t-0 first:pt-0 last:pb-0"
+            className="border-t border-slate-100 py-2.5 first:border-t-0 first:pt-0 last:pb-0"
           >
             <Body>{line}</Body>
           </li>
@@ -252,7 +252,7 @@ function Record() {
  */
 function RoutinePrint() {
   return (
-    <div className="border-t border-hairline p-5 sm:p-6 md:border-t-0 md:border-l">
+    <div className="border-t border-slate-200 bg-slate-50/50 p-5 sm:p-6 md:border-l md:border-t-0">
       <SectionHead label="Routine" field="ENABLED" />
 
       <Field className="mt-3 block !text-ink">Reconcile Stripe payments</Field>

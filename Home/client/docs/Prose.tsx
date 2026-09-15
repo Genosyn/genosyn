@@ -78,8 +78,12 @@ type WithId = { children: ReactNode; id?: string };
 export function PageHeader({ title, lead }: { eyebrow?: string; title: string; lead?: ReactNode }) {
   return (
     <header>
-      <h1 className="t-h2 text-balance text-[clamp(2.125rem,4.4vw,3rem)] text-ink">{title}</h1>
-      {lead && <p className="mt-5 max-w-[58ch] text-[1.125rem] leading-[1.55] text-ink2">{lead}</p>}
+      <h1 className="text-balance text-[clamp(2rem,4vw,2.75rem)] font-semibold tracking-tight text-slate-950">
+        {title}
+      </h1>
+      {lead && (
+        <p className="mt-5 max-w-[58ch] text-[1.0625rem] leading-7 text-slate-600">{lead}</p>
+      )}
     </header>
   );
 }
@@ -102,7 +106,7 @@ export function H2({ children, id }: WithId) {
   return (
     <h2
       id={id}
-      className="t-h2 mt-14 scroll-mt-24 border-t border-hairline pt-8 text-balance text-[1.625rem] text-ink"
+      className="mt-14 scroll-mt-24 text-balance text-2xl font-semibold tracking-tight text-slate-950"
     >
       {children}
     </h2>
@@ -111,7 +115,7 @@ export function H2({ children, id }: WithId) {
 
 export function H3({ children, id }: WithId) {
   return (
-    <h3 id={id} className="t-h3 mt-10 scroll-mt-24 text-[1.125rem] text-ink">
+    <h3 id={id} className="mt-10 scroll-mt-24 text-lg font-semibold text-slate-900">
       {children}
     </h3>
   );
@@ -126,7 +130,7 @@ export function H3({ children, id }: WithId) {
  * larger size and the looser leading, and the measure came down to pay for it.
  */
 export function P({ children }: { children: ReactNode }) {
-  return <p className="mt-5 text-[1rem] leading-[1.7] text-ink2">{children}</p>;
+  return <p className="mt-5 text-[1rem] leading-7 text-slate-600">{children}</p>;
 }
 
 /**
@@ -140,7 +144,7 @@ export function P({ children }: { children: ReactNode }) {
  * was solving a problem that left with Archivo.
  */
 export function Strong({ children }: { children: ReactNode }) {
-  return <span className="font-semibold text-ink">{children}</span>;
+  return <span className="font-semibold text-slate-900">{children}</span>;
 }
 
 /* A square marker, because nothing else on the site is round and a bullet is
@@ -150,7 +154,7 @@ export function Strong({ children }: { children: ReactNode }) {
    on. */
 export function UL({ children }: { children: ReactNode }) {
   return (
-    <ul className="mt-5 ml-5 space-y-2.5 text-[1rem] leading-[1.65] text-ink2 marker:text-muted [list-style-type:square]">
+    <ul className="mt-5 ml-5 list-disc space-y-2.5 text-[1rem] leading-7 text-slate-600 marker:text-indigo-400">
       {children}
     </ul>
   );
@@ -158,7 +162,7 @@ export function UL({ children }: { children: ReactNode }) {
 
 export function OL({ children }: { children: ReactNode }) {
   return (
-    <ol className="mt-5 ml-5 list-decimal space-y-2.5 text-[1rem] leading-[1.65] text-ink2 marker:text-muted">
+    <ol className="mt-5 ml-5 list-decimal space-y-2.5 text-[1rem] leading-7 text-slate-600 marker:font-medium marker:text-indigo-500">
       {children}
     </ol>
   );
@@ -187,7 +191,11 @@ export function LI({ children }: { children: ReactNode }) {
  * roughly 40.
  */
 export function Code({ children }: { children: ReactNode }) {
-  return <code className="t-data break-words text-[13px] text-ink">{children}</code>;
+  return (
+    <code className="t-data break-words rounded-md bg-slate-100 px-1.5 py-0.5 text-[13px] text-slate-800">
+      {children}
+    </code>
+  );
 }
 
 /**
@@ -226,17 +234,17 @@ export function Code({ children }: { children: ReactNode }) {
  */
 export function Pre({ children, lang }: { children: ReactNode; lang?: string }) {
   return (
-    <div className="mt-6 border border-hairline bg-surface">
+    <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       {lang && (
-        <div className="t-field border-b border-hairline px-3 py-2.5 leading-none text-muted sm:px-4">
+        <div className="border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-medium text-slate-500 sm:px-4">
           {lang}
         </div>
       )}
       <pre
         tabIndex={0}
-        className="overflow-x-auto px-3 py-3.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ink sm:px-4"
+        className="overflow-x-auto px-3 py-3.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-500 sm:px-4"
       >
-        <code className="t-data block text-[12px] leading-[1.7] text-ink sm:text-[13px]">
+        <code className="t-data block text-[12px] leading-[1.7] text-slate-800 sm:text-[13px]">
           {children}
         </code>
       </pre>
@@ -267,10 +275,10 @@ export function Pre({ children, lang }: { children: ReactNode; lang?: string }) 
  * and because a reader who cannot resolve 3.30:1 from 1.22:1 still has to know
  * which one this is.
  */
-const CALLOUT_SPINE: Record<"info" | "warn" | "tip", string> = {
-  info: "w-px bg-rule",
-  warn: "w-[3px] bg-ink",
-  tip: "w-px bg-hairline",
+const CALLOUT_BADGE: Record<"info" | "warn" | "tip", string> = {
+  info: "bg-blue-50 text-blue-700 ring-blue-200",
+  warn: "bg-amber-50 text-amber-700 ring-amber-200",
+  tip: "bg-emerald-50 text-emerald-700 ring-emerald-200",
 };
 
 const CALLOUT_WORD: Record<"info" | "warn" | "tip", string> = {
@@ -289,11 +297,16 @@ export function Callout({
   title?: string;
 }) {
   return (
-    <aside className="relative mt-6 pl-4 sm:pl-5">
-      <span aria-hidden className={`absolute inset-y-0 left-0 ${CALLOUT_SPINE[kind]}`} />
-      <div className="t-field leading-none text-muted">{CALLOUT_WORD[kind]}</div>
-      {title && <p className="mt-2.5 text-[1rem] font-semibold leading-[1.45] text-ink">{title}</p>}
-      <div className="mt-2 text-[0.9375rem] leading-[1.65] text-ink2">{children}</div>
+    <aside className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div
+        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${CALLOUT_BADGE[kind]}`}
+      >
+        {CALLOUT_WORD[kind]}
+      </div>
+      {title && (
+        <p className="mt-3 text-[1rem] font-semibold leading-[1.45] text-slate-900">{title}</p>
+      )}
+      <div className="mt-2 text-[0.9375rem] leading-6 text-slate-600">{children}</div>
     </aside>
   );
 }
@@ -312,22 +325,22 @@ export function Callout({
  */
 export function KeyList({ rows }: { rows: Array<{ term: string; def: ReactNode }> }) {
   return (
-    <dl className="mt-6 border-t border-hairline">
+    <dl className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       {rows.map((r) => (
         <div
           key={r.term}
-          className="grid grid-cols-1 gap-1 border-b border-hairline py-4 sm:grid-cols-[12rem_1fr] sm:gap-6"
+          className="grid grid-cols-1 gap-1 border-b border-slate-100 px-4 py-4 last:border-b-0 sm:grid-cols-[12rem_1fr] sm:gap-6 sm:px-5"
         >
           <dt
             className={
               isEmitted(r.term)
-                ? "t-data break-words text-[12.5px] leading-[1.5] text-ink"
-                : "break-words text-[1rem] font-semibold leading-[1.45] text-ink"
+                ? "t-data break-words text-[12.5px] leading-[1.5] text-slate-800"
+                : "break-words text-[1rem] font-semibold leading-[1.45] text-slate-900"
             }
           >
             {r.term}
           </dt>
-          <dd className="text-[1rem] leading-[1.65] text-ink2">{r.def}</dd>
+          <dd className="text-[1rem] leading-7 text-slate-600">{r.def}</dd>
         </div>
       ))}
     </dl>
@@ -344,7 +357,7 @@ export function KeyList({ rows }: { rows: Array<{ term: string; def: ReactNode }
    dead classes, so every link in the docs was underlined in full ink and the
    hover did nothing at all. */
 const INLINE_LINK =
-  "text-ink underline decoration-rule decoration-1 underline-offset-[3px] transition-colors hover:decoration-ink";
+  "font-medium text-indigo-600 underline decoration-indigo-200 decoration-1 underline-offset-[3px] transition-colors hover:text-indigo-700 hover:decoration-indigo-500";
 
 export function DocLink({ to, children }: { to: string; children?: ReactNode }) {
   const meta = findPageMeta(to);

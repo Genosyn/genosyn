@@ -2,14 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---------------------------------------------------------------------------
-   Base.
-
-   The page is warm paper, not white, and not a framework grey. Tabular,
-   slashed-zero figures are on globally rather than opted into: this site is
-   mostly timestamps, counts and durations set in columns, and a clock whose
-   digits change width is not a clock.
---------------------------------------------------------------------------- */
+/* The marketing surface uses the same neutral canvas and typography as App. */
 
 :root {
   color-scheme: light;
@@ -17,134 +10,85 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 6.5rem;
+  scroll-padding-top: 4.5rem;
 }
 
 html,
 body {
-  @apply bg-ground font-sans text-ink2 antialiased;
-  font-variant-numeric: tabular-nums slashed-zero;
+  @apply bg-ground font-sans text-ink antialiased;
 }
 
 ::selection {
-  background-color: #14120f;
-  color: #f2f0ec;
+  background-color: #4f46e5;
+  color: white;
 }
 
-/* The ring is what has to pass WCAG 1.4.11, not the control beside it. It is
-   deliberately NOT the signal amber: #14120f on paper is 1.65:1 and would
-   fail outright. Near-black on paper is 17:1; on a dark plane it flips to the
-   light end of the ramp, where #f2f0ec on #0b0b0a is 13.7:1. Radius 0, to
-   match everything else. */
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #14120f;
-  outline-offset: 3px;
-  border-radius: 0;
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
 }
 
-.on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #f2f0ec;
+.on-night
+  :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
+  outline-color: #818cf8;
 }
 
 .tabular {
-  font-variant-numeric: tabular-nums slashed-zero;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ---------------------------------------------------------------------------
-   Type.
-
-   Contrast on this site is carried by WIDTH, not weight — Archivo is a
-   two-axis variable face and these three classes are the only places its axes
-   are ever set. Tailwind cannot express `font-variation-settings`, and a
-   per-call-site inline style is how a type system drifts, so anything that
-   wants a voice takes one of these classes and nothing else.
-
-   `.t-note` is the one face with a different skeleton. It exists because a
-   width axis alone is one voice squashed, not two, and because figure
-   captions, margin notes and the signed colophon need to read as a person
-   talking rather than as more instrument. It is used for those three jobs and
-   no others.
---------------------------------------------------------------------------- */
-
+/* Legacy type classes retained for page compatibility, all on the Inter stack. */
 @layer components {
-  /* Display. Bricolage's opsz axis is what lets one family sit correctly at
-     both 92px and 14px; wdth is what gives the condensed numerals their scale
-     without spending whitespace on it. */
   .t-hero {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-variation-settings: "opsz" 96, "wdth" 92, "wght" 750;
-    letter-spacing: -0.035em;
-    line-height: 0.94;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1.02;
   }
 
   .t-h2 {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-variation-settings: "opsz" 48, "wdth" 95, "wght" 700;
-    letter-spacing: -0.03em;
-    line-height: 1;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
   }
 
   .t-h3 {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-variation-settings: "opsz" 24, "wdth" 100, "wght" 700;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
   }
 
-  /* The big counts. Condensed on purpose: a condensed numeral at 7.5rem is
-     scale without whitespace, which is the whole brief. */
   .t-figure {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-variation-settings: "opsz" 96, "wdth" 75, "wght" 800;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.04em;
-    line-height: 0.82;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
   }
 
-  /* Data the software emitted, and only that. */
   .t-data {
-    font-family: "Spline Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-variant-numeric: tabular-nums slashed-zero;
-    letter-spacing: 0.01em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Mono field labels: panel headers, chips, lane names, eyebrows. */
   .t-field {
-    font-family: "Spline Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-weight: 500;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
     font-size: 0.6875rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 }
 
-/* Below 640px the display face drops to its natural width. Archivo at wdth
-   118 overflows a 375px viewport on any headline of more than two words, and
-   the headline is ragged-right with no reflow escape. */
-/* Below 640px the display face drops to its natural width: a condensed cut at
-   44px over-tightens, and the headline has nowhere to go on a phone. */
 @media (max-width: 639px) {
   .t-hero {
-    font-variation-settings: "opsz" 48, "wdth" 100, "wght" 750;
-    line-height: 0.96;
+    line-height: 1.04;
   }
 }
 
-/* ---------------------------------------------------------------------------
-   The rail.
-
-   Every band on the site shares one grid: a fixed gutter column carrying mono
-   field data and the sheet number, and a content column with a 1px structural
-   rule down its left edge. Because the grid is identical everywhere, that rule
-   is continuous from the header to the footer — one unbroken vertical line
-   down the whole document, across band boundaries. It is the spine, and it
-   costs nothing.
-
-   Below `lg` the gutter collapses and its contents move inline above the
-   content as a mono line, because a 9.5rem gutter on a 375px screen is not a
-   gutter.
---------------------------------------------------------------------------- */
-
+/* Legacy layout helpers used by product and role pages. */
 .rail {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -156,27 +100,17 @@ body {
   }
 }
 
-/* The margin column. At 1280px the measure drops from 1024px to about 712px,
-   which still holds a 20ch heading and a 46ch lede without reflowing either,
-   and the page finally has somewhere to put a note. */
 @media (min-width: 1280px) {
   .rail-3 {
     grid-template-columns: 9.5rem minmax(0, 1fr) 16rem;
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Instrument surfaces.
-
-   `hours` is the 24-column ruling a board is drawn on — one element, one
-   gradient. `hatch` is a Standdown: the 45° out-of-service convention, which
-   is how the site marks "stopped" without spending a second colour on it.
---------------------------------------------------------------------------- */
-
+/* Data-grid and Standdown textures retained for the product demonstrations. */
 .hours {
   background-image: repeating-linear-gradient(
     to right,
-    #e6e3da 0 1px,
+    #e2e8f0 0 1px,
     transparent 1px calc(100% / 24)
   );
 }
@@ -184,17 +118,17 @@ body {
 .hours-night {
   background-image: repeating-linear-gradient(
     to right,
-    #1e1e1b 0 1px,
+    #1e293b 0 1px,
     transparent 1px calc(100% / 24)
   );
 }
 
 .hatch {
-  background-image: repeating-linear-gradient(45deg, #14120f 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(45deg, #475569 0 1px, transparent 1px 5px);
 }
 
 .hatch-night {
-  background-image: repeating-linear-gradient(45deg, #c9c3b8 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(45deg, #94a3b8 0 1px, transparent 1px 5px);
 }
 
 .scrollbar-none {
@@ -205,40 +139,15 @@ body {
   display: none;
 }
 
-/* ---------------------------------------------------------------------------
-   Motion.
+/* Motion is brief, opt-in, and disabled below for reduced-motion users. */
 
-   There is one animation on this site and it is the argument, not decoration:
-   the bars on the board draw left to right, so the night fills in before the
-   09:30 line arrives. Everything is opt-in per element and the whole set is
-   disabled under prefers-reduced-motion at the bottom of this file, where each
-   name is enumerated so a new animation cannot quietly escape the switch.
---------------------------------------------------------------------------- */
-
-/* The sweep.
- *
- * The night fills in, then you arrive. Each bar draws from its own left edge,
- * and its delay is its START TIME mapped onto the sweep — so the reader watches
- * the day happen in order rather than watching a stagger.
- *
- * The stagger is LINEAR on purpose. Time is linear, and easing the delay would
- * be a lie about the clock; each bar keeps its own ease-out for the draw
- * itself. The duration is fixed per bar rather than proportional to the Run:
- * a forty-minute Run is 2.8% of the day and a proportional draw would fill it
- * in 50ms, which reads as a flicker rather than as work.
- *
- * `--at` is written inline per bar as a unitless number of hours, so
- * calc(1800ms * 4.08 / 24) is valid CSS and the whole thing runs on the
- * compositor with no per-frame JavaScript. */
+/* Timestamped demonstration bars keep their relative delay on one sweep. */
 [data-sweep] .strip-draw {
   transform-origin: left;
   animation: strip 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   animation-delay: calc(var(--sweep, 1800ms) * var(--at, 0) / 24);
 }
 
-/* The arrival rule is a boundary being drawn rather than an object arriving,
-   so it wipes downward from the top instead of fading in. Its delay is its own
-   position on the same clock: 9.5 / 24 of the sweep. */
 [data-sweep] .arrive-wipe {
   transform-origin: top;
   animation: wipe 160ms linear both;
@@ -251,22 +160,10 @@ body {
 }
 
 .arrive-in {
-  animation: arrive 400ms 900ms linear both;
+  animation: arrive 160ms ease-out both;
 }
 
-/* The wall fills in on load, in timestamp order rather than DOM order, so the
-   company assembles itself the way the night actually ran. */
-/* Deliberately NOT an animation.
- *
- * This was `animation: wall-in … both`, which holds the `from` keyframe until
- * the animation runs — so in any context that does not execute animations the
- * panes stayed at opacity 0 and the wall was empty. Gating the class behind a
- * mount effect did not fix it: once the class is applied, the content is still
- * hostage to the animation.
- *
- * A transition cannot fail that way. The END state is the element's real
- * style, so if the transition never runs the pane is simply visible, which is
- * the correct outcome. The entrance is now genuinely optional. */
+/* The end state is the real style, so content remains visible without motion. */
 .wall-pane {
   opacity: 1;
   transform: translateY(0);
@@ -281,9 +178,7 @@ body {
   transition: none;
 }
 
-/* One row arriving at the top of one pane. Never two panes at once: a
-   dashboard where everything moves together reads as a screensaver, and one
-   where a single thing changes reads as a system doing work. */
+/* Small transitions used by live product demonstrations. */
 @keyframes row-in {
   from {
     opacity: 0;
@@ -299,8 +194,6 @@ body {
   animation: row-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* The rotating claim. It rises rather than fades, so the line reads as the
-   next record arriving on a board rather than as a crossfade. */
 @keyframes claim-in {
   from {
     opacity: 0;
@@ -313,12 +206,10 @@ body {
 }
 
 .claim-in {
-  animation: claim-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: claim-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Product prototype chrome. These mocks are pictures of the real UI and keep
-   their own containment and scroll behaviour; the revamp mounts them on a
-   plate rather than restyling their insides. */
+/* Product prototypes keep their own containment and scroll behaviour. */
 .prototype-shell {
   contain: layout paint;
   touch-action: pan-y;
@@ -329,7 +220,7 @@ body {
 }
 
 .prototype-stage > :first-child {
-  animation: arrive 320ms linear both;
+  animation: arrive 160ms ease-out both;
 }
 
 .prototype-stage-compact {

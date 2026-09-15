@@ -21,51 +21,7 @@ import {
   type Dept,
 } from "@/sections/Kit";
 
-/**
- * Sheet 04 — the shift.
- *
- * ## Why this band is no longer dark
- *
- * It was `tone="ink"`, and under the old palette that was right: the page had
- * one hue, night was a mood, and a black band was how you said "this happened * while you were asleep."
- *
- * HEADCOUNT takes that meaning away. Ink is now the HUMAN register — a
- * Decision, an Approval, the 09:30 rule, a primary control — and a whole band
- * in ink would say the whole band is about the person. It is not. It is about
- * seven departments working while nobody was there, which is the one thing on
- * the site that colour can carry on its own: every Run in the log below wears
- * its department's hue on a 3px spine, so reading down the column you watch
- * Finance, Repositories, Marketing, Workspace, Email, Revenue and Operations
- * interleave through the night without reading a word.
- *
- * So the band is `surface` — a white sheet lifted out of the paper ground
- * either side of it — and the only ink left in it is the three things that
- * needed a person. (It is not the page's only `surface` band: `InstallCta` in
- * Footer.tsx is the other, and the two are the sheet you read the evidence off
- * and the sheet you sign, which is a pairing rather than an accident.) That is
- * the inversion doing its job: on a band saturated with seven departments, the
- * eye finds four black objects, and every one of them is addressed to you.
- *
- * Dropping `night` from the chart is the same decision. In night mode the
- * Gantt draws every bar in `ink2` because a dark plane cannot carry seven
- * hues; in light mode it fills each bar with its department tint and puts a
- * hue swatch beside each lane name. The chart was already capable of being the
- * argument and the tone was preventing it.
- *
- * ## What the band is for
- *
- * The wall at the top of the page is one moment, seven surfaces, deliberately
- * unlabelled — captioning it would turn evidence into noise. That decision has
- * to be paid for somewhere, and this is where. Every overnight Run is printed
- * one per row with the clock time it started, its department and how long it
- * took. It is the most concrete thing on the page.
- *
- * Every number here is imported from `@/sections/Board`. The version before
- * last kept its own seven-event `DAY` array with different times and a
- * different arrival marker from the hero's, so the page quietly contradicted
- * itself twice. One event list, three projections: the wall, the chart, the
- * log.
- */
+/** The same overnight work rendered as summary cards, an interactive chart, and a log. */
 
 type LaneEvent = BoardEvent & { owner: string };
 
@@ -115,18 +71,7 @@ export function Autonomy() {
           aside={<Field>{`2026-09-01 · ${RUNS_BEFORE_ARRIVAL} RUNS · 0 MEMBERS SIGNED IN`}</Field>}
         />
 
-        {/* The night's result in three counts, tiled on 1px seams rather than
-            set as three cards with air between them — the wall's construction,
-            reused at the top of the band it explains.
-
-            The third tile is ink and the other two are not, which is the whole
-            system in one strip: eighteen Runs and zero people are what the
-            machine did, and they are set on paper; three is what is left for
-            you, and it is the only black object above the fold of this band.
-            It summarises the "Waited for you" rows at the bottom — the same
-            summary-then-detail relationship the chart has with the log, so it
-            is a restatement in a different register rather than a repeat. */}
-        <div className="mt-12 grid gap-px bg-seam sm:mt-14 sm:grid-cols-3">
+        <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-3">
           <Count
             label="Runs finished overnight"
             value={String(RUNS_BEFORE_ARRIVAL)}
@@ -186,7 +131,7 @@ export function Autonomy() {
             <Field>{`${FIRST} TO ${LAST}`}</Field>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 space-y-2">
             {OVERNIGHT.map((event) => (
               <LogRow key={`${event.owner}-${event.at}`} event={event} />
             ))}
@@ -202,7 +147,7 @@ export function Autonomy() {
             )}`}</Field>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 space-y-2">
             {WAITING.map((event) => (
               <WaitingRow key={`${event.owner}-${event.at}`} event={event} />
             ))}
@@ -217,22 +162,7 @@ export function Autonomy() {
   );
 }
 
-/**
- * One of the band's three counts.
- *
- * `human` is not a style flag with a bad name — it is the palette rule. A
- * count of what the machine did is set on paper; the count of what needs a
- * person is set in ink, the one value with no hue. Nothing else in this file
- * may take it.
- *
- * On ink the label cannot be `Sheet`: `muted` is 5.14:1 on ground and 3.23:1
- * on ink, which fails. `ground/70` composites to 7.6:1 there, which passes,
- * and it is the construction the wall's eighth cell is meant to share so the
- * two black tiles on the page read as the same black tile. Wall.tsx currently
- * writes that cell's labels as `text-ink/70` on `bg-ink` — 1.00:1, invisible,
- * a casualty of the same token swap — so this is the correct one of the two
- * and Wall is the one to move, not this.
- */
+/** The human-facing count gets the same indigo emphasis as an active app surface. */
 function Count({
   label,
   value,
@@ -245,17 +175,27 @@ function Count({
   human?: boolean;
 }) {
   return (
-    <div className={`flex flex-col justify-between gap-8 p-5 ${human ? "bg-ink" : "bg-surface"}`}>
-      <span className={`t-field ${human ? "text-ground/70" : "text-muted"}`}>{label}</span>
+    <div
+      className={`flex flex-col justify-between gap-8 rounded-xl border p-5 shadow-sm ${
+        human ? "border-indigo-200 bg-indigo-50" : "border-slate-200 bg-white"
+      }`}
+    >
+      <span
+        className={`text-xs font-semibold ${human ? "text-indigo-700" : "text-slate-500"}`}
+      >
+        {label}
+      </span>
       <div>
         <div
-          className={`t-figure text-[clamp(2.75rem,5vw,4rem)] ${human ? "text-ground" : "text-ink"}`}
+          className={`text-[clamp(2.75rem,5vw,4rem)] font-semibold leading-none tracking-tight ${
+            human ? "text-indigo-950" : "text-slate-950"
+          }`}
         >
           {value}
         </div>
         <p
           className={`mt-3 max-w-[26ch] text-[13px] leading-snug ${
-            human ? "text-ground/85" : "text-ink2"
+            human ? "text-indigo-900/80" : "text-slate-600"
           }`}
         >
           {note}
@@ -265,21 +205,7 @@ function Count({
   );
 }
 
-/**
- * One Run in the log.
- *
- * The 3px spine is the department, and it is the reason this band no longer
- * needs a dark ground to feel like a night shift: eighteen rows in seven hues,
- * out of order and overlapping, IS a company working. The owner is still
- * printed as text beside the label — the hue is the fast read, the word is the
- * one that survives a monochrome print and a colour-blind reader, and colour
- * is never the only carrier of meaning on this site.
- *
- * The lane and the duration sit on the same flex line as the label and wrap
- * under it when there is no room. The alternative — hiding them below `sm` —
- * drops the two facts that make a row worth printing, and the first thing a
- * reader wants after "04:05" is "for how long".
- */
+/** One Run in the text equivalent of the chart. */
 function LogRow({ event }: { event: LaneEvent }) {
   return (
     <Row dept={deptOf(event.owner)}>
@@ -293,22 +219,7 @@ function LogRow({ event }: { event: LaneEvent }) {
   );
 }
 
-/**
- * A Decision or the Approval.
- *
- * These rows keep their department spine — a Decision belongs to Finance or to
- * Revenue like any other row, and dropping the hue here would say the
- * department stopped existing the moment it asked a question. What changes is
- * that the row carries an ink `StateTag`, so the three rows a person owns are
- * the only ones on the band with a black object in them.
- *
- * The tag carries the distinction AGENTS.md §3 insists on and every other
- * product collapses: a Decision is open on its right edge because the employee
- * stopped and asked, an Approval is barred across the middle because the
- * system interposed on something the employee had already started. The old
- * version drew all three with the same shield glyph and called the lot
- * "Escalated", which named neither.
- */
+/** A Decision or Approval, kept distinct in both copy and `StateTag`. */
 function WaitingRow({ event }: { event: LaneEvent }) {
   return (
     <Row dept={deptOf(event.owner)}>
@@ -324,22 +235,14 @@ function WaitingRow({ event }: { event: LaneEvent }) {
   );
 }
 
-/**
- * The 09:30 rule, drawn straight through the log.
- *
- * It is ink, and on this band that is now a statement rather than a default:
- * the boundary between the machine's night and your morning is a human object,
- * so it takes the human value. The time sits on an ink tile at 16.4:1 and the
- * rule beside it is 2px, which is the same construction the board's own run
- * log uses — one arrival marker, drawn one way, wherever it appears.
- */
+/** The boundary between overnight work and the first Member signing in. */
 function Arrival() {
   return (
     <div className="my-9 flex items-center gap-3">
-      <span className="t-data shrink-0 bg-ink px-1.5 py-1 text-[11px] leading-none text-ground">
+      <span className="shrink-0 rounded-full bg-indigo-600 px-2.5 py-1 font-mono text-[10px] font-semibold leading-none text-white">
         09:30 YOU SIGN IN
       </span>
-      <span aria-hidden className="h-0.5 flex-1 bg-ink" />
+      <span aria-hidden className="h-px flex-1 bg-indigo-200" />
     </div>
   );
 }

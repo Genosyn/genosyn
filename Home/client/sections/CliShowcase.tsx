@@ -145,7 +145,7 @@ export function CliShowcase() {
           </figcaption>
         </figure>
 
-        <div className="mt-12">
+        <div className="mt-12 space-y-2">
           <Row dept="operations">
             <RowLabel>Installs</RowLabel>
             <div className="min-w-0 max-w-[62ch] flex-1">
@@ -207,7 +207,7 @@ export function CliShowcase() {
           <ActionStrip href="/docs/self-hosting" trailing="Guide">
             Where the data lives
           </ActionStrip>
-          <ActionStrip href="/docs/cli" trailing="Reference" className="-mt-px">
+          <ActionStrip href="/docs/cli" trailing="Reference" className="mt-2">
             Every genosyn command
           </ActionStrip>
         </div>
@@ -228,7 +228,7 @@ export function CliShowcase() {
  */
 function Transcript() {
   return (
-    <div className="on-night overflow-x-auto bg-ink px-4 py-5 sm:px-6">
+    <div className="on-night overflow-x-auto border-t border-slate-800 bg-slate-950 px-4 py-5 sm:px-6">
       <div className="min-w-max">
         {TRANSCRIPT.map((line) => (
           <div key={line.text} className={`flex items-start gap-2 ${line.gap ? "mt-5" : ""}`}>

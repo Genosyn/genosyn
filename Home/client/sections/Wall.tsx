@@ -1,36 +1,11 @@
 import { useEffect, useState } from "react";
-
-/**
- * The wall — seven departments working at once.
- *
- * This is the hero visual, and the argument is its composition rather than any
- * one pane: seven cropped product surfaces tiled edge to edge on 1px seams,
- * each carrying its department's hue as a 3px top edge, all of them live at
- * the same moment. A single floating screenshot says "here is the app"; seven
- * simultaneous surfaces say "here is a company running", which is the thing
- * being sold.
- *
- * There is no air between the panes on purpose. Every landing page in this
- * category is generous with whitespace, and generosity here would be a lie —
- * the product's whole claim is that a lot is happening concurrently, so the
- * screen should be full.
- *
- * ## The tick
- *
- * One integer advances every 3.4 seconds and changes exactly ONE row in
- * exactly ONE pane. Never two at once: a dashboard where everything moves
- * together reads as a screensaver, and a dashboard where one thing changes
- * reads as a system doing work. Server renders tick 0, the client's first
- * render is tick 0, and the interval starts in an effect — so the markup is
- * identical across all 83 prerendered routes and hydration is clean.
- */
+import { Bell, Building2, LayoutDashboard, ListChecks, UsersRound } from "lucide-react";
 
 type Pane = {
   dept: string;
   hue: string;
   title: string;
   meta: string;
-  /** Rows, oldest last. The tick prepends `arriving` to the top. */
   rows: { left: string; right: string }[];
   arriving: { left: string; right: string };
 };
@@ -78,7 +53,7 @@ const PANES: Pane[] = [
   {
     dept: "Revenue",
     hue: "bg-dept-revenue",
-    title: "Pipeline",
+    title: "Deals",
     meta: "6 Deals moved",
     rows: [
       { left: "Northstar Labs", right: "Proposal" },
@@ -136,27 +111,8 @@ export function Wall() {
   const [entered, setEntered] = useState(false);
   const [settled, setSettled] = useState(false);
 
-  /**
-   * The entrance is a TRANSITION, and it is armed for exactly one frame.
-   *
-   * The first attempt was `animation: … both`, which holds the `from` keyframe
-   * until the animation runs — so anywhere animations do not execute, the
-   * panes stayed at opacity 0 and the wall was empty. Gating the class behind
-   * a mount effect did not fix it, because once the class is applied the
-   * content is still hostage to the animation running.
-   *
-   * A transition cannot fail that way: its end state IS the element's real
-   * style, so a transition that never runs leaves a visible pane. `pending`
-   * is set and then cleared on the next frame, so the panes start 8px low and
-   * settle. If any of that misfires the wall is simply there, which is the
-   * outcome that matters.
-   */
   useEffect(() => {
     const frame = requestAnimationFrame(() => setEntered(true));
-    // Drop the transition once the entrance is over. A `transition` property
-    // left on an element keeps it on its own compositing layer for the life of
-    // the page, and seven panes holding a layer each to pay for one 600ms
-    // flourish is a bad trade. After this the panes are ordinary static DOM.
     const done = window.setTimeout(() => setSettled(true), 220 + PANES.length * 55 + 60);
     return () => {
       cancelAnimationFrame(frame);
@@ -171,36 +127,115 @@ export function Wall() {
   }, []);
 
   return (
-    <div aria-hidden className="bg-seam grid grid-cols-2 gap-px lg:grid-cols-4">
-      {PANES.map((pane, index) => (
-        <Surface
-          key={pane.dept}
-          pane={pane}
-          index={index}
-          entered={entered}
-          settled={settled}
-          live={tick === index + 1}
-        />
-      ))}
-
-      {/* The eighth cell is you.
-          It is the only thing on the wall with no hue, which is the whole
-          inversion: seven departments in colour, one human in black. It gets
-          the figure treatment rather than a row list because it is the one
-          number a reader is supposed to leave with — everything else on this
-          wall already happened, and this is the part that has not. */}
-      <div className="flex flex-col justify-between gap-6 bg-ink p-4 text-ground">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="t-field text-ground/70">Waiting for you</span>
-          <span className="t-data text-[11px] text-ground/60">09:30</span>
+    <div
+      aria-hidden
+      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5"
+    >
+      <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
+            G
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900">Northstar Company</p>
+            <p className="truncate text-xs text-slate-500">Company dashboard</p>
+          </div>
         </div>
-        <div>
-          <div className="t-figure text-[clamp(3rem,6vw,5rem)] text-ground">3</div>
-          <p className="mt-3 max-w-[24ch] text-[13px] leading-snug text-ground/85">
-            Two Decisions and one Approval. Everything else on this wall is finished.
-          </p>
+        <div className="flex items-center gap-2">
+          <span className="hidden rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 sm:block">
+            7 AI Employees working
+          </span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500">
+            <Bell className="h-4 w-4" />
+          </span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+            ND
+          </span>
         </div>
       </div>
+
+      <div className="sm:grid sm:grid-cols-[10.5rem_minmax(0,1fr)]">
+        <aside className="hidden border-r border-slate-200 bg-white p-3 sm:block">
+          <nav className="space-y-1">
+            <PreviewNav icon={LayoutDashboard} label="Overview" active />
+            <PreviewNav icon={UsersRound} label="AI Employees" />
+            <PreviewNav icon={ListChecks} label="Routines" />
+            <PreviewNav icon={Building2} label="Company" />
+          </nav>
+          <div className="mt-6 border-t border-slate-100 pt-4">
+            <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Live now
+            </p>
+            <div className="mt-3 space-y-2.5 px-2">
+              {PANES.slice(0, 5).map((pane) => (
+                <div key={pane.dept} className="flex items-center gap-2 text-xs text-slate-600">
+                  <span className={`h-2 w-2 rounded-full ${pane.hue}`} />
+                  <span className="truncate">{pane.dept}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        <div className="min-w-0 bg-slate-50 p-2.5 sm:p-3">
+          <div className="mb-3 flex items-center justify-between px-1">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Today</p>
+              <p className="text-xs text-slate-500">Work moving across every department</p>
+            </div>
+            <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-500">
+              Live
+            </span>
+          </div>
+
+          <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">
+            {PANES.map((pane, index) => (
+              <Surface
+                key={pane.dept}
+                pane={pane}
+                index={index}
+                entered={entered}
+                settled={settled}
+                live={tick === index + 1}
+              />
+            ))}
+
+            <div className="flex min-h-44 flex-col justify-between gap-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4 shadow-sm">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-xs font-semibold text-indigo-700">Waiting for you</span>
+                <span className="font-mono text-[10px] text-indigo-500">09:30</span>
+              </div>
+              <div>
+                <div className="text-4xl font-semibold tracking-tight text-indigo-950">3</div>
+                <p className="mt-2 text-xs leading-5 text-indigo-900/80">
+                  Two Decisions and one Approval. Everything else on this wall is finished.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewNav({
+  icon: Icon,
+  label,
+  active = false,
+}: {
+  icon: typeof LayoutDashboard;
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium ${
+        active ? "bg-indigo-50 text-indigo-700" : "text-slate-600"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
     </div>
   );
 }
@@ -222,27 +257,33 @@ function Surface({
 
   return (
     <div
-      className={`relative min-w-0 overflow-hidden bg-surface ${settled ? "" : "wall-pane"}`}
+      className={`relative min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${
+        settled ? "" : "wall-pane"
+      }`}
       data-enter={entered || settled ? undefined : "pending"}
       style={settled ? undefined : { transitionDelay: `${index * 55}ms` }}
     >
-      <span aria-hidden className={`absolute inset-x-0 top-0 h-[3px] ${pane.hue}`} />
-
-      <div className="flex items-baseline justify-between gap-2 px-4 pt-5 pb-3">
-        <span className="t-h3 truncate text-[15px] text-ink">{pane.title}</span>
-        <span className="t-data shrink-0 text-[11px] text-muted">{pane.meta}</span>
+      <div className="flex items-start justify-between gap-2 px-3.5 pb-2.5 pt-3.5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${pane.hue}`} />
+            <span className="truncate text-xs font-semibold text-slate-900">{pane.title}</span>
+          </div>
+          <span className="mt-1 block truncate pl-4 text-[10px] text-slate-400">{pane.dept}</span>
+        </div>
+        <span className="shrink-0 font-mono text-[9px] text-slate-400">{pane.meta}</span>
       </div>
 
-      <ul className="px-4 pb-5">
+      <ul className="px-3.5 pb-3.5">
         {rows.map((row, i) => (
           <li
             key={`${row.left}-${i}`}
-            className={`border-hairline flex items-baseline justify-between gap-3 border-t py-2 ${
+            className={`flex items-baseline justify-between gap-2 border-t border-slate-100 py-1.5 ${
               live && i === 0 ? "row-in" : ""
             }`}
           >
-            <span className="min-w-0 truncate text-[13px] text-ink">{row.left}</span>
-            <span className="t-data shrink-0 text-[11px] text-muted">{row.right}</span>
+            <span className="min-w-0 truncate text-[11px] text-slate-700">{row.left}</span>
+            <span className="shrink-0 font-mono text-[9px] text-slate-400">{row.right}</span>
           </li>
         ))}
       </ul>

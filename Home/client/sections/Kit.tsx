@@ -2,29 +2,10 @@ import type { ReactNode } from "react";
 import { Link } from "@/lib/router";
 
 /**
- * The marketing design kit — HEADCOUNT.
+ * Shared marketing primitives aligned with the product application.
  *
- * Colour is the org chart. Seven departments, seven hues, each permanently
- * bound to a department and used at tile scale rather than as an accent. It is
- * never a mood; it is a legend, and a reader decodes it in four seconds.
- *
- * The inversion is the argument: **the machine is in colour, the human is in
- * black.** Every Decision, every Approval and every primary control is `ink`,
- * the one value with no hue at all. So on a page saturated with seven
- * departments working at once, the eye finds exactly one black thing, and it
- * is you.
- *
- * Three rules follow from that and they are the whole system:
- *
- * 1. **A hue only ever means its department.** Never a mood, never emphasis,
- *    never decoration. A heading is never coloured; an icon is never coloured.
- * 2. **The human states carry no hue.** If it needs a person, it is ink.
- * 3. **Density is the argument.** The product's claim is that a lot happens at
- *    once, so whitespace is spent sparingly and tiles meet on 1px seams. A
- *    generous, airy page would be a prettier lie.
- *
- * Every ratio in the token file is computed, not estimated. The worst pair in
- * the whole palette is 4.89:1.
+ * Neutral surfaces do the structural work. Indigo identifies actions and
+ * focus, while department colours stay confined to small labels and markers.
  */
 
 /* -------------------------------------------------------------------------
@@ -41,7 +22,7 @@ export type Dept =
   | "operations"
   | "people";
 
-/** Full hue: fills, spines, chips, department names set as text. */
+/** Department hues are compatibility tokens for small semantic markers. */
 export const DEPT_FULL: Record<Dept, string> = {
   finance: "bg-dept-finance",
   repositories: "bg-dept-repositories",
@@ -53,7 +34,7 @@ export const DEPT_FULL: Record<Dept, string> = {
   people: "bg-dept-people",
 };
 
-/** Tint: hover grounds, selected rows, band backgrounds. */
+/** Pale department grounds for compact labels and selected states. */
 export const DEPT_TINT: Record<Dept, string> = {
   finance: "bg-tint-finance",
   repositories: "bg-tint-repositories",
@@ -66,17 +47,29 @@ export const DEPT_TINT: Record<Dept, string> = {
 };
 
 export const DEPT_TEXT: Record<Dept, string> = {
-  finance: "text-dept-finance",
-  repositories: "text-dept-repositories",
-  marketing: "text-dept-marketing",
-  workspace: "text-dept-workspace",
-  email: "text-dept-email",
-  revenue: "text-dept-revenue",
-  operations: "text-dept-operations",
-  people: "text-dept-people",
+  finance: "text-emerald-800",
+  repositories: "text-violet-800",
+  marketing: "text-fuchsia-800",
+  workspace: "text-indigo-800",
+  email: "text-sky-800",
+  revenue: "text-orange-800",
+  operations: "text-amber-900",
+  people: "text-rose-800",
 };
 
-/** A department chip. White on any full hue is 5.97:1 or better. */
+/** Strong outlines for chart marks that must remain distinct on white. */
+export const DEPT_BORDER: Record<Dept, string> = {
+  finance: "border-emerald-600",
+  repositories: "border-violet-600",
+  marketing: "border-fuchsia-600",
+  workspace: "border-indigo-600",
+  email: "border-sky-600",
+  revenue: "border-orange-600",
+  operations: "border-amber-600",
+  people: "border-rose-600",
+};
+
+/** A compact department label; hue never becomes the surrounding surface. */
 export function Chip({
   dept,
   className = "",
@@ -88,7 +81,7 @@ export function Chip({
 }) {
   return (
     <span
-      className={`t-field rounded-chip inline-block px-2 py-1 leading-none text-surface ${DEPT_FULL[dept]} ${className}`}
+      className={`t-field rounded-md inline-flex items-center border border-rule px-2 py-1 leading-none ${DEPT_TINT[dept]} ${DEPT_TEXT[dept]} ${className}`}
     >
       {children}
     </span>
@@ -104,33 +97,29 @@ export type BandTone = "ground" | "surface" | "ink";
 const BAND_TONE: Record<BandTone, string> = {
   ground: "bg-ground text-ink2",
   surface: "bg-surface text-ink2",
-  // `text-ground`, not `text-ink`. The mechanical token swap mapped the old
-  // light value onto `ink` here, which set an ink band's default text to the
-  // same value as its own fill — 1.00:1, the whole band blank. Nothing renders
-  // `tone="ink"` today, so it was invisible in review as well as on screen.
   ink: "bg-ink text-ground",
 };
 
 export type BandPad = "xs" | "s" | "m" | "l" | "none";
 
 /**
- * Vertical rhythm. A band declares how much air it opens with and closes with,
- * independently, so a seam is one decision rather than the sum of two.
+ * A band declares its opening and closing rhythm independently so adjacent
+ * sections retain predictable spacing.
  */
 const BAND_OPEN: Record<BandPad, string> = {
   none: "",
-  xs: "pt-8 sm:pt-10",
-  s: "pt-10 sm:pt-14",
-  m: "pt-14 sm:pt-16 lg:pt-[5.5rem]",
-  l: "pt-16 sm:pt-24 lg:pt-[7.5rem]",
+  xs: "pt-6 sm:pt-8",
+  s: "pt-8 sm:pt-10",
+  m: "pt-12 sm:pt-14 lg:pt-16",
+  l: "pt-14 sm:pt-16 lg:pt-20",
 };
 
 const BAND_CLOSE: Record<BandPad, string> = {
   none: "",
-  xs: "pb-6",
+  xs: "pb-6 sm:pb-8",
   s: "pb-8 sm:pb-10",
-  m: "pb-12 sm:pb-14 lg:pb-[4.5rem]",
-  l: "pb-14 sm:pb-20 lg:pb-24",
+  m: "pb-12 sm:pb-14 lg:pb-16",
+  l: "pb-14 sm:pb-16 lg:pb-20",
 };
 
 export function Band({
@@ -156,7 +145,7 @@ export function Band({
     <section
       id={id}
       className={`relative ${BAND_TONE[tone]} ${
-        rule && tone !== "ink" ? "border-t border-hairline" : ""
+        rule && tone !== "ink" ? "border-t border-rule" : ""
       } ${className}`}
     >
       <div className={`${BAND_OPEN[open ?? pad]} ${BAND_CLOSE[close ?? pad]}`}>{children}</div>
@@ -164,7 +153,7 @@ export function Band({
   );
 }
 
-/** The one container. 90rem, so the wall has somewhere to be wide. */
+/** The shared page measure used by both the marketing and documentation UI. */
 export function Container({
   className = "",
   children,
@@ -173,16 +162,12 @@ export function Container({
   children: ReactNode;
 }) {
   return (
-    <div className={`mx-auto w-full max-w-[90rem] px-5 sm:px-8 lg:px-12 ${className}`}>
-      {children}
-    </div>
+    <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
   );
 }
 
 /**
- * A band head: an eyebrow, a heading and an optional lede, in a two-column
- * grid so the heading and its explanation sit side by side rather than
- * stacking into a narrow column with a dead right half.
+ * A section heading with an optional supporting column.
  */
 export function Head({
   eyebrow,
@@ -199,9 +184,9 @@ export function Head({
 }) {
   return (
     <div className={className}>
-      {eyebrow && <div className="t-field mb-4 text-muted">{eyebrow}</div>}
-      <div className="grid gap-x-16 gap-y-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <h2 className="t-h2 max-w-[26ch] text-[clamp(1.875rem,3.4vw,3.25rem)] text-ink">{title}</h2>
+      {eyebrow && <div className="t-field mb-3 text-muted">{eyebrow}</div>}
+      <div className="grid gap-x-12 gap-y-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+        <h2 className="t-h2 max-w-[26ch] text-[clamp(1.75rem,3vw,2.75rem)] text-ink">{title}</h2>
         {(lede || aside) && (
           <div className="lg:pt-2">
             {lede && (
@@ -216,17 +201,8 @@ export function Head({
 }
 
 /**
- * `Rail` — the migration shim, and deliberately not a rail any more.
- *
- * The previous design was built on a 9.5rem gutter carrying a sheet number and
- * mono fields, with a continuous vertical rule down the document. HEADCOUNT
- * has no gutter: the page is tiled, not ruled, and a spine down the left would
- * fight the 1px seams the wall is built on.
- *
- * Twenty files still call this, so rather than run a risky JSX codemod across
- * all of them it renders the HEADCOUNT way — the sheet becomes an eyebrow, the
- * fields become a mono line beside it, and the gutter simply does not exist.
- * New code should use `Head` instead.
+ * Compatibility wrapper used by established sections. It renders its sheet
+ * and fields as compact metadata above the content rather than as a gutter.
  */
 export function Rail({
   sheet,
@@ -246,7 +222,7 @@ export function Rail({
   return (
     <div className={className}>
       {(sheet || fields?.length) && (
-        <div className="mb-6 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+        <div className="mb-5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           {sheet && <span className="t-field text-muted">{sheet}</span>}
           {fields?.map((field) => (
             <span key={field} className="t-data text-[11px] text-muted">
@@ -257,15 +233,14 @@ export function Rail({
       )}
       {head}
       {children}
-      {margin && <div className="mt-10 border-t border-hairline pt-6">{margin}</div>}
+      {margin && <div className="mt-10 border-t border-rule pt-6">{margin}</div>}
     </div>
   );
 }
 
 /**
- * A product surface. Everything that is a picture of the application is
- * mounted this way: white, a 1px pane border, a 3px department edge, no
- * shadow. Nothing on this site floats.
+ * A product-like card: white, lightly bordered, softly elevated, and rounded.
+ * Department context is a short marker rather than a full-width colour field.
  */
 export function Pane({
   dept,
@@ -281,12 +256,17 @@ export function Pane({
   children: ReactNode;
 }) {
   return (
-    <div className={`relative border border-hairline bg-surface ${className}`}>
+    <div
+      className={`relative overflow-hidden rounded-xl border border-rule bg-surface shadow-sm ${className}`}
+    >
       {dept && (
-        <span aria-hidden className={`absolute inset-x-0 top-0 h-[3px] ${DEPT_FULL[dept]}`} />
+        <span
+          aria-hidden
+          className={`absolute left-4 top-0 h-1 w-8 rounded-b-full ${DEPT_FULL[dept]}`}
+        />
       )}
       {(title || meta) && (
-        <div className="flex items-baseline justify-between gap-3 border-b border-hairline px-4 pt-5 pb-3">
+        <div className="flex items-baseline justify-between gap-3 border-b border-rule px-4 pb-3 pt-4">
           {title && <span className="t-h3 truncate text-[15px] text-ink">{title}</span>}
           {meta && <span className="t-data shrink-0 text-[11px] text-muted">{meta}</span>}
         </div>
@@ -310,10 +290,12 @@ export function Plate({
 }) {
   return (
     <figure className={className}>
-      <div className="border border-hairline bg-surface">{children}</div>
+      <div className="overflow-hidden rounded-xl border border-rule bg-surface shadow-sm">
+        {children}
+      </div>
       <figcaption className="mt-3 flex flex-wrap items-baseline gap-x-3">
         <span className="t-field text-muted">{figure}</span>
-        <span className="text-[14px] italic leading-6 text-ink2">{caption}</span>
+        <span className="text-[14px] leading-6 text-ink2">{caption}</span>
       </figcaption>
     </figure>
   );
@@ -324,9 +306,7 @@ export function Plate({
 ------------------------------------------------------------------------- */
 
 /**
- * Headlines carry a number, a clock time or a proper noun; one clause; nine
- * words at most. That rule is what keeps the copy from drifting back into
- * abstraction, and it survived every redesign because it was never about style.
+ * Display type uses the same Inter-led hierarchy as product page titles.
  */
 export function Display({
   as: Tag = "h1",
@@ -341,8 +321,8 @@ export function Display({
 }) {
   const ramp =
     scale === "hero"
-      ? "t-hero text-[clamp(2.5rem,6.4vw,5.75rem)]"
-      : "t-h2 text-[clamp(2rem,3.4vw,3.25rem)]";
+      ? "t-hero text-[clamp(2.5rem,6vw,4.75rem)]"
+      : "t-h2 text-[clamp(2rem,3.4vw,3rem)]";
   return <Tag className={`${ramp} text-ink ${className}`}>{children}</Tag>;
 }
 
@@ -356,9 +336,7 @@ export function Heading({
   children: ReactNode;
 }) {
   return (
-    <Tag className={`t-h2 text-[clamp(1.875rem,3.4vw,3.25rem)] text-ink ${className}`}>
-      {children}
-    </Tag>
+    <Tag className={`t-h2 text-[clamp(1.75rem,3vw,2.75rem)] text-ink ${className}`}>{children}</Tag>
   );
 }
 
@@ -371,22 +349,24 @@ export function Subhead({
   className?: string;
   children: ReactNode;
 }) {
-  return <Tag className={`t-h3 text-[1.375rem] text-ink ${className}`}>{children}</Tag>;
+  return <Tag className={`t-h3 text-[1.25rem] text-ink ${className}`}>{children}</Tag>;
 }
 
-/** A big condensed count. Scale without spending whitespace on it. */
+/** A prominent product metric. */
 export function Figure({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={`t-figure text-[clamp(3rem,7vw,6rem)] text-ink ${className}`}>{children}</div>
+    <div className={`t-figure text-[clamp(2.75rem,6vw,5rem)] text-ink ${className}`}>
+      {children}
+    </div>
   );
 }
 
-/** A mono field label: panel headers, eyebrows, lane names. */
+/** A compact metadata label. */
 export function Sheet({ className = "", children }: { className?: string; children: ReactNode }) {
   return <span className={`t-field text-muted ${className}`}>{children}</span>;
 }
 
-/** Data the software emitted, and only that. Never flavour on a sentence. */
+/** Compact software-emitted data. */
 export function Field({ className = "", children }: { className?: string; children: ReactNode }) {
   return <span className={`t-data text-[11px] leading-4 text-muted ${className}`}>{children}</span>;
 }
@@ -405,18 +385,16 @@ export function Body({ className = "", children }: { className?: string; childre
   return <p className={`text-[15px] leading-[1.6] text-ink2 ${className}`}>{children}</p>;
 }
 
-/** The one italic voice: figure captions, margin notes, the colophon. */
+/** Supporting note copy. */
 export function Note({ className = "", children }: { className?: string; children: ReactNode }) {
-  return (
-    <p className={`text-[1.0625rem] italic leading-[1.6] text-ink2 ${className}`}>{children}</p>
-  );
+  return <p className={`text-[1rem] leading-[1.6] text-ink2 ${className}`}>{children}</p>;
 }
 
 /* -------------------------------------------------------------------------
    Controls
 ------------------------------------------------------------------------- */
 
-/** The primary control. Ink, because a control is a human action. */
+/** Product-style primary and secondary actions. */
 export function Button({
   href,
   external,
@@ -432,13 +410,9 @@ export function Button({
 }) {
   const skin =
     variant === "primary"
-      ? // Ground on ink, 15.05:1. Not `text-ink`: the label sits ON the ink
-        // fill, and the swap that black-on-blacked `StateTag` hit the primary
-        // button too — which is every "human action" control on the site, the
-        // one object the inversion exists to make findable.
-        "bg-ink text-ground hover:bg-ink2"
-      : "border border-rule text-ink hover:bg-ink hover:text-ground";
-  const classes = `rounded-control inline-flex items-center gap-2 px-5 py-3 text-[15px] font-semibold transition-colors duration-100 ${skin} ${className}`;
+      ? "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
+      : "border border-rule bg-surface text-ink shadow-sm hover:bg-slate-50";
+  const classes = `inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 ${skin} ${className}`;
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={classes}>
@@ -470,11 +444,7 @@ export function ActionStrip({
   className?: string;
   children: ReactNode;
 }) {
-  // Resting state is ink on white; only the hover fill is ink, and only there
-  // does the label go light. The swap left `text-ground` on both states, which
-  // is #f2f0ec on #ffffff — 1.09:1, a strip with nothing legible in it until
-  // you happen to hover.
-  const classes = `rounded-control group flex min-h-[3.25rem] w-full items-center justify-between gap-4 border border-rule bg-surface px-4 text-ink transition-colors duration-100 hover:bg-ink hover:text-ground ${className}`;
+  const classes = `group flex min-h-[3.25rem] w-full items-center justify-between gap-4 rounded-xl border border-rule bg-surface px-4 text-ink shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 ${className}`;
   const inner = (
     <>
       <span className={`min-w-0 truncate ${mono ? "t-data text-[13px]" : "text-[15px]"}`}>
@@ -498,7 +468,7 @@ export function ActionStrip({
   );
 }
 
-/** A text link with an underline that draws from the left on hover. */
+/** A compact inline action link. */
 export function TextLink({
   href,
   external,
@@ -510,13 +480,13 @@ export function TextLink({
   className?: string;
   children: ReactNode;
 }) {
-  const classes = `group inline-flex w-fit items-baseline text-[15px] font-semibold text-ink ${className}`;
+  const classes = `group inline-flex w-fit items-baseline text-[15px] font-medium text-indigo-600 hover:text-indigo-700 ${className}`;
   const inner = (
     <span className="relative">
       {children}
       <span
         aria-hidden
-        className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-ink transition-transform duration-150 group-hover:scale-x-100"
+        className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-indigo-600 transition-transform duration-150 group-hover:scale-x-100"
       />
     </span>
   );
@@ -555,8 +525,7 @@ export function Rule({
 }
 
 /**
- * A row. A set of things is a stack of rows sharing one hairline, with an
- * optional 3px department spine on the left edge — never a grid of cards.
+ * A compact card row. Department context stays in a small leading marker.
  */
 export function Row({
   href,
@@ -571,11 +540,14 @@ export function Row({
   className?: string;
   children: ReactNode;
 }) {
-  const base = `relative -mt-px flex items-start gap-x-6 gap-y-2 border-y border-hairline py-4 ${
-    dept ? "pl-4" : "px-1"
-  } ${className}`;
+  const base = `relative flex items-start gap-x-6 gap-y-2 rounded-lg border border-rule bg-surface py-4 shadow-sm ${
+    href ? "group transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50" : ""
+  } ${dept ? "pl-9 pr-4" : "px-4"} ${className}`;
   const spine = dept ? (
-    <span aria-hidden className={`absolute inset-y-0 left-0 w-[3px] ${DEPT_FULL[dept]}`} />
+    <span
+      aria-hidden
+      className={`absolute left-4 top-[1.375rem] h-2 w-2 rounded-full ${DEPT_FULL[dept]}`}
+    />
   ) : null;
 
   if (!href) {
@@ -586,10 +558,9 @@ export function Row({
       </div>
     );
   }
-  const hover = "transition-colors duration-100 hover:bg-ink hover:text-ground";
   if (external) {
     return (
-      <a href={href} target="_blank" rel="noreferrer" className={`group ${base} ${hover}`}>
+      <a href={href} target="_blank" rel="noreferrer" className={base}>
         {spine}
         {children}
         <span className="sr-only">{"(opens in a new tab)"}</span>
@@ -597,21 +568,14 @@ export function Row({
     );
   }
   return (
-    <Link href={href} className={`group ${base} ${hover}`}>
+    <Link href={href} className={base}>
       {spine}
       {children}
     </Link>
   );
 }
 
-/**
- * A state label.
- *
- * The human states — Decision and Approval — are ink, with no hue at all.
- * That is the palette's central rule and it is also an accessibility rule:
- * ink on ground is 16.43:1, and it means the two states that need a person are
- * the highest-contrast things on a page full of colour.
- */
+/** A small semantic state label. */
 export function StateTag({
   state,
   className = "",
@@ -621,20 +585,15 @@ export function StateTag({
   className?: string;
   children: ReactNode;
 }) {
-  const human = state === "decision" || state === "approval";
-  // `text-ground` and NOT `text-ink`: the label sits ON the ink fill, so it has
-  // to be the light value. The mechanical token swap mapped the old
-  // `text-paper-50` to `text-ink` and made every Decision and Approval on the
-  // site black-on-black at 1.00:1 — the one rule the palette exists to state,
-  // rendered invisible. Ground on ink is 15.05:1.
-  const skin = human
-    ? "bg-ink text-ground"
-    : state === "standdown"
-      ? "border border-rule text-muted"
-      : "border border-hairline text-muted";
+  const skin = {
+    run: "border border-sky-200 bg-sky-50 text-sky-700",
+    decision: "border border-violet-200 bg-violet-50 text-violet-700",
+    approval: "border border-amber-200 bg-amber-50 text-amber-700",
+    standdown: "border border-rose-200 bg-rose-50 text-rose-700",
+  }[state];
   return (
     <span
-      className={`t-field rounded-chip inline-flex items-center gap-1.5 px-2 py-1 leading-none ${skin} ${className}`}
+      className={`t-field inline-flex items-center gap-1.5 rounded-md px-2 py-1 leading-none ${skin} ${className}`}
     >
       {children}
     </span>

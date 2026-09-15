@@ -4,7 +4,7 @@ import { productPreview } from "@/products/previews";
 import { LogoMark } from "@/components/Logo";
 import { Mark, type MarkState } from "@/components/Marks";
 import { primaryUseCaseForProduct, SHOWCASE_USE_CASES } from "@/products/useCases";
-import { Chip, DEPT_FULL, type Dept } from "@/sections/Kit";
+import { Chip, type Dept } from "@/sections/Kit";
 
 /**
  * The product prototype — a picture of the running app, inside a `Pane`.
@@ -516,7 +516,7 @@ export function ProductPrototype({
     // "screenshot in a card" move the revamp deleted everywhere else.
     <section
       aria-label={`Animated ${activeProduct.name} product preview`}
-      className={`prototype-shell pointer-events-none select-none overflow-hidden bg-surface ${className}`}
+      className={`prototype-shell pointer-events-none select-none overflow-hidden bg-slate-50 ${className}`}
     >
       {/* The one sentence a screen reader gets. Everything below it is a
           picture of a UI, so it is hidden rather than narrated cell by cell. */}
@@ -540,16 +540,16 @@ export function ProductPrototype({
             the product is named in the figure caption and the headline
             already, and who is at the keyboard is the fact this row was
             missing. */}
-        <div className="flex h-11 items-center gap-2.5 border-b border-hairline px-3">
+        <div className="flex h-11 items-center gap-2.5 border-b border-slate-200 bg-white px-3">
           <Chip dept={dept} className="shrink-0">
             {dept}
           </Chip>
           <span className="min-w-0 truncate text-[11px] text-ink">{activeUseCase.role}</span>
           {/* The Approval mark is ink even here, at 10px: it is the state that
               needs a person, and it takes no hue anywhere on this site. */}
-          <span className="ml-auto hidden shrink-0 items-center gap-1.5 text-ink sm:flex">
+          <span className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2 py-1 text-amber-700 ring-1 ring-inset ring-amber-200 sm:flex">
             <Mark state="approval" className="h-2.5 w-2.5" />
-            <span className="t-field text-[10px]">Approvals on</span>
+            <span className="text-[10px] font-medium">Approvals on</span>
           </span>
         </div>
 
@@ -572,7 +572,7 @@ export function ProductPrototype({
           {story && <StoryLine story={story} clock={clock} />}
         </div>
 
-        <div className="grid grid-cols-3 border-t border-hairline">
+        <div className="grid grid-cols-3 border-t border-slate-200">
           {stories.map((candidate, index) => (
             <StoryStep
               key={candidate.label}
@@ -580,7 +580,6 @@ export function ProductPrototype({
               index={index}
               storyIndex={storyIndex}
               ticking={motionEnabled}
-              dept={dept}
             />
           ))}
         </div>
@@ -606,10 +605,14 @@ export function ProductPrototype({
  */
 function PrototypeFascia({ clock }: { clock: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 border-b border-hairline bg-ground px-3 py-2">
-      <LogoMark className="h-4 w-4 shrink-0 text-ink" />
-      <span className="t-field min-w-0 truncate text-[10px] text-ink">Northstar Labs</span>
-      <span className="t-data ml-auto shrink-0 text-[10px] leading-none text-muted">{clock}</span>
+    <div className="flex min-w-0 items-center gap-3 border-b border-slate-200 bg-slate-50/80 px-3 py-2">
+      <LogoMark className="h-4 w-4 shrink-0 text-indigo-600" />
+      <span className="min-w-0 truncate text-[10px] font-semibold text-slate-700">
+        Northstar Labs
+      </span>
+      <span className="t-data ml-auto shrink-0 text-[10px] leading-none text-slate-500">
+        {clock}
+      </span>
     </div>
   );
 }
@@ -626,29 +629,31 @@ function PrototypeFascia({ clock }: { clock: string }) {
  */
 function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
   const human = story.state === "decision" || story.state === "approval";
+  const stateTone = story.state === "decision" ? "text-violet-700" : "text-amber-700";
 
   return (
-    <div
-      className={`absolute inset-x-0 bottom-0 flex items-center gap-2.5 border-t px-3 py-2 ${
-        human ? "border-ink bg-ink text-ground" : "border-rule bg-surface text-ink"
-      }`}
-    >
-      <Mark state={story.state} className={`h-3 w-3 ${human ? "" : "text-ink2"}`} />
+    <div className="absolute inset-x-0 bottom-0 flex items-center gap-2.5 border-t border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <span
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+          human
+            ? story.state === "decision"
+              ? "bg-violet-50"
+              : "bg-amber-50"
+            : "bg-indigo-50"
+        }`}
+      >
+        <Mark
+          state={story.state}
+          className={`h-3 w-3 ${human ? stateTone : "text-indigo-600"}`}
+        />
+      </span>
       <span className="min-w-0">
-        <span className="t-field block text-[10px]">{story.label}</span>
-        <span
-          className={`mt-0.5 block truncate text-[11px] leading-4 ${
-            human ? "text-ground/85" : "text-muted"
-          }`}
-        >
+        <span className="block text-[10px] font-semibold text-slate-800">{story.label}</span>
+        <span className="mt-0.5 block truncate text-[11px] leading-4 text-slate-500">
           {story.detail}
         </span>
       </span>
-      <span
-        className={`t-data ml-auto shrink-0 text-[10px] leading-none ${
-          human ? "text-ground/70" : "text-muted"
-        }`}
-      >
+      <span className="t-data ml-auto shrink-0 text-[10px] leading-none text-slate-400">
         {clock}
       </span>
     </div>
@@ -679,13 +684,11 @@ function StoryStep({
   index,
   storyIndex,
   ticking,
-  dept,
 }: {
   story: PrototypeStory;
   index: number;
   storyIndex: number;
   ticking: boolean;
-  dept: Dept;
 }) {
   const current = index === storyIndex;
   const done = index < storyIndex;
@@ -693,15 +696,19 @@ function StoryStep({
 
   const skin = current
     ? human
-      ? "bg-ink text-ground"
-      : "bg-ground text-ink"
+      ? story.state === "decision"
+        ? "bg-violet-50 text-violet-700"
+        : "bg-amber-50 text-amber-700"
+      : "bg-indigo-50 text-indigo-700"
     : human
-      ? "text-ink"
-      : "text-muted";
+      ? story.state === "decision"
+        ? "bg-white text-violet-600"
+        : "bg-white text-amber-600"
+      : "bg-white text-slate-500";
 
   return (
     <div
-      className={`relative min-w-0 border-l border-hairline px-2.5 py-2.5 first:border-l-0 ${skin}`}
+      className={`relative min-w-0 border-l border-slate-200 px-2.5 py-2.5 first:border-l-0 ${skin}`}
     >
       <span className="flex items-center gap-1.5">
         <Mark state={done ? "run" : story.state} className="h-2.5 w-2.5 shrink-0" />
@@ -716,7 +723,11 @@ function StoryStep({
       {current && ticking && (
         <span
           className={`prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left ${
-            human ? "bg-ground" : DEPT_FULL[dept]
+            human
+              ? story.state === "decision"
+                ? "bg-violet-500"
+                : "bg-amber-500"
+              : "bg-indigo-500"
           }`}
         />
       )}

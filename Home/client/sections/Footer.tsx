@@ -40,29 +40,7 @@ const RESOURCE_LINKS = [
   ["Enterprise", "/enterprise"],
 ] as const;
 
-/**
- * The closing band: install, then the colophon.
- *
- * What used to be here was a near-black rounded slab with a dot pattern, a
- * white blur orb and an indigo blur orb, centred text and two pill buttons —
- * copy-pasted verbatim onto three different pages. It is replaced by the two
- * things a reader at the bottom of this page actually wants: the command, and
- * some evidence a person made this.
- *
- * The sheet number is a prop with an unnumbered default. This band is shared
- * by the landing page, both index pages, and every product and role page, and
- * each of those has a different number of bands above it — hard-coding
- * "09 / Install" meant a role page counted 01, 02, 03, 04, 05, 06 and then
- * jumped to 09. A page that knows its own sequence passes its number; a page
- * that does not gets a bare label, which is better than a wrong number.
- *
- * It is deliberately NOT a dark band. There is exactly one tone change on the
- * landing page and it belongs to the shift, which is the section
- * literally about work happening in the dark. Spending the same effect again
- * on the closing CTA is what made the old page read as a sequence of
- * interchangeable slabs, and it costs the band the thing that made it
- * worth looking at.
- */
+/** Shared closing action. Callers may provide their own section label. */
 export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
   return (
     <Band id="install" tone="ground" open="l" close="s">
@@ -77,11 +55,11 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
             company grows from there.
           </Lede>
 
-          <div className="mt-10 max-w-[36rem]">
+          <div className="mt-10 max-w-[36rem] space-y-3">
             <ActionStrip href="/docs/install" trailing="Guide">
               Install on your own hardware
             </ActionStrip>
-            <ActionStrip href={GITHUB_URL} external trailing="Source" className="-mt-px">
+            <ActionStrip href={GITHUB_URL} external trailing="Source">
               Read every line on GitHub
             </ActionStrip>
           </div>
@@ -91,21 +69,7 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
   );
 }
 
-/**
- * The colophon.
- *
- * The audit that drove this revamp found four instances of "we" against
- * eighty-two of "you": the old site was written entirely at a reader by
- * nobody in particular, which is a large part of why it read as generated.
- * This is the one place the people who make it speak, and the AI-disclosure
- * that used to sit in six-point grey at the very bottom of the page is
- * promoted into it, at reading size, because burying that notice was the least
- * honest thing on the site.
- *
- * It is set in the note face — italic Newsreader — which appears here, on
- * figure captions and on margin notes, and nowhere else. That is deliberate:
- * the one voice on the site with a different skeleton is the human one.
- */
+/** Product provenance and AI-assistance disclosure. */
 export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
   return (
     <Band tone="surface" open="s" close="m">
@@ -139,8 +103,8 @@ export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
 
 export function Footer() {
   return (
-    <footer className="border-t border-rule bg-ground">
-      <Container className="pt-14 pb-10">
+    <footer className="border-t border-rule bg-surface">
+      <Container className="pb-10 pt-14">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <div>
             <Logo className="text-[15px] text-ink" />
@@ -175,7 +139,10 @@ export function Footer() {
 
         <div className="mt-14 flex flex-col gap-3 border-t border-hairline pt-6 sm:flex-row sm:items-center sm:justify-between">
           <Field>{`© ${__BUILD_YEAR__} HACKERBAY, INC.`}</Field>
-          <Field>BUILT IN THE OPEN</Field>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Field>{`GENOSYN v${__APP_VERSION__}`}</Field>
+            <Field>BUILT IN THE OPEN</Field>
+          </div>
         </div>
       </Container>
     </footer>
@@ -212,7 +179,8 @@ function FooterLink({
   external?: boolean;
   children: React.ReactNode;
 }) {
-  const className = "text-[0.9375rem] text-ink2 transition-colors hover:text-ink";
+  const className =
+    "text-[0.9375rem] text-slate-600 transition-colors duration-150 hover:text-slate-900";
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>

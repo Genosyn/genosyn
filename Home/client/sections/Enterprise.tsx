@@ -187,7 +187,11 @@ function License() {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <Pane title="Community and Enterprise" meta={`${EDITIONS.length} CAPABILITIES`}>
+            <Pane
+              title="Community and Enterprise"
+              meta={`${EDITIONS.length} CAPABILITIES`}
+              className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
+            >
               <div className="flex items-end gap-5 border-b border-hairline px-4 py-5">
                 <Figure className="!text-[clamp(3rem,5vw,4.5rem)]">2</Figure>
                 <p className="max-w-[24ch] pb-1 text-[14px] leading-[1.45] text-ink2">
@@ -220,9 +224,12 @@ function License() {
 
         <div className="mt-14 max-w-[52rem]">
           <Sheet>The license itself</Sheet>
-          <div className="mt-5">
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             {LICENSE_FACTS.map(([term, definition]) => (
-              <Row key={term}>
+              <Row
+                key={term}
+                className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+              >
                 <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
                   <Sheet>{term}</Sheet>
                   <Body>{definition}</Body>
@@ -338,9 +345,12 @@ function Architecture() {
               legend. */}
           <div className="min-w-0">
             <Sheet>Where the data sits</Sheet>
-            <div className="mt-5">
+            <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               {DATA_LOCATIONS.map(([artefact, place]) => (
-                <Row key={artefact}>
+                <Row
+                  key={artefact}
+                  className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+                >
                   <div className="grid w-full gap-x-6 gap-y-2 xl:grid-cols-[16rem_minmax(0,1fr)]">
                     <Body className="!text-ink">{artefact}</Body>
                     <Body>{place}</Body>
@@ -357,7 +367,7 @@ function Architecture() {
             black things in the band — which is the whole inversion, on the one
             page where it is also the subject matter. */}
         <Pane
-          className="mt-14 max-w-[64rem]"
+          className="mt-14 max-w-[64rem] overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
           title="What stops an AI Employee"
           meta="3 INSTRUMENTS"
         >
@@ -457,15 +467,15 @@ function Instrument({
  */
 function BoundaryDiagram() {
   return (
-    <div className="bg-surface p-4 sm:p-5">
+    <div className="rounded-xl bg-slate-50 p-4 sm:p-5">
       <div aria-hidden>
-        <div className="border border-rule">
-          <div className="border-b border-rule px-3 py-2">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
             <Sheet>Your network · your identity · your backups</Sheet>
           </div>
 
           <div className="p-3">
-            <div className="border border-rule bg-ground px-3 py-3">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
               <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
                 <Sheet className="!text-ink">Genosyn App</Sheet>
                 <Field className="!text-ink">:8471</Field>
@@ -479,22 +489,22 @@ function BoundaryDiagram() {
               </div>
             </div>
 
-            <span aria-hidden className="mx-auto block h-6 w-px bg-rule" />
+            <span aria-hidden className="mx-auto block h-6 w-px bg-slate-200" />
 
             {/* The three nodes meet on seams rather than sitting in a divided
                 border box: it is the same construction as the landing wall, at
                 figure scale, so a reader who has seen the home page recognises
                 "these are simultaneous parts of one system" without a caption
                 saying so. */}
-            <div className="grid grid-cols-1 gap-px border border-rule bg-seam sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <DiagramNode label="Database" lines={["sqlite", "postgres"]} />
               <DiagramNode label="AI Models" lines={["anthropic", "openai", "custom"]} />
               <DiagramNode label="Connections" lines={["stripe", "slack", "google"]} />
             </div>
 
-            <span aria-hidden className="mx-auto block h-6 w-px bg-rule" />
+            <span aria-hidden className="mx-auto block h-6 w-px bg-slate-200" />
 
-            <div className="border border-rule px-3 py-3">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
               <Sheet className="!text-ink">Volume</Sheet>
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 <Field>genosyn-data</Field>
@@ -505,7 +515,7 @@ function BoundaryDiagram() {
         </div>
 
         {/* Outside, and unconnected. The gap is the point. */}
-        <div className="mt-8 border border-hairline px-3 py-3">
+        <div className="mt-6 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
           <Sheet>Genosyn.com</Sheet>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             <Sheet>License issuer</Sheet>
@@ -526,7 +536,7 @@ function BoundaryDiagram() {
 
 function DiagramNode({ label, lines }: { label: string; lines: string[] }) {
   return (
-    <div className="bg-surface px-3 py-3">
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
       <Sheet className="!text-ink">{label}</Sheet>
       <div className="mt-1.5 space-y-1">
         {lines.map((line) => (
@@ -641,9 +651,12 @@ function Deployment() {
             is a whole choice — a command, a database, a volume shape — and
             reading them as three columns is how you compare them; as rows you
             can only read them in order. */}
-        <div className="mt-12 grid gap-px bg-seam p-px lg:grid-cols-3">
+        <div className="mt-12 grid gap-4 lg:grid-cols-3">
           {TOPOLOGIES.map((topology) => (
-            <div key={topology.index} className="flex min-w-0 flex-col bg-surface p-5">
+            <div
+              key={topology.index}
+              className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
               <div className="flex items-baseline gap-3">
                 <Field>{topology.index}</Field>
                 <Subhead className="!text-[1.125rem]">{topology.name}</Subhead>
@@ -658,9 +671,12 @@ function Deployment() {
 
         <div className="mt-14 max-w-[64rem]">
           <Sheet>Defaults you inherit</Sheet>
-          <div className="mt-5">
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             {DEFAULTS.map(([term, definition]) => (
-              <Row key={term}>
+              <Row
+                key={term}
+                className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+              >
                 <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
                   <Sheet>{term}</Sheet>
                   <Body>{definition}</Body>
@@ -690,7 +706,7 @@ function Deployment() {
  */
 function Command({ children }: { children: string }) {
   return (
-    <div className="scrollbar-none overflow-x-auto border border-rule bg-ground px-3 py-2.5">
+    <div className="scrollbar-none overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
       <code>
         <Field className="block !text-ink whitespace-nowrap">{children}</Field>
       </code>
@@ -749,9 +765,12 @@ function Support() {
           aside={<Fields items={[`${SUPPORT.length} AREAS`, "APACHE-2.0"]} />}
         />
 
-        <div className="mt-10 max-w-[64rem]">
+        <div className="mt-10 max-w-[64rem] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {SUPPORT.map(([term, definition]) => (
-            <Row key={term}>
+            <Row
+              key={term}
+              className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+            >
               <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[11rem_minmax(0,1fr)]">
                 <Sheet>{term}</Sheet>
                 <Body>{definition}</Body>
@@ -800,14 +819,21 @@ function Contact() {
             is both true and the thing the body copy is about. */}
         <Head
           eyebrow="05 / Contact"
-          title="Enterprise questions go to enterprise@genosyn.com."
+          title={
+            <>
+              Enterprise questions go to <span className="break-all">enterprise@genosyn.com</span>.
+            </>
+          }
           lede="Four lines are enough to get a useful answer back. You get a topology, the questions a security review usually asks, and a price if you want one."
           aside={<Fields items={["MAILTO", `${BRIEF.length} LINES`]} />}
         />
 
-        <div className="mt-10 max-w-[52rem]">
+        <div className="mt-10 max-w-[52rem] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {BRIEF.map(([term, prompt]) => (
-            <Row key={term}>
+            <Row
+              key={term}
+              className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+            >
               <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
                 <Sheet>{term}</Sheet>
                 <Body>{prompt}</Body>

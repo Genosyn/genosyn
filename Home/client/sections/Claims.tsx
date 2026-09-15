@@ -1,32 +1,12 @@
 import { useEffect, useState } from "react";
 import { LANES } from "@/sections/Board";
 
-/**
- * The rotating proof line under the hero claim.
- *
- * The headline makes the promise; this cycles the evidence for it. Every line
- * is a real overnight Run from the board's own event list, so the claim above
- * and the proof below cannot drift apart and nothing here is written for the
- * page — if a Run changes, this changes.
- *
- * ## Server and screen readers
- *
- * The server renders the first claim and nothing else, and the client's first
- * render matches it, so the markup is identical across all 83 prerendered
- * routes and hydration is clean. The cycling starts in an effect.
- *
- * The visible line is `aria-hidden` because a region that rewrites itself
- * every few seconds is hostile to a screen reader; the full list is emitted
- * once in an `sr-only` node instead, so a non-visual reader gets all of the
- * evidence at once rather than a sixth of it at random.
- */
 const CLAIMS = LANES.flatMap((lane) =>
   lane.events
     .filter((event) => event.state === "run" && event.at < 9.5)
     .map((event) => ({ at: event.at, label: event.label, lane: lane.owner })),
 ).sort((a, b) => a.at - b.at);
 
-/** Each department's hue, bound permanently. Colour is the org chart. */
 const DEPT: Record<string, string> = {
   Finance: "bg-dept-finance",
   Repositories: "bg-dept-repositories",
@@ -60,23 +40,18 @@ export function Claims({ className = "" }: { className?: string }) {
         {`Overnight, without anyone signed in: ${CLAIMS.map((c) => `${c.lane}, ${clock(c.at)}, ${c.label}`).join(";")}.`}
       </span>
 
-      {/* A fixed min-height, so a swap never reflows the page under a reader's
-          cursor. The department chip's hue changes INSTANTLY with no colour
-          transition: tweening a hue would briefly display a department that
-          does not exist. */}
       <div aria-hidden className="min-h-[5.25rem]">
         <div key={index} className="claim-in">
           <div className="flex items-center gap-2.5">
-            <span
-              className={`t-field rounded-chip px-2 py-1 leading-none text-surface ${
-                DEPT[CLAIMS[index].lane] ?? "bg-ink"
-              }`}
-            >
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+              <span
+                className={`h-2 w-2 rounded-full ${DEPT[CLAIMS[index].lane] ?? "bg-indigo-600"}`}
+              />
               {CLAIMS[index].lane}
             </span>
-            <span className="t-data text-[12px] text-muted">{clock(CLAIMS[index].at)}</span>
+            <span className="font-mono text-xs text-slate-500">{clock(CLAIMS[index].at)}</span>
           </div>
-          <p className="mt-2.5 max-w-[34ch] text-[clamp(1.125rem,1.7vw,1.5rem)] font-medium leading-[1.35] text-ink">
+          <p className="mt-2.5 max-w-[34ch] text-base font-medium leading-6 text-slate-900 sm:text-lg">
             {CLAIMS[index].label}
           </p>
         </div>

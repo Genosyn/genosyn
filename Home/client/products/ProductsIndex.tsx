@@ -1,16 +1,15 @@
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { PageHero } from "@/sections/HeroKit";
+import { Link } from "@/lib/router";
 import {
   ActionStrip,
   Band,
   Body,
   Chip,
   Container,
-  DEPT_FULL,
   Field,
   Head,
-  Row,
   Sheet,
   type Dept,
 } from "@/sections/Kit";
@@ -74,7 +73,7 @@ export function ProductsIndex() {
               <ActionStrip href="/products/ai-employees" trailing="Product">
                 Start with AI Employees
               </ActionStrip>
-              <ActionStrip href="/docs" trailing="Docs" className="-mt-px">
+              <ActionStrip href="/docs" trailing="Docs">
                 Read the documentation
               </ActionStrip>
             </>
@@ -187,11 +186,6 @@ const COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[13rem_8rem_minmax(0,1fr)_11rem]";
  * The chip is deliberately left out of it: it is a department fill carrying
  * white, and it stays that on ink the way a department stays itself.
  */
-const INVERT = "group-hover:!text-surface";
-
-/** Rows are indented by their spine, so every heading above them is too. */
-const SPINE_INDENT = "pl-4";
-
 function Catalogue() {
   return (
     <Band id="catalogue" tone="ground" pad="m">
@@ -201,7 +195,7 @@ function Catalogue() {
           title={`${PRODUCT_CATEGORIES.length} categories share one database and one permission model.`}
           lede={
             <>
-              The edge and the chip on each row name the department a product belongs to, so
+              The marker and the chip on each row name the department a product belongs to, so
               Customers and Revenue read as one department and Explore and Pipelines as another. The
               last column is read off the roster, so it names the roles that would actually touch
               it.
@@ -219,8 +213,8 @@ function Catalogue() {
           }
         />
 
-        <div className="mt-12">
-          <div className={`hidden w-full pb-2 lg:grid ${SPINE_INDENT} ${COLUMNS}`}>
+        <div className="mt-10">
+          <div className={`hidden w-full px-4 pb-2 lg:grid ${COLUMNS}`}>
             <Sheet>Product</Sheet>
             <Sheet>Department</Sheet>
             <Sheet>What it is</Sheet>
@@ -232,19 +226,25 @@ function Catalogue() {
             if (products.length === 0) return null;
 
             return (
-              <section key={category} aria-label={category} className="mt-12 first:mt-0">
+              <section
+                key={category}
+                aria-label={category}
+                className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm first:mt-0"
+              >
                 <div
-                  className={`flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pb-3 ${SPINE_INDENT}`}
+                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50/80 px-4 py-3"
                 >
-                  <Sheet>{category}</Sheet>
+                  <span className="text-sm font-semibold text-slate-900">{category}</span>
                   <Field>
                     {`${products.length} ${products.length === 1 ? "PRODUCT" : "PRODUCTS"}`}
                   </Field>
                 </div>
 
-                {products.map((product, index) => (
-                  <ProductRow key={product.slug} product={product} opens={index === 0} />
-                ))}
+                <div className="divide-y divide-slate-100">
+                  {products.map((product) => (
+                    <ProductRow key={product.slug} product={product} />
+                  ))}
+                </div>
               </section>
             );
           })}
@@ -268,61 +268,36 @@ function Catalogue() {
  * label instead. It deliberately does not get an ink chip: ink means a human
  * is needed, and this row is the machine.
  */
-function ProductRow({ product, opens }: { product: ProductDef; opens: boolean }) {
+function ProductRow({ product }: { product: ProductDef }) {
   const dept = PRODUCT_DEPT[product.slug];
 
   return (
-    <Row
+    <Link
       href={`/products/${product.slug}`}
-      dept={dept}
-      // Without a `dept`, `Row` pads itself to `px-1` and draws no spine, so
-      // the all-departments row has to ask for the spine's indent by hand.
-      // `!pr-0` is the other half of that and is not cosmetic: `px-1` also
-      // sets a 4px right pad, which pulled this row's grid 4px in and left the
-      // right-aligned "Worked by" cell out of step with the thirteen rows and
-      // the column header below it. Written out rather than interpolated from
-      // `SPINE_INDENT`: Tailwind scans this file as text, and a class it never
-      // sees spelled in full is a class it never generates.
-      className={`${opens ? "!border-t-rule" : ""} ${dept ? "" : "!pl-4 !pr-0"}`}
+      className="group block px-4 py-4 transition-colors hover:bg-slate-50 focus-visible:bg-indigo-50/60"
     >
-      {!dept && <AllDepartmentsSpine />}
-
       <div className={`grid w-full min-w-0 ${COLUMNS}`}>
-        <Body className={`!text-[1.0625rem] !leading-6 !text-ink ${INVERT}`}>{product.name}</Body>
+        <Body className="!text-[1rem] !font-semibold !leading-6 !text-slate-900 group-hover:!text-indigo-700">
+          {product.name}
+        </Body>
 
         <div className="min-w-0">
           {dept ? (
             <Chip dept={dept}>{DEPT_NAME[dept]}</Chip>
           ) : (
-            <Sheet className={INVERT}>{`All ${ALL_DEPTS.length}`}</Sheet>
+            <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
+              {`All ${ALL_DEPTS.length}`}
+            </span>
           )}
         </div>
 
-        <Body className={INVERT}>{product.summary}</Body>
+        <Body className="!text-slate-600">{product.summary}</Body>
 
         <div className="lg:text-right">
-          <Sheet className={INVERT}>{workedBy(product.slug)}</Sheet>
+          <span className="text-xs font-medium text-slate-500">{workedBy(product.slug)}</span>
         </div>
       </div>
-    </Row>
-  );
-}
-
-/**
- * The spine for the one row that is every department at once.
- *
- * Seven 3px segments in the wall's own order, so the row reads as the whole
- * org chart stacked rather than as a gradient. A gradient was the rejected
- * alternative: it would put colours between the departments that do not mean
- * anything, and in this system every colour on the screen means a department.
- */
-function AllDepartmentsSpine() {
-  return (
-    <span aria-hidden className="absolute inset-y-0 left-0 flex w-[3px] flex-col">
-      {ALL_DEPTS.map((dept) => (
-        <span key={dept} className={`flex-1 ${DEPT_FULL[dept]}`} />
-      ))}
-    </span>
+    </Link>
   );
 }
 

@@ -7,7 +7,6 @@ import {
   Body,
   Chip,
   Container,
-  DEPT_FULL,
   type Dept,
   Display,
   Field,
@@ -23,7 +22,6 @@ import {
 import { DaySchedule, RoleRail } from "@/roles/RoleDay";
 import { ROLES, type RoleDef, type RoleMoment } from "@/roles/data";
 import { findProduct } from "@/products/data";
-import { PRODUCT_DEPT } from "@/products/ProductPrototype";
 
 /**
  * One role, in full. Eight routes share this page.
@@ -130,8 +128,8 @@ export function RolePage({ role }: { role: RoleDef }) {
       <main>
         <RoleHero role={role} dept={dept} />
         <Day role={role} />
-        <Capabilities role={role} dept={dept} />
-        <Setup role={role} dept={dept} />
+        <Capabilities role={role} />
+        <Setup role={role} />
         <Questions role={role} />
         <Roster current={role.slug} />
         <InstallCta />
@@ -200,11 +198,11 @@ function RoleHero({ role, dept }: { role: RoleDef; dept: Dept }) {
             <div className="mt-7 min-w-0">
               <Lede>{role.intro}</Lede>
 
-              <div className="mt-9 max-w-[34rem]">
+              <div className="mt-9 max-w-[34rem] space-y-2">
                 <ActionStrip href="/docs/install" trailing="Free">
                   Install it on your own hardware
                 </ActionStrip>
-                <ActionStrip href="/docs/employees" trailing="Docs" className="-mt-px">
+                <ActionStrip href="/docs/employees" trailing="Docs">
                   How a Soul and its Skills are written
                 </ActionStrip>
               </div>
@@ -223,20 +221,22 @@ function RoleHero({ role, dept }: { role: RoleDef; dept: Dept }) {
                 the last of them is ink, which makes this small table the whole
                 inversion in four lines: the employee is in colour, the moment
                 that needs you is not. */}
-            <div className="mt-9">
-              <Fact label="Employee" dept={dept}>
+            <div className="mt-9 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <Fact label="Employee">
                 <Body className="!text-[15px] !leading-5 !text-ink">{role.person}</Body>
               </Fact>
-              <Fact label="Discipline" dept={dept}>
+              <Fact label="Discipline">
                 <Body className="!text-[15px] !leading-5 !text-ink">{role.discipline}</Body>
               </Fact>
-              <Fact label="Hours" dept={dept}>
+              <Fact label="Hours">
                 <Field className="!text-ink">{hours(role)}</Field>
               </Fact>
               {stop && (
-                <Fact label="Stops" dept={dept}>
+                <Fact label="Stops">
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <StateTag state={stop.kind}>{STOP_WORD[stop.kind]}</StateTag>
+                    <StateTag state={stop.kind} className="!rounded-full">
+                      {STOP_WORD[stop.kind]}
+                    </StateTag>
                     <Field className="!text-ink">{stop.time}</Field>
                   </span>
                 </Fact>
@@ -256,9 +256,9 @@ function RoleHero({ role, dept }: { role: RoleDef; dept: Dept }) {
 }
 
 /** One labelled fact. The label column is fixed so the four values line up. */
-function Fact({ label, dept, children }: { label: string; dept: Dept; children: ReactNode }) {
+function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <Row dept={dept} className="items-baseline">
+    <Row className="!mt-0 items-baseline !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-3.5 !shadow-none last:!border-b-0">
       <div className="w-[6.5rem] shrink-0">
         <Sheet>{label}</Sheet>
       </div>
@@ -340,7 +340,7 @@ function Day({ role }: { role: RoleDef }) {
  * hover; between them they spent sixteen boxes and eight hues on twelve
  * sentences, and none of the hues meant anything.
  */
-function Capabilities({ role, dept }: { role: RoleDef; dept: Dept }) {
+function Capabilities({ role }: { role: RoleDef }) {
   // `flatMap` with an empty array is the terse way to drop a slug that no
   // longer resolves: `products/data.ts` is owned by another pass and a role
   // must not render an empty row when a product is renamed out from under it.
@@ -360,12 +360,11 @@ function Capabilities({ role, dept }: { role: RoleDef; dept: Dept }) {
           lede="The work happens in the products your team already opens, on the same rows a Member edits. Nothing is exported and there is no second system of record."
         />
 
-        <div className="mt-10">
+        <div className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {role.capabilities.map((capability) => (
             <Row
               key={capability.title}
-              dept={dept}
-              className="!grid grid-cols-1 !gap-y-2 !py-6 lg:grid-cols-[18rem_minmax(0,1fr)]"
+              className="!mt-0 !grid grid-cols-1 !gap-y-2 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-5 !py-5 !shadow-none last:!border-b-0 lg:grid-cols-[18rem_minmax(0,1fr)]"
             >
               {/* `Heading`, not `Sheet`. Pricing sets a plan name in a `Sheet`
                   inside its `h3` and that is right there — "Growth" is a
@@ -383,18 +382,17 @@ function Capabilities({ role, dept }: { role: RoleDef; dept: Dept }) {
 
         <div className="mt-12">
           <Sheet>Where the work lands</Sheet>
-          <div className="mt-4">
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             {products.map((product) => (
               <Row
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                dept={PRODUCT_DEPT[product.slug] ?? "operations"}
-                className="items-baseline"
+                className="!mt-0 items-baseline !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-3.5 !shadow-none last:!border-b-0 hover:!bg-slate-50 hover:!text-slate-900"
               >
-                <span className="min-w-0 flex-1 text-[15px] leading-6 text-ink group-hover:!text-ground">
+                <span className="min-w-0 flex-1 text-[15px] font-medium leading-6 text-slate-900 group-hover:!text-indigo-700">
                   {product.name}
                 </span>
-                <Sheet className="shrink-0 group-hover:!text-ground">{product.category}</Sheet>
+                <Sheet className="shrink-0 group-hover:!text-muted">{product.category}</Sheet>
               </Row>
             ))}
           </div>
@@ -422,33 +420,26 @@ function Capabilities({ role, dept }: { role: RoleDef; dept: Dept }) {
  * question would not belong in this band.
  */
 function SetupColumn({
-  tone,
-  dept,
   children,
 }: {
-  tone: "human" | "machine";
-  dept: Dept;
   children: ReactNode;
 }) {
   return (
-    <div className="relative flex flex-col gap-12 pl-5">
-      <span
-        aria-hidden
-        className={`absolute inset-y-0 left-0 w-[3px] ${
-          tone === "human" ? "bg-ink" : DEPT_FULL[dept]
-        }`}
-      />
+    <div className="flex flex-col gap-10 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       {children}
     </div>
   );
 }
+
+const DOCUMENT_ROW =
+  "!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-3.5 !shadow-none last:!border-b-0";
 
 /** One document, as a label over a stack of rows. */
 function Document({ label, note, children }: { label: string; note: string; children: ReactNode }) {
   return (
     <div>
       <Sheet>{label}</Sheet>
-      <div className="mt-4">{children}</div>
+      <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">{children}</div>
       <Body className="mt-4 !text-[13px] !leading-5 !text-muted">{note}</Body>
     </div>
   );
@@ -469,7 +460,7 @@ function Document({ label, note, children }: { label: string; note: string; chil
  * documents was tried first and left a column of dead space under the Soul,
  * which has one paragraph in it against the Skills column's five rows.
  */
-function Setup({ role, dept }: { role: RoleDef; dept: Dept }) {
+function Setup({ role }: { role: RoleDef }) {
   return (
     <Band id="setup" tone="ground" pad="m">
       <Container>
@@ -480,12 +471,12 @@ function Setup({ role, dept }: { role: RoleDef; dept: Dept }) {
         />
 
         <div className="mt-12 grid gap-x-12 gap-y-12 lg:grid-cols-2">
-          <SetupColumn tone="human" dept={dept}>
+          <SetupColumn>
             <Document
               label="Soul"
               note="A Soul is written the way a job description is written, and it is the one document that decides what the employee does when the Skills do not say."
             >
-              <Row>
+              <Row className={DOCUMENT_ROW}>
                 <Body className="max-w-[56ch]">
                   {`One document says how ${role.person} judges: what to work on first, and when
                   to stop and ask rather than guess. You rewrite it the way you would rewrite a
@@ -499,20 +490,20 @@ function Setup({ role, dept }: { role: RoleDef; dept: Dept }) {
               note="A Grant is one resource, granted on purpose. Anything not on this list is not reachable, including by a Routine that asks for it politely."
             >
               {role.grants.map((grant) => (
-                <Row key={grant}>
+                <Row key={grant} className={DOCUMENT_ROW}>
                   <Body className="max-w-[56ch]">{grant}</Body>
                 </Row>
               ))}
             </Document>
           </SetupColumn>
 
-          <SetupColumn tone="machine" dept={dept}>
+          <SetupColumn>
             <Document
               label="Skills"
               note="Each Skill is one markdown playbook, and the employee reads it the way a new hire reads the runbook."
             >
               {role.skills.map((skill) => (
-                <Row key={skill} className="items-baseline">
+                <Row key={skill} className={`${DOCUMENT_ROW} items-baseline`}>
                   <Field className="!text-[12px] !text-ink">{skill}</Field>
                 </Row>
               ))}
@@ -523,7 +514,7 @@ function Setup({ role, dept }: { role: RoleDef; dept: Dept }) {
               note="Those are the schedules as the server stores them. A Run starts when the line fires, and no one has to be awake for it."
             >
               {role.routines.map((routine) => (
-                <Row key={routine.name} className="flex-wrap items-baseline">
+                <Row key={routine.name} className={`${DOCUMENT_ROW} flex-wrap items-baseline`}>
                   <span className="min-w-[8rem] flex-1 text-[15px] leading-6 text-ink">
                     {routine.name}
                   </span>
@@ -610,9 +601,12 @@ function Questions({ role }: { role: RoleDef }) {
           title={`${role.faqs.length} questions about the ${role.name}.`}
         />
 
-        <dl className="mt-10">
+        <dl className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {role.faqs.map((faq) => (
-            <Row key={faq.q} className="!grid grid-cols-1 !py-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+            <Row
+              key={faq.q}
+              className="!mt-0 !grid grid-cols-1 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-5 !py-5 !shadow-none last:!border-b-0 lg:grid-cols-[20rem_minmax(0,1fr)]"
+            >
               <dt>
                 <Heading as="h3" className="!text-[1.0625rem] !leading-[1.45]">
                   {faq.q}
@@ -663,22 +657,21 @@ function Roster({ current }: { current: string }) {
           aside={<TextLink href="/roles">{`All ${ROLES.length} roles, side by side`}</TextLink>}
         />
 
-        <div className="mt-10">
+        <div className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {others.map((role) => (
             <Row
               key={role.slug}
               href={`/roles/${role.slug}`}
-              dept={ROLE_DEPT[role.slug] ?? "operations"}
-              className="items-baseline"
+              className="!mt-0 items-baseline !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-3.5 !shadow-none last:!border-b-0 hover:!bg-slate-50 hover:!text-slate-900"
             >
-              <span className="min-w-0 flex-1 text-[15px] leading-6 text-ink group-hover:!text-ground">
+              <span className="min-w-0 flex-1 text-[15px] font-medium leading-6 text-slate-900 group-hover:!text-indigo-700">
                 {role.name}
               </span>
-              <Sheet className="hidden shrink-0 group-hover:!text-ground sm:inline">
+              <Sheet className="hidden shrink-0 group-hover:!text-muted sm:inline">
                 {role.discipline}
               </Sheet>
               <span className="shrink-0">
-                <Field className="group-hover:!text-ground">{hours(role)}</Field>
+                <Field className="group-hover:!text-muted">{hours(role)}</Field>
               </span>
             </Row>
           ))}

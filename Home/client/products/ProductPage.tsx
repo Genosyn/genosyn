@@ -254,8 +254,8 @@ export function ProductPage({ product }: { product: ProductDef }) {
       <Nav />
       <main>
         <ProductHero product={product} page={page} dept={dept} />
-        <WhatItDoes product={product} page={page} dept={dept} />
-        <WithEmployees product={product} page={page} dept={dept} />
+        <WhatItDoes product={product} page={page} />
+        <WithEmployees product={product} page={page} />
         <Questions product={product} />
         <MoreProducts current={product} />
 
@@ -313,13 +313,13 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
               {/* The install band at the foot of this page carries the same
                   offer, so the strip goes to the guide rather than scrolling
                   the reader four screens to find it. */}
-              <div className="mt-6 max-w-[34rem]">
+              <div className="mt-6 max-w-[34rem] space-y-2">
                 <ActionStrip href="/docs/install" trailing="Guide">
                   Install Genosyn
                 </ActionStrip>
                 {/* Notes and Resources have no docs page of their own yet, so
                     the label has to promise the index, not a page. */}
-                <ActionStrip href={product.docsPath ?? "/docs"} trailing="Docs" className="-mt-px">
+                <ActionStrip href={product.docsPath ?? "/docs"} trailing="Docs">
                   {product.docsPath ? `Read the ${product.name} docs` : "Read the documentation"}
                 </ActionStrip>
               </div>
@@ -327,7 +327,7 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
           </div>
 
           <div className="min-w-0">
-            <ProductFigure product={product} page={page} dept={dept} />
+            <ProductFigure product={product} page={page} />
           </div>
         </div>
 
@@ -353,15 +353,13 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
 function ProductFigure({
   product,
   page,
-  dept,
 }: {
   product: ProductDef;
   page: PageCopy;
-  dept: Dept;
 }) {
   return (
     <figure>
-      <Pane dept={dept}>
+      <Pane className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
         <ProductPrototype product={product} crop={page.crop} />
       </Pane>
       <figcaption className="mt-3 flex flex-wrap items-baseline gap-x-3">
@@ -385,6 +383,9 @@ function ProductFigure({
  */
 const FEATURE_COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[2.5rem_14rem_minmax(0,1fr)]";
 const FAQ_COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[20rem_minmax(0,1fr)]";
+const STACK_CARD = "overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm";
+const STACK_ROW =
+  "!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0 sm:!px-5";
 
 /**
  * The name of a row, as a heading rather than as a paragraph.
@@ -417,7 +418,13 @@ function RowTitle({ children }: { children: ReactNode }) {
  * 12px left of the column.
  */
 function StackHeader({ columns, children }: { columns: string; children: ReactNode }) {
-  return <div className={`hidden w-full pl-4 pb-2 lg:grid ${columns}`}>{children}</div>;
+  return (
+    <div
+      className={`hidden w-full border-b border-slate-100 bg-slate-50/80 px-5 py-3 lg:grid ${columns}`}
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -430,7 +437,7 @@ function StackHeader({ columns, children }: { columns: string; children: ReactNo
  * different column counts to stop the leftovers rendering as orphans, and
  * this needs none, because a stack of rows has no leftovers.
  */
-function WhatItDoes({ product, page, dept }: { product: ProductDef; page: PageCopy; dept: Dept }) {
+function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) {
   return (
     <Band id="what-it-does" tone="ground" pad="m">
       <Container>
@@ -440,7 +447,7 @@ function WhatItDoes({ product, page, dept }: { product: ProductDef; page: PageCo
           lede={product.summary}
         />
 
-        <div className="mt-12">
+        <div className={`mt-10 ${STACK_CARD}`}>
           <StackHeader columns={FEATURE_COLUMNS}>
             <Sheet>No.</Sheet>
             <Sheet>Part</Sheet>
@@ -448,11 +455,11 @@ function WhatItDoes({ product, page, dept }: { product: ProductDef; page: PageCo
           </StackHeader>
 
           {product.features.map((feature, index) => (
-            <Row key={feature.title} dept={dept}>
+            <Row key={feature.title} className={STACK_ROW}>
               <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
                 <Field>{String(index + 1).padStart(2, "0")}</Field>
                 <RowTitle>{feature.title}</RowTitle>
-                <Body>{feature.body}</Body>
+                <Body className="!text-slate-600">{feature.body}</Body>
               </div>
             </Row>
           ))}
@@ -473,11 +480,9 @@ function WhatItDoes({ product, page, dept }: { product: ProductDef; page: PageCo
 function WithEmployees({
   product,
   page,
-  dept,
 }: {
   product: ProductDef;
   page: PageCopy;
-  dept: Dept;
 }) {
   return (
     <Band id="with-employees" tone="surface" pad="m">
@@ -489,13 +494,13 @@ function WithEmployees({
           aside={page.stop && <Stop stop={page.stop} />}
         />
 
-        <div className="mt-12">
+        <div className={`mt-10 ${STACK_CARD}`}>
           {product.employees.bullets.map((bullet, index) => (
-            <Row key={bullet.title} dept={dept}>
+            <Row key={bullet.title} className={STACK_ROW}>
               <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
                 <Field>{String(index + 1).padStart(2, "0")}</Field>
                 <RowTitle>{bullet.title}</RowTitle>
-                <Body>{bullet.body}</Body>
+                <Body className="!text-slate-600">{bullet.body}</Body>
               </div>
             </Row>
           ))}
@@ -520,13 +525,22 @@ function WithEmployees({
  * the difference in geometry, so the label and the glyph agree.
  */
 function Stop({ stop }: { stop: NonNullable<PageCopy["stop"]> }) {
+  const tone =
+    stop.kind === "decision"
+      ? "bg-violet-50 text-violet-700 ring-violet-200"
+      : "bg-amber-50 text-amber-700 ring-amber-200";
+
   return (
-    <div className="bg-ink p-4 text-ground">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 text-slate-700 shadow-sm">
       <div className="flex items-center gap-2">
-        <Mark state={stop.kind} className="h-3 w-3" />
-        <span className="t-field">{stop.kind === "decision" ? "Decision" : "Approval"}</span>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${tone}`}
+        >
+          <Mark state={stop.kind} className="h-3 w-3" />
+          {stop.kind === "decision" ? "Decision" : "Approval"}
+        </span>
       </div>
-      <p className="mt-3 max-w-[40ch] text-[15px] leading-6">{stop.line}</p>
+      <p className="mt-3 max-w-[40ch] text-sm leading-6 text-slate-600">{stop.line}</p>
     </div>
   );
 }
@@ -553,12 +567,12 @@ function Questions({ product }: { product: ProductDef }) {
           title={`Readers ask ${product.faqs.length} questions about ${product.name}.`}
         />
 
-        <div className="mt-10">
+        <div className={`mt-10 ${STACK_CARD}`}>
           {product.faqs.map((faq) => (
-            <Row key={faq.q}>
+            <Row key={faq.q} className={`${STACK_ROW} !py-5`}>
               <div className={`grid w-full min-w-0 ${FAQ_COLUMNS}`}>
                 <RowTitle>{faq.q}</RowTitle>
-                <Body>{faq.a}</Body>
+                <Body className="!text-slate-600">{faq.a}</Body>
               </div>
             </Row>
           ))}
@@ -597,8 +611,6 @@ function MoreProducts({ current }: { current: ProductDef }) {
     ),
   ].slice(0, 4);
 
-  const INVERT = "group-hover:!text-ground";
-
   return (
     <Band tone="ground" pad="s">
       <Container>
@@ -608,18 +620,20 @@ function MoreProducts({ current }: { current: ProductDef }) {
           aside={<TextLink href="/products">All products</TextLink>}
         />
 
-        <div className="mt-10">
+        <div className={`mt-10 ${STACK_CARD}`}>
           {related.map((product) => (
             <Row
               key={product.slug}
               href={`/products/${product.slug}`}
-              dept={PRODUCT_DEPT[product.slug] ?? "operations"}
+              className={`${STACK_ROW} hover:!bg-slate-50 hover:!text-slate-900`}
             >
               <div className={`grid w-full min-w-0 ${FAQ_COLUMNS}`}>
-                <Body className={`!text-[1.0625rem] !leading-6 !text-ink ${INVERT}`}>
+                <Body className="!text-[1rem] !font-semibold !leading-6 !text-slate-900 group-hover:!text-indigo-700">
                   {product.name}
                 </Body>
-                <Body className={INVERT}>{product.summary}</Body>
+                <Body className="!text-slate-600 group-hover:!text-slate-600">
+                  {product.summary}
+                </Body>
               </div>
             </Row>
           ))}

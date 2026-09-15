@@ -76,7 +76,7 @@ export function RolesIndex() {
               <ActionStrip href={`/roles/${ROLES[0].slug}`} trailing="Read">
                 {`${ROLES[0].person}'s Tuesday, hour by hour`}
               </ActionStrip>
-              <ActionStrip href="/docs/employees" trailing="Docs" className="-mt-px">
+              <ActionStrip href="/docs/employees" trailing="Docs">
                 How a Soul and its Skills are written
               </ActionStrip>
             </>
@@ -158,11 +158,6 @@ const COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[13rem_8rem_9.5rem_minmax(0,1fr)]"
  * The state tag is left out too, but it is not left alone — it answers the
  * hover by inverting rather than by recolouring its text. See `RoleRow`.
  */
-const INVERT = "group-hover:!text-surface";
-
-/** Rows are indented by their spine, so every heading above them is too. */
-const SPINE_INDENT = "pl-4";
-
 function Roster() {
   return (
     <Band id="roster" tone="ground" pad="m">
@@ -173,8 +168,8 @@ function Roster() {
           lede={
             <>
               Every role runs its own day unattended and stops once, at the moment it needs a
-              person. That stop is the black tag on the right of each row — the one thing on this
-              page with no department hue on it.
+              person. That stop is the state tag on the right of each row, using a semantic status
+              colour rather than the role’s department hue.
             </>
           }
           // Both fields are emitted data. "1 STOP PER ROLE" was a claim set in
@@ -188,8 +183,8 @@ function Roster() {
           }
         />
 
-        <div className="mt-12">
-          <div className={`hidden w-full pb-2 lg:grid ${SPINE_INDENT} ${COLUMNS}`}>
+        <div className="mt-10">
+          <div className={`hidden w-full px-4 pb-2 lg:grid ${COLUMNS}`}>
             <Sheet>Role</Sheet>
             <Sheet>Works in</Sheet>
             <Sheet>Hours</Sheet>
@@ -201,17 +196,23 @@ function Roster() {
             if (roles.length === 0) return null;
 
             return (
-              <section key={discipline} aria-label={discipline} className="mt-12 first:mt-0">
+              <section
+                key={discipline}
+                aria-label={discipline}
+                className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm first:mt-0"
+              >
                 {/* The head carries the discipline and nothing else. A count
                     belongs beside a group that has one worth reading, and
                     "1 ROLE" printed eight times down the page is furniture. */}
-                <div className={`pb-3 ${SPINE_INDENT}`}>
-                  <Sheet>{discipline}</Sheet>
+                <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+                  <span className="text-sm font-semibold text-slate-900">{discipline}</span>
                 </div>
 
-                {roles.map((role, index) => (
-                  <RoleRow key={role.slug} role={role} opens={index === 0} />
-                ))}
+                <div className="divide-y divide-slate-100">
+                  {roles.map((role) => (
+                    <RoleRow key={role.slug} role={role} />
+                  ))}
+                </div>
               </section>
             );
           })}
@@ -229,7 +230,7 @@ function Roster() {
  * second element: a `Rule` placed above the row would sit under the row's own
  * `-mt-px` and disappear, and giving it room instead draws a double line.
  */
-function RoleRow({ role, opens }: { role: RoleDef; opens: boolean }) {
+function RoleRow({ role }: { role: RoleDef }) {
   const moment = stop(role);
   const state = moment?.kind === "approval" ? "approval" : "decision";
   const dept = ROLE_DEPT[role.slug];
@@ -237,11 +238,16 @@ function RoleRow({ role, opens }: { role: RoleDef; opens: boolean }) {
   const last = role.day[role.day.length - 1].time;
 
   return (
-    <Row href={`/roles/${role.slug}`} dept={dept} className={opens ? "!border-t-rule" : ""}>
+    <Row
+      href={`/roles/${role.slug}`}
+      className="!mt-0 !rounded-none !border-0 !px-4 !py-4 !shadow-none transition-colors hover:!bg-slate-50 hover:!text-slate-900"
+    >
       <div className={`grid w-full min-w-0 ${COLUMNS}`}>
         <div className="min-w-0">
-          <Body className={`!text-[1.0625rem] !leading-6 !text-ink ${INVERT}`}>{role.name}</Body>
-          <Sheet className={`mt-1 block ${INVERT}`}>{role.person}</Sheet>
+          <Body className="!text-[1rem] !font-semibold !leading-6 !text-slate-900 group-hover:!text-indigo-700">
+            {role.name}
+          </Body>
+          <span className="mt-1 block text-xs text-slate-500">{role.person}</span>
         </div>
 
         <div className="min-w-0">
@@ -255,7 +261,7 @@ function RoleRow({ role, opens }: { role: RoleDef; opens: boolean }) {
             it as arithmetic. */}
         <div className="min-w-0">
           <span aria-hidden className="block">
-            <Field className={INVERT}>{`${first} − ${last}`}</Field>
+            <Field>{`${first} − ${last}`}</Field>
           </span>
           <span className="sr-only">{`Works ${first} to ${last}`}</span>
         </div>
@@ -270,10 +276,12 @@ function RoleRow({ role, opens }: { role: RoleDef; opens: boolean }) {
               ink row is a fourth `StateTag` skin nobody declared, and the
               claim this table makes is that the mark is *inverted* from the
               colour around it, which is exactly what flipping keeps true. */}
-          <StateTag state={state} className="group-hover:!bg-ground group-hover:!text-ink">
+          <StateTag state={state} className="!rounded-full">
             {state === "approval" ? "Approval" : "Decision"}
           </StateTag>
-          <Body className={`mt-2 ${INVERT}`}>{role.decisions[0]}</Body>
+          <Body className="mt-2 !text-slate-600 group-hover:!text-slate-600">
+            {role.decisions[0]}
+          </Body>
         </div>
       </div>
     </Row>

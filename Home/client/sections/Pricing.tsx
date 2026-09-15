@@ -267,7 +267,11 @@ function PricingHead() {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <Pane title="Every plan" meta="USD / MO">
+            <Pane
+              title="Every plan"
+              meta="USD / MO"
+              className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
+            >
               {ALL_PLANS.map((plan) => (
                 <div
                   key={plan.name}
@@ -428,7 +432,11 @@ function Compared() {
             entitlement table rather than a piece of the page's prose. It gets
             no 3px department edge: five plans are not a department, and a hue
             here would be the first place the legend breaks. */}
-        <Pane className="mt-10 max-w-[74rem]" title="What differs" meta="5 PLANS · 4 LINES">
+        <Pane
+          className="mt-10 max-w-[74rem] overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
+          title="What differs"
+          meta="5 PLANS · 4 LINES"
+        >
           {/* The table keeps a minimum width and scrolls inside its own box.
               Reflowing a five-column comparison into stacked pairs at 375px
               produces five copies of the same four labels, which is worse to
@@ -511,11 +519,11 @@ function Questions() {
           aside={<Fields items={[`${QUESTIONS.length} QUESTIONS`]} />}
         />
 
-        <dl className="mt-10">
+        <dl className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {QUESTIONS.map((item) => (
             <Row
               key={item.q}
-              className="!grid grid-cols-1 !py-6 lg:grid-cols-[22rem_minmax(0,1fr)]"
+              className="!mt-0 !grid grid-cols-1 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-5 !py-5 !shadow-none last:!border-b-0 lg:grid-cols-[22rem_minmax(0,1fr)]"
             >
               <dt>
                 {/* The display face at row scale. A question inside a list is a
@@ -566,7 +574,7 @@ function Fields({ items, className = "" }: { items: string[]; className?: string
  * notches at every junction.
  */
 function TileStrip({ className = "", children }: { className?: string; children: ReactNode }) {
-  return <div className={`grid gap-px bg-seam p-px ${className}`}>{children}</div>;
+  return <div className={`grid gap-4 ${className}`}>{children}</div>;
 }
 
 /**
@@ -581,7 +589,11 @@ function TileStrip({ className = "", children }: { className?: string; children:
  */
 function PlanTile({ plan, tone = "surface" }: { plan: Plan; tone?: "surface" | "ground" }) {
   return (
-    <div className={`flex min-w-0 flex-col p-5 ${tone === "ground" ? "bg-ground" : "bg-surface"}`}>
+    <div
+      className={`flex min-w-0 flex-col rounded-xl border border-slate-200 p-5 shadow-sm ${
+        tone === "ground" ? "bg-slate-50" : "bg-white"
+      }`}
+    >
       <div className="flex items-baseline justify-between gap-3">
         <Subhead className="!text-[1.125rem]">{plan.name}</Subhead>
         <Sheet className="shrink-0">{plan.host}</Sheet>
@@ -599,8 +611,9 @@ function PlanTile({ plan, tone = "surface" }: { plan: Plan; tone?: "surface" | "
           cloud — these are enforced numbers, not keywords. */}
       <ul className="mt-auto pt-6">
         {plan.limits.map((limit) => (
-          <li key={limit} className="border-t border-hairline py-1.5 last:border-b">
-            <Field>{limit}</Field>
+          <li key={limit} className="flex items-center gap-2 border-t border-slate-100 py-2">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+            <Field className="!text-slate-600">{limit}</Field>
           </li>
         ))}
       </ul>
@@ -630,19 +643,18 @@ function ActionTile({
   label: string;
 }) {
   return (
-    <div className="on-night flex min-w-0 flex-col justify-between gap-8 bg-ink p-5 text-ground">
-      <span className="t-field text-ground/70">{eyebrow}</span>
+    <div className="flex min-w-0 flex-col justify-between gap-8 rounded-xl border border-indigo-200 bg-white p-5 shadow-sm">
+      <span className="inline-flex w-fit rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
+        {eyebrow}
+      </span>
       <div>
-        <h3 className="t-h3 text-[1.125rem] text-ground">{title}</h3>
-        <p className="mt-2 max-w-[28ch] text-[14px] leading-[1.5] text-ground/85">{body}</p>
-        <a href={href} className="group mt-4 inline-flex w-fit items-baseline">
-          <span className="t-data relative text-[13px] text-ground">
-            {label}
-            <span
-              aria-hidden
-              className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-ground transition-transform duration-150 group-hover:scale-x-100"
-            />
-          </span>
+        <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        <p className="mt-2 max-w-[28ch] text-[14px] leading-[1.5] text-slate-600">{body}</p>
+        <a
+          href={href}
+          className="mt-4 inline-flex w-fit items-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+        >
+          {label}
         </a>
       </div>
     </div>
@@ -674,14 +686,14 @@ function InstallCommand() {
   }
 
   return (
-    <div className="on-night flex min-h-[3.5rem] items-center gap-4 bg-ink px-4">
-      <code className="t-data scrollbar-none min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-ground sm:text-[13px]">
+    <div className="flex min-h-[3.5rem] items-center gap-4 overflow-hidden rounded-lg border border-slate-800 bg-slate-950 px-4 shadow-sm">
+      <code className="t-data scrollbar-none min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-slate-100 sm:text-[13px]">
         {INSTALL_COMMAND}
       </code>
       <button
         type="button"
         onClick={copy}
-        className="t-field shrink-0 text-ground/70 transition-colors duration-100 hover:text-ground"
+        className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-slate-300 transition-colors duration-100 hover:bg-slate-800 hover:text-white"
       >
         {copied ? "Copied" : "Copy"}
         <span className="sr-only"> install command</span>

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { ArrowRight, Github } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
+import { Link } from "@/lib/router";
 import { Claims } from "@/sections/Claims";
 import { DEPT_FULL, type Dept } from "@/sections/Kit";
+import { Wall } from "@/sections/Wall";
 
-/** The wall's seven lanes, in the order they appear on it. */
 const DEPARTMENTS: { dept: Dept; label: string }[] = [
   { dept: "email", label: "Email" },
   { dept: "finance", label: "Finance" },
@@ -13,81 +15,76 @@ const DEPARTMENTS: { dept: Dept; label: string }[] = [
   { dept: "marketing", label: "Marketing" },
   { dept: "operations", label: "Operations" },
 ];
-import { Wall } from "@/sections/Wall";
-import { Link } from "@/lib/router";
 
 const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
-/**
- * The landing hero — HEADCOUNT.
- *
- * Colour is the org chart. Seven departments work at once across the wall
- * below, each in its own permanently-bound hue, and the only thing on the
- * screen with no hue at all is the eighth cell: the three things waiting for
- * a person. That inversion is the argument — "one person, a whole company" —
- * drawn rather than asserted.
- *
- * What is deliberately absent: a centred column, a pill badge, a glow, and a
- * single floating screenshot. Those are the furniture of the page this site
- * started as, and one large product screenshot presented as an object says
- * "here is the app" when the thing being sold is "here is a company running".
- *
- * The masthead is a two-column grid rather than a stack, so the headline and
- * the rotating proof sit beside the install path instead of pushing it below
- * the fold, which is what the previous two versions did.
- */
 export function Hero() {
   return (
-    <section className="bg-ground">
-      <div className="mx-auto w-full max-w-[90rem] px-5 pt-14 pb-12 sm:px-8 lg:px-12 lg:pt-20">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-20">
+    <section className="overflow-hidden bg-slate-50">
+      <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-14 sm:px-6 sm:pb-14 sm:pt-20 lg:px-8 lg:pt-24">
+        <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1.15fr)_minmax(21rem,0.85fr)] lg:gap-16">
           <div className="min-w-0">
-            <span className="t-field text-muted">Open source · Self-hosted · Apache 2.0</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+              <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-indigo-700">
+                Open source · Self-hosted · Apache 2.0
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-500">
+                {`v${__APP_VERSION__}`}
+              </span>
+            </div>
 
-            <h1 className="t-hero mt-5 max-w-[15ch] text-[clamp(2.5rem,6.4vw,5.75rem)] text-ink">
+            <h1 className="mt-6 max-w-[13ch] text-balance text-[clamp(2.75rem,6vw,5rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-slate-950">
               Your company can now run automatically.
             </h1>
 
-            <Claims className="mt-8" />
-          </div>
-
-          <div className="min-w-0 lg:pt-1">
-            <InstallStrip />
-
-            <div className="mt-5 flex flex-col gap-3">
-              <HeroLink href="/roles/sdr">One role, hour by hour</HeroLink>
-              <HeroLink href={GITHUB_URL} external>
-                Apache 2.0 on GitHub
-              </HeroLink>
-            </div>
-
-            <p className="mt-8 max-w-[34ch] text-[15px] leading-relaxed text-ink2">
+            <p className="mt-6 max-w-[40rem] text-lg leading-8 text-slate-600">
               Genosyn is an open-source platform for running a company with AI Employees. They hold
               real roles and work to their own schedule.
             </p>
 
-            {/* The legend.
-                The system's claim is that a reader decodes the org chart in
-                four seconds, and a legend is what makes that literally true
-                rather than merely asserted. It also does the work the right
-                column was not doing: the departments below are hues without
-                names until you scroll to a lane label, and naming them here
-                means the wall is readable the moment it appears.
+            <div className="mt-8 flex flex-wrap gap-3">
+              <HeroLink href="/roles/sdr" primary>
+                One role, hour by hour
+                <ArrowRight aria-hidden className="h-4 w-4" />
+              </HeroLink>
+              <HeroLink href={GITHUB_URL} external>
+                <Github aria-hidden className="h-4 w-4" />
+                Apache 2.0 on GitHub
+              </HeroLink>
+            </div>
+          </div>
 
-                The eighth row has no hue on purpose. It is the same inversion
-                the wall ends on, stated once in words. */}
-            <dl className="mt-10 border-t border-hairline pt-5">
-              <dt className="t-field text-muted">Seven departments, one you</dt>
-              <dd className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Start on your infrastructure</p>
+                <p className="mt-1 text-sm text-slate-500">One command. Your data stays yours.</p>
+              </div>
+              <span className="hidden rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 sm:inline">
+                Ready
+              </span>
+            </div>
+
+            <InstallStrip />
+            <Claims className="mt-5 border-t border-slate-100 pt-5" />
+
+            <dl className="mt-5 border-t border-slate-100 pt-5">
+              <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Seven departments, one you
+              </dt>
+              <dd className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
                 {DEPARTMENTS.map(({ dept, label }) => (
-                  <span key={label} className="flex items-center gap-2">
-                    <span aria-hidden className={`h-2.5 w-2.5 shrink-0 ${DEPT_FULL[dept]}`} />
-                    <span className="truncate text-[13px] text-ink2">{label}</span>
+                  <span key={label} className="flex min-w-0 items-center gap-2">
+                    <span
+                      aria-hidden
+                      className={`h-2 w-2 shrink-0 rounded-full ${DEPT_FULL[dept]}`}
+                    />
+                    <span className="truncate text-sm text-slate-600">{label}</span>
                   </span>
                 ))}
-                <span className="flex items-center gap-2">
-                  <span aria-hidden className="h-2.5 w-2.5 shrink-0 bg-ink" />
-                  <span className="truncate text-[13px] font-semibold text-ink">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-indigo-600" />
+                  <span className="truncate text-sm font-medium text-slate-900">
                     Needs a person
                   </span>
                 </span>
@@ -95,26 +92,15 @@ export function Hero() {
             </dl>
           </div>
         </div>
-      </div>
 
-      {/* The wall is full-bleed. It does not need `w-screen` to get there:
-          the section is already the full width and only the masthead above is
-          constrained, so the wall is simply a direct child. `w-screen` would
-          be 100vw, which includes the scrollbar, and would overflow the
-          document by exactly the scrollbar's width. */}
-      <Wall />
+        <div className="mt-12 sm:mt-16">
+          <Wall />
+        </div>
+      </div>
     </section>
   );
 }
 
-/**
- * The install command as a real object.
- *
- * On an Apache-2.0 self-hosted product this string is the conversion event, so
- * it is the first control on the page and it is the real thing rather than a
- * button that scrolls to it. The affordance is the word COPY, not a clipboard
- * glyph.
- */
 function InstallStrip() {
   const [copied, setCopied] = useState(false);
 
@@ -129,14 +115,17 @@ function InstallStrip() {
   }
 
   return (
-    <div className="border-rule bg-surface rounded-control flex min-h-[3.25rem] items-center gap-3 border px-3">
-      <code className="t-data scrollbar-none min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-ink">
+    <div className="mt-4 flex min-h-12 min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-slate-950 px-3 shadow-inner">
+      <span aria-hidden className="select-none font-mono text-xs text-indigo-300">
+        $
+      </span>
+      <code className="scrollbar-none min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-slate-100">
         {COMMAND}
       </code>
       <button
         type="button"
         onClick={copy}
-        className="t-field shrink-0 text-muted transition-colors duration-100 hover:text-ink"
+        className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-slate-300 transition-colors duration-100 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
       >
         {copied ? "Copied" : "Copy"}
         <span className="sr-only"> install command</span>
@@ -148,34 +137,32 @@ function InstallStrip() {
 function HeroLink({
   href,
   external,
+  primary = false,
   children,
 }: {
   href: string;
   external?: boolean;
-  children: React.ReactNode;
+  primary?: boolean;
+  children: ReactNode;
 }) {
-  const className =
-    "group inline-flex w-fit items-baseline text-[15px] font-semibold text-ink transition-colors";
-  const inner = (
-    <span className="relative">
-      {children}
-      <span
-        aria-hidden
-        className="bg-ink absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 transition-transform duration-150 group-hover:scale-x-100"
-      />
-    </span>
-  );
+  const className = `inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+    primary
+      ? "border-indigo-600 bg-indigo-600 text-white hover:border-indigo-700 hover:bg-indigo-700"
+      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-950"
+  }`;
+
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>
-        {inner}
-        <span className="sr-only">{"(opens in a new tab)"}</span>
+        {children}
+        <span className="sr-only">(opens in a new tab)</span>
       </a>
     );
   }
+
   return (
     <Link href={href} className={className}>
-      {inner}
+      {children}
     </Link>
   );
 }

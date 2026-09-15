@@ -4,10 +4,11 @@ The standalone marketing site for [Genosyn](https://github.com/Genosyn/genosyn).
 
 React 18 + Vite + TailwindCSS, served in production by a tiny Express process.
 
-The palette is black, white and grey; every hue on the page is load-bearing
-(a status, a role, a product) rather than decorative. The reasoning behind the
-tokens lives at the top of `tailwind.config.ts`, and the surfaces, headings and
-buttons every page composes from live in `client/sections/Kit.tsx`.
+The site follows the product application's visual contract: an Inter/system
+type stack, a slate-50 canvas, white cards with slate borders, and indigo for
+primary actions and focus. Semantic hues stay local to compact statuses and
+department markers. Compatibility tokens live in `tailwind.config.ts`; shared
+surfaces, headings, and controls live in `client/sections/Kit.tsx`.
 
 ## Scripts
 

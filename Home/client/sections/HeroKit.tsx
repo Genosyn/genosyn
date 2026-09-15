@@ -80,7 +80,7 @@ export function PageHero({
   const copy = (
     <div className={aside ? "mt-7 min-w-0" : "min-w-0 lg:pt-2"}>
       <Lede>{lede}</Lede>
-      {actions && <div className="mt-9 max-w-[34rem]">{actions}</div>}
+      {actions && <div className="mt-9 max-w-[34rem] space-y-2">{actions}</div>}
     </div>
   );
 
@@ -90,7 +90,11 @@ export function PageHero({
     // `pad="m"`: a hero is not a timetable, so it does not get `l`.
     <Band tone="ground" pad="m" rule={false}>
       <Container>
-        {label && <div className="t-field mb-5 text-muted">{label}</div>}
+        {label && (
+          <div className="mb-5 text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
+            {label}
+          </div>
+        )}
 
         {/* `gap-y-10` is what separates the stacked halves below `lg`; above
             it the two columns are side by side and only `gap-x` applies. */}
@@ -107,7 +111,7 @@ export function PageHero({
         </div>
 
         {fields && fields.length > 0 && (
-          <div className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-hairline pt-4">
+          <div className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-slate-200 pt-4">
             {fields.map((field) => (
               <Field key={field}>{field}</Field>
             ))}

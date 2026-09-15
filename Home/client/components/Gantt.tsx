@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mark, type MarkState } from "@/components/Marks";
-import { DEPT_FULL, DEPT_TINT, type Dept } from "@/sections/Kit";
+import { DEPT_BORDER, DEPT_FULL, DEPT_TINT, type Dept } from "@/sections/Kit";
 
 /** Lane name to department. The seven lanes are the seven departments. */
 function deptOf(lane: string): Dept | undefined {
@@ -213,16 +213,16 @@ export function Gantt({
     if (best >= 0) move(best);
   }
 
-  const rule = night ? "border-rule" : "border-rule";
-  const quarter = night ? "bg-rule" : "bg-rule";
-  const quiet = night ? "text-muted" : "text-muted";
+  const rule = night ? "border-slate-700" : "border-slate-100";
+  const quarter = night ? "bg-slate-700" : "bg-slate-200";
+  const quiet = night ? "text-slate-400" : "text-slate-500";
 
   return (
-    <div className={className}>
+    <div
+      className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}
+    >
       <div
-        className={`overflow-x-auto border-x border-b ${
-          night ? "border-rule bg-ink" : "border-rule bg-surface"
-        }`}
+        className={`overflow-x-auto ${night ? "bg-slate-950" : "bg-white"}`}
       >
         <div style={{ minWidth }} className="p-5">
           <div className="grid grid-cols-[minmax(0,1fr)_8.5rem]">
@@ -303,18 +303,18 @@ export function Gantt({
                     type="button"
                     onClick={() => setIsolated(on ? null : lane)}
                     aria-pressed={on}
-                    className={`t-field flex h-11 w-full items-center border-b pl-4 text-left text-[10px] uppercase  transition-colors ${rule} ${
+                    className={`flex h-11 w-full items-center gap-2 border-b pl-4 text-left text-[10px] font-semibold uppercase tracking-wide transition-colors ${rule} ${
                       on
                         ? night
-                          ? "text-surface"
-                          : "text-ink"
-                        : `${quiet} ${night ? "hover:text-surface" : "hover:text-ink"}`
+                          ? "bg-white/10 text-white"
+                          : "bg-indigo-50 text-indigo-700"
+                        : `${quiet} ${night ? "hover:text-white" : "hover:bg-slate-50 hover:text-slate-900"}`
                     }`}
                   >
                     {deptOf(lane) && (
                       <span
                         aria-hidden
-                        className={`h-2.5 w-2.5 shrink-0 ${DEPT_FULL[deptOf(lane) as Dept]}`}
+                        className={`h-2 w-2 shrink-0 rounded-full ${DEPT_FULL[deptOf(lane) as Dept]}`}
                       />
                     )}
                     {lane}
@@ -371,10 +371,18 @@ function Bar({
   const shared =
     "absolute top-1/2 -translate-y-1/2 focus-visible:outline-2 focus-visible:outline-offset-2";
 
-  // A moment, not a duration. Drawn as an INK tile: the two states that need a
-  // person carry no hue at all, so on a chart of seven coloured departments the
-  // only black marks are the ones waiting for you.
+  // A moment, not a duration. Decisions and Approvals use their localized app
+  // status colors so they stay distinct without turning the chart into a rainbow.
   if (human) {
+    const stateTone =
+      event.state === "decision"
+        ? active
+          ? "bg-violet-600 text-white"
+          : "border border-violet-200 bg-violet-50 text-violet-700"
+        : active
+          ? "bg-amber-700 text-white"
+          : "border border-amber-200 bg-amber-50 text-amber-700";
+
     return (
       <button
         type="button"
@@ -387,9 +395,9 @@ function Bar({
         onBlur={onLeave}
         onClick={onPin}
         style={{ left: pct(event.at), "--at": event.at } as React.CSSProperties}
-        className={`strip-draw ${shared} rounded-chip z-10 flex h-6 items-center gap-1.5 px-1.5 transition-colors ${
+        className={`strip-draw ${shared} z-10 flex h-6 items-center gap-1.5 rounded-full px-2 transition-colors ${
           dimmed ? "opacity-40" : ""
-        } ${active ? "bg-ink2 text-ink" : "bg-ink text-ground"}`}
+        } ${stateTone}`}
       >
         <Mark state={event.state} className="h-2.5 w-2.5" />
         <span className="t-data whitespace-nowrap text-[10px] leading-none">{clock(event.at)}</span>
@@ -415,14 +423,14 @@ function Bar({
           "--at": event.at,
         } as React.CSSProperties
       }
-      className={`strip-draw ${shared} rounded-chip h-6 min-w-[3px] border transition-colors ${
+      className={`strip-draw ${shared} h-6 min-w-[3px] rounded-md border transition-colors focus-visible:outline-indigo-500 ${
         night
-          ? `border-rule ${active ? "bg-ground" : dimmed ? "bg-transparent" : "bg-ink2"}`
+          ? `border-slate-700 ${active ? "bg-white" : dimmed ? "bg-transparent" : "bg-slate-600"}`
           : dept
-            ? `${DEPT_TINT[dept]} border-transparent ${active ? "brightness-95" : ""} ${
+            ? `${DEPT_TINT[dept]} ${active ? "border-indigo-500 ring-2 ring-indigo-100" : DEPT_BORDER[dept]} ${
                 dimmed ? "opacity-40" : ""
               }`
-            : `border-hairline ${active ? "bg-ink" : "bg-surface"}`
+            : `border-slate-200 ${active ? "bg-indigo-600" : "bg-slate-100"}`
       }`}
     />
   );
@@ -433,16 +441,16 @@ function Arrival({ at, label }: { at: number; label: string }) {
     <>
       <span
         aria-hidden
-        className="arrive-in absolute top-0 flex h-7 items-center whitespace-nowrap bg-ink px-2"
+        className="arrive-in absolute top-0 flex h-7 items-center whitespace-nowrap rounded-md bg-indigo-600 px-2"
         style={{ left: pct(at), "--at": at } as React.CSSProperties}
       >
-        <span className="t-data text-[10px] leading-none text-ground">
+        <span className="font-mono text-[10px] font-semibold leading-none text-white">
           {`${clock(at)} ${label.toUpperCase()}`}
         </span>
       </span>
       <span
         aria-hidden
-        className="arrive-wipe absolute top-7 bottom-6 w-0.5 bg-ink"
+        className="arrive-wipe absolute top-7 bottom-6 w-0.5 bg-indigo-500"
         style={{ left: pct(at), "--at": at } as React.CSSProperties}
       />
     </>
@@ -450,7 +458,7 @@ function Arrival({ at, label }: { at: number; label: string }) {
 }
 
 function HourScale({ night, crosshair }: { night: boolean; crosshair: number | null }) {
-  const quiet = night ? "text-muted" : "text-muted";
+  const quiet = night ? "text-slate-400" : "text-slate-500";
   return (
     <div aria-hidden className="relative h-6">
       {[0, 6, 12, 18].map((hour) => (
@@ -471,7 +479,7 @@ function HourScale({ night, crosshair }: { night: boolean; crosshair: number | n
       {crosshair !== null && crosshair >= 0 && crosshair <= 24 && (
         <span
           className={`t-data absolute top-1.5 -translate-x-1/2 px-1 text-[10px] leading-none ${
-            night ? "bg-surface text-ink" : "bg-ink text-surface"
+            night ? "bg-white text-slate-900" : "bg-indigo-600 text-white"
           }`}
           style={{ left: pct(crosshair) }}
         >
@@ -502,13 +510,15 @@ function Readout({
   isolated: string | null;
   onClear: () => void;
 }) {
-  const quiet = night ? "text-muted" : "text-muted";
-  const loud = night ? "text-surface" : "text-ink";
+  const quiet = night ? "text-slate-400" : "text-slate-500";
+  const loud = night ? "text-white" : "text-slate-900";
 
   return (
     <div
       aria-live="polite"
-      className="mt-3 flex min-h-[1.5rem] flex-wrap items-baseline gap-x-4 gap-y-1"
+      className={`flex min-h-[3rem] flex-wrap items-center gap-x-4 gap-y-1 border-t px-5 py-3 ${
+        night ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-slate-50"
+      }`}
     >
       {event ? (
         <>
@@ -530,7 +540,7 @@ function Readout({
           type="button"
           onClick={onClear}
           className={`t-field ml-auto text-[10px] uppercase  ${quiet} ${
-            night ? "hover:text-surface" : "hover:text-ink"
+            night ? "hover:text-white" : "hover:text-indigo-700"
           }`}
         >
           {`Showing ${isolated} · clear`}

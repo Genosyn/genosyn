@@ -4,7 +4,6 @@ import {
   Body,
   Chip,
   DEPT_FULL,
-  DEPT_TEXT,
   Field,
   Note,
   Pane,
@@ -163,12 +162,12 @@ export function DaySchedule({ role }: { role: RoleDef }) {
   ].filter(Boolean);
 
   return (
-    <Pane dept={dept}>
+    <Pane className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
       {/* Pane's own `title`/`meta` header holds two strings and this one holds
           five, so the header is drawn here. The chip is the legend key for the
           edge above it: without it the reader has a coloured pane and no way
           to learn what the colour means. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-hairline px-4 pt-5 pb-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-slate-50/80 px-4 pt-4 pb-3">
         <Chip dept={dept}>{DEPT_LABEL[dept]}</Chip>
         <span className="t-h3 text-[15px] text-ink">Tuesday</span>
         <span className="text-[13px] leading-5 text-ink2">{`${role.person} · ${role.name}`}</span>
@@ -225,9 +224,12 @@ export function DaySchedule({ role }: { role: RoleDef }) {
  */
 function Strip({ role }: { role: RoleDef }) {
   const stop = role.day.find(isStop);
+  const stopTone =
+    stop?.kind === "decision" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700";
+  const stopRule = stop?.kind === "decision" ? "bg-violet-400" : "bg-amber-400";
 
   return (
-    <div aria-hidden className="hidden border-b border-hairline px-5 pt-4 pb-2 md:block">
+    <div aria-hidden className="hidden border-b border-slate-200 bg-white px-5 pt-4 pb-2 md:block">
       <div className="relative pt-7">
         <div className="hours absolute top-7 right-0 bottom-6 left-0" />
 
@@ -236,7 +238,7 @@ function Strip({ role }: { role: RoleDef }) {
         {[6, 12, 18].map((hour) => (
           <div
             key={hour}
-            className="absolute top-7 bottom-6 w-px bg-rule"
+            className="absolute top-7 bottom-6 w-px bg-slate-200"
             style={{ left: pct(hour) }}
           />
         ))}
@@ -244,7 +246,7 @@ function Strip({ role }: { role: RoleDef }) {
         {stop && (
           <>
             <span
-              className="arrive-in rounded-chip absolute top-0 z-10 flex h-6 items-center gap-1.5 bg-ink px-2 text-ground"
+              className={`arrive-in absolute top-0 z-10 flex h-6 items-center gap-1.5 rounded-full px-2 ring-1 ring-inset ring-slate-200 ${stopTone}`}
               style={{ left: pct(stop.at) }}
             >
               <Mark state={stop.kind} className="h-2.5 w-2.5" />
@@ -255,13 +257,13 @@ function Strip({ role }: { role: RoleDef }) {
             {/* Every worked day in the roster stops between 11:00 and 16:00, so
                 the flag is left-anchored and has room to run. */}
             <span
-              className="arrive-in absolute top-7 bottom-6 w-0.5 bg-ink"
+              className={`arrive-in absolute top-7 bottom-6 w-0.5 ${stopRule}`}
               style={{ left: pct(stop.at) }}
             />
           </>
         )}
 
-        <div className="relative h-[2.375rem] border-b border-hairline">
+        <div className="relative h-[2.375rem] border-b border-slate-200">
           {/* The stop is drawn by the ink rule above, so it does not also get a
               tick: two marks for one event reads as two events. */}
           {role.day
@@ -274,8 +276,8 @@ function Strip({ role }: { role: RoleDef }) {
                   // `bg-rule` and not `bg-ink` for an unmapped product: ink on
                   // this strip means "a person is needed", and a tick that
                   // simply has no department must not claim that.
-                  className={`absolute top-1/2 h-[1.375rem] w-[3px] -translate-y-1/2 ${
-                    dept ? DEPT_FULL[dept] : "bg-rule"
+                  className={`absolute top-1/2 h-[1.375rem] w-0.5 -translate-y-1/2 rounded-full ${
+                    dept ? DEPT_FULL[dept] : "bg-slate-300"
                   }`}
                   style={{ left: pct(moment.at) }}
                 />
@@ -319,7 +321,7 @@ function MomentRow({ moment }: { moment: RoleMoment }) {
   const dept = momentDept(moment);
 
   return (
-    <Row dept={dept} className="pr-4 last:border-b-0 sm:pr-5">
+    <Row className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0 sm:!px-5">
       <Field className="w-[3.25rem] shrink-0 sm:w-[3.75rem]">{moment.time}</Field>
 
       <div className="min-w-0 flex-1">
@@ -328,17 +330,16 @@ function MomentRow({ moment }: { moment: RoleMoment }) {
               the hue is carried by the spine, which is a department, and a
               second coloured object in the same row would read as a second
               fact. */}
-          <Mark state="run" className="h-3 w-3 text-muted" />
-          <h3 className="text-[15px] leading-6 text-ink">{moment.title}</h3>
+          <Mark state="run" className="h-3 w-3 text-indigo-500" />
+          <h3 className="text-[15px] font-medium leading-6 text-slate-900">{moment.title}</h3>
         </div>
 
-        <Body className="mt-2 max-w-[70ch] text-[14px] leading-6">{moment.body}</Body>
-        <span
-          className={`t-data mt-3 block text-[11px] leading-4 ${
-            dept ? DEPT_TEXT[dept] : "text-muted"
-          }`}
-        >
-          {moment.where}
+        <Body className="mt-2 max-w-[70ch] text-[14px] leading-6 !text-slate-600">
+          {moment.body}
+        </Body>
+        <span className="mt-3 flex items-center gap-1.5 text-[11px] leading-4 text-slate-500">
+          {dept && <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${DEPT_FULL[dept]}`} />}
+          <span>{moment.where}</span>
         </span>
       </div>
     </Row>
@@ -364,9 +365,14 @@ function MomentRow({ moment }: { moment: RoleMoment }) {
  * neither is a department, and both are the one queue that is yours.
  */
 function StopRow({ moment }: { moment: RoleMoment & { kind: "decision" | "approval" } }) {
+  const tagTone =
+    moment.kind === "decision"
+      ? "!border-violet-200 !bg-violet-50 !text-violet-700"
+      : "!border-amber-200 !bg-amber-50 !text-amber-700";
+
   return (
-    <div className="relative -mt-px flex items-start gap-x-6 gap-y-2 border-y border-ink bg-ink py-4 pr-4 pl-4 text-ground last:border-b-0 sm:pr-5">
-      <span className="t-data w-[3.25rem] shrink-0 text-[11px] leading-4 text-hairline sm:w-[3.75rem]">
+    <div className="relative flex items-start gap-x-6 gap-y-2 border-b border-slate-100 bg-white px-4 py-4 last:border-b-0 sm:px-5">
+      <span className="t-data w-[3.25rem] shrink-0 text-[11px] leading-4 text-slate-500 sm:w-[3.75rem]">
         {moment.time}
       </span>
 
@@ -376,15 +382,15 @@ function StopRow({ moment }: { moment: RoleMoment & { kind: "decision" | "approv
               and this is the one surface where that skin would vanish. The
               inversion is not a special case: ground on ink is 16.43:1, so the
               human state stays the highest-contrast thing in view either way. */}
-          <StateTag state={moment.kind} className="!bg-ground !text-ink">
+          <StateTag state={moment.kind} className={`!rounded-full !border ${tagTone}`}>
             <Mark state={moment.kind} className="h-2.5 w-2.5" />
             {STOP_WORD[moment.kind]}
           </StateTag>
-          <h3 className="text-[15px] leading-6 text-ground">{moment.title}</h3>
+          <h3 className="text-[15px] font-medium leading-6 text-slate-900">{moment.title}</h3>
         </div>
 
-        <p className="mt-2 max-w-[70ch] text-[14px] leading-6 text-hairline">{moment.body}</p>
-        <span className="t-data mt-3 block text-[11px] leading-4 text-dim">{moment.where}</span>
+        <p className="mt-2 max-w-[70ch] text-[14px] leading-6 text-slate-600">{moment.body}</p>
+        <span className="mt-3 block text-[11px] leading-4 text-slate-500">{moment.where}</span>
       </div>
     </div>
   );
@@ -425,9 +431,9 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
   const dept = roleDept(role);
 
   return (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col gap-6">
       {identity && (
-        <div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           {/* The chip names the DEPARTMENT, not the discipline. Colouring
               `role.discipline` broke the legend outright: the Assistant's
               discipline string is "Operations", so the rail printed the word
@@ -449,10 +455,12 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
 
       <div>
         <Sheet>By the end of the day</Sheet>
-        <div className="relative mt-4 pl-4">
-          <span aria-hidden className={`absolute inset-y-0 left-0 w-[3px] ${DEPT_FULL[dept]}`} />
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {role.outputs.map((output) => (
-            <Row key={output.label} className="items-baseline last:border-b-0">
+            <Row
+              key={output.label}
+              className="!mt-0 items-baseline !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+            >
               {/* A produced figure, set at figure size rather than in the
                   heading ramp: it is a count the software would print, so it
                   is tabular and it is not a heading. */}
@@ -467,10 +475,12 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
 
       <div>
         <Sheet>What it brought back</Sheet>
-        <div className="relative mt-4 pl-4">
-          <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-ink" />
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {role.decisions.map((question) => (
-            <Row key={question} className="last:border-b-0">
+            <Row
+              key={question}
+              className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
+            >
               <Body className="text-[13px] leading-5">{question}</Body>
             </Row>
           ))}

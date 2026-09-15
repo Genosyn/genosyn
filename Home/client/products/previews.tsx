@@ -62,35 +62,35 @@ export function productPreview(slug: string): (() => JSX.Element) | undefined {
 function Window({ url, children }: { url: string; children: ReactNode }) {
   return (
     <div className="overflow-hidden bg-white">
-      <div className="flex h-11 items-center gap-2 border-b border-hairline bg-white px-3 text-ink2">
+      <div className="flex h-11 items-center gap-2 border-b border-slate-200 bg-slate-50/80 px-3 text-slate-600">
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="h-4 w-4 rounded-full border-[1.5px] border-ink" />
-          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-ink sm:inline">
+          <span className="h-4 w-4 rounded-full border-[1.5px] border-indigo-600" />
+          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-slate-900 sm:inline">
             GENOSYN
           </span>
         </div>
-        <span className="h-4 w-px shrink-0 bg-hairline" />
-        <div className="inline-flex min-w-0 items-center gap-1 px-1.5 py-1 text-[10px] font-semibold text-ink">
+        <span className="h-4 w-px shrink-0 bg-slate-200" />
+        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-slate-800">
           <span className="truncate">Northstar Labs</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" />
         </div>
-        <span className="hidden text-muted sm:inline">/</span>
+        <span className="hidden text-slate-400 sm:inline">/</span>
         <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
-          <span className="h-4 w-4 rounded bg-hairline text-center text-[9px] font-bold leading-4 text-ink">
+          <span className="h-4 w-4 rounded bg-indigo-100 text-center text-[9px] font-bold leading-4 text-indigo-700">
             G
           </span>
-          <span className="max-w-48 truncate text-[10px] font-medium text-ink2">
+          <span className="max-w-48 truncate text-[10px] font-medium text-slate-600">
             {url.replace("genosyn.com /", "")}
           </span>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <span className="hidden rounded border border-hairline bg-ground px-1.5 py-0.5 text-[8px] font-medium text-muted sm:inline">
+          <span className="hidden rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium text-slate-500 sm:inline">
             ⌘ K
           </span>
-          <span className="flex h-6 w-6 items-center justify-center text-muted">
+          <span className="flex h-6 w-6 items-center justify-center text-slate-400">
             <Bell className="h-3 w-3" />
           </span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[8px] font-semibold text-white">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-[8px] font-semibold text-white">
             ND
           </span>
         </div>
@@ -103,7 +103,7 @@ function Window({ url, children }: { url: string; children: ReactNode }) {
 function Tag({ tone, children }: { tone: string; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${tone}`}
+      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${tone}`}
     >
       {children}
     </span>
@@ -113,7 +113,7 @@ function Tag({ tone, children }: { tone: string; children: ReactNode }) {
 function Avatar({ initials, color }: { initials: string; color: string }) {
   return (
     <span
-      className={`flex h-7 w-7 shrink-0 items-center justify-center text-[10px] font-semibold ${color}`}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${color}`}
     >
       {initials}
     </span>

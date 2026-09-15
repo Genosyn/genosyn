@@ -13,60 +13,7 @@ import {
   type Dept,
 } from "@/sections/Kit";
 
-/**
- * Sheet 06 — setting one up.
- *
- * The editorial row was the right instinct in the version this replaces and it
- * survives. What went with it: the 2.5rem grey numeral, which was an ornament
- * loud enough to compete with the step title and too pale to pass a contrast
- * check, and the pastel icon tile, which was drawn twice per step (once for
- * mobile, once for desktop) and said nothing either time. The index now sits
- * in the site's own idiom — a mono `Field` in the left column of a `Row` —
- * which is where every other number on this site lives.
- *
- * The third column changed job. It used to hold a summarising sentence
- * ("Autonomy with an audit trail"), which is the kind of line that sounds like
- * a conclusion and carries no information. It now holds the artefact the step
- * actually produces: two Grants, three Skill slugs, a cron line, a threshold.
- * You can read the whole setup down that column without reading a word of the
- * prose, which is the test.
- *
- * ## The spines, and why three of them are the same colour
- *
- * Each `Row` carries the 3px edge of the department the step happens in, and
- * for the first three that department is Email — because the Support Rep is an
- * Email employee, and granting, writing and scheduling all happen inside the
- * department that will do the work.
- *
- * Giving the four steps four different hues would have made a livelier column
- * and it was rejected outright: the hue would then mean "step index", and a
- * hue that means anything other than its department is the one thing HEADCOUNT
- * forbids. A reader who has decoded the wall knows blue is Email; if step 03
- * were teal they would look for the Workspace in it and not find one.
- *
- * The variation that IS real is printed instead. Step 01 grants two
- * Connections and they belong to two different departments — `gmail:support`
- * to Email and `stripe` to Finance — so each granted line carries its own
- * chip. That is the actual fact worth colouring: a Grant reaches across the
- * org chart, and one step in this band does it once.
- *
- * ## The fourth step has no department
- *
- * It is ink, because it is you. The other three spines are a department's
- * colour; the fourth is the one value in the palette with no hue at all, which
- * is the same inversion the wall's eighth cell makes and the same one the
- * `StateTag` beside it makes. Three coloured rows and one black row is the
- * whole product argument drawn down a 3px column.
- *
- * **Shape, against sheet 05.** The band above prints one document. This one is
- * a numbered sequence, and the two are deliberately built from different
- * primitives — a `Pane` there, a stack of `Row`s here — because two adjacent
- * four-item bands in the same shape is the monotony that made the old page
- * read as one long deck of tiles.
- *
- * The employee is a Support Rep rather than the Bookkeeper printed above, so
- * the two bands are not the same company record twice.
- */
+/** The four app records needed to put one AI Employee to work. */
 
 /** One line of the artefact column, with the department it belongs to. */
 type ArtefactLine = {
@@ -75,33 +22,16 @@ type ArtefactLine = {
 };
 
 type Step = {
-  /** Rendered in the Field column. The `<ol>` carries the real order. */
+  /** Displayed inside the numbered control; the `<ol>` carries the real order. */
   index: string;
   title: string;
   body: string;
-  /**
-   * The department the step happens in, drawn as the row's 3px spine.
-   *
-   * Absent on the step that is about the human boundary, which takes ink
-   * instead. That is not a missing value — it is the palette's central rule,
-   * so the type says the department is optional and the renderer says what
-   * happens when it is not there.
-   */
+  /** The department context for the step's small semantic marker. */
   dept?: Dept;
   /** What this step leaves behind, named. */
   artefact: string;
   lines: ArtefactLine[];
-  /**
-   * Set on the one step that is about the human boundary. Ink is spent here
-   * and nowhere else in the band.
-   *
-   * It is a Decision rather than an Approval, and the difference is checkable
-   * rather than a matter of taste. An Approval replays an action the employee
-   * already attempted, so it needs a tool the employee could call; Genosyn
-   * ships none that disburses a refund, and `client/roles/data.ts` files the
-   * Support Rep's over-policy refund as `kind: "decision"` for exactly that
-   * reason. A reader is one click from that page.
-   */
+  /** The one step that results in a Decision rather than an Approval. */
   decision?: boolean;
 };
 
@@ -156,9 +86,6 @@ export function HowItWorks() {
           title={<>The AI Support Rep&rsquo;s first answer lands at 07:00.</>}
           lede="This is the whole setup for one AI Employee. You do it once. After that the schedule owns the work, and the thing you read in the morning is a Run rather than an inbox."
           aside={
-            /* The chip decodes the three blue spines below before the reader
-               meets them: this employee joins Email, and every hue on the site
-               names a department rather than a step. */
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Chip dept="email">Email</Chip>
               <Field>4 STEPS · 1 ROUTINE · 07:00 EUROPE/LONDON</Field>
@@ -166,7 +93,7 @@ export function HowItWorks() {
           }
         />
 
-        <ol className="mt-12">
+        <ol className="mt-12 space-y-3">
           {STEPS.map((step) => (
             <li key={step.index}>
               <StepRow step={step} />
@@ -182,29 +109,13 @@ export function HowItWorks() {
   );
 }
 
-/**
- * One step.
- *
- * The Kit's `Row` and nothing else: its -mt-px stacking is what gives a run of
- * rows one shared rule between each pair rather than two abutting borders, and
- * re-implementing that inline is how a site ends up with two row primitives.
- *
- * `Row` draws the spine itself when it is given a department. The human step
- * has none, so this draws an ink one in the same place and takes the same
- * `pl-4` — the `!` is what makes that override `Row`'s own `px-1` rather than
- * relying on the order Tailwind happens to emit padding utilities in, which is
- * a fact about the build and not about this file.
- *
- * It stacks below `sm`. A 2.5rem index gutter beside a display-face heading is
- * a column at 1024px and a squeeze at 375px, and the artefact list wants the
- * full measure on a phone.
- */
+/** One setup step, stacking the detail and resulting artifact on small screens. */
 function StepRow({ step }: { step: Step }) {
   return (
-    <Row dept={step.dept} className={`flex-col sm:flex-row sm:py-9 ${step.dept ? "" : "!pl-4"}`}>
-      {!step.dept && <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-ink" />}
-
-      <Field className="w-10 shrink-0 sm:pt-3">{step.index}</Field>
+    <Row dept={step.dept} className="flex-col sm:flex-row sm:items-start sm:py-7">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 font-mono text-xs font-semibold text-indigo-700">
+        {step.index}
+      </span>
 
       <div className="min-w-0 flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] lg:gap-10">
         <div>
@@ -223,7 +134,7 @@ function StepRow({ step }: { step: Step }) {
           <Body className="mt-4 max-w-[54ch]">{step.body}</Body>
         </div>
 
-        <div className="mt-6 lg:mt-2">
+        <div className="mt-6 rounded-lg border border-slate-100 bg-slate-50 p-4 lg:mt-0">
           <Sheet>{step.artefact}</Sheet>
           <ul className="mt-3 space-y-2">
             {/* The artefact is the point of this column, so it is set one step
