@@ -2,7 +2,7 @@
  * Run with `npm run test:home-layout`; local Chrome or GENOSYN_TEST_BROWSER.
  * Tests the real Home greeting, cards and employee day with deterministic API
  * fixtures. Geometry assertions catch reserved columns and overflow that static
- * rendering cannot. Every unexpected request or write fails the suite.
+ * rendering cannot. Every unexpected request fails the suite.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -10,7 +10,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, type Locator, type Page } from "playwright-core";
-import type { Decision, Employee, HomeData, WorkEntry, WorkTimeline } from "../client/lib/api";
+import type {
+  Decision,
+  Employee,
+  HomeChannel,
+  HomeData,
+  WorkEntry,
+  WorkTimeline,
+} from "../client/lib/api";
 import { browserTestVite } from "./browserTestVite";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -65,6 +72,12 @@ const context = await browser
     throw error;
   });
 context.setDefaultTimeout(15000);
+const touchContext = await browser.newContext({
+  viewport: { width: 390, height: 1000 },
+  timezoneId: "Europe/London",
+  hasTouch: true,
+});
+touchContext.setDefaultTimeout(15000);
 
 function roster(count = 1): Employee[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -75,7 +88,15 @@ function roster(count = 1): Employee[] {
     avatarKey: null,
   })) as Employee[];
 }
-function homeData(employeeCount: number, quiet = false): HomeData {
+function channel(id: string, label: string, unreadCount: number): HomeChannel {
+  return { id, kind: "channel", label, unreadCount, lastReadAt: null };
+}
+
+function homeData(
+  employeeCount: number,
+  options: { quiet?: boolean; unreadChannels?: HomeChannel[] } = {},
+): HomeData {
+  const quiet = options.quiet ?? false;
   return {
     repositoryWork: [],
     repositoryWorkCount: 0,
@@ -123,9 +144,7 @@ function homeData(employeeCount: number, quiet = false): HomeData {
     reviewTodoCount: 0,
     approvals: [],
     pendingApprovalCount: 0,
-    unreadChannels: quiet
-      ? []
-      : [{ id: "support", kind: "channel", label: "Support", unreadCount: 2, lastReadAt: null }],
+    unreadChannels: options.unreadChannels ?? (quiet ? [] : [channel("support", "Support", 2)]),
     failedRuns: [],
     failedRunCount: 0,
     tldrs: [],
@@ -181,18 +200,23 @@ function timeline(employees: Employee[], query: URLSearchParams, working = false
 type FixtureOptions = {
   count?: number;
   width?: number;
+  height?: number;
   quiet?: boolean;
   dark?: boolean;
   longNames?: boolean;
   rosterError?: boolean;
   workError?: boolean;
   holdWork?: boolean;
+  holdMarkRead?: boolean;
+  markReadError?: boolean;
   working?: boolean;
   brokenAvatar?: boolean;
+  touch?: boolean;
+  channels?: HomeChannel[];
 };
 async function open(options: FixtureOptions = {}) {
-  const page = await context.newPage();
-  await page.setViewportSize({ width: options.width ?? 1440, height: 1000 });
+  const page = await (options.touch ? touchContext : context).newPage();
+  await page.setViewportSize({ width: options.width ?? 1440, height: options.height ?? 1000 });
   await page.emulateMedia({
     colorScheme: options.dark ? "dark" : "light",
     reducedMotion: "reduce",
@@ -204,23 +228,67 @@ async function open(options: FixtureOptions = {}) {
   if (options.brokenAvatar) employees[0].avatarKey = "missing";
   let rosterError = options.rosterError ?? false;
   let workError = options.workError ?? false;
+  let homeError = false;
+  let markReadError = options.markReadError ?? false;
+  let unreadChannels = (
+    options.channels ?? (options.quiet ? [] : [channel("support", "Support", 2)])
+  ).map((row) => ({ ...row }));
   let releaseWork: () => void = () => {};
   const workGate = new Promise<void>((resolve) => {
     releaseWork = resolve;
   });
+  let releaseMarkRead: () => void = () => {};
+  const markReadGate = new Promise<void>((resolve) => {
+    releaseMarkRead = resolve;
+  });
+  let holdNextHome = false;
+  let releaseHome: () => void = () => {};
+  const homeGate = new Promise<void>((resolve) => {
+    releaseHome = resolve;
+  });
   const reads: string[] = [];
+  const writes: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (url.origin !== origin || request.method() !== "GET") {
+    if (url.origin !== origin) {
       unexpectedRequests.push(`${request.method()} ${url.href}`);
       return route.abort();
     }
     if (!url.pathname.startsWith("/api/")) return route.continue();
+    const markRead = url.pathname.match(
+      /^\/api\/companies\/company\/workspace\/channels\/([^/]+)\/read$/,
+    );
+    if (request.method() === "POST" && markRead) {
+      writes.push(`${request.method()} ${url.pathname}`);
+      if (options.holdMarkRead) await markReadGate;
+      if (markReadError) {
+        return route.fulfill({ status: 503, json: { error: "Workspace is unavailable." } });
+      }
+      unreadChannels = unreadChannels.filter((row) => row.id !== decodeURIComponent(markRead[1]));
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (request.method() !== "GET") {
+      unexpectedRequests.push(`${request.method()} ${url.href}`);
+      return route.abort();
+    }
     reads.push(url.pathname + url.search);
-    if (url.pathname === "/api/companies/company/home")
-      return route.fulfill({ json: homeData(employees.length, options.quiet) });
+    if (url.pathname === "/api/companies/company/home") {
+      if (holdNextHome) {
+        holdNextHome = false;
+        await homeGate;
+      }
+      if (homeError) {
+        return route.fulfill({ status: 503, json: { error: "Home is unavailable." } });
+      }
+      return route.fulfill({
+        json: homeData(employees.length, {
+          quiet: options.quiet,
+          unreadChannels,
+        }),
+      });
+    }
     if (url.pathname === "/api/companies/company/employees")
       return route.fulfill(
         rosterError
@@ -252,7 +320,12 @@ async function open(options: FixtureOptions = {}) {
   await page.locator('header[aria-label="Home greeting"]').waitFor({ timeout: 300000 });
   await page
     .getByRole("heading", {
-      name: options.quiet ? "Nothing needs you right now" : "Pending Decisions",
+      name:
+        options.quiet && unreadChannels.length === 0
+          ? "Nothing needs you right now"
+          : options.quiet
+            ? "Unread messages"
+            : "Pending Decisions",
       exact: true,
     })
     .waitFor();
@@ -267,10 +340,24 @@ async function open(options: FixtureOptions = {}) {
   return {
     page,
     reads,
+    writes,
     releaseWork,
+    releaseMarkRead,
+    releaseHome,
     recover: () => {
       rosterError = false;
       workError = false;
+      homeError = false;
+      markReadError = false;
+    },
+    failHome: () => {
+      homeError = true;
+    },
+    holdNextHome: () => {
+      holdNextHome = true;
+    },
+    removeChannel: (channelId: string) => {
+      unreadChannels = unreadChannels.filter((row) => row.id !== channelId);
     },
     removeEmployees: () => {
       employees = [];
@@ -283,6 +370,18 @@ const work = (page: Page) =>
 const bubbles = (page: Page) => work(page).getByRole("button");
 const card = (page: Page, title: string) =>
   page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+const markReadButton = (page: Page, label: string) =>
+  page.getByRole("button", { name: `Mark ${label} as read`, exact: true });
+async function markReadPresentation(button: Locator) {
+  return button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { opacity: style.opacity, pointerEvents: style.pointerEvents };
+  });
+}
+async function unreadCardCount(page: Page, expected: number) {
+  const header = card(page, "Unread messages").locator(":scope > div").first();
+  await header.getByText(String(expected), { exact: true }).waitFor();
+}
 async function box(locator: Locator) {
   const value = await locator.boundingBox();
   assert.ok(value, "element must be visible");
@@ -405,6 +504,424 @@ try {
       },
     );
   }
+  await check(
+    "hover reveals only the selected channel action and preserves unread totals",
+    async () => {
+      const { page } = await open({
+        quiet: true,
+        channels: [
+          channel("marketing", "#marketing", 1),
+          channel("sales", "#sales", 89),
+          channel("youtube", "#youtube", 26),
+        ],
+      });
+      await unreadCardCount(page, 116);
+      const action = markReadButton(page, "#sales");
+      const otherAction = markReadButton(page, "#marketing");
+      assert.deepEqual(await markReadPresentation(action), {
+        opacity: "0",
+        pointerEvents: "none",
+      });
+      assert.equal(await card(page, "Unread messages").getByText("89", { exact: true }).count(), 1);
+
+      await action.locator("..").hover();
+      await page.waitForTimeout(200);
+      assert.deepEqual(await markReadPresentation(action), {
+        opacity: "1",
+        pointerEvents: "auto",
+      });
+      assert.deepEqual(await markReadPresentation(otherAction), {
+        opacity: "0",
+        pointerEvents: "none",
+      });
+      assert.equal(await action.getByText("Mark as Read", { exact: true }).count(), 1);
+      await page.screenshot({ path: path.join(output, "home-channel-mark-read-hover.png") });
+      await page.close();
+    },
+  );
+  await check(
+    "marking one channel read sends one exact write without opening or navigating",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        channels: [
+          channel("marketing", "#marketing", 1),
+          channel("sales", "#sales", 89),
+          channel("youtube", "#youtube", 8),
+        ],
+      });
+      const action = markReadButton(fixture.page, "#sales");
+      await action.locator("..").hover();
+      const request = fixture.page.waitForRequest(
+        (row) =>
+          row.method() === "POST" &&
+          new URL(row.url()).pathname === "/api/companies/company/workspace/channels/sales/read",
+      );
+      await action.click();
+      await request;
+
+      await fixture.page.getByText("#sales", { exact: true }).waitFor({ state: "detached" });
+      await unreadCardCount(fixture.page, 9);
+      assert.equal(await fixture.page.getByText("#marketing", { exact: true }).count(), 1);
+      assert.equal(await fixture.page.getByText("#youtube", { exact: true }).count(), 1);
+      assert.deepEqual(fixture.writes, [
+        "POST /api/companies/company/workspace/channels/sales/read",
+      ]);
+      assert.equal(await fixture.page.getByRole("dialog").count(), 0);
+      assert.equal(await fixture.page.getByLabel("Opened route").count(), 0);
+      await fixture.page.close();
+    },
+  );
+  await check("keyboard focus reveals and activates the channel action", async () => {
+    const fixture = await open({
+      quiet: true,
+      channels: [channel("support", "#support", 2), channel("sales", "#sales", 3)],
+    });
+    const messages = card(fixture.page, "Unread messages");
+    const supportLink = messages.getByRole("link").filter({ hasText: "#support" });
+    const action = markReadButton(fixture.page, "#support");
+    const nextAction = markReadButton(fixture.page, "#sales");
+
+    await supportLink.focus();
+    await fixture.page.waitForTimeout(200);
+    assert.deepEqual(await markReadPresentation(action), {
+      opacity: "1",
+      pointerEvents: "auto",
+    });
+    await fixture.page.keyboard.press("Tab");
+    assert.equal(
+      await action.evaluate((element) => element === document.activeElement),
+      true,
+      "the action follows its channel link in keyboard order",
+    );
+    const request = fixture.page.waitForRequest((row) =>
+      new URL(row.url()).pathname.endsWith("/workspace/channels/support/read"),
+    );
+    await fixture.page.keyboard.press("Space");
+    await request;
+    await fixture.page.getByText("#support", { exact: true }).waitFor({ state: "detached" });
+    await unreadCardCount(fixture.page, 3);
+    await fixture.page.waitForFunction(
+      (channelId) =>
+        document.activeElement instanceof HTMLButtonElement &&
+        document.activeElement.dataset.homeMarkReadChannel === channelId,
+      "sales",
+    );
+    assert.equal(
+      await nextAction.evaluate((element) => element === document.activeElement),
+      true,
+      "focus moves to the next channel action after its predecessor disappears",
+    );
+    await fixture.page.getByRole("status").getByText("#support marked as read.").waitFor();
+    assert.equal(fixture.writes.length, 1);
+    await fixture.page.close();
+  });
+  await check(
+    "marking the last unread channel removes the queue and reveals all-clear",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        channels: [channel("support", "#support", 2)],
+      });
+      const action = markReadButton(fixture.page, "#support");
+      await action.focus();
+      await fixture.page.keyboard.press("Space");
+      const allClear = fixture.page.getByRole("heading", {
+        name: "Nothing needs you right now",
+        exact: true,
+      });
+      await allClear.waitFor();
+      await fixture.page.waitForFunction(
+        () => document.activeElement?.hasAttribute("data-home-all-clear") === true,
+      );
+      assert.equal(
+        await allClear.evaluate((element) => element === document.activeElement),
+        true,
+        "focus moves to the all-clear state after the final channel disappears",
+      );
+      assert.equal(await card(fixture.page, "Unread messages").count(), 0);
+      assert.deepEqual(fixture.writes, [
+        "POST /api/companies/company/workspace/channels/support/read",
+      ]);
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "last-channel focus fallback scrolls into view when other Home queues remain",
+    async () => {
+      const fixture = await open({
+        width: 390,
+        height: 320,
+        channels: [channel("support", "#support", 2)],
+      });
+      const action = markReadButton(fixture.page, "#support");
+      await action.scrollIntoViewIfNeeded();
+      await action.focus();
+      const before = await fixture.page.evaluate(() => scrollY);
+      assert.ok(before > 0, "the compact viewport starts below the greeting");
+
+      await fixture.page.keyboard.press("Space");
+      await fixture.page.getByText("#support", { exact: true }).waitFor({ state: "detached" });
+      await fixture.page.waitForFunction(
+        () => document.activeElement?.hasAttribute("data-home-mark-read-fallback") === true,
+      );
+
+      const greeting = fixture.page.locator("[data-home-mark-read-fallback]");
+      assert.equal(await greeting.evaluate((element) => element === document.activeElement), true);
+      assert.ok(
+        (await fixture.page.evaluate(() => scrollY)) < before,
+        "moving focus to the fallback also brings it back into view",
+      );
+      assert.equal(await fixture.page.locator("[data-home-all-clear]").count(), 0);
+      await fixture.page.getByRole("heading", { name: "Pending Decisions", exact: true }).waitFor();
+      await fixture.page.close();
+    },
+  );
+  await check("a rapid physical double-click cannot clear or open the next channel", async () => {
+    const fixture = await open({
+      quiet: true,
+      channels: [
+        channel("marketing", "#marketing", 1),
+        channel("sales", "#sales", 89),
+        channel("youtube", "#youtube", 8),
+      ],
+    });
+    const action = markReadButton(fixture.page, "#sales");
+    await action.locator("..").hover();
+    const actionBox = await box(action);
+    const point = {
+      x: actionBox.x + actionBox.width / 2,
+      y: actionBox.y + actionBox.height / 2,
+    };
+
+    await fixture.page.mouse.click(point.x, point.y);
+    await fixture.page.getByText("#sales", { exact: true }).waitFor({ state: "detached" });
+    await fixture.page.mouse.click(point.x, point.y);
+    await fixture.page.waitForTimeout(550);
+
+    assert.deepEqual(fixture.writes, ["POST /api/companies/company/workspace/channels/sales/read"]);
+    await unreadCardCount(fixture.page, 9);
+    assert.equal(await fixture.page.getByText("#marketing", { exact: true }).count(), 1);
+    assert.equal(await fixture.page.getByText("#youtube", { exact: true }).count(), 1);
+    assert.equal(await fixture.page.getByRole("dialog").count(), 0);
+    assert.equal(await fixture.page.getByLabel("Opened route").count(), 0);
+    await fixture.page.close();
+  });
+  await check(
+    "a failed channel write restores the exact row and total without duplicating it",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        holdMarkRead: true,
+        markReadError: true,
+        channels: [
+          channel("marketing", "#marketing", 1),
+          channel("sales", "#sales", 89),
+          channel("youtube", "#youtube", 8),
+        ],
+      });
+      try {
+        const action = markReadButton(fixture.page, "#sales");
+        await action.locator("..").hover();
+        const request = fixture.page.waitForRequest((row) =>
+          new URL(row.url()).pathname.endsWith("/workspace/channels/sales/read"),
+        );
+        await action.click();
+        await request;
+        await fixture.page.getByText("#sales", { exact: true }).waitFor({ state: "detached" });
+        await unreadCardCount(fixture.page, 9);
+
+        // A focus refresh may put the authoritative unread row back while the
+        // write is still pending. The later rejection must not insert a
+        // duplicate from its optimistic snapshot.
+        await fixture.page.evaluate(() => dispatchEvent(new Event("focus")));
+        await fixture.page.getByText("#sales", { exact: true }).waitFor();
+        fixture.releaseMarkRead();
+        const dialog = fixture.page.getByRole("dialog", {
+          name: "Couldn’t mark #sales as read",
+          exact: true,
+        });
+        await dialog.waitFor();
+        await dialog
+          .getByText("Workspace is unavailable. The latest Home data has been kept.", {
+            exact: true,
+          })
+          .waitFor();
+        await unreadCardCount(fixture.page, 98);
+        assert.deepEqual(
+          (await card(fixture.page, "Unread messages").getByRole("link").allTextContents())
+            .map((text) => text.trim())
+            .filter((text) => text.startsWith("#")),
+          ["#marketing1", "#sales89", "#youtube8"],
+        );
+        assert.equal(await fixture.page.getByText("#sales", { exact: true }).count(), 1);
+        assert.equal(fixture.writes.length, 1);
+        await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+      } finally {
+        fixture.releaseMarkRead();
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "a failed refresh cannot suppress rollback after a failed channel write",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        holdMarkRead: true,
+        markReadError: true,
+        channels: [
+          channel("marketing", "#marketing", 1),
+          channel("sales", "#sales", 89),
+          channel("youtube", "#youtube", 8),
+        ],
+      });
+      try {
+        const action = markReadButton(fixture.page, "#sales");
+        await action.locator("..").hover();
+        await action.click();
+        await fixture.page.getByText("#sales", { exact: true }).waitFor({ state: "detached" });
+        await unreadCardCount(fixture.page, 9);
+
+        fixture.failHome();
+        const failedRefresh = fixture.page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/companies/company/home" &&
+            response.status() === 503,
+        );
+        await fixture.page.evaluate(() => dispatchEvent(new Event("focus")));
+        await failedRefresh;
+        fixture.releaseMarkRead();
+
+        const dialog = fixture.page.getByRole("dialog", {
+          name: "Couldn’t mark #sales as read",
+          exact: true,
+        });
+        await dialog.waitFor();
+        await dialog
+          .getByText("Workspace is unavailable. It has been restored.", { exact: true })
+          .waitFor();
+        await unreadCardCount(fixture.page, 98);
+        assert.deepEqual(
+          (await card(fixture.page, "Unread messages").getByRole("link").allTextContents())
+            .map((text) => text.trim())
+            .filter((text) => text.startsWith("#")),
+          ["#marketing1", "#sales89", "#youtube8"],
+        );
+        assert.equal(await fixture.page.getByText("#sales", { exact: true }).count(), 1);
+        assert.equal(fixture.writes.length, 1);
+        await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+      } finally {
+        fixture.releaseMarkRead();
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "a successful Home refresh landing after the click remains authoritative",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        holdMarkRead: true,
+        markReadError: true,
+        channels: [
+          channel("marketing", "#marketing", 1),
+          channel("sales", "#sales", 89),
+          channel("youtube", "#youtube", 8),
+        ],
+      });
+      try {
+        fixture.holdNextHome();
+        const refreshStarted = fixture.page.waitForRequest(
+          (request) => new URL(request.url()).pathname === "/api/companies/company/home",
+        );
+        await fixture.page.evaluate(() => dispatchEvent(new Event("focus")));
+        await refreshStarted;
+
+        const action = markReadButton(fixture.page, "#sales");
+        await action.locator("..").hover();
+        await action.click();
+        await fixture.page.getByText("#sales", { exact: true }).waitFor({ state: "detached" });
+        fixture.removeChannel("sales");
+        const refreshed = fixture.page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/companies/company/home" &&
+            response.status() === 200,
+        );
+        fixture.releaseHome();
+        await refreshed;
+        fixture.releaseMarkRead();
+
+        const dialog = fixture.page.getByRole("dialog", {
+          name: "Couldn’t mark #sales as read",
+          exact: true,
+        });
+        await dialog.waitFor();
+        await dialog
+          .getByText("Workspace is unavailable. The latest Home data has been kept.", {
+            exact: true,
+          })
+          .waitFor();
+        await unreadCardCount(fixture.page, 9);
+        assert.equal(await fixture.page.getByText("#sales", { exact: true }).count(), 0);
+        assert.equal(fixture.writes.length, 1);
+        await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+      } finally {
+        fixture.releaseHome();
+        fixture.releaseMarkRead();
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "touch Home keeps Mark as Read visible, tappable and inside a narrow row",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        touch: true,
+        width: 320,
+        channels: [
+          channel(
+            "customer-success",
+            "#customer-success-with-a-name-that-must-truncate-on-mobile",
+            101,
+          ),
+        ],
+      });
+      const action = markReadButton(
+        fixture.page,
+        "#customer-success-with-a-name-that-must-truncate-on-mobile",
+      );
+      assert.deepEqual(await markReadPresentation(action), {
+        opacity: "1",
+        pointerEvents: "auto",
+      });
+      const actionBox = await box(action);
+      const rowBox = await box(action.locator(".."));
+      assert.ok(
+        actionBox.x >= rowBox.x && actionBox.x + actionBox.width <= rowBox.x + rowBox.width,
+      );
+      assert.ok(actionBox.height >= 36, "touch action keeps a substantial hit target");
+      assert.equal(
+        await card(fixture.page, "Unread messages")
+          .getByText("99+", { exact: true })
+          .evaluate((element) => getComputedStyle(element).opacity),
+        "0",
+        "the unread pill is visually hidden instead of colliding with the touch action",
+      );
+      await fits(fixture.page);
+      await fixture.page.screenshot({
+        path: path.join(output, "home-channel-mark-read-touch.png"),
+        fullPage: true,
+      });
+      await action.tap();
+      await fixture.page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(fixture.writes.length, 1);
+      await fixture.page.close();
+    },
+  );
   for (const width of [1440, 390, 320]) {
     await check(
       `large roster stays one scrollable row and last employee is keyboard reachable at ${width}px`,
@@ -588,9 +1105,10 @@ try {
     },
   );
   assert.deepEqual(browserErrors, [], "browser must have no uncaught errors");
-  assert.deepEqual(unexpectedRequests, [], "browser must only make expected read-only requests");
+  assert.deepEqual(unexpectedRequests, [], "browser must only make expected fixture requests");
   console.log(`PASS ${checks} Home layout browser regressions`);
 } finally {
+  await touchContext.close();
   await context.close();
   await browser.close();
   await server.close();

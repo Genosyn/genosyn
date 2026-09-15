@@ -6,6 +6,7 @@ import {
   AtSign,
   BellRing,
   Calendar,
+  Check,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
@@ -47,7 +48,7 @@ import {
   TodoPriority,
   WorkEntry,
 } from "../lib/api";
-import { workspaceChannelHref } from "../lib/workspace";
+import { workspaceApi, workspaceChannelHref } from "../lib/workspace";
 import { ContextualLayout } from "../components/AppShell";
 import { ApprovalPeekModal } from "../components/home/ApprovalPeekModal";
 import { ChannelPeekModal } from "../components/home/ChannelPeekModal";
@@ -114,10 +115,14 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const [data, setData] = React.useState<HomeData | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const homeRequest = React.useRef(0);
+  const homeSuccessfulRequest = React.useRef(0);
+  const activeCompanyId = React.useRef(company.id);
   const mailRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
+  const [channelReadNotice, setChannelReadNotice] = React.useState<string | null>(null);
   const background = useBackgroundAction();
+  activeCompanyId.current = company.id;
 
   // The todo peek needs the company's people to fill its assignee and reviewer
   // pickers and the employee bubble roster. Fetched beside the Home payload
@@ -135,6 +140,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     try {
       const d = await api.get<HomeData>(`/api/companies/${company.id}/home`);
       if (request !== homeRequest.current) return;
+      homeSuccessfulRequest.current = request;
       setData(d);
       setLoadError(null);
     } catch (err) {
@@ -157,6 +163,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     setLoadError(null);
     setOverlay(null);
     setDecisionNotice(null);
+    setChannelReadNotice(null);
     void reload();
     return () => {
       homeRequest.current += 1;
@@ -257,6 +264,62 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     });
   }
 
+  function markChannelRead(channel: HomeChannel): boolean {
+    const originalIndex = data?.unreadChannels.findIndex((row) => row.id === channel.id) ?? -1;
+    if (originalIndex < 0) return false;
+    const successfulRequestAtClick = homeSuccessfulRequest.current;
+    const companyId = company.id;
+
+    // The card is an unread queue, so the successful shape is simply the row
+    // disappearing. Do that immediately and put it back in exactly the same
+    // place if the server refuses the write.
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            unreadChannels: current.unreadChannels.filter((row) => row.id !== channel.id),
+          }
+        : current,
+    );
+
+    background(() => workspaceApi.markRead(companyId, channel.id), {
+      title: `Couldn’t mark ${channel.label} as read`,
+      error: (err) =>
+        `${errorMessage(err)} ${
+          activeCompanyId.current !== companyId ||
+          homeSuccessfulRequest.current > successfulRequestAtClick
+            ? "The latest Home data has been kept."
+            : "It has been restored."
+        }`,
+      onSuccess: () => {
+        if (activeCompanyId.current !== companyId) return;
+        setChannelReadNotice(`${channel.label} marked as read.`);
+        void reload();
+      },
+      onError: () => {
+        setChannelReadNotice(null);
+        setData((current) => {
+          if (
+            activeCompanyId.current !== companyId ||
+            homeSuccessfulRequest.current > successfulRequestAtClick ||
+            !current ||
+            current.unreadChannels.some((row) => row.id === channel.id)
+          ) {
+            return current;
+          }
+          const unreadChannels = [...current.unreadChannels];
+          unreadChannels.splice(
+            Math.max(0, Math.min(originalIndex, unreadChannels.length)),
+            0,
+            channel,
+          );
+          return { ...current, unreadChannels };
+        });
+      },
+    });
+    return true;
+  }
+
   return (
     <ContextualLayout>
       <div className="page-shell px-6 py-8 lg:px-8">
@@ -291,6 +354,11 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         {decisionNotice && (
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
             {decisionNotice.message}
+          </div>
+        )}
+        {channelReadNotice && (
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {channelReadNotice}
           </div>
         )}
         {data === null ? (
@@ -330,7 +398,12 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                   <AttentionCard company={company} data={data} onOpen={setOverlay} />
                   <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
                   <MyTodosCard company={company} data={data} onOpen={setOverlay} />
-                  <MessagesCard company={company} data={data} onOpen={setOverlay} />
+                  <MessagesCard
+                    company={company}
+                    data={data}
+                    onOpen={setOverlay}
+                    onMarkRead={markChannelRead}
+                  />
                   <ReviewsCard company={company} data={data} onOpen={setOverlay} />
                   <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
                 </div>
@@ -545,7 +618,11 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
         <CheckCircle2 size={20} />
       </span>
-      <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+      <h2
+        data-home-all-clear
+        tabIndex={-1}
+        className="text-sm font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-slate-100"
+      >
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
@@ -649,7 +726,11 @@ function Greeting({ me, company }: { me: Me; company: Company }) {
   });
   return (
     <div className="min-w-0 flex-1 break-words">
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+      <h1
+        data-home-mark-read-fallback
+        tabIndex={-1}
+        className="text-2xl font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-slate-100"
+      >
         {salute}, {firstName}
       </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -1651,11 +1732,14 @@ function MessagesCard({
   company,
   data,
   onOpen,
+  onMarkRead,
 }: {
   company: Company;
   data: HomeData;
   onOpen: (overlay: HomeOverlay) => void;
+  onMarkRead: (channel: HomeChannel) => boolean;
 }) {
+  const suppressClickThroughUntil = React.useRef(0);
   if (data.unreadChannels.length === 0) return null;
   return (
     <HomeCard
@@ -1665,13 +1749,20 @@ function MessagesCard({
       linkTo={`/c/${company.slug}/workspace`}
       linkLabel="Workspace"
     >
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-        {data.unreadChannels.map((c: HomeChannel) => (
-          <li key={c.id}>
+      <ul
+        className="divide-y divide-slate-100 dark:divide-slate-800"
+        onClickCapture={(event) => {
+          if (event.detail === 0 || Date.now() >= suppressClickThroughUntil.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        {data.unreadChannels.map((c: HomeChannel, index) => (
+          <li key={c.id} className="group relative">
             <HomeRow
               to={workspaceChannelHref(company.slug, c.id)}
               onOpen={() => onOpen({ kind: "channel", channel: c })}
-              className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+              className="flex items-center gap-3 py-2.5 pl-4 pr-4 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 group-focus-within:pr-32 group-hover:pr-32 dark:hover:bg-slate-800/60 [@media(hover:none)]:pr-32"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
                 <MessageSquare size={12} />
@@ -1679,10 +1770,39 @@ function MessagesCard({
               <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
                 {c.label}
               </span>
-              <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
+              <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white transition-opacity group-focus-within:opacity-0 group-hover:opacity-0 [@media(hover:none)]:opacity-0">
                 {c.unreadCount > 99 ? "99+" : c.unreadCount}
               </span>
             </HomeRow>
+            <button
+              type="button"
+              aria-label={`Mark ${c.label} as read`}
+              data-home-mark-read-channel={c.id}
+              onClick={() => {
+                const focusChannelId =
+                  data.unreadChannels[index + 1]?.id ?? data.unreadChannels[index - 1]?.id ?? null;
+                if (!onMarkRead(c)) return;
+                suppressClickThroughUntil.current = Date.now() + 500;
+                requestAnimationFrame(() => {
+                  const nextButton = focusChannelId
+                    ? Array.from(
+                        document.querySelectorAll<HTMLButtonElement>(
+                          "[data-home-mark-read-channel]",
+                        ),
+                      ).find((button) => button.dataset.homeMarkReadChannel === focusChannelId)
+                    : null;
+                  const fallback =
+                    document.querySelector<HTMLElement>("[data-home-all-clear]") ??
+                    document.querySelector<HTMLElement>("[data-home-mark-read-fallback]");
+                  if (nextButton) nextButton.focus({ preventScroll: true });
+                  else fallback?.focus();
+                });
+              }}
+              className="pointer-events-none absolute right-2 top-1/2 z-10 inline-flex h-9 -translate-y-1/2 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 opacity-0 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+            >
+              <Check size={13} aria-hidden="true" />
+              Mark as Read
+            </button>
           </li>
         ))}
       </ul>

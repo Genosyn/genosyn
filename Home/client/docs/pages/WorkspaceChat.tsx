@@ -82,6 +82,11 @@ export function WorkspaceChat() {
       </P>
       <UL>
         <LI>
+          To clear a channel without opening it, hover its Home row and choose{" "}
+          <Strong>Mark as Read</Strong>. The action remains visible on touch screens and is
+          available from keyboard focus; it clears only that channel&apos;s unread badge.
+        </LI>
+        <LI>
           Messages here are read-only — reactions other people left are visible, but editing,
           deleting and reacting live in the full Workspace.
         </LI>
@@ -143,9 +148,9 @@ export function WorkspaceChat() {
         <DocLink to="/docs/email#assistant">email</DocLink> or{" "}
         <DocLink to="/docs/routines#assistant">Routine</DocLink> also keep the composer available
         and show a working status throughout each reply. Use <Strong>Queue message</Strong> to add
-        follow-ups with attachments, then review or remove pending messages above the composer.
-        They send in order within that conversation. A failed reply leaves its pending follow-ups
-        queued for you to resume.
+        follow-ups with attachments, then review or remove pending messages above the composer. They
+        send in order within that conversation. A failed reply leaves its pending follow-ups queued
+        for you to resume.
       </P>
 
       <H2 id="new-context">Start a new AI context</H2>
