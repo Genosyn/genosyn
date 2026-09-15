@@ -76,7 +76,7 @@ function uint32(value: number): Buffer {
 function assertion(args: {
   passkey: VirtualPasskey;
   challenge: string;
-  userId: string;
+  userId?: string;
   counter?: number;
 }): AuthenticationResponseJSON {
   const clientData = Buffer.from(
@@ -105,7 +105,9 @@ function assertion(args: {
       clientDataJSON: clientData.toString("base64url"),
       authenticatorData: authenticatorData.toString("base64url"),
       signature: sign("sha256", signatureBase, args.passkey.privateKey).toString("base64url"),
-      userHandle: Buffer.from(args.userId, "utf8").toString("base64url"),
+      ...(args.userId
+        ? { userHandle: Buffer.from(args.userId, "utf8").toString("base64url") }
+        : {}),
     },
     clientExtensionResults: {},
     authenticatorAttachment: "platform",
@@ -244,7 +246,6 @@ describe("passwordless passkey HTTP flow", () => {
     const response = assertion({
       passkey,
       challenge: started.body.options.challenge,
-      userId: user.id,
       counter: 1,
     });
 

@@ -69,14 +69,13 @@ export type VerifiedStoredWebAuthnAssertion = {
  * Verify an assertion against the credential row it names and atomically
  * advance that row. `expectedUserId` is supplied for password-following 2FA;
  * primary passkey sign-in discovers the account from the globally unique
- * credential id and requires the authenticator's user handle as a second
- * binding back to that account.
+ * credential id and cross-checks the authenticator's nullable user handle
+ * against that account whenever one is returned.
  */
 type VerifyStoredWebAuthnAssertionArgs = {
   expectedChallenge: string;
   response: AuthenticationResponseJSON;
   expectedUserId?: string;
-  requireUserHandle?: boolean;
 };
 
 async function verifyWithManager(
@@ -98,7 +97,10 @@ async function verifyWithManager(
   if (!user) return null;
   const expectedUserHandle = Buffer.from(user.id, "utf8").toString("base64url");
   const returnedUserHandle = args.response.response.userHandle;
-  if (args.requireUserHandle && !returnedUserHandle) return null;
+  // Some valid authenticators omit this nullable field. The globally unique
+  // credential id already selects its owning Member and stored public key, so
+  // the signed assertion can safely identify the account. When a handle is
+  // present, still require it to name that same owner.
   if (returnedUserHandle && returnedUserHandle !== expectedUserHandle) return null;
 
   const { origin, rpID } = webAuthnConfig();

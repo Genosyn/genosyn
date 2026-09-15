@@ -243,10 +243,28 @@ try {
     (request) =>
       request.url().endsWith("/api/auth/login/passkey/verify") && request.method() === "POST",
   );
+  type VerifyBody = {
+    flowToken?: string;
+    response?: { id?: string; response?: { userHandle?: unknown } };
+  };
+  let forwardedVerifyBody: VerifyBody | undefined;
   const verifyResponsePromise = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/auth/login/passkey/verify") &&
       response.request().method() === "POST",
+  );
+  // Some platform authenticators return a valid signed assertion with a null
+  // userHandle. SimpleWebAuthn omits that nullable value from its JSON, so
+  // exercise the same wire payload while keeping Chromium's real signature.
+  await page.route(
+    "**/api/auth/login/passkey/verify",
+    async (route) => {
+      const body = route.request().postDataJSON() as VerifyBody;
+      if (body.response?.response) delete body.response.response.userHandle;
+      forwardedVerifyBody = body;
+      await route.continue({ postData: JSON.stringify(body) });
+    },
+    { times: 1 },
   );
   await page.getByRole("button", { name: "Sign in with a passkey", exact: true }).click();
 
@@ -264,22 +282,24 @@ try {
   const verifyRequest = await verifyRequestPromise;
   const verifyBodyText = verifyRequest.postData();
   assert.ok(verifyBodyText, "Passkey verification request had no JSON body");
-  const verifyBody = JSON.parse(verifyBodyText) as {
-    flowToken?: string;
-    response?: { id?: string };
-  };
-  assert.equal(verifyBody.flowToken, optionsBody.flowToken);
-  assert.equal(typeof verifyBody.response?.id, "string");
+  const clientVerifyBody = JSON.parse(verifyBodyText) as VerifyBody;
+  assert.equal(typeof clientVerifyBody.response?.response?.userHandle, "string");
 
   const verifyResponse = await verifyResponsePromise;
   // The client intentionally hard-navigates as soon as this succeeds, which
   // can discard the old document's response body before Playwright reads it.
   assert.equal(verifyResponse.status(), 200);
+
+  const verifyBody = forwardedVerifyBody;
+  assert.ok(verifyBody, "The handleless passkey request was not forwarded");
+  assert.equal(verifyBody.flowToken, optionsBody.flowToken);
+  assert.equal(typeof verifyBody.response?.id, "string");
+  assert.equal(verifyBody.response?.response?.userHandle, undefined);
   await page.waitForURL((url) => url.pathname !== "/login");
   const passkeyMember = await currentMember();
   assert.equal(passkeyMember.email, email);
   assert.equal(passkeyMember.isMasterAdmin, true);
-  record("Passwordless passkey sign-in established an authenticated browser session");
+  record("A handleless passwordless passkey assertion established an authenticated session");
 
   const replay = await page.request.post(`${origin}/api/auth/login/passkey/verify`, {
     data: verifyBody,

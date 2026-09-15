@@ -79,7 +79,6 @@ export async function finishPasskeyLogin(args: {
   const verified = await verifyStoredWebAuthnAssertion({
     expectedChallenge: state.challenge,
     response: args.response,
-    requireUserHandle: true,
   });
   return verified?.user ?? null;
 }
