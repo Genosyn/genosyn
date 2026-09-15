@@ -802,7 +802,7 @@ try {
     assert.deepEqual(fixture.writes, []);
     await fixture.page.close();
   });
-  await check("a Decision notification links to Decisions without embedding its card", async () => {
+  await check("a Decision notification links to the Decision stack without embedding its card", async () => {
     const row = decision();
     const decisionLink = `${companyPath}/decisions#decision-${row.id}`;
     const notification: Notification = {
@@ -836,7 +836,7 @@ try {
     assert.equal(await dialog.locator(`#decision-${row.id}`).count(), 0);
     assert.equal(await dialog.getByText(row.body, { exact: true }).count(), 0);
     assert.equal(await dialog.getByRole("button", { name: "Discuss", exact: true }).count(), 0);
-    const openDecisions = dialog.getByRole("link", { name: "Open decisions", exact: true });
+    const openDecisions = dialog.getByRole("link", { name: "Open Decision stack", exact: true });
     assert.equal(await openDecisions.getAttribute("href"), decisionLink);
     await openDecisions.click();
     await fixture.page.waitForURL(`${origin}${decisionLink}`);
@@ -847,6 +847,76 @@ try {
         body: { notificationId: notification.id },
       },
     ]);
+    await fixture.page.close();
+  });
+  await check("a review notification opens its exact Decision-stack card", async () => {
+    const review = workReview();
+    const reviewLink = `${companyPath}/decisions#review-${review.id}`;
+    const notification: Notification = {
+      id: "review-notification",
+      kind: "approval_pending",
+      title: "Alex proposed work for review",
+      body: "Review what happened and choose whether to start the proposed work.",
+      link: reviewLink,
+      actor: {
+        kind: "ai",
+        id: "asking-employee",
+        name: "Alex Rivera",
+        avatarKey: null,
+        slug: "alex",
+      },
+      entityKind: "approval",
+      entityId: review.id,
+      readAt: null,
+      createdAt: fixtureNow.toISOString(),
+    };
+    const fixture = await open({
+      surface: "home",
+      role: "admin",
+      reviews: [review],
+      notification,
+    });
+    fixture.allowWrites();
+    const markedRead = fixture.page.waitForResponse(
+      (response) => new URL(response.url()).pathname === `${apiBase}/notifications/mark-read`,
+    );
+    await fixture.page.getByText(notification.title, { exact: true }).click();
+    await markedRead;
+    const dialog = fixture.page.getByRole("dialog", { name: notification.title, exact: true });
+    const openStack = dialog.getByRole("link", { name: "Open Decision stack", exact: true });
+    assert.equal(await openStack.getAttribute("href"), reviewLink);
+    await openStack.click();
+    await fixture.page.waitForURL(`${origin}${reviewLink}`);
+    await reviewCard(fixture.page, review.id).waitFor();
+    await fixture.page.close();
+  });
+  await check("an ordinary Approval notification still names Approvals", async () => {
+    const notification: Notification = {
+      id: "approval-notification",
+      kind: "approval_pending",
+      title: "A Routine needs approval",
+      body: "Review the gated Run.",
+      link: "/c/decisions/approvals",
+      actor: null,
+      entityKind: "approval",
+      entityId: "ordinary-approval",
+      readAt: null,
+      createdAt: fixtureNow.toISOString(),
+    };
+    const fixture = await open({ surface: "home", notification });
+    fixture.allowWrites();
+    const markedRead = fixture.page.waitForResponse(
+      (response) => new URL(response.url()).pathname === `${apiBase}/notifications/mark-read`,
+    );
+    await fixture.page.getByText(notification.title, { exact: true }).click();
+    await markedRead;
+    const dialog = fixture.page.getByRole("dialog", { name: notification.title, exact: true });
+    const openApprovals = dialog.getByRole("link", { name: "Open approvals", exact: true });
+    assert.equal(await openApprovals.getAttribute("href"), notification.link);
+    assert.equal(
+      await dialog.getByRole("link", { name: "Open Decision stack", exact: true }).count(),
+      0,
+    );
     await fixture.page.close();
   });
   await check(

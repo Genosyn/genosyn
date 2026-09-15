@@ -46,7 +46,7 @@ export function Decisions() {
       <P>
         <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
         age order, so you do not have to learn three separate queues. Open{" "}
-        <Strong>Decisions</Strong> for the queue, search, and complete history; it is not repeated
+        <Strong>Decision stack</Strong> for the queue, search, and complete history; it is not repeated
         on Home.
       </P>
 
@@ -114,7 +114,7 @@ export function Decisions() {
       <H2 id="answering">Answering a decision</H2>
       <UL>
         <LI>
-          Open <Strong>Decisions</Strong>. Use <Strong>Search decision stack</Strong> to find a
+          Open <Strong>Decision stack</Strong>. Use <Strong>Search decision stack</Strong> to find a
           customer, AI Employee, or detail from the context or reported outcome.
         </LI>
         <LI>
@@ -151,7 +151,7 @@ export function Decisions() {
 
       <H2 id="discussing">Discussing a decision</H2>
       <P>
-        Press <Strong>Discuss</Strong> on a decision in <Strong>Decisions</Strong>. A new private
+        Press <Strong>Discuss</Strong> on a decision in the <Strong>Decision stack</Strong>. A new private
         conversation opens with the AI Employee that asked, with a draft message linking to that
         exact decision. Add your question and press <Strong>Send</Strong> when you are ready.
         Opening the draft sends nothing.
@@ -236,8 +236,9 @@ export function Decisions() {
       <H2 id="routing">Routing to an AI decider</H2>
       <P>
         By default every question waits for a human — no configuration, exactly the behavior above.
-        A <Strong>routing rule</Strong> (opened with <Strong>Routing</Strong> on the Decisions page,
-        admin-managed) changes that for one asking employee: it names who may answer on a
+        A <Strong>routing rule</Strong> (opened with <Strong>Routing</Strong> on the{" "}
+        <Strong>Decision stack</Strong> page, admin-managed) changes that for one asking employee: it
+        names who may answer on a
         human&apos;s behalf — the employee&apos;s <Strong>manager</Strong>, via the org chart&apos;s
         reports-to line, or a <Strong>named employee</Strong>. A decision the employee addressed to
         a specific person is never routed.
@@ -262,7 +263,7 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        The stack stays in <Strong>Decisions</Strong> rather than expanding Home. An empty{" "}
+        The stack stays on the <Strong>Decision stack</Strong> page rather than expanding Home. An empty{" "}
         <Strong>Needs you</Strong> section means your AI team is unblocked, not that the feature is
         off.
       </Callout>

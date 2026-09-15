@@ -190,7 +190,7 @@ export const ROLES: RoleDef[] = [
         at: 13.5,
         title: "Asks before it crosses a line",
         body: "One target account is already flagged in the Customers record as sitting with Legal. Robin does not guess: it writes a Decision with both options and the context, then moves on down the list.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {
@@ -347,7 +347,7 @@ export const ROLES: RoleDef[] = [
         at: 14.25,
         title: "Asks the one question it cannot answer",
         body: "Two commitments now collide and neither is obviously smaller. Avery writes a Decision with both options, what each costs, and its own recommendation, then waits. Nothing else stops.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {
@@ -652,7 +652,7 @@ export const ROLES: RoleDef[] = [
         at: 12.67,
         title: "Stops at the money",
         body: "A refund request goes past what the written refund policy covers. Pax assembles the account history, the contract, and its own recommendation into a Decision. The money stays untouched.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {
@@ -802,7 +802,7 @@ export const ROLES: RoleDef[] = [
         at: 11,
         title: "Refuses to guess",
         body: "A cross-border refund could book to either entity, and that changes the VAT treatment. Mira writes a Decision carrying both readings and the amount at stake, then moves on.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {
@@ -965,7 +965,7 @@ export const ROLES: RoleDef[] = [
         at: 13.25,
         title: "Stops at the blast radius",
         body: "The fix touches the payment path, and its Soul says that one carries a human's signature. It assembles the diff, the test evidence, and the rollback plan into a Decision, then stops.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {
@@ -1128,7 +1128,7 @@ export const ROLES: RoleDef[] = [
         at: 16,
         title: "Leaves the judgement to a person",
         body: "Two finalists, different strengths, one role. Noor compares them against the scorecard, names what it cannot judge, and puts the Decision in front of the hiring manager.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {
@@ -1277,7 +1277,7 @@ export const ROLES: RoleDef[] = [
         at: 13.67,
         title: "Says what the data cannot say",
         body: "Two explanations fit the churn spike equally well, and the data cannot separate them. The Decision it writes names both, what finding out would cost, and which one it recommends.",
-        where: "Decisions",
+        where: "Decision stack",
         kind: "decision",
       },
       {

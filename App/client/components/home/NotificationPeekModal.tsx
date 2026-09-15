@@ -21,14 +21,16 @@ import { Modal } from "@/components/ui/Modal";
  */
 
 /** What the "go there" button should call the destination. */
-function destinationLabel(entityKind: NotificationEntityKind | null): string {
+function destinationLabel(entityKind: NotificationEntityKind | null, link: string | null): string {
   switch (entityKind) {
     case "todo":
       return "Open the todo";
     case "approval":
-      return "Open approvals";
+      return /^\/c\/[^/]+\/decisions(?:[/#?]|$)/.test(link ?? "")
+        ? "Open Decision stack"
+        : "Open approvals";
     case "decision":
-      return "Open decisions";
+      return "Open Decision stack";
     case "run":
       return "Open the run";
     case "channel_message":
@@ -81,7 +83,8 @@ export function NotificationPeekModal({
               className={buttonClassName({ variant: "secondary", size: "sm" })}
               onClick={onClose}
             >
-              <ExternalLink size={14} /> {destinationLabel(notification.entityKind)}
+              <ExternalLink size={14} />
+              {destinationLabel(notification.entityKind, notification.link)}
             </Link>
           )}
           <Button size="sm" onClick={onClose}>

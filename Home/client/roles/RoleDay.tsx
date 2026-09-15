@@ -361,7 +361,7 @@ function MomentRow({ moment }: { moment: RoleMoment }) {
  * the other barred because the system got in the way — and it means the two
  * states are still told apart with the colour turned off.
  *
- * `where` is "Decisions" or "Approvals" here, which is why it takes no hue:
+ * `where` is "Decision stack" or "Approvals" here, which is why it takes no hue:
  * neither is a department, and both are the one queue that is yours.
  */
 function StopRow({ moment }: { moment: RoleMoment & { kind: "decision" | "approval" } }) {

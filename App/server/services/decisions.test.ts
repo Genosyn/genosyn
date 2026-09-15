@@ -32,11 +32,13 @@ beforeEach(resetTestDb);
 /** A company with one employee and one owner, wired well enough to notify. */
 async function scenario(): Promise<{
   companyId: string;
+  companySlug: string;
   employeeId: string;
   ownerId: string;
   memberId: string;
 }> {
   const companyId = testCompanyId();
+  const companySlug = `acme-${companyId.slice(3, 11)}`;
   const owner = await insert(User, {
     email: `owner-${companyId}@example.test`,
     passwordHash: "x",
@@ -50,7 +52,7 @@ async function scenario(): Promise<{
   await insert(Company, {
     id: companyId,
     name: "Acme",
-    slug: `acme-${companyId.slice(3, 11)}`,
+    slug: companySlug,
     ownerId: owner.id,
   });
   const employee = await insert(AIEmployee, {
@@ -62,7 +64,13 @@ async function scenario(): Promise<{
   });
   await insert(Membership, { companyId, userId: owner.id, role: "owner" });
   await insert(Membership, { companyId, userId: member.id, role: "member" });
-  return { companyId, employeeId: employee.id, ownerId: owner.id, memberId: member.id };
+  return {
+    companyId,
+    companySlug,
+    employeeId: employee.id,
+    ownerId: owner.id,
+    memberId: member.id,
+  };
 }
 
 async function stack(companyId: string, employeeId: string, overrides: Partial<Decision> = {}) {
@@ -112,7 +120,7 @@ describe("decision options", () => {
 
 describe("raising a decision", () => {
   test("scrubs the title and body, and pages the owners", async () => {
-    const { companyId, employeeId, ownerId, memberId } = await scenario();
+    const { companyId, companySlug, employeeId, ownerId, memberId } = await scenario();
     const { decision } = await createDecision({
       companyId,
       employeeId,
@@ -135,6 +143,7 @@ describe("raising a decision", () => {
     );
     assert.equal(notifications[0].kind, "decision_pending");
     assert.equal(notifications[0].entityId, decision.id);
+    assert.equal(notifications[0].link, `/c/${companySlug}/decisions#decision-${decision.id}`);
     assert.notEqual(notifications[0].userId, memberId);
   });
 

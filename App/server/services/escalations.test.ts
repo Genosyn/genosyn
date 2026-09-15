@@ -3,7 +3,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { Approval } from "../db/entities/Approval.js";
+import { Approval, type ApprovalKind } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { Handoff } from "../db/entities/Handoff.js";
@@ -23,11 +23,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 async function scenario(): Promise<{
   companyId: string;
+  companySlug: string;
   employeeId: string;
   ownerId: string;
   outsiderId: string;
 }> {
   const companyId = testCompanyId();
+  const companySlug = `acme-${companyId.slice(3, 11)}`;
   const owner = await insert(User, {
     email: `owner-${companyId}@example.test`,
     passwordHash: "x",
@@ -41,7 +43,7 @@ async function scenario(): Promise<{
   await insert(Company, {
     id: companyId,
     name: "Acme",
-    slug: `acme-${companyId.slice(3, 11)}`,
+    slug: companySlug,
     ownerId: owner.id,
   });
   const employee = await insert(AIEmployee, {
@@ -54,12 +56,22 @@ async function scenario(): Promise<{
   await insert(Membership, { companyId, userId: owner.id, role: "owner" });
   // `outsider` deliberately holds no Membership: they are the ex-colleague
   // whose account (and push devices) outlive their time at the company.
-  return { companyId, employeeId: employee.id, ownerId: owner.id, outsiderId: outsider.id };
+  return {
+    companyId,
+    companySlug,
+    employeeId: employee.id,
+    ownerId: owner.id,
+    outsiderId: outsider.id,
+  };
 }
 
 let routineSeq = 0;
 
-async function staleApproval(companyId: string, employeeId: string): Promise<Approval> {
+async function staleApproval(
+  companyId: string,
+  employeeId: string,
+  kind: ApprovalKind = "routine",
+): Promise<Approval> {
   routineSeq += 1;
   const routine = await insert(Routine, {
     employeeId,
@@ -73,6 +85,8 @@ async function staleApproval(companyId: string, employeeId: string): Promise<App
     companyId,
     employeeId,
     routineId: routine.id,
+    kind,
+    title: kind === "routine" ? null : `Review ${kind}`,
     status: "pending",
   });
   // `requestedAt` is a CreateDateColumn, so age it explicitly.
@@ -89,7 +103,7 @@ function notifications(kind: NotificationKind): Promise<Notification[]> {
 
 describe("stall sweep", () => {
   test("re-pages an approval left pending past the threshold, exactly once", async () => {
-    const { companyId, employeeId, ownerId } = await scenario();
+    const { companyId, companySlug, employeeId, ownerId } = await scenario();
     const approval = await staleApproval(companyId, employeeId);
 
     await sweepStalledWork(new Date());
@@ -97,6 +111,7 @@ describe("stall sweep", () => {
     assert.equal(first.length, 1);
     assert.equal(first[0].userId, ownerId);
     assert.equal(first[0].entityId, approval.id);
+    assert.equal(first[0].link, `/c/${companySlug}/approvals`);
 
     // The marker is on the row, so a second pass says nothing more.
     await sweepStalledWork(new Date());
@@ -104,6 +119,23 @@ describe("stall sweep", () => {
 
     const row = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
     assert.ok(row.stallRemindedAt);
+  });
+
+  test("re-pages Decision-stack reviews at their exact card", async () => {
+    const { companyId, companySlug, employeeId } = await scenario();
+    const work = await staleApproval(companyId, employeeId, "proactive_work");
+    const mail = await staleApproval(companyId, employeeId, "mail_send");
+
+    await sweepStalledWork(new Date());
+    const rows = await notifications("approval_stale");
+    assert.equal(rows.length, 2);
+    assert.deepEqual(
+      new Map(rows.map((row) => [row.entityId, row.link])),
+      new Map([
+        [work.id, `/c/${companySlug}/decisions#review-${work.id}`],
+        [mail.id, `/c/${companySlug}/decisions#review-${mail.id}`],
+      ]),
+    );
   });
 
   test("a reminded row does not block newer stalled rows from being reminded", async () => {
@@ -137,7 +169,7 @@ describe("stall sweep", () => {
   });
 
   test("a blocked Decision with a retired deadline pages the owners instead of a departed Member", async () => {
-    const { companyId, employeeId, ownerId, outsiderId } = await scenario();
+    const { companyId, companySlug, employeeId, ownerId, outsiderId } = await scenario();
     const decision = await insert(Decision, {
       companyId,
       employeeId,
@@ -161,6 +193,7 @@ describe("stall sweep", () => {
     // The ex-colleague keeps their account and their push devices; company
     // activity must not reach them, and the page must still reach someone.
     assert.equal(rows[0].userId, ownerId);
+    assert.equal(rows[0].link, `/c/${companySlug}/decisions#decision-${decision.id}`);
   });
 
   test("an overdue handoff escalates, and one still inside its deadline does not", async () => {

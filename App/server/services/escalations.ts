@@ -105,6 +105,8 @@ async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Prom
       approval.kind === "routine" && routine
         ? `run "${routine.name}"`
         : (redactApprovalSummary(approval.title) ?? "an action");
+    const decisionStackReview =
+      approval.kind === "proactive_work" || approval.kind === "mail_send";
     const inputs: CreateNotificationInput[] = userIds.map((userId) => ({
       companyId: approval.companyId,
       userId,
@@ -113,7 +115,9 @@ async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Prom
       body:
         "Nothing runs until a human approves or rejects it — the gated work is " +
         "lost, not queued, if this is never answered.",
-      link: `/c/${company.slug}/approvals`,
+      link: decisionStackReview
+        ? `/c/${company.slug}/decisions#review-${approval.id}`
+        : `/c/${company.slug}/approvals`,
       actorKind: employee ? ("ai" as const) : ("system" as const),
       actorId: employee?.id ?? null,
       entityKind: "approval" as const,
@@ -164,7 +168,7 @@ async function sweepStaleDecisions(now: Date, assertLeaseHeld: () => void): Prom
       kind: "decision_stale" as const,
       title: `${employee.name} has been blocked ${hoursSince(decision.createdAt, now)}h on: ${decision.title}`,
       body: "They stopped to ask and cannot carry on until someone picks an option.",
-      link: `/c/${company.slug}/decisions`,
+      link: `/c/${company.slug}/decisions#decision-${decision.id}`,
       actorKind: "ai" as const,
       actorId: employee.id,
       entityKind: "decision" as const,

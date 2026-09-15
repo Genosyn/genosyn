@@ -111,6 +111,27 @@ export const SECTION_GROUPS: SectionGroup[] = [
         keywords: ["dashboard", "overview", "start"],
       },
       {
+        key: "decisions",
+        label: "Decision stack",
+        description: "Questions, email reviews, and work awaiting approval.",
+        icon: GitBranch,
+        // Not "D": Marketing already holds it, and the chord map is keyed by
+        // letter, so a third claim would shadow one of them.
+        shortcut: "I",
+        path: "/decisions",
+        iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+        keywords: [
+          "decision",
+          "stack",
+          "choose",
+          "blocked",
+          "waiting on me",
+          "ask",
+          "email review",
+          "draft reply",
+        ],
+      },
+      {
         key: "tldrs",
         label: "TLDRs",
         description: "Periodic briefings on what your company did.",
@@ -473,27 +494,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
         keywords: ["diary", "activity", "digest", "log"],
       },
       {
-        key: "decisions",
-        label: "Decisions",
-        description: "Review recommendations, email replies, and questions that need you.",
-        icon: GitBranch,
-        // Not "D": Marketing already holds it, and the chord map is keyed by
-        // letter, so a third claim would shadow one of them.
-        shortcut: "I",
-        path: "/decisions",
-        iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
-        keywords: [
-          "decision",
-          "stack",
-          "choose",
-          "blocked",
-          "waiting on me",
-          "ask",
-          "email review",
-          "draft reply",
-        ],
-      },
-      {
         key: "approvals",
         label: "Approvals",
         description: "Gate routines that need a human.",
@@ -610,6 +610,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/signatures(\/|$)/.test(pathname)) return "signatures";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
+  if (/\/c\/[^/]+\/decisions(\/|$)/.test(pathname)) return "decisions";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
   if (/\/c\/[^/]+\/help(\/|$)/.test(pathname)) return "help";
   if (/\/c\/[^/]+\/account(\/|$)/.test(pathname)) return "account";

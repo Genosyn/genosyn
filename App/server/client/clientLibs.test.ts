@@ -752,6 +752,7 @@ describe("section routing and command search", () => {
       "customers",
       "finance",
       "pipelines",
+      "decisions",
       "approvals",
       "help",
       "account",
@@ -774,6 +775,15 @@ describe("section routing and command search", () => {
       group.items.map((item) => item.shortcut),
     );
     assert.equal(new Set(productShortcuts).size, productShortcuts.length);
+  });
+
+  test("exposes the Decision stack as a first-class searchable destination", () => {
+    assert.equal(SECTION_BY_KEY.decisions.label, "Decision stack");
+    assert.equal(
+      SECTION_GROUPS.find((group) => group.items.some((item) => item.key === "decisions"))?.label,
+      "Essentials",
+    );
+    assert.equal(searchSections(items, "decision stack")[0]?.item.key, "decisions");
   });
 
   test("ranks exact, prefix, boundary, keyword, description, and fuzzy matches", () => {
