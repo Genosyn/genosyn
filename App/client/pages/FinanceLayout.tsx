@@ -21,6 +21,7 @@ import {
   Percent,
   Repeat,
   ScanSearch,
+  ScrollText,
   Settings,
   Users,
   Wallet,
@@ -59,6 +60,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           label="Estimates"
         />
         <SidebarLink to={`${base}/invoices`} icon={<FileText size={14} />} label="Invoices" />
+        <SidebarLink
+          to={`${base}/customer-statements`}
+          icon={<ScrollText size={14} />}
+          label="Customer statements"
+        />
         <SidebarLink
           to={`${base}/credit-notes`}
           icon={<Undo2 size={14} />}

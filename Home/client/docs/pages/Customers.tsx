@@ -73,7 +73,8 @@ export function Customers() {
 
       <H2 id="statements">Statements</H2>
       <P>
-        Open a customer&apos;s overview and click <Code>Statement</Code> for a{" "}
+        Open a customer&apos;s overview and click <Code>Statement</Code>, or choose the customer
+        under <Code>Finance → Customer statements</Code>, for a{" "}
         <Strong>statement of account</Strong> — the running ledger you&apos;d send a customer who
         asks &quot;what do I owe you?&quot;. It lists every issued invoice as a charge and every
         recorded payment as a credit, in date order, with a running balance carried from an{" "}
