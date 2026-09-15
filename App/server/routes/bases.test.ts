@@ -17,6 +17,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseField } from "../db/entities/BaseField.js";
+import { BaseForm } from "../db/entities/BaseForm.js";
+import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
@@ -257,6 +259,24 @@ describe("Base table archive access", () => {
       authorEmployeeId: null,
       body: "Keep this with the record.",
     });
+    const form = await insert(BaseForm, {
+      companyId: company.id,
+      tableId: table.id,
+      slug: "archived-table-form",
+      title: "Archived table form",
+      questionsJson: "[]",
+      publishedAt: null,
+      acceptingResponses: true,
+      tokenHash: "a".repeat(64),
+      tokenEncrypted: "encrypted-token",
+      createdById: actingUserId,
+    });
+    await insert(BaseFormSubmission, {
+      companyId: company.id,
+      formId: form.id,
+      recordId: record.id,
+      clientSubmissionId: randomUUID(),
+    });
     await humanCall("PATCH", `/bases/${base.slug}/tables/${table.id}`, {
       archived: true,
     });
@@ -274,11 +294,150 @@ describe("Base table archive access", () => {
     assert.equal(await AppDataSource.getRepository(BaseRecord).countBy({ tableId: table.id }), 0);
     assert.equal(await AppDataSource.getRepository(BaseField).countBy({ tableId: table.id }), 0);
     assert.equal(await AppDataSource.getRepository(BaseView).countBy({ tableId: table.id }), 0);
+    assert.equal(await AppDataSource.getRepository(BaseForm).countBy({ tableId: table.id }), 0);
+    assert.equal(
+      await AppDataSource.getRepository(BaseFormSubmission).countBy({ formId: form.id }),
+      0,
+    );
     assert.equal(
       await AppDataSource.getRepository(BaseRecordComment).countBy({
         recordId: record.id,
       }),
       0,
+    );
+  });
+});
+
+describe("Base Form field integrity", () => {
+  test("Member and MCP updates preserve required choices on every published Form", async () => {
+    for (const [index, type] of (["select", "multiselect"] as const).entries()) {
+      const choiceField = await insert(BaseField, {
+        tableId: table.id,
+        name: type === "select" ? "Status" : "Interests",
+        type,
+        configJson: JSON.stringify({
+          options: [{ id: "kept", label: "Keep me", color: "slate" }],
+        }),
+        isPrimary: false,
+        sortOrder: 2_000 + index,
+      });
+      const form = await insert(BaseForm, {
+        companyId: company.id,
+        tableId: table.id,
+        slug: `${type}-choices`,
+        title: `${type} choices`,
+        questionsJson: JSON.stringify([
+          {
+            id: randomUUID(),
+            fieldId: choiceField.id,
+            label: "Choose",
+            description: "",
+            required: true,
+          },
+        ]),
+        publishedAt: new Date(),
+        acceptingResponses: index !== 0,
+        tokenHash: String(index + 3).repeat(64),
+        tokenEncrypted: "encrypted-token",
+        createdById: actingUserId,
+      });
+
+      const human = await humanCall(
+        "PATCH",
+        `/bases/${base.slug}/tables/${table.id}/fields/${choiceField.id}`,
+        { config: { options: [{ id: "blank", label: "   ", color: "slate" }] } },
+      );
+      assert.equal(human.status, 409);
+      assert.match(
+        String(human.body.error),
+        /remove the question, make it optional, or unpublish/i,
+      );
+
+      const ai = await aiCall("update_base_field", {
+        baseSlug: base.slug,
+        tableSlug: table.slug,
+        fieldId: choiceField.id,
+        options: [],
+      });
+      assert.equal(ai.status, 409);
+      assert.match(String(ai.body.error), /remove the question, make it optional, or unpublish/i);
+      assert.deepEqual(
+        JSON.parse(
+          (await AppDataSource.getRepository(BaseField).findOneByOrFail({ id: choiceField.id }))
+            .configJson,
+        ).options,
+        [{ id: "kept", label: "Keep me", color: "slate" }],
+      );
+
+      form.publishedAt = null;
+      await AppDataSource.getRepository(BaseForm).save(form);
+      const draftHuman = await humanCall(
+        "PATCH",
+        `/bases/${base.slug}/tables/${table.id}/fields/${choiceField.id}`,
+        { config: { options: [] } },
+      );
+      assert.equal(draftHuman.status, 200);
+      const draftAi = await aiCall("update_base_field", {
+        baseSlug: base.slug,
+        tableSlug: table.slug,
+        fieldId: choiceField.id,
+        options: [],
+      });
+      assert.equal(draftAi.status, 200);
+    }
+  });
+
+  test("Member and MCP deletion both reject a field used by a Form", async () => {
+    const secondary = await insert(BaseField, {
+      tableId: table.id,
+      name: "Email",
+      type: "email",
+      configJson: "{}",
+      isPrimary: false,
+      sortOrder: 2_000,
+    });
+    const form = await insert(BaseForm, {
+      companyId: company.id,
+      tableId: table.id,
+      slug: "contact-form",
+      title: "Contact form",
+      questionsJson: JSON.stringify([
+        {
+          id: randomUUID(),
+          fieldId: secondary.id,
+          label: "Email",
+          description: "",
+          required: true,
+        },
+      ]),
+      publishedAt: null,
+      acceptingResponses: true,
+      tokenHash: "b".repeat(64),
+      tokenEncrypted: "encrypted-token",
+      createdById: actingUserId,
+    });
+
+    const human = await humanCall(
+      "DELETE",
+      `/bases/${base.slug}/tables/${table.id}/fields/${secondary.id}`,
+    );
+    assert.equal(human.status, 409);
+    assert.match(String(human.body.error), /Contact form/);
+
+    const ai = await aiCall("delete_base_field", {
+      baseSlug: base.slug,
+      tableSlug: table.slug,
+      fieldId: secondary.id,
+    });
+    assert.equal(ai.status, 409);
+    assert.match(String(ai.body.error), /Contact form/);
+    assert.equal(await AppDataSource.getRepository(BaseField).countBy({ id: secondary.id }), 1);
+
+    await AppDataSource.getRepository(BaseForm).delete({ id: form.id });
+    assert.equal(
+      (await humanCall("DELETE", `/bases/${base.slug}/tables/${table.id}/fields/${secondary.id}`))
+        .status,
+      200,
     );
   });
 });

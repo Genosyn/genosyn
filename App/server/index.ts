@@ -95,6 +95,8 @@ import { cardExpensesRouter } from "./routes/cardExpenses.js";
 import { contractsRouter } from "./routes/contracts.js";
 import { signaturesRouter } from "./routes/signatures.js";
 import { publicSignaturesRouter, publicSigningSecurityHeaders } from "./routes/publicSignatures.js";
+import { publicFormsRouter, publicFormsSecurityHeaders } from "./routes/publicForms.js";
+import { formsRouter } from "./routes/forms.js";
 import { exploreRouter } from "./routes/explore.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
@@ -278,12 +280,15 @@ async function main() {
   // body parsing as well, so parser errors cannot emit a cacheable response.
   app.use("/api/sign", publicSigningSecurityHeaders);
   app.use("/sign", publicSigningSecurityHeaders);
+  app.use("/api/forms", publicFormsSecurityHeaders);
+  app.use("/forms", publicFormsSecurityHeaders);
   app.use(express.json({ limit: "1mb" }));
 
   // Recipient signing links are bearer-token authenticated and intentionally
   // session-free. Mount before cookie sessions and the trusted-origin gate so
   // email clients that omit Origin can view, consent, complete, or decline.
   app.use("/api/sign", publicSignaturesRouter);
+  app.use("/api/forms", publicFormsRouter);
 
   let sessionMiddleware: ReturnType<typeof cookieSession> | null = null;
   let sessionMiddlewareSecret = "";
@@ -444,6 +449,7 @@ async function main() {
   app.use("/api/companies/:cid", notificationsRouter);
   // Bases (Airtable-style workspaces) — companion to Tasks.
   app.use("/api/companies/:cid", basesRouter);
+  app.use("/api/companies/:cid", formsRouter);
   app.use("/api/companies/:cid", approvalsRouter);
   // The Decision Stack — questions an AI employee raised for a human to answer.
   // Member-level, unlike the admin-gated approvals inbox above it.

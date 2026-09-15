@@ -9,6 +9,8 @@ import { AppDataSource } from "../db/datasource.js";
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
 import { Company } from "../db/entities/Company.js";
+import { BaseForm } from "../db/entities/BaseForm.js";
+import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { CustomerCredit } from "../db/entities/CustomerCredit.js";
 import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
@@ -39,16 +41,15 @@ import { VendorRefund } from "../db/entities/VendorRefund.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
-import {
-  BILLING_SETTING_KEY,
-  invalidateBillingSettingsCache,
-} from "./billing/billingSettings.js";
+import { BILLING_SETTING_KEY, invalidateBillingSettingsCache } from "./billing/billingSettings.js";
 import { deleteCompanyCascade } from "./companyDelete.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   AdSpendEvent,
+  BaseForm,
+  BaseFormSubmission,
   CustomerCredit,
   CustomerCreditApplication,
   CustomerRefund,

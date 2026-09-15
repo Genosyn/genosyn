@@ -294,6 +294,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Airtable-style tables with views, comments, attachments, and columns that link customers, projects, and more.",
       },
       {
+        path: "/docs/forms",
+        title: "Forms",
+        blurb:
+          "Publish a public form whose validated submissions become rows in a Base table.",
+      },
+      {
         path: "/docs/resources",
         title: "Resources",
         blurb:

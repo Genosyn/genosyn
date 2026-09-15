@@ -2274,6 +2274,87 @@ export type BaseGrant = {
   } | null;
 };
 
+// ───────────────────────────── Base Forms ──────────────────────────────────
+
+/** A question in a Form maps one public prompt to one scalar Base field. */
+export type BaseFormQuestion = {
+  id: string;
+  fieldId: string;
+  label: string;
+  description: string;
+  required: boolean;
+};
+
+export type BaseForm = {
+  id: string;
+  tableId: string;
+  slug: string;
+  title: string;
+  description: string;
+  submitLabel: string;
+  successTitle: string;
+  successMessage: string;
+  allowAnotherResponse: boolean;
+  publishedAt: string | null;
+  acceptingResponses: boolean;
+  publicUrl: string | null;
+  /**
+   * False when the URL is only the install's localhost fallback. Older
+   * servers may omit it, so the share surface treats it as unknown rather
+   * than incorrectly warning on a correctly configured instance.
+   */
+  publicUrlConfigured?: boolean;
+  responseCount: number;
+  lastResponseAt: string | null;
+  questions: BaseFormQuestion[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** The member gallery uses the same stable metadata without loading fields. */
+export type BaseFormSummary = Omit<BaseForm, "questions">;
+
+export type BaseFormDetail = {
+  form: BaseForm;
+  fields: BaseField[];
+};
+
+export type PublicBaseFormFieldType = Extract<
+  BaseFieldType,
+  | "text"
+  | "longtext"
+  | "number"
+  | "checkbox"
+  | "date"
+  | "datetime"
+  | "email"
+  | "url"
+  | "select"
+  | "multiselect"
+>;
+
+export type PublicBaseFormQuestion = {
+  id: string;
+  label: string;
+  description: string;
+  required: boolean;
+  type: PublicBaseFormFieldType;
+  options: SelectOption[];
+};
+
+export type PublicBaseForm = {
+  companyName: string;
+  color: BaseColor;
+  title: string;
+  description: string;
+  submitLabel: string;
+  successTitle: string;
+  successMessage: string;
+  allowAnotherResponse: boolean;
+  acceptingResponses: boolean;
+  questions: PublicBaseFormQuestion[];
+};
+
 // ───────────────────────── Pipelines (n8n-style automation) ──────────────────
 
 export type PipelineNodeFamily = "trigger" | "action" | "logic" | "integration";

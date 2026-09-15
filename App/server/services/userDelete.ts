@@ -8,6 +8,7 @@ import { Attachment } from "../db/entities/Attachment.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Base } from "../db/entities/Base.js";
+import { BaseForm } from "../db/entities/BaseForm.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { Bill } from "../db/entities/Bill.js";
@@ -188,6 +189,7 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
 
     // `createdById` (human creator) across the rest of the model.
     await m.update(Base, { createdById: userId }, { createdById: null });
+    await m.update(BaseForm, { createdById: userId }, { createdById: null });
     await m.update(Bill, { createdById: userId }, { createdById: null });
     await m.update(BillPayment, { createdById: userId }, { createdById: null });
     await m.update(Chart, { createdById: userId }, { createdById: null });

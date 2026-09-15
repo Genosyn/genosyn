@@ -230,6 +230,8 @@ import {
   deleteBaseRecordWithContents,
   deleteBaseTableWithContents,
   findBaseByName,
+  findBaseFormUsingField,
+  findPublishedBaseFormInvalidatedByChoices,
   findBaseTableByName,
   grantBaseAccess,
   hasBaseGrant,
@@ -239,6 +241,7 @@ import {
   hydrateRecordComments,
   listGrantedBasesForEmployee,
   mergeBaseRecordData,
+  publishedBaseFormChoiceConflictMessage,
   seedBaseFromTemplate,
   uniqueBaseSlug,
   uniqueTableSlug,
@@ -11550,6 +11553,12 @@ mcpInternalRouter.post(
         color: o.color ?? "slate",
       }));
       f.configJson = JSON.stringify(config);
+      const invalidatedForm = await findPublishedBaseFormInvalidatedByChoices(f);
+      if (invalidatedForm) {
+        return res.status(409).json({
+          error: publishedBaseFormChoiceConflictMessage(invalidatedForm),
+        });
+      }
     }
 
     if (body.isPrimary === true) {
@@ -11604,6 +11613,13 @@ mcpInternalRouter.post(
     if (f.isPrimary) {
       return res.status(400).json({
         error: "Promote another field to primary via update_base_field before deleting this one",
+      });
+    }
+
+    const referencedBy = await findBaseFormUsingField(t.id, f.id);
+    if (referencedBy) {
+      return res.status(409).json({
+        error: `Remove this field from Form "${referencedBy.title}" before deleting it`,
       });
     }
 

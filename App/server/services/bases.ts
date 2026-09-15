@@ -13,18 +13,15 @@ import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseView } from "../db/entities/BaseView.js";
+import { BaseForm } from "../db/entities/BaseForm.js";
+import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import { toSlug } from "../lib/slug.js";
-import { In, IsNull } from "typeorm";
-import {
-  BASE_TEMPLATES,
-  BaseTemplate,
-  TemplateRow,
-  TemplateRowCell,
-} from "./baseTemplates.js";
+import { EntityManager, In, IsNull, Not } from "typeorm";
+import { BASE_TEMPLATES, BaseTemplate, TemplateRow, TemplateRowCell } from "./baseTemplates.js";
 import { isResourceFieldType } from "./baseResources.js";
 import { deleteBaseAttachmentBytes } from "./baseRecordUploads.js";
 
@@ -93,10 +90,7 @@ function randOptionId(): string {
  * seed rows (resolving link cells against the primary-field values of sibling
  * tables). Returns nothing — callers re-fetch.
  */
-export async function seedBaseFromTemplate(
-  baseId: string,
-  template: BaseTemplate,
-): Promise<void> {
+export async function seedBaseFromTemplate(baseId: string, template: BaseTemplate): Promise<void> {
   const tableRepo = AppDataSource.getRepository(BaseTable);
   const fieldRepo = AppDataSource.getRepository(BaseField);
   const recordRepo = AppDataSource.getRepository(BaseRecord);
@@ -158,7 +152,10 @@ export async function seedBaseFromTemplate(
   const primaryByKeyValue = new Map<string, string>();
 
   // Create rows (empty links for now).
-  const createdRowsByKey = new Map<string, { row: BaseRecord; template: TemplateRow; tableKey: string }[]>();
+  const createdRowsByKey = new Map<
+    string,
+    { row: BaseRecord; template: TemplateRow; tableKey: string }[]
+  >();
   for (const tt of template.tables) {
     const table = tablesByKey.get(tt.key)!;
     const primaryField = tt.fields.find((f) => f.isPrimary);
@@ -221,11 +218,7 @@ export async function seedBaseFromTemplate(
   }
 }
 
-function encodeCell(
-  type: string,
-  cell: TemplateRowCell | undefined,
-  field: BaseField,
-): unknown {
+function encodeCell(type: string, cell: TemplateRowCell | undefined, field: BaseField): unknown {
   if (cell === undefined || cell === null) return null;
   if (type === "number") return typeof cell === "number" ? cell : null;
   if (type === "checkbox") return !!cell;
@@ -273,6 +266,51 @@ export type HydratedRecord = {
 };
 
 export type LinkOption = { id: string; label: string; tableId: string };
+
+export type SafeBaseSelectOption = { id: string; label: string; color: string };
+
+/**
+ * Return only choice options that are safe to expose and accept on a public
+ * Form. Keeping this sanitizer with the Base write helpers lets field updates
+ * enforce the same rules as Form publication and response validation.
+ */
+export function safeBaseSelectOptions(
+  field: Pick<BaseField, "type" | "configJson">,
+): SafeBaseSelectOption[] {
+  if (field.type !== "select" && field.type !== "multiselect") return [];
+  let raw: unknown;
+  try {
+    raw = (JSON.parse(field.configJson || "{}") as { options?: unknown }).options;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+
+  const seen = new Set<string>();
+  const options: SafeBaseSelectOption[] = [];
+  for (const candidate of raw.slice(0, 100)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const option = candidate as Record<string, unknown>;
+    const label = typeof option.label === "string" ? option.label.trim() : "";
+    if (
+      typeof option.id !== "string" ||
+      option.id.length < 1 ||
+      option.id.length > 255 ||
+      label.length < 1 ||
+      label.length > 200 ||
+      seen.has(option.id)
+    ) {
+      continue;
+    }
+    seen.add(option.id);
+    options.push({
+      id: option.id,
+      label,
+      color: typeof option.color === "string" && option.color.length <= 40 ? option.color : "slate",
+    });
+  }
+  return options;
+}
 
 export function hydrateField(f: BaseField): HydratedField {
   let config: Record<string, unknown> = {};
@@ -424,14 +462,17 @@ export function unknownBaseFieldMessage(fields: BaseField[], key: string): strin
 export async function createBaseRecordRow(
   tableId: string,
   data: Record<string, unknown>,
+  manager: EntityManager = AppDataSource.manager,
+  recordId?: string,
 ): Promise<BaseRecord> {
-  const repo = AppDataSource.getRepository(BaseRecord);
+  const repo = manager.getRepository(BaseRecord);
   const last = await repo.findOne({
     where: { tableId },
     order: { sortOrder: "DESC" },
   });
   return repo.save(
     repo.create({
+      ...(recordId ? { id: recordId } : {}),
       tableId,
       dataJson: JSON.stringify(data),
       sortOrder: (last?.sortOrder ?? 0) + 1000,
@@ -457,6 +498,88 @@ export function mergeBaseRecordData(
 }
 
 /**
+ * Return the first Form that references a field. Field deletion is blocked
+ * rather than silently changing a public Form; both Member and MCP paths use
+ * this same check. A malformed question document also fails closed.
+ */
+export async function findBaseFormUsingField(
+  tableId: string,
+  fieldId: string,
+): Promise<BaseForm | null> {
+  const forms = await AppDataSource.getRepository(BaseForm).find({
+    where: { tableId },
+    order: { createdAt: "ASC" },
+  });
+  for (const form of forms) {
+    try {
+      const questions = JSON.parse(form.questionsJson || "[]") as unknown;
+      if (!Array.isArray(questions)) return form;
+      if (
+        questions.some(
+          (question) =>
+            question !== null &&
+            typeof question === "object" &&
+            (question as Record<string, unknown>).fieldId === fieldId,
+        )
+      ) {
+        return form;
+      }
+    } catch {
+      return form;
+    }
+  }
+  return null;
+}
+
+/**
+ * Return the first published Form that a choice-field update would make
+ * unusable. A closed Form still counts as published: it can be reopened
+ * without another publication step. Draft Forms deliberately do not block
+ * choice editing.
+ */
+export async function findPublishedBaseFormInvalidatedByChoices(
+  field: Pick<BaseField, "id" | "tableId" | "type" | "configJson">,
+  manager: EntityManager = AppDataSource.manager,
+): Promise<BaseForm | null> {
+  if (
+    (field.type !== "select" && field.type !== "multiselect") ||
+    safeBaseSelectOptions(field).length > 0
+  ) {
+    return null;
+  }
+
+  const forms = await manager.getRepository(BaseForm).find({
+    where: { tableId: field.tableId, publishedAt: Not(IsNull()) },
+    order: { createdAt: "ASC" },
+  });
+  for (const form of forms) {
+    try {
+      const questions = JSON.parse(form.questionsJson || "[]") as unknown;
+      if (!Array.isArray(questions)) continue;
+      if (
+        questions.some(
+          (question) =>
+            question !== null &&
+            typeof question === "object" &&
+            (question as Record<string, unknown>).fieldId === field.id &&
+            (question as Record<string, unknown>).required === true,
+        )
+      ) {
+        return form;
+      }
+    } catch {
+      // A damaged question document cannot reliably reference this field and
+      // is already unavailable independently of the proposed option update.
+    }
+  }
+  return null;
+}
+
+export function publishedBaseFormChoiceConflictMessage(form: BaseForm): string {
+  return `Form "${form.title}" requires this field and is published. Remove the question, make it optional, or unpublish the Form before removing all choices.`;
+}
+
+/**
  * Permanently remove a record and its row-owned children: attachment bytes on
  * disk first (so blobs don't orphan), then attachment rows, comment rows, and
  * finally the record. The Member HTTP route, the MCP tool, and the code SDK
@@ -479,6 +602,7 @@ export async function deleteBaseRecordWithContents(
   }
   await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: record.id });
   await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: record.id });
+  await AppDataSource.getRepository(BaseFormSubmission).delete({ recordId: record.id });
   await AppDataSource.getRepository(BaseRecord).delete({ id: record.id });
 }
 
@@ -491,6 +615,17 @@ export async function deleteBaseTableWithContents(
   table: BaseTable,
   companySlug: string,
 ): Promise<void> {
+  const forms = await AppDataSource.getRepository(BaseForm).find({
+    where: { tableId: table.id },
+    select: ["id"],
+  });
+  const formIds = forms.map((form) => form.id);
+  if (formIds.length > 0) {
+    await AppDataSource.getRepository(BaseFormSubmission).delete({
+      formId: In(formIds),
+    });
+  }
+  await AppDataSource.getRepository(BaseForm).delete({ tableId: table.id });
   const records = await AppDataSource.getRepository(BaseRecord).find({
     where: { tableId: table.id },
   });
@@ -535,14 +670,10 @@ export async function listBaseGrants(
     where: { id: In(grants.map((g) => g.employeeId)) },
   });
   const byId = new Map(emps.map((e) => [e.id, e] as const));
-  return grants.map((g) =>
-    Object.assign(g, { employee: byId.get(g.employeeId) ?? null }),
-  );
+  return grants.map((g) => Object.assign(g, { employee: byId.get(g.employeeId) ?? null }));
 }
 
-export async function listGrantedBasesForEmployee(
-  employeeId: string,
-): Promise<Base[]> {
+export async function listGrantedBasesForEmployee(employeeId: string): Promise<Base[]> {
   const grants = await AppDataSource.getRepository(EmployeeBaseGrant).find({
     where: { employeeId },
   });
@@ -565,10 +696,7 @@ export async function grantBaseAccess(
   return row;
 }
 
-export async function revokeBaseAccess(
-  employeeId: string,
-  baseId: string,
-): Promise<boolean> {
+export async function revokeBaseAccess(employeeId: string, baseId: string): Promise<boolean> {
   const repo = AppDataSource.getRepository(EmployeeBaseGrant);
   const existing = await repo.findOneBy({ employeeId, baseId });
   if (!existing) return false;
@@ -576,10 +704,7 @@ export async function revokeBaseAccess(
   return true;
 }
 
-export async function hasBaseGrant(
-  employeeId: string,
-  baseId: string,
-): Promise<boolean> {
+export async function hasBaseGrant(employeeId: string, baseId: string): Promise<boolean> {
   const row = await AppDataSource.getRepository(EmployeeBaseGrant).findOneBy({
     employeeId,
     baseId,
@@ -599,7 +724,14 @@ export async function deleteGrantsForBase(baseId: string): Promise<void> {
 // ───── Record comments + attachments (hydrators shared by HTTP + MCP) ─────
 
 export type RecordCommentAuthor =
-  | { kind: "human"; id: string; name: string; email: string | null; avatarKey: string | null; handle: string | null }
+  | {
+      kind: "human";
+      id: string;
+      name: string;
+      email: string | null;
+      avatarKey: string | null;
+      handle: string | null;
+    }
   | { kind: "ai"; id: string; name: string; slug: string; role: string; avatarKey: string | null };
 
 export type HydratedRecordComment = {
@@ -640,9 +772,7 @@ export async function hydrateRecordComments(
   companyId: string,
   comments: BaseRecordComment[],
 ): Promise<HydratedRecordComment[]> {
-  const userIds = [
-    ...new Set(comments.map((c) => c.authorUserId).filter((x): x is string => !!x)),
-  ];
+  const userIds = [...new Set(comments.map((c) => c.authorUserId).filter((x): x is string => !!x))];
   const empIds = [
     ...new Set(comments.map((c) => c.authorEmployeeId).filter((x): x is string => !!x)),
   ];
@@ -704,16 +834,10 @@ export async function hydrateRecordAttachments(
   attachments: BaseRecordAttachment[],
 ): Promise<HydratedRecordAttachment[]> {
   const userIds = [
-    ...new Set(
-      attachments.map((a) => a.uploadedByUserId).filter((x): x is string => !!x),
-    ),
+    ...new Set(attachments.map((a) => a.uploadedByUserId).filter((x): x is string => !!x)),
   ];
   const empIds = [
-    ...new Set(
-      attachments
-        .map((a) => a.uploadedByEmployeeId)
-        .filter((x): x is string => !!x),
-    ),
+    ...new Set(attachments.map((a) => a.uploadedByEmployeeId).filter((x): x is string => !!x)),
   ];
   const [users, emps] = await Promise.all([
     userIds.length
@@ -853,9 +977,7 @@ export async function ensureDefaultView(tableId: string): Promise<BaseView> {
   return saved;
 }
 
-export async function listViewsForTable(
-  tableId: string,
-): Promise<HydratedBaseView[]> {
+export async function listViewsForTable(tableId: string): Promise<HydratedBaseView[]> {
   await ensureDefaultView(tableId);
   const rows = await AppDataSource.getRepository(BaseView).find({
     where: { tableId },

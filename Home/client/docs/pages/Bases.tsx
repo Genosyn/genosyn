@@ -141,6 +141,14 @@ export function Bases() {
         Views are shared: everyone in the company sees the same tabs.
       </P>
 
+      <H2 id="forms">Collect rows with Forms</H2>
+      <P>
+        A <DocLink to="/docs/forms">Form</DocLink> turns selected fields from an active table into a
+        public questionnaire. Every accepted submission appears immediately as an ordinary row in
+        that table, ready for the same views, filters, automations, and AI Employee access as rows
+        entered in the grid. The public page never exposes the Base or its existing records.
+      </P>
+
       <H2 id="ai-access">AI Employees &amp; bases</H2>
       <P>
         You can paste screenshots into the AI message box, drag files onto it, or use the paperclip.

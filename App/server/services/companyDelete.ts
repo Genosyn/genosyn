@@ -33,6 +33,8 @@ import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseView } from "../db/entities/BaseView.js";
+import { BaseForm } from "../db/entities/BaseForm.js";
+import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { EmployeeMemberBrowserGrant } from "../db/entities/EmployeeMemberBrowserGrant.js";
@@ -348,6 +350,10 @@ export async function deleteCompanyCascade(args: {
     if (baseRecordIds.length) {
       await m.delete(BaseRecordComment, { recordId: In(baseRecordIds) });
     }
+    // Form submissions point at both the Form and the BaseRecord. Remove the
+    // lineage and its public credential before either parent disappears.
+    await m.delete(BaseFormSubmission, { companyId });
+    await m.delete(BaseForm, { companyId });
     if (baseTableIds.length) {
       await m.delete(BaseRecord, { tableId: In(baseTableIds) });
       await m.delete(BaseField, { tableId: In(baseTableIds) });

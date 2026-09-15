@@ -10,6 +10,7 @@ import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseView } from "../db/entities/BaseView.js";
+import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
@@ -26,11 +27,14 @@ import {
   deleteGrantsForBase,
   ensureDefaultView,
   findBaseByName,
+  findBaseFormUsingField,
+  findPublishedBaseFormInvalidatedByChoices,
   findBaseTableByName,
   grantBaseAccess,
   hydrateField,
   hydrateRecord,
   mergeBaseRecordData,
+  publishedBaseFormChoiceConflictMessage,
   UUID_RE,
   hydrateRecordAttachments,
   hydrateRecordComments,
@@ -228,38 +232,14 @@ basesRouter.delete("/bases/:baseSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBaseBySlug(cid, req.params.baseSlug);
   if (!b) return res.status(404).json({ error: "Base not found" });
-  // Cascade delete: tables → fields + records (and their comments + attachments) → base.
+  // Cascade through the shared table helper so Forms and response lineage are
+  // covered identically by Base, table, MCP, and company deletion paths.
   const tables = await AppDataSource.getRepository(BaseTable).find({
     where: { baseId: b.id },
   });
-  const tableIds = tables.map((t) => t.id);
-  if (tableIds.length) {
-    const records = await AppDataSource.getRepository(BaseRecord).find({
-      where: { tableId: In(tableIds) },
-    });
-    const recordIds = records.map((r) => r.id);
-    if (recordIds.length) {
-      const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
-        where: { recordId: In(recordIds) },
-      });
-      if (attachments.length) {
-        const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-        if (co) {
-          for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
-        }
-      }
-      await AppDataSource.getRepository(BaseRecordAttachment).delete({
-        recordId: In(recordIds),
-      });
-      await AppDataSource.getRepository(BaseRecordComment).delete({
-        recordId: In(recordIds),
-      });
-    }
-    await AppDataSource.getRepository(BaseRecord).delete({ tableId: In(tableIds) });
-    await AppDataSource.getRepository(BaseField).delete({ tableId: In(tableIds) });
-    await AppDataSource.getRepository(BaseView).delete({ tableId: In(tableIds) });
-    await AppDataSource.getRepository(BaseTable).delete({ id: In(tableIds) });
-  }
+  const company = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+  if (!company) return res.status(404).json({ error: "Company not found" });
+  for (const table of tables) await deleteBaseTableWithContents(table, company.slug);
   await deleteGrantsForBase(b.id);
   await deleteTagAssignments("base", b.id);
   await AppDataSource.getRepository(Base).delete({ id: b.id });
@@ -626,6 +606,14 @@ basesRouter.patch(
     const body = req.body as z.infer<typeof patchFieldSchema>;
     if (body.name !== undefined) f.name = body.name;
     if (body.config !== undefined) f.configJson = JSON.stringify(body.config);
+    if (body.config !== undefined) {
+      const invalidatedForm = await findPublishedBaseFormInvalidatedByChoices(f);
+      if (invalidatedForm) {
+        return res.status(409).json({
+          error: publishedBaseFormChoiceConflictMessage(invalidatedForm),
+        });
+      }
+    }
     if (body.sortOrder !== undefined) f.sortOrder = body.sortOrder;
     if (body.isPrimary === true) {
       f.isPrimary = true;
@@ -656,6 +644,12 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId/fields/:fieldId", async (re
     return res
       .status(400)
       .json({ error: "Promote another field to primary before deleting this one" });
+  }
+  const referencedBy = await findBaseFormUsingField(t.id, f.id);
+  if (referencedBy) {
+    return res.status(409).json({
+      error: `Remove this field from Form "${referencedBy.title}" before deleting it`,
+    });
   }
   await AppDataSource.getRepository(BaseField).delete({ id: f.id });
   // Strip this field from every row. Cheap: records are small JSON blobs.
@@ -791,6 +785,9 @@ basesRouter.post(
       recordId: In(ids),
     });
     await AppDataSource.getRepository(BaseRecordComment).delete({
+      recordId: In(ids),
+    });
+    await AppDataSource.getRepository(BaseFormSubmission).delete({
       recordId: In(ids),
     });
     await AppDataSource.getRepository(BaseRecord).delete({ id: In(ids) });

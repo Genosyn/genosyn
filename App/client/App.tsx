@@ -106,6 +106,8 @@ import BasesIndex from "./pages/BasesIndex";
 import BaseNew from "./pages/BaseNew";
 import BaseDetail from "./pages/BaseDetail";
 import BaseRecordPage from "./pages/BaseRecordPage";
+import BaseForms from "./pages/BaseForms";
+import BaseFormEditor from "./pages/BaseFormEditor";
 import Workspace from "./pages/Workspace";
 import PipelinesLayout from "./pages/PipelinesLayout";
 import PipelinesIndex from "./pages/PipelinesIndex";
@@ -174,6 +176,7 @@ import SignatureNew from "@/pages/SignatureNew";
 import SignatureDetail from "@/pages/SignatureDetail";
 import SignatureAiAccess from "@/pages/SignatureAiAccess";
 import PublicSigning from "@/pages/PublicSigning";
+import PublicForm from "@/pages/PublicForm";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
 import FinanceProducts from "./pages/FinanceProducts";
@@ -221,9 +224,13 @@ type AuthState =
   | { status: "ready"; me: Me; companies: Company[] };
 
 function isAnonymousPage(pathname: string): boolean {
-  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|sign(?:\/|$))/i.test(
+  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|sign(?:\/|$)|forms(?:\/|$))/i.test(
     pathname,
   );
+}
+
+function isPublicSurfacePage(pathname: string): boolean {
+  return /^\/(?:sign|forms)(?:\/|$)/i.test(pathname);
 }
 
 function FullPageRedirect({ to }: { to: string }) {
@@ -239,7 +246,7 @@ function FullPageRedirect({ to }: { to: string }) {
 
 export default function App() {
   const location = useLocation();
-  const isPublicSigning = location.pathname.startsWith("/sign/");
+  const isPublicSurface = isPublicSurfacePage(location.pathname);
   const [auth, setAuth] = React.useState<AuthState>({ status: "loading" });
   const authenticatedMemberRef = React.useRef<string | null>(null);
 
@@ -269,15 +276,16 @@ export default function App() {
   }, [refreshAuthenticatedState]);
 
   React.useEffect(() => {
-    if (!isPublicSigning) void refresh();
-  }, [isPublicSigning, refresh]);
+    if (!isPublicSurface) void refresh();
+  }, [isPublicSurface, refresh]);
 
   return (
     <ThemeProvider>
       <DialogProvider>
-        {isPublicSigning ? (
+        {isPublicSurface ? (
           <Routes>
             <Route path="/sign/:token" element={<PublicSigning />} />
+            <Route path="/forms/:token" element={<PublicForm />} />
           </Routes>
         ) : auth.status === "loading" ? (
           <div className="flex h-full items-center justify-center">
@@ -545,6 +553,11 @@ function CompanyRoutes({
             <Route path="new" element={<BaseNew company={company} />} />
             <Route path=":baseSlug" element={<BaseDetail company={company} />} />
             <Route path=":baseSlug/:tableSlug" element={<BaseDetail company={company} />} />
+            <Route path=":baseSlug/:tableSlug/forms" element={<BaseForms company={company} />} />
+            <Route
+              path=":baseSlug/:tableSlug/forms/:formSlug"
+              element={<BaseFormEditor company={company} />}
+            />
             <Route
               path=":baseSlug/:tableSlug/r/:recordId"
               element={<BaseRecordPage company={company} />}

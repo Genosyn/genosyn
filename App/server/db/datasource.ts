@@ -50,6 +50,8 @@ import { BaseRecord } from "./entities/BaseRecord.js";
 import { BaseRecordComment } from "./entities/BaseRecordComment.js";
 import { BaseRecordAttachment } from "./entities/BaseRecordAttachment.js";
 import { BaseView } from "./entities/BaseView.js";
+import { BaseForm } from "./entities/BaseForm.js";
+import { BaseFormSubmission } from "./entities/BaseFormSubmission.js";
 import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { BackupDestination } from "./entities/BackupDestination.js";
@@ -269,6 +271,8 @@ const entities = [
   BaseRecordComment,
   BaseRecordAttachment,
   BaseView,
+  BaseForm,
+  BaseFormSubmission,
   Backup,
   BackupSchedule,
   BackupDestination,

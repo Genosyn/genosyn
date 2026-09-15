@@ -22,6 +22,7 @@ import {
   Check,
   ArrowUp,
   ArrowDown,
+  ClipboardList,
 } from "lucide-react";
 import {
   api,
@@ -393,6 +394,19 @@ export default function BaseDetail({ company }: { company: Company }) {
               {currentTable ? currentTable.name : base.name}
             </h1>
           </div>
+          <button
+            onClick={() =>
+              currentTable &&
+              navigate(
+                `/c/${company.slug}/bases/${base.slug}/${currentTable.slug}/forms`,
+              )
+            }
+            disabled={!currentTable}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            title="Create and share forms that add rows to this table"
+          >
+            <ClipboardList size={13} /> Forms
+          </button>
           <button
             onClick={() => setShowAssistant((s) => !s)}
             disabled={!!currentTable?.archivedAt}

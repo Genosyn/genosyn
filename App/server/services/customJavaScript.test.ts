@@ -138,6 +138,8 @@ test("script snippet validation rejects partial tags, other HTML, and unsafe sou
 test("credential-bearing, authentication, and safe-mode page loads are excluded", () => {
   for (const value of [
     "/SIGN/secret",
+    "/forms/secret",
+    "/forms",
     "/reset/secret",
     "/verify-email/secret",
     "/invite/secret",

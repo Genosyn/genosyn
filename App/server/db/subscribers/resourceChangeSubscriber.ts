@@ -143,6 +143,7 @@ const REGISTRY: Record<string, Mapping> = {
   BaseTable: { kind: "base", company: { fk: "baseId", parent: "Base" }, scopeFk: "baseId" },
   BaseField: { kind: "base", company: { fk: "tableId", parent: "BaseTable" }, scopeFk: "tableId" },
   BaseView: { kind: "base", company: { fk: "tableId", parent: "BaseTable" }, scopeFk: "tableId" },
+  BaseForm: { kind: "base", company: "direct", scopeFk: "tableId" },
   BaseRecord: {
     kind: "baserecord",
     company: { fk: "tableId", parent: "BaseTable" },
