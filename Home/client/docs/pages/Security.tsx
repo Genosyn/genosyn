@@ -156,10 +156,11 @@ export function Security() {
       <H2 id="sign-in">Sign in with a passkey or 2FA</H2>
       <P>
         <Strong>Sign in with a passkey</Strong> opens the browser&apos;s own passkey picker and
-        completes the whole sign-in after local user verification. Once a browser session completes
-        its required factors, it stays authorized until its normal expiry or revocation; Genosyn
-        does not impose a separate recent-authentication window. The five-minute challenge is
-        single-use, stored across application replicas, and bound to the browser that started it.
+        completes the whole sign-in after local user verification. It supplies both primary and second-factor evidence
+        to the browser session. Once that session completes its required factors, it stays authorized
+        until its normal expiry or revocation; Genosyn does not impose a separate recent-authentication
+        window. The five-minute challenge is single-use, stored across application replicas, and bound
+        to the browser that started it.
       </P>
       <P>
         Password and SSO remain available. When the account has two-factor authentication enabled,
