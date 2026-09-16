@@ -265,11 +265,10 @@ export function SelfHosting() {
       <Callout title="Upgrading private conversations">
         Older direct and Help conversations may predate private Member ownership. They remain hidden
         from ordinary Members after migration. Company owners and admins can open one and select{" "}
-        <Strong>Claim conversation</Strong> after a sign-in from the last 15 minutes. Any
-        unattributed turn that was still running during the upgrade is stopped safely and can be
-        retried after the conversation is claimed. Pending manual Mail handovers from an older
-        release also stop safely; retry one from its thread to authorize it with your current
-        browser session.
+        <Strong>Claim conversation</Strong> from any valid browser session. Any unattributed turn
+        that was still running during the upgrade is stopped safely and can be retried after the
+        conversation is claimed. Pending manual Mail handovers from an older release also stop
+        safely; retry one from its thread to authorize it with your current browser session.
       </Callout>
 
       <H2 id="data-dir">The data directory</H2>

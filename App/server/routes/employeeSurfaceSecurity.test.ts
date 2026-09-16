@@ -183,28 +183,24 @@ describe("legacy direct-conversation ownership", () => {
     assert.equal((await call("GET", `/conversations/${legacy.id}`, { user: member })).status, 404);
   });
 
-  test("claim is browser-only, role-bound, recent, atomic, and does not elevate a legacy working turn", async () => {
+  test("claim is browser-only, role-bound, timestamp-independent, atomic, and does not elevate a legacy working turn", async () => {
     assert.equal((await call("GET", "/conversations", { bearer })).status, 403);
+    assert.equal(
+      (await call("POST", `/conversations/${legacy.id}/claim`, { bearer })).status,
+      403,
+    );
     assert.equal(
       (
         await call("POST", `/conversations/${legacy.id}/claim`, {
           user: member,
-          authenticatedAt: Date.now(),
         })
       ).status,
       403,
     );
 
-    const stale = await call("POST", `/conversations/${legacy.id}/claim`, {
-      user: admin,
-      authenticatedAt: Date.now() - 16 * 60_000,
-    });
-    assert.equal(stale.status, 403);
-    assert.equal(stale.body.code, "REAUTHENTICATION_REQUIRED");
-
     const claimed = await call("POST", `/conversations/${legacy.id}/claim`, {
       user: admin,
-      authenticatedAt: Date.now(),
+      authenticatedAt: Date.now() - 16 * 60_000,
     });
     assert.equal(claimed.status, 200);
     assert.equal(claimed.body.legacyUnclaimed, false);
@@ -225,7 +221,6 @@ describe("legacy direct-conversation ownership", () => {
 
     const losingClaim = await call("POST", `/conversations/${legacy.id}/claim`, {
       user: owner,
-      authenticatedAt: Date.now(),
     });
     assert.equal(losingClaim.status, 409);
     assert.equal((await call("GET", `/conversations/${legacy.id}`, { user: member })).status, 404);

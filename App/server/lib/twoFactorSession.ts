@@ -40,6 +40,12 @@ export function recordTwoFactorFailure(req: Request): boolean {
   return false;
 }
 
+/** Keep a verified factor valid for the lifetime of this signed-in browser session. */
+export function markSecondFactorVerified(req: Request): void {
+  if (!req.session?.userId) return;
+  req.session.secondFactorAt = Date.now();
+}
+
 export async function completeTwoFactorLogin(
   req: Request,
   userId: string,
@@ -50,8 +56,8 @@ export async function completeTwoFactorLogin(
   req.session = {
     ...(await createUserSession({ id: userId, sessionVersion })),
     authenticatedAt,
-    secondFactorAt: Date.now(),
   };
+  markSecondFactorVerified(req);
 }
 
 export function rememberWebAuthnChallenge(

@@ -8,7 +8,7 @@ declare module "express-serve-static-core" {
       userSessionId?: string;
       /** Absolute sign-in expiry, enforced by the server as well as the cookie. */
       expiresAt?: number;
-      /** Successful primary authentication time, used for step-up gates. */
+      /** Successful primary authentication time, retained as session metadata. */
       authenticatedAt?: number;
       /** Successful TOTP, recovery-code, or WebAuthn completion time. */
       secondFactorAt?: number;

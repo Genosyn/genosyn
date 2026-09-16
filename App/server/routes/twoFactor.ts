@@ -27,6 +27,7 @@ import {
   beginTwoFactorLoginSession,
   clearWebAuthnChallenge,
   completeTwoFactorLogin,
+  markSecondFactorVerified,
   pendingTwoFactorUserId,
   readWebAuthnChallenge,
   recordTwoFactorFailure,
@@ -319,6 +320,7 @@ twoFactorRouter.post(
       const result = await finishTotpEnrollment(req.user!, setupId, code);
       delete req.session.totpSetupId;
       delete req.session.totpSetupExpiresAt;
+      markSecondFactorVerified(req);
       res.json(result);
     } catch (err) {
       sendError(err, res, next);
@@ -391,6 +393,7 @@ twoFactorRouter.post(
         kind: challenge.credentialKind,
       });
       clearWebAuthnChallenge(req);
+      markSecondFactorVerified(req);
       res.json(result);
     } catch (err) {
       clearWebAuthnChallenge(req);

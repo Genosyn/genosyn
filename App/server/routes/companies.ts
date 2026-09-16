@@ -12,7 +12,6 @@ import {
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
-  requireRecentAuthentication,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { generateToken, hashToken } from "../lib/token.js";
@@ -192,9 +191,6 @@ const patchSchema = z
     { message: "Provide a company profile field or a two-factor policy" },
   );
 
-const requireRecentSecondFactor = requireRecentAuthentication({ requireSecondFactor: true });
-const requireRecentPrimary = requireRecentAuthentication();
-
 /** Apply a middleware only when this PATCH changes the company MFA policy. */
 function whenTwoFactorPolicyChanges(middleware: RequestHandler): RequestHandler {
   return (req, res, next) => {
@@ -207,42 +203,11 @@ function whenTwoFactorPolicyChanges(middleware: RequestHandler): RequestHandler 
   };
 }
 
-function whenGrantingAdminRole(middleware: RequestHandler): RequestHandler {
-  return (req, res, next) => {
-    const body = req.body as { role?: unknown };
-    if (body.role !== "admin") {
-      next();
-      return;
-    }
-    middleware(req, res, next);
-  };
-}
-
-function whenGrantingFullFinanceAccess(middleware: RequestHandler): RequestHandler {
-  return (req, res, next) => {
-    const body = req.body as { financeAccess?: unknown };
-    if (body.financeAccess !== "full") {
-      next();
-      return;
-    }
-    middleware(req, res, next);
-  };
-}
-
-const requireSecondFactorWhenRemovingAnotherMember: RequestHandler = (req, res, next) => {
-  if (req.params.uid === req.userId) {
-    next();
-    return;
-  }
-  requireRecentSecondFactor(req, res, next);
-};
-
 companiesRouter.patch(
   "/:cid",
   requireCompanyMember,
   validateBody(patchSchema),
   whenTwoFactorPolicyChanges(requireBrowserSession),
-  whenTwoFactorPolicyChanges(requireRecentSecondFactor),
   async (req, res) => {
     const role = (req as unknown as { role: string }).role;
     if (role !== "owner" && role !== "admin") return res.status(403).json({ error: "Forbidden" });
@@ -308,7 +273,6 @@ companiesRouter.delete(
   "/:cid",
   requireCompanyMember,
   requireBrowserSession,
-  requireRecentSecondFactor,
   async (req, res) => {
     const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
     if (!co) return res.status(404).json({ error: "Not found" });
@@ -324,7 +288,6 @@ companiesRouter.post(
   "/:cid/invitations",
   requireCompanyMember,
   requireBrowserSession,
-  requireRecentPrimary,
   validateBody(inviteSchema),
   async (req, res) => {
     const role = (req as unknown as { role: string }).role;
@@ -381,9 +344,7 @@ companiesRouter.patch(
   "/:cid/members/:uid",
   requireCompanyMember,
   requireBrowserSession,
-  requireRecentPrimary,
   validateBody(memberRoleSchema),
-  whenGrantingAdminRole(requireRecentSecondFactor),
   async (req, res) => {
     if (req.companyRole !== "owner") {
       return res.status(403).json({ error: "Only the company owner can change roles" });
@@ -425,9 +386,7 @@ companiesRouter.patch(
   "/:cid/members/:uid/finance-access",
   requireCompanyMember,
   requireBrowserSession,
-  requireRecentPrimary,
   validateBody(memberFinanceAccessSchema),
-  whenGrantingFullFinanceAccess(requireRecentSecondFactor),
   async (req, res) => {
     if (req.companyRole !== "owner" && req.companyRole !== "admin") {
       return res.status(403).json({ error: "Only owners and admins can change finance access" });
@@ -457,8 +416,6 @@ companiesRouter.delete(
   "/:cid/members/:uid",
   requireCompanyMember,
   requireBrowserSession,
-  requireRecentPrimary,
-  requireSecondFactorWhenRemovingAnotherMember,
   async (req, res) => {
     const { cid, uid } = req.params;
     const membership = await AppDataSource.getRepository(Membership).findOneBy({

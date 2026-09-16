@@ -154,46 +154,6 @@ export async function establishUserSession(
   };
 }
 
-export const DEFAULT_RECENT_AUTH_MAX_AGE_MS = 15 * 60 * 1000;
-
-/**
- * Reusable step-up seam for high-impact mutations. It intentionally requires
- * a browser cookie: API keys never carry human-presence evidence. Callers may
- * also require proof that a second factor completed in this same session.
- */
-export function requireRecentAuthentication(
-  options: { maxAgeMs?: number; requireSecondFactor?: boolean } = {},
-): RequestHandler {
-  const maxAgeMs = options.maxAgeMs ?? DEFAULT_RECENT_AUTH_MAX_AGE_MS;
-  return (req, res, next) => {
-    if (!req.user || req.apiKey) {
-      return res.status(403).json({
-        error: "This action requires a recently authenticated browser session",
-        code: "REAUTHENTICATION_REQUIRED",
-      });
-    }
-    const now = Date.now();
-    const authenticatedAt = req.session?.authenticatedAt;
-    const secondFactorAt = req.session?.secondFactorAt;
-    if (!authenticatedAt || now - authenticatedAt > maxAgeMs) {
-      return res.status(403).json({
-        error: "Sign in again before performing this action",
-        code: "REAUTHENTICATION_REQUIRED",
-      });
-    }
-    if (
-      options.requireSecondFactor &&
-      (!secondFactorAt || secondFactorAt < authenticatedAt || now - secondFactorAt > maxAgeMs)
-    ) {
-      return res.status(403).json({
-        error: "Complete two-factor authentication before performing this action",
-        code: "SECOND_FACTOR_REQUIRED",
-      });
-    }
-    next();
-  };
-}
-
 /**
  * Require a signed browser session after `requireAuth`. Sensitive account
  * operations use this explicitly; the bearer authenticator also denies API
@@ -346,18 +306,9 @@ export async function requireMasterAdmin(
         code: "SECOND_FACTOR_ENROLLMENT_REQUIRED",
       });
     }
-    const authenticatedAt = req.session?.authenticatedAt;
-    const secondFactorAt = req.session?.secondFactorAt;
-    const now = Date.now();
-    if (
-      !authenticatedAt ||
-      !secondFactorAt ||
-      secondFactorAt < authenticatedAt ||
-      now - authenticatedAt > DEFAULT_RECENT_AUTH_MAX_AGE_MS ||
-      now - secondFactorAt > DEFAULT_RECENT_AUTH_MAX_AGE_MS
-    ) {
+    if (!req.session?.secondFactorAt) {
       return res.status(403).json({
-        error: "Sign in with two-factor authentication again before using instance administration",
+        error: "Complete two-factor authentication before using instance administration",
         code: "SECOND_FACTOR_REQUIRED",
       });
     }

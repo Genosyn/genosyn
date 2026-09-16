@@ -134,7 +134,7 @@ node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</
           },
           {
             term: "Two factor",
-            def: "A company owner or admin can require 2FA for every Member. Master admins must always enroll and complete a second factor to use the hosted operator control plane, and must sign in again after 15 minutes before another operator action.",
+            def: "A company owner or admin can require 2FA for every Member. Master admins must enroll and complete 2FA in their browser session to use the hosted operator control plane. Successful enrollment counts immediately, and completed sessions have no separate recent-sign-in window.",
           },
           {
             term: "Sessions",
@@ -261,8 +261,8 @@ node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</
           session, so sign in again.
         </LI>
         <LI>
-          Enroll an authenticator, passkey, or security key, then sign in again with that factor to
-          unlock the operator control plane.
+          Enroll an authenticator, passkey, or security key. Once enrollment completes, the active
+          browser session unlocks the operator control plane without another sign-in.
         </LI>
         <LI>
           Configure the system SMTP transport at <Strong>Admin → Email transport</Strong> and send

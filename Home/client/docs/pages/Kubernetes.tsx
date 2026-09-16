@@ -271,8 +271,9 @@ data:
         A fresh install has no mail transport, so the bootstrap master admin&apos;s verification
         link is written to the pod log instead of being sent. Read it with{" "}
         <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
-        account, enroll two-factor authentication, sign in again, then configure SMTP at
-        {" "}<Code>Admin → Email transport</Code>. Boot warns until you
+        account, enroll two-factor authentication, then configure SMTP at{" "}
+        <Code>Admin → Email transport</Code>. Successful enrollment authorizes that browser session
+        immediately. Boot warns until you
         do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile. A link that
         scrolled out of the log can be reissued from <Code>Check your inbox</Code> once signed in —
         it prints to the log again.

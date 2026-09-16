@@ -156,10 +156,10 @@ export function Security() {
       <H2 id="sign-in">Sign in with a passkey or 2FA</H2>
       <P>
         <Strong>Sign in with a passkey</Strong> opens the browser&apos;s own passkey picker and
-        completes the whole sign-in after local user verification. That session carries both primary
-        and second-factor evidence, so recent-authentication controls do not ask for the same
-        credential twice. The five-minute challenge is single-use, stored across application
-        replicas, and bound to the browser that started it.
+        completes the whole sign-in after local user verification. Once a browser session completes
+        its required factors, it stays authorized until its normal expiry or revocation; Genosyn
+        does not impose a separate recent-authentication window. The five-minute challenge is
+        single-use, stored across application replicas, and bound to the browser that started it.
       </P>
       <P>
         Password and SSO remain available. When the account has two-factor authentication enabled,
@@ -190,9 +190,8 @@ export function Security() {
         A direct or Help conversation belongs to the Member who created it. Other Members in the
         same company cannot list, open, continue, or download attachments from that conversation.
         After an upgrade, older conversations without a recorded owner remain hidden from ordinary
-        Members. An owner or admin can inspect one and use <Strong>Claim conversation</Strong> to
-        assign it privately before continuing it. Claiming requires a sign-in from the last 15
-        minutes; sign in again if Genosyn asks you to refresh it.
+        Members. An owner or admin with a valid browser session can inspect one and use{" "}
+        <Strong>Claim conversation</Strong> to assign it privately before continuing it.
       </P>
       <P>
         During an interactive turn, both people in the delegation chain must be allowed to act:
@@ -240,17 +239,18 @@ export function Security() {
 
       <H2 id="company-policy">Require 2FA for a company</H2>
       <P>
-        An owner or admin who already has 2FA can open <Strong>Settings → Company</Strong> and turn
-        on <Strong>Require two-factor authentication</Strong>. Members without a method must enroll
-        one under <Strong>Account → Security</Strong> before they can access or join that company.
-        Genosyn then prevents them from removing their final method. See the full hosted baseline in
-        {" "}
+        An owner or admin with a valid browser session who already has 2FA can open{" "}
+        <Strong>Settings → Company</Strong> and turn on{" "}
+        <Strong>Require two-factor authentication</Strong>. Members without a method must enroll one
+        under <Strong>Account → Security</Strong> before they can access or join that company.
+        Genosyn then prevents them from removing their final method. See the full hosted baseline in{" "}
         <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
       </P>
       <P>
-        Shared SaaS mode always requires master admins to enroll 2FA and to have completed both
-        primary and second-factor authentication within the last 15 minutes before using the
-        install-wide Admin APIs. An older operator session must sign in again.
+        Shared SaaS mode always requires master admins to enroll and complete 2FA in the current
+        browser session. Successful enrollment counts immediately, without another sign-in. That
+        session can use the install-wide Admin APIs until it expires or is revoked; operator actions
+        do not require a separate recent sign-in.
       </P>
 
       <Callout kind="tip" title="SSO-only account?">

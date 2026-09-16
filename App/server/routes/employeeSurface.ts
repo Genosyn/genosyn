@@ -14,7 +14,6 @@ import {
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
-  requireRecentAuthentication,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { parseActions } from "../services/turnActions.js";
@@ -291,8 +290,6 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   });
 });
 
-const requireRecentConversationClaim = requireRecentAuthentication();
-
 /**
  * Claim a pre-owner-column web/help conversation after an upgrade. Only an
  * owner/admin can see the legacy row, and the conditional update makes the
@@ -302,7 +299,6 @@ const requireRecentConversationClaim = requireRecentAuthentication();
  */
 employeeSurfaceRouter.post(
   "/:eid/conversations/:convId/claim",
-  requireRecentConversationClaim,
   async (req, res) => {
     const { cid, eid, convId } = req.params as Record<string, string>;
     const loaded = await loadEmpAndCompany(cid, eid);

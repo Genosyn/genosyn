@@ -13,6 +13,7 @@ import type { Request } from "express";
 import {
   beginTwoFactorLoginSession,
   completeTwoFactorLogin,
+  markSecondFactorVerified,
   pendingTwoFactorUserId,
   recordTwoFactorFailure,
 } from "./twoFactorSession.js";
@@ -21,7 +22,7 @@ function request(): Request {
   return { session: {} } as Request;
 }
 
-test("second-factor completion carries signed recent-auth evidence into the full session", async () => {
+test("second-factor completion carries signed factor evidence into the full session", async () => {
   const req = request();
   const before = Date.now();
   beginTwoFactorLoginSession(req, "user-id", 7);
@@ -40,6 +41,22 @@ test("second-factor completion carries signed recent-auth evidence into the full
   assert.ok(req.session?.userSessionId);
   assert.ok((req.session?.expiresAt ?? 0) > before);
   assert.equal(req.session?.twoFactorUserId, undefined);
+});
+
+test("verified enrollment marks the current browser session without replacing it", () => {
+  const req = request();
+  req.session = {
+    userId: "user-id",
+    userSessionId: "session-id",
+    sessionVersion: 3,
+    expiresAt: Date.now() + 60_000,
+  };
+  const before = Date.now();
+
+  markSecondFactorVerified(req);
+
+  assert.equal(req.session.userSessionId, "session-id");
+  assert.ok((req.session.secondFactorAt ?? 0) >= before);
 });
 
 test("replacement pending sessions do not retain full-login or factor evidence", () => {

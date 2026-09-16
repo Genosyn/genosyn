@@ -281,7 +281,7 @@ describe("bootstrap ownership", () => {
     );
   });
 
-  test("hosted operator APIs require enrollment and a recent completed second factor", async () => {
+  test("hosted operator APIs require session factor evidence without a recent-auth window", async () => {
     security.multiTenant = true;
     const user = await insert(User, {
       email: "hosted-operator@example.com",
@@ -291,12 +291,7 @@ describe("bootstrap ownership", () => {
       emailVerifiedAt: new Date(),
       sessionVersion: 0,
     });
-    const now = Date.now();
-    let response = await call("GET", "/api/operator-probe", {
-      userId: user.id,
-      authenticatedAt: now,
-      secondFactorAt: now,
-    });
+    let response = await call("GET", "/api/operator-probe", { userId: user.id });
     assert.equal(response.status, 403);
     assert.equal(response.body.code, "SECOND_FACTOR_ENROLLMENT_REQUIRED");
 
@@ -316,18 +311,11 @@ describe("bootstrap ownership", () => {
     assert.equal(response.status, 403);
     assert.equal(response.body.code, "SECOND_FACTOR_REQUIRED");
 
+    const completedFactorAt = Date.now() - 16 * 60_000;
     response = await call("GET", "/api/operator-probe", {
       userId: user.id,
-      authenticatedAt: now - 16 * 60_000,
-      secondFactorAt: now - 16 * 60_000,
-    });
-    assert.equal(response.status, 403);
-    assert.equal(response.body.code, "SECOND_FACTOR_REQUIRED");
-
-    response = await call("GET", "/api/operator-probe", {
-      userId: user.id,
-      authenticatedAt: now,
-      secondFactorAt: now,
+      authenticatedAt: completedFactorAt,
+      secondFactorAt: completedFactorAt,
     });
     assert.equal(response.status, 200);
 
@@ -339,8 +327,7 @@ describe("bootstrap ownership", () => {
     });
     response = await call("PATCH", `/api/admin/users/${target.id}/master-admin`, {
       userId: user.id,
-      authenticatedAt: now,
-      secondFactorAt: now,
+      secondFactorAt: completedFactorAt,
       body: { isMasterAdmin: true },
     });
     assert.equal(response.status, 409);
@@ -348,8 +335,7 @@ describe("bootstrap ownership", () => {
     await AppDataSource.getRepository(User).save(target);
     response = await call("PATCH", `/api/admin/users/${target.id}/master-admin`, {
       userId: user.id,
-      authenticatedAt: now,
-      secondFactorAt: now,
+      secondFactorAt: completedFactorAt,
       body: { isMasterAdmin: true },
     });
     assert.equal(response.status, 200);
@@ -390,11 +376,26 @@ describe("API-key deny-by-default boundary", () => {
   });
 });
 
-describe("company control-plane step-up", () => {
-  test("company deletion and two-factor policy changes reject API keys and stale browser sessions", async () => {
-    const { user, company } = await createMember("owner");
-    const { token } = await createApiKey(user.id, company.id);
-    const stale = Date.now() - 16 * 60_000;
+describe("company control-plane browser authority", () => {
+  test("company deletion and two-factor policy changes need an authorized browser, not step-up evidence", async () => {
+    const { user: owner, company } = await createMember("owner");
+    const admin = await insert(User, {
+      email: "company-admin@example.com",
+      name: "Company Admin",
+      passwordHash: "x",
+      emailVerifiedAt: new Date(),
+      sessionVersion: 0,
+    });
+    const member = await insert(User, {
+      email: "company-member@example.com",
+      name: "Company Member",
+      passwordHash: "x",
+      emailVerifiedAt: new Date(),
+      sessionVersion: 0,
+    });
+    await insert(Membership, { companyId: company.id, userId: admin.id, role: "admin" as Role });
+    await insert(Membership, { companyId: company.id, userId: member.id, role: "member" as Role });
+    const { token } = await createApiKey(owner.id, company.id);
 
     for (const request of [
       { method: "DELETE", path: `/api/companies/${company.id}` },
@@ -409,37 +410,60 @@ describe("company control-plane step-up", () => {
         body: request.body,
       });
       assert.equal(apiKeyResponse.status, 403);
-
-      const staleResponse = await call(request.method, request.path, {
-        userId: user.id,
-        authenticatedAt: stale,
-        secondFactorAt: stale,
-        body: request.body,
-      });
-      assert.equal(staleResponse.status, 403);
-      assert.equal(staleResponse.body.code, "REAUTHENTICATION_REQUIRED");
-
-      const missingPrimary = await call(request.method, request.path, {
-        userId: user.id,
-        body: request.body,
-      });
-      assert.equal(missingPrimary.status, 403);
-      assert.equal(missingPrimary.body.code, "REAUTHENTICATION_REQUIRED");
-
-      const missingFactor = await call(request.method, request.path, {
-        userId: user.id,
-        authenticatedAt: Date.now(),
-        body: request.body,
-      });
-      assert.equal(missingFactor.status, 403);
-      assert.equal(missingFactor.body.code, "SECOND_FACTOR_REQUIRED");
     }
 
-    const stored = await AppDataSource.getRepository(Company).findOneByOrFail({ id: company.id });
-    assert.equal(stored.requireTwoFactor, false);
+    assert.equal(
+      (
+        await call("PATCH", `/api/companies/${company.id}`, {
+          userId: member.id,
+          body: { requireTwoFactor: true },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await call("DELETE", `/api/companies/${company.id}`, { userId: admin.id })).status,
+      403,
+    );
+
+    await insert(WebAuthnCredential, {
+      userId: owner.id,
+      credentialId: "company-owner-credential",
+      publicKey: "public-key",
+      counter: 0,
+      transports: null,
+      kind: "security_key",
+      name: "Owner key",
+      deviceType: "singleDevice",
+      backedUp: false,
+      lastUsedAt: null,
+    });
+    const stalePolicyChange = await call("PATCH", `/api/companies/${company.id}`, {
+      userId: owner.id,
+      authenticatedAt: Date.now() - 16 * 60_000,
+      body: { requireTwoFactor: true },
+    });
+    assert.equal(stalePolicyChange.status, 200);
+    assert.equal(
+      (await AppDataSource.getRepository(Company).findOneByOrFail({ id: company.id }))
+        .requireTwoFactor,
+      true,
+    );
+
+    const policyChangeWithoutEvidence = await call("PATCH", `/api/companies/${company.id}`, {
+      userId: owner.id,
+      body: { requireTwoFactor: false },
+    });
+    assert.equal(policyChangeWithoutEvidence.status, 200);
+
+    const deletionWithoutEvidence = await call("DELETE", `/api/companies/${company.id}`, {
+      userId: owner.id,
+    });
+    assert.equal(deletionWithoutEvidence.status, 200);
+    assert.equal(await AppDataSource.getRepository(Company).findOneBy({ id: company.id }), null);
   });
 
-  test("invites require a recent browser login and Membership mutations reject API keys", async () => {
+  test("invites and Membership mutations need an authorized browser, not step-up evidence", async () => {
     const { user: owner, company } = await createMember("owner");
     const member = await insert(User, {
       email: "boundary-member@example.com",
@@ -466,21 +490,29 @@ describe("company control-plane step-up", () => {
       ).status,
       403,
     );
+    assert.equal(
+      (
+        await call("POST", invitePath, {
+          userId: member.id,
+          body: { email: "member-invite@example.com" },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(await AppDataSource.getRepository(Invitation).count(), 0);
+
     const staleInvite = await call("POST", invitePath, {
       userId: owner.id,
       authenticatedAt: Date.now() - 16 * 60_000,
       body: { email: "invitee@example.com" },
     });
-    assert.equal(staleInvite.status, 403);
-    assert.equal(staleInvite.body.code, "REAUTHENTICATION_REQUIRED");
-    assert.equal(await AppDataSource.getRepository(Invitation).count(), 0);
-
-    const inviteWithoutRecentLogin = await call("POST", invitePath, {
+    assert.equal(staleInvite.status, 200);
+    const inviteWithoutEvidence = await call("POST", invitePath, {
       userId: owner.id,
-      body: { email: "invitee@example.com" },
+      body: { email: "second-invitee@example.com" },
     });
-    assert.equal(inviteWithoutRecentLogin.status, 403);
-    assert.equal(inviteWithoutRecentLogin.body.code, "REAUTHENTICATION_REQUIRED");
+    assert.equal(inviteWithoutEvidence.status, 200);
+    assert.equal(await AppDataSource.getRepository(Invitation).count(), 2);
 
     for (const request of [
       {
@@ -505,46 +537,46 @@ describe("company control-plane step-up", () => {
       assert.equal(response.status, 403, `${request.method} ${request.path}`);
     }
 
-    const privilegedMemberMutations = [
+    const roleWithoutEvidence = await call(
+      "PATCH",
+      `/api/companies/${company.id}/members/${member.id}`,
       {
-        method: "PATCH",
-        path: `/api/companies/${company.id}/members/${member.id}`,
+        userId: owner.id,
         body: { role: "admin" },
       },
+    );
+    assert.equal(roleWithoutEvidence.status, 200);
+
+    const financeWithStaleEvidence = await call(
+      "PATCH",
+      `/api/companies/${company.id}/members/${member.id}/finance-access`,
       {
-        method: "PATCH",
-        path: `/api/companies/${company.id}/members/${member.id}/finance-access`,
+        userId: owner.id,
+        authenticatedAt: Date.now() - 16 * 60_000,
         body: { financeAccess: "full" },
       },
-      {
-        method: "DELETE",
-        path: `/api/companies/${company.id}/members/${member.id}`,
-      },
-    ];
-    for (const request of privilegedMemberMutations) {
-      for (const authenticatedAt of [undefined, Date.now() - 16 * 60_000]) {
-        const response = await call(request.method, request.path, {
-          userId: owner.id,
-          authenticatedAt,
-          body: request.body,
-        });
-        assert.equal(response.status, 403, `${request.method} ${request.path}`);
-        assert.equal(response.body.code, "REAUTHENTICATION_REQUIRED");
-      }
-      const missingFactor = await call(request.method, request.path, {
-        userId: owner.id,
-        authenticatedAt: Date.now(),
-        body: request.body,
-      });
-      assert.equal(missingFactor.status, 403, `${request.method} ${request.path}`);
-      assert.equal(missingFactor.body.code, "SECOND_FACTOR_REQUIRED");
-    }
-    const unchanged = await AppDataSource.getRepository(Membership).findOneByOrFail({
+    );
+    assert.equal(financeWithStaleEvidence.status, 200);
+    const updated = await AppDataSource.getRepository(Membership).findOneByOrFail({
       companyId: company.id,
       userId: member.id,
     });
-    assert.equal(unchanged.role, "member");
-    assert.equal(unchanged.financeAccess, "none");
+    assert.equal(updated.role, "admin");
+    assert.equal(updated.financeAccess, "full");
+
+    const removalWithoutEvidence = await call(
+      "DELETE",
+      `/api/companies/${company.id}/members/${member.id}`,
+      { userId: owner.id },
+    );
+    assert.equal(removalWithoutEvidence.status, 200);
+    assert.equal(
+      await AppDataSource.getRepository(Membership).findOneBy({
+        companyId: company.id,
+        userId: member.id,
+      }),
+      null,
+    );
   });
 });
 
