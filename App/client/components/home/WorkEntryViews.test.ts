@@ -24,6 +24,7 @@ function routineEntry(run: Partial<WorkEntryRun> = {}): WorkEntry {
     title: "Ran Daily GitHub Lead Capture & Outreach",
     subject: "Daily GitHub Lead Capture & Outreach",
     detail: "Used 8 connections and made 9 other changes",
+    source: null,
     run: {
       id: "run-1",
       routineId: "routine-1",
@@ -217,6 +218,32 @@ describe("Routine outcome blocks shared by the popup and employee day", () => {
     assert.match(html, /list_issues_0/);
     assert.match(html, /9 more changes/);
     assert.doesNotMatch(renderEntry(entry, false), /What changed|list_issues_/);
+  });
+});
+
+describe("standalone change context", () => {
+  test("renders the Email thread and trigger beneath a handover change", () => {
+    const entry: WorkEntry = {
+      ...routineEntry(),
+      id: "effect:handover",
+      kind: "effect",
+      title: "Your shortcut to savings",
+      subject: "Your shortcut to savings",
+      detail: "mail.handover.complete",
+      source: {
+        kind: "mail_thread",
+        id: "thread-1",
+        accountId: "account-1",
+        label: "Email with Pure Electric",
+        detail: "hello@acme.test · Started by an Email rule",
+      },
+      run: null,
+      effects: [],
+      effectCount: 0,
+    };
+    const text = visibleText(renderEntry(entry));
+    assert.match(text, /Jamie Mallers completed an Email handover/);
+    assert.match(text, /Email with Pure Electric · hello@acme\.test · Started by an Email rule/);
   });
 });
 

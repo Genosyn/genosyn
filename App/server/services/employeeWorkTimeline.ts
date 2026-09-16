@@ -6,6 +6,9 @@ import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
+import { MailHandover } from "../db/entities/MailHandover.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { Role } from "../db/entities/Membership.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
@@ -120,6 +123,19 @@ export type WorkEmployeeRef = {
   avatarKey: string | null;
 };
 
+/** The source record a standalone change can take a Member back to. */
+export type WorkEntrySource = {
+  kind: "mail_thread";
+  /** Local MailThread id, safe to use in the Email section's company route. */
+  id: string;
+  /** Selects the right mailbox before the thread opens. */
+  accountId: string;
+  /** Quiet reader-facing provenance, e.g. "Email with accounts@acme.test". */
+  label: string;
+  /** How the work began, without disclosing the handover instruction. */
+  detail: string;
+};
+
 /** Everything the Run chips on a `run` entry need, without a second request. */
 export type WorkEntryRun = {
   id: string;
@@ -163,6 +179,8 @@ export type WorkEntry = {
   subject: string;
   /** A status word, a verdict, a diff stat. Empty when there is none. */
   detail: string;
+  /** Linked provenance for a standalone change, when its source still exists. */
+  source: WorkEntrySource | null;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;
   /** The ledger rows this entry owns, oldest first, capped for rendering. */
@@ -539,6 +557,64 @@ export async function getEmployeeWorkTimeline(params: {
     return true;
   });
 
+  // A completed Email handover is deliberately recorded after its chat turn,
+  // so it has no Conversation parent and becomes a standalone change. Keep the
+  // thread it came from instead of flattening it to an unexplained subject.
+  // Both lookups are company-scoped because this route is readable by every
+  // Member, independently of the admin-only audit log.
+  const mailHandoverIds = [
+    ...new Set(
+      visibleAudit
+        .filter((row) => row.targetType === "mail_handover" && row.targetId)
+        .map((row) => row.targetId as string),
+    ),
+  ];
+  const mailHandovers = mailHandoverIds.length
+    ? await AppDataSource.getRepository(MailHandover).find({
+        where: { companyId, id: In(mailHandoverIds) },
+        select: ["id", "accountId", "threadId", "sourceKind"],
+      })
+    : [];
+  const mailThreadIds = [...new Set(mailHandovers.map((handover) => handover.threadId))];
+  const mailAccountIds = [...new Set(mailHandovers.map((handover) => handover.accountId))];
+  const [mailThreads, mailAccounts] = await Promise.all([
+    mailThreadIds.length
+      ? AppDataSource.getRepository(MailThread).find({
+          where: { companyId, id: In(mailThreadIds) },
+          select: ["id", "accountId", "participants"],
+        })
+      : Promise.resolve([] as MailThread[]),
+    mailAccountIds.length
+      ? AppDataSource.getRepository(MailAccount).find({
+          where: { companyId, id: In(mailAccountIds) },
+          select: ["id", "address"],
+        })
+      : Promise.resolve([] as MailAccount[]),
+  ]);
+  const mailThreadById = new Map(mailThreads.map((thread) => [thread.id, thread]));
+  const mailAccountById = new Map(mailAccounts.map((account) => [account.id, account]));
+  const mailSourceByHandoverId = new Map<string, WorkEntrySource>();
+  for (const handover of mailHandovers) {
+    const thread = mailThreadById.get(handover.threadId);
+    const account = mailAccountById.get(handover.accountId);
+    if (!thread || !account || thread.accountId !== account.id) continue;
+    const participants = safe(thread.participants);
+    mailSourceByHandoverId.set(handover.id, {
+      kind: "mail_thread",
+      id: thread.id,
+      accountId: account.id,
+      label: participants ? `Email with ${participants}` : "Email thread",
+      detail: [
+        safe(account.address),
+        handover.sourceKind === "rule"
+          ? "Started by an Email rule"
+          : "Handed over by a Member",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+
   const entries: WorkEntry[] = [];
 
   const describeChatTurn = (msg: ConversationMessage, conv: Conversation) => {
@@ -580,6 +656,7 @@ export async function getEmployeeWorkTimeline(params: {
       title: runTitle(routine.name),
       subject: routine.name,
       detail: runDetail(run),
+      source: null,
       run: {
         id: run.id,
         routineId: routine.id,
@@ -624,6 +701,7 @@ export async function getEmployeeWorkTimeline(params: {
       title: presentation.title,
       subject: presentation.subject,
       detail: presentation.detail,
+      source: null,
       run: null,
       effects: [],
       effectCount: 0,
@@ -660,6 +738,7 @@ export async function getEmployeeWorkTimeline(params: {
       title: `Worked in ${safe(session.title) || "a repository"}`,
       subject: safe(session.title),
       detail: workSessionDetail(turn),
+      source: null,
       run: null,
       effects: [],
       effectCount: 0,
@@ -684,6 +763,7 @@ export async function getEmployeeWorkTimeline(params: {
       title: `Approval required: ${title || approval.kind.replaceAll("_", " ")}`,
       subject: title || approval.kind.replaceAll("_", " "),
       detail: approval.status,
+      source: null,
       run: null,
       effects: [],
       effectCount: 0,
@@ -705,6 +785,7 @@ export async function getEmployeeWorkTimeline(params: {
       title: "Woke itself up to follow something through",
       subject: "",
       detail: safe(wakeup.outcomeNote) || safe(wakeup.brief),
+      source: null,
       run: null,
       effects: [],
       effectCount: 0,
@@ -725,6 +806,7 @@ export async function getEmployeeWorkTimeline(params: {
       title: `Took a lesson from a run: ${safe(lesson.cause) || "unnamed"}`,
       subject: safe(lesson.cause),
       detail: safe(lesson.advice),
+      source: null,
       run: null,
       effects: [],
       effectCount: 0,
@@ -766,6 +848,10 @@ export async function getEmployeeWorkTimeline(params: {
       title: effect.targetLabel || row.targetId || row.action,
       subject: effect.targetLabel,
       detail: row.action,
+      source:
+        row.targetType === "mail_handover" && row.targetId
+          ? (mailSourceByHandoverId.get(row.targetId) ?? null)
+          : null,
       run: null,
       effects: [],
       effectCount: 0,

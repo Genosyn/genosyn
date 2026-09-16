@@ -8,6 +8,9 @@ import { Company } from "../db/entities/Company.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
+import { MailHandover } from "../db/entities/MailHandover.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
@@ -809,6 +812,109 @@ describe("work timeline effects", () => {
     assert.deepEqual(kinds(result.entries), ["effect"]);
     assert.equal(result.entries[0].title, "INV-4001");
     assert.equal(result.entries[0].detail, "invoice.create");
+  });
+
+  test("a standalone Email handover keeps the thread and trigger that explain its source", async () => {
+    const accountId = testId("mail-account");
+    await insert(MailAccount, {
+      id: accountId,
+      companyId: company.id,
+      connectionId: testId("mail-connection"),
+      address: "hello@acme.test",
+    });
+    const thread = await insert(MailThread, {
+      companyId: company.id,
+      accountId,
+      gmailThreadId: "provider-thread-1",
+      subject: "Your shortcut to savings",
+      participants: "Pure Electric",
+    });
+    const handover = await insert(MailHandover, {
+      companyId: company.id,
+      accountId,
+      threadId: thread.id,
+      employeeId: employee.id,
+      mode: "triage",
+      instruction: "Triage this message.",
+      status: "completed",
+      sourceKind: "rule",
+      ruleId: testId("mail-rule"),
+      createdByUserId: null,
+      requesterUserId: null,
+      requesterSessionVersion: null,
+      finishedAt: ago(HOUR),
+    });
+    await auditRow({
+      action: "mail.handover.complete",
+      targetType: "mail_handover",
+      targetId: handover.id,
+      targetLabel: thread.subject,
+    });
+
+    const entry = (await timeline()).entries[0];
+    assert.equal(entry.kind, "effect");
+    assert.deepEqual(entry.source, {
+      kind: "mail_thread",
+      id: thread.id,
+      accountId,
+      label: "Email with Pure Electric",
+      detail: "hello@acme.test · Started by an Email rule",
+    });
+
+    // UUIDs are not a global entity namespace. A different target type may
+    // happen to carry the same id and must not inherit this Email source.
+    await auditRow({
+      action: "invoice.update",
+      targetType: "invoice",
+      targetId: handover.id,
+      targetLabel: "INV-1002",
+    });
+    const colliding = (await timeline()).entries.find(
+      (candidate) => candidate.detail === "invoice.update",
+    );
+    assert.equal(colliding?.source, null);
+  });
+
+  test("does not borrow Email source context from another company", async () => {
+    const accountId = testId("foreign-mail-account");
+    await insert(MailAccount, {
+      id: accountId,
+      companyId: "co_somewhere_else",
+      connectionId: testId("foreign-mail-connection"),
+      address: "secret-inbox@example.test",
+    });
+    const thread = await insert(MailThread, {
+      companyId: "co_somewhere_else",
+      accountId,
+      gmailThreadId: "foreign-provider-thread",
+      subject: "Private acquisition",
+      participants: "secret@example.test",
+    });
+    const handover = await insert(MailHandover, {
+      companyId: "co_somewhere_else",
+      accountId,
+      threadId: thread.id,
+      employeeId: employee.id,
+      mode: "triage",
+      instruction: "Keep this private.",
+      status: "completed",
+      sourceKind: "manual",
+      ruleId: null,
+      createdByUserId: owner.id,
+      requesterUserId: owner.id,
+      requesterSessionVersion: 1,
+      finishedAt: ago(HOUR),
+    });
+    await auditRow({
+      action: "mail.handover.complete",
+      targetType: "mail_handover",
+      targetId: handover.id,
+      targetLabel: "Unresolved handover",
+    });
+
+    const entry = (await timeline()).entries[0];
+    assert.equal(entry.source, null);
+    assert.ok(!JSON.stringify(entry).includes("secret@example.test"));
   });
 
   test("a row whose run fell outside the window still surfaces rather than vanishing", async () => {

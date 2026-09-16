@@ -350,9 +350,10 @@ export function workClock(iso: string): string {
 /**
  * Where a row goes when it is clicked, or null when it has nowhere to go.
  *
- * A bare ledger row is the honest null: it records that something changed,
- * and the record is the whole of it — there is no page for "the invoice total
- * was edited" that is not just the invoice.
+ * A bare ledger row is usually the honest null: it records that something
+ * changed, and the record is the whole of it. A source-backed change such as
+ * an Email handover can return to that source without inventing a destination
+ * for every edited field.
  */
 export function workEntryHref(entry: WorkEntry, companySlug: string): string | null {
   const base = `/c/${companySlug}`;
@@ -376,12 +377,16 @@ export function workEntryHref(entry: WorkEntry, companySlug: string): string | n
     case "lesson":
       return `${base}/employees/${entry.employee.slug}`;
     case "effect":
-      return null;
+      return entry.source?.kind === "mail_thread"
+        ? `${base}/mail/t/${encodeURIComponent(entry.source.id)}?${new URLSearchParams({
+            account: entry.source.accountId,
+          }).toString()}`
+        : null;
   }
 }
 
 /** What the button leading away from an entry should say. */
-export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind">): string {
+export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind" | "source">): string {
   switch (entry.kind) {
     case "run":
       return "Open the run";
@@ -395,7 +400,7 @@ export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind">): string {
     case "lesson":
       return "Open the employee";
     case "effect":
-      return "";
+      return entry.source?.kind === "mail_thread" ? "Open the email thread" : "";
   }
 }
 
@@ -597,7 +602,7 @@ function approvalStatusSentence(status: string): string {
 export type WorkNarrative = {
   /** The outcome, or a factual description when no outcome is available. */
   headline: string;
-  /** Routine and employee context, separate from the result. */
+  /** Quiet Routine or source provenance, separate from the result. */
   context?: string;
   /** Supporting context or a qualification of the reported outcome. */
   body: string[];
@@ -616,6 +621,7 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
   const effects = entry.kind === "run" ? "" : workEffectPhrase(entry);
   const body: string[] = [];
   let clause = "";
+  let context: string | undefined;
 
   switch (entry.kind) {
     case "run": {
@@ -674,13 +680,24 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
       break;
     }
     case "effect": {
-      const action = humanizeWorkAction(entry.detail, "");
-      clause = `${action.charAt(0).toLowerCase()}${action.slice(1)}${named ? ` ${named}` : ""}${when}.`;
+      if (entry.source?.kind === "mail_thread") {
+        const operation = entry.detail.split(/[.:/]/).filter(Boolean).at(-1);
+        clause =
+          operation === "complete"
+            ? `completed an Email handover${named ? ` for ${named}` : ""}${when}.`
+            : operation === "fail"
+              ? `could not complete an Email handover${named ? ` for ${named}` : ""}${when}.`
+              : `updated an Email handover${named ? ` for ${named}` : ""}${when}.`;
+        context = [entry.source.label, entry.source.detail].filter(Boolean).join(" · ");
+      } else {
+        const action = humanizeWorkAction(entry.detail, "");
+        clause = `${action.charAt(0).toLowerCase()}${action.slice(1)}${named ? ` ${named}` : ""}${when}.`;
+      }
       break;
     }
   }
 
-  return { headline: `${who} ${clause}`, body };
+  return { headline: `${who} ${clause}`, context, body };
 }
 
 /** The whole narrative as one string, for a tooltip or an accessible label. */

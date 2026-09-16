@@ -90,6 +90,7 @@ function entryFixture(
     title: `Ran ${routine}`,
     subject: routine,
     detail: "completed",
+    source: null,
     // Match the reported regression: the API caps 17 ledger rows at eight,
     // all of which are Connection reads carrying raw tool names.
     effects: [
@@ -126,6 +127,31 @@ function entryFixture(
     ...changes,
   };
 }
+
+function mailHandoverEntry(): WorkEntry {
+  return entryFixture(
+    {},
+    {
+      id: "effect:mail-handover",
+      kind: "effect",
+      endedAt: null,
+      title: "Your shortcut to savings",
+      subject: "Your shortcut to savings",
+      detail: "mail.handover.complete",
+      source: {
+        kind: "mail_thread",
+        id: "thread-1",
+        accountId: "mailbox-1",
+        label: "Email with Pure Electric",
+        detail: "hello@acme.test · Started by an Email rule",
+      },
+      run: null,
+      effects: [],
+      effectCount: 0,
+    },
+  );
+}
+
 function timeline(allEntries: WorkEntry[], query: URLSearchParams): WorkTimeline {
   const employeeId = query.get("employeeId");
   const since = query.get("since") ?? new Date(fixtureNow.getTime() - 86400000).toISOString();
@@ -359,6 +385,32 @@ try {
       await page.close();
     },
   );
+  await check("an Email handover names and links the thread it came from", async () => {
+    const { page } = await open(mailHandoverEntry());
+    const dialog = await openDay(page);
+    await dialog
+      .getByText(/Jamie Mallers completed an Email handover for “Your shortcut to savings”/)
+      .waitFor();
+    await dialog
+      .getByText(
+        "Email with Pure Electric · hello@acme.test · Started by an Email rule",
+        { exact: true },
+      )
+      .waitFor();
+    const sourceLink = dialog.getByRole("link", {
+      name: "Open the email thread",
+      exact: true,
+    });
+    assert.equal(
+      await sourceLink.getAttribute("href"),
+      "/c/outcomes/mail/t/thread-1?account=mailbox-1",
+    );
+    await page.screenshot({
+      path: path.join(output, "email-handover-context-desktop.png"),
+      fullPage: true,
+    });
+    await page.close();
+  });
   await check(
     "opening a bubble fetches only that employee's calendar day and keeps the outcome visible",
     async () => {

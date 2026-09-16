@@ -65,6 +65,7 @@ function entryOf(over: Partial<WorkEntry> = {}): WorkEntry {
     title: "Ran Nightly digest",
     subject: "Nightly digest",
     detail: "",
+    source: null,
     run: {
       summary: null,
       id: "r1f6c1a2-0000-4000-8000-000000000003",
@@ -429,6 +430,49 @@ describe("human-readable effects", () => {
     assert.equal(workDisplayDetail(effect), "INV-4001");
     assert.match(workNarrative(effect).headline, /^Rey created invoice/);
   });
+
+  test("names and explains the Email thread behind a handover change", () => {
+    const effect = entryOf({
+      kind: "effect",
+      run: null,
+      title: "Your shortcut to savings",
+      subject: "Your shortcut to savings",
+      detail: "mail.handover.complete",
+      source: {
+        kind: "mail_thread",
+        id: "thread-1",
+        accountId: "account-1",
+        label: "Email with Pure Electric",
+        detail: "Started by an Email rule",
+      },
+    });
+    const narrative = workNarrative(effect);
+    assert.match(
+      narrative.headline,
+      /^Rey completed an Email handover for “Your shortcut to savings”/,
+    );
+    assert.equal(narrative.context, "Email with Pure Electric · Started by an Email rule");
+  });
+
+  test("describes a failed Email handover without blaming the employee for a completed action", () => {
+    const effect = entryOf({
+      kind: "effect",
+      run: null,
+      subject: "Renewal",
+      detail: "mail.handover.fail",
+      source: {
+        kind: "mail_thread",
+        id: "thread-2",
+        accountId: "account-2",
+        label: "Email with accounts@example.test",
+        detail: "Handed over by a Member",
+      },
+    });
+    assert.match(
+      workNarrative(effect).headline,
+      /^Rey could not complete an Email handover for “Renewal”/,
+    );
+  });
 });
 
 describe("destinations", () => {
@@ -442,6 +486,25 @@ describe("destinations", () => {
 
   test("a bare ledger row has nowhere of its own to go", () => {
     assert.equal(workEntryHref(entryOf({ kind: "effect", run: null }), "acme"), null);
+  });
+
+  test("an Email handover change returns to the thread it came from", () => {
+    const effect = entryOf({
+      kind: "effect",
+      run: null,
+      source: {
+        kind: "mail_thread",
+        id: "thread/with spaces",
+        accountId: "mailbox/one",
+        label: "Email thread",
+        detail: "Handed over by a Member",
+      },
+    });
+    assert.equal(
+      workEntryHref(effect, "acme"),
+      "/c/acme/mail/t/thread%2Fwith%20spaces?account=mailbox%2Fone",
+    );
+    assert.equal(workEntryLinkLabel(effect), "Open the email thread");
   });
 
   test("a run with no run payload does not fabricate a link", () => {

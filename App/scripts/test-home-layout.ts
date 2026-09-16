@@ -198,6 +198,7 @@ function timeline(employees: Employee[], query: URLSearchParams, working = false
         title: "Customer update",
         subject: "Customer update",
         detail: "Reviewed customer requests",
+        source: null,
         effects: [],
         effectCount: 0,
         run: null,

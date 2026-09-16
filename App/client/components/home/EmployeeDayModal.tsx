@@ -323,9 +323,9 @@ export function EmployeeDayModal({
 }
 
 /**
- * Where this row goes, when it goes anywhere. A bare ledger row deliberately
- * offers nothing: it records that something changed, and there is no page for
- * "the invoice total was edited" that is not just the invoice.
+ * Where this row goes, when it goes anywhere. Most bare ledger rows deliberately
+ * offer nothing; source-backed rows such as an Email handover can return to the
+ * record that explains them.
  */
 function EntryAction({
   company,

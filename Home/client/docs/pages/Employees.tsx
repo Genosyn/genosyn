@@ -372,7 +372,9 @@ export function Employees() {
         <LI>
           <Strong>Changes</Strong> — the individual records an employee created, edited or sent.
           Changes made inside a Run stay with its run log. Conversation changes appear under their
-          conversation; changes with no parent stand on their own.
+          conversation; changes with no parent stand on their own. An Email handover names the
+          people and mailbox it came from, says whether a Member or an Email rule started it, and
+          links back to the original thread.
         </LI>
       </UL>
       <P>

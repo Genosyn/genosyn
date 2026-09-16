@@ -3354,6 +3354,15 @@ export type WorkEmployeeRef = {
   avatarKey: string | null;
 };
 
+/** The source record a standalone timeline change can return to. */
+export type WorkEntrySource = {
+  kind: "mail_thread";
+  id: string;
+  accountId: string;
+  label: string;
+  detail: string;
+};
+
 /** A Run's concise outcome and status, without a second request. */
 export type WorkEntryRun = {
   /** A short outcome from the recorded Run, or null when none is available. */
@@ -3388,6 +3397,8 @@ export type WorkEntry = {
    */
   subject: string;
   detail: string;
+  /** Linked provenance for a standalone change, when its source still exists. */
+  source: WorkEntrySource | null;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;
   effects: WorkEffect[];

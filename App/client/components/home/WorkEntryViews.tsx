@@ -114,8 +114,8 @@ function WorkKindChip({ kind }: { kind: WorkEntryKind }) {
 }
 
 /**
- * The work outcome comes first; Routine context and any qualification stay
- * quiet underneath it. Other kinds keep their existing descriptive narrative.
+ * The work outcome comes first; Routine or source context and any qualification
+ * stay quiet underneath it. Other kinds keep their descriptive narrative.
  */
 function WorkEntryNarrative({ entry, nowIso }: { entry: WorkEntry; nowIso: string }) {
   const narrative = workNarrative(entry, { nowIso });

@@ -30,6 +30,7 @@ function entry(id: string, at: string, endedAt: string | null = null): WorkEntry
     title: "Updated a note",
     subject: "Quarterly plan",
     detail: "Updated note",
+    source: null,
     run: null,
     effects: [],
     effectCount: 0,
