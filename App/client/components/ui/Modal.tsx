@@ -8,6 +8,7 @@ import {
   useModalChrome,
   type ModalSize,
 } from "./ModalChrome";
+import { clsx } from "./clsx";
 
 /**
  * A titled panel a page opens over itself.
@@ -35,6 +36,10 @@ import {
  *
  * Both are optional: a modal that passes neither renders its children exactly
  * as it always did, action row and all.
+ *
+ * A surface with its own scroller, such as a conversation, uses `bodyMode="fill"`
+ * and gives the panel an explicit height. That keeps one scroll owner instead
+ * of nesting a transcript scrollbar inside the modal body's scrollbar.
  */
 export function Modal({
   open,
@@ -47,6 +52,8 @@ export function Modal({
   onEscape,
   size = "md",
   padded = true,
+  bodyMode = "scroll",
+  panelClassName,
 }: {
   open: boolean;
   onClose: () => void;
@@ -72,6 +79,10 @@ export function Modal({
    * match the header's `px-4 sm:px-5` so the rules line up.
    */
   padded?: boolean;
+  /** `fill` lets children own scrolling while the body becomes a clipped flex viewport. */
+  bodyMode?: "scroll" | "fill";
+  /** Deliberate panel geometry for surfaces such as chat; generic forms stay content-sized. */
+  panelClassName?: string;
 }) {
   const { titleId, panelRef } = useModalChrome({ open, onDismiss: onClose, onEscape });
   const descriptionId = React.useId();
@@ -81,7 +92,11 @@ export function Modal({
   const body = (
     <>
       <div
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain ${padded ? "p-4 sm:p-5" : ""}`}
+        className={clsx(
+          "min-h-0 flex-1",
+          bodyMode === "scroll" ? "overflow-y-auto overscroll-contain" : "flex overflow-hidden",
+          padded && "p-4 sm:p-5",
+        )}
       >
         {children}
       </div>
@@ -94,6 +109,7 @@ export function Modal({
       <ModalPanel
         ref={panelRef}
         size={size}
+        className={panelClassName}
         labelledBy={titleId}
         describedBy={description ? descriptionId : undefined}
       >

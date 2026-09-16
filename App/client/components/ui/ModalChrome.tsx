@@ -284,13 +284,17 @@ export const ModalPanel = React.forwardRef<
   HTMLDivElement,
   {
     size?: ModalSize;
+    className?: string;
     labelledBy?: string;
     describedBy?: string;
     /** For a surface that intercepts a key of its own before the shared trap sees it. */
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
     children: React.ReactNode;
   }
->(function ModalPanel({ size = "md", labelledBy, describedBy, onKeyDown: onKey, children }, ref) {
+>(function ModalPanel(
+  { size = "md", className, labelledBy, describedBy, onKeyDown: onKey, children },
+  ref,
+) {
   return (
     <div
       ref={ref}
@@ -311,6 +315,7 @@ export const ModalPanel = React.forwardRef<
         "dark:border-slate-700 dark:bg-slate-900",
         "dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04),0_24px_48px_-16px_rgba(0,0,0,0.65)]",
         widthClass[size],
+        className,
       )}
     >
       {children}

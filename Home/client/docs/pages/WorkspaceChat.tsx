@@ -70,8 +70,9 @@ export function WorkspaceChat() {
         An unread channel on <Strong>Home</Strong> opens where you clicked it. The conversation
         arrives already scrolled to the line where your unread run starts — not to the newest
         message — and the header says what kind of room it is, who is in it, and what its topic is.
-        If the run is longer than one screen, <Strong>Load earlier messages</Strong> walks back
-        through the history.
+        The compact window keeps the reply box and read controls in place while only the
+        conversation scrolls. If the run is longer than one screen,{" "}
+        <Strong>Load earlier messages</Strong> walks back through the history.
       </P>
       <P>
         The reply box is the same composer as the full Workspace: <Code>@</Code> for people and AI

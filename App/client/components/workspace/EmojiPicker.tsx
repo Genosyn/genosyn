@@ -39,9 +39,15 @@ const ALL = CATEGORIES.flatMap((c) => c.emoji.map((e) => ({ e, label: c.label })
 export function EmojiPicker({
   onPick,
   onClose,
+  className,
+  compact = false,
 }: {
   onPick: (emoji: string) => void;
   onClose: () => void;
+  /** Position and width relative to the composer's nearest positioned ancestor. */
+  className?: string;
+  /** Fit the grid above a composer inside a short modal viewport. */
+  compact?: boolean;
 }) {
   const [q, setQ] = React.useState("");
   const filtered = React.useMemo(() => {
@@ -52,7 +58,7 @@ export function EmojiPicker({
 
   return (
     <div
-      className="absolute bottom-full right-0 z-30 mb-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+      className={`absolute bottom-full z-30 mb-2 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900 ${className ?? "right-0 w-72"}`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="border-b border-slate-100 p-2 dark:border-slate-800">
@@ -65,7 +71,7 @@ export function EmojiPicker({
           className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
       </div>
-      <div className="max-h-64 overflow-y-auto p-1">
+      <div className={`${compact ? "max-h-40" : "max-h-64"} overflow-y-auto p-1`}>
         {CATEGORIES.map((cat) => {
           const visible = cat.emoji.filter((e) =>
             filtered.some((f) => f.e === e && f.label === cat.label),
@@ -76,7 +82,7 @@ export function EmojiPicker({
               <div className="py-1 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                 {cat.label}
               </div>
-              <div className="grid grid-cols-8 gap-1">
+              <div className={`grid ${compact ? "grid-cols-6" : "grid-cols-8"} gap-1`}>
                 {visible.map((e) => (
                   <button
                     key={e}

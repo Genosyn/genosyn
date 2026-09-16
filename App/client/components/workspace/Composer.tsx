@@ -80,8 +80,13 @@ export const ChannelComposer = React.forwardRef<
     };
     /** Chrome for the tray, so each surface can seat it in its own layout. */
     className?: string;
+    /** Tighter placeholder and keyboard legend for constrained surfaces such as the Home peek. */
+    compact?: boolean;
   }
->(function ChannelComposer({ company, channel, mentionables, onSent, editLast, className }, ref) {
+>(function ChannelComposer(
+  { company, channel, mentionables, onSent, editLast, className, compact = false },
+  ref,
+) {
   const [draft, setDraft] = React.useState("");
   const [attachments, setAttachments] = React.useState<WorkspaceAttachment[]>([]);
   const [sending, setSending] = React.useState(false);
@@ -439,11 +444,11 @@ export const ChannelComposer = React.forwardRef<
               setEmojiOpen(false);
             }
           }}
-          placeholder={`Message ${channel.label}`}
+          placeholder={compact ? "Reply…" : `Message ${channel.label}`}
           className="min-h-[28px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
           rows={1}
         />
-        <div className="relative">
+        <div className={compact ? "" : "relative"}>
           <button
             onClick={() => setEmojiOpen((o) => !o)}
             className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -456,10 +461,17 @@ export const ChannelComposer = React.forwardRef<
             <EmojiPicker
               onPick={(e) => setDraft((d) => d + e)}
               onClose={() => setEmojiOpen(false)}
+              className={compact ? "left-2 right-2" : undefined}
+              compact={compact}
             />
           )}
         </div>
-        <Button size="sm" disabled={sending} onClick={handleSend}>
+        <Button
+          size="sm"
+          disabled={sending || (draft.trim() === "" && attachments.length === 0)}
+          onClick={handleSend}
+          className="disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
+        >
           {sending ? <Spinner size={12} /> : <Send size={14} />}
           Send
         </Button>
@@ -467,11 +479,15 @@ export const ChannelComposer = React.forwardRef<
         {mentionOpen &&
           mentionCandidates.length > 0 &&
           (mentionPrefix === "@" || (!referencesLoading && references.length === 0)) && (
-            <div className="absolute bottom-full left-12 z-20 mb-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div
+              className={`absolute bottom-full z-20 mb-2 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900 ${
+                compact ? "left-2 right-2" : "left-12 w-80"
+              }`}
+            >
               <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                 {mentionPrefix === "@" ? "People" : "Resources"}
               </div>
-              <div className="max-h-72 overflow-y-auto pb-1">
+              <div className={`${compact ? "max-h-40" : "max-h-72"} overflow-y-auto pb-1`}>
                 {mentionCandidates.map((x, i) => (
                   <button
                     key={`${x.kind}-${x.handle}`}
@@ -527,11 +543,14 @@ export const ChannelComposer = React.forwardRef<
             activeIndex={mentionIndex}
             onHover={setMentionIndex}
             onPick={insertReference}
-            className="absolute bottom-full left-12 z-20 mb-2 w-80"
+            compact={compact}
+            className={`absolute bottom-full z-20 mb-2 ${
+              compact ? "left-2 right-2" : "left-12 w-80"
+            }`}
           />
         )}
       </div>
-      <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+      <div className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
         Press{" "}
         <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to
         send ·{" "}
@@ -548,8 +567,8 @@ export const ChannelComposer = React.forwardRef<
             edit last
           </>
         ) : null}{" "}
-        · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for
-        product areas &amp; resources
+        · <span className="font-mono">@</span> {compact ? "mention" : "for people"} ·{" "}
+        <span className="font-mono">#</span> {compact ? "link" : "for product areas & resources"}
         {channel.kind === "dm" ? (
           <>
             {" "}

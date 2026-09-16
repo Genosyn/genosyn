@@ -363,11 +363,17 @@ export function ChannelPeekModal({
       description={<ChannelMeta channel={channel} detail={detail} unreadCount={unreadCount} />}
       size="lg"
       padded={false}
+      bodyMode="fill"
+      panelClassName="h-[min(38rem,calc(100dvh-2rem))]"
       footer={
         <>
           <Link
             to={channelHref}
-            className={buttonClassName({ variant: "secondary", size: "sm" })}
+            className={buttonClassName({
+              variant: "secondary",
+              size: "sm",
+              className: "sm:mr-auto",
+            })}
             onClick={onClose}
           >
             <ExternalLink size={14} /> Open in Workspace
@@ -388,14 +394,14 @@ export function ChannelPeekModal({
         </>
       }
     >
-      <div className="flex flex-col">
-        <div className="relative">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}
             role="log"
             tabIndex={0}
             aria-label={`Messages in ${channel.label}`}
-            className="max-h-[40vh] overflow-y-auto overscroll-contain px-2 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:max-h-[min(32rem,60vh)] sm:px-3"
+            className="h-full overflow-y-auto overscroll-contain px-2 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:px-3"
             onScroll={(event) => {
               const el = event.currentTarget;
               pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PINNED_SLACK_PX;
@@ -417,26 +423,26 @@ export function ChannelPeekModal({
               </div>
             ) : messages === null ? (
               <div
-                className="flex h-[12rem] items-center justify-center gap-2 text-sm text-slate-500 sm:h-[20rem] dark:text-slate-400"
+                className="flex h-full items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400"
                 role="status"
                 aria-live="polite"
               >
                 <Spinner size={18} /> Loading messages…
               </div>
             ) : messages.length === 0 ? (
-              <div className="flex h-[12rem] flex-col items-center justify-center gap-1 px-4 text-center text-sm text-slate-500 sm:h-[20rem] dark:text-slate-400">
+              <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-sm text-slate-500 dark:text-slate-400">
                 <span>Nothing to catch up on here.</span>
                 <span className="text-xs text-slate-400 dark:text-slate-500">
                   Say something to start it off.
                 </span>
               </div>
             ) : (
-              // `justify-end` against a definite `min-h` is what seats a short
+              // `justify-end` against the viewport's full height seats a short
               // conversation on the composer instead of stranding it at the
-              // top of a fixed box with 500px of white underneath. It sits on
+              // top of the dialog with empty space underneath. It sits on
               // the *content* wrapper, never on the scroll container, where it
               // would push the oldest rows out of reach.
-              <div className="flex min-h-[12rem] flex-col justify-end sm:min-h-[20rem]">
+              <div className="flex min-h-full flex-col justify-end">
                 {hasOlder && (
                   <div className="flex justify-center pb-2">
                     <Button
@@ -481,7 +487,7 @@ export function ChannelPeekModal({
           )}
         </div>
 
-        <div className="shrink-0 border-t border-slate-200/70 px-4 py-3 sm:px-5 dark:border-slate-800">
+        <div className="shrink-0 border-t border-slate-200/70 bg-slate-50/50 px-4 py-3 sm:px-5 dark:border-slate-800 dark:bg-slate-950/20">
           {typers.length > 0 && (
             <div className="mb-1.5">
               <TypingPill typers={typers} />
@@ -504,6 +510,7 @@ export function ChannelPeekModal({
               company={company}
               channel={{ id: channel.id, kind: channel.kind, label: channel.label }}
               mentionables={mentionables}
+              compact
               onSent={(sent) =>
                 setMessages((prev) =>
                   prev === null ? [sent] : mergeWorkspaceMessages(prev, [sent]),
@@ -521,7 +528,8 @@ export function ChannelPeekModal({
  * The line under the title. Everything the row on Home could not carry: what
  * kind of room this is, how many people are in it, and what it is for.
  *
- * Inline elements only — `Modal` renders `description` inside a `<p>`.
+ * Inline elements only — `Modal` renders `description` inside a `<p>`. The
+ * topic gets its own row so a long sentence does not crush the room metadata.
  */
 function ChannelMeta({
   channel,
@@ -545,21 +553,26 @@ function ChannelMeta({
         : "Channel";
   const memberCount = detail?.members.length ?? 0;
   return (
-    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
-        {unreadCount > 99 ? "99+" : unreadCount} new
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <Icon size={12} aria-hidden="true" className="shrink-0" />
-        {kindLabel}
-      </span>
-      {memberCount > 0 && (
-        <span>
-          · {memberCount} member{memberCount === 1 ? "" : "s"}
+    <span className="block min-w-0">
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+          {unreadCount > 99 ? "99+" : unreadCount} new
         </span>
-      )}
+        <span className="inline-flex items-center gap-1">
+          <Icon size={12} aria-hidden="true" className="shrink-0" />
+          {kindLabel}
+        </span>
+        {memberCount > 0 && (
+          <span className="text-slate-400 dark:text-slate-500">
+            {memberCount} member{memberCount === 1 ? "" : "s"}
+          </span>
+        )}
+      </span>
       {detail?.topic ? (
-        <span className="min-w-0 max-w-full truncate border-l border-slate-200 pl-2 dark:border-slate-700">
+        <span
+          className="mt-1 line-clamp-2 border-l-2 border-slate-200 pl-2 text-xs leading-4 text-slate-500 dark:border-slate-700 dark:text-slate-400"
+          title={detail.topic}
+        >
           {detail.topic}
         </span>
       ) : null}

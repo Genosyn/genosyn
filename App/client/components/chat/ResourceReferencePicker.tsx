@@ -87,6 +87,7 @@ export function ResourceReferencePicker({
   onHover,
   onPick,
   className = "",
+  compact = false,
 }: {
   references: ChatResourceReference[];
   loading: boolean;
@@ -94,6 +95,8 @@ export function ResourceReferencePicker({
   onHover: (index: number) => void;
   onPick: (reference: ChatResourceReference) => void;
   className?: string;
+  /** Shorter results viewport for a picker opening inside a modal composer. */
+  compact?: boolean;
 }) {
   if (!loading && references.length === 0) return null;
 
@@ -112,7 +115,7 @@ export function ResourceReferencePicker({
       {loading && references.length === 0 ? (
         <div className="px-3 pb-2 text-xs text-slate-400 dark:text-slate-500">Searching…</div>
       ) : (
-        <div className="max-h-72 overflow-y-auto pb-1">
+        <div className={`${compact ? "max-h-40" : "max-h-72"} overflow-y-auto pb-1`}>
           {references.map((reference, index) => (
             <button
               type="button"
