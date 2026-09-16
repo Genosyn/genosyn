@@ -1259,7 +1259,7 @@ function HomeCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:last:odd:col-span-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <span className="text-slate-400 dark:text-slate-500">{icon}</span>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>

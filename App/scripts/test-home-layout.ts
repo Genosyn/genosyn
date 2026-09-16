@@ -558,6 +558,34 @@ try {
       },
     );
   }
+  await check("an unpaired final card fills its row without leaving a middle gap", async () => {
+    const { page } = await open({
+      width: 1440,
+      notifications: [notification("review-one", "The customer reply is waiting for review")],
+    });
+    const header = await box(greeting(page));
+    const attention = await box(card(page, "Needs your attention"));
+    const todo = await box(card(page, "Your todos"));
+    const messages = await box(card(page, "Unread messages"));
+
+    assert.equal(attention.y, todo.y, "the first pair must stay together on the first row");
+    assert.ok(todo.x > attention.x, "the first pair must retain two columns");
+    assert.ok(messages.y >= attention.y + attention.height, "the final card must use the next row");
+    assert.ok(
+      Math.abs(messages.x - header.x) < 1,
+      "the unpaired card must align with the content's left edge",
+    );
+    assert.ok(
+      Math.abs(messages.width - header.width) < 1,
+      "the unpaired card must span the full content width",
+    );
+    await fits(page);
+    await page.screenshot({
+      path: path.join(output, "home-unpaired-card-full-width.png"),
+      fullPage: true,
+    });
+    await page.close();
+  });
   await check(
     "marking every notification read clears the attention card without navigating",
     async () => {
