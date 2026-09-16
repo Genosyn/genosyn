@@ -82,9 +82,10 @@ export function WorkspaceChat() {
       </P>
       <UL>
         <LI>
-          To clear a channel without opening it, hover its Home row and choose{" "}
-          <Strong>Mark as Read</Strong>. The action remains visible on touch screens and is
-          available from keyboard focus; it clears only that channel&apos;s unread badge.
+          To clear a channel without opening it, hover its Home row and choose the mark-as-read
+          check button. The quick action is also available from keyboard focus, and the unread
+          count stays visible beside it. On a touch screen, open the channel instead and use its
+          close controls to mark it read or keep it unread.
         </LI>
         <LI>
           Messages here are read-only — reactions other people left are visible, but editing,

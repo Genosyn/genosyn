@@ -1758,11 +1758,14 @@ function MessagesCard({
         }}
       >
         {data.unreadChannels.map((c: HomeChannel, index) => (
-          <li key={c.id} className="group relative">
+          <li
+            key={c.id}
+            className="group flex items-center hover:bg-slate-50 dark:hover:bg-slate-800/60"
+          >
             <HomeRow
               to={workspaceChannelHref(company.slug, c.id)}
               onOpen={() => onOpen({ kind: "channel", channel: c })}
-              className="flex items-center gap-3 py-2.5 pl-4 pr-4 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 group-focus-within:pr-32 group-hover:pr-32 dark:hover:bg-slate-800/60 [@media(hover:none)]:pr-32"
+              className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 pr-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
                 <MessageSquare size={12} />
@@ -1770,7 +1773,7 @@ function MessagesCard({
               <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
                 {c.label}
               </span>
-              <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white transition-opacity group-focus-within:opacity-0 group-hover:opacity-0 [@media(hover:none)]:opacity-0">
+              <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
                 {c.unreadCount > 99 ? "99+" : c.unreadCount}
               </span>
             </HomeRow>
@@ -1798,10 +1801,10 @@ function MessagesCard({
                   else fallback?.focus();
                 });
               }}
-              className="pointer-events-none absolute right-2 top-1/2 z-10 inline-flex h-9 -translate-y-1/2 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 opacity-0 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+              title="Mark as read"
+              className="pointer-events-none mr-2 hidden h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 opacity-0 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300 [@media(hover:hover)]:inline-flex"
             >
-              <Check size={13} aria-hidden="true" />
-              Mark as Read
+              <Check size={14} aria-hidden="true" />
             </button>
           </li>
         ))}

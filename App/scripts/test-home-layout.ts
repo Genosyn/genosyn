@@ -371,7 +371,11 @@ const bubbles = (page: Page) => work(page).getByRole("button");
 const card = (page: Page, title: string) =>
   page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
 const markReadButton = (page: Page, label: string) =>
-  page.getByRole("button", { name: `Mark ${label} as read`, exact: true });
+  page.getByRole("button", {
+    name: `Mark ${label} as read`,
+    exact: true,
+    includeHidden: true,
+  });
 async function markReadPresentation(button: Locator) {
   return button.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -534,7 +538,16 @@ try {
         opacity: "0",
         pointerEvents: "none",
       });
-      assert.equal(await action.getByText("Mark as Read", { exact: true }).count(), 1);
+      const count = card(page, "Unread messages").getByText("89", { exact: true });
+      assert.equal(await count.evaluate((element) => getComputedStyle(element).opacity), "1");
+      const actionBox = await box(action);
+      const countBox = await box(count);
+      assert.ok(
+        countBox.x + countBox.width < actionBox.x,
+        "the unread count stays beside the revealed action",
+      );
+      assert.ok(actionBox.width <= 28 && actionBox.height <= 28, "the row action stays compact");
+      assert.equal(await action.getAttribute("title"), "Mark as read");
       await page.screenshot({ path: path.join(output, "home-channel-mark-read-hover.png") });
       await page.close();
     },
@@ -874,7 +887,7 @@ try {
     },
   );
   await check(
-    "touch Home keeps Mark as Read visible, tappable and inside a narrow row",
+    "touch Home keeps the unread count visible without a permanent quick action",
     async () => {
       const fixture = await open({
         quiet: true,
@@ -892,33 +905,22 @@ try {
         fixture.page,
         "#customer-success-with-a-name-that-must-truncate-on-mobile",
       );
-      assert.deepEqual(await markReadPresentation(action), {
-        opacity: "1",
-        pointerEvents: "auto",
-      });
-      const actionBox = await box(action);
-      const rowBox = await box(action.locator(".."));
-      assert.ok(
-        actionBox.x >= rowBox.x && actionBox.x + actionBox.width <= rowBox.x + rowBox.width,
+      assert.equal(await action.isVisible(), false);
+      const count = card(fixture.page, "Unread messages").getByText("99+", { exact: true });
+      assert.equal(await count.evaluate((element) => getComputedStyle(element).opacity), "1");
+      const countBox = await box(count);
+      const rowBox = await box(
+        card(fixture.page, "Unread messages")
+          .getByRole("link")
+          .filter({ hasText: "#customer-success-with-a-name-that-must-truncate-on-mobile" }),
       );
-      assert.ok(actionBox.height >= 36, "touch action keeps a substantial hit target");
-      assert.equal(
-        await card(fixture.page, "Unread messages")
-          .getByText("99+", { exact: true })
-          .evaluate((element) => getComputedStyle(element).opacity),
-        "0",
-        "the unread pill is visually hidden instead of colliding with the touch action",
-      );
+      assert.ok(countBox.x + countBox.width <= rowBox.x + rowBox.width);
       await fits(fixture.page);
       await fixture.page.screenshot({
         path: path.join(output, "home-channel-mark-read-touch.png"),
         fullPage: true,
       });
-      await action.tap();
-      await fixture.page
-        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
-        .waitFor();
-      assert.equal(fixture.writes.length, 1);
+      assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
   );
