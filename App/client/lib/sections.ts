@@ -253,7 +253,17 @@ export const SECTION_GROUPS: SectionGroup[] = [
         shortcut: "-",
         path: "/proactive",
         iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
-        keywords: ["proactive", "automation", "quote", "inbox", "follow-up"],
+        keywords: [
+          "proactive",
+          "standing work",
+          "responsibility",
+          "routine",
+          "initiative",
+          "automation",
+          "quote",
+          "inbox",
+          "follow-up",
+        ],
       },
       {
         key: "routines",

@@ -106,6 +106,7 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
       name: employee.name,
       slug: employee.slug,
       modelReady: Boolean(active && isModelConnected(active)),
+      chatReady: brains.some(isModelConnected),
       financeAccess: finance.find((grant) => grant.employeeId === employee.id)?.accessLevel ?? null,
       revenueAccess: revenue.find((grant) => grant.employeeId === employee.id)?.accessLevel ?? null,
       repositoryWrite: repositoryGrants.some(

@@ -23,7 +23,10 @@ export type ProactiveEmployee = {
   id: string;
   name: string;
   slug: string;
+  /** The active AI Model can run unattended starter work. */
   modelReady: boolean;
+  /** At least one connected AI Model can answer an interactive Chat. */
+  chatReady: boolean;
   financeAccess: string | null;
   revenueAccess: string | null;
   repositoryWrite: boolean;

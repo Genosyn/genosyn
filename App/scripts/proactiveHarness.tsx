@@ -3,6 +3,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { Company } from "../client/lib/api";
+import { ChatSessionsProvider, useChatSessions } from "../client/lib/chatSessions";
 import Proactive from "../client/pages/Proactive";
 import { CompanySocketProvider } from "../client/components/CompanySocket";
 import "../client/styles/index.css";
@@ -15,7 +16,37 @@ function Location() {
     </output>
   );
 }
-const role = new URLSearchParams(location.search).get("role");
+
+const params = new URLSearchParams(location.search);
+const role = params.get("role");
+const existingDraft = params.get("draft") ?? "";
+
+function ChatSessionProbe() {
+  const { sessions, actions } = useChatSessions();
+  const seeded = React.useRef(false);
+  React.useEffect(() => {
+    if (seeded.current || !existingDraft) return;
+    seeded.current = true;
+    actions.update("ada", {
+      activeConvId: "existing-conversation",
+      loadedConvId: "existing-conversation",
+      input: existingDraft,
+      convsLoaded: true,
+    });
+  }, [actions]);
+  const session = sessions.ada;
+  return (
+    <>
+      <output aria-label="Ada Chat draft" className="sr-only">
+        {session?.input ?? ""}
+      </output>
+      <output aria-label="Ada Chat conversation" className="sr-only">
+        {session ? (session.activeConvId ?? "new") : ""}
+      </output>
+    </>
+  );
+}
+
 const company = {
   id: "company",
   slug: "company",
@@ -24,11 +55,14 @@ const company = {
 } as Company;
 createRoot(document.getElementById("root")!).render(
   <MemoryRouter initialEntries={["/c/company/proactive"]}>
-    <CompanySocketProvider companyId={company.id}>
-      <main className="min-h-screen bg-white text-slate-900">
-        <Proactive company={company} />
-        <Location />
-      </main>
-    </CompanySocketProvider>
+    <ChatSessionsProvider>
+      <CompanySocketProvider companyId={company.id}>
+        <main className="min-h-screen bg-white text-slate-900">
+          <Proactive company={company} />
+          <Location />
+          <ChatSessionProbe />
+        </main>
+      </CompanySocketProvider>
+    </ChatSessionsProvider>
   </MemoryRouter>,
 );

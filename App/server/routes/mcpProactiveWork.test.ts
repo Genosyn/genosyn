@@ -198,6 +198,49 @@ test("Member delegation requires an admin for combined work evidence and checks 
   assert.equal((await request("list_initiatives", {}, delegated)).status, 403);
 });
 
+test("interactive Members need admin authority to ask an employee for new standing work", async () => {
+  const member = await insert(User, {
+    email: "initiative-member@example.test",
+    name: "Initiative member",
+    passwordHash: "x",
+  });
+  await insert(Membership, {
+    companyId: company.id,
+    userId: member.id,
+    role: "member",
+  });
+  const body = {
+    title: "Review unresolved project commitments",
+    evidence: "Todos abc and def both waited past their review deadlines.",
+    proposal: "A weekly queue review would give every overdue commitment a clear next step.",
+    routine: {
+      name: "Review project commitments",
+      cronExpr: "0 9 * * 1",
+      body: "Read due project reviews and identify the smallest useful next step.",
+      acceptanceCriteria: "Every due review has a verified owner and next step.",
+    },
+  };
+  const delegatedMember = mint({
+    authority: "member",
+    requesterUserId: member.id,
+    requesterSessionVersion: member.sessionVersion,
+  });
+  assert.equal((await request("propose_initiative", body, delegatedMember)).status, 403);
+  assert.equal(await AppDataSource.getRepository(Initiative).count(), 0);
+  assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
+
+  const delegatedAdmin = mint({
+    authority: "member",
+    requesterUserId: owner.id,
+    requesterSessionVersion: owner.sessionVersion,
+  });
+  const proposed = await request("propose_initiative", body, delegatedAdmin);
+  assert.equal(proposed.status, 200);
+  assert.ok(proposed.body.initiativeId);
+  assert.equal(await AppDataSource.getRepository(Initiative).countBy({ status: "pending" }), 1);
+  assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
+});
+
 test("unauthenticated and untrusted turns cannot inspect proactive evidence or proposal history", async () => {
   assert.equal((await request("get_proactive_work", { area: "commitments" }, null)).status, 401);
   const untrusted = mint({ authority: "untrusted" });

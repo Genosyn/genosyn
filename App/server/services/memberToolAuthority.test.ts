@@ -58,6 +58,12 @@ describe("interactive Member tool policy", () => {
     }
   });
 
+  test("keeps Initiative proposals admin-only while leaving their history Member-readable", () => {
+    assert.equal(memberToolPolicy("propose_initiative"), "admin");
+    assert.equal(memberToolPolicy("list_initiatives"), "member");
+    assert.equal(memberToolPolicy("get_initiative"), "member");
+  });
+
   test("fails closed for an unknown future tool", () => {
     assert.equal(memberToolPolicy("new_unreviewed_tool"), null);
     assert.equal(memberInternalCallbackPolicy("new_unreviewed_callback"), null);

@@ -24,8 +24,22 @@ export function Reactivity() {
 
       <H2 id="start">Review your proactive work</H2>
       <P>
-        Open <Strong>Proactive</Strong> from the company navigation to see your standing work.
-        <Strong> Automatic setup</Strong> starts <Strong>On</Strong> for both new and existing
+        Open <Strong>Proactive</Strong> from the company navigation.{" "}
+        <Strong>How proactive work moves</Strong> explains the review-before-action flow,{" "}
+        <Strong>Automatic setup</Strong>
+        controls future automatic assignments, <Strong>Standing work</Strong> shows what is running
+        or paused, and the <Strong>Starter library</Strong> holds ready-made responsibilities you
+        can customize.
+      </P>
+      <P>
+        Owners and admins can add work in two ways. <Strong>New Routine</Strong> opens the existing
+        Routine flow and creates scheduled work directly. <Strong>Ask AI Employee</Strong> opens an
+        editable, unsent Chat draft asking the selected employee to inspect the evidence and propose
+        an Initiative. Nothing is sent until the Member submits that Chat message, and nothing is
+        scheduled from the Initiative until an owner or admin accepts it.
+      </P>
+      <P>
+        <Strong>Automatic setup</Strong> starts <Strong>On</Strong> for both new and existing
         companies. Genosyn assigns ready responsibilities in the background, without a first visit
         or setup click. Shared responsibilities get one automatic owner; daily responsibility
         reviews and weekly work reviews go to every ready employee. Assignment never adds Grants,
@@ -55,10 +69,11 @@ export function Reactivity() {
       <H2 id="daily-ownership">A useful next step across the app</H2>
       <P>
         Every ready AI Employee receives <Strong>Advance my responsibilities</Strong>, scheduled for
-        weekdays at 08:00 in the server&apos;s timezone. Open its <Strong>Review work</Strong>
-        link to customize the schedule or brief. This daily Routine reads current assignments,
-        deadlines and granted records, inspects the original evidence, and proposes the useful next
-        step for your review. It also checks due Workstreams and suggestions from previous Runs.
+        weekdays at 08:00 in the server&apos;s timezone. Find it in <Strong>Standing work</Strong>
+        and select <Strong>Open</Strong> to edit its schedule or brief. This daily Routine reads
+        current assignments, deadlines and granted records, inspects the original evidence, and
+        proposes the useful next step for your review. It also checks due Workstreams, earlier
+        outcomes, and review feedback from previous Runs.
       </P>
       <KeyList
         rows={[
@@ -110,24 +125,30 @@ export function Reactivity() {
         half-hourly checks; existing immediate assignment handling and specialist Routines continue
         their work.
       </P>
-      <H2 id="routine-ideas">Suggest new Routines and improve existing ones</H2>
+      <H2 id="routine-ideas">Initiatives for new Routines and improvements to existing ones</H2>
       <P>
         Repeated manual work, recurring customer questions, missed handoffs and reports rebuilt by
         hand can become <Strong>Initiatives</Strong>. AI Employees read pending, accepted and
-        declined proposals across the company, including the reviewer&apos;s feedback, before
-        suggesting more. Each suggestion includes concrete evidence, a full Routine brief, a
-        schedule and measurable success criteria. The daily brief asks for at most one suggestion
-        per Run and normally no more than one a week.
+        declined Initiatives across the company, including the reviewer&apos;s feedback, before
+        filing another. Each Initiative includes concrete evidence, a full Routine brief, a schedule
+        and measurable success criteria. The daily brief asks for at most one Initiative per Run and
+        normally no more than one a week.
       </P>
       <P>
-        Open <Strong>Proposed Initiatives</Strong> on the Proactive page to review them. An
-        admin&apos;s
-        <Strong> Accept</Strong> creates the proposed Routine. Exact duplicate pending work and
-        already accepted work are refused, including after the accepted Routine was paused or
-        deleted. A declined suggestion needs changed work or new evidence before it can be proposed
-        again. The queue permits at most five pending suggestions per employee. Improvements to an
-        existing Routine use a<DocLink to="/docs/improvement"> Revision proposal</DocLink> instead
-        of overlapping work.
+        Use <Strong>New Routine</Strong> when you already know the scheduled work you want. Use
+        <Strong>Ask AI Employee</Strong> when you want an employee to inspect the company&apos;s
+        evidence, check existing Routines and earlier Initiatives, and make a recommendation first.
+        The editable Chat draft asks for the evidence, exact Routine brief, schedule, and measurable
+        success criteria; opening it does not send the request or create work.
+      </P>
+      <P>
+        Open <Strong>Initiatives</Strong> from the Proactive page to review what employees have
+        filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine. Exact duplicate
+        pending work and already accepted work are refused, including after the accepted Routine was
+        paused or deleted. A declined Initiative needs changed work or new evidence before it can be
+        filed again. The queue permits at most five pending Initiatives per employee. Improvements
+        to an existing Routine use a<DocLink to="/docs/improvement"> Revision proposal</DocLink>{" "}
+        instead of overlapping work.
       </P>
       <P>
         Owners and admins can turn <Strong>Automatic setup</Strong> off to stop future automatic
@@ -136,11 +157,12 @@ export function Reactivity() {
         recreate work you deliberately deleted. Every Member can see the setting and standing work.
       </P>
       <P>
-        Use <Strong>Review work</Strong> to edit an existing rule or Routine. To assign work
-        manually, select <Strong>Customize</Strong> on a responsibility, choose an AI Employee and
-        (where needed) a mailbox, review its instructions, then select <Strong>Assign work</Strong>.
-        The form lists missing Grants or a disconnected AI Model. Manual customization remains
-        available when Automatic setup is off.
+        In <Strong>Standing work</Strong>, use <Strong>Open</Strong> to edit an existing rule or
+        Routine. To assign a ready-made responsibility, open the <Strong>Starter library</Strong>{" "}
+        and select <Strong>Set up</Strong>, or <Strong>Add another</Strong> when that starter is
+        already assigned. Choose an AI Employee and (where needed) a mailbox, review its
+        instructions, then select <Strong>Assign work</Strong>. The form lists missing Grants or a
+        disconnected AI Model. Manual setup remains available when Automatic setup is off.
       </P>
       <P>
         Email starters also need a working AI analysis reader in <Strong>Email → Settings</Strong>.
@@ -196,19 +218,18 @@ export function Reactivity() {
         Fridays at 15:00 in the server&apos;s timezone. The employee reviews its recent Runs,
         Lessons, email handovers, Repository Work sessions, and earlier revision feedback, then
         proposes at most one concrete change supported by that evidence. It stays quiet without new
-        evidence and avoids repeating pending or rejected suggestions. This review can read its own
-        evidence, track its review, and stage a suggestion; it cannot apply edits, send email,
-        change business records, or propose changes to acceptance criteria or Checks.
+        evidence and avoids repeating pending or rejected Revision proposals. This review can read
+        its own evidence, track its review, and stage a Revision proposal; it cannot apply edits,
+        send email, change business records, or propose changes to acceptance criteria or Checks.
       </P>
       <P>
-        Beside <Strong>Your standing work</Strong>, select <Strong>Review suggestions</Strong> to
-        open <Strong>Revisions</Strong>. Owners and admins review the proposed change and choose
-        <Strong> Apply</Strong> or <Strong>Reject</Strong>; the employee never applies its own
-        suggestion. Later reviews check meaningful outcomes after an applied change. You can
-        customize or pause this Routine like other standing work, and automatic setup preserves your
-        edits, pauses, and deletions. See{" "}
-        <DocLink to="/docs/improvement">The improvement loop</DocLink> for the review process and
-        notifications.
+        Under <Strong>How proactive work moves</Strong>, select <Strong>Revisions</Strong>. Owners
+        and admins review the proposed change and choose <Strong>Apply</Strong> or
+        <Strong> Reject</Strong>; the employee never applies its own Revision proposal. Later
+        reviews check meaningful outcomes after an applied change. You can edit or pause this
+        Routine like other standing work, and automatic setup preserves your edits, pauses, and
+        deletions. See <DocLink to="/docs/improvement">The improvement loop</DocLink> for the review
+        process and notifications.
       </P>
       <H2 id="delivery">Review customer delivery separately</H2>
       <P>
@@ -243,15 +264,15 @@ export function Reactivity() {
         session branch; it cannot merge or publish the default branch. Repositories using a private
         token or SSH credential still need Member publication.{" "}
         <Strong>Follow through on open work</Strong> lets the same employee revisit saved sessions
-        and propose the next step for your review; check its assignment under Your standing work.
-        See
+        and propose the next step for your review; check its assignment under
+        <Strong> Standing work</Strong>. See
         <DocLink to="/docs/repositories"> Repositories</DocLink>.
       </P>
       <P>
-        Under <Strong>Your standing work</Strong>, use <Strong>Review work</Strong> to open the
-        underlying rule or Routine and its history. <Strong>Pause</Strong> stops future starts; use
-        a <DocLink to="/docs/standdowns">Standdown</DocLink> when work already in progress must
-        stop. Assigning the same starter for the same employee and mailbox twice reuses its existing
+        Under <Strong>Standing work</Strong>, use <Strong>Open</Strong> to view the underlying rule
+        or Routine and its history. <Strong>Pause</Strong> stops future starts; use a
+        <DocLink to="/docs/standdowns"> Standdown</DocLink> when work already in progress must stop.
+        Assigning the same starter for the same employee and mailbox twice reuses its existing
         configuration, including a paused state.
       </P>
 
@@ -374,16 +395,16 @@ export function Reactivity() {
         ]}
       />
       <P>
-        Admins are paged, and pending initiatives live in their own <Strong>Initiatives</Strong>{" "}
+        Admins are paged, and pending Initiatives live in their own <Strong>Initiatives</Strong>{" "}
         section under the AI nav. <Strong>Accepting</Strong> creates precisely the Routine proposed
         — owned by the proposing employee, scheduled immediately. <Strong>Declining</Strong>{" "}
-        journals the reason back to the employee, so the next proposal is better aimed. At most{" "}
-        <Strong>5</Strong> initiatives can be pending per employee.
+        journals the reason back to the employee, so the next Initiative is better aimed. At most{" "}
+        <Strong>5</Strong> Initiatives can be pending per employee.
       </P>
       <Callout kind="info" title="Nothing exists until a human accepts.">
-        An Initiative is a proposal of standing work, not the work itself. The employee cannot
-        schedule its own idea into existence — the accept click is what creates the Routine, and it
-        creates exactly what was proposed, nothing more.
+        An Initiative is standing work an employee has put forward, not the work itself. The
+        employee cannot schedule it into existence — the accept click is what creates the Routine,
+        and it creates exactly what was proposed, nothing more.
       </Callout>
     </>
   );

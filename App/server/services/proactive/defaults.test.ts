@@ -44,6 +44,7 @@ function fixture(): Overview {
       name: id,
       slug: id,
       modelReady: true,
+      chatReady: true,
       financeAccess: "invoice",
       revenueAccess: "write",
       repositoryWrite: true,

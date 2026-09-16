@@ -177,6 +177,7 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   assert.equal(view.recipes.length, 13);
   assert.equal(view.employees.length, 1);
   assert.equal(view.employees[0].modelReady, true);
+  assert.equal(view.employees[0].chatReady, true);
   assert.equal(view.employees[0].mailGrants.length, 1);
   assert.equal(view.mailboxes[0].analysisReady, true);
   assert.equal(view.mailboxes[0].analysisEmployeeId, employee.id);
@@ -184,6 +185,26 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   assert.deepEqual(view.defaultAssignments, {});
   assert.doesNotMatch(JSON.stringify(view), /do-not-serialize|soulBody|configJson/);
   assert.ok(!JSON.stringify(view).includes(other.id));
+});
+test("overview distinguishes unattended readiness from a connected Chat fallback", async () => {
+  const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+    employeeId: employee.id,
+    isActive: true,
+  });
+  await AppDataSource.getRepository(AIModel).update(active.id, { configJson: "{}" });
+  await insert(AIModel, {
+    employeeId: employee.id,
+    provider: "openai",
+    model: "connected-fallback",
+    authMode: "apikey",
+    isActive: false,
+    configJson: JSON.stringify({ apiKeyEncrypted: "do-not-serialize-fallback" }),
+  });
+
+  const view = (await request()).body as ProactiveOverview;
+  assert.equal(view.employees[0].modelReady, false);
+  assert.equal(view.employees[0].chatReady, true);
+  assert.doesNotMatch(JSON.stringify(view), /do-not-serialize/);
 });
 test("authentication and company membership are required", async () => {
   actingUserId = null;
