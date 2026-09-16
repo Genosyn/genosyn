@@ -125,10 +125,10 @@ export function Introduction() {
         minutes if Docker is already running.
       </P>
       <P>
-        Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — pending Decisions,
-        unread mentions and DMs, todos assigned to you, reviews and Approvals waiting on you, your{" "}
-        <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest unread{" "}
-        <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
+        Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — pending
+        Decisions, unread mentions and DMs, todos assigned to you, reviews and Approvals waiting on
+        you, your <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest
+        unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> beside your
         greeting, plus shortcuts to every section. The small bubbles sit in the header, leaving the
         cards below the full width of the page. Each bubble shows who is working now; choose one to
@@ -139,11 +139,13 @@ export function Introduction() {
       <P>
         Home only shows you what it actually has. Every queue — failed{" "}
         <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
-        <DocLink to="/docs/tasks">todos</DocLink>, pending Decisions, reviews, unread messages, email, Approvals,
-        system health — disappears when it&apos;s empty rather than sitting there reporting that
-        nothing is waiting. Dismissing a TLDR removes it from your Home only; its history remains
-        available, and colleagues keep seeing it until they dismiss it themselves. So the page is
-        only ever as long as your day is busy, and on a quiet one it says{" "}
+        <DocLink to="/docs/tasks">todos</DocLink>, pending Decisions, reviews, unread messages,
+        email, Approvals, system health — disappears when it&apos;s empty rather than sitting there
+        reporting that nothing is waiting. Dismissing a TLDR removes it from your Home only; its
+        history remains available, and colleagues keep seeing it until they dismiss it themselves.
+        Use <Strong>Mark all as read</Strong> on <Strong>Needs your attention</Strong> to clear your
+        unread notifications together; they remain available in the bell&apos;s history. So the page
+        is only ever as long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that. The{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> stay available in
         the header, because a quiet day for you can still be a busy one for your AI Employees.
@@ -154,18 +156,18 @@ export function Introduction() {
         <DocLink to="/docs/decisions">Decision stack</DocLink> page.
       </P>
       <P>
-        <Strong>Clicking a row on Home keeps you on Home.</Strong> A pending Decision can be answered
-        or dismissed directly in its preview. An unread channel opens the
-        messages themselves, scrolled to the line where your unread run starts, with the full
-        Workspace composer under it — <Code>@</Code> an AI Employee and watch it start typing right
-        there (see <DocLink to="/docs/workspace-chat">Workspace chat</DocLink>); a todo opens its
-        description, pickers and comments; an approval opens what the AI Employee actually asked
-        for, with Approve and Reject on it; a failing health check opens the rows behind the number;
-        a failed <DocLink to="/docs/routines">routine</DocLink> opens its log. Each one carries a
-        button to the full page — <Strong>Open in Workspace</Strong>,{" "}
-        <Strong>Open the board</Strong>, <Strong>Approvals inbox</Strong> — for when you want the
-        context around the thing rather than the thing. ⌘-click (Ctrl-click on Windows and Linux) or
-        middle-click a row to skip the peek and go straight to the full page, as you always could.
+        <Strong>Clicking a row on Home keeps you on Home.</Strong> A pending Decision can be
+        answered or dismissed directly in its preview. An unread channel opens the messages
+        themselves, scrolled to the line where your unread run starts, with the full Workspace
+        composer under it — <Code>@</Code> an AI Employee and watch it start typing right there (see{" "}
+        <DocLink to="/docs/workspace-chat">Workspace chat</DocLink>); a todo opens its description,
+        pickers and comments; an approval opens what the AI Employee actually asked for, with
+        Approve and Reject on it; a failing health check opens the rows behind the number; a failed{" "}
+        <DocLink to="/docs/routines">routine</DocLink> opens its log. Each one carries a button to
+        the full page — <Strong>Open in Workspace</Strong>, <Strong>Open the board</Strong>,{" "}
+        <Strong>Approvals inbox</Strong> — for when you want the context around the thing rather
+        than the thing. ⌘-click (Ctrl-click on Windows and Linux) or middle-click a row to skip the
+        peek and go straight to the full page, as you always could.
       </P>
       <P>
         To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux). That

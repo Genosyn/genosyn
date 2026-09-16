@@ -15,6 +15,7 @@ import type {
   Employee,
   HomeChannel,
   HomeData,
+  Notification,
   WorkEntry,
   WorkTimeline,
 } from "../client/lib/api";
@@ -91,10 +92,34 @@ function roster(count = 1): Employee[] {
 function channel(id: string, label: string, unreadCount: number): HomeChannel {
   return { id, kind: "channel", label, unreadCount, lastReadAt: null };
 }
+function notification(id: string, title: string): Notification {
+  return {
+    id,
+    kind: "approval_stale",
+    title,
+    body: "A review has been waiting for 24 hours.",
+    link: `/c/company/decisions#review-${id}`,
+    actor: {
+      kind: "ai",
+      id: "employee-1",
+      name: "Jamie Mallers",
+      avatarKey: null,
+      slug: "employee-1",
+    },
+    entityKind: "approval",
+    entityId: id,
+    readAt: null,
+    createdAt: fixtureNow.toISOString(),
+  };
+}
 
 function homeData(
   employeeCount: number,
-  options: { quiet?: boolean; unreadChannels?: HomeChannel[] } = {},
+  options: {
+    quiet?: boolean;
+    unreadChannels?: HomeChannel[];
+    notifications?: Notification[];
+  } = {},
 ): HomeData {
   const quiet = options.quiet ?? false;
   return {
@@ -123,8 +148,8 @@ function homeData(
           } as Decision,
         ],
     pendingDecisionCount: quiet ? 0 : 1,
-    notifications: [],
-    unreadNotificationCount: 0,
+    notifications: options.notifications ?? [],
+    unreadNotificationCount: options.notifications?.length ?? 0,
     myTodos: quiet
       ? []
       : [
@@ -209,10 +234,13 @@ type FixtureOptions = {
   holdWork?: boolean;
   holdMarkRead?: boolean;
   markReadError?: boolean;
+  holdNotificationMarkAll?: boolean;
+  notificationMarkAllError?: boolean;
   working?: boolean;
   brokenAvatar?: boolean;
   touch?: boolean;
   channels?: HomeChannel[];
+  notifications?: Notification[];
 };
 async function open(options: FixtureOptions = {}) {
   const page = await (options.touch ? touchContext : context).newPage();
@@ -233,6 +261,7 @@ async function open(options: FixtureOptions = {}) {
   let unreadChannels = (
     options.channels ?? (options.quiet ? [] : [channel("support", "Support", 2)])
   ).map((row) => ({ ...row }));
+  let notifications = (options.notifications ?? []).map((row) => ({ ...row }));
   let releaseWork: () => void = () => {};
   const workGate = new Promise<void>((resolve) => {
     releaseWork = resolve;
@@ -240,6 +269,10 @@ async function open(options: FixtureOptions = {}) {
   let releaseMarkRead: () => void = () => {};
   const markReadGate = new Promise<void>((resolve) => {
     releaseMarkRead = resolve;
+  });
+  let releaseNotificationMarkAll: () => void = () => {};
+  const notificationMarkAllGate = new Promise<void>((resolve) => {
+    releaseNotificationMarkAll = resolve;
   });
   let holdNextHome = false;
   let releaseHome: () => void = () => {};
@@ -269,6 +302,18 @@ async function open(options: FixtureOptions = {}) {
       unreadChannels = unreadChannels.filter((row) => row.id !== decodeURIComponent(markRead[1]));
       return route.fulfill({ json: { ok: true } });
     }
+    if (
+      request.method() === "POST" &&
+      url.pathname === "/api/companies/company/notifications/mark-all-read"
+    ) {
+      writes.push(`${request.method()} ${url.pathname}`);
+      if (options.holdNotificationMarkAll) await notificationMarkAllGate;
+      if (options.notificationMarkAllError) {
+        return route.fulfill({ status: 503, json: { error: "Notifications are unavailable." } });
+      }
+      notifications = [];
+      return route.fulfill({ json: { ok: true } });
+    }
     if (request.method() !== "GET") {
       unexpectedRequests.push(`${request.method()} ${url.href}`);
       return route.abort();
@@ -286,6 +331,7 @@ async function open(options: FixtureOptions = {}) {
         json: homeData(employees.length, {
           quiet: options.quiet,
           unreadChannels,
+          notifications,
         }),
       });
     }
@@ -321,11 +367,13 @@ async function open(options: FixtureOptions = {}) {
   await page
     .getByRole("heading", {
       name:
-        options.quiet && unreadChannels.length === 0
+        options.quiet && unreadChannels.length === 0 && notifications.length === 0
           ? "Nothing needs you right now"
-          : options.quiet
-            ? "Unread messages"
-            : "Pending Decisions",
+          : notifications.length > 0
+            ? "Needs your attention"
+            : options.quiet
+              ? "Unread messages"
+              : "Pending Decisions",
       exact: true,
     })
     .waitFor();
@@ -343,6 +391,7 @@ async function open(options: FixtureOptions = {}) {
     writes,
     releaseWork,
     releaseMarkRead,
+    releaseNotificationMarkAll,
     releaseHome,
     recover: () => {
       rosterError = false;
@@ -508,6 +557,125 @@ try {
       },
     );
   }
+  await check(
+    "marking every notification read clears the attention card without navigating",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        width: 320,
+        notifications: [
+          notification("review-one", "The customer reply is waiting for review"),
+          notification("review-two", "The renewal plan has waited 24 hours"),
+        ],
+      });
+      const attention = card(fixture.page, "Needs your attention");
+      const header = attention.locator(":scope > div").first();
+      await header.getByText("2", { exact: true }).waitFor();
+      const action = header.getByRole("button", { name: "Mark all as read", exact: true });
+      await action.waitFor();
+      await header.getByRole("link", { name: "Bell has history", exact: false }).waitFor();
+      await fits(fixture.page);
+      await fixture.page.screenshot({
+        path: path.join(output, "home-notifications-mark-all-mobile.png"),
+        fullPage: true,
+      });
+      await fixture.page.setViewportSize({ width: 1440, height: 1000 });
+      const headingBounds = await box(
+        header.getByRole("heading", { name: "Needs your attention", exact: true }),
+      );
+      const actionBounds = await box(action);
+      assert.ok(
+        Math.abs(
+          headingBounds.y + headingBounds.height / 2 - actionBounds.y - actionBounds.height / 2,
+        ) < 2,
+        "the bulk action shares the card header row on a wide screen",
+      );
+      await fits(fixture.page);
+      await fixture.page.screenshot({
+        path: path.join(output, "home-notifications-mark-all-desktop.png"),
+        fullPage: true,
+      });
+
+      await action.focus();
+      const response = fixture.page.waitForResponse(
+        (row) =>
+          row.request().method() === "POST" &&
+          new URL(row.url()).pathname === "/api/companies/company/notifications/mark-all-read" &&
+          row.status() === 200,
+      );
+      await fixture.page.keyboard.press("Space");
+      await response;
+
+      const allClear = fixture.page.getByRole("heading", {
+        name: "Nothing needs you right now",
+        exact: true,
+      });
+      await allClear.waitFor();
+      await fixture.page.waitForFunction(
+        () => document.activeElement?.hasAttribute("data-home-all-clear") === true,
+      );
+      await fixture.page
+        .getByRole("status")
+        .getByText("All notifications marked as read.")
+        .waitFor();
+      assert.equal(await attention.count(), 0);
+      assert.deepEqual(fixture.writes, ["POST /api/companies/company/notifications/mark-all-read"]);
+      assert.equal(await fixture.page.getByRole("dialog").count(), 0);
+      assert.equal(await fixture.page.getByLabel("Opened route").count(), 0);
+      await fits(fixture.page);
+      await fixture.page.close();
+    },
+  );
+  await check("a failed notification bulk read restores the attention card", async () => {
+    const fixture = await open({
+      quiet: true,
+      holdNotificationMarkAll: true,
+      notificationMarkAllError: true,
+      notifications: [
+        notification("review-one", "The customer reply is waiting for review"),
+        notification("review-two", "The renewal plan has waited 24 hours"),
+      ],
+    });
+    try {
+      const attention = card(fixture.page, "Needs your attention");
+      const request = fixture.page.waitForRequest(
+        (row) =>
+          row.method() === "POST" &&
+          new URL(row.url()).pathname === "/api/companies/company/notifications/mark-all-read",
+      );
+      await attention.getByRole("button", { name: "Mark all as read", exact: true }).click();
+      await request;
+      await attention.waitFor({ state: "detached" });
+      fixture.releaseNotificationMarkAll();
+
+      const dialog = fixture.page.getByRole("dialog", {
+        name: "Couldn’t mark all notifications as read",
+        exact: true,
+      });
+      await dialog.waitFor();
+      await dialog
+        .getByText("Notifications are unavailable. They have been restored.", { exact: true })
+        .waitFor();
+      await card(fixture.page, "Needs your attention").getByText("2", { exact: true }).waitFor();
+      assert.equal(
+        await fixture.page
+          .getByText("The customer reply is waiting for review", { exact: true })
+          .count(),
+        1,
+      );
+      assert.equal(
+        await fixture.page
+          .getByText("The renewal plan has waited 24 hours", { exact: true })
+          .count(),
+        1,
+      );
+      assert.deepEqual(fixture.writes, ["POST /api/companies/company/notifications/mark-all-read"]);
+      await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+    } finally {
+      fixture.releaseNotificationMarkAll();
+      await fixture.page.close();
+    }
+  });
   await check(
     "hover reveals only the selected channel action and preserves unread totals",
     async () => {

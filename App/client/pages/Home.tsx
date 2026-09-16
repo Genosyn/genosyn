@@ -120,7 +120,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const mailRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
-  const [channelReadNotice, setChannelReadNotice] = React.useState<string | null>(null);
+  const [readNotice, setReadNotice] = React.useState<string | null>(null);
   const background = useBackgroundAction();
   activeCompanyId.current = company.id;
 
@@ -163,7 +163,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     setLoadError(null);
     setOverlay(null);
     setDecisionNotice(null);
-    setChannelReadNotice(null);
+    setReadNotice(null);
     void reload();
     return () => {
       homeRequest.current += 1;
@@ -293,11 +293,11 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         }`,
       onSuccess: () => {
         if (activeCompanyId.current !== companyId) return;
-        setChannelReadNotice(`${channel.label} marked as read.`);
+        setReadNotice(`${channel.label} marked as read.`);
         void reload();
       },
       onError: () => {
-        setChannelReadNotice(null);
+        setReadNotice(null);
         setData((current) => {
           if (
             activeCompanyId.current !== companyId ||
@@ -314,6 +314,63 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             channel,
           );
           return { ...current, unreadChannels };
+        });
+      },
+    });
+    return true;
+  }
+
+  function markAllNotificationsRead(): boolean {
+    if (!data || data.notifications.length === 0 || data.unreadNotificationCount === 0) {
+      return false;
+    }
+    const previousNotifications = data.notifications;
+    const previousCount = data.unreadNotificationCount;
+    const successfulRequestAtClick = homeSuccessfulRequest.current;
+    const companyId = company.id;
+
+    setReadNotice(null);
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            notifications: [],
+            unreadNotificationCount: 0,
+          }
+        : current,
+    );
+
+    background(() => api.post(`/api/companies/${companyId}/notifications/mark-all-read`), {
+      title: "Couldn’t mark all notifications as read",
+      error: (err) =>
+        `${errorMessage(err)} ${
+          activeCompanyId.current !== companyId ||
+          homeSuccessfulRequest.current > successfulRequestAtClick
+            ? "The latest Home data has been kept."
+            : "They have been restored."
+        }`,
+      onSuccess: () => {
+        if (activeCompanyId.current !== companyId) return;
+        setReadNotice("All notifications marked as read.");
+        void reload();
+      },
+      onError: () => {
+        setReadNotice(null);
+        setData((current) => {
+          if (
+            activeCompanyId.current !== companyId ||
+            homeSuccessfulRequest.current > successfulRequestAtClick ||
+            !current ||
+            current.notifications.length > 0 ||
+            current.unreadNotificationCount > 0
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            notifications: previousNotifications,
+            unreadNotificationCount: previousCount,
+          };
         });
       },
     });
@@ -356,9 +413,9 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             {decisionNotice.message}
           </div>
         )}
-        {channelReadNotice && (
+        {readNotice && (
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-            {channelReadNotice}
+            {readNotice}
           </div>
         )}
         {data === null ? (
@@ -395,7 +452,12 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                   a day when every card inside it has hidden itself. */}
                 <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
                   <EmailsCard company={company} data={data} />
-                  <AttentionCard company={company} data={data} onOpen={setOverlay} />
+                  <AttentionCard
+                    company={company}
+                    data={data}
+                    onOpen={setOverlay}
+                    onMarkAllRead={markAllNotificationsRead}
+                  />
                   <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
                   <MyTodosCard company={company} data={data} onOpen={setOverlay} />
                   <MessagesCard
@@ -1183,6 +1245,7 @@ function HomeCard({
   title,
   icon,
   count,
+  headerAction,
   linkTo,
   linkLabel,
   children,
@@ -1190,13 +1253,14 @@ function HomeCard({
   title: string;
   icon: React.ReactNode;
   count?: number;
+  headerAction?: React.ReactNode;
   linkTo: string;
   linkLabel: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <span className="text-slate-400 dark:text-slate-500">{icon}</span>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
         {count !== undefined && count > 0 && (
@@ -1204,12 +1268,20 @@ function HomeCard({
             {count}
           </span>
         )}
-        <Link
-          to={linkTo}
-          className="ml-auto flex items-center gap-0.5 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+        <div
+          className={clsx(
+            "ml-auto flex shrink-0 items-center gap-3",
+            Boolean(headerAction) && "basis-full justify-end sm:basis-auto",
+          )}
         >
-          {linkLabel} <ChevronRight size={12} />
-        </Link>
+          {headerAction}
+          <Link
+            to={linkTo}
+            className="flex shrink-0 items-center gap-0.5 text-xs text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
+          >
+            {linkLabel} <ChevronRight size={12} />
+          </Link>
+        </div>
       </div>
       <div className="min-h-[8rem] flex-1">{children}</div>
     </section>
@@ -1381,10 +1453,12 @@ function AttentionCard({
   company,
   data,
   onOpen,
+  onMarkAllRead,
 }: {
   company: Company;
   data: HomeData;
   onOpen: (overlay: HomeOverlay) => void;
+  onMarkAllRead: () => boolean;
 }) {
   const background = useBackgroundAction();
 
@@ -1414,6 +1488,23 @@ function AttentionCard({
       title="Needs your attention"
       icon={<AtSign size={15} />}
       count={data.unreadNotificationCount}
+      headerAction={
+        <button
+          type="button"
+          onClick={() => {
+            if (!onMarkAllRead()) return;
+            requestAnimationFrame(() => {
+              const fallback =
+                document.querySelector<HTMLElement>("[data-home-all-clear]") ??
+                document.querySelector<HTMLElement>("[data-home-mark-read-fallback]");
+              fallback?.focus();
+            });
+          }}
+          className="inline-flex min-h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-300"
+        >
+          Mark all as read
+        </button>
+      }
       linkTo={`/c/${company.slug}`}
       linkLabel="Bell has history"
     >
