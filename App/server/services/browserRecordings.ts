@@ -640,9 +640,9 @@ export function browserRecordingDemand(sessionId: string): boolean {
 }
 
 /**
- * Stop accepting frames synchronously while preserving clean bytes already
- * captured. Used before the last password scan so no frame can arrive between
- * the scan and encoder finalization.
+ * Stop accepting frames synchronously while preserving bytes already handed
+ * to the encoder. Used before teardown and finalization so frame intake cannot
+ * race either lifecycle boundary.
  */
 export function freezeBrowserRecording(sessionId: string): void {
   const active = activeRecordings.get(sessionId);

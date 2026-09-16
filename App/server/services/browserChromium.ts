@@ -51,32 +51,6 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  */
 const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
-export type BrowserNavigationMetadata = {
-  url: string;
-  title: string | null;
-};
-
-type BrowserNavigationMetadataSanitizer = (
-  sessionId: string,
-  metadata: BrowserNavigationMetadata,
-) => BrowserNavigationMetadata | Promise<BrowserNavigationMetadata>;
-
-let navigationMetadataSanitizer: BrowserNavigationMetadataSanitizer | null = null;
-
-/**
- * Install the credential-aware boundary that runs before navigation metadata
- * is persisted or broadcast. Kept here as a narrow callback so the browser
- * lifecycle service does not need to know how Vault ciphertext is classified.
- */
-export function registerBrowserNavigationMetadataSanitizer(
-  sanitizer: BrowserNavigationMetadataSanitizer,
-): () => void {
-  navigationMetadataSanitizer = sanitizer;
-  return () => {
-    if (navigationMetadataSanitizer === sanitizer) navigationMetadataSanitizer = null;
-  };
-}
-
 /**
  * How long after a navigation settles before we snapshot cookies to disk.
  *
@@ -1118,26 +1092,11 @@ async function mirrorNav(r: SessionRuntime): Promise<void> {
   } catch {
     // best-effort
   }
-  let metadata: BrowserNavigationMetadata = { url: rawUrl, title: title || null };
-  if (navigationMetadataSanitizer) {
-    try {
-      metadata = await navigationMetadataSanitizer(r.id, metadata);
-    } catch {
-      // Credential metadata must fail closed. Persistence and viewer fanout
-      // receive only the origin if classification itself ever fails.
-      metadata = { url: originOnly(rawUrl), title: null };
-    }
-  }
-  // Teardown can run while `title()` or the sanitizer awaits. Never let that
-  // stale continuation write to a closed session or broadcast metadata after
-  // its credential-redaction state has been cleared.
+  // Teardown can run while `title()` awaits. Never let that stale continuation
+  // write to a closed session or broadcast metadata afterward.
   if (runtimes.get(r.id) !== r || p.isClosed()) return;
-  // On a Member's own machine the mirror keeps the origin only. The full URL
-  // is written to the App database and broadcast to every attached viewer, and
-  // on plenty of sites the path carries a token or a document the human would
-  // not expect to leave their laptop.
-  const mirroredUrl = r.memberBrowserId ? originOnly(metadata.url) : metadata.url;
-  const mirroredTitle = metadata.title || null;
+  const mirroredUrl = rawUrl;
+  const mirroredTitle = title || null;
   if (mirroredUrl === r.lastNavUrl && (mirroredTitle ?? "") === r.lastNavTitle) return;
   r.lastNavUrl = mirroredUrl;
   r.lastNavTitle = mirroredTitle ?? "";
@@ -1150,16 +1109,6 @@ async function mirrorNav(r: SessionRuntime): Promise<void> {
   // frames.
   const { broadcastNav } = await import("./browserSessions.js");
   broadcastNav(r.id, mirroredUrl, mirroredTitle);
-}
-
-function originOnly(value: string): string {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-    return url.origin;
-  } catch {
-    return "";
-  }
 }
 
 /**
@@ -1226,22 +1175,10 @@ export async function releasePage(
 ): Promise<void> {
   const r = runtimes.get(sessionId);
   if (!r) return;
-  // Last chance to scan while the page still exists. A navigation can reveal a
-  // password field after the final browser RPC and before teardown, and later
-  // screenshots must stay redacted when it does.
-  const { flushBrowserRecordingFrameScans, observeRuntimePasswordValues } =
-    await import("./browserSessions.js");
-  const { browserRecordingDemand, freezeBrowserRecording } = await import(
-    "./browserRecordings.js"
-  );
-  const finalScanRequired = browserRecordingDemand(sessionId);
+  const { flushBrowserRecordingFrameIntake } = await import("./browserSessions.js");
+  const { freezeBrowserRecording } = await import("./browserRecordings.js");
   freezeBrowserRecording(sessionId);
-  await flushBrowserRecordingFrameScans(sessionId);
-  await observeRuntimePasswordValues(sessionId, {
-    failClosedIfUnavailable: finalScanRequired,
-  }).catch(() => {
-    // Redaction bookkeeping only; teardown still finalizes the recording.
-  });
+  await flushBrowserRecordingFrameIntake(sessionId);
   runtimes.delete(sessionId);
   if (r.idleTimer) clearTimeout(r.idleTimer);
   if (r.navTimer) clearTimeout(r.navTimer);

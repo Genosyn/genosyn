@@ -9,18 +9,10 @@ import {
   browserKeyMaySubmit,
   browserModelPressKeyIsAllowed,
   browserModelPressKeySchema,
-  captureVaultSafeScreenshot,
-  clearVaultSensitiveValuesForSession,
+  captureBrowserScreenshot,
   disarmUnapprovedFormSubmitGuard,
   inspectBrowserApprovalTarget,
-  observeBrowserSensitiveValue,
   pageSnapshot,
-  redactPasswordInputsFromSnapshot,
-  redactVaultSensitiveText,
-  rememberVaultTotpCode,
-  rememberCurrentPasswordValues,
-  sanitizeVaultBrowserNavigationMetadata,
-  safeBrowserUrlForModel,
   vaultFillTargetIsAllowed,
   vaultPasskeyMatchesPage,
   vaultUrlAllowedForEmployee,
@@ -145,14 +137,27 @@ describe("Vault passkey RP binding", () => {
   });
 });
 
-describe("Browser model-visible URL", () => {
-  it("omits userinfo, path, query, and fragment tokens", () => {
-    assert.equal(
-      safeBrowserUrlForModel(
-        "https://user:secret@example.com/reset/path-token?code=query-token#fragment-token",
-      ),
-      "https://example.com",
+describe("Browser model-visible output", () => {
+  it("preserves the current URL, title, and page content", async () => {
+    const snapshot = await pageSnapshot(
+      {
+        url: () =>
+          "https://user:secret@example.com/primal/profile/npub1identifier?tab=notes#recent",
+        title: async () => "OneUptime profile",
+        ariaSnapshot: async () =>
+          '- heading "Recent Nostr Posts"\n- text: Decentralized social network\n- textbox "Password" [ref=e1]: visible-password',
+      } as never,
+      "browser-unfiltered-output",
     );
+
+    assert.match(
+      snapshot,
+      /https:\/\/user:secret@example\.com\/primal\/profile\/npub1identifier\?tab=notes#recent/,
+    );
+    assert.match(snapshot, /OneUptime profile/);
+    assert.match(snapshot, /Recent Nostr Posts/);
+    assert.match(snapshot, /Decentralized social network/);
+    assert.match(snapshot, /visible-password/);
   });
 });
 
@@ -412,364 +417,37 @@ describe("Browser approval target binding", () => {
   });
 });
 
-describe("Browser snapshot password redaction", () => {
-  it("withholds model-visible codes from direct fill and combined submit across clock skew", async () => {
-    for (const [path, code] of [
-      ["direct-fill", "123456"],
-      ["combined-submit", "654321"],
-    ] as const) {
-      const sessionId = `browser-current-totp-redaction-${path}`;
-      // Keep the preceding code window withheld briefly too: a site's clock
-      // or response can lag behind the App after the code was accepted.
-      await rememberVaultTotpCode(sessionId, code, new Date(Date.now() - 60_000));
-      const spaced = code.split("").join(" ");
-      const redacted = redactVaultSensitiveText(
-        sessionId,
-        `The page reflected ${spaced} in separate accessibility nodes`,
-      );
-      assert.doesNotMatch(redacted, new RegExp(`${spaced}|${code}`));
-      assert.match(redacted, /current Vault one-time code/);
-      clearVaultSensitiveValuesForSession(sessionId);
-    }
-  });
-
-  it("removes top-level and framed password values while retaining ordinary inputs", async () => {
-    const tree = [
-      "- generic [active] [ref=e1]:",
-      '  - textbox "Text" [ref=e2]: ordinary value',
-      '  - textbox "Password" [ref=e3]: TOP_PASSWORD_SECRET',
-      "  - iframe [ref=e4]:",
-      '    - textbox "Frame password" [ref=f1e2]: FRAME_PASSWORD_SECRET',
-    ].join("\n");
-    const fields: Record<string, { type: string; value: string }> = {
-      e2: { type: "text", value: "ordinary value" },
-      e3: { type: "password", value: "TOP_PASSWORD_SECRET" },
-      f1e2: { type: "password", value: "FRAME_PASSWORD_SECRET" },
-    };
-    const fakePage = {
-      locator(selector: string) {
-        const ref = selector.replace("aria-ref=", "");
-        const field = fields[ref];
-        return {
-          first: () => ({
-            elementHandle: async () =>
-              field
-                ? {
-                    getAttribute: async () => field.type,
-                    inputValue: async () => field.value,
-                  }
-                : null,
-          }),
-        };
-      },
-    };
-
-    const redacted = await redactPasswordInputsFromSnapshot(
-      fakePage as never,
-      "browser-redaction-test",
-      tree,
-    );
-    assert.doesNotMatch(redacted, /ordinary value/);
-    assert.doesNotMatch(redacted, /TOP_PASSWORD_SECRET|FRAME_PASSWORD_SECRET/);
-    assert.equal((redacted.match(/\[redacted password\]/g) ?? []).length, 3);
-
-    const laterOutput = redactVaultSensitiveText(
-      "browser-redaction-test",
-      'Playwright fill("TOP_PASSWORD_SECRET") and reflected FRAME_PASSWORD_SECRET',
-    );
-    assert.doesNotMatch(laterOutput, /TOP_PASSWORD_SECRET|FRAME_PASSWORD_SECRET/);
-    clearVaultSensitiveValuesForSession("browser-redaction-test");
-  });
-
-  it("fails closed when a textbox ref cannot be resolved", async () => {
-    const fakePage = {
-      locator: () => ({ first: () => ({ elementHandle: async () => null }) }),
-    };
-    const redacted = await redactPasswordInputsFromSnapshot(
-      fakePage as never,
-      "browser-detached-test",
-      '- textbox "Detached" [ref=e9]: MAYBE_SECRET',
-    );
-    assert.equal(redacted, '- textbox "Detached" [ref=e9]: [redacted password]');
-  });
-
-  it("does not use raw visible-text fallback after a password taints the session", async () => {
-    const sessionId = "browser-empty-aria-fallback-test";
-    observeBrowserSensitiveValue(sessionId, "", "password-present");
+describe("Browser content visibility", () => {
+  it("keeps the raw visible-text fallback after a login page", async () => {
+    const body =
+      "Recent Nostr Posts\nDecentralized social network\nJBSWY3DPEHPK3PXP\nvisible-password";
     const snapshot = await pageSnapshot(
       {
-        url: () => "https://example.com/reset?token=hidden",
-        title: async () => "Reset",
+        url: () => "https://primal.example/profile/npub1identifier?tab=notes#recent",
+        title: async () => "OneUptime profile",
         ariaSnapshot: async () => "",
-        evaluate: async () => "FALLBACK_PASSWORD_SECRET",
+        evaluate: async () => body,
       } as never,
-      sessionId,
+      "browser-unfiltered-fallback",
     );
-    assert.doesNotMatch(snapshot, /FALLBACK_PASSWORD_SECRET/);
-    assert.match(snapshot, /redacted because this BrowserSession has contained a password/);
-    clearVaultSensitiveValuesForSession(sessionId);
+
+    assert.match(snapshot, /Recent Nostr Posts/);
+    assert.match(snapshot, /Decentralized social network/);
+    assert.match(snapshot, /JBSWY3DPEHPK3PXP/);
+    assert.match(snapshot, /visible-password/);
   });
 
-  it("redacts an authenticator setup key found only in the page title", async () => {
-    const sessionId = "browser-title-totp-redaction-test";
-    const setupKey = "JBSWY3DPEHPK3PXP";
-    const snapshot = await pageSnapshot(
-      {
-        url: () => "https://example.com/mfa",
-        title: async () => setupKey,
-        ariaSnapshot: async () => '- heading "Account settings"',
-        locator: () => ({ first: () => ({ elementHandle: async () => null }) }),
-      } as never,
-      sessionId,
-    );
-    assert.doesNotMatch(snapshot, new RegExp(setupKey));
-    assert.match(snapshot, /Title: \[redacted TOTP setup key\]/);
-    clearVaultSensitiveValuesForSession(sessionId);
-  });
+  it("captures the rendered viewport directly without masks or content inspection", async () => {
+    const bytes = Buffer.from("raw-jpeg");
+    let options: unknown;
+    const screenshot = await captureBrowserScreenshot({
+      screenshot: async (value: unknown) => {
+        options = value;
+        return bytes;
+      },
+    } as never);
 
-  it("sanitizes TOTP setup keys and current codes before navigation metadata persists", async () => {
-    const titleSessionId = "browser-title-nav-totp-redaction-test";
-    const setupKey = "JBSWY3DPEHPK3PXP";
-    const fromTitle = await sanitizeVaultBrowserNavigationMetadata(titleSessionId, {
-      url: "https://example.com/mfa?step=setup",
-      title: setupKey,
-    });
-    assert.deepEqual(fromTitle, {
-      url: "https://example.com",
-      title: "[redacted during Vault credential use]",
-    });
-    assert.doesNotMatch(JSON.stringify(fromTitle), new RegExp(setupKey));
-    clearVaultSensitiveValuesForSession(titleSessionId);
-
-    const urlSessionId = "browser-url-nav-totp-redaction-test";
-    const encodedUri = encodeURIComponent(`otpauth://totp/Example:test?secret=${setupKey}`);
-    const fromUrl = await sanitizeVaultBrowserNavigationMetadata(urlSessionId, {
-      url: `https://example.com/mfa?setup=${encodedUri}`,
-      title: "Two-factor setup",
-    });
-    assert.deepEqual(fromUrl, {
-      url: "https://example.com",
-      title: "[redacted during Vault credential use]",
-    });
-    assert.doesNotMatch(JSON.stringify(fromUrl), /JBSWY3DPEHPK3PXP|otpauth/i);
-    clearVaultSensitiveValuesForSession(urlSessionId);
-
-    const fragmentSessionId = "browser-fragment-nav-totp-redaction-test";
-    const fromBareFragment = await sanitizeVaultBrowserNavigationMetadata(fragmentSessionId, {
-      url: `https://example.com/mfa#manual/${setupKey}`,
-      title: "Account settings",
-    });
-    assert.equal(fromBareFragment.url, "https://example.com");
-    assert.doesNotMatch(JSON.stringify(fromBareFragment), new RegExp(setupKey));
-    clearVaultSensitiveValuesForSession(fragmentSessionId);
-
-    const codeSessionId = "browser-code-nav-totp-redaction-test";
-    await rememberVaultTotpCode(codeSessionId, "123456", new Date(Date.now() + 30_000));
-    const fromCurrentCode = await sanitizeVaultBrowserNavigationMetadata(codeSessionId, {
-      url: "https://example.com/callback?code=123456",
-      title: "Verified 123 456",
-    });
-    assert.deepEqual(fromCurrentCode, {
-      url: "https://example.com",
-      title: "[redacted during Vault credential use]",
-    });
-    assert.doesNotMatch(JSON.stringify(fromCurrentCode), /123.?456/);
-    clearVaultSensitiveValuesForSession(codeSessionId);
-  });
-
-  it("rejects a screenshot tainted and cleaned while its PNG capture is in flight", async () => {
-    const sessionId = "browser-screenshot-totp-race-test";
-    let captureStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      captureStarted = resolve;
-    });
-    let finishCapture!: (bytes: Buffer) => void;
-    const captured = new Promise<Buffer>((resolve) => {
-      finishCapture = resolve;
-    });
-    const screenshot = captureVaultSafeScreenshot(
-      {
-        frames: () => [],
-        screenshot: async () => {
-          captureStarted();
-          return captured;
-        },
-      } as never,
-      sessionId,
-    );
-    await started;
-    await rememberVaultTotpCode(sessionId, "654321", new Date(Date.now() + 30_000));
-    clearVaultSensitiveValuesForSession(sessionId);
-    finishCapture(Buffer.from("the image must not be inspected after the boundary changed"));
-    await assert.rejects(screenshot, (error: unknown) => {
-      assert.equal((error as { statusCode?: unknown }).statusCode, 409);
-      assert.match(String((error as Error).message), /Screenshot unavailable/);
-      return true;
-    });
-  });
-
-  it("fails closed instead of evicting an older password from the redaction set", async () => {
-    const sessionId = "browser-sensitive-overflow-test";
-    const oldest = "OLDEST_REFLECTED_PASSWORD";
-    let overflowValue = "";
-    for (let index = 0; index < 65; index += 1) {
-      const value = index === 0 ? oldest : `later-password-${index}`;
-      overflowValue = value;
-      observeBrowserSensitiveValue(sessionId, value, "password-value");
-    }
-    const snapshot = await pageSnapshot(
-      {
-        url: () => "https://example.com",
-        title: async () => overflowValue,
-        ariaSnapshot: async () => `- text: ${oldest}`,
-        locator: () => ({ first: () => ({ elementHandle: async () => null }) }),
-      } as never,
-      sessionId,
-    );
-    assert.doesNotMatch(snapshot, /OLDEST_REFLECTED_PASSWORD/);
-    assert.doesNotMatch(snapshot, new RegExp(overflowValue));
-    assert.match(snapshot, /exceeded the sensitive-value safety limit/);
-    assert.doesNotMatch(
-      redactVaultSensitiveText(sessionId, `Playwright error contained ${overflowValue}`),
-      new RegExp(overflowValue),
-    );
-    clearVaultSensitiveValuesForSession(sessionId);
-  });
-
-  it("redacts password values from a real Playwright top page and iframe", async (t) => {
-    const candidates = [
-      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      chromium.executablePath(),
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/usr/bin/chromium",
-      "/usr/bin/chromium-browser",
-    ].filter((value): value is string => Boolean(value));
-    const executablePath = candidates.find((value) => existsSync(value));
-    if (!executablePath) {
-      t.skip("No Chromium executable is available for the real-browser redaction test");
-      return;
-    }
-    const browser = await chromium.launch({ headless: true, executablePath });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(`
-        <label>Ordinary <input value="ordinary value"></label>
-        <label>Secret <input type="password" value="TOP_REAL_PASSWORD"></label>
-        <iframe srcdoc='<label>Frame <input type="password" value="FRAME_REAL_PASSWORD"></label>'></iframe>
-      `);
-      await page.locator("iframe").contentFrame().locator("input").waitFor();
-      const raw = await page.locator("body").ariaSnapshot({ mode: "ai" });
-      assert.match(raw, /TOP_REAL_PASSWORD|FRAME_REAL_PASSWORD/);
-
-      const redacted = await redactPasswordInputsFromSnapshot(
-        page as never,
-        "real-browser-redaction-test",
-        raw,
-      );
-      assert.doesNotMatch(redacted, /ordinary value/);
-      assert.doesNotMatch(redacted, /TOP_REAL_PASSWORD|FRAME_REAL_PASSWORD/);
-
-      await page.getByLabel("Ordinary").click();
-      const nextRaw = await page.locator("body").ariaSnapshot({ mode: "ai" });
-      const next = await redactPasswordInputsFromSnapshot(
-        page as never,
-        "real-browser-redaction-test",
-        nextRaw,
-      );
-      assert.doesNotMatch(next, /TOP_REAL_PASSWORD|FRAME_REAL_PASSWORD/);
-      assert.doesNotMatch(
-        redactVaultSensitiveText(
-          "real-browser-redaction-test",
-          'locator.fill("TOP_REAL_PASSWORD") failed after FRAME_REAL_PASSWORD',
-        ),
-        /TOP_REAL_PASSWORD|FRAME_REAL_PASSWORD/,
-      );
-    } finally {
-      clearVaultSensitiveValuesForSession("real-browser-redaction-test");
-      await browser.close();
-    }
-  });
-
-  it("keeps a human-entered password redacted after a show-password toggle", async (t) => {
-    const candidates = [
-      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      chromium.executablePath(),
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/usr/bin/chromium",
-      "/usr/bin/chromium-browser",
-    ].filter((value): value is string => Boolean(value));
-    const executablePath = candidates.find((value) => existsSync(value));
-    if (!executablePath) {
-      t.skip("No Chromium executable is available for the real-browser redaction test");
-      return;
-    }
-    const sessionId = "real-browser-human-password-test";
-    const browser = await chromium.launch({ headless: true, executablePath });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(`
-        <label>Password <input id="secret" type="password"></label>
-        <button id="show" onclick="document.querySelector('#secret').type = 'text'">Show</button>
-      `);
-      await page.locator("#secret").fill("HUMAN_TAKEOVER_PASSWORD");
-      await rememberCurrentPasswordValues(page as never, sessionId);
-      await page.locator("#show").click();
-
-      const raw = await page.locator("body").ariaSnapshot({ mode: "ai" });
-      assert.match(raw, /HUMAN_TAKEOVER_PASSWORD/);
-      const semanticRedaction = await redactPasswordInputsFromSnapshot(
-        page as never,
-        sessionId,
-        raw,
-      );
-      const fullyRedacted = redactVaultSensitiveText(sessionId, semanticRedaction);
-      assert.doesNotMatch(fullyRedacted, /HUMAN_TAKEOVER_PASSWORD/);
-    } finally {
-      clearVaultSensitiveValuesForSession(sessionId);
-      await browser.close();
-    }
-  });
-
-  it("keeps a password redacted when a human reveals the empty field before typing", async (t) => {
-    const candidates = [
-      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      chromium.executablePath(),
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/usr/bin/chromium",
-      "/usr/bin/chromium-browser",
-    ].filter((value): value is string => Boolean(value));
-    const executablePath = candidates.find((value) => existsSync(value));
-    if (!executablePath) {
-      t.skip("No Chromium executable is available for the real-browser redaction test");
-      return;
-    }
-    const sessionId = "real-browser-reveal-before-type-test";
-    const browser = await chromium.launch({ headless: true, executablePath });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(`
-        <label>Password <input id="secret" type="password"></label>
-        <button id="show" onclick="document.querySelector('#secret').type = 'text'">Show</button>
-      `);
-      await rememberCurrentPasswordValues(page as never, sessionId);
-      await page.locator("#show").click();
-      await page.locator("#secret").fill("REVEALED_BEFORE_HUMAN_TYPED");
-      observeBrowserSensitiveValue(sessionId, "REVEALED_BEFORE_HUMAN_TYPED", "active-input-value");
-
-      const raw = await page.locator("body").ariaSnapshot({ mode: "ai" });
-      assert.match(raw, /REVEALED_BEFORE_HUMAN_TYPED/);
-      const semanticRedaction = await redactPasswordInputsFromSnapshot(
-        page as never,
-        sessionId,
-        raw,
-      );
-      assert.doesNotMatch(
-        redactVaultSensitiveText(sessionId, semanticRedaction),
-        /REVEALED_BEFORE_HUMAN_TYPED/,
-      );
-    } finally {
-      clearVaultSensitiveValuesForSession(sessionId);
-      await browser.close();
-    }
+    assert.equal(screenshot, bytes);
+    assert.deepEqual(options, { type: "jpeg", quality: 60, fullPage: false });
   });
 });

@@ -378,10 +378,11 @@ host-key caches are App-private. Silent visual recordings live under
 `BrowserSession`, and are linked from the Run log rather than exposed in an AI
 Employee's working tree. A recording from Genosyn's browser is admin-only; a
 recording from a Member browser is visible only to that browser's exact owner.
-Any BrowserSession in which a password field was observed withholds its
-recording entirely. Repository tokens and SSH private keys are decrypted only
-for short-lived, server-owned clone/fetch operations; they are never written
-into an employee working tree or injected into model coding tools.
+Recordings contain the unfiltered viewport; their authorization boundary, not
+pixel redaction, controls who can see them. Repository tokens and SSH private
+keys are decrypted only for short-lived, server-owned clone/fetch operations;
+they are never written into an employee working tree or injected into model
+coding tools.
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
   (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`), for captured Run
@@ -452,8 +453,11 @@ into an employee working tree or injected into model coding tools.
       persisted output is a silent visual recording when a Routine Run actually
       uses that browser after its owner explicitly consents to unattended
       recording: it is stored App-private alongside the Run's browser artifacts,
-      available only to the browser's exact owner, and withheld if the
-      BrowserSession observes a password field;
+      available only to the browser's exact owner. Browser snapshots,
+      screenshots, navigation metadata, and recordings are unfiltered; do not
+      add a password/TOTP taint layer, page-content redaction, or page observer.
+      Vault tools still keep stored values server-side unless the website
+      itself renders them;
 
     * any company-configured **MCP servers** (stdio/HTTP), which the agent
       connects to as an MCP client. User-configured stdio servers are omitted

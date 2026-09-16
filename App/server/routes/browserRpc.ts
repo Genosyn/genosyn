@@ -10,10 +10,7 @@ import {
   resolveBrowserSessionToken,
   beginBrowserRpcActivity,
   markSessionLive,
-  observeRuntimePasswordValues,
-  registerBrowserRecordingFrameObserver,
   registerBrowserSessionCleanup,
-  registerBrowserSensitiveValueListener,
 } from "../services/browserSessions.js";
 import {
   acquirePage,
@@ -21,7 +18,6 @@ import {
   getRuntime,
   markActivity,
   pushSessionNotice,
-  registerBrowserNavigationMetadataSanitizer,
   takeSessionNotices,
   awaitAdoption,
 } from "../services/browserChromium.js";
@@ -42,14 +38,9 @@ import {
 import {
   clickAndActivateVaultPasskey,
   clearVaultPasskeyAuthenticator,
-  decodeQrFromImage,
-  findTotpSetupKeyInText,
   prepareVaultPasskeyAuthentication,
   prepareVaultPasskeyRegistration,
   readTotpSetupKeyFromElement,
-  redactUncapturedTotpValues,
-  textSuggestsTotpEnrollment,
-  transcodeImageToJpeg,
 } from "../services/vaultBrowserAuthenticators.js";
 import {
   BrowserApprovalError,
@@ -133,13 +124,6 @@ const SETTLE_CAP_MS = 2_000;
 /** How long an action waits for a popup it opened to be adopted. Slightly
  *  above adoptPage's own 5s load wait so a just-loaded popup is reflected. */
 const ADOPTION_WAIT_MS = 5_500;
-const MAX_TRACKED_VAULT_VALUES_PER_SESSION = 64;
-const vaultSensitiveValuesBySession = new Map<string, Map<string, number>>();
-const vaultTaintedSessions = new Set<string>();
-const vaultSensitiveOverflowSessions = new Set<string>();
-const vaultTotpArmedSessions = new Set<string>();
-const vaultTotpCodesBySession = new Map<string, Map<string, number>>();
-const vaultScreenshotStates = new Map<string, { generation: number; captures: number }>();
 const vaultTotpCaptureBindings = new Map<
   string,
   { companyId: string; employeeId: string; itemId: string; origin: string }
@@ -159,7 +143,7 @@ async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: Ne
   const row = await repo.findOneBy({ id: sessionId });
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.status === "closed" || row.status === "expired") {
-    clearVaultSensitiveValuesForSession(sessionId);
+    vaultTotpCaptureBindings.delete(sessionId);
     return res.status(410).json({ error: "Session is closed" });
   }
   if (row.mcpTokenExpiresAt.getTime() < Date.now()) {
@@ -840,239 +824,11 @@ function assertVaultTotpSubmitTarget(args: {
   );
 }
 
-/**
- * Track a Vault secret so every later screenshot, page snapshot, and error
- * string for this session is scrubbed of it. The Run recording is not touched:
- * it stays whole for the humans authorized to watch it.
- */
-async function rememberVaultSensitiveValue(sessionId: string, value: string): Promise<void> {
-  taintVaultSession(sessionId);
-  if (value) {
-    let values = vaultSensitiveValuesBySession.get(sessionId);
-    if (!values) {
-      values = new Map<string, number>();
-      vaultSensitiveValuesBySession.set(sessionId, values);
-    }
-    if (values.size >= MAX_TRACKED_VAULT_VALUES_PER_SESSION && !values.has(value)) {
-      // Never evict a known password: the page may reflect it later as generic
-      // text. Stop remembering new values and make all subsequent model-visible
-      // page/error output fail closed for this BrowserSession.
-      vaultSensitiveOverflowSessions.add(sessionId);
-    } else {
-      // Keep the bounded value set for the whole BrowserSession. Password reveal
-      // controls can change an input to type=text long after the original fill;
-      // expiring the scrub value would then disclose it in a later snapshot.
-      values.set(value, Date.now());
-    }
-  }
-}
-
-async function rememberTotpSetupValue(sessionId: string, setupKey: string): Promise<void> {
-  vaultTotpArmedSessions.add(sessionId);
-  await rememberVaultSensitiveValue(sessionId, setupKey);
-  try {
-    const uri = new URL(setupKey);
-    if (uri.protocol === "otpauth:" && uri.hostname.toLowerCase() === "totp") {
-      const secret = uri.searchParams.get("secret") ?? "";
-      if (secret) await rememberVaultSensitiveValue(sessionId, secret);
-      return;
-    }
-  } catch {
-    // A raw Base32 setup key is expected on many enrollment pages.
-  }
-  const compact = setupKey.replace(/[\s-]/g, "");
-  if (compact && compact !== setupKey) await rememberVaultSensitiveValue(sessionId, compact);
-}
-
-async function armVaultTotpSession(sessionId: string): Promise<void> {
-  vaultTotpArmedSessions.add(sessionId);
-  await rememberVaultSensitiveValue(sessionId, "");
-}
-
-export async function rememberVaultTotpCode(
-  sessionId: string,
-  code: string,
-  expiresAt: Date,
-): Promise<void> {
-  await rememberVaultSensitiveValue(sessionId, code);
-  let codes = vaultTotpCodesBySession.get(sessionId);
-  if (!codes) {
-    codes = new Map<string, number>();
-    vaultTotpCodesBySession.set(sessionId, codes);
-  }
-  if (codes.size >= MAX_TRACKED_VAULT_VALUES_PER_SESSION && !codes.has(code)) {
-    vaultSensitiveOverflowSessions.add(sessionId);
-    return;
-  }
-  codes.set(code, expiresAt.getTime());
-}
-
-export function clearVaultSensitiveValuesForSession(sessionId: string): void {
-  markVaultScreenshotBoundaryChanged(sessionId);
-  vaultSensitiveValuesBySession.delete(sessionId);
-  vaultTaintedSessions.delete(sessionId);
-  vaultSensitiveOverflowSessions.delete(sessionId);
-  vaultTotpArmedSessions.delete(sessionId);
-  vaultTotpCodesBySession.delete(sessionId);
+registerBrowserSessionCleanup((sessionId) => {
   vaultTotpCaptureBindings.delete(sessionId);
-}
-
-registerBrowserSessionCleanup(clearVaultSensitiveValuesForSession);
+});
 registerBrowserSessionCleanup((sessionId) => {
   void clearVaultPasskeyAuthenticator(sessionId);
-});
-export function observeBrowserSensitiveValue(
-  sessionId: string,
-  value: string,
-  kind: "password-present" | "password-value" | "active-input-value",
-): Promise<void> {
-  if (kind === "password-present") {
-    taintVaultSession(sessionId);
-    return Promise.resolve();
-  }
-  if (kind === "password-value" || vaultTaintedSessions.has(sessionId)) {
-    return rememberVaultSensitiveValue(sessionId, value);
-  }
-  return Promise.resolve();
-}
-
-function markVaultScreenshotBoundaryChanged(sessionId: string): void {
-  const state = vaultScreenshotStates.get(sessionId);
-  if (state) state.generation += 1;
-}
-
-function taintVaultSession(sessionId: string): void {
-  markVaultScreenshotBoundaryChanged(sessionId);
-  vaultTaintedSessions.add(sessionId);
-}
-
-function beginVaultScreenshotBoundary(sessionId: string): {
-  assertSafe: () => void;
-  release: () => void;
-} {
-  let state = vaultScreenshotStates.get(sessionId);
-  if (!state) {
-    state = { generation: 0, captures: 0 };
-    vaultScreenshotStates.set(sessionId, state);
-  }
-  state.captures += 1;
-  const generation = state.generation;
-  let released = false;
-  return {
-    assertSafe: () => {
-      if (vaultTaintedSessions.has(sessionId) || state?.generation !== generation) {
-        throw new VaultError(
-          "Screenshot unavailable after a password, one-time code, or authenticator setup key is present in this browser session; use the redacted page snapshot instead",
-          409,
-        );
-      }
-    },
-    release: () => {
-      if (released || !state) return;
-      released = true;
-      state.captures = Math.max(0, state.captures - 1);
-      if (state.captures === 0 && vaultScreenshotStates.get(sessionId) === state) {
-        vaultScreenshotStates.delete(sessionId);
-      }
-    },
-  };
-}
-
-registerBrowserSensitiveValueListener(observeBrowserSensitiveValue);
-
-export function redactVaultSensitiveText(sessionId: string, text: string): string {
-  if (vaultSensitiveOverflowSessions.has(sessionId)) {
-    return "[redacted because this BrowserSession exceeded the sensitive-value safety limit]";
-  }
-  const now = Date.now();
-  const codes = vaultTotpCodesBySession.get(sessionId);
-  if ([...(codes?.values() ?? [])].some((expiresAt) => expiresAt + 120_000 > now)) {
-    // Pages can reflect one code across separate spans, accessibility nodes,
-    // or punctuation variants. Until it expires, holding back the complete
-    // model-visible text is the only representation-independent boundary.
-    return "[redacted while the current Vault one-time code could be reflected by the page]";
-  }
-  let redacted = redactUncapturedTotpValues(text, vaultTotpArmedSessions.has(sessionId));
-  for (const value of vaultSensitiveValuesBySession.get(sessionId)?.keys() ?? []) {
-    const escaped = JSON.stringify(value).slice(1, -1);
-    for (const candidate of new Set([value, escaped])) {
-      if (candidate) redacted = redacted.split(candidate).join("[redacted Vault value]");
-    }
-  }
-  return redacted;
-}
-
-function navigationTotpCandidates(url: string, title: string): string[] {
-  const candidates = [title, url];
-  try {
-    candidates.push(decodeURIComponent(url));
-  } catch {
-    // Malformed percent escapes remain covered by the raw value.
-  }
-  try {
-    const parsed = new URL(url);
-    candidates.push(
-      ...parsed.pathname.split("/"),
-      ...parsed.hash.replace(/^#/, "").split(/[/?&=]/),
-    );
-    for (const [name, value] of parsed.searchParams) candidates.push(name, value);
-  } catch {
-    // Non-http navigation metadata is still scanned as raw text above.
-  }
-  return candidates.filter(Boolean);
-}
-
-/**
- * Keep authenticator setup keys and fresh one-time codes out of the durable
- * BrowserSession navigation mirror and its live viewer broadcast. Once a
- * session has handled any Vault secret, origin-only metadata is the safe
- * stable representation; a redaction marker is never embedded in a URL that
- * a viewer could navigate back to.
- */
-export async function sanitizeVaultBrowserNavigationMetadata(
-  sessionId: string,
-  metadata: { url: string; title: string | null },
-): Promise<{ url: string; title: string | null }> {
-  const title = metadata.title ?? "";
-  const candidates = navigationTotpCandidates(metadata.url, title);
-  const setupKey = candidates.map(findTotpSetupKeyInText).find(Boolean) ?? null;
-  const combined = `${title}\n${metadata.url}`;
-  const hasAuthenticatorText =
-    setupKey !== null ||
-    textSuggestsTotpEnrollment(combined) ||
-    redactUncapturedTotpValues(combined) !== combined;
-  if (setupKey) {
-    await rememberTotpSetupValue(sessionId, setupKey);
-  } else if (hasAuthenticatorText) {
-    await armVaultTotpSession(sessionId);
-  }
-
-  const redactedTitle = redactVaultSensitiveText(sessionId, title);
-  const redactedUrl = redactVaultSensitiveText(sessionId, metadata.url);
-  if (
-    vaultTaintedSessions.has(sessionId) ||
-    hasAuthenticatorText ||
-    redactedTitle !== title ||
-    redactedUrl !== metadata.url
-  ) {
-    const origin = safeBrowserUrlForModel(metadata.url);
-    return {
-      url: origin === "(unavailable)" ? "" : origin,
-      title: "[redacted during Vault credential use]",
-    };
-  }
-  return metadata;
-}
-
-registerBrowserNavigationMetadataSanitizer(sanitizeVaultBrowserNavigationMetadata);
-
-registerBrowserRecordingFrameObserver(async (sessionId) => {
-  // A TOTP setup key can appear in the pixels a beat before any RPC reports
-  // it. Notice it here so the session is tainted — and every later screenshot
-  // and page snapshot redacted — from this frame onward.
-  const page = getRuntime(sessionId)?.page as Page | undefined;
-  if (!page) throw new Error("The Browser page was unavailable for credential-frame inspection");
-  await observeRuntimeTotpEnrollment(page, sessionId);
 });
 
 type VaultTargetDescriptor = {
@@ -1155,88 +911,12 @@ function truncateUtf8(s: string, maxBytes: number): { text: string; truncated: b
   return { text, truncated: true };
 }
 
-/**
- * Playwright's AI aria snapshot includes textbox values, including password
- * inputs. Resolve textbox refs back to their DOM elements and replace the
- * entire rendered scalar for password fields. An unresolvable ref fails
- * closed by hiding that textbox value as well.
- */
-export async function redactPasswordInputsFromSnapshot(
-  page: Page,
-  sessionId: string,
-  tree: string,
-): Promise<string> {
-  const refs = Array.from(
-    new Set(Array.from(tree.matchAll(/\btextbox\b[^\n]*\[ref=([^\]]+)\]/g), (match) => match[1])),
-  );
-  if (refs.length === 0) return tree;
-
-  const states = new Map<string, "keep" | "redact">();
-  await Promise.all(
-    refs.map(async (ref) => {
-      try {
-        const locator = page.locator(`aria-ref=${ref}`).first();
-        const handle = await locator.elementHandle();
-        if (!handle) throw new Error("snapshot ref detached");
-        const inputType = (await handle.getAttribute("type"))?.toLowerCase();
-        if (inputType !== "password") {
-          states.set(ref, "keep");
-          return;
-        }
-        const value = await handle.inputValue().catch(() => "");
-        await rememberVaultSensitiveValue(sessionId, value);
-        states.set(ref, "redact");
-      } catch {
-        states.set(ref, "redact");
-      }
-    }),
-  );
-
-  // Once any password field/value has existed, redact every textbox value.
-  // This fail-closed rule prevents a reveal control, DOM replacement, or the
-  // bounded exact-value cache from declassifying an older password while
-  // keeping element labels and refs usable for subsequent actions.
-  const redactAllTextboxValues = vaultTaintedSessions.has(sessionId);
-
-  return tree
-    .split("\n")
-    .map((line) => {
-      const match = /\btextbox\b[^\n]*\[ref=([^\]]+)\]/.exec(line);
-      if (!match || (!redactAllTextboxValues && states.get(match[1]) !== "redact")) {
-        return line;
-      }
-      const marker = `[ref=${match[1]}]`;
-      const markerEnd = line.indexOf(marker) + marker.length;
-      return `${line.slice(0, markerEnd)}: [redacted password]`;
-    })
-    .join("\n");
-}
-
 export async function pageSnapshot(p: Page, sessionId: string): Promise<string> {
-  const url = safeBrowserUrlForModel(p.url());
+  const url = p.url() || "(unavailable)";
   const [title, rawTree] = await Promise.all([
     p.title().catch(() => ""),
     p.ariaSnapshot({ mode: "ai", timeout: ARIA_SNAPSHOT_TIMEOUT_MS }).catch(() => ""),
   ]);
-  const enrollmentText = `${title}\n${rawTree}`;
-  const uncapturedTotpSetup = findTotpSetupKeyInText(title) ?? findTotpSetupKeyInText(rawTree);
-  if (uncapturedTotpSetup) {
-    await rememberTotpSetupValue(sessionId, uncapturedTotpSetup);
-  }
-  if (textSuggestsTotpEnrollment(enrollmentText)) {
-    await armVaultTotpSession(sessionId);
-  }
-  const tree = await redactPasswordInputsFromSnapshot(p, sessionId, rawTree);
-
-  if (vaultSensitiveOverflowSessions.has(sessionId)) {
-    return [
-      `URL: ${url}`,
-      "Title: [redacted]",
-      "",
-      "## Page snapshot",
-      "[redacted because this BrowserSession exceeded the sensitive-value safety limit]",
-    ].join("\n");
-  }
 
   const sections: string[] = [];
   for (const notice of takeSessionNotices(sessionId)) {
@@ -1244,8 +924,8 @@ export async function pageSnapshot(p: Page, sessionId: string): Promise<string> 
   }
   sections.push(`URL: ${url}`, `Title: ${title || "(none)"}`, "");
 
-  if (tree.trim().length > 0) {
-    let lines = tree.split("\n");
+  if (rawTree.trim().length > 0) {
+    let lines = rawTree.split("\n");
     const total = lines.length;
     const truncated = total > SNAPSHOT_MAX_LINES;
     if (truncated) lines = lines.slice(0, SNAPSHOT_MAX_LINES);
@@ -1259,32 +939,16 @@ export async function pageSnapshot(p: Page, sessionId: string): Promise<string> 
         `(outline capped at ${SNAPSHOT_MAX_LINES} of ${total} elements — deeper elements are omitted from this snapshot. This is a full-page outline, so scrolling will not reveal more; narrow down by interacting with a container here, or navigate to a more specific page/URL.)`,
       );
     }
-    return redactVaultSensitiveText(sessionId, sections.join("\n"));
+    return sections.join("\n");
   }
 
   // Aria snapshot came back empty (blank page, or a page still rendering).
   // Fall back to raw visible text so the model isn't left with nothing.
-  if (vaultTaintedSessions.has(sessionId)) {
-    return [
-      `URL: ${url}`,
-      "Title: [redacted]",
-      "",
-      "## Visible text",
-      "[redacted because this BrowserSession has contained a password]",
-    ].join("\n");
-  }
   let bodyText = "";
   try {
     bodyText = await p.evaluate(() => (document.body?.innerText ?? "").slice(0, 16_384));
   } catch {
     // ignore
-  }
-  const visibleTotpSetup = findTotpSetupKeyInText(bodyText);
-  if (visibleTotpSetup) {
-    await rememberTotpSetupValue(sessionId, visibleTotpSetup);
-  }
-  if (textSuggestsTotpEnrollment(bodyText)) {
-    await armVaultTotpSession(sessionId);
   }
   const { text, truncated } = truncateUtf8(bodyText, TEXT_MAX_BYTES);
   sections.push(
@@ -1293,7 +957,7 @@ export async function pageSnapshot(p: Page, sessionId: string): Promise<string> 
       "(empty — the page may still be rendering; call browser_wait or browser_snapshot to retry)",
   );
   if (truncated) sections.push(`(truncated to first ${TEXT_MAX_BYTES} bytes)`);
-  return redactVaultSensitiveText(sessionId, sections.join("\n"));
+  return sections.join("\n");
 }
 
 /**
@@ -1402,100 +1066,10 @@ async function settle(p: Page): Promise<void> {
   }
 }
 
-export async function rememberCurrentPasswordValues(page: Page, sessionId: string): Promise<void> {
-  const observations = await Promise.all(
-    page.frames().map((frame) =>
-      frame
-        .evaluate(() => {
-          const inputs: HTMLInputElement[] = [];
-          const visit = (root: Document | ShadowRoot) => {
-            for (const element of root.querySelectorAll("*")) {
-              if (element instanceof HTMLInputElement && element.type === "password") {
-                inputs.push(element);
-              }
-              if (element.shadowRoot) visit(element.shadowRoot);
-            }
-          };
-          visit(document);
-          return { present: inputs.length > 0, values: inputs.map((input) => input.value) };
-        })
-        // Failure to inspect a frame must not make it safe to expose textbox
-        // values or screenshots. Taint the session and fail closed.
-        .catch(() => ({ present: true, values: [] as string[] })),
-    ),
-  );
-  for (const observation of observations) {
-    if (observation.present) {
-      await observeBrowserSensitiveValue(sessionId, "", "password-present");
-    }
-    for (const value of observation.values) {
-      await rememberVaultSensitiveValue(sessionId, value);
-    }
-  }
-}
-
-async function observeRuntimeTotpEnrollment(page: Page, sessionId: string): Promise<void> {
-  const observations = await Promise.all(
-    page.frames().map((frame) =>
-      frame
-        .evaluate(() => {
-          const pieces: string[] = [];
-          const push = (value: unknown, limit = 64_000) => {
-            if (typeof value === "string" && value) pieces.push(value.slice(0, limit));
-          };
-          push(document.body?.innerText);
-          const candidates = Array.from(
-            document.querySelectorAll(
-              'img, canvas, svg, [data-otpauth], [data-secret], [aria-label*="QR" i], [title*="QR" i]',
-            ),
-          ).slice(0, 256);
-          for (const element of candidates) {
-            push(element.textContent, 2_000);
-            for (const attribute of [
-              "src",
-              "href",
-              "alt",
-              "title",
-              "aria-label",
-              "data-otpauth",
-              "data-secret",
-            ]) {
-              push(element.getAttribute(attribute), 2_000);
-            }
-          }
-          return pieces.join("\n").slice(0, 250_000);
-        })
-        .catch(() => null),
-    ),
-  );
-  for (const observation of observations) {
-    if (observation === null) {
-      // A frame that cannot be inspected is not evidence that enrollment
-      // secrets are absent. Redaction is reversible only by ending the
-      // BrowserSession, while leaking a setup key is not.
-      await armVaultTotpSession(sessionId);
-      continue;
-    }
-    const setupKey = findTotpSetupKeyInText(observation);
-    if (setupKey) await rememberTotpSetupValue(sessionId, setupKey);
-    if (textSuggestsTotpEnrollment(observation)) await armVaultTotpSession(sessionId);
-  }
-}
-
 async function bumpAndAcquire(req: BrowserRpcReq): Promise<Page> {
   const session = req.browserSession!;
   markActivity(session.id);
   const page = (await acquirePage(session.id)) as Page;
-  // Observe password fields before any model action can click a reveal
-  // control or otherwise mutate their type/value. Values stay scrubbed for
-  // the lifetime of this BrowserSession.
-  await observeRuntimePasswordValues(session.id, {
-    failClosedIfUnavailable: true,
-  });
-  await observeRuntimeTotpEnrollment(page, session.id);
-  // Start and await the cast after the fail-closed password scan but still
-  // before the first browser action. A sensitive page leaves a persisted
-  // restriction marker, so beginBrowserRecording refuses to start.
   await markSessionLive(session.id, {
     allowFinalizingRun: req.browserRpcAllowsFinalizingRun === true,
   });
@@ -1516,22 +1090,8 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function safeBrowserError(sessionId: string, err: unknown): string {
-  if (vaultSensitiveOverflowSessions.has(sessionId)) {
-    return "Browser action failed after sensitive page data was redacted";
-  }
-  return redactVaultSensitiveText(sessionId, errText(err));
-}
-
-/** Model-visible snapshots need origin context, not token-bearing URL details. */
-export function safeBrowserUrlForModel(value: string): string {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "(unavailable)";
-    return url.origin;
-  } catch {
-    return "(unavailable)";
-  }
+function safeBrowserError(_sessionId: string, err: unknown): string {
+  return errText(err);
 }
 
 // ---------- routes ----------
@@ -1972,10 +1532,9 @@ browserRpcRouter.post(
             itemId: body.itemId,
             expectedVersion: resolved.item.version,
           });
-          await rememberVaultTotpCode(session.id, generated.code, generated.expiresAt);
-          // Generation, recording restriction, and DOM/Grant reads are all
-          // asynchronous. Recheck the exact version and target after them,
-          // then recompute freshness at the real fill boundary.
+          // Generation and the DOM/Grant reads are asynchronous. Recheck the
+          // exact version and target after them, then recompute freshness at
+          // the real fill boundary.
           const liveTarget = await describeVaultTarget(targetHandle);
           const liveResolved = await getVaultItemPayloadForEmployee({
             companyId: session.companyId,
@@ -2019,13 +1578,10 @@ browserRpcRouter.post(
       }
       const value = body.field === "totp" ? totpCode : resolved.payload[body.field];
       if (!value) throw new VaultError(`This Vault login has no ${body.field} saved`, 400);
-      if (body.field === "secret") {
-        await rememberVaultSensitiveValue(session.id, value);
-      }
       // Type the credential in like a person — the value is entered into the
-      // same field, never returned, and stays under the password-taint
-      // redaction registered just above. A one-time code races a freshness
-      // deadline, so only a non-TOTP field gets the human think-pause first.
+      // same field and is never returned by this Vault action. A one-time code
+      // races a freshness deadline, so only a non-TOTP field gets the human
+      // think-pause first.
       if (body.field !== "totp") await humanThinkPause();
       await humanFill(page, targetHandle, value, { timeout: ACTION_TIMEOUT_MS });
       await recordAudit({
@@ -2190,8 +1746,6 @@ browserRpcRouter.post(
           itemId: body.itemId,
           ...(body.approvalId ? { expectedVersion: body.itemVersion } : {}),
         });
-        await rememberVaultTotpCode(session.id, generated.code, generated.expiresAt);
-
         // The Vault read above is asynchronous. Recheck both DOM targets,
         // every other form value, the live Grant, the saved origin, and host
         // policy after it completes. If those checks used too much of this
@@ -2366,7 +1920,6 @@ browserRpcRouter.post(
       const secret = target.sensitiveValue ?? "";
       if (!secret) throw new VaultError("The selected password field is empty", 400);
       if (secret.length > 10_000) throw new VaultError("The selected password is too long", 400);
-      await rememberVaultSensitiveValue(session.id, secret);
       actionAttempted = true;
       const item = await createVaultLoginForEmployee({
         companyId: session.companyId,
@@ -2461,9 +2014,6 @@ browserRpcRouter.post(
       }
       assertVaultBrowserPolicy(employee, page.url());
       const origin = new URL(page.url()).origin;
-      // Arm before the website is asked to reveal enrollment. From this point
-      // onward screenshots and model-visible page text stay redacted.
-      await armVaultTotpSession(session.id);
       vaultTotpCaptureBindings.set(session.id, {
         companyId: session.companyId,
         employeeId: employee.id,
@@ -2474,7 +2024,7 @@ browserRpcRouter.post(
       res.json({
         ok: true,
         message:
-          "TOTP enrollment is protected: screenshots and page text are redacted from here on. Reveal the website's setup key or QR code, then save it to this Vault login.",
+          "TOTP enrollment is ready. Reveal the website's setup key or QR code, then save it to this Vault login.",
       });
     } catch (error) {
       if (error instanceof VaultError) {
@@ -2536,7 +2086,6 @@ browserRpcRouter.post(
       }
       assertVaultBrowserPolicy(employee, page.url(), target.frameUrl);
       const setupKey = await readTotpSetupKeyFromElement(handle);
-      await rememberTotpSetupValue(session.id, setupKey);
       await setVaultTotpForEmployee({
         companyId: session.companyId,
         employeeId: employee.id,
@@ -3314,82 +2863,28 @@ browserRpcRouter.post("/wait", validateBody(waitSchema), async (req: BrowserRpcR
   }
 });
 
-/**
- * Capture, inspect, and transcode one screenshot under a monotonic sensitive
- * boundary. The generation catches a concurrent TOTP/password action even if
- * session teardown clears the ordinary taint set before this capture resumes.
- */
-type VaultScreenshotBoundary = ReturnType<typeof beginVaultScreenshotBoundary>;
-
-export async function captureVaultSafeScreenshot(
-  page: Page,
-  sessionId: string,
-  existingBoundary?: VaultScreenshotBoundary,
-): Promise<Buffer> {
-  const boundary = existingBoundary ?? beginVaultScreenshotBoundary(sessionId);
-  const ownsBoundary = !existingBoundary;
-  try {
-    boundary.assertSafe();
-    // Capture once, inspect those exact lossless bytes, then transcode those
-    // same bytes for the model. A safety capture followed by a second JPEG
-    // capture would leave a race in which a setup QR could appear only in the
-    // returned image. Mask every password input in every frame as well. This
-    // protects a password typed by a human immediately before the first
-    // semantic snapshot has had a chance to observe and taint the session.
-    const passwordMasks = page.frames().map((frame) => frame.locator('input[type="password"]'));
-    const png = await page.screenshot({
-      type: "png",
-      fullPage: false,
-      mask: passwordMasks,
-      maskColor: "#000000",
-    });
-    boundary.assertSafe();
-    const qrValue = await decodeQrFromImage(png);
-    boundary.assertSafe();
-    if (qrValue !== null) {
-      const setupKey = findTotpSetupKeyInText(qrValue);
-      if (setupKey) await rememberTotpSetupValue(sessionId, setupKey);
-      throw new VaultError(
-        "Screenshot unavailable because it contains a QR code that could conceal authenticator setup data; use the redacted page snapshot instead",
-        409,
-      );
-    }
-    const jpeg = await transcodeImageToJpeg(png, 60);
-    boundary.assertSafe();
-    return jpeg;
-  } finally {
-    if (ownsBoundary) boundary.release();
-  }
+/** Capture the viewport exactly as Chrome renders it. */
+export async function captureBrowserScreenshot(page: Page): Promise<Buffer> {
+  return page.screenshot({ type: "jpeg", quality: 60, fullPage: false });
 }
 
 browserRpcRouter.post("/screenshot", async (req: BrowserRpcReq, res) => {
   const sessionId = req.browserSession!.id;
-  // Start before the first await. A concurrent manual close clears the usual
-  // taint sets, so this generation is what makes that cleanup observable to an
-  // already-authorized screenshot request.
-  const boundary = beginVaultScreenshotBoundary(sessionId);
   try {
-    boundary.assertSafe();
     const liveSession = await AppDataSource.getRepository(BrowserSession).findOneBy({
       id: sessionId,
     });
     if (!liveSession || liveSession.status === "closed" || liveSession.status === "expired") {
       throw new VaultError("This browser session is closed", 410);
     }
-    boundary.assertSafe();
     const page = await bumpAndAcquire(req);
-    boundary.assertSafe();
-    const jpeg = await captureVaultSafeScreenshot(page, sessionId, boundary);
-    boundary.assertSafe();
+    const jpeg = await captureBrowserScreenshot(page);
     const data = jpeg.toString("base64");
-    boundary.assertSafe();
     res.json({ data, mimeType: "image/jpeg" });
   } catch (err) {
     res
       .status(err instanceof VaultError ? err.statusCode : 500)
       .json({ error: safeBrowserError(req.browserSession!.id, err) });
-  } finally {
-    boundary.release();
   }
 });
 
@@ -3400,13 +2895,13 @@ browserRpcRouter.post("/close", async (req: BrowserRpcReq, res) => {
   // browser_close at the end of its turn.
   const runtime = getRuntime(session.id);
   if (!runtime) {
-    clearVaultSensitiveValuesForSession(session.id);
+    vaultTotpCaptureBindings.delete(session.id);
     return res.json({ ok: true });
   }
   if (runtime.activeHolders > 0) {
     return res.json({ ok: true, kept: "viewer-active" });
   }
   await releasePage(session.id, "shutdown");
-  clearVaultSensitiveValuesForSession(session.id);
+  vaultTotpCaptureBindings.delete(session.id);
   res.json({ ok: true });
 });

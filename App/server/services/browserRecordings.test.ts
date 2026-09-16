@@ -4,7 +4,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
-import vm from "node:vm";
 
 import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -45,16 +44,10 @@ import {
   closeBrowserSession,
   createBrowserSession,
   finalizeBrowserRecordingsForRun,
-  flushBrowserRecordingFrameScans,
-  invalidateBrowserRecordingFramesForNavigationForTests,
+  flushBrowserRecordingFrameIntake,
   markSessionLive,
-  observeRuntimePasswordValues,
   queueBrowserRecordingFrameForTests,
-  registerBrowserRecordingFrameObserver,
-  registerBrowserSensitiveValueListener,
   resetBrowserRpcActivityForTests,
-  passwordTaintScriptForTests,
-  setPasswordObservationRuntimeForTests,
   setBeforeMarkLiveCasForTests,
   setBeforeBrowserSessionSaveForTests,
 } from "./browserSessions.js";
@@ -76,7 +69,6 @@ before(async () => {
 beforeEach(async () => {
   await resetBrowserRecordingsForTests();
   resetBrowserRpcActivityForTests();
-  setPasswordObservationRuntimeForTests(null);
   setBeforeMarkLiveCasForTests(null);
   setBeforeBrowserSessionSaveForTests(null);
   await resetTestDb();
@@ -187,379 +179,8 @@ async function writeRecordingMetadata(
   );
 }
 
-type TestPasswordObservation = {
-  passwordPresent: boolean;
-  passwordValues: string[];
-  activeInputValue: string | null;
-};
-
-function installPasswordRuntime(
-  observe: () => TestPasswordObservation | Promise<TestPasswordObservation>,
-  options: {
-    documentRoot?: unknown;
-    failDomEnableOnce?: boolean;
-    failInstallEvaluateOnce?: boolean;
-    searchResultCount?: number;
-  } = {},
-): {
-  domEnableCalls: () => number;
-  installEvaluationCalls: () => number;
-  reportPassword: () => Promise<void>;
-} {
-  let consoleListener: ((message: unknown) => void) | null = null;
-  let taintSignal = "";
-  let domEnableCalls = 0;
-  let installEvaluationCalls = 0;
-  let searchCounter = 0;
-  const cdp = {
-    on() {
-      // Unit fixtures are stable; browser-level tests cover real DOM events.
-    },
-    async send(method: string) {
-      if (method === "DOM.enable") {
-        domEnableCalls += 1;
-        if (options.failDomEnableOnce && domEnableCalls === 1) {
-          throw new Error("temporary DOM enable failure");
-        }
-        return {};
-      }
-      if (method === "DOM.getDocument") {
-        return {
-          root: options.documentRoot ?? { nodeName: "#document", children: [] },
-        };
-      }
-      if (method === "DOM.performSearch") {
-        return {
-          searchId: `search-${(searchCounter += 1)}`,
-          resultCount: options.searchResultCount ?? 0,
-        };
-      }
-      return {};
-    },
-  };
-  const frame = {
-    async evaluate(fn: unknown, arg?: unknown) {
-      if (typeof fn === "string") {
-        const signal = fn.match(/"signal":"([^"]+)"/)?.[1];
-        const challenge = fn.match(/"challenge":"([^"]+)"/)?.[1];
-        if (signal) taintSignal = signal;
-        if (signal && challenge) {
-          installEvaluationCalls += 1;
-          if (options.failInstallEvaluateOnce && installEvaluationCalls === 1) {
-            throw new Error("execution context was destroyed by navigation");
-          }
-          consoleListener?.({
-            text: () => `${signal}:probe:${challenge}`,
-            type: () => "debug",
-          });
-        }
-        return false;
-      }
-      if (typeof arg === "string") return observe();
-      if (
-        arg &&
-        typeof arg === "object" &&
-        "challenge" in arg &&
-        typeof arg.challenge === "string" &&
-        "signal" in arg &&
-        typeof arg.signal === "string"
-      ) {
-        taintSignal = arg.signal;
-        consoleListener?.({
-          text: () => `${arg.signal}:probe:${arg.challenge}`,
-          type: () => "debug",
-        });
-        return false;
-      }
-      return false;
-    },
-  };
-  const page = {
-    url: () => "about:blank",
-    on(event: string, callback: (message: unknown) => void) {
-      if (event === "console") consoleListener = callback;
-    },
-    async addInitScript() {
-      // The real browser runs this before document scripts. Frame evaluation
-      // below models installing it into the already-loaded document.
-    },
-    frames: () => [frame],
-  };
-  setPasswordObservationRuntimeForTests(() => ({ cdp, page }));
-  return {
-    domEnableCalls: () => domEnableCalls,
-    installEvaluationCalls: () => installEvaluationCalls,
-    async reportPassword() {
-      assert.ok(consoleListener, "sticky password console listener was installed");
-      assert.ok(taintSignal, "sticky password signal was installed");
-      consoleListener({ text: () => taintSignal, type: () => "debug" });
-    },
-  };
-}
-
-function installCleanPasswordRuntime(): {
-  reportPassword: () => Promise<void>;
-} {
-  return installPasswordRuntime(() => ({
-    passwordPresent: false,
-    passwordValues: [],
-    activeInputValue: null,
-  }));
-}
 
 describe("Routine browser recordings", () => {
-  test("reports a transient password through the captured native console", async () => {
-    const observers: Array<(records: Array<Record<string, unknown>>) => void> = [];
-    const consoleMessages: string[] = [];
-    class FakeNode {}
-    class FakeElement extends FakeNode {
-      shadowRoot: FakeShadowRoot | null = null;
-      querySelectorAll(): FakeElement[] {
-        return [];
-      }
-      attachShadow(): FakeShadowRoot {
-        const root = new FakeShadowRoot();
-        this.shadowRoot = root;
-        return root;
-      }
-    }
-    class FakeInput extends FakeElement {
-      type = "password";
-    }
-    class FakeDocument extends FakeNode {
-      querySelectorAll(): FakeElement[] {
-        return [];
-      }
-    }
-    class FakeShadowRoot extends FakeNode {
-      querySelectorAll(): FakeElement[] {
-        return [];
-      }
-    }
-    class FakeMutationObserver {
-      constructor(callback: (records: Array<Record<string, unknown>>) => void) {
-        observers.push(callback);
-      }
-      observe(): void {}
-    }
-    const realm = {
-      Node: FakeNode,
-      Element: FakeElement,
-      HTMLInputElement: FakeInput,
-      Document: FakeDocument,
-      ShadowRoot: FakeShadowRoot,
-      MutationObserver: FakeMutationObserver,
-      console: {
-        debug(value: string) {
-          consoleMessages.push(value);
-        },
-      },
-      document: new FakeDocument(),
-      setTimeout,
-    } as Record<string, unknown>;
-    const source = passwordTaintScriptForTests({
-      key: "taint",
-      probeKey: "probe",
-      signal: "tainted",
-      challenge: "challenge",
-    });
-
-    assert.equal(vm.runInNewContext(source, realm), false);
-    assert.deepEqual(consoleMessages, ["tainted:probe:challenge"]);
-
-    let fakeReports = 0;
-    realm.console = {
-      debug() {
-        fakeReports += 1;
-      },
-    };
-    const password = new FakeInput();
-    for (const observer of observers) {
-      observer([{ type: "childList", addedNodes: [password] }]);
-    }
-
-    assert.deepEqual(consoleMessages, ["tainted:probe:challenge", "tainted"]);
-    assert.equal(fakeReports, 0);
-    assert.equal((realm.taint as () => boolean)(), true);
-    assert.equal(Object.getOwnPropertyDescriptor(realm, "probe")?.configurable, false);
-  });
-
-  test("rejects a hostile late observer that tries to steal the probe secret", () => {
-    const consoleMessages: string[] = [];
-    const realm = {
-      console: {
-        debug(value: string) {
-          consoleMessages.push(value);
-        },
-      },
-    };
-    // Create the attack as classic non-strict page code. It replaces
-    // globalThis and walks Function.caller to try to read the installer's
-    // randomized signal from its argument object.
-    vm.runInNewContext(
-      `
-        const realGlobal = globalThis;
-        const fake = { eval: realGlobal.eval };
-        fake.taint = function () { return false; };
-        fake.probe = function (challenge) {
-          try {
-            const installerArgs = fake.probe.caller.arguments[0];
-            realGlobal.console.debug(installerArgs.signal + ":probe:" + challenge);
-          } catch (error) {
-            realGlobal.console.debug("blocked:" + error.name);
-          }
-        };
-        Object.defineProperty(realGlobal, "globalThis", {
-          value: fake,
-          writable: true,
-          configurable: true,
-        });
-      `,
-      realm,
-    );
-
-    const result = vm.runInNewContext(
-      passwordTaintScriptForTests({
-        key: "taint",
-        probeKey: "probe",
-        requireExisting: true,
-        signal: "SECRET",
-        challenge: "CHAL",
-      }),
-      realm,
-    );
-
-    assert.equal(result, false);
-    assert.deepEqual(consoleMessages, ["blocked:TypeError"]);
-    assert.equal(consoleMessages.includes("SECRET:probe:CHAL"), false);
-  });
-
-  test("reports a password rendered inside declarative closed shadow DOM", async () => {
-    const { company, run, session } = await fixture();
-    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
-    await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("login-page-frame").toString("base64"));
-    const kinds: string[] = [];
-    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
-      kinds.push(kind);
-    });
-    installPasswordRuntime(
-      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
-      {
-        documentRoot: {
-          nodeId: 1,
-          nodeName: "#document",
-          children: [
-            {
-              nodeId: 2,
-              nodeName: "DIV",
-              shadowRoots: [
-                {
-                  nodeId: 3,
-                  nodeName: "#document-fragment",
-                  shadowRootType: "closed",
-                  children: [
-                    {
-                      nodeId: 4,
-                      nodeName: "INPUT",
-                      attributes: ["type", "password"],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      },
-    );
-
-    try {
-      await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true });
-      await finishBrowserRecording(session);
-    } finally {
-      unregister();
-    }
-
-    // The password is what makes later screenshots and page text redacted. It
-    // is not a reason to take the Run's video away from the humans watching.
-    assert.ok(kinds.includes("password-present"));
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
-    assert.equal(
-      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
-      "login-page-frame",
-    );
-  });
-
-  test("ignores an inert password input stored in template content", async () => {
-    const { session } = await fixture();
-    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
-    await beginBrowserRecording(session);
-    installPasswordRuntime(
-      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
-      {
-        documentRoot: {
-          nodeId: 1,
-          nodeName: "#document",
-          children: [
-            {
-              nodeId: 2,
-              nodeName: "TEMPLATE",
-              templateContent: {
-                nodeId: 3,
-                nodeName: "#document-fragment",
-                children: [
-                  {
-                    nodeId: 4,
-                    nodeName: "INPUT",
-                    attributes: ["type", "password"],
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      },
-    );
-
-    assert.equal(
-      await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true }),
-      true,
-    );
-    assert.equal(browserRecordingDemand(session.id), true);
-    await finishBrowserRecording(session);
-  });
-
-  test("re-enables the DOM guard after a transient protocol failure", async () => {
-    const { session } = await fixture();
-    const runtime = installPasswordRuntime(
-      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
-      { failDomEnableOnce: true },
-    );
-
-    assert.equal(
-      await observeRuntimePasswordValues(session.id, { discardIfUnavailable: true }),
-      false,
-    );
-    assert.equal(
-      await observeRuntimePasswordValues(session.id, { discardIfUnavailable: true }),
-      true,
-    );
-    assert.equal(runtime.domEnableCalls(), 2);
-  });
-
-  test("retries the observer handshake when a popup navigates during adoption", async () => {
-    const { session } = await fixture();
-    const runtime = installPasswordRuntime(
-      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
-      { failInstallEvaluateOnce: true },
-    );
-
-    assert.equal(
-      await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true }),
-      true,
-    );
-    assert.equal(runtime.installEvaluationCalls(), 2);
-  });
 
   test("budgets enough bytes for a maximum-length Routine recording", () => {
     const maximumVideoPayloadBytes =
@@ -658,13 +279,13 @@ describe("Routine browser recordings", () => {
     await assert.rejects(fs.stat(`${finalPath}.part`), /ENOENT/);
   });
 
-  test("ignores frames that arrive after the terminal scan freeze", async () => {
+  test("ignores frames that arrive after the terminal freeze", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
     acceptBrowserRecordingFrame(session.id, Buffer.from("before-freeze").toString("base64"));
     freezeBrowserRecording(session.id);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("late-sensitive-frame").toString("base64"));
+    acceptBrowserRecordingFrame(session.id, Buffer.from("late-frame").toString("base64"));
 
     const finished = await finishBrowserRecording(session);
 
@@ -818,7 +439,6 @@ describe("Routine browser recordings", () => {
 
   test("finalizes an active recorder when its browser closes before the Run", async () => {
     const { run, session } = await fixture();
-    installCleanPasswordRuntime();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
     acceptBrowserRecordingFrame(session.id, Buffer.from("frame").toString("base64"));
@@ -864,7 +484,6 @@ describe("Routine browser recordings", () => {
 
   test("withdrawing unattended consent closes only Run recorders before returning", async () => {
     const { run, session } = await fixture();
-    installCleanPasswordRuntime();
     const memberBrowser = await insert(MemberBrowser, {
       companyId: session.companyId,
       ownerUserId: "owner",
@@ -903,7 +522,6 @@ describe("Routine browser recordings", () => {
 
   test("keeps encoder paths and stderr out of ordinary Run warning lines", async () => {
     const { run, session } = await fixture();
-    installCleanPasswordRuntime();
     setBrowserRecordingEncoderFactoryForTests(async ({ partPath }) => ({
       writeFrame(frame) {
         fsSync.appendFileSync(partPath, frame);
@@ -920,220 +538,73 @@ describe("Routine browser recordings", () => {
     assert.deepEqual(warnings, []);
     assert.equal(warnings.join("\n").includes(tempDir), false);
   });
-
-  test("keeps captured bytes and settles the encoder when the final page scan fails", async () => {
+  test("records a queued browser frame without inspecting its content", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("unscanned-frame").toString("base64"));
-    setPasswordObservationRuntimeForTests(() => ({
-      page: {
-        frames: () => {
-          throw new Error("target closed during final scan");
-        },
-      },
-    }));
-    const kinds: string[] = [];
-    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
-      kinds.push(kind);
-    });
-    try {
-      await finalizeBrowserRecordingsForRun(run.id);
-    } finally {
-      unregister();
-      setPasswordObservationRuntimeForTests(null);
-    }
-
-    // An unscannable terminal page still fails closed for redaction — later
-    // screenshots stay scrubbed — but the video the Run already earned stands.
-    assert.ok(kinds.includes("password-present"));
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
-    assert.deepEqual(browserRecordingProcessStateForTests(), { frozen: 0, active: 0 });
-    assert.equal(
-      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
-      "unscanned-frame",
-    );
-  });
-
-  test("scans each queued recorder frame and still records transient password UI", async () => {
-    const { company, run, session } = await fixture();
-    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
-    await beginBrowserRecording(session);
-    installPasswordRuntime(() => ({
-      passwordPresent: true,
-      passwordValues: [],
-      activeInputValue: null,
-    }));
-    const kinds: string[] = [];
-    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
-      kinds.push(kind);
-    });
 
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("password-page-frame").toString("base64"),
+      Buffer.from("page-frame").toString("base64"),
     );
-    try {
-      await flushBrowserRecordingFrameScans(session.id);
-    } finally {
-      unregister();
-      setPasswordObservationRuntimeForTests(null);
-    }
+    await flushBrowserRecordingFrameIntake(session.id);
     await finishBrowserRecording(session);
 
-    assert.ok(kinds.includes("password-present"));
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
     assert.equal(
       await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
-      "password-page-frame",
+      "page-frame",
     );
   });
-
-  test("shows a credential-frame observer the exact bytes without letting it veto them", async () => {
-    const { company, run, session } = await fixture();
-    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
-    installCleanPasswordRuntime();
-    await beginBrowserRecording(session);
-    const frame = Buffer.from("authenticator-qr-frame").toString("base64");
-    let inspected = "";
-    const unregister = registerBrowserRecordingFrameObserver((_sessionId, jpegBase64) => {
-      inspected = jpegBase64;
-      throw new Error("this observer refuses the frame");
-    });
-    try {
-      queueBrowserRecordingFrameForTests(session.id, frame);
-      await flushBrowserRecordingFrameScans(session.id);
-      await finishBrowserRecording(session);
-    } finally {
-      unregister();
-    }
-
-    assert.equal(inspected, frame);
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
-    assert.equal(
-      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
-      "authenticator-qr-frame",
-    );
-  });
-
-  test("persists a sticky password taint before the old document is destroyed", async () => {
-    const { company, run, session } = await fixture();
-    const oldDocument = installCleanPasswordRuntime();
-    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
-    const kinds: string[] = [];
-    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
-      kinds.push(kind);
-    });
-
-    // Install the init script and Node binding before recording begins. The
-    // callback models the old document observing a transient password field.
-    await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true });
-    await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("old-document-frame").toString("base64"));
-    await oldDocument.reportPassword();
-
-    // A later scan sees a different, clean document. The process-level taint
-    // must still win, so redaction keeps applying to the whole session.
-    installCleanPasswordRuntime();
-    try {
-      await finalizeBrowserRecordingsForRun(run.id);
-    } finally {
-      unregister();
-    }
-
-    assert.ok(kinds.includes("password-present"));
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
-    assert.equal(
-      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
-      "old-document-frame",
-    );
-  });
-
-  test("drops an old-document frame when navigation wins its scan", async () => {
+  test("keeps the latest queued browser frame between cadence slots", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    let enteredScan!: () => void;
-    let releaseScan!: () => void;
-    const scanEntered = new Promise<void>((resolve) => {
-      enteredScan = resolve;
-    });
-    const scanRelease = new Promise<void>((resolve) => {
-      releaseScan = resolve;
-    });
-    installPasswordRuntime(async () => {
-      enteredScan();
-      await scanRelease;
-      throw new Error("execution context was destroyed by navigation");
-    });
 
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("old-document-frame").toString("base64"),
+      Buffer.from("first-frame").toString("base64"),
     );
-    await scanEntered;
-    invalidateBrowserRecordingFramesForNavigationForTests(session.id);
-    releaseScan();
-    await flushBrowserRecordingFrameScans(session.id);
-    const finished = await finishBrowserRecording(session);
-
-    assert.equal(finished.recording?.status, "failed");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
-  });
-
-  test("records a current-generation frame even when its scan cannot run", async () => {
-    const { company, run, session } = await fixture();
-    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
-    await beginBrowserRecording(session);
-    installPasswordRuntime(async () => {
-      throw new Error("current execution context cannot be inspected");
-    });
-
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("unscanned-current-frame").toString("base64"),
+      Buffer.from("superseded-frame").toString("base64"),
     );
-    await flushBrowserRecordingFrameScans(session.id);
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "recording");
-
-    // A frame the scanner could not read is still this browser's real screen.
-    // Record it, and keep recording once the next document scans cleanly.
-    installCleanPasswordRuntime();
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("scanned-current-frame").toString("base64"),
+      Buffer.from("latest-frame").toString("base64"),
     );
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await flushBrowserRecordingFrameScans(session.id);
+    await new Promise((resolve) =>
+      setTimeout(resolve, (2 * 1000) / BROWSER_RECORDING_FPS + 50),
+    );
+    await flushBrowserRecordingFrameIntake(session.id);
     await finalizeBrowserRecordingsForRun(run.id);
 
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
     const contents = (
       await fs.readFile(browserRecordingFile(company.id, run.id, session.id))
     ).toString();
-    assert.ok(contents.includes("unscanned-current-frame"));
-    assert.ok(contents.includes("scanned-current-frame"));
+    assert.ok(contents.includes("first-frame"));
+    assert.ok(contents.includes("latest-frame"));
+    assert.equal(contents.includes("superseded-frame"), false);
   });
 
-  test("publishes an active recording when direct browser teardown cannot scan", async () => {
+  test("publishes an active recording during direct browser teardown", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("unscanned-frame").toString("base64"));
-    setPasswordObservationRuntimeForTests(() => null);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("frame").toString("base64"));
 
     await closeBrowserSession(session.id, "manual");
 
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
     assert.equal(
       await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
-      "unscanned-frame",
+      "frame",
     );
   });
 
   test("orphan recovery drains authorized browser activity before terminalizing", async () => {
     const { run, session } = await fixture();
-    installCleanPasswordRuntime();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
     acceptBrowserRecordingFrame(

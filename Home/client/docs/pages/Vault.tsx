@@ -222,15 +222,15 @@ export function Vault() {
       <P>
         Browser access and the employee&apos;s host allow list remain independent gates: a Vault
         Grant cannot enable the Browser or widen its browsing policy. Sensitive values exist only at
-        the server-side credential-to-browser boundary. They are not serialized into the tool
-        response, model context, Run transcript, audit detail, or log. Captchas, hardware-bound
-        credentials, and unsupported challenges can still use the Browser&apos;s human take-over
-        flow.
+        the server-side credential-to-browser boundary and are not serialized directly into the
+        Vault action&apos;s response, audit detail, or log. Captchas, hardware-bound credentials,
+        and unsupported challenges can still use the Browser&apos;s human take-over flow.
       </P>
       <P>
-        Browser snapshots redact password-input values, including values inside frames, before the
-        model sees them. After the session has observed or filled a password, model-requested
-        screenshots are refused; use the redacted structural snapshot instead.
+        Browser snapshots and screenshots are unfiltered: they include the full page content and
+        pixels Chrome exposes, including textbox values and content inside frames. The Vault fill
+        action does not return a password or authenticator value itself, but a value the website
+        displays can reach the configured AI Model through ordinary Browser output.
       </P>
       <Callout kind="info" title="A Member session cannot become AI authority">
         A Member session used inside App-owned Chrome is marked as an AI Browser request. The App
@@ -261,15 +261,17 @@ export function Vault() {
       </P>
       <P>
         During authenticator enrollment, <Code>browser_prepare_vault_totp</Code> first binds an
-        AI-created Login to the exact origin and redacts screenshots and model-visible page text
-        before the secret appears. <Code>browser_save_vault_totp</Code> then reads the selected
-        same-origin setup key, authenticator QR image, or containing element. Genosyn validates and
-        encrypts it server-side. Later, <Code>browser_fill_vault</Code> with the <Code>totp</Code>
-        {" "}
-        field generates and fills a current code without returning the setup key or code. For
-        approval-gated forms, <Code>browser_submit_with_vault_totp</Code> generates that code only
-        after Approval is claimed and submits it immediately. A QR format Genosyn cannot decode
-        still needs take-over or manual setup-key entry in the Vault editor.
+        AI-created Login to the exact origin. <Code>browser_save_vault_totp</Code> then reads the
+        selected same-origin setup key, authenticator QR image, or containing element. Genosyn
+        validates and encrypts it server-side, and the Vault action itself does not return the
+        setup key. Browser output stays unfiltered, so a key or code the site displays can still
+        appear in a snapshot or screenshot. Later, <Code>browser_fill_vault</Code> with the{" "}
+        <Code>totp</Code> field generates and fills a current code. For approval-gated forms,{
+          " "
+        }
+        <Code>browser_submit_with_vault_totp</Code> generates that code only after Approval is
+        claimed and submits it immediately. A QR format Genosyn cannot decode still needs take-over
+        or manual setup-key entry in the Vault editor.
       </P>
       <P>
         Passkeys use bounded Browser ceremonies. <Code>browser_create_vault_passkey</Code> triggers

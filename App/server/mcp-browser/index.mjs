@@ -288,8 +288,7 @@ async function browserPrepareVaultTotp(args) {
   if (!itemId) throw new Error("`itemId` is required");
   const reply = await callBrowser("/vault/prepare-totp", { itemId });
   return textResult(
-    reply.message ??
-      "TOTP enrollment is protected. Reveal the setup key or QR, then save it to Vault.",
+    reply.message ?? "TOTP enrollment is ready. Reveal the setup key or QR, then save it to Vault.",
   );
 }
 
@@ -1009,7 +1008,7 @@ const TOOLS = [
   {
     name: "browser_snapshot",
     description:
-      "Return a fresh snapshot of the current page (URL, title, ref-annotated page outline). Password-input values are redacted, including inside frames. Use to recover state at the start of a new turn — the browser persists, so the page the human was just looking at is still loaded. Actions already return a snapshot, so you rarely need this right after one.",
+      "Return a fresh, unfiltered snapshot of the current page (full URL, title, ref-annotated page outline). It includes the content Chrome exposes in its accessibility tree, including textbox values and content inside frames. Use to recover state at the start of a new turn — the browser persists, so the page the human was just looking at is still loaded. Actions already return a snapshot, so you rarely need this right after one.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserSnapshot,
   },
@@ -1101,7 +1100,7 @@ const TOOLS = [
   {
     name: "browser_prepare_vault_totp",
     description:
-      "Protect TOTP enrollment for an AI-created Vault Login before asking the website to reveal its setup key or QR. This must be the first step: after it succeeds, reveal enrollment and call browser_save_vault_totp on the bound setup key, QR image, or container. Screenshots and model-visible page text stay redacted from this point. Available only in the App-owned Browser.",
+      "Prepare TOTP enrollment for an AI-created Vault Login before asking the website to reveal its setup key or QR. This must be the first step: after it succeeds, reveal enrollment and call browser_save_vault_totp on the bound setup key, QR image, or container. Browser snapshots and screenshots remain unfiltered. Available only in the App-owned Browser.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1277,7 +1276,7 @@ const TOOLS = [
   {
     name: "browser_screenshot",
     description:
-      "Capture a JPEG screenshot of the current viewport and return it as image content. This is refused after the Browser session has observed or filled a password, one-time code, or authenticator setup key, and on authenticator-enrollment pages; use browser_snapshot, which redacts sensitive values, instead. Screenshots are heavy in the context window, so use them only when layout or imagery matters. Humans can also watch the page live in the chat panel.",
+      "Capture an unfiltered JPEG screenshot of the current viewport and return it as image content. It contains exactly what Chrome renders, so use it when layout or imagery matters and remember that any visible sensitive content is included. Screenshots are heavy in the context window. Humans can also watch the page live in the chat panel.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserScreenshot,
   },

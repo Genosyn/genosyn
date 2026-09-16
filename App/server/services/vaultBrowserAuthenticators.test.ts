@@ -12,12 +12,9 @@ import {
   clickAndActivateVaultPasskey,
   decodeQrFromImage,
   decodeTotpQrFromPng,
-  findTotpSetupKeyInText,
   installVaultPasskeyGate,
   prepareVaultPasskeyAuthentication,
   prepareVaultPasskeyRegistration,
-  redactUncapturedTotpValues,
-  textSuggestsTotpEnrollment,
   transcodeImageToJpeg,
 } from "./vaultBrowserAuthenticators.js";
 
@@ -47,24 +44,6 @@ describe("Vault TOTP browser capture", () => {
     assert.equal(await decodeTotpQrFromPng(png), uri);
     const jpeg = await transcodeImageToJpeg(png, 60);
     assert.equal(await decodeQrFromImage(jpeg), uri);
-  });
-
-  test("finds and redacts text setup keys and URIs", () => {
-    const key = "JBSW Y3DP EHPK 3PXP";
-    assert.equal(findTotpSetupKeyInText(`Authenticator setup key: ${key}`), "JBSWY3DPEHPK3PXP");
-    const text = "Open otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP&issuer=Example now";
-    const redacted = redactUncapturedTotpValues(text);
-    assert.doesNotMatch(redacted, /JBSWY3DPEHPK3PXP/);
-    assert.match(redacted, /redacted authenticator setup URI/);
-    assert.doesNotMatch(
-      redactUncapturedTotpValues("otpauth%3A%2F%2Ftotp%2FExample%3Fsecret%3DJBSWY3DPEHPK3PXP"),
-      /JBSWY3DPEHPK3PXP/,
-    );
-    assert.doesNotMatch(
-      redactUncapturedTotpValues("Manual value JBSW Y3DP EHPK 3PXP", true),
-      /JBSW Y3DP EHPK 3PXP/,
-    );
-    assert.equal(textSuggestsTotpEnrollment("Scan this QR with your authenticator app"), true);
   });
 
   test("rejects oversized image headers before allocating decoded pixels", async () => {

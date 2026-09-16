@@ -144,7 +144,7 @@ export function Browser() {
           },
           {
             term: "browser_prepare_vault_totp",
-            def: "Arm an AI-created Login for TOTP enrollment before asking the site to reveal its setup key or QR. Screenshots and model-visible page text are redacted immediately.",
+            def: "Bind an AI-created Login to the current origin before asking the site to reveal its TOTP setup key or QR. Browser output remains unfiltered.",
           },
           {
             term: "browser_save_vault_totp",
@@ -160,7 +160,7 @@ export function Browser() {
           },
           {
             term: "browser_screenshot",
-            def: "A JPEG of the viewport when layout matters. It is unavailable after the session has observed a password, one-time code, authenticator setup, or any QR; use the redacted snapshot then.",
+            def: "An unfiltered JPEG of the viewport when layout matters. It contains exactly what Chrome renders.",
           },
           {
             term: "browser_submit",
@@ -198,11 +198,11 @@ export function Browser() {
         <Code>NOTE:</Code> lines at the top of the next snapshot.
       </P>
       <P>
-        Password-input values and Vault-supplied authenticator values are removed from snapshots
-        before they reach the model, including fields inside frames. Once a password or TOTP setup
-        value has been observed or filled in the session, <Code>browser_screenshot</Code> refuses to
-        create a model-visible image; the structural snapshot remains available with sensitive
-        values redacted.
+        Browser output is unfiltered. Snapshots include the full current URL, title, accessible page
+        content, textbox values, and content inside frames; screenshots include exactly the pixels
+        Chrome renders. Genosyn does not install a page observer or redact later browsing because a
+        login form appeared. Any sensitive value a site displays can therefore reach the configured
+        AI Model through a snapshot or screenshot.
       </P>
 
       <H2 id="allow-list">The allow list</H2>
@@ -264,11 +264,12 @@ export function Browser() {
       <P>
         If the site offers TOTP during signup, the employee first calls{" "}
         <Code>browser_prepare_vault_totp</Code> on its AI-created Login, then asks the site to
-        reveal enrollment. This immediately redacts screenshots and model-visible page text. The
-        employee then calls <Code>browser_save_vault_totp</Code> on the same-origin setup key,
-        authenticator QR image, or containing element. Genosyn validates and encrypts the setup
-        server-side; neither the setup key nor a generated code appears in model output. A Member
-        can also paste a shown Base32 key or <Code>otpauth://</Code> URI through the Vault editor.
+        reveal enrollment. The employee then calls <Code>browser_save_vault_totp</Code> on the
+        same-origin setup key, authenticator QR image, or containing element. Genosyn validates and
+        encrypts the setup server-side, and the Vault action itself does not return the setup key.
+        Browser output remains unfiltered, so a setup key or generated code the site displays can
+        still appear in a snapshot or screenshot. A Member can also paste a shown Base32 key or{" "}
+        <Code>otpauth://</Code> URI through the Vault editor.
       </P>
       <P>
         A Vault passkey is created inside Genosyn rather than imported from a person&apos;s device.
@@ -351,8 +352,8 @@ export function Browser() {
         form mid-sign-in and a TOTP enrollment page mid-reveal. Nothing is cut out of it, so a
         recording is limited to the people accountable for that work: for Genosyn&apos;s browser,
         company owners and admins plus the Member the AI Employee reports to; for a Member browser,
-        that browser&apos;s exact owner and nobody else. What the <em>AI Employee</em> sees is
-        separate and stays redacted — screenshots and page text scrub Vault values either way.
+        that browser&apos;s exact owner and nobody else. The <em>AI Employee</em> likewise receives
+        unfiltered page snapshots and screenshots while it works.
       </Callout>
 
       <H2 id="persistence">What persists</H2>
@@ -426,8 +427,9 @@ export function Browser() {
         {" "}
         with small randomized gaps and <Strong>approach a control with the pointer</Strong> before
         clicking. This changes only how the input arrives, never what: a{" "}
-        <DocLink to="/docs/vault">Vault</DocLink> credential is typed into the same field, is never
-        revealed to the employee, and stays redacted from snapshots and recordings.
+        <DocLink to="/docs/vault">Vault</DocLink> credential is typed into the same field and is not
+        returned by the Vault action itself. Page snapshots, screenshots, and recordings remain
+        unfiltered if the site renders that value.
       </P>
       <P>
         Genosyn still never solves a captcha and never defeats a challenge. This only removes{" "}

@@ -24,9 +24,9 @@
  *
  *  * **It changes only how the value arrives, never what.** A Vault secret is
  *    typed into the same field `fill()` would have set, is never returned or
- *    logged, and stays under the same password-taint redaction. The caller's
- *    ordering — taint the value, then enter it — is preserved because this is a
- *    drop-in for the `fill()`/`click()` call, nothing more.
+ *    logged by this helper. Browser snapshots, screenshots, navigation
+ *    metadata, and recordings remain faithful to what Chrome displays. This
+ *    helper is a drop-in for the `fill()`/`click()` call, nothing more.
  *  * **Playwright's actionability guarantees are preserved.** The final press is
  *    left to `click()`, which still waits for the element to be visible, stable,
  *    enabled and hit-testable. The pointer approach is decoration in front of

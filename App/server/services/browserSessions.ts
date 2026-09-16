@@ -64,281 +64,7 @@ import { BROWSER_WINDOW_HEIGHT, BROWSER_WINDOW_WIDTH } from "./browserProfile.js
 const MCP_TOKEN_TTL_MS = 7 * 60 * 60 * 1000; // 7h
 const EXPIRE_GRACE_MS = 30_000;
 const cleanupListeners = new Set<(sessionId: string) => void>();
-type SensitiveObservationKind = "password-present" | "password-value" | "active-input-value";
-const sensitiveValueListeners = new Set<
-  (sessionId: string, value: string, kind: SensitiveObservationKind) => void | Promise<void>
->();
-const recordingFrameObservers = new Set<
-  (sessionId: string, jpegBase64: string) => void | Promise<void>
->();
-let passwordObservationRuntime: (sessionId: string) => unknown = getRuntime;
 let beforeBrowserSessionSaveForTests: (() => Promise<void>) | null = null;
-const passwordTaintKey = `__genosynPasswordTaint_${crypto.randomBytes(12).toString("hex")}`;
-const passwordTaintProbeKey = `__genosynPasswordTaintProbe_${crypto.randomBytes(12).toString("hex")}`;
-const passwordTaintSignal = `genosyn-password-taint:${crypto.randomBytes(24).toString("hex")}`;
-const passwordTaintInstalledPages = new WeakSet<object>();
-const passwordTaintInstalledContexts = new WeakSet<object>();
-type PasswordCdpSession = {
-  send: (method: string, params?: unknown) => Promise<unknown>;
-  on: (event: string, callback: (payload: unknown) => void) => void;
-  detach?: () => Promise<void>;
-};
-type PasswordDomGuardState = {
-  closedTreeNodeIds: Set<number>;
-  enabled: boolean;
-  generation: number;
-  listenersInstalled: boolean;
-  ready: boolean;
-  refresh: Promise<boolean> | null;
-};
-const passwordDomGuardStates = new WeakMap<object, PasswordDomGuardState>();
-const passwordFrameCdpSessions = new WeakMap<object, PasswordCdpSession>();
-const passwordParentCoveredFrames = new WeakSet<object>();
-const passwordFrameLifecycleInstalledPages = new WeakSet<object>();
-
-function forgetPasswordFrame(frame: object): void {
-  const cdp = passwordFrameCdpSessions.get(frame);
-  passwordFrameCdpSessions.delete(frame);
-  passwordParentCoveredFrames.delete(frame);
-  if (cdp?.detach) void cdp.detach().catch(() => undefined);
-}
-
-/**
- * Runs before page scripts in every document and child frame, then remains
- * sticky for that document's lifetime. Mutation records retain detached nodes
- * and old attribute values, so a password input that appears and disappears in
- * one task still taints the page before a later screencast-frame scan.
- */
-function installStickyPasswordTaint(args: {
-  key: string;
-  probeKey: string;
-  requireExisting?: boolean;
-  signal: string;
-  challenge?: string | null;
-}): boolean {
-  const { key, probeKey, requireExisting = false, signal, challenge = null } = args;
-  const scope = globalThis as typeof globalThis & Record<string, unknown>;
-  const existing = scope[key];
-  if (typeof existing === "function") {
-    if (challenge) {
-      const probe = scope[probeKey];
-      if (typeof probe !== "function") return true;
-      try {
-        (probe as (value: string) => void)(challenge);
-      } catch {
-        return true;
-      }
-    }
-    try {
-      return existing() === true;
-    } catch {
-      return true;
-    }
-  }
-  // A nonblank page may be trusted only when the browser-context init script
-  // already installed the observer before document scripts. Installing one
-  // now could capture page-modified intrinsics after sensitive UI disappeared.
-  if (requireExisting) return true;
-
-  // Capture the browser's native console method before document scripts can
-  // replace it. Playwright aggregates native console events from every frame,
-  // including OOPIFs, so this avoids a page-visible exposed-binding wrapper and
-  // its mutable transport/Promise/JSON dependencies. An already-running page
-  // has to pass a random challenge before its observer is trusted.
-  let emit: ((value: string) => void) | null = null;
-  let safeApply: typeof Reflect.apply | null = null;
-  try {
-    const nativeDebug = console.debug;
-    const nativeApply = Reflect.apply;
-    const nativeConsole = console;
-    if (typeof nativeDebug === "function" && typeof nativeApply === "function") {
-      safeApply = nativeApply;
-      emit = (value: string) => {
-        nativeApply(nativeDebug, nativeConsole, [value]);
-      };
-    }
-  } catch {
-    emit = null;
-  }
-
-  let tainted = emit === null;
-  let reported = false;
-  const reportTaint = () => {
-    if (!tainted || reported || emit === null) return;
-    try {
-      // ConsoleAPICalled is emitted synchronously. The document may navigate
-      // immediately afterwards; Node has already received the sticky taint.
-      emit(signal);
-      reported = true;
-    } catch {
-      reported = false;
-    }
-  };
-  const probe = (value: string) => {
-    if (emit === null) throw new Error("Password taint reporter unavailable");
-    // Bind the response to the init-script secret. A hostile current page can
-    // see the one-time challenge passed to Runtime.evaluate, but it cannot
-    // forge this response without the closure that ran before page scripts.
-    emit(`${signal}:probe:${value}`);
-    if (tainted) emit(signal);
-  };
-  try {
-    Object.defineProperty(scope, probeKey, {
-      value: probe,
-      configurable: false,
-      enumerable: false,
-      writable: false,
-    });
-  } catch {
-    tainted = true;
-  }
-  try {
-    Object.defineProperty(scope, key, {
-      value: () => tainted,
-      configurable: false,
-      enumerable: false,
-      writable: false,
-    });
-  } catch {
-    // If page code somehow occupied our randomized, non-enumerable key before
-    // the init script ran, its state cannot be trusted.
-    return true;
-  }
-
-  if (challenge) {
-    try {
-      probe(challenge);
-    } catch {
-      tainted = true;
-    }
-  }
-
-  const mark = () => {
-    tainted = true;
-    reportTaint();
-  };
-  const observedRoots = new WeakSet<Node>();
-
-  // Declarative closed shadow roots created after parsing require one of the
-  // unsafe HTML APIs. They cannot be rediscovered from JavaScript, so taint a
-  // call that requests one; the CDP DOM guard separately inspects declarative
-  // roots created by the network parser.
-  const wrapUnsafeHtml = (owner: object, name: string) => {
-    try {
-      const original = (owner as Record<string, unknown>)[name];
-      if (typeof original !== "function") return;
-      Object.defineProperty(owner, name, {
-        configurable: true,
-        enumerable: false,
-        writable: true,
-        value: function (this: unknown, ...callArgs: unknown[]) {
-          try {
-            const markup = String(callArgs[0] ?? "");
-            if (
-              /\bshadowrootmode\s*=\s*(?:["']\s*closed\s*["']|closed(?:\s|>|\/))/i.test(markup) &&
-              /<input\b[^>]*\btype\s*=\s*(?:["']\s*password\s*["']|password(?:\s|>|\/))/i.test(
-                markup,
-              )
-            ) {
-              mark();
-            }
-          } catch {
-            mark();
-          }
-          if (safeApply === null) throw new Error("Native apply is unavailable");
-          return safeApply(original as (...args: unknown[]) => unknown, this, callArgs);
-        },
-      });
-    } catch {
-      mark();
-    }
-  };
-  wrapUnsafeHtml(Element.prototype, "setHTMLUnsafe");
-  wrapUnsafeHtml(ShadowRoot.prototype, "setHTMLUnsafe");
-  wrapUnsafeHtml(Document, "parseHTMLUnsafe");
-
-  const inspectElement = (element: Element) => {
-    if (element instanceof HTMLInputElement && element.type.toLowerCase() === "password") {
-      mark();
-    }
-    if (element.shadowRoot) observeRoot(element.shadowRoot);
-  };
-  const scanSubtree = (node: Node) => {
-    if (node instanceof Element) inspectElement(node);
-    if (node instanceof Document || node instanceof ShadowRoot || node instanceof Element) {
-      for (const element of node.querySelectorAll("*")) inspectElement(element);
-    }
-  };
-  const observeRoot = (root: Document | ShadowRoot) => {
-    if (observedRoots.has(root)) return;
-    observedRoots.add(root);
-    scanSubtree(root);
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === "attributes") {
-          if (record.oldValue?.toLowerCase() === "password") mark();
-          if (record.target instanceof Element) inspectElement(record.target);
-          continue;
-        }
-        for (const added of record.addedNodes) scanSubtree(added);
-      }
-    });
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["type"],
-      attributeOldValue: true,
-    });
-  };
-
-  // Closed shadow roots cannot be rediscovered from their host. Observe them
-  // at creation time, before page code can append a transient password input.
-  try {
-    const originalAttachShadow = Element.prototype.attachShadow;
-    Object.defineProperty(Element.prototype, "attachShadow", {
-      configurable: true,
-      enumerable: false,
-      writable: true,
-      value: function (this: Element, init: ShadowRootInit): ShadowRoot {
-        const root = originalAttachShadow.call(this, init);
-        observeRoot(root);
-        return root;
-      },
-    });
-  } catch {
-    // Without closed-shadow coverage the privacy promise cannot be proven.
-    mark();
-  }
-
-  try {
-    observeRoot(document);
-  } catch {
-    mark();
-  }
-  reportTaint();
-  return tainted;
-}
-
-function passwordTaintScript(args: Parameters<typeof installStickyPasswordTaint>[0]): string {
-  // tsx/esbuild can inject free `__name(...)` calls into a function's runtime
-  // toString(). Playwright serializes that text into the page, where the helper
-  // does not exist. Supply it inside the payload so dev/test and tsc builds run
-  // the exact same self-contained document-start script.
-  return `(() => { "use strict"; const __name = (value) => value; return (${installStickyPasswordTaint.toString()})(${JSON.stringify(
-    args,
-  )}); })()`;
-}
-
-/** Test seam for executing the exact self-contained Playwright init payload. */
-export const passwordTaintScriptForTests = passwordTaintScript;
-
-/** Test seam for final-scan failures without launching Chromium. */
-export function setPasswordObservationRuntimeForTests(
-  lookup: ((sessionId: string) => unknown) | null,
-): void {
-  passwordObservationRuntime = lookup ?? getRuntime;
-}
 
 export function setBeforeBrowserSessionSaveForTests(hook: (() => Promise<void>) | null): void {
   beforeBrowserSessionSaveForTests = hook;
@@ -348,31 +74,6 @@ export function setBeforeBrowserSessionSaveForTests(hook: (() => Promise<void>) 
 export function registerBrowserSessionCleanup(listener: (sessionId: string) => void): () => void {
   cleanupListeners.add(listener);
   return () => cleanupListeners.delete(listener);
-}
-
-/** Let the browser RPC boundary retain password values before human input can reveal them. */
-export function registerBrowserSensitiveValueListener(
-  listener: (
-    sessionId: string,
-    value: string,
-    kind: SensitiveObservationKind,
-  ) => void | Promise<void>,
-): () => void {
-  sensitiveValueListeners.add(listener);
-  return () => sensitiveValueListeners.delete(listener);
-}
-
-/**
- * Inspect the exact JPEG bytes a Routine recording is about to accept. Used to
- * notice a credential ceremony in the pixels and taint the session so later
- * screenshots and model-visible text are redacted. It cannot veto the frame:
- * the recording itself is always kept.
- */
-export function registerBrowserRecordingFrameObserver(
-  observer: (sessionId: string, jpegBase64: string) => void | Promise<void>,
-): () => void {
-  recordingFrameObservers.add(observer);
-  return () => recordingFrameObservers.delete(observer);
 }
 
 /**
@@ -473,14 +174,10 @@ type SessionState = {
   screencasting: boolean;
   /** Increments per emitted frame so viewers can ack by id. */
   frameCounter: number;
-  /** Latest recorder frame waiting for its fail-closed DOM privacy scan. */
-  pendingRecordingFrame: { data: string; navigationGeneration: number } | null;
-  /** Serialized scanner; new frames replace the pending one instead of piling up. */
-  recordingFrameTask: Promise<void> | null;
+  /** Latest recorder frame waiting for the next fixed-cadence intake slot. */
+  pendingRecordingFrame: string | null;
   recordingFrameTimer: NodeJS.Timeout | null;
-  lastRecordingFrameScanAt: number;
-  /** Invalidates a captured frame when its document navigates before the scan settles. */
-  recordingNavigationGeneration: number;
+  lastRecordingFrameAcceptedAt: number;
 };
 
 const sessions = new Map<string, SessionState>();
@@ -674,18 +371,8 @@ export async function closeBrowserSession(
   const repo = AppDataSource.getRepository(BrowserSession);
   const row = await repo.findOneBy({ id: sessionId });
   if (!row) return;
-  const finalScanRequired = browserRecordingDemand(sessionId);
   freezeBrowserRecording(sessionId);
-  await flushBrowserRecordingFrameScans(sessionId);
-  // Direct close paths do not necessarily pass through releasePage. Scan
-  // before teardown while any process-local runtime is still observable.
-  try {
-    await observeRuntimePasswordValues(sessionId, {
-      failClosedIfUnavailable: finalScanRequired,
-    });
-  } catch {
-    // Redaction bookkeeping only; the recording is finalized either way.
-  }
+  await flushBrowserRecordingFrameIntake(sessionId);
   const wasOpen = row.status !== "closed" && row.status !== "expired";
   if (wasOpen) {
     const closedAt = new Date();
@@ -698,8 +385,7 @@ export async function closeBrowserSession(
     row.closedAt = closedAt;
   }
   // Revoke authority before waiting on the auxiliary encoder. A 5s ffmpeg
-  // shutdown must not leave a window for fresh browser RPCs after the final
-  // privacy scan.
+  // shutdown must not leave a window for fresh browser RPCs after finalization.
   tokenToSessionId.delete(row.mcpToken);
   const state = sessions.get(sessionId);
   if (wasOpen && state) {
@@ -839,18 +525,9 @@ export async function notifyPageSwapped(sessionId: string): Promise<void> {
   if (!state) return;
   const wasCasting = state.screencasting;
   state.screencasting = false;
-  invalidateRecordingFramesForNavigation(state);
   clearPendingAcks(state);
   cdpListenerAttached.delete(sessionId);
   if (wasCasting && shouldScreencast(state)) {
-    if (browserRecordingDemand(sessionId)) {
-      // Prove the context-level observer reached the adopted popup before page
-      // scripts, so a credential it renders is redacted from the employee's
-      // own view from the first frame.
-      await observeRuntimePasswordValues(sessionId, {
-        failClosedIfUnavailable: true,
-      });
-    }
     await startScreencast(state);
   }
 }
@@ -890,47 +567,17 @@ function clearPendingAcks(state: SessionState): void {
   state.pendingCdpAcks.clear();
 }
 
-function startRecordingFrameScan(state: SessionState): void {
-  if (
-    state.recordingFrameTask ||
-    state.pendingRecordingFrame === null ||
-    !browserRecordingDemand(state.id)
-  ) {
-    return;
-  }
+function acceptPendingRecordingFrame(state: SessionState): void {
+  if (state.pendingRecordingFrame === null || !browserRecordingDemand(state.id)) return;
   const frame = state.pendingRecordingFrame;
   state.pendingRecordingFrame = null;
-  state.lastRecordingFrameScanAt = Date.now();
-  const task = (async () => {
-    // The scan still runs on every queued frame: it is what keeps a password
-    // or Vault value out of model-visible page text and out of screenshots.
-    // It no longer decides whether the frame is recorded — a Run recording is
-    // kept whole for the humans allowed to watch it.
-    try {
-      await observeRuntimePasswordValues(state.id, { discardIfUnavailable: true });
-    } catch {
-      // Redaction is best effort; it never costs the Run its video.
-    }
-    for (const observe of recordingFrameObservers) {
-      try {
-        await observe(state.id, frame.data);
-      } catch {
-        // A frame that cannot be classified is still recorded.
-      }
-    }
-    if (frame.navigationGeneration === state.recordingNavigationGeneration) {
-      acceptBrowserRecordingFrame(state.id, frame.data);
-    }
-  })();
-  state.recordingFrameTask = task.finally(() => {
-    state.recordingFrameTask = null;
-    scheduleRecordingFrameScan(state);
-  });
+  state.lastRecordingFrameAcceptedAt = Date.now();
+  acceptBrowserRecordingFrame(state.id, frame);
+  scheduleRecordingFrameAcceptance(state);
 }
 
-function scheduleRecordingFrameScan(state: SessionState): void {
+function scheduleRecordingFrameAcceptance(state: SessionState): void {
   if (
-    state.recordingFrameTask ||
     state.recordingFrameTimer ||
     state.pendingRecordingFrame === null ||
     !browserRecordingDemand(state.id)
@@ -939,15 +586,15 @@ function scheduleRecordingFrameScan(state: SessionState): void {
   }
   const delay = Math.max(
     0,
-    state.lastRecordingFrameScanAt + 1000 / BROWSER_RECORDING_FPS - Date.now(),
+    state.lastRecordingFrameAcceptedAt + 1000 / BROWSER_RECORDING_FPS - Date.now(),
   );
   if (delay === 0) {
-    startRecordingFrameScan(state);
+    acceptPendingRecordingFrame(state);
     return;
   }
   state.recordingFrameTimer = setTimeout(() => {
     state.recordingFrameTimer = null;
-    startRecordingFrameScan(state);
+    acceptPendingRecordingFrame(state);
   }, delay);
   if (typeof state.recordingFrameTimer.unref === "function") {
     state.recordingFrameTimer.unref();
@@ -956,31 +603,17 @@ function scheduleRecordingFrameScan(state: SessionState): void {
 
 function queueRecordingFrame(state: SessionState, data: string): void {
   if (!browserRecordingDemand(state.id)) return;
-  state.pendingRecordingFrame = {
-    data,
-    navigationGeneration: state.recordingNavigationGeneration,
-  };
-  scheduleRecordingFrameScan(state);
+  state.pendingRecordingFrame = data;
+  scheduleRecordingFrameAcceptance(state);
 }
 
-function invalidateRecordingFramesForNavigation(state: SessionState): void {
-  state.recordingNavigationGeneration += 1;
-  state.pendingRecordingFrame = null;
-}
-
-/** Test seam for the CDP main-frame navigation invalidation boundary. */
-export function invalidateBrowserRecordingFramesForNavigationForTests(sessionId: string): void {
-  invalidateRecordingFramesForNavigation(ensureState(sessionId));
-}
-
-export async function flushBrowserRecordingFrameScans(sessionId: string): Promise<void> {
+export async function flushBrowserRecordingFrameIntake(sessionId: string): Promise<void> {
   const state = sessions.get(sessionId);
   if (state?.recordingFrameTimer) clearTimeout(state.recordingFrameTimer);
   if (state) {
     state.recordingFrameTimer = null;
     state.pendingRecordingFrame = null;
   }
-  await state?.recordingFrameTask?.catch(() => undefined);
 }
 
 /** Test seam for exercising recorder intake without a real CDP transport. */
@@ -1002,17 +635,6 @@ async function startScreencast(state: SessionState): Promise<void> {
   // lifetime of the CDP session and we toggle screencasting via
   // start/stop.
   if (!cdpListenerAttached.has(state.id)) {
-    cdp.on("Page.frameNavigated", () => {
-      // A pending JPEG contains the full viewport, including child frames. Any
-      // document replacement can destroy an evaluate context while its old
-      // pixels are queued, so invalidate the whole JPEG and scan the next one.
-      invalidateRecordingFramesForNavigation(state);
-    });
-    cdp.on("Page.frameDetached", () => {
-      // Normal widget/ad removal has the same destroyed-context race as a
-      // navigation. Its old pixels cannot be verified against the settled DOM.
-      invalidateRecordingFramesForNavigation(state);
-    });
     cdp.on("Page.screencastFrame", (event) => {
       const ev = event as {
         sessionId: string;
@@ -1188,12 +810,6 @@ async function handleViewerMessage(
     return;
   }
   try {
-    // Install the sticky observer before a take-over action can create a
-    // transient password field, then start (or resume) the Run recorder under
-    // the same pre-finalization lease.
-    await observeRuntimePasswordValues(state.id, {
-      failClosedIfUnavailable: state.runId !== null,
-    });
     await markSessionLive(state.id, { allowFinalizingRun: true });
     if (msg.type === "control.navigate") {
       await navigateFromViewer(state, viewer, msg.url);
@@ -1209,12 +825,6 @@ async function handleViewerMessage(
     if (!runtime) return;
     const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
     if (!cdp) return;
-    // Capture every current password value before a human click can toggle a
-    // field to plain text. The browser RPC layer keeps these values redacted
-    // for the full session and clears them through the teardown hook above.
-    await observeRuntimePasswordValues(state.id, {
-      failClosedIfUnavailable: state.runId !== null,
-    });
     if (msg.type === "input.mouse") {
       try {
         await cdp.send("Input.dispatchMouseEvent", {
@@ -1227,9 +837,6 @@ async function handleViewerMessage(
           deltaX: msg.deltaX ?? 0,
           deltaY: msg.deltaY ?? 0,
           modifiers: msg.modifiers ?? 0,
-        });
-        await observeRuntimePasswordValues(state.id, {
-          failClosedIfUnavailable: state.runId !== null,
         });
       } catch {
         /* ignore */
@@ -1244,11 +851,6 @@ async function handleViewerMessage(
           unmodifiedText: msg.text,
           modifiers: msg.modifiers ?? 0,
           windowsVirtualKeyCode: msg.windowsVirtualKeyCode,
-        });
-        // Key input may have changed the focused password field. Capture the
-        // resulting full value, not only the individual key event text.
-        await observeRuntimePasswordValues(state.id, {
-          failClosedIfUnavailable: state.runId !== null,
         });
       } catch {
         /* ignore */
@@ -1320,11 +922,6 @@ async function navigateFromViewer(
     return;
   }
   markActivity(state.id);
-  // Last chance to see what the page held: navigating destroys it, and the
-  // redaction listeners have to keep covering anything typed into it.
-  await observeRuntimePasswordValues(state.id, {
-    failClosedIfUnavailable: state.runId !== null,
-  });
   try {
     // `Page.navigate` rather than Playwright's `page.goto` — this returns as
     // soon as the load is committed, so the viewer's toolbar doesn't sit dead
@@ -1358,9 +955,6 @@ async function historyFromViewer(
     return;
   }
   markActivity(state.id);
-  await observeRuntimePasswordValues(state.id, {
-    failClosedIfUnavailable: state.runId !== null,
-  });
   try {
     if (action === "reload") {
       await cdp.send("Page.reload", {});
@@ -1392,675 +986,9 @@ async function historyFromViewer(
   }
 }
 
-async function reportPasswordPresence(sessionId: string): Promise<void> {
-  for (const listener of sensitiveValueListeners) {
-    try {
-      await listener(sessionId, "", "password-present");
-    } catch {
-      // Recording/redaction remains auxiliary to browser work.
-    }
-  }
-}
-
-async function searchCdpForPassword(cdp: PasswordCdpSession): Promise<boolean | null> {
-  let searchId: string | null = null;
-  try {
-    const result = (await cdp.send("DOM.performSearch", {
-      query: 'input[type="password"]',
-      includeUserAgentShadowDOM: true,
-    })) as { searchId: string; resultCount: number };
-    searchId = result.searchId;
-    return result.resultCount > 0;
-  } catch {
-    return null;
-  } finally {
-    if (searchId) {
-      await cdp.send("DOM.discardSearchResults", { searchId }).catch(() => undefined);
-    }
-  }
-}
-
-async function ensurePasswordDomGuard(
-  sessionId: string,
-  cdp: PasswordCdpSession,
-): Promise<boolean> {
-  let state = passwordDomGuardStates.get(cdp as object);
-  if (state) {
-    if (state.refresh) await state.refresh;
-    if (state.enabled && state.ready) return true;
-  } else {
-    state = {
-      closedTreeNodeIds: new Set(),
-      enabled: false,
-      generation: 0,
-      listenersInstalled: false,
-      ready: false,
-      refresh: null,
-    };
-    passwordDomGuardStates.set(cdp as object, state);
-  }
-  const guardState = state;
-  const noteDomMutation = () => {
-    guardState.generation += 1;
-    guardState.ready = false;
-    const recordingState = sessions.get(sessionId);
-    if (recordingState) invalidateRecordingFramesForNavigation(recordingState);
-  };
-  const nodeHasPassword = (node: unknown): boolean => {
-    if (!node || typeof node !== "object") return false;
-    const candidate = node as {
-      nodeName?: string;
-      nodeId?: number;
-      shadowRootType?: string;
-      attributes?: string[];
-      children?: unknown[];
-      shadowRoots?: unknown[];
-      pseudoElements?: unknown[];
-      contentDocument?: unknown;
-    };
-    const insideClosedTree =
-      candidate.shadowRootType === "closed" ||
-      (candidate.nodeId !== undefined && guardState.closedTreeNodeIds.has(candidate.nodeId));
-    if (insideClosedTree && candidate.nodeId !== undefined) {
-      guardState.closedTreeNodeIds.add(candidate.nodeId);
-    }
-    if (candidate.nodeName?.toUpperCase() === "INPUT") {
-      const attributes = candidate.attributes ?? [];
-      for (let index = 0; index + 1 < attributes.length; index += 2) {
-        if (
-          attributes[index]?.toLowerCase() === "type" &&
-          attributes[index + 1]?.toLowerCase() === "password"
-        ) {
-          return true;
-        }
-      }
-    }
-    for (const collection of [
-      candidate.children,
-      candidate.shadowRoots,
-      candidate.pseudoElements,
-    ]) {
-      if (
-        collection?.some((child) => {
-          if (
-            insideClosedTree &&
-            child &&
-            typeof child === "object" &&
-            "nodeId" in child &&
-            typeof child.nodeId === "number"
-          ) {
-            guardState.closedTreeNodeIds.add(child.nodeId);
-          }
-          return nodeHasPassword(child);
-        })
-      ) {
-        return true;
-      }
-    }
-    return nodeHasPassword(candidate.contentDocument);
-  };
-  const refreshTree = (): Promise<boolean> => {
-    if (guardState.refresh) return guardState.refresh;
-    const generation = guardState.generation;
-    const refresh = (async () => {
-      try {
-        const result = (await cdp.send("DOM.getDocument", {
-          depth: -1,
-          pierce: true,
-        })) as { root?: unknown };
-        if (nodeHasPassword(result.root)) await reportPasswordPresence(sessionId);
-        if (guardState.generation === generation) guardState.ready = true;
-        return guardState.generation === generation;
-      } catch {
-        guardState.ready = false;
-        return false;
-      }
-    })().finally(() => {
-      if (guardState.refresh === refresh) guardState.refresh = null;
-    });
-    guardState.refresh = refresh;
-    return refresh;
-  };
-  const verifyMutation = (nodeId?: number): Promise<boolean> => {
-    if (guardState.refresh) return guardState.refresh;
-    const generation = guardState.generation;
-    const refresh = (async () => {
-      try {
-        if (nodeId) {
-          await cdp.send("DOM.requestChildNodes", { nodeId, depth: -1, pierce: true });
-        }
-        const present = await searchCdpForPassword(cdp);
-        if (present) await reportPasswordPresence(sessionId);
-        if (present === null || guardState.generation !== generation) return false;
-        guardState.ready = true;
-        return true;
-      } catch {
-        guardState.ready = false;
-        return false;
-      }
-    })().finally(() => {
-      if (guardState.refresh === refresh) guardState.refresh = null;
-    });
-    guardState.refresh = refresh;
-    return refresh;
-  };
-  const scanSoon = (
-    delays: number[],
-    options: { refreshDocument?: boolean; nodeId?: number } = {},
-  ) => {
-    const generation = guardState.generation;
-    for (const delay of delays) {
-      const timer = setTimeout(() => {
-        // The first successful scan proves this generation. Later retries are
-        // only fallbacks for parser/navigation timing, not repeated full-tree
-        // snapshots. A newer mutation schedules its own generation of work.
-        if (guardState.generation !== generation || guardState.ready) return;
-        void (options.refreshDocument ? refreshTree() : verifyMutation(options.nodeId));
-      }, delay);
-      if (typeof timer.unref === "function") timer.unref();
-    }
-  };
-  try {
-    if (!guardState.listenersInstalled) {
-      // DOM events make transient parser/shadow changes sticky between the 4fps
-      // JPEG checks. The native protocol cannot be replaced by page JavaScript.
-      cdp.on("DOM.documentUpdated", () => {
-        guardState.closedTreeNodeIds.clear();
-        noteDomMutation();
-        scanSoon([0, 25, 100, 250], { refreshDocument: true });
-      });
-      cdp.on("DOM.shadowRootPushed", (payload) => {
-        const root = (payload as { root?: { nodeId?: number; shadowRootType?: string } }).root;
-        if (root?.shadowRootType !== "closed") return;
-        if (root.nodeId !== undefined) guardState.closedTreeNodeIds.add(root.nodeId);
-        noteDomMutation();
-        const rootId = root.nodeId;
-        scanSoon([0, 25], { nodeId: rootId });
-      });
-      cdp.on("DOM.shadowRootPopped", (payload) => {
-        const rootId = (payload as { rootId?: number }).rootId;
-        if (rootId === undefined || !guardState.closedTreeNodeIds.has(rootId)) return;
-        noteDomMutation();
-        guardState.closedTreeNodeIds.delete(rootId);
-        scanSoon([0]);
-      });
-      cdp.on("DOM.childNodeInserted", (payload) => {
-        const event = payload as {
-          parentNodeId?: number;
-          node?: {
-            nodeId?: number;
-            nodeName?: string;
-            attributes?: string[];
-            childNodeCount?: number;
-          };
-        };
-        const node = event.node;
-        const insideClosedTree =
-          event.parentNodeId !== undefined && guardState.closedTreeNodeIds.has(event.parentNodeId);
-        if (insideClosedTree && node?.nodeId !== undefined) {
-          guardState.closedTreeNodeIds.add(node.nodeId);
-        }
-        if (insideClosedTree) noteDomMutation();
-        if (node?.nodeName?.toUpperCase() === "INPUT") {
-          const attributes = node.attributes ?? [];
-          for (let index = 0; index + 1 < attributes.length; index += 2) {
-            if (
-              attributes[index]?.toLowerCase() === "type" &&
-              attributes[index + 1]?.toLowerCase() === "password"
-            ) {
-              void reportPasswordPresence(sessionId);
-              break;
-            }
-          }
-        }
-        if (insideClosedTree) {
-          scanSoon([0, 25], {
-            nodeId: node?.childNodeCount ? node.nodeId : undefined,
-          });
-        }
-      });
-      cdp.on("DOM.childNodeRemoved", (payload) => {
-        const event = payload as { parentNodeId?: number; nodeId?: number };
-        if (
-          event.parentNodeId === undefined ||
-          !guardState.closedTreeNodeIds.has(event.parentNodeId)
-        ) {
-          return;
-        }
-        noteDomMutation();
-        if (event.nodeId !== undefined) guardState.closedTreeNodeIds.delete(event.nodeId);
-        scanSoon([0]);
-      });
-      cdp.on("DOM.attributeModified", (payload) => {
-        const event = payload as { nodeId?: number; name?: string; value?: string };
-        const becamePassword =
-          event.name?.toLowerCase() === "type" && event.value?.toLowerCase() === "password";
-        if (becamePassword) void reportPasswordPresence(sessionId);
-        if (event.nodeId !== undefined && guardState.closedTreeNodeIds.has(event.nodeId)) {
-          noteDomMutation();
-          scanSoon([0]);
-        }
-      });
-      cdp.on("DOM.setChildNodes", (payload) => {
-        const event = payload as {
-          parentId?: number;
-          nodes?: unknown[];
-        };
-        if (event.parentId === undefined || !guardState.closedTreeNodeIds.has(event.parentId)) {
-          return;
-        }
-        for (const entry of event.nodes ?? []) {
-          if (
-            entry &&
-            typeof entry === "object" &&
-            "nodeId" in entry &&
-            typeof entry.nodeId === "number"
-          ) {
-            guardState.closedTreeNodeIds.add(entry.nodeId);
-          }
-          if (nodeHasPassword(entry)) void reportPasswordPresence(sessionId);
-        }
-      });
-      guardState.listenersInstalled = true;
-    }
-    if (!guardState.enabled) {
-      await cdp.send("DOM.enable");
-      guardState.enabled = true;
-    }
-    return refreshTree();
-  } catch {
-    guardState.ready = false;
-    return false;
-  }
-}
-
-async function collectPasswordCdpTargets(
-  page: {
-    context?: () => {
-      newCDPSession?: (target: unknown) => Promise<PasswordCdpSession>;
-    };
-    frames: () => unknown[];
-    mainFrame?: () => unknown;
-  },
-  mainCdp: PasswordCdpSession | null,
-): Promise<{
-  targets: Array<{ cdp: PasswordCdpSession; frame: object | null }>;
-  complete: boolean;
-}> {
-  const targets: Array<{ cdp: PasswordCdpSession; frame: object | null }> = [];
-  let complete = true;
-  if (mainCdp) targets.push({ cdp: mainCdp, frame: null });
-  else complete = false;
-
-  const context = page.context?.();
-  const createSession = context?.newCDPSession;
-  const mainFrame = page.mainFrame?.();
-  if (!createSession || !mainFrame) return { targets, complete };
-  for (const frame of page.frames()) {
-    if (!frame || frame === mainFrame || typeof frame !== "object") continue;
-    if (passwordParentCoveredFrames.has(frame)) continue;
-    let cdp = passwordFrameCdpSessions.get(frame);
-    if (!cdp) {
-      try {
-        cdp = await createSession.call(context, frame);
-        passwordFrameCdpSessions.set(frame, cdp);
-      } catch (error) {
-        // Same-process frames are included by the page session. Any other
-        // failure leaves an OOPIF renderer unverified and drops/fails closed.
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("part of the parent frame's session")) {
-          passwordParentCoveredFrames.add(frame);
-          continue;
-        }
-        complete = false;
-        continue;
-      }
-    }
-    targets.push({ cdp, frame });
-  }
-  return { targets, complete };
-}
-
-type PasswordObservationOptions = {
-  /**
-   * A page this scan could not read is treated as a page that showed a
-   * password, so redaction stays on for the rest of the session. Used at
-   * terminal boundaries, where there is no later scan to correct the guess.
-   */
-  failClosedIfUnavailable?: boolean;
-  /**
-   * The caller is a screencast frame, not a boundary: try once instead of
-   * retrying, and never escalate an unreadable page to a password sighting.
-   */
-  discardIfUnavailable?: boolean;
-};
-
-export async function observeRuntimePasswordValues(
-  sessionId: string,
-  opts?: PasswordObservationOptions,
-): Promise<boolean> {
-  const runtime = passwordObservationRuntime(sessionId) as
-    | { page?: unknown; cdp?: unknown }
-    | null
-    | undefined;
-  const page = runtime?.page as
-    | {
-        addInitScript?: (script: { content: string }) => Promise<void>;
-        frames: () => Array<{
-          evaluate: {
-            <T>(expression: string): Promise<T>;
-            <T, Arg>(fn: (arg: Arg) => T | Promise<T>, arg: Arg): Promise<T>;
-          };
-        }>;
-        mainFrame?: () => unknown;
-        context?: () => {
-          addInitScript?: (script: { content: string }) => Promise<void>;
-          newCDPSession?: (target: unknown) => Promise<PasswordCdpSession>;
-        };
-        on?: (event: string, callback: (message: unknown) => void) => void;
-        url?: () => string;
-      }
-    | null
-    | undefined;
-  if (!page) return false;
-  let fullyObserved = true;
-  const installInCurrentDocuments = !passwordTaintInstalledPages.has(page as object);
-  if (installInCurrentDocuments) {
-    try {
-      const context = page.context?.();
-      if (!context?.addInitScript && !page.addInitScript) {
-        throw new Error("Browser init scripts are unavailable");
-      }
-      if (!page.on) throw new Error("Page console events are unavailable");
-      const pendingChallenges = new Map<string, () => void>();
-      page.on("console", (rawMessage) => {
-        const message = rawMessage as { text?: () => string; type?: () => string };
-        let text = "";
-        let type = "";
-        try {
-          text = message.text?.() ?? "";
-          type = message.type?.() ?? "";
-        } catch {
-          return;
-        }
-        if (type !== "debug") return;
-        const resolveChallenge = pendingChallenges.get(text);
-        if (resolveChallenge) {
-          resolveChallenge();
-          return;
-        }
-        if (text === passwordTaintSignal) void reportPasswordPresence(sessionId);
-      });
-      if (!passwordFrameLifecycleInstalledPages.has(page as object)) {
-        const forget = (frame: unknown) => {
-          if (frame && typeof frame === "object") forgetPasswordFrame(frame);
-        };
-        page.on("framenavigated", forget);
-        page.on("framedetached", forget);
-        passwordFrameLifecycleInstalledPages.add(page as object);
-      }
-
-      // Context-level installation covers future popups before their first
-      // script. The Page fallback still protects the current tab on runtimes
-      // that do not expose BrowserContext.addInitScript; such a future popup
-      // then fails the require-existing challenge closed.
-      const initScript = {
-        content: passwordTaintScript({
-          key: passwordTaintKey,
-          probeKey: passwordTaintProbeKey,
-          signal: passwordTaintSignal,
-          challenge: null,
-        }),
-      };
-      const contextWasPrearmed = Boolean(
-        context && passwordTaintInstalledContexts.has(context as object),
-      );
-      if (context?.addInitScript) {
-        if (!contextWasPrearmed) {
-          await context.addInitScript(initScript);
-          passwordTaintInstalledContexts.add(context as object);
-        }
-      } else {
-        await page.addInitScript!(initScript);
-      }
-      let stickyAtInstall: boolean[] | null = null;
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const installFrames = page.frames();
-        if (installFrames.length === 0) throw new Error("Page frames are unavailable");
-        const currentUrl = page.url?.() ?? "about:blank";
-        const blankPage =
-          currentUrl === "" || currentUrl === "about:blank" || currentUrl === "chrome://newtab/";
-        // Only the first App-created blank page may install late. A popup or
-        // later tab in a pre-armed context must prove its observer ran at
-        // document start, even while its initial blank document is navigating.
-        const requireExisting = contextWasPrearmed || !blankPage;
-        const challenges = installFrames.map(() => crypto.randomBytes(16).toString("hex"));
-        const responses = challenges.map(
-          (challenge) => `${passwordTaintSignal}:probe:${challenge}`,
-        );
-        let allChallengesReceived!: () => void;
-        const challengeBarrier = new Promise<void>((resolve) => {
-          allChallengesReceived = resolve;
-        });
-        for (const response of responses) {
-          pendingChallenges.set(response, () => {
-            pendingChallenges.delete(response);
-            if (responses.every((candidate) => !pendingChallenges.has(candidate))) {
-              allChallengesReceived();
-            }
-          });
-        }
-        let challengeTimer: ReturnType<typeof setTimeout> | null = null;
-        try {
-          const result = await Promise.all(
-            installFrames.map((frame, index) =>
-              frame.evaluate<boolean>(
-                passwordTaintScript({
-                  key: passwordTaintKey,
-                  probeKey: passwordTaintProbeKey,
-                  requireExisting,
-                  signal: passwordTaintSignal,
-                  challenge: challenges[index]!,
-                }),
-              ),
-            ),
-          );
-          if (!result.some(Boolean)) {
-            await Promise.race([
-              challengeBarrier,
-              new Promise<never>((_resolve, reject) => {
-                challengeTimer = setTimeout(
-                  () => reject(new Error("Password observer console handshake timed out")),
-                  500,
-                );
-              }),
-            ]);
-          }
-          stickyAtInstall = result;
-          break;
-        } catch (error) {
-          if (attempt === 7) throw error;
-          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
-        } finally {
-          if (challengeTimer) clearTimeout(challengeTimer);
-          for (const response of responses) pendingChallenges.delete(response);
-        }
-      }
-      if (!stickyAtInstall) throw new Error("Password observer could not inspect the page");
-      if (stickyAtInstall.some(Boolean)) await reportPasswordPresence(sessionId);
-      passwordTaintInstalledPages.add(page as object);
-    } catch {
-      // A current scan alone cannot prove that a password did not render and
-      // disappear between screencast frames. Report the gap so callers can
-      // fail closed on redaction, and fall back to the model-output scan below.
-      fullyObserved = false;
-    }
-  }
-  let frames: ReturnType<typeof page.frames>;
-  try {
-    frames = page.frames();
-  } catch {
-    if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
-      // Losing the ability to inspect the final page at a terminal boundary
-      // means assuming a credential was on screen, so every later screenshot
-      // and page snapshot stays redacted.
-      for (const listener of sensitiveValueListeners) {
-        try {
-          await listener(sessionId, "", "password-present");
-        } catch {
-          // Redaction remains auxiliary to browser teardown.
-        }
-      }
-    }
-    return false;
-  }
-  if (frames.length === 0) return false;
-  const observations = await Promise.all(
-    frames.map(async (frame) => {
-      const attempts = opts?.discardIfUnavailable ? 1 : 8;
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        try {
-          const observation = await frame.evaluate((key) => {
-            const passwordInputs: HTMLInputElement[] = [];
-            const visit = (root: Document | ShadowRoot) => {
-              for (const element of root.querySelectorAll("*")) {
-                if (element instanceof HTMLInputElement && element.type === "password") {
-                  passwordInputs.push(element);
-                }
-                if (element.shadowRoot) visit(element.shadowRoot);
-              }
-            };
-            visit(document);
-            const checker = (globalThis as typeof globalThis & Record<string, unknown>)[key];
-            let passwordEverObserved = true;
-            if (typeof checker === "function") {
-              try {
-                passwordEverObserved = checker() === true;
-              } catch {
-                passwordEverObserved = true;
-              }
-            }
-            let active = document.activeElement;
-            while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-            return {
-              passwordPresent: passwordEverObserved || passwordInputs.length > 0,
-              passwordValues: passwordInputs.map((input) => input.value).filter(Boolean),
-              activeInputValue:
-                active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
-                  ? active.value
-                  : null,
-            };
-          }, passwordTaintKey);
-          return {
-            ...observation,
-            unavailable: false,
-          };
-        } catch {
-          if (attempt + 1 < attempts) {
-            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
-          }
-        }
-      }
-      return {
-        passwordPresent: true,
-        passwordValues: [] as string[],
-        activeInputValue: null as string | null,
-        unavailable: true,
-      };
-    }),
-  );
-
-  // JavaScript cannot enumerate declarative closed shadow roots. Search each
-  // renderer through CDP before accepting a JPEG; successful OOPIF sessions
-  // are cached, while same-process frames remain covered by the page session.
-  const frameSnapshot = [...frames];
-  const mainCdp =
-    runtime?.cdp && typeof runtime.cdp === "object" ? (runtime.cdp as PasswordCdpSession) : null;
-  const cdpTargets = await collectPasswordCdpTargets(page, mainCdp);
-  if (!cdpTargets.complete) fullyObserved = false;
-  for (const target of cdpTargets.targets) {
-    const attempts = opts?.discardIfUnavailable ? 1 : 8;
-    let passwordPresent: boolean | null = null;
-    let targetCdp = target.cdp;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      if (await ensurePasswordDomGuard(sessionId, targetCdp)) {
-        passwordPresent = await searchCdpForPassword(targetCdp);
-        if (passwordPresent !== null) break;
-      }
-      if (target.frame) {
-        forgetPasswordFrame(target.frame);
-        try {
-          const context = page.context?.();
-          const createSession = context?.newCDPSession;
-          if (!createSession) throw new Error("Frame CDP sessions are unavailable");
-          targetCdp = await createSession.call(context, target.frame);
-          passwordFrameCdpSessions.set(target.frame, targetCdp);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (message.includes("part of the parent frame's session") && mainCdp) {
-            passwordParentCoveredFrames.add(target.frame);
-            passwordPresent = await searchCdpForPassword(mainCdp);
-            if (passwordPresent !== null) break;
-          }
-        }
-      }
-      if (attempt + 1 < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
-      }
-    }
-    if (passwordPresent === null) {
-      fullyObserved = false;
-      if (target.frame) forgetPasswordFrame(target.frame);
-      continue;
-    }
-    if (passwordPresent) {
-      await reportPasswordPresence(sessionId);
-    }
-  }
-  try {
-    const framesAfterSearch = page.frames();
-    if (
-      framesAfterSearch.length !== frameSnapshot.length ||
-      framesAfterSearch.some((frame, index) => frame !== frameSnapshot[index])
-    ) {
-      fullyObserved = false;
-    }
-  } catch {
-    fullyObserved = false;
-  }
-
-  for (const observation of observations) {
-    if (observation.unavailable) {
-      fullyObserved = false;
-      continue;
-    }
-    if (observation.passwordPresent) {
-      await reportPasswordPresence(sessionId);
-    }
-    for (const listener of sensitiveValueListeners) {
-      try {
-        for (const value of observation.passwordValues) {
-          await listener(sessionId, value, "password-value");
-        }
-        if (observation.activeInputValue) {
-          await listener(sessionId, observation.activeInputValue, "active-input-value");
-        }
-      } catch {
-        // Human input must continue even if a redaction extension failed.
-      }
-    }
-  }
-  if (!fullyObserved && opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
-    await reportPasswordPresence(sessionId);
-  }
-  return fullyObserved;
-}
-
 /**
- * Finalize every browser recording belonging to a Run. A last password scan
- * happens while the runtime still exists so a terminal navigation to a login
- * page cannot leave its final frame on disk. Every failure is returned as a
- * log warning; it never changes the Run verdict or retry policy.
+ * Finalize every browser recording belonging to a Run. Every failure is
+ * returned as a log warning; it never changes the Run verdict or retry policy.
  */
 export async function finalizeBrowserRecordingsForRun(runId: string): Promise<string[]> {
   // Install before the first await: a BrowserSession create already in flight
@@ -2079,20 +1007,10 @@ export async function finalizeBrowserRecordingsForRun(runId: string): Promise<st
     // remains part of the recording and their side effects cannot outlive the
     // terminal Run row.
     await Promise.all(rows.map((row) => waitForBrowserRpcActivity(row.id)));
-    const finalScanRequired = new Set(
-      rows.filter((row) => browserRecordingDemand(row.id)).map((row) => row.id),
-    );
     for (const row of rows) freezeBrowserRecording(row.id);
-    await Promise.all(rows.map((row) => flushBrowserRecordingFrameScans(row.id)));
+    await Promise.all(rows.map((row) => flushBrowserRecordingFrameIntake(row.id)));
     await Promise.all(
       rows.map(async (row) => {
-        try {
-          await observeRuntimePasswordValues(row.id, {
-            failClosedIfUnavailable: finalScanRequired.has(row.id),
-          });
-        } catch {
-          // Redaction bookkeeping only; the recording still finalizes below.
-        }
         try {
           await finishBrowserRecording(row);
         } catch {
@@ -2137,10 +1055,8 @@ function ensureState(sessionId: string): SessionState {
       screencasting: false,
       frameCounter: 0,
       pendingRecordingFrame: null,
-      recordingFrameTask: null,
       recordingFrameTimer: null,
-      lastRecordingFrameScanAt: 0,
-      recordingNavigationGeneration: 0,
+      lastRecordingFrameAcceptedAt: 0,
     };
     sessions.set(sessionId, state);
   }

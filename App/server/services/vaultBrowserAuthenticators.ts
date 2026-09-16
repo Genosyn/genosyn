@@ -682,22 +682,6 @@ function candidateTotpValue(candidate: string): string | null {
   return /^[A-Z2-7]{16,}={0,6}$/i.test(exact) ? exact : null;
 }
 
-export function findTotpSetupKeyInText(text: string): string | null {
-  return candidateTotpValue(text);
-}
-
-export function textSuggestsTotpEnrollment(text: string): boolean {
-  const compact = text.replace(/\s+/g, " ").slice(0, 250_000);
-  return (
-    /(?:authenticator|authentication|verification|one[- ]time|2fa|two[- ]factor).{0,100}(?:qr|scan|setup key|manual key|secret key)/i.test(
-      compact,
-    ) ||
-    /(?:qr|scan|setup key|manual key).{0,100}(?:authenticator|authentication|verification|one[- ]time|2fa|two[- ]factor)/i.test(
-      compact,
-    )
-  );
-}
-
 function imageDimensionsFromHeader(bytes: Buffer): { width: number; height: number } {
   if (
     bytes.length >= 24 &&
@@ -841,25 +825,4 @@ export async function readTotpSetupKeyFromElement(handle: BrowserElementHandle):
   throw new Error(
     "The selected element did not contain a TOTP setup key or readable authenticator QR code",
   );
-}
-
-export function redactUncapturedTotpValues(text: string, aggressive = false): string {
-  let redacted = text
-    .replace(/otpauth:\/\/[^\s"'<>]+/gi, "[redacted authenticator setup URI]")
-    .replace(/otpauth%3a%2f%2f[^\s"'<>]+/gi, "[redacted authenticator setup URI]")
-    .replace(
-      /((?:(?:authenticator\s+)?setup\s+key|(?:authenticator|totp|2fa)\s+secret(?:\s+key)?|\bsecret(?:\s+key)?\b)[^\n]{0,40}?)((?:[A-Z2-7][\s-]{0,2}){15,127}[A-Z2-7])/gi,
-      "$1[redacted TOTP setup key]",
-    );
-  if (aggressive) {
-    // Once a TOTP enrollment ceremony is armed, ordinary labels are not a
-    // safety boundary: sites frequently render only a bare manual key. Keep
-    // the pattern bounded so hostile page text cannot trigger pathological
-    // matching while still covering grouped Base32 values.
-    redacted = redacted.replace(
-      /(?<![A-Z2-7])(?:[A-Z2-7][\s-]{0,2}){15,127}[A-Z2-7](?![A-Z2-7])/gi,
-      "[redacted TOTP setup key]",
-    );
-  }
-  return redacted;
 }
