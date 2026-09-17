@@ -342,10 +342,11 @@ export function Browser() {
       <P>
         Live view is ephemeral in Chat. A <DocLink to="/docs/routines">Routine Run</DocLink> that
         actually uses a browser is different: Genosyn automatically saves a silent visual MP4 of
-        each Run-linked browser session and shows it beside that Run&apos;s log. Merely giving the
-        employee Browser access does not create a recording; capture starts only when the session
-        opens the browser. Parallel delegated browser work produces separate recordings, and none of
-        them contain page audio.
+        each Run-linked browser session. Open the Run log to watch the browser live while it records;
+        the panel switches to playback and download controls when the recording is ready. Merely
+        giving the employee Browser access does not create a recording; capture starts only when the
+        session opens the browser. Parallel delegated browser work produces separate recordings, and
+        none of them contain page audio.
       </P>
       <Callout kind="warn" title="A recording shows the whole screen">
         Visual recording captures everything rendered in the browser viewport, including a login

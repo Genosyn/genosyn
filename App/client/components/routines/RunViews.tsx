@@ -30,6 +30,7 @@ import { Button } from "../ui/Button";
 import { FormError } from "../ui/FormError";
 import { Modal } from "../ui/Modal";
 import { errorMessage } from "../../lib/errors";
+import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
 
 /**
  * Shared rendering for Runs — one execution of a Routine. Lives here rather
@@ -350,7 +351,7 @@ function formatBytes(bytes: number | null): string | null {
 }
 
 function recordingStatusLabel(recording: RunBrowserRecording): string {
-  if (recording.status === "recording") return "Recording";
+  if (recording.status === "recording") return "Live";
   if (recording.status === "finalizing") return "Finalizing";
   if (recording.status === "failed") return "Failed";
   return "Ready";
@@ -368,7 +369,7 @@ export function visibleBrowserRecordings(
 }
 
 /**
- * Saved visual browser evidence for a Run. Browser-enabled work can delegate,
+ * Live and saved visual browser evidence for a Run. Browser-enabled work can delegate,
  * so the selector handles several independent BrowserSessions without making
  * the common one-recording case feel like an artifact manager.
  */
@@ -475,7 +476,7 @@ export function RunBrowserRecordingsPane({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-slate-950">
         {playbackFailed ? (
           <RecordingState
             icon={<AlertTriangle size={24} />}
@@ -507,24 +508,21 @@ export function RunBrowserRecordingsPane({
             }
             onError={() => setPlaybackErrorId(selected.id)}
             onLoadedMetadata={() => setPlaybackErrorId(null)}
-            className="max-h-full w-full bg-black object-contain"
+            className="absolute inset-0 h-full w-full bg-black object-contain"
           >
             <source src={recordingUrl} type={selected.mimeType ?? "video/mp4"} />
             Your browser cannot play this recording. Use Download instead.
           </video>
-        ) : selected.status === "recording" || selected.status === "finalizing" ? (
+        ) : selected.status === "recording" ? (
+          <LiveBrowserRecording
+            key={recordingUrl}
+            url={`${recordingUrl}/live`}
+          />
+        ) : selected.status === "finalizing" ? (
           <RecordingState
             icon={<Loader2 size={24} className="animate-spin" />}
-            title={
-              selected.status === "recording"
-                ? "Recording browser activity…"
-                : "Finalizing browser recording…"
-            }
-            body={
-              selected.status === "recording"
-                ? "Playback will be available after this browser session finishes."
-                : "The Run has finished. Genosyn is preparing the video for playback."
-            }
+            title="Finalizing browser recording…"
+            body="Genosyn is preparing the video for playback."
           />
         ) : (
           // Defensive only: `failed` sessions never reach the pane, so this

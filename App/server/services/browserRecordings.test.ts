@@ -29,8 +29,11 @@ import {
   deleteBrowserRecordingsForRunIds,
   finishBrowserRecording,
   freezeBrowserRecording,
+  getBrowserRecordingLiveFrame,
   listBrowserRecordingsForRun,
   markBrowserRecordingRoutineDeleting,
+  markBrowserRecordingRunFinalizing,
+  releaseBrowserRecordingRunFinalizing,
   recoverBrowserRecordingsForRun,
   resetBrowserRecordingsForTests,
   setBrowserRecordingEncoderFactoryForTests,
@@ -181,6 +184,73 @@ async function writeRecordingMetadata(
 
 
 describe("Routine browser recordings", () => {
+
+  test("shares the latest recording frame without starting another encoder", async () => {
+    const { run, session } = await fixture();
+    const calls: Parameters<typeof fileEncoderFactory>[0] = [];
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory(calls));
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+
+    await beginBrowserRecording(session);
+    assert.deepEqual(getBrowserRecordingLiveFrame(session, run), { frame: null });
+    acceptBrowserRecordingFrame(session.id, "");
+    assert.deepEqual(getBrowserRecordingLiveFrame(session, run), { frame: null });
+
+    acceptBrowserRecordingFrame(session.id, Buffer.from("first-frame").toString("base64"));
+    assert.equal(getBrowserRecordingLiveFrame(session, run)?.frame?.toString(), "first-frame");
+    acceptBrowserRecordingFrame(session.id, Buffer.from("latest-frame").toString("base64"));
+    assert.equal(getBrowserRecordingLiveFrame(session, run)?.frame?.toString(), "latest-frame");
+    assert.equal(calls.length, 1);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "recording");
+
+    await finishBrowserRecording(session);
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+  });
+
+  test("rejects live frame reads outside the current recording scope and lifecycle", async () => {
+    const { run, session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("private-frame").toString("base64"));
+
+    for (const changed of [
+      { companyId: "another-company" },
+      { runId: "another-run" },
+      { employeeId: "another-employee" },
+      { memberBrowserId: "another-browser" },
+      { status: "closed" as const },
+    ]) {
+      assert.equal(getBrowserRecordingLiveFrame({ ...session, ...changed }, run), null);
+    }
+    assert.equal(getBrowserRecordingLiveFrame(session, { ...run, status: "completed" }), null);
+    markBrowserRecordingRunFinalizing(run.id);
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+    releaseBrowserRecordingRunFinalizing(run.id);
+    assert.ok(getBrowserRecordingLiveFrame(session, run)?.frame);
+    freezeBrowserRecording(session.id);
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+  });
+
+  test("stops live playback synchronously when a Run starts deleting", async () => {
+    const { run, session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("private-frame").toString("base64"));
+    const deleting = deleteBrowserRecordingsForRunIds([run.id]);
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+    await deleting;
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+  });
+
+  test("stops live playback as soon as the owning Routine is marked for deletion", async () => {
+    const { run, routine, session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("private-frame").toString("base64"));
+    markBrowserRecordingRoutineDeleting(routine.id);
+    assert.equal(getBrowserRecordingLiveFrame(session, run), null);
+  });
 
   test("budgets enough bytes for a maximum-length Routine recording", () => {
     const maximumVideoPayloadBytes =

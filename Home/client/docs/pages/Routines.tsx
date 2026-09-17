@@ -568,10 +568,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         recordings contain no audio.
       </P>
       <P>
-        The recording player sits beside the Run log, with a download for each finished MP4. A Run
-        may have more than one when it delegates independent browser work; use the numbered Browser
-        buttons above the player to switch between them. While a Run is active, the player says that
-        capture is in progress, then updates when the file is ready.
+        Open the Run log to watch the browser as it records. The <Strong>Browser recording</Strong>{" "}
+        panel beside the log shows <Strong>Live</Strong> and follows the current browser view.
+        When the recording is ready, it switches automatically to a player where you can replay,
+        seek, or download the finished MP4. A Run may have more than one recording when it delegates
+        independent browser work; use the numbered Browser buttons above the player to switch
+        between them.
       </P>
       <Callout kind="warn" title="Recordings follow the Browser access boundary">
         A recording made in Genosyn&apos;s browser is available to company owners and admins, and to

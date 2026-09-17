@@ -640,6 +640,38 @@ export function browserRecordingDemand(sessionId: string): boolean {
 }
 
 /**
+ * Read the recorder's current JPEG without starting another capture or encoder.
+ * Callers supply freshly loaded rows and enforce viewer access first. A null
+ * result means unavailable; a null frame means capture is awaiting its first JPEG.
+ */
+export function getBrowserRecordingLiveFrame(
+  session: BrowserSession,
+  run: Pick<Run, "id" | "routineId" | "status">,
+): { frame: Buffer | null } | null {
+  const active = activeRecordings.get(session.id);
+  if (
+    !session.runId ||
+    session.runId !== run.id ||
+    run.status !== "running" ||
+    (session.status !== "pending" && session.status !== "live") ||
+    !active ||
+    active.status !== "recording" ||
+    active.session.companyId !== session.companyId ||
+    active.session.runId !== session.runId ||
+    active.session.employeeId !== session.employeeId ||
+    active.session.memberBrowserId !== session.memberBrowserId ||
+    abandonedSessionIds.has(session.id) ||
+    frozenSessionIds.has(session.id) ||
+    deletingEmployeeIds.has(session.employeeId) ||
+    deletingRoutineIds.has(run.routineId) ||
+    deletionBlocked(session)
+  ) {
+    return null;
+  }
+  return { frame: active.latestFrame };
+}
+
+/**
  * Stop accepting frames synchronously while preserving bytes already handed
  * to the encoder. Used before teardown and finalization so frame intake cannot
  * race either lifecycle boundary.

@@ -36,6 +36,7 @@ import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAcc
 import {
   deleteBrowserRecordingsForRunIds,
   getBrowserRecordingFile,
+  getBrowserRecordingLiveFrame,
   listBrowserRecordingsForRun,
   markBrowserRecordingRoutineDeleting,
   type BrowserRecordingInfo,
@@ -681,6 +682,7 @@ const recordingFileParamsSchema = runRecordingParamsSchema
 const recordingFileQuerySchema = z
   .object({ disposition: z.enum(["inline", "attachment"]).default("inline") })
   .strict();
+const recordingLiveQuerySchema = z.object({}).strict();
 
 async function loadCompanyRun(companyId: string, runId: string): Promise<Run | null> {
   const run = await AppDataSource.getRepository(Run).findOneBy({ id: runId });
@@ -735,6 +737,21 @@ async function recordingsVisibleToRequester(
   return visible;
 }
 
+/** Shared authorization for saved video bytes and each live frame request. */
+async function recordingVisibleToRequester(
+  req: Parameters<typeof requireBrowserSession>[0],
+): Promise<{ run: Run; session: BrowserSession } | null> {
+  const run = await loadCompanyRun(req.params.cid, req.params.runId);
+  if (!run) return null;
+  const session = await AppDataSource.getRepository(BrowserSession).findOneBy({
+    id: req.params.sessionId,
+    runId: run.id,
+    companyId: req.params.cid,
+  });
+  if (!session || !(await canReadBrowserRecording(req, session))) return null;
+  return { run, session };
+}
+
 /** Metadata-only collection; video bytes are served from the item route below. */
 routinesRouter.get(
   "/runs/:runId/browser-recordings",
@@ -745,6 +762,32 @@ routinesRouter.get(
     if (!run) return res.status(404).json({ error: "Not found" });
     res.setHeader("Cache-Control", "private, no-store");
     res.json(await recordingsVisibleToRequester(req, run));
+  },
+);
+
+/** One current frame, with browser-session authorization checked on every poll. */
+routinesRouter.get(
+  "/runs/:runId/browser-recordings/:sessionId/live",
+  requireBrowserSession,
+  validateParams(recordingFileParamsSchema),
+  async (req, res) => {
+    const query = recordingLiveQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({ error: "ValidationError", issues: query.error.issues });
+    }
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+    const visible = await recordingVisibleToRequester(req);
+    const live = visible ? getBrowserRecordingLiveFrame(visible.session, visible.run) : null;
+    if (!live) return res.status(404).json({ error: "Not found" });
+    if (!live.frame) return res.status(204).end();
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Content-Length", live.frame.length);
+    // end() avoids Express generating an ETag or converting a frame to 304.
+    return res.end(live.frame);
   },
 );
 
@@ -761,17 +804,9 @@ routinesRouter.get(
     if (!query.success) {
       return res.status(400).json({ error: "ValidationError", issues: query.error.issues });
     }
-    const run = await loadCompanyRun(req.params.cid, req.params.runId);
-    if (!run) return res.status(404).json({ error: "Not found" });
-    const session = await AppDataSource.getRepository(BrowserSession).findOneBy({
-      id: req.params.sessionId,
-      runId: run.id,
-      companyId: req.params.cid,
-    });
-    if (!session || !(await canReadBrowserRecording(req, session))) {
-      return res.status(404).json({ error: "Not found" });
-    }
-    const recording = await getBrowserRecordingFile(session);
+    const visible = await recordingVisibleToRequester(req);
+    if (!visible) return res.status(404).json({ error: "Not found" });
+    const recording = await getBrowserRecordingFile(visible.session);
     if (!recording) return res.status(404).json({ error: "Not found" });
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, no-store");
