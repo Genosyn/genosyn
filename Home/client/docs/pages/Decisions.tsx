@@ -45,9 +45,15 @@ export function Decisions() {
       </P>
       <P>
         <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
-        age order, so you do not have to learn three separate queues. Home previews pending
-        questions only. Open <Strong>Decision stack</Strong> for email and work reviews, search, and
-        complete history.
+        age order, so you do not have to learn three separate queues. Open{" "}
+        <Strong>Decision stack</Strong> for the complete queue, search, and history.
+      </P>
+      <P>
+        Home shows <Strong>Active decisions</Strong> near the top: up to three pending items,
+        ordered by urgency and then oldest first, with the total waiting. Answer a Decision directly
+        on Home; owners and admins can also review proposed work and email replies there. The
+        section updates as items arrive or are resolved and disappears when nothing is waiting.
+        Select <Strong>All decisions</Strong> to open the full stack and history.
       </P>
 
       <H2 id="reviewing-email">Reviewing an email</H2>
@@ -270,9 +276,8 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        Home previews the pending questions that need you. The full queue and its history stay on
-        the <Strong>Decision stack</Strong> page. An empty <Strong>Needs you</Strong> section means
-        your AI team is unblocked, not that the feature is off.
+        <Strong>Active decisions</Strong> disappears from Home when nothing is waiting. The full
+        queue and answered items remain available on the <Strong>Decision stack</Strong> page.
       </Callout>
     </>
   );

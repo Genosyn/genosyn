@@ -1,4 +1,4 @@
-/** Mount the production Home page; browser tests supply its read-only API fixtures. */
+/** Mount the production Home page; browser tests supply its API fixtures. */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -10,12 +10,14 @@ import type { Company, Me } from "@/lib/api";
 import HomePage from "@/pages/Home";
 import "../client/styles/index.css";
 
-const longNames = new URLSearchParams(location.search).has("longNames");
+const query = new URLSearchParams(location.search);
+const longNames = query.has("longNames");
+const role = query.get("role");
 const company = {
   id: "company",
   slug: "company",
   name: longNames ? "InternationalCustomerOperations".repeat(4) : "OneUptime",
-  role: "member",
+  role: role === "owner" || role === "admin" ? role : "member",
 } as Company;
 const me = {
   id: "member",

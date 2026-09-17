@@ -161,9 +161,10 @@ export function Introduction() {
         the header, because a quiet day for you can still be a busy one for your AI Employees.
       </P>
       <P>
-        Home previews pending Decisions so you can unblock an AI Employee immediately. Email and
-        work reviews, search, routing, and complete history stay on the{" "}
-        <DocLink to="/docs/decisions">Decision stack</DocLink> page.
+        <Strong>Active decisions</Strong> appears near the top of Home with up to three pending
+        items and the total waiting. Answer your AI Employees there; owners and admins can also
+        review proposed work and email replies. Select <Strong>All decisions</Strong> to open the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink> and its complete history.
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> A pending Decision can be

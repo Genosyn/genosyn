@@ -60,7 +60,9 @@ import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
 import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
-import { DecisionCard } from "../components/decisions/DecisionCard";
+import { DecisionCard } from "@/components/decisions/DecisionCard";
+import { WorkReviewCard } from "@/components/decisions/WorkReviewCard";
+import { MailReviewCard } from "@/components/decisions/MailReviewCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -426,9 +428,9 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           )
         ) : (
           <>
-            {hasAnythingToShow(data) ? (
+            {hasAnythingToShow(data, company) ? (
               <>
-                <HomePendingDecisions
+                <ActiveDecisions
                   company={company}
                   data={data}
                   onResolved={reloadPendingDecisions}
@@ -648,9 +650,10 @@ function HomeOverlayHost({
  * the all-clear even when the work window itself is empty, because choosing a
  * teammate and checking in is still useful.
  */
-function hasAnythingToShow(data: HomeData): boolean {
+function hasAnythingToShow(data: HomeData, company: Company): boolean {
   return (
     data.decisions.length > 0 ||
+    homeDecisionReviews(company, data).length > 0 ||
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
     data.tldrs.length > 0 ||
@@ -692,9 +695,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Pending Decisions, Repository AI work, routines needing attention, mentions, todos,
-        emails, and
-        approvals appear here the moment they arrive.
+        Active Decisions, Repository AI work, routines needing attention, mentions, todos, emails,
+        and approvals appear here the moment they arrive.
       </p>
       <Link
         to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
@@ -709,14 +711,17 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
   );
 }
 
-// ───────────────────────── pending Decisions ─────────────────────────────────
+// ───────────────────────── active decisions ──────────────────────────────────
 
-/**
- * A short, actionable preview of the pending Decision stack. Home deliberately
- * omits work/email reviews and every resolved row; the dedicated page owns the
- * complete queue, search, routing, and history.
- */
-function HomePendingDecisions({
+function homeDecisionReviews(company: Company, data: HomeData): HomeApproval[] {
+  if (company.role !== "owner" && company.role !== "admin") return [];
+  return (data.decisionApprovals ?? []).filter(
+    (approval) => approval.kind === "proactive_work" || approval.kind === "mail_send",
+  );
+}
+
+/** A bounded, actionable preview of the pending Decision stack. */
+function ActiveDecisions({
   company,
   data,
   onResolved,
@@ -725,48 +730,92 @@ function HomePendingDecisions({
   data: HomeData;
   onResolved: (announcement?: string) => Promise<void> | void;
 }) {
-  const preview = data.decisions.slice(0, 3);
-  if (preview.length === 0) return null;
-  const hidden = Math.max(0, data.pendingDecisionCount - preview.length);
+  const reviews = homeDecisionReviews(company, data);
+  const canReview = company.role === "owner" || company.role === "admin";
+  const total =
+    data.pendingDecisionCount +
+    (canReview ? (data.pendingDecisionApprovalCount ?? reviews.length) : 0);
+  const items = [
+    ...data.decisions.map((decision) => ({
+      kind: "decision" as const,
+      at: decision.createdAt,
+      urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
+      decision,
+    })),
+    ...reviews.map((approval) => ({
+      kind: "review" as const,
+      at: approval.requestedAt,
+      urgency: 1,
+      approval,
+    })),
+  ].sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at));
+  if (items.length === 0) return null;
+  const preview = items.slice(0, 3);
+  const hidden = Math.max(0, total - preview.length);
+  const href = `/c/${company.slug}/decisions`;
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section
+      aria-labelledby="home-active-decisions"
+      className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+    >
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
           <GitBranch size={15} />
         </span>
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Pending Decisions
+        <h2
+          id="home-active-decisions"
+          className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+        >
+          Active decisions
         </h2>
         <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {data.pendingDecisionCount}
+          {total}
         </span>
         <Link
-          to={`/c/${company.slug}/decisions`}
+          to={href}
           className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
         >
-          Open Decision stack <ChevronRight size={12} />
+          All decisions <ChevronRight size={12} />
         </Link>
         <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          Questions your AI Employees stopped to ask rather than guess.
+          {canReview
+            ? "Answer your AI Employees and review the work waiting on you."
+            : "Answer the questions your AI Employees are waiting on."}
         </p>
       </div>
       <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-        {preview.map((decision) => (
-          <DecisionCard
-            key={decision.id}
-            company={company}
-            decision={decision}
-            onResolved={onResolved}
-          />
-        ))}
+        {preview.map((item) =>
+          item.kind === "decision" ? (
+            <DecisionCard
+              key={item.decision.id}
+              company={company}
+              decision={item.decision}
+              onResolved={onResolved}
+            />
+          ) : item.approval.kind === "mail_send" ? (
+            <MailReviewCard
+              key={item.approval.id}
+              company={company}
+              approval={item.approval}
+              onResolved={onResolved}
+            />
+          ) : (
+            <WorkReviewCard
+              key={item.approval.id}
+              company={company}
+              approval={item.approval}
+              onResolved={onResolved}
+            />
+          ),
+        )}
       </ul>
       {hidden > 0 && (
         <Link
-          to={`/c/${company.slug}/decisions`}
+          to={href}
           className="block border-t border-slate-200 px-4 py-3 text-center text-xs font-medium text-indigo-700 hover:bg-slate-50 dark:border-slate-800 dark:text-indigo-300 dark:hover:bg-slate-800"
         >
-          View the full stack · {hidden} more pending
+          View all decisions · {hidden} more waiting
         </Link>
       )}
     </section>

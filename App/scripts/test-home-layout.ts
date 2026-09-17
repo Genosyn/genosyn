@@ -9,10 +9,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
-import { chromium, type Locator, type Page } from "playwright-core";
+import { chromium, type Locator, type Page, type WebSocketRoute } from "playwright-core";
 import type {
   Decision,
   Employee,
+  HomeApproval,
   HomeChannel,
   HomeData,
   Notification,
@@ -89,6 +90,91 @@ function roster(count = 1): Employee[] {
     avatarKey: null,
   })) as Employee[];
 }
+function decision(changes: Partial<Decision> = {}): Decision {
+  return {
+    id: "decision",
+    companyId: "company",
+    title: "Which retention commitment needs attention?",
+    body: "Confirm the owner and next update.",
+    status: "pending",
+    urgency: "high",
+    options: [{ id: "confirm", label: "Confirm the owner", detail: null, tone: "primary" }],
+    createdAt: fixtureNow.toISOString(),
+    employee: null,
+    source: { kind: "unknown", routine: null, run: null, conversation: null, mailThread: null },
+    routineId: null,
+    runId: null,
+    conversationId: null,
+    mailThreadId: null,
+    chosenOptionId: null,
+    chosenOptionLabel: null,
+    note: null,
+    decidedAt: null,
+    decidedByUserId: null,
+    decidedBy: null,
+    decidedByEmployee: null,
+    routedToEmployee: null,
+    pickupStatus: "none",
+    pickupSummary: null,
+    pickupStartedAt: null,
+    pickupFinishedAt: null,
+    snoozedUntil: null,
+    expiresAt: null,
+    assignee: null,
+    ...changes,
+  };
+}
+function review(kind: "proactive_work" | "mail_send"): HomeApproval {
+  return {
+    id: kind === "proactive_work" ? "work-review" : "mail-review",
+    kind,
+    title:
+      kind === "proactive_work" ? "Prepare the retention follow-up" : "Review the customer reply",
+    summary: null,
+    requestedAt: "2026-09-09T08:00:00.000Z",
+    employee: { id: "employee-1", name: "Jamie Mallers", slug: "employee-1" },
+    routine: null,
+    review:
+      kind === "proactive_work"
+        ? {
+            kind: "work",
+            revision: "work-revision",
+            context: "The customer asked for an update on their retention review.",
+            plan: "Prepare the owner summary and next steps for the customer.",
+            source: {
+              routineId: null,
+              runId: null,
+              conversationId: null,
+              mailThreadId: null,
+              mailAccountId: null,
+              mailHandoverId: null,
+            },
+          }
+        : {
+            kind: "mail",
+            revision: "mail-revision",
+            context: "The customer asked who will own their next update.",
+            workSummary: "Checked the owner and prepared a reply.",
+            steps: [],
+            attachments: [],
+            source: {
+              accountId: "account",
+              threadId: "thread",
+              mailHandoverId: null,
+              routineId: null,
+              runId: null,
+              conversationId: null,
+            },
+            draft: {
+              to: "customer@example.test",
+              cc: "",
+              bcc: "",
+              subject: "Your next update",
+              bodyText: "Jamie will send your next update tomorrow.",
+            },
+          },
+  };
+}
 function channel(id: string, label: string, unreadCount: number): HomeChannel {
   return { id, kind: "channel", label, unreadCount, lastReadAt: null };
 }
@@ -125,28 +211,7 @@ function homeData(
   return {
     repositoryWork: [],
     repositoryWorkCount: 0,
-    decisions: quiet
-      ? []
-      : [
-          {
-            id: "decision",
-            companyId: "company",
-            title: "Which retention commitment needs attention?",
-            body: "Confirm the owner and next update.",
-            status: "pending",
-            urgency: "high",
-            options: [{ id: "confirm", label: "Confirm the owner", detail: null, tone: "primary" }],
-            createdAt: fixtureNow.toISOString(),
-            employee: null,
-            source: {
-              kind: "unknown",
-              routine: null,
-              run: null,
-              conversation: null,
-              mailThread: null,
-            },
-          } as Decision,
-        ],
+    decisions: quiet ? [] : [decision()],
     pendingDecisionCount: quiet ? 0 : 1,
     notifications: options.notifications ?? [],
     unreadNotificationCount: options.notifications?.length ?? 0,
@@ -242,6 +307,16 @@ type FixtureOptions = {
   touch?: boolean;
   channels?: HomeChannel[];
   notifications?: Notification[];
+  decisions?: Decision[];
+  decisionApprovals?: HomeApproval[];
+  pendingDecisionCount?: number;
+  pendingDecisionApprovalCount?: number;
+  role?: "member" | "admin" | "owner";
+  allowDecisionAnswer?: boolean;
+  allowDecisionSnooze?: boolean;
+  allowReview?: boolean;
+  decisionAnswerError?: boolean;
+  live?: boolean;
 };
 async function open(options: FixtureOptions = {}) {
   const page = await (options.touch ? touchContext : context).newPage();
@@ -257,6 +332,13 @@ async function open(options: FixtureOptions = {}) {
   if (options.brokenAvatar) employees[0].avatarKey = "missing";
   let rosterError = options.rosterError ?? false;
   let workError = options.workError ?? false;
+  let decisionAnswerError = options.decisionAnswerError ?? false;
+  let decisions = options.decisions ?? (options.quiet ? [] : [decision()]);
+  let decisionApprovals = options.decisionApprovals ?? [];
+  let pendingDecisionCount = options.pendingDecisionCount ?? decisions.length;
+  let pendingDecisionApprovalCount =
+    options.pendingDecisionApprovalCount ?? decisionApprovals.length;
+  const mutations: Array<{ path: string; body: unknown }> = [];
   let homeError = false;
   let markReadError = options.markReadError ?? false;
   let unreadChannels = (
@@ -282,6 +364,12 @@ async function open(options: FixtureOptions = {}) {
   });
   const reads: string[] = [];
   const writes: string[] = [];
+  const sockets: WebSocketRoute[] = [];
+  if (options.live) {
+    await page.routeWebSocket(`${origin.replace(/^http/, "ws")}/api/ws?token=*`, (socket) => {
+      sockets.push(socket);
+    });
+  }
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -291,6 +379,43 @@ async function open(options: FixtureOptions = {}) {
       return route.abort();
     }
     if (!url.pathname.startsWith("/api/")) return route.continue();
+    if (request.method() === "POST") {
+      if (options.live && url.pathname === "/api/companies/company/workspace/ws-token")
+        return route.fulfill({ json: { token: "fixture-token" } });
+      const answering = decisions.find(
+        (item) => url.pathname === `/api/companies/company/decisions/${item.id}/decide`,
+      );
+      if (options.allowDecisionAnswer && answering) {
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: request.postDataJSON() });
+        if (decisionAnswerError)
+          return route.fulfill({ status: 503, json: { error: "The answer could not be saved." } });
+        decisions = decisions.filter((item) => item.id !== answering.id);
+        pendingDecisionCount--;
+        return route.fulfill({ json: { ...answering, status: "decided" } });
+      }
+      const snoozing = decisions.find(
+        (item) => url.pathname === `/api/companies/company/decisions/${item.id}/snooze`,
+      );
+      if (options.allowDecisionSnooze && snoozing) {
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: request.postDataJSON() });
+        decisions = decisions.filter((item) => item.id !== snoozing.id);
+        pendingDecisionCount--;
+        return route.fulfill({ json: { ...snoozing, snoozedUntil: "2026-09-10T09:00:00.000Z" } });
+      }
+      const approving = decisionApprovals.find(
+        (item) => url.pathname === `/api/companies/company/approvals/${item.id}/approve`,
+      );
+      if (options.allowReview && approving) {
+        assert.ok(options.role === "admin" || options.role === "owner");
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: request.postDataJSON() });
+        decisionApprovals = decisionApprovals.filter((item) => item.id !== approving.id);
+        pendingDecisionApprovalCount--;
+        return route.fulfill({ json: { ...approving, status: "approved" } });
+      }
+    }
     const markRead = url.pathname.match(
       /^\/api\/companies\/company\/workspace\/channels\/([^/]+)\/read$/,
     );
@@ -329,11 +454,17 @@ async function open(options: FixtureOptions = {}) {
         return route.fulfill({ status: 503, json: { error: "Home is unavailable." } });
       }
       return route.fulfill({
-        json: homeData(employees.length, {
-          quiet: options.quiet,
-          unreadChannels,
-          notifications,
-        }),
+        json: {
+          ...homeData(employees.length, {
+            quiet: options.quiet,
+            unreadChannels,
+            notifications,
+          }),
+          decisions,
+          pendingDecisionCount,
+          decisionApprovals,
+          pendingDecisionApprovalCount,
+        },
       });
     }
     if (url.pathname === "/api/companies/company/employees")
@@ -343,6 +474,21 @@ async function open(options: FixtureOptions = {}) {
           : { json: employees },
       );
     if (url.pathname === "/api/companies/company/members") return route.fulfill({ json: [] });
+    if (url.pathname === "/api/companies/company/onboarding-status")
+      return route.fulfill({
+        json: {
+          complete: true,
+          employee: null,
+          modelConnected: true,
+          routineCount: 0,
+          scheduledRoutineCount: 0,
+          nextRunAt: null,
+          skillCount: 0,
+          mailGranted: false,
+          mailAccessLevel: null,
+          nextStep: "done",
+        },
+      });
     if (url.pathname === "/api/companies/company/work-timeline") {
       if (options.holdWork && !url.searchParams.has("employeeId")) await workGate;
       if (workError && !url.searchParams.has("employeeId"))
@@ -360,7 +506,11 @@ async function open(options: FixtureOptions = {}) {
     unexpectedRequests.push(`${request.method()} ${url.pathname}`);
     return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
   });
-  await page.goto(`${origin}/__home_layout${options.longNames ? "?longNames=1" : ""}`, {
+  const query = new URLSearchParams();
+  if (options.longNames) query.set("longNames", "1");
+  if (options.role) query.set("role", options.role);
+  if (options.live) query.set("live", "1");
+  await page.goto(`${origin}/__home_layout?${query}`, {
     waitUntil: "commit",
     timeout: 60000,
   });
@@ -368,13 +518,16 @@ async function open(options: FixtureOptions = {}) {
   await page
     .getByRole("heading", {
       name:
-        options.quiet && unreadChannels.length === 0 && notifications.length === 0
-          ? "Nothing needs you right now"
-          : notifications.length > 0
-            ? "Needs your attention"
-            : options.quiet
-              ? "Unread messages"
-              : "Pending Decisions",
+        decisions.length ||
+        ((options.role === "admin" || options.role === "owner") && decisionApprovals.length)
+          ? "Active decisions"
+          : options.quiet && unreadChannels.length === 0 && notifications.length === 0
+            ? "Nothing needs you right now"
+            : notifications.length > 0
+              ? "Needs your attention"
+              : options.quiet
+                ? "Unread messages"
+                : "Active decisions",
       exact: true,
     })
     .waitFor();
@@ -386,10 +539,13 @@ async function open(options: FixtureOptions = {}) {
       );
   }
   if (rosterError) await page.getByRole("alert").waitFor();
+  if (options.live)
+    await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
   return {
     page,
     reads,
     writes,
+    mutations,
     releaseWork,
     releaseMarkRead,
     releaseNotificationMarkAll,
@@ -399,6 +555,7 @@ async function open(options: FixtureOptions = {}) {
       workError = false;
       homeError = false;
       markReadError = false;
+      decisionAnswerError = false;
     },
     failHome: () => {
       homeError = true;
@@ -412,6 +569,18 @@ async function open(options: FixtureOptions = {}) {
     removeEmployees: () => {
       employees = [];
     },
+    setDecisions: (items: Decision[]) => {
+      decisions = items;
+      pendingDecisionCount = items.length;
+    },
+    setReviews: (items: HomeApproval[]) => {
+      decisionApprovals = items;
+      pendingDecisionApprovalCount = items.length;
+    },
+    emitResourceEvent: (kind: "decision" | "approval") => {
+      for (const socket of sockets)
+        socket.send(JSON.stringify({ type: "resource.changed", kind, scopeIds: [] }));
+    },
   };
 }
 const greeting = (page: Page) => page.locator('header[aria-label="Home greeting"]');
@@ -420,6 +589,9 @@ const work = (page: Page) =>
 const bubbles = (page: Page) => work(page).getByRole("button");
 const card = (page: Page, title: string) =>
   page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+const activeDecisions = (page: Page) =>
+  page.getByRole("region", { name: "Active decisions", exact: true });
+const decisionRows = (page: Page) => activeDecisions(page).locator(":scope > ul > li");
 const markReadButton = (page: Page, label: string) =>
   page.getByRole("button", {
     name: `Mark ${label} as read`,
@@ -520,7 +692,7 @@ try {
         assert.equal(avatar.width, 24);
         assert.equal(avatar.height, 24);
         assert.equal(
-          await page.getByRole("heading", { name: "Pending Decisions", exact: true }).count(),
+          await page.getByRole("heading", { name: "Active decisions", exact: true }).count(),
           1,
         );
         assert.equal(
@@ -529,7 +701,7 @@ try {
             .count(),
           1,
         );
-        await fillsContent(page, "Pending Decisions");
+        await fillsContent(page, "Active decisions");
         await fits(page);
         const todo = await box(card(page, "Your todos"));
         const messages = await box(card(page, "Unread messages"));
@@ -558,6 +730,283 @@ try {
       },
     );
   }
+  await check(
+    "a Member can answer an active Decision from Home and recover an inline failure",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        decisions: [decision()],
+        allowDecisionAnswer: true,
+        decisionAnswerError: true,
+      });
+      const { page, mutations } = fixture;
+      assert.equal(
+        await page.getByRole("heading", { name: "Nothing needs you right now" }).count(),
+        0,
+      );
+      await fillsContent(page, "Active decisions");
+      await activeDecisions(page).getByText("Confirm the owner", { exact: true }).click();
+      assert.equal(
+        await activeDecisions(page)
+          .getByRole("radio", { name: /^Confirm the owner/ })
+          .isChecked(),
+        true,
+      );
+      assert.deepEqual(mutations, [], "choosing an answer must not submit it");
+      await activeDecisions(page)
+        .getByRole("button", { name: "Add guidance", exact: true })
+        .click();
+      await activeDecisions(page).getByRole("textbox").fill("Jamie owns the next update.");
+      await activeDecisions(page)
+        .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
+        .click();
+      await activeDecisions(page)
+        .getByText("The answer could not be saved.", { exact: true })
+        .waitFor();
+      assert.equal(await decisionRows(page).count(), 1, "failed answers stay available on Home");
+      fixture.recover();
+      await activeDecisions(page)
+        .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).count(), 0, "resolved Decisions leave Home");
+      await page
+        .getByRole("status")
+        .getByText(`Decision “${decision().title}” answered.`, { exact: true })
+        .waitFor();
+      assert.deepEqual(mutations, [
+        {
+          path: "/api/companies/company/decisions/decision/decide",
+          body: { optionId: "confirm", note: "Jamie owns the next update." },
+        },
+        {
+          path: "/api/companies/company/decisions/decision/decide",
+          body: { optionId: "confirm", note: "Jamie owns the next update." },
+        },
+      ]);
+      await page.close();
+    },
+  );
+  await check(
+    "snoozing a Decision from Home removes it and announces the selected duration",
+    async () => {
+      const { page, mutations } = await open({
+        quiet: true,
+        decisions: [decision()],
+        allowDecisionSnooze: true,
+        width: 390,
+      });
+      await activeDecisions(page).getByRole("button", { name: "Snooze", exact: true }).click();
+      await page.getByRole("menuitem", { name: "1 day", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).count(), 0);
+      await page
+        .getByRole("status")
+        .getByText(`Decision “${decision().title}” snoozed for 1 day.`, { exact: true })
+        .waitFor();
+      assert.deepEqual(mutations, [
+        { path: "/api/companies/company/decisions/decision/snooze", body: { duration: "one_day" } },
+      ]);
+      await page.close();
+    },
+  );
+  for (const width of [1440, 390]) {
+    await check(
+      `active Decisions preview prioritizes urgency and age with the complete count at ${width}px`,
+      async () => {
+        const { page } = await open({
+          quiet: true,
+          width,
+          role: "admin",
+          decisions: [
+            decision({ id: "new-urgent", title: "A new urgent customer question" }),
+            decision({
+              id: "low",
+              title: "A lower priority question",
+              urgency: "low",
+              createdAt: "2026-09-08T06:00:00.000Z",
+            }),
+            decision({
+              id: "old-urgent",
+              title: "The oldest urgent customer question",
+              createdAt: "2026-09-09T07:00:00.000Z",
+            }),
+            decision({
+              id: "normal",
+              title: "A routine customer question",
+              urgency: "normal",
+              createdAt: "2026-09-09T08:30:00.000Z",
+            }),
+          ],
+          decisionApprovals: [review("proactive_work"), review("mail_send")],
+          pendingDecisionCount: 12,
+          pendingDecisionApprovalCount: 4,
+        });
+        assert.deepEqual(
+          await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+          [
+            "The oldest urgent customer question",
+            "A new urgent customer question",
+            "Prepare the retention follow-up",
+          ],
+        );
+        assert.equal(await activeDecisions(page).getByText("16", { exact: true }).count(), 1);
+        assert.equal(
+          await activeDecisions(page)
+            .getByText("A lower priority question", { exact: true })
+            .count(),
+          0,
+        );
+        const all = activeDecisions(page).getByRole("link", { name: "All decisions", exact: true });
+        const more = activeDecisions(page).getByRole("link", {
+          name: "View all decisions · 13 more waiting",
+          exact: true,
+        });
+        assert.equal(await all.getAttribute("href"), "/c/company/decisions");
+        assert.equal(await more.getAttribute("href"), "/c/company/decisions");
+        await fillsContent(page, "Active decisions");
+        await fits(page);
+        await page.screenshot({
+          path: path.join(output, `home-active-decisions-${width}.png`),
+          fullPage: true,
+        });
+        await (width === 1440 ? all : more).click();
+        await page.getByRole("status").filter({ hasText: "/c/company/decisions" }).waitFor();
+        await page.close();
+      },
+    );
+  }
+  await check(
+    "Members see only Decisions even when an unexpected response includes privileged reviews",
+    async () => {
+      const { page, mutations } = await open({
+        quiet: true,
+        role: "member",
+        decisions: [decision()],
+        decisionApprovals: [review("proactive_work"), review("mail_send")],
+        pendingDecisionApprovalCount: 20,
+        allowDecisionAnswer: true,
+      });
+      assert.equal(await decisionRows(page).count(), 1);
+      assert.equal(await activeDecisions(page).getByText("1", { exact: true }).count(), 1);
+      assert.equal(
+        await page.getByText("Prepare the retention follow-up", { exact: true }).count(),
+        0,
+      );
+      assert.equal(await page.getByText("Review the customer reply", { exact: true }).count(), 0);
+      assert.equal(
+        await activeDecisions(page)
+          .getByRole("link", { name: /more waiting/ })
+          .count(),
+        0,
+      );
+      await activeDecisions(page).getByText("Confirm the owner", { exact: true }).click();
+      await activeDecisions(page)
+        .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).count(), 0);
+      assert.deepEqual(mutations, [
+        { path: "/api/companies/company/decisions/decision/decide", body: { optionId: "confirm" } },
+      ]);
+      await page.close();
+    },
+  );
+  for (const role of ["owner", "admin"] as const) {
+    await check(`${role} can review proposed work and email directly on Home`, async () => {
+      const { page, mutations } = await open({
+        quiet: true,
+        role,
+        decisionApprovals: [review("proactive_work"), review("mail_send")],
+        allowReview: true,
+        width: role === "owner" ? 1440 : 390,
+        dark: role === "admin",
+      });
+      assert.equal(await decisionRows(page).count(), 2);
+      assert.equal(await activeDecisions(page).getByText("2", { exact: true }).count(), 1);
+      assert.equal(
+        await page.getByRole("heading", { name: "Nothing needs you right now" }).count(),
+        0,
+      );
+      await activeDecisions(page)
+        .getByText("Jamie will send your next update tomorrow.", { exact: true })
+        .waitFor();
+      await fits(page);
+      await page.screenshot({
+        path: path.join(output, `home-active-reviews-${role}.png`),
+        fullPage: true,
+      });
+      await activeDecisions(page)
+        .getByRole("button", { name: "Approve & start", exact: true })
+        .click();
+      await activeDecisions(page)
+        .getByText("Prepare the retention follow-up", { exact: true })
+        .waitFor({ state: "detached" });
+      assert.equal(await decisionRows(page).count(), 1);
+      await page
+        .getByRole("status")
+        .getByText("Work review “Prepare the retention follow-up” approved.", { exact: true })
+        .waitFor();
+      await activeDecisions(page).getByRole("button", { name: "Send now", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).count(), 0);
+      await page
+        .getByRole("status")
+        .getByText("Email review “Review the customer reply” sent.", { exact: true })
+        .waitFor();
+      assert.deepEqual(mutations, [
+        {
+          path: "/api/companies/company/approvals/work-review/approve",
+          body: { reviewRevision: "work-revision" },
+        },
+        {
+          path: "/api/companies/company/approvals/mail-review/approve",
+          body: { reviewRevision: "mail-revision" },
+        },
+      ]);
+      await page.close();
+    });
+  }
+  await check(
+    "Decision and Approval events refresh active work without reloading Home",
+    async () => {
+      const fixture = await open({ quiet: true, live: true, role: "admin" });
+      const { page } = fixture;
+      assert.equal(await activeDecisions(page).count(), 0, "an empty section stays hidden");
+      fixture.setDecisions([decision()]);
+      fixture.emitResourceEvent("decision");
+      await activeDecisions(page)
+        .getByRole("heading", { name: decision().title, exact: true })
+        .waitFor();
+      fixture.setReviews([review("proactive_work")]);
+      fixture.emitResourceEvent("approval");
+      await activeDecisions(page)
+        .getByRole("heading", { name: "Prepare the retention follow-up", exact: true })
+        .waitFor();
+      assert.equal(await decisionRows(page).count(), 2);
+      fixture.setDecisions([]);
+      fixture.emitResourceEvent("decision");
+      await activeDecisions(page)
+        .getByRole("heading", { name: decision().title, exact: true })
+        .waitFor({ state: "detached" });
+      assert.equal(await decisionRows(page).count(), 1);
+      fixture.setReviews([]);
+      fixture.emitResourceEvent("approval");
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).count(), 0);
+      await page.close();
+    },
+  );
   await check("an unpaired final card fills its row without leaving a middle gap", async () => {
     const { page } = await open({
       width: 1440,
@@ -883,7 +1332,7 @@ try {
         "moving focus to the fallback also brings it back into view",
       );
       assert.equal(await fixture.page.locator("[data-home-all-clear]").count(), 0);
-      await fixture.page.getByRole("heading", { name: "Pending Decisions", exact: true }).waitFor();
+      await fixture.page.getByRole("heading", { name: "Active decisions", exact: true }).waitFor();
       await fixture.page.close();
     },
   );
