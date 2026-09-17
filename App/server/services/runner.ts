@@ -684,11 +684,10 @@ export async function startRoutineRun(
       // Remediation is a fresh briefed turn rather than a resumption of the
       // same transcript. That is the fourth time this codebase has made that
       // call (decision pickups, handoff and todo kickoffs, AI review sessions),
-      // and the reason is the same each time: the loop copies its message array
-      // and hands back only its final text, so "continue the same conversation"
-      // would mean threading state the runtime does not expose — and would have
-      // to be built twice, once for the direct loop and once for the Codex
-      // app-server path.
+      // and the reason is the same each time: each runtime turn has its own
+      // session and returns final text rather than a resumable conversation.
+      // A fresh brief carries the Check evidence across that boundary for both
+      // OpenCode and the Codex subscription runtime.
       if (saved.status === "completed") {
         const checkPhase = await runCheckPhase({
           run: saved,

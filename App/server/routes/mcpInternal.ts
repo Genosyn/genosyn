@@ -13975,13 +13975,10 @@ const EXPORT_RESOURCE_MAX_BYTES = 8 * 1024 * 1024; // 8 MiB cap on the render it
 /**
  * Above this, the rendered bytes are not handed to the model at all.
  *
- * `loop.ts` clips every tool result at `toolResultCap` — 60,000 characters,
- * and as little as 8,000 on a small context window. A base64 string is a third
- * larger than its source, so an export much past 40 KB came back as a
- * truncated prefix; `Buffer.from(prefix, "base64")` does not throw, it decodes
- * what it was given and drops the rest, so the human received a corrupt PDF
- * and nothing anywhere errored. 4 KiB is the largest payload that survives
- * even the 8,000-character floor.
+ * Runtime result budgets can truncate large base64 strings; decoding the
+ * remaining prefix can silently produce a corrupt file. Keep only very small
+ * exports inline and deliver larger files through their staged attachment.
+ * This also fits the subscription runtime's smallest tool-result budget.
  *
  * Nothing is lost above it: the render is staged for the turn either way, so
  * the file reaches the human as a download chip on the reply without the model
