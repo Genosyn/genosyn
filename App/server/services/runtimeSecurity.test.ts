@@ -6,10 +6,7 @@ import test, { afterEach, beforeEach } from "node:test";
 import { config } from "../../config.js";
 import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
-import {
-  resetGlobalSmtpCacheForTests,
-  updateGlobalSmtpOverride,
-} from "./globalEmailTransport.js";
+import { resetGlobalSmtpCacheForTests, updateGlobalSmtpOverride } from "./globalEmailTransport.js";
 import {
   bubblewrapProbeError,
   resetBubblewrapProbeCacheForTests,
@@ -151,9 +148,17 @@ test("numeric runtime invariants fail before boot", () => {
 test("self-hosted defaults remain bootable", () => {
   mutable.security.multiTenant = false;
   assert.doesNotThrow(validateRuntimeSecurity);
-  assert.equal(config.agent.codingTools.executionMode, "bubblewrap");
-  assert.equal(config.agent.codingTools.allowUnsafeHostExecution, false);
+  assert.equal(config.agent.codingTools.executionMode, "host");
+  assert.equal(config.agent.codingTools.allowUnsafeHostExecution, true);
   assert.equal(config.agent.codingTools.allowNetwork, false);
+});
+
+test("the host default starts without a bubblewrap executable or probe", () => {
+  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
+  const warnings = captureWarnings(resolveCodingExecutionMode);
+  assert.equal(config.agent.codingTools.executionMode, "host");
+  assert.deepEqual(warnings, []);
+  assert.doesNotThrow(validateRuntimeSecurity);
 });
 
 test("a self-hosted install with a working sandbox keeps command execution on", () => {

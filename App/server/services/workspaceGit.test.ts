@@ -89,6 +89,41 @@ test("workspace Git never inherits arbitrary App or Codex environment variables"
   assert.equal(invocation.env.GIT_SSH_COMMAND, "/bin/false");
 });
 
+test("macOS host Git can use Homebrew while Linux and bubblewrap retain their trusted paths", () => {
+  for (const [platform, mode] of [
+    ["darwin", "host"],
+    ["darwin", "disabled"],
+    ["linux", "host"],
+    ["linux", "bubblewrap"],
+    ["darwin", "bubblewrap"],
+  ] as const) {
+    const invocation = buildWorkspaceGitInvocation(
+      {
+        workspaceRoot: "/srv/workspace",
+        cwd: "/srv/workspace",
+        args: ["status"],
+        serverOwned: true,
+      },
+      mode,
+      "/usr/bin/bwrap",
+      true,
+      platform,
+    );
+    const basePath = "/usr/local/bin:/usr/bin:/bin";
+    assert.equal(
+      invocation.env.PATH,
+      platform === "darwin" && mode !== "bubblewrap" ? `/opt/homebrew/bin:${basePath}` : basePath,
+    );
+    if (mode === "bubblewrap") {
+      const pathArgument = invocation.args.findIndex(
+        (value, index) => value === "--setenv" && invocation.args[index + 1] === "PATH",
+      );
+      assert.ok(pathArgument >= 0);
+      assert.equal(invocation.args[pathArgument + 2], basePath);
+    }
+  }
+});
+
 test("command-scoped credential helpers receive the HTTPS repository path", () => {
   const invocation = buildWorkspaceGitInvocation(
     {

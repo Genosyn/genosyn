@@ -91,8 +91,7 @@ export function Vocabulary() {
               <>
                 An event subscription that fires a Routine when a resource family changes — id-only
                 frames, so an event routes work but never carries content. Never
-                &quot;Subscription,&quot; &quot;Listener,&quot; or &quot;Hook&quot; — and a Revenue
-                {" "}
+                &quot;Subscription,&quot; &quot;Listener,&quot; or &quot;Hook&quot; — and a Revenue{" "}
                 <DocLink to="/docs/signals">Signal</DocLink> stays a cron-evaluated query, never a
                 Trigger. See <DocLink to="/docs/reactivity">Reactivity</DocLink>.
               </>
@@ -230,10 +229,11 @@ export function Vocabulary() {
               <>
                 A machine-verifiable assertion a Run must pass before it finalizes green — a
                 predicate over the effects the server recorded, or a command that must exit 0 in the
-                sandbox. Written by an operator, evaluated by the server, and unreachable from every
-                MCP tool. Never a &quot;test,&quot; an &quot;assertion,&quot; or a &quot;gate&quot;
-                — System Health keeps &quot;probe&quot; for its own diagnostics. See{" "}
-                <DocLink to="/docs/verification">What proves a Run worked</DocLink>.
+                configured execution mode. Written by an operator, evaluated by the server, and
+                unreachable from every MCP tool. Never a &quot;test,&quot; an &quot;assertion,&quot;
+                or a &quot;gate&quot; — System Health keeps &quot;probe&quot; for its own
+                diagnostics. See <DocLink to="/docs/verification">What proves a Run worked</DocLink>
+                .
               </>
             ),
           },
@@ -300,8 +300,7 @@ export function Vocabulary() {
                 admin or by the consecutive-failure breaker. The exact inverse of a Waiver — imposed
                 rather than earned, broad rather than narrow — and distinct from{" "}
                 <Code>Routine.enabled</Code>, which stays the ordinary switch. Never
-                &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or &quot;freeze.&quot; See
-                {" "}
+                &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or &quot;freeze.&quot; See{" "}
                 <DocLink to="/docs/standdowns">Standdowns</DocLink>.
               </>
             ),

@@ -14,7 +14,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
-import { TOOL_RESULT_CAP_DEFAULT } from "../services/agent/contextBudget.js";
+import { TOOL_RESULT_CAP_DEFAULT } from "../services/agent/toolResultBudget.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";

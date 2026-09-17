@@ -293,7 +293,11 @@ describe("TLDR direct-chat source", () => {
       for await (const chunk of request) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
-      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedOpenAIRequest);
+      const captured = JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedOpenAIRequest;
+      for (const tool of captured.tools ?? [])
+        if (tool.function?.name?.startsWith("genosyn_"))
+          tool.function.name = tool.function.name.slice(8);
+      requests.push(captured);
 
       if (requests.length === 1 || requests.length === 4) {
         sendSse(response, {
@@ -312,7 +316,7 @@ describe("TLDR direct-chat source", () => {
                     index: 0,
                     id: "call_read_tldr",
                     type: "function",
-                    function: { name: "read_tldr", arguments: "{}" },
+                    function: { name: "genosyn_read_tldr", arguments: "{}" },
                   },
                 ],
               },
@@ -412,11 +416,12 @@ describe("TLDR direct-chat source", () => {
           ["read_tldr"],
         );
       }
-      assert.deepEqual(requests[0].tools?.[0]?.function?.parameters, {
-        type: "object",
-        properties: {},
-        additionalProperties: false,
-      });
+      // Runtime-added schema metadata must not hide a broader input surface.
+      const parameters = requests[0].tools?.[0]?.function?.parameters;
+      assert.equal(parameters?.type, "object");
+      assert.deepEqual(parameters?.properties, {});
+      assert.equal(parameters?.additionalProperties, false);
+      assert.deepEqual(parameters?.required ?? [], []);
       assert.match(requests[0].messages?.[0]?.content ?? "", /discussion-only/i);
       assert.match(requests[0].messages?.[0]?.content ?? "", /only tool available/i);
       assert.match(requests[0].messages?.[0]?.content ?? "", /## Soul/);

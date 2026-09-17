@@ -3,8 +3,8 @@
 /*
  * Built-in Genosyn browser MCP server — thin RPC translator.
  *
- * Spawned by the in-process agent (`services/agent/`) as a stdio MCP child that
- * the agent connects to as an MCP client, when the AI employee has
+ * Spawned by the runtime tool registry (`services/agent/`) as a stdio MCP child
+ * connected through Genosyn's MCP client, when the AI employee has
  * `browserEnabled = true`. Each tool the model calls (`browser_open`,
  * `browser_click`, …) round-trips over HTTP to the App, which owns the headless
  * Chromium. Chromium therefore persists across MCP child spawns and chat turns —

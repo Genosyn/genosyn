@@ -240,9 +240,9 @@ export function toolsBriefing(
     );
   } else if (codingToolsAvailable) {
     lines.push(
-      "- Coding: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, and `grep`, " +
-        "confined to your working directory (which holds any granted git repos under `repos/` " +
-        "and `repositories/`). Host execution never exposes an unrestricted shell.",
+      "- Coding: use the coding tools supplied by your runtime to read, edit, and search files " +
+        "and run commands when a command tool is available. Your working directory holds granted " +
+        "Repositories under `repos/` and `repositories/`. Stay within the assigned work and its Grants.",
     );
   }
 

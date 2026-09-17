@@ -19,6 +19,7 @@ import { MailRule } from "../../db/entities/MailRule.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { agentRuntime } from "../agent/runtime.js";
 import { analyzeInboundMessage } from "./analysis.js";
 import { enqueueInboundAutomation, waitForMailAutomation } from "./automationQueue.js";
 import { runRulesForNewMessage } from "./rules.js";
@@ -277,7 +278,14 @@ describe("inbound automation with AI analysis", () => {
     assert.equal(row.errorMessage, "");
   });
 
-  test("a mailbox paused while the model is reading requeues instead of failing", async () => {
+  test("a mailbox paused while the model is reading requeues instead of failing", async (t) => {
+    const run = agentRuntime.run;
+    // Exercise the real external runtime and queue lifecycle without measuring
+    // cold startup against the email feature's separate response deadline.
+    t.mock.method(agentRuntime, "run", (input: Parameters<typeof run>[0]) => run({
+      ...input,
+      signal: AbortSignal.timeout(180_000),
+    }));
     const account = await mailbox("paused-mid-read");
     const message = await inboundMessage(account, "paused-mid-read");
     const rule = await matchingRule(account);
@@ -309,7 +317,7 @@ describe("inbound automation with AI analysis", () => {
                     id: "call_analysis",
                     type: "function",
                     function: {
-                      name: "submit_email_analysis",
+                      name: "genosyn_submit_email_analysis",
                       arguments: JSON.stringify({
                         category: "quote_request",
                         summary: "The sender wants a price for twelve chairs.",
@@ -353,7 +361,7 @@ describe("inbound automation with AI analysis", () => {
       });
 
       await enqueueInboundAutomation(message);
-      await waitForMailAutomation(account.id);
+      await waitForMailAutomation(account.id, 180_000);
 
       // Triage is not fenced by `beforeEffect`, so it was allowed to land.
       const analysis = await analysisFor(message.id);

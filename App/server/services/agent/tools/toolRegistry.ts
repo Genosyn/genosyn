@@ -25,13 +25,11 @@ import type { AgentTool, ToolDeferralInfo } from "../types.js";
  * for being correct. Resident is about what we *advertise*, never about what we
  * *accept*.
  *
- * ## Why an object rather than two locals in the loop
+ * ## One registry for either runtime
  *
- * `loop.ts` used to derive `toolDefs` and `byName` as function-locals. Passing a
- * registry in is a scope change, not a control-flow change: it is still built
- * once per run and never mutated, so the tool array the provider sees is
- * byte-identical on every step — which is the precondition for putting an
- * Anthropic cache breakpoint on it later.
+ * The registry is assembled once per turn, then shared with OpenCode's MCP
+ * bridge or the Codex subscription adapter. Discovery does not mutate the
+ * resident set or widen the callable catalogue; live Grants still apply.
  */
 
 export type ToolVisibility = "resident" | "deferred" | "alias";

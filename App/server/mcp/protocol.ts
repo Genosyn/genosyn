@@ -7,8 +7,8 @@ import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
  * JSON-RPC (Model Context Protocol) message handling for the built-in `genosyn`
  * server, used by the *external* Streamable-HTTP endpoint (`routes/mcpConnect.ts`)
  * so outside MCP clients (Claude Desktop, Cursor, another agent, ...) can act as
- * one of this company's employees. (The in-process agent doesn't go through this
- * — it calls the tools directly; see `services/agent/tools/genosyn.ts`.)
+ * one of this company's employees. Genosyn-managed runtimes use their own scoped
+ * bridge and registry; see `services/agent/tools/genosyn.ts`.
  *
  * This shares ONE tool catalogue (`toolManifest.ts`) and ONE set of handlers
  * (`routes/mcpInternal.ts`) with the rest of the app. Here we terminate the

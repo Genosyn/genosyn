@@ -62,10 +62,10 @@ data:
       agent: {
         codingTools: {
           enabled: true,
-          executionMode: "bubblewrap",
+          executionMode: "{{ if .Values.sandbox.enabled }}bubblewrap{{ else }}host{{ end }}",
           bubblewrapPath: "/usr/bin/bwrap",
           allowNetwork: false,
-          allowUnsafeHostExecution: false,
+          allowUnsafeHostExecution: {{ if .Values.sandbox.enabled }}false{{ else }}true{{ end }},
         },
         // The app-owned Chromium shares the API container; multi-tenant boot
         // validation refuses it. Member browsers are a runtime setting now

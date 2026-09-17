@@ -5,9 +5,8 @@
  * billed (see {@link ../types.TurnUsage}). We never estimate it locally: a
  * custom endpoint can serve any weights, so we cannot know its tokenizer, and a
  * guessed number rendered as a percentage in front of a human is worse than no
- * number at all. `contextBudget.ts` may estimate the delta it is about to
- * append because it only has to decide *when* to compact; nothing user-visible
- * gets that latitude.
+ * number at all. OpenCode owns compaction decisions; this display uses
+ * only the model service’s reported token count.
  *
  * The denominator is `AIModel.contextWindow`, which is often unknown — many
  * OpenAI-compatible servers publish nothing, and an OpenAI subscription model
@@ -34,9 +33,8 @@ export type ContextUsage = {
 };
 
 /**
- * Warn once the prompt is using this share of the window — just under the point
- * where the loop starts compacting (`contextBudget.promptBudget` reserves 15%),
- * so a human sees the squeeze building before they see history being dropped.
+ * Warn once the prompt is using this share of the window. This is a display
+ * threshold, independent of the runtime’s own context compaction policy.
  *
  * Shared by the Run transcript and the chat badge on purpose: two surfaces
  * describing the same model disagreeing about what "nearly full" means is a bug

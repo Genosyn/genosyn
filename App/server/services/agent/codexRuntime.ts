@@ -8,7 +8,7 @@ import {
   withSubscriptionModelLock,
 } from "../codexSubscription.js";
 import { CodexAppServer, CodexAppServerError } from "./codexAppServer.js";
-import { toolResultCap } from "./contextBudget.js";
+import { toolResultCap } from "./toolResultBudget.js";
 import { contextUsage } from "./contextUsage.js";
 import type { ToolRegistry } from "./tools/toolRegistry.js";
 import type { AgentMessage, AgentTool, StreamCallbacks, ToolResult, TurnUsage } from "./types.js";

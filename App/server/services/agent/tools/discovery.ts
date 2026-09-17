@@ -17,11 +17,9 @@ const PAGE_SIZE = 6;
 /**
  * Per-schema ceiling inside a `find_tools` result.
  *
- * The deferred set includes integration and bridged-MCP schemas we have never
- * measured, and `loop.ts` clips the whole tool result at `toolResultCap` (floor
- * 8,000 chars). Without a per-schema cap one fat schema would eat the budget and
- * the clip would land mid-JSON, so the model would get a truncated object with
- * no indication that anything was missing.
+ * The deferred set includes integration and bridged-MCP schemas of unknown
+ * size. Bound each schema before a runtime can truncate the whole result, so
+ * one large schema does not hide every tool that follows it in the page.
  */
 const SCHEMA_CHAR_CAP = 2_000;
 
@@ -335,9 +333,8 @@ export function createCallTool(ctx: DiscoveryContext): AgentTool {
       return { name: target, input: parsed.ok ? parsed.args : {} };
     },
     run: async (input) => {
-      // A malformed *outer* blob is caught in loop.ts before dispatch, for
-      // every tool — see PARSE_ERROR_KEY there. What is left here is a
-      // well-formed call whose inner `args_json` may still be bad.
+      // The runtime parses the outer tool call. Its inner `args_json` string
+      // still needs parsing and a useful error at the discovery boundary.
       const name = typeof input.name === "string" ? input.name.trim() : "";
       if (!name) {
         return {

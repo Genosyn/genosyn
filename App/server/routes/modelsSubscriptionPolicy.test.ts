@@ -1,4 +1,5 @@
-import { fakeCodexVerification, successfulModelStream } from "../test/modelVerification.js";
+import { agentRuntime } from "../services/agent/runtime.js";
+import { fakeCodexVerification } from "../test/modelVerification.js";
 import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -416,16 +417,11 @@ describe("API model setup routes", () => {
   });
 
   test("connect tests a real tool reply and returns a connected model without exposing credentials", async (t) => {
-    const originalFetch = globalThis.fetch;
-    t.mock.method(
-      globalThis,
-      "fetch",
-      async (input: string | URL | Request, init?: RequestInit) => {
-        if (String(input).startsWith(baseUrl)) return originalFetch(input, init);
-        assert.match(String(input), /\/responses$/);
-        return successfulModelStream("openai");
-      },
-    );
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      assert.equal(params.nativeCoding, false);
+      await params.registry.resolve("connection_test")!.run({ ok: true });
+      return { finalText: "OK", steps: 2, stopReason: "end_turn" };
+    });
     const connected = await call("POST", "/connect", {
       provider: "openai",
       apiKey: "private-test-key",
@@ -442,15 +438,9 @@ describe("API model setup routes", () => {
   });
 
   test("failed verification returns an actionable error and saves no connected row", async (t) => {
-    const originalFetch = globalThis.fetch;
-    t.mock.method(
-      globalThis,
-      "fetch",
-      async (input: string | URL | Request, init?: RequestInit) => {
-        if (String(input).startsWith(baseUrl)) return originalFetch(input, init);
-        return Response.json({ error: { message: "secret-credential" } }, { status: 401 });
-      },
-    );
+    t.mock.method(agentRuntime, "run", async () => {
+      throw Object.assign(new Error("secret-credential"), { status: 401 });
+    });
     const response = await call("POST", "/connect", {
       provider: "openai",
       apiKey: "secret-credential",
@@ -756,34 +746,36 @@ describe("OpenAI subscription policy routes", () => {
     assert.equal(listed.body[0].subscriptionCredentialKind, null);
   });
 
-  test("host execution rejects both model creation and credentials on an existing model", async () => {
+  test("host execution supports subscription model creation and encrypted credentials", async () => {
     codingTools.executionMode = "host";
 
-    const deniedCreate = await call("POST", "/", {
+    const created = await call<PublicModel>("POST", "/", {
       provider: "openai",
       model: "gpt-5.4",
       authMode: "subscription",
     });
-    assert.equal(deniedCreate.status, 400);
-    assert.match(String(deniedCreate.body.error), /host-process tools/);
-    assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
+    assert.equal(created.status, 200);
+    assert.equal(await AppDataSource.getRepository(AIModel).count(), 1);
 
-    const existing = await insertSubscriptionModel();
-    const deniedToken = await call("POST", `/${existing.id}/subscription/access-token`, {
-      accessToken: `codex-test-${randomUUID()}-${randomUUID()}`,
+    const accessToken = `codex-test-${randomUUID()}-${randomUUID()}`;
+    const savedToken = await call("POST", `/${created.body.id}/subscription/access-token`, {
+      accessToken,
     });
-    assert.equal(deniedToken.status, 400);
-    assert.match(String(deniedToken.body.error), /host-process tools/);
-    assert.equal(
-      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: existing.id })).configJson,
-      "{}",
-    );
+    assert.equal(savedToken.status, 200);
+    const stored = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      id: created.body.id,
+    });
+    assert.equal(stored.configJson.includes(accessToken), false);
+    const storedConfig = JSON.parse(stored.configJson) as Record<string, unknown>;
+    assert.equal(decryptSecret(String(storedConfig.codexAccessTokenEncrypted)), accessToken);
 
     const listed = await call<PublicModel[]>("GET", "/");
     assert.equal(listed.status, 200);
-    assert.equal(listed.body[0].subscriptionAvailable, false);
-    assert.match(listed.body[0].subscriptionUnavailableReason ?? "", /host-process tools/);
-    assert.equal(listed.body[0].subscriptionShellAvailable, false);
+    assert.equal(listed.body[0].subscriptionAvailable, true);
+    assert.equal(listed.body[0].subscriptionUnavailableReason, null);
+    assert.equal(listed.body[0].status, "connected");
+    assert.equal(JSON.stringify(listed.body).includes(accessToken), false);
+    assert.equal(listed.body[0].subscriptionShellAvailable, true);
   });
 
   test("multi-tenant mode rejects both model creation and credentials on an existing model", async () => {

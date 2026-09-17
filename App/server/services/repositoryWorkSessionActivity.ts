@@ -193,7 +193,10 @@ export class SessionActivityRecorder {
   compact(info: CompactionInfo): void {
     this.record({
       kind: "compact",
-      summary: `Dropped ${info.evicted} older tool result${info.evicted === 1 ? "" : "s"} to stay inside the context window`,
+      summary:
+        info.evicted === null
+          ? "OpenCode compacted the conversation to fit the model context window"
+          : `Dropped ${info.evicted} older tool result${info.evicted === 1 ? "" : "s"} to stay inside the context window`,
       detail: info,
     });
   }
@@ -201,7 +204,7 @@ export class SessionActivityRecorder {
   retry(info: ModelRetryInfo): void {
     this.record({
       kind: "retry",
-      summary: `Model call retried (${info.attempt} of ${info.maxAttempts}): ${info.reason}`,
+      summary: `Model call retried (${info.attempt}${info.maxAttempts === null ? "" : ` of ${info.maxAttempts}`}): ${info.reason}`,
       detail: { attempt: info.attempt, maxAttempts: info.maxAttempts, delayMs: info.delayMs },
     });
   }

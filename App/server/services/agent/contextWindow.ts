@@ -4,7 +4,6 @@ import type { AIModel } from "../../db/entities/AIModel.js";
 import { decryptSecret } from "../../lib/secret.js";
 import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
-import { normalizeBaseURL } from "./modelClients/index.js";
 
 /**
  * Ask a provider how many tokens its model can take.
@@ -161,4 +160,9 @@ function plausible(n: number | null): number | null {
   if (n === null) return null;
   const i = Math.floor(n);
   return i >= MIN_PLAUSIBLE && i <= MAX_PLAUSIBLE ? i : null;
+}
+
+/** Normalize an OpenAI-compatible API root without rewriting its path. */
+function normalizeBaseURL(value: string): string {
+  return value.trim().replace(/\/+$/, "");
 }

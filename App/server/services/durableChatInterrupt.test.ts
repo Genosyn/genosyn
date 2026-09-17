@@ -314,7 +314,9 @@ describe("stopping a durable chat turn", () => {
     // Replayed verbatim, a half-sentence reads as a finished answer and the
     // employee can carry on as though it had delivered something it never did.
     const replayed = (prompts.at(-1) ?? [])
-      .filter((message) => message.role === "assistant")
+      // OpenCode receives persisted messages as labelled history in a fresh
+      // session. The interrupted marker must survive that transport change.
+      .filter((message) => message.role === "assistant" || message.role === "user")
       .map((message) => JSON.stringify(message.content))
       .join("\n");
     assert.match(replayed, /Checking the OneUptime checkout/);

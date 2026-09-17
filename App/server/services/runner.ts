@@ -73,11 +73,9 @@ export { RUN_LOG_MAX_BYTES } from "./runLog.js";
  *  1. Load the employee, company, active model, and skill list.
  *  2. Compose a system prompt (Soul + Memory + Skills + tools briefing) and the
  *     routine instruction, all pulled from the DB.
- *  3. Run the in-process agent against the model's API (Anthropic / OpenAI /
- *     custom OpenAI-compatible endpoint), handing it the built-in coding tools,
- *     the genosyn MCP tools, browser tools (when enabled), and any
- *     company-configured MCP servers — buffering the transcript into the Run's
- *     `logContent`.
+ *  3. Run OpenCode (or official Codex for subscription access), supplying the
+ *     authorized Genosyn, browser, and company MCP tools and the selected coding
+ *     mode, while buffering the transcript into the Run's `logContent`.
  *
  * Degradation: if no Model is connected we write a clear stub log and mark the
  * Run as skipped — the product must keep working on a fresh self-host before
@@ -405,9 +403,7 @@ export async function startRoutineRun(
           ? [...CODING_TOOL_NAMES]
           : config.agent.codingTools.executionMode === "bubblewrap"
             ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-            : model.authMode === "subscription"
-              ? [...CODING_TOOL_NAMES]
-              : [];
+            : [];
       const unavailableSkillTools = [
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
@@ -590,7 +586,7 @@ export async function startRoutineRun(
             callbacks: {
               onModelRetry: (retry) =>
                 log.line(
-                  `\n[model] ${retry.reason}; retrying attempt ${retry.attempt} of ${retry.maxAttempts} in ${(retry.delayMs / 1000).toFixed(1)}s`,
+                  `\n[model] ${retry.reason}; retrying attempt ${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${(retry.delayMs / 1000).toFixed(1)}s`,
                 ),
               onText: (delta) => {
                 streamedAny = true;
@@ -688,11 +684,10 @@ export async function startRoutineRun(
       // Remediation is a fresh briefed turn rather than a resumption of the
       // same transcript. That is the fourth time this codebase has made that
       // call (decision pickups, handoff and todo kickoffs, AI review sessions),
-      // and the reason is the same each time: the loop copies its message array
-      // and hands back only its final text, so "continue the same conversation"
-      // would mean threading state the runtime does not expose — and would have
-      // to be built twice, once for the direct loop and once for the Codex
-      // app-server path.
+      // and the reason is the same each time: each runtime turn has its own
+      // session and returns final text rather than a resumable conversation.
+      // A fresh brief carries the Check evidence across that boundary for both
+      // OpenCode and the Codex subscription runtime.
       if (saved.status === "completed") {
         const checkPhase = await runCheckPhase({
           run: saved,
@@ -927,6 +922,8 @@ function usageLine(u: TurnUsage, contextWindow: number | null): string {
  * model's context window is unknown, so there was nothing to budget against.
  */
 function compactLine(c: CompactionInfo): string {
+  if (c.evicted === null)
+    return "[compact] OpenCode compacted the conversation to fit the model context window.";
   const what = `dropped ${c.evicted} older tool result${c.evicted === 1 ? "" : "s"} (~${c.freedTokens} tokens) to fit the context window`;
   return c.reason === "budget"
     ? `[compact] ${what}`
@@ -1202,7 +1199,10 @@ async function runCheckPhase(args: {
           },
         },
       });
-      if (controller.signal.aborted || (result.status === "ok" && result.stopReason === "aborted")) {
+      if (
+        controller.signal.aborted ||
+        (result.status === "ok" && result.stopReason === "aborted")
+      ) {
         errorKind = args.deadlineReached() ? "timeout" : "interrupted";
         log.line("\n[checks] remediation was interrupted before finishing.");
         log.line(workSummaryLogLine(""));

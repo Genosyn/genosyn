@@ -15,7 +15,7 @@ import { canProbeContextWindow, probeContextWindow } from "./contextWindow.js";
  * the only ways back to the truth were re-saving the credential or clicking
  * "Ask the provider" — so between them a stale number silently mis-budgets
  * every run: too high and the provider rejects a turn we thought would fit,
- * too low and `contextBudget.ts` drops history that had room.
+ * too low and OpenCode compacts history that still had room.
  *
  * Every three hours is the balance. A re-pointed endpoint corrects itself
  * inside a working session, while a model costs eight cheap `/v1/models`-style

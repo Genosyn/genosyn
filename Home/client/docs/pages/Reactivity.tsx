@@ -186,7 +186,7 @@ export function Reactivity() {
           },
           {
             term: "Customer code issues",
-            def: "First show the customer report and proposed investigation in a work review. After approval, start an isolated Work session in a granted Repository, investigate, prepare a fix with tests, and track it to PR review. The customer reply returns for separate review only after there are real results.",
+            def: "First show the customer report and proposed investigation in a work review. After approval, start a Work session on a separate branch in a granted Repository, investigate, prepare a fix with tests, and track it to PR review. The customer reply returns for separate review only after there are real results.",
           },
           {
             term: "Sales enquiries",

@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { readCustomEndpoint } from "./customEndpoint.js";
 import { connectCustomModel } from "./customModelSetup.js";
+import { agentRuntime } from "./agent/runtime.js";
 import { ModelSetupError } from "./modelCatalog.js";
 
 const security = config.security as {
@@ -42,22 +43,22 @@ const setup = {
   modelId: "local-model",
   apiKey: "private-custom-key",
 };
-function reply(): Response {
-  return new Response(
-    `data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "probe-call", function: { name: "connection_test", arguments: '{"ok":true}' } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
-    { headers: { "Content-Type": "text/event-stream" } },
-  );
+async function reply(params: Parameters<typeof agentRuntime.run>[0]) {
+  await params.registry.resolve("connection_test")!.run({ ok: true });
+  return { finalText: "OK", steps: 2, stopReason: "end_turn" };
 }
 
-test("custom setup verifies the real Chat Completions tool wire format before activating", async (t) => {
-  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
-    assert.equal(String(url), "https://8.8.8.8/v1/chat/completions");
-    const body = JSON.parse(String(init.body));
-    assert.equal(body.model, "local-model");
-    assert.equal(body.max_tokens, 1024);
-    assert.equal(body.tools[0].function.name, "connection_test");
+test("custom setup verifies through OpenCode with only its connection tool before activating", async (t) => {
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    assert.deepEqual(readCustomEndpoint(params.model), {
+      baseURL: setup.baseURL,
+      modelId: setup.modelId,
+      apiKey: setup.apiKey,
+    });
+    assert.equal(params.registry.resident[0].name, "connection_test");
+    assert.equal(params.nativeCoding, false);
     assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
-    return reply();
+    return reply(params);
   });
   const saved = await connectCustomModel(setup);
   assert.equal(saved.isActive, true);
@@ -71,24 +72,24 @@ test("custom setup verifies the real Chat Completions tool wire format before ac
 });
 
 test("failed custom setup never leaves an active placeholder", async (t) => {
-  t.mock.method(globalThis, "fetch", async () =>
-    Response.json({ error: { message: "private-custom-key" } }, { status: 401 }),
-  );
+  t.mock.method(agentRuntime, "run", async () => {
+    throw Object.assign(new Error("private-custom-key"), { status: 401 });
+  });
   await assert.rejects(connectCustomModel(setup), /rejected this credential/);
   assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
 });
 
 test("failed endpoint replacement preserves credentials, target, connection time and manual context", async (t) => {
-  const fetch = t.mock.method(globalThis, "fetch", async () => reply());
+  const fetch = t.mock.method(agentRuntime, "run", reply);
   const saved = await connectCustomModel(setup);
   await AppDataSource.getRepository(AIModel).update(
     { id: saved.id },
     { contextWindow: 40000, contextWindowSource: "manual" },
   );
   const previous = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: saved.id });
-  fetch.mock.mockImplementation(async () =>
-    Response.json({ error: { message: "unavailable" } }, { status: 500 }),
-  );
+  fetch.mock.mockImplementation(async () => {
+    throw Object.assign(new Error("unavailable"), { status: 500 });
+  });
   await assert.rejects(
     connectCustomModel(
       { ...setup, baseURL: "https://1.1.1.1/v1", apiKey: "bad-new-key" },
@@ -103,7 +104,7 @@ test("failed endpoint replacement preserves credentials, target, connection time
 });
 
 test("valid key removal preserves manual context while changing the target resets it", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => reply());
+  t.mock.method(agentRuntime, "run", reply);
   const saved = await connectCustomModel(setup);
   await AppDataSource.getRepository(AIModel).update(
     { id: saved.id },
@@ -119,14 +120,14 @@ test("valid key removal preserves manual context while changing the target reset
 });
 
 test("a custom key update preserves manual context changed during verification", async (t) => {
-  const fetch = t.mock.method(globalThis, "fetch", async () => reply());
+  const fetch = t.mock.method(agentRuntime, "run", reply);
   const previous = await connectCustomModel(setup);
-  fetch.mock.mockImplementation(async () => {
+  fetch.mock.mockImplementation(async (params: Parameters<typeof agentRuntime.run>[0]) => {
     await AppDataSource.getRepository(AIModel).update(
       { id: previous.id },
       { contextWindow: 80000, contextWindowSource: "manual" },
     );
-    return reply();
+    return reply(params);
   });
   const current = await connectCustomModel({ ...setup, apiKey: "replacement" }, previous);
   assert.equal(current.contextWindow, 80000);
@@ -135,7 +136,7 @@ test("a custom key update preserves manual context changed during verification",
 });
 
 test("concurrent first custom connections leave exactly one active model", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => reply());
+  t.mock.method(agentRuntime, "run", reply);
   await Promise.all(
     ["first", "second"].map((modelId) => connectCustomModel({ ...setup, modelId })),
   );
@@ -146,9 +147,9 @@ test("concurrent first custom connections leave exactly one active model", async
 
 test("custom probe still enforces private-address and embedded-credential SSRF restrictions", async (t) => {
   let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => {
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
     calls++;
-    return reply();
+    return reply(params);
   });
   for (const baseURL of [
     "http://127.0.0.1/v1",

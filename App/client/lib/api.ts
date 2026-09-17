@@ -1082,7 +1082,7 @@ export type AIModel = {
   subscriptionUnavailableReason: string | null;
   /** The stored subscription credential shape, without exposing the secret. */
   subscriptionCredentialKind: SubscriptionCredentialKind | null;
-  /** Whether subscription turns can use bash inside an isolated sandbox. */
+  /** Whether subscription turns can use commands in the configured execution mode. */
   subscriptionShellAvailable: boolean;
   supportsCustomEndpoint: boolean;
   customEndpointHost: string | null;
@@ -1465,8 +1465,7 @@ export type RoutineCheck = {
 /**
  * Whether a `command` Check can run on this installation, and why not.
  *
- * Command Checks need the same bubblewrap boundary `bash` runs in, so on a
- * host-mode or sandbox-less install they can never pass. The editor disables
+ * Command Checks use the configured host or bubblewrap execution mode. The editor disables
  * the option and shows this reason rather than letting somebody author a Check
  * that is guaranteed to fail.
  */
@@ -2650,7 +2649,7 @@ export type RepositoryKind = "code" | "documents";
 /**
  * What an AI Employee may run in a work session on this repository: nothing,
  * only commands matching the repository's list, or anything at all. The
- * sandbox is unchanged in every case — this is about intent, not containment.
+ * execution mode is unchanged in every case — this expresses the company's command policy.
  */
 export type RepositoryCommandMode = "off" | "allowlist" | "all";
 

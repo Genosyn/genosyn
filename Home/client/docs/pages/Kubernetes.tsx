@@ -24,8 +24,7 @@ export function Kubernetes() {
           <>
             Genosyn ships an official Helm chart at{" "}
             <Code>oci://ghcr.io/genosyn/charts/genosyn</Code>, versioned in lockstep with every
-            release. You trade the one-line installer for <Code>helm</Code> — and you give up the
-            {" "}
+            release. You trade the one-line installer for <Code>helm</Code> — and you give up the{" "}
             <Code>genosyn upgrade</Code> and <Code>genosyn backup</Code> commands, which only know
             how to drive Docker on a single host.
           </>
@@ -51,8 +50,7 @@ export function Kubernetes() {
   --namespace genosyn --create-namespace`}</Pre>
       <P>
         That gives you the same shape as the one-line Docker installer: one replica, SQLite, and a
-        20Gi volume at <Code>/app/data</Code>. The pod becomes Ready once every migration has run —
-        {" "}
+        20Gi volume at <Code>/app/data</Code>. The pod becomes Ready once every migration has run —{" "}
         <Code>/api/health</Code> answers <Code>{"{ ok: true, version }"}</Code> only after boot
         completes, so a pending readiness probe during the first minute is normal. The handful of
         values that matter:
@@ -63,8 +61,7 @@ export function Kubernetes() {
             term: "ingress.enabled + ingress.host",
             def: (
               <>
-                Front the app with your Ingress controller. WebSockets share port <Code>8471</Code>
-                {" "}
+                Front the app with your Ingress controller. WebSockets share port <Code>8471</Code>{" "}
                 and pass through a plain Ingress rule on nginx and Traefik — no snippet annotations
                 needed.
               </>
@@ -98,9 +95,9 @@ export function Kubernetes() {
             term: "sandbox.enabled",
             def: (
               <>
-                Grants the securityContext the bubblewrap coding sandbox needs (seccomp{" "}
-                <Code>Unconfined</Code> + <Code>procMount: Unmasked</Code>). Off by default; see the
-                securityContext callout below for what your cluster must permit.
+                Grants the securityContext that bubblewrap needs. On in the chart&apos;s shared SaaS
+                default; off in <Code>values-selfhost.yaml</Code>, which uses host coding. See the
+                execution-mode callout below for cluster requirements.
               </>
             ),
           },
@@ -242,10 +239,10 @@ data:
       agent: {
         codingTools: {
           enabled: true,
-          executionMode: "bubblewrap",
+          executionMode: "host",
           bubblewrapPath: "/usr/bin/bwrap",
           allowNetwork: false,
-          allowUnsafeHostExecution: false,
+          allowUnsafeHostExecution: true,
         },
         browserEnabledInMultiTenant: false,
       },
@@ -259,8 +256,7 @@ data:
       <P>
         Nothing operational belongs in this file. The SMTP transport, web tools, mail sync pacing,
         meetings, the container&apos;s browser, and the agent&apos;s taint policy, member browsers,
-        and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>
-        {" "}
+        and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>{" "}
         and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
         ConfigMap edit and a rollout. Set the initial public URL before signup using the command
         below; later changes belong at <Code>Admin → General</Code>. Those values are stored in
@@ -273,10 +269,9 @@ data:
         <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
         account, enroll two-factor authentication, then configure SMTP at{" "}
         <Code>Admin → Email transport</Code>. Successful enrollment authorizes that browser session
-        immediately. Boot warns until you
-        do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile. A link that
-        scrolled out of the log can be reissued from <Code>Check your inbox</Code> once signed in —
-        it prints to the log again.
+        immediately. Boot warns until you do, and <Code>Admin → Instance Health</Code> flags the
+        transport meanwhile. A link that scrolled out of the log can be reissued from{" "}
+        <Code>Check your inbox</Code> once signed in — it prints to the log again.
       </Callout>
       <P>
         Sensitive values go in a separate <Code>Secret</Code>:
@@ -328,10 +323,6 @@ spec:
           image: ghcr.io/genosyn/app:latest
           ports:
             - containerPort: 8471
-          securityContext:
-            seccompProfile:
-              type: Unconfined
-            procMount: Unmasked
           envFrom:
             - secretRef:
                 name: genosyn-secrets
@@ -399,23 +390,15 @@ spec:
         migrations included. That makes it exactly right for readiness: traffic arrives only after
         the schema is current.
       </P>
-      <Callout kind="info" title="The securityContext is what command execution runs on.">
-        Genosyn runs every command an AI Employee asks for inside <Code>bubblewrap</Code>, which
-        creates a user namespace and mounts its own <Code>/proc</Code>. A stock pod may do neither:
-        the default seccomp profile rejects the namespace flags, and the runtime&apos;s masked{" "}
-        <Code>/proc</Code> entries are locked mounts a nested namespace may not mount over. The two
-        fields above are the cluster equivalents of the Docker options the{" "}
-        <DocLink to="/docs/cli">CLI</DocLink> passes. Both are gated:{" "}
-        <Code>procMount: Unmasked</Code> needs the <Code>ProcMountType</Code> feature gate and,
-        depending on your Kubernetes version, either user namespaces (<Code>hostUsers: false</Code>
-        {" "}
-        on the pod) or a privileged container, and Pod Security admission permits neither field
-        below the <Code>privileged</Code> level — <Code>baseline</Code> and <Code>restricted</Code>
-        {" "}
-        reject both. Genosyn itself never needs a privileged container. If your cluster will not
-        take these fields, delete them: Genosyn then boots with command execution disabled and logs
-        the reason — chat, Routines, Integrations, browser work, and the repository editor all still
-        work; builds, test suites, and the per-employee checkout do not.
+      <Callout kind="info" title="Execution mode follows the deployment shape.">
+        The single-tenant manifest above uses host coding. OpenCode runs commands with the App
+        process user&apos;s authority inside the pod, so no additional namespace permissions are
+        required. The chart&apos;s default shared SaaS deployment uses bubblewrap instead. Its
+        <Code> sandbox.enabled</Code> setting adds <Code>seccompProfile: Unconfined</Code> and
+        <Code> procMount: Unmasked</Code>; supported clusters also use
+        <Code> hostUsers: false</Code>. Cluster feature gates and admission policy must permit those
+        fields. Shared SaaS refuses to boot without working isolation; the self-host values file
+        selects host execution and needs none of those fields.
       </Callout>
 
       <H2 id="upgrading">Upgrading</H2>
@@ -434,8 +417,7 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
 
       <H2 id="backups">Backups</H2>
       <P>
-        On Docker, <Code>genosyn backup</Code> tarballs the data volume. On Kubernetes you back up
-        {" "}
+        On Docker, <Code>genosyn backup</Code> tarballs the data volume. On Kubernetes you back up{" "}
         <Strong>two</Strong> things, separately:
       </P>
       <UL>
@@ -447,8 +429,7 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
         <LI>
           <Strong>
             The <Code>genosyn-data</Code> PVC.
-          </Strong>
-          {" "}
+          </Strong>{" "}
           Use a VolumeSnapshot if your StorageClass supports it, or a CronJob that <Code>tar</Code>s
           the volume to object storage.
         </LI>

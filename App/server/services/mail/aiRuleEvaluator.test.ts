@@ -15,6 +15,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import {
   AI_RULE_BODY_CHARS,
   AI_RULE_HEADER_CHARS,
@@ -588,7 +589,7 @@ describe("restricted AI email decision runtime", () => {
                     id: "call_decision",
                     type: "function",
                     function: {
-                      name: "submit_mail_rule_decision",
+                      name: "genosyn_submit_mail_rule_decision",
                       arguments: JSON.stringify({
                         matches: true,
                         reason: "The message advertises a percentage discount.",
@@ -644,12 +645,22 @@ describe("restricted AI email decision runtime", () => {
         }),
       });
 
-      const decision = await runAiRuleDecision({
-        employee,
-        model,
-        condition: { employeeId: employee.id, instruction: "Match marketing email." },
-        message: mailMessage({ companyId: company.id }),
-      });
+      const decision = await runAiRuleDecision(
+        {
+          employee,
+          model,
+          condition: { employeeId: employee.id, instruction: "Match marketing email." },
+          message: mailMessage({ companyId: company.id }),
+        },
+        {
+          // This case validates the real wire protocol. Allow cold process
+          // startup on busy CI hosts; runtime deadline tests cover cancellation.
+          runRestricted: (input) => runRestrictedEmployeeAgent({
+            ...input,
+            signal: AbortSignal.timeout(150_000),
+          }),
+        },
+      );
 
       assert.deepEqual(decision, {
         matches: true,
@@ -659,7 +670,7 @@ describe("restricted AI email decision runtime", () => {
       assert.equal(requests[0].model, "mail-rule-test");
       assert.equal(requests[0].tools?.length, 1);
       assert.equal(requests[0].tools?.[0]?.type, "function");
-      assert.equal(requests[0].tools?.[0]?.function?.name, "submit_mail_rule_decision");
+      assert.equal(requests[0].tools?.[0]?.function?.name, "genosyn_submit_mail_rule_decision");
       assert.match(requests[0].tools?.[0]?.function?.description ?? "", /exactly once/);
 
       const parameters = requests[0].tools?.[0]?.function?.parameters;
@@ -673,16 +684,15 @@ describe("restricted AI email decision runtime", () => {
       assert.equal(properties?.reason?.type, "string");
       assert.equal(properties?.reason?.maxLength, AI_RULE_REASON_CHARS);
 
-      assert.deepEqual(
-        requests[0].messages?.map((entry) => entry.role),
-        ["system", "user"],
-      );
+      assert.equal(requests[0].messages?.at(-1)?.role, "user");
+      assert.ok(requests[0].messages?.slice(0, -1).every((entry) => entry.role === "system"));
+      assert.match(JSON.stringify(requests[0].messages), /Untrusted email data/);
       assert.deepEqual(
         requests[1].tools?.map((tool) => tool.function?.name),
-        ["submit_mail_rule_decision"],
+        ["genosyn_submit_mail_rule_decision"],
       );
       assert.equal(requests[1].messages?.at(-1)?.role, "tool");
-      assert.equal(requests[1].messages?.at(-1)?.content, "Decision recorded. End the turn now.");
+      assert.match(JSON.stringify(requests[1].messages?.at(-1)?.content), /Decision recorded\. End the turn now\./);
     } finally {
       config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...previousAllowlist);
       await new Promise<void>((resolve, reject) => {

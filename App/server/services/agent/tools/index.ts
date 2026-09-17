@@ -121,12 +121,8 @@ export async function gatherEmployeeTools(params: {
   conversationId?: string;
   runId?: string;
   signal?: AbortSignal;
-  /**
-   * Defense in depth for a subscription turn: omit bash unless bubblewrap
-   * gives it private /tmp and PID namespaces. The install-level subscription
-   * gate separately rejects enabled host-mode coding tools.
-   */
-  requireIsolatedBash?: boolean;
+  /** OpenCode supplies the native host coding tools instead of legacy wrappers. */
+  nativeCoding?: boolean;
   /** Expose tool sources that do not have a Member-level ACL. */
   allowPrivilegedToolSources?: boolean;
   /**
@@ -190,13 +186,9 @@ export async function gatherEmployeeTools(params: {
       }
     : genosynAll;
 
-  const codingEnabled = allowPrivileged && codingRuntimeAvailability().available;
-  const coding = codingEnabled
-    ? filterCodingToolsForCredentialIsolation(
-        codingTools(codingCtx),
-        Boolean(params.requireIsolatedBash),
-      )
-    : [];
+  const codingEnabled =
+    allowPrivileged && !params.nativeCoding && codingRuntimeAvailability().available;
+  const coding = codingEnabled ? filterCodingToolsForExecutionMode(codingTools(codingCtx)) : [];
   const guardedCoding = guardPrivilegedTools(coding, params.authorizePrivilegedToolCall);
 
   const tools: AgentTool[] = [
@@ -390,9 +382,8 @@ export function selectSurfaceTools(
   return guardPrivilegedTools(tools, options.authorizePrivilegedToolCall);
 }
 
-export function filterCodingToolsForCredentialIsolation(
+export function filterCodingToolsForExecutionMode(
   tools: AgentTool[],
-  required: boolean,
   executionMode = config.agent.codingTools.executionMode,
 ): AgentTool[] {
   // The path-based file tools run in the App process. Their validate-then-open
@@ -403,17 +394,10 @@ export function filterCodingToolsForCredentialIsolation(
   if (executionMode === "bubblewrap") {
     return tools.filter((tool) => tool.name === "bash");
   }
-  // Safe disabled-mode subscription turns normally never reach this branch,
-  // because codingRuntimeAvailability omits the entire coding family first.
-  // Keep the explicit filter as defense in depth so a future alternate caller
-  // cannot hand host-process file tools to a subscription model.
-  if (required) return [];
-  // A host shell runs as the App's own OS user. A working-directory setting is
-  // not a filesystem boundary: it can read the database, managed encryption
-  // roots, or another Browser child's bearer token through /proc. Keep host
-  // mode useful through the path-confined file/search tools, but never expose
-  // an unrestricted same-UID shell to an AI Employee.
-  return tools.filter((tool) => tool.name !== "bash");
+  if (executionMode === "disabled") return [];
+  // Codex subscription turns retain these adapters; ordinary host turns use
+  // OpenCode's native coding tools. Host execution is deliberately unsandboxed.
+  return tools;
 }
 
 /**

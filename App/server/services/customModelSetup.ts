@@ -5,7 +5,7 @@ import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { previewBaseURL, readCustomEndpoint } from "./customEndpoint.js";
 import { ModelSetupError } from "./modelCatalog.js";
-import { saveVerifiedModel, verifyDirectModel } from "./modelSetup.js";
+import { saveVerifiedModel, verifyOpenCodeModel } from "./modelSetup.js";
 import { createActiveModel } from "./models.js";
 
 export type CustomModelSetup = {
@@ -65,7 +65,7 @@ export async function connectCustomModel(
     candidate.contextWindow = null;
     candidate.contextWindowSource = null;
   }
-  await verifyDirectModel(candidate);
+  await verifyOpenCodeModel(candidate);
   candidate.connectedAt = new Date();
   if (previous) {
     return saveVerifiedModel(previous, candidate, { resetContext: changedTarget });

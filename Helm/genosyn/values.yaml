@@ -83,8 +83,8 @@ persistence:
   # Use a claim you manage yourself instead of the chart creating one.
   existingClaim: ""
 
-# Bubblewrap coding sandbox. Genosyn runs every command an AI Employee asks
-# for inside bubblewrap, which needs to create a user namespace and mount its
+# Optional coding isolation for self-host; required for shared SaaS. Bubblewrap
+# runs scoped commands and needs to create a user namespace and mount its
 # own /proc — a stock pod may do neither. Enabling this sets on the container:
 #     securityContext:
 #       seccompProfile: { type: Unconfined }
@@ -94,10 +94,9 @@ persistence:
 # or a privileged container. Pod Security admission rejects both fields below
 # the `privileged` level.
 #
-# Disabled, Genosyn boots with command execution disabled and logs why —
-# chat, Routines, Integrations and browser work all still function; builds and
-# per-employee checkouts do not. EXCEPT in multiTenant mode: shared SaaS
-# refuses to boot without a working sandbox, so sandbox.enabled is mandatory
+# Disabled, trusted single-tenant installs use host coding in the App container
+# without an OS sandbox. MultiTenant mode instead refuses to boot without
+# working isolation, so sandbox.enabled is mandatory
 # there (and the cluster must actually honor the fields). Enabled by default
 # because multiTenant is the default; values-selfhost.yaml turns it off.
 sandbox:

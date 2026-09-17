@@ -19,17 +19,14 @@ autonomously with AI employees**.
 - Each company can register multiple **AI Models**: **Anthropic** (Claude),
   **OpenAI** (GPT), or a **custom** OpenAI-compatible endpoint (Ollama, vLLM,
   llama.cpp, a gateway) — and assign them to employees. API-key and custom
-  models run through Genosyn's direct in-process model loop. A trusted,
-  single-tenant OpenAI model may instead use ChatGPT subscription access
-  through the official pinned `@openai/codex` app-server; this is a narrow
-  official runtime path, not a return to generic provider CLI harnesses. The
-  standard Docker default runs it beside bubblewrap-isolated coding and
-  repository work — the CLI creates the container with the two options the
-  sandbox needs (`--security-opt seccomp=unconfined`,
-  `--security-opt systempaths=unconfined`), since a stock container can neither
-  create a user namespace nor mount its own `/proc`; where user namespaces are
-  unavailable anyway, boot falls back to disabled and this path still works
-  without coding tools.
+  models run through pinned **OpenCode 1.18.31**, managed headlessly through
+  its SDK. Genosyn owns the company context, Grants, Approvals, tool registry,
+  and persisted work; OpenCode owns the model loop, native coding tools, and
+  context management. The self-hosted default executes directly on the host
+  (inside the App container when using Docker), with no OS sandbox. Bubblewrap
+  remains an optional execution mode. A trusted, single-tenant OpenAI model
+  may instead use ChatGPT subscription access through the official pinned
+  `@openai/codex` app-server.
 
 Use this guide for vocabulary and architecture, and the documentation in
 `Home/client/docs/pages/` and product source for shipped behavior.
@@ -409,35 +406,29 @@ coding tools.
   temporary `CODEX_HOME`. A managed ChatGPT session is materialized there; a
   Business / Enterprise access token is injected only into the child process
   environment. The directory is removed afterward.
-- There are **no persistent per-provider credential dirs** (`.claude`,
-  `.codex`, … are gone), generic provider CLI harnesses, or materialized MCP
-  config files. API-key and custom models receive tools from Genosyn's
-  in-process loop; OpenAI subscription models run through the official
-  pinned `@openai/codex` app-server with the same Genosyn-owned tool registry:
-    * built-in **coding tools**. Bubblewrap is the shipped default, so command
-      execution is on out of the box wherever the sandbox can start; boot
-      falls back to disabled where it cannot, never to host. Disabled mode
-      exposes no coding tools and materializes no repositories, but supports
-      subscription auth on a trusted single-tenant install.
-      Separately acknowledged host mode exposes only the path-confined
-      `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, and `grep`
-      tools; it never exposes an unrestricted same-UID shell, but its host
-      child-process posture makes subscription auth unavailable. Bubblewrap
-      mode exposes only sandboxed `bash`, rooted at the employee cwd, and also
-      supports subscription auth. Its private PID and `/tmp` namespaces isolate
-      the sibling app-server's materialized credential. Every model turn in a
-      bubblewrap deployment exposes only the sandboxed `bash` tool from this
-      family; the in-process file tools are omitted install-wide so a concurrent
-      non-subscription turn cannot race a symlink into that credential.
-      Repository clone/fetch runs through the same namespace boundary.
-      A **Repository work session** gets a second sandbox root of its own
-      through `repository_run_command`: the same bubblewrap boundary, rooted
-      at that session's worktree rather than the employee cwd, so the Member
-      checkout, sibling sessions and `git` itself stay outside it. It is
-      bubblewrap-only for the same reason `bash` is — host mode never gives an
-      AI Employee a same-UID shell — and what it may run is a company decision
-      on the Repository row (`commandMode` + `allowedCommands`). Everything
-      else a session does still needs no execution at all. A session turn
+- **OpenCode is the default runtime** for API-key and custom models. Keep the
+  binary and SDK pinned together. There is no Genosyn-owned model/tool loop or
+  history-compaction harness alongside it. Genosyn supplies each turn's
+  company context and scoped tool registry to a managed OpenCode process;
+  credentials and runtime state must not become persistent employee files.
+  A per-turn model proxy keeps API keys in Genosyn and gives OpenCode only a
+  disposable access token and endpoint.
+  OpenAI subscription models use the official pinned `@openai/codex`
+  app-server with the same Genosyn-owned domain tool registry:
+    * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
+      OpenCode's native coding tools in the default host mode. Subscription
+      turns use Genosyn's coding wrappers through the official Codex runtime.
+      Commands run with the App
+      process user's filesystem and network authority: a working directory,
+      tool permission, or Grant is not an OS sandbox. Disabled mode exposes no
+      coding tools and materializes no repositories. Optional bubblewrap mode
+      uses Genosyn's scoped command tool; OpenCode's native coding tools are
+      disabled there so they cannot bypass the selected execution mode.
+      Restricted turns also disable native coding. A **Repository work
+      session** uses `repository_run_command` rooted at its worktree, applying
+      the Repository's `commandMode` and `allowedCommands` in host or optional
+      bubblewrap mode. Its worktree keeps changes separate from the Member
+      checkout, but host execution does not isolate the process. A session turn
       receives **only** the `repository_*` tools (`ToolScope` in
       `agent/tools/index.ts`, set by `ChatOptions.workSurface`): no employee-cwd
       `bash`, no browser, no company MCP servers, no delegation, no discovery
@@ -473,19 +464,16 @@ coding tools.
       connects to as an MCP client. User-configured stdio servers are omitted
       in disabled and bubblewrap modes; HTTP servers remain available. Host is
       the only trusted single-tenant mode that permits user-configured stdio
-      children, and it rejects subscription auth.
+      children.
   The agent runtime lives in `server/services/agent/`. What stays on disk under
   the employee dir is only the working tree the coding tools operate on:
   materialized git repos and whatever the tools write into cwd. Browser state
   and Run recordings remain in the App-private paths above.
 - OpenAI subscription device sessions and managed refresh-token locks are
   process-local. The supported topology for this auth mode is one trusted,
-  single-tenant App process. The standard Docker installer supports it in the
-  default bubblewrap execution mode, alongside isolated `bash` and repository
-  work, and creates the container with the security options the sandbox needs
-  (`CLI/genosyn`, `sandbox_requested`); on a host whose namespaces bubblewrap
-  cannot use, boot falls back to disabled and the path still works without
-  coding tools, repository materialization, or user-configured stdio MCP. Horizontally
+  single-tenant App process. The standard Docker installer uses host execution
+  without requiring Linux namespaces or extra Docker security options.
+  Subscription auth remains available in this trusted deployment. Horizontally
   scaled installs must use API-key models until the coordination primitives are
   ready. Subscription turns serialize on the per-model lock and do not expose
   `delegate_parallel_work`; a delegated copy would otherwise wait on the lock
@@ -667,17 +655,16 @@ public site until it reaches `release`. See
   row. The filesystem under `data/` is for employee working trees and
   App-private runtime artifacts such as browser state and Run recordings —
   never model credentials, which live encrypted on the `AIModel` row.
-- Reintroducing generic provider CLI harnesses, persistent per-provider
-  credential dirs, Anthropic subscription/OAuth routing, or materialized MCP
-  config files. API-key and custom models are called directly via the
-  in-process agent (`server/services/agent/`). The only subscription exception
+- Reintroducing Genosyn's internal model/tool loop or compaction harness,
+  persistent per-provider credential dirs, or Anthropic subscription/OAuth
+  routing. API-key and custom models use the pinned OpenCode runtime through
+  `server/services/agent/`; keep its temporary state outside employee working
+  trees. The only subscription exception
   is trusted single-tenant OpenAI through the official pinned `@openai/codex`
   app-server, with managed session files confined to a locked temporary
   `CODEX_HOME` and access tokens confined to the child process environment for
-  a Run. The default bubblewrap execution supports that path with isolated
-  coding and repository work; the disabled fallback supports it without those
-  surfaces, while host mode and multi-tenant installs reject subscription
-  auth.
+  a Run. Trusted single-tenant host execution supports that path. Multi-tenant
+  installs reject subscription auth.
 - Naming a user-configurable MCP server `genosyn` or `browser`. Both names are
   reserved for built-in tools — `genosyn` runs in-process (dispatched to
   `routes/mcpInternal.ts`); `browser` is a stdio binary at `server/mcp-browser/`.

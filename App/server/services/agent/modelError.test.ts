@@ -15,6 +15,18 @@ function model(provider: Provider, overrides: Partial<AIModel> = {}): AIModel {
 }
 
 describe("formatModelError classification", () => {
+  test("identifies local OpenCode failures separately from provider rejections", () => {
+    for (const message of [
+      "OpenCode did not start within 90 seconds.",
+      "Could not launch the installed OpenCode runtime (ENOENT).",
+      "OpenCode's activity stream ended before the turn finished.",
+    ]) {
+      const out = formatModelError(model("openai"), new Error(message));
+      assert.match(out, /^The OpenCode runtime could not complete this work\./);
+      assert.match(out, /Ask the Genosyn operator/);
+      assert.doesNotMatch(out, /AI Model rejected|Replace the saved API key|Open Settings/);
+    }
+  });
   test("explains authentication failures without duplicating embedded metadata", () => {
     const out = formatModelError(model("openai"), {
       status: 401,
@@ -55,10 +67,7 @@ describe("formatModelError classification", () => {
   test("recognizes timeouts by status, name, and message", () => {
     const gateway = formatModelError(model("openai"), { statusCode: 504, message: "gateway" });
     assert.match(gateway, /did not respond in time/);
-    assert.match(
-      gateway,
-      /retries unanswered model requests up to five times with exponential backoff/,
-    );
+    assert.match(gateway, /OpenCode manages model retries/);
     assert.match(gateway, /within the Run or chat deadline/);
     assert.match(
       formatModelError(model("openai"), { name: "AbortError", message: "cancelled" }),
@@ -81,7 +90,7 @@ describe("formatModelError classification", () => {
       }),
     );
     assert.match(nested, /did not respond in time/);
-    assert.match(nested, /up to five times with exponential backoff/);
+    assert.match(nested, /OpenCode manages model retries/);
     const permanent = formatModelError(model("custom"), {
       status: 400,
       message: "Invalid timeout parameter",

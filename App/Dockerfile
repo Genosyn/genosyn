@@ -2,11 +2,10 @@
 # Multi-stage build for the Genosyn App (Express API + React client).
 # Client is built with Vite and served as static assets by the Express server.
 #
-# API-key and custom models talk to their APIs directly in-process. The pinned
-# `@openai/codex` dependency contributes one narrow official app-server binary
-# for self-hosted OpenAI subscription models; generic provider CLIs remain
-# removed. The rest of the runtime toolset is a shell + git for Genosyn's
-# coding/repo tools and a real Google Chrome for its browser tool.
+# API-key and custom models use the pinned OpenCode runtime. The pinned
+# `@openai/codex` dependency contributes the official app-server for self-hosted
+# OpenAI subscription models. The remaining runtime tools are shell + git for
+# Repository work and Google Chrome for browser work.
 #
 # The base is Debian, not Alpine, and that is load-bearing rather than taste.
 # Google ships Chrome for glibc only; on musl the best available browser was
@@ -25,7 +24,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 COPY App/package.json App/package-lock.json* ./
-RUN npm ci
+RUN npm ci --include=optional
 
 # ---------- build ----------
 FROM node:22-bookworm-slim AS build
@@ -122,7 +121,10 @@ RUN install -d -m 1777 /tmp/.X11-unix
 # prune dev deps in-place.
 COPY App/package.json App/package-lock.json* ./
 COPY --from=deps /build/App/node_modules ./node_modules
-RUN npm prune --omit=dev && npm cache clean --force
+RUN npm prune --omit=dev --include=optional && npm cache clean --force
+# OpenCode's executable is supplied by an architecture-specific optional
+# dependency. Verify it survived pruning on both published Linux architectures.
+RUN test "$(./node_modules/.bin/opencode --version)" = "1.18.31"
 
 # Built artifacts (server + client)
 COPY --from=build /build/App/dist ./dist
@@ -136,14 +138,11 @@ COPY --from=build /build/App/config.ts ./config.ts
 # Meet notetaker, then execs CMD.
 COPY --chmod=0755 App/docker-entrypoint.sh /usr/local/bin/genosyn-entrypoint
 
-# Fail the image build if the standard runtime contract drifts: command
-# execution is on out of the box, and the only mode the stock image may ship it
-# in is bubblewrap, whose executable therefore has to be here. A host that
-# refuses user namespaces falls back to disabled at boot, which is why this
-# check does not enter a namespace and the build needs no privileged flags.
+# Host command execution is the default and needs no namespace privileges.
+# Keep bubblewrap installed for operators who explicitly select isolation.
 RUN command -v bwrap >/dev/null \
     && bwrap --version >/dev/null \
-    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "bubblewrap") throw new Error(`Expected stock executionMode=bubblewrap, received ${config.agent.codingTools.executionMode}`);'
+    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "host" || !config.agent.codingTools.allowUnsafeHostExecution) throw new Error("Expected stock host execution to be enabled");'
 
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing

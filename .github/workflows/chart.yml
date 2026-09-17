@@ -66,7 +66,19 @@ jobs:
             --set sandbox.hostUsers=null > /dev/null
           # Single-tenant self-host shape.
           helm template genosyn Helm/genosyn \
-            -f Helm/genosyn/values-selfhost.yaml > /dev/null
+            -f Helm/genosyn/values-selfhost.yaml > selfhost.yaml
+          if grep -Eq 'procMount: Unmasked|seccompProfile:|hostUsers:' selfhost.yaml; then
+            echo "self-hosted OpenCode must not require sandbox privileges" >&2
+            exit 1
+          fi
+          # Explicit shared hosting still requires its selected isolation.
+          if helm template genosyn Helm/genosyn \
+            --set config.bootstrapMasterAdminEmail=ops@example.com \
+            --set sandbox.enabled=false > /dev/null 2> shared-host.err; then
+            echo "expected shared hosting with sandbox disabled to fail" >&2
+            exit 1
+          fi
+          grep -q "sandbox.enabled must be true" shared-host.err
           # Negative test: a bare default template must fail closed with ONE
           # aggregated message naming everything missing at once.
           if helm template genosyn Helm/genosyn > /dev/null 2> bare-default.err; then
@@ -89,8 +101,25 @@ jobs:
           }
           render --set config.bootstrapMasterAdminEmail=ops@example.com > default-config.mjs
           render -f Helm/genosyn/values-selfhost.yaml > selfhost-config.mjs
+          render -f Helm/genosyn/values-selfhost.yaml --set sandbox.enabled=true > isolated-selfhost-config.mjs
           node --check default-config.mjs
           node --check selfhost-config.mjs
+          node --check isolated-selfhost-config.mjs
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          const { config: shared } = await import("./default-config.mjs");
+          const { config: selfhost } = await import("./selfhost-config.mjs");
+          const { config: isolated } = await import("./isolated-selfhost-config.mjs");
+          assert.equal(shared.security.multiTenant, true);
+          assert.equal(shared.agent.codingTools.executionMode, "bubblewrap");
+          assert.equal(shared.agent.codingTools.allowUnsafeHostExecution, false);
+          assert.equal(selfhost.security.multiTenant, false);
+          assert.equal(selfhost.agent.codingTools.enabled, true);
+          assert.equal(selfhost.agent.codingTools.executionMode, "host");
+          assert.equal(selfhost.agent.codingTools.allowUnsafeHostExecution, true);
+          assert.equal(isolated.agent.codingTools.executionMode, "bubblewrap");
+          assert.equal(isolated.agent.codingTools.allowUnsafeHostExecution, false);
+          NODE
 
   publish:
     name: Package & push to GHCR

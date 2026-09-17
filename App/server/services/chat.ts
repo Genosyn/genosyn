@@ -68,7 +68,7 @@ import {
  * Chat seam.
  *
  * The product surface is: a human sits at a keyboard and types at an AI
- * employee. We run the in-process agent against the employee's model API,
+ * employee. We run OpenCode (or official Codex for subscription access),
  * seeding it with the employee's Soul + skills + recent conversation turns + the
  * latest message — all pulled from the DB — and hand it the same tools a routine
  * run gets (coding, genosyn, browser, company MCP servers).
@@ -644,10 +644,11 @@ export async function streamChatWithEmployee(
           maxSteps: 4,
           signal: controller.signal,
           callbacks: {
+            shouldStreamText: () => discussionSource.wasRead(),
             onModelRetry: (retry) => {
               console.warn(
                 `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
-                  `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
+                  `${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${retry.delayMs}ms`,
               );
             },
             onText: (delta) => {
@@ -707,9 +708,7 @@ export async function streamChatWithEmployee(
         ? [...CODING_TOOL_NAMES]
         : config.agent.codingTools.executionMode === "bubblewrap"
           ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-          : model.authMode === "subscription"
-            ? [...CODING_TOOL_NAMES]
-            : [];
+          : [];
     const unavailableSkillTools = [
       ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
       ...unavailableCodingTools,
@@ -905,7 +904,7 @@ export async function streamChatWithEmployee(
           onModelRetry: (retry) => {
             console.warn(
               `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
-                `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
+                `${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${retry.delayMs}ms`,
             );
             options.activity?.onModelRetry?.(retry);
           },

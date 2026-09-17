@@ -869,15 +869,16 @@ describe("bash", () => {
   test("reports a mid-command abort and prevents later command effects", async (t) => {
     const { root } = await makeWorkspace(t);
     const controller = new AbortController();
-    const started = Date.now();
-    const pending = toolset(root, { signal: controller.signal, bashTimeoutMs: 2_000 }).bash.run({
-      command: "printf 'started'; sleep 5; touch should-not-exist",
+    const pending = toolset(root, { signal: controller.signal, bashTimeoutMs: 10_000 }).bash.run({
+      command: "printf 'started'; touch command-started; sleep 30; touch should-not-exist",
     });
-    setTimeout(() => controller.abort(), 60);
+    await waitFor(() => pathExists(path.join(root, "command-started")), "command never started");
+    const stoppedAt = Date.now();
+    controller.abort();
     const result = await pending;
     assertToolError(result, /abort/i);
     assert.match(result.content, /started/);
-    assert.ok(Date.now() - started < 1_500, "abort did not stop the command promptly");
+    assert.ok(Date.now() - stoppedAt < 1_500, "abort did not stop the command promptly");
     assert.equal(await pathExists(path.join(root, "should-not-exist")), false);
   });
 
@@ -904,7 +905,7 @@ describe("bash", () => {
     }
     const { root } = await makeWorkspace(t);
     await fs.writeFile(path.join(root, "child-timeout-gate"), "wait");
-    const result = await toolset(root, { bashTimeoutMs: 150 }).bash.run({
+    const result = await toolset(root, { bashTimeoutMs: 2_000 }).bash.run({
       command:
         "touch child-started; (while [ -e child-timeout-gate ]; do sleep 0.05; done; touch child-survived) & wait",
     });

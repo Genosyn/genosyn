@@ -5,8 +5,8 @@ import { decryptSecret } from "../lib/secret.js";
  * `customEndpoint` auth mode lets an AI Employee talk to a self-hosted
  * OpenAI-compatible server (Ollama / vLLM / llama.cpp / LM Studio / a gateway)
  * configured entirely from the Genosyn UI. The decrypted config feeds an
- * OpenAI-compatible client directly (see services/agent/modelClients) — there
- * is no config file on disk any more.
+ * OpenCode through a per-turn model bridge. Credentials remain on the
+ * encrypted AI Model row; there is no persistent provider profile.
  *
  * configJson shape (encrypted-at-rest fields are AES-256-GCM via `lib/secret`,
  * keyed from the instance encryption key ring):

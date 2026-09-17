@@ -64,7 +64,7 @@ test("every transport wording Codex can report earns the network guidance", () =
   }
 });
 
-test("repository materialization is isolated or omitted when subscription auth can run", () => {
+test("repository materialization follows the coding switch for subscription and API auth", () => {
   assert.equal(
     shouldMaterializeRepositoriesForTurnFor({
       authMode: "subscription",
@@ -87,7 +87,7 @@ test("repository materialization is isolated or omitted when subscription auth c
       codingToolsEnabled: true,
       codingToolsExecutionMode: "host",
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldMaterializeRepositoriesForTurnFor({
@@ -220,7 +220,7 @@ test("a failed refreshing read surfaces its own error instead of a bare rejectio
   );
 });
 
-test("subscription auth accepts safe disabled and isolated bubblewrap deployments", () => {
+test("subscription auth accepts trusted host, disabled, and optional bubblewrap deployments", () => {
   for (const codingToolsExecutionMode of ["disabled", "host", "bubblewrap"] as const) {
     assert.match(
       subscriptionUnavailableReasonFor({
@@ -232,14 +232,14 @@ test("subscription auth accepts safe disabled and isolated bubblewrap deployment
       /self-hosted/,
     );
   }
-  assert.match(
+  assert.equal(
     subscriptionUnavailableReasonFor({
       multiTenant: false,
       codingToolsEnabled: true,
       codingToolsExecutionMode: "host",
       bubblewrapAvailable: true,
-    }) ?? "",
-    /host-process tools/,
+    }),
+    null,
   );
   assert.equal(
     subscriptionUnavailableReasonFor({
@@ -277,13 +277,13 @@ test("subscription auth accepts safe disabled and isolated bubblewrap deployment
     }),
     null,
   );
-  assert.match(
+  assert.equal(
     subscriptionUnavailableReasonFor({
       multiTenant: false,
       codingToolsEnabled: false,
       codingToolsExecutionMode: "host",
       bubblewrapAvailable: false,
-    }) ?? "",
-    /host-process tools/,
+    }),
+    null,
   );
 });

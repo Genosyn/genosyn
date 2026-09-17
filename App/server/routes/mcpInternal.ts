@@ -711,7 +711,7 @@ import {
 /**
  * Internal HTTP surface for the built-in `genosyn` tools.
  *
- * The in-process agent (`services/agent/`) calls these endpoints over loopback
+ * The runtime tool registry (`services/agent/`) calls these endpoints over loopback
  * with a short-lived Bearer token when the model invokes a genosyn tool, and
  * the `browser` MCP child calls them to queue approvals. Authentication is the
  * token, which resolves to the acting {employee, company} pair via
@@ -1032,7 +1032,7 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
 
 /**
  * The static tool catalogue. This route + `mcp/toolManifest.ts` are the single
- * source of truth; the in-process agent imports STATIC_TOOLS directly, so this
+ * source of truth; the runtime registry imports STATIC_TOOLS directly, so this
  * endpoint is retained mainly for external/manifest consumers. The list is
  * identical for every employee; integration-backed tools are discovered
  * separately via `/integrations/_list`.
@@ -1145,13 +1145,10 @@ function serializeRoutine(
 /**
  * How much of a Routine's brief `list_routines` shows per row.
  *
- * A brief can be 20k chars, and `services/agent/loop.ts` hard-clips a whole
- * tool result at `toolResultCap()` — as little as 8k on a small-window model.
- * Returning full briefs from a *list* therefore truncated the JSON mid-array,
- * and every routine past the cut lost its `id` — the one field `update_routine`
- * needs. The employee could see the routine existed and still had no way to
- * edit it. A listing stays identity-first and bounded; `get_routine` serves the
- * full brief for the one routine the model actually cares about.
+ * A brief can be 20k chars. Returning full briefs from a list can exceed the
+ * runtime's tool-result budget and hide later rows, including the ids needed
+ * to update them. A listing stays identity-first and bounded; `get_routine`
+ * serves the full brief for the one routine the model actually cares about.
  */
 const ROUTINE_BRIEF_PREVIEW_CHARS = 280;
 
@@ -13978,13 +13975,10 @@ const EXPORT_RESOURCE_MAX_BYTES = 8 * 1024 * 1024; // 8 MiB cap on the render it
 /**
  * Above this, the rendered bytes are not handed to the model at all.
  *
- * `loop.ts` clips every tool result at `toolResultCap` — 60,000 characters,
- * and as little as 8,000 on a small context window. A base64 string is a third
- * larger than its source, so an export much past 40 KB came back as a
- * truncated prefix; `Buffer.from(prefix, "base64")` does not throw, it decodes
- * what it was given and drops the rest, so the human received a corrupt PDF
- * and nothing anywhere errored. 4 KiB is the largest payload that survives
- * even the 8,000-character floor.
+ * Runtime result budgets can truncate large base64 strings; decoding the
+ * remaining prefix can silently produce a corrupt file. Keep only very small
+ * exports inline and deliver larger files through their staged attachment.
+ * This also fits the subscription runtime's smallest tool-result budget.
  *
  * Nothing is lost above it: the render is staged for the turn either way, so
  * the file reaches the human as a download chip on the reply without the model

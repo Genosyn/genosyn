@@ -22,8 +22,8 @@ export function Employees() {
         lead={
           <>
             An AI Employee is a persistent teammate attached to a company. They have a name, a role,
-            a model, a sandboxed working directory, and three editable pieces of prose that define
-            who they are and how they work.
+            a model, a working directory, and three editable pieces of prose that define who they
+            are and how they work.
           </>
         }
       />
@@ -166,28 +166,26 @@ export function Employees() {
 └── ...   # files enabled coding tools read and write`}
       </pre>
       <P>
-        Coding access depends on the installation mode. The default bubblewrap mode provides
-        sandboxed <Code>bash</Code> and materializes repositories; where its Linux namespaces are
-        unavailable, boot falls back to disabled, which exposes no coding tools and materializes no
-        repositories. Separately acknowledged host mode provides path-confined file and search tools
-        rooted in this directory (<Code>read_file</Code>, <Code>write_file</Code>,{" "}
-        <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>, and <Code>grep</Code>) but
-        never exposes <Code>bash</Code>, because a working directory is not a security boundary for
-        an unrestricted same-user shell. The runner captures the agent transcript into a Run log.
-        API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription models use
-        the official Codex app-server. A Routine does not make its AI Employee unavailable: Members
-        can keep chatting with that employee and start independent Routines in parallel without a
-        per-company application cap. Several conversations with the same AI Employee also reply in
-        parallel; only two turns in one thread are serialized. Concurrent work shares this directory
-        when coding is enabled, so give overlapping Runs distinct output files and avoid
-        simultaneous edits to the same git working tree. Model credentials stay encrypted in the
-        database. They never enter the employee working directory. For an OpenAI subscription login
-        or Run, Genosyn gives the official app-server a locked temporary <Code>CODEX_HOME</Code>.
-        Managed ChatGPT sessions are materialized there; access tokens enter only the child process
-        environment. Genosyn removes the directory afterward. Trusted single-tenant installs support
-        subscription auth in the bubblewrap default, including standard Docker, alongside isolated
-        coding and repository synchronization — and in the disabled fallback, with no coding tools
-        or repository materialization. Host mode rejects subscription auth.
+        API-key and custom models use OpenCode. Ordinary employee work uses its native coding tools
+        in the default host mode, including shell commands; this directory is the starting location,
+        not an OS sandbox. Optional bubblewrap mode provides isolated commands, and disabled mode
+        omits coding and employee repository materialization. Repository work sessions use their own
+        worktrees and scoped tools. The runner captures the transcript into the Run log.
+      </P>
+      <P>
+        A Routine does not make its AI Employee unavailable: Members can keep chatting with that
+        employee and start independent Routines in parallel. Only two turns in one conversation are
+        serialized. Concurrent work shares this directory when coding is enabled, so give
+        overlapping Runs distinct output files and avoid simultaneous edits to the same git working
+        tree.
+      </P>
+      <P>
+        Model credentials stay encrypted in the database. Genosyn configures OpenCode in a temporary
+        runtime directory outside the employee working directory. OpenAI subscription models use the
+        official Codex app-server with a locked temporary <Code>CODEX_HOME</Code> for a login or
+        Run. Managed ChatGPT sessions are materialized there; access tokens enter only the child
+        process environment. Genosyn removes temporary authentication state afterward. Subscription
+        auth supports a trusted single-tenant App process in host, bubblewrap, or disabled mode.
       </P>
 
       <H3 id="org-chart">Org chart</H3>
@@ -241,11 +239,11 @@ export function Employees() {
           <Strong>how full the model&apos;s context window is</Strong> — the share of it the last
           turn&apos;s prompt occupied. The number comes from the provider&apos;s own token count for
           that turn, never a local estimate, and it updates as the employee works. Hover it for the
-          exact figures. Past 80% it turns amber: the employee is close to the point where Genosyn
-          starts dropping the oldest tool results to make room, which is the moment to finish the
-          thread or type <Code>/new</Code> for a fresh context. If the AI Model has no known context
-          window the badge shows the token count alone and links to the model settings, because
-          there is no ceiling to measure against — see{" "}
+          exact figures. Past 80% it turns amber: the runtime may need to compact history soon.
+          OpenCode manages that compaction for API-key and custom models. You can also finish the
+          conversation or type <Code>/new</Code> for a fresh context. If the AI Model has no known
+          context window the badge shows the token count alone and links to the model settings,
+          because there is no ceiling to measure against — see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>

@@ -334,6 +334,21 @@ describe("guide truncation and continuation", () => {
     assert.ok(!body?.includes("read_file"));
   });
 
+  test("keeps native-runtime continuation independent of a particular file tool name", () => {
+    write("AGENTS.md", prose.repeat(100));
+    const body = readContributorGuide(checkout, {
+      readTool: "available",
+      pathPrefix: "repositories/team",
+      maxInlineBytes: 30,
+    })?.body;
+    assert.match(
+      body ?? "",
+      /Read `repositories\/team\/AGENTS\.md` with the available file-reading tool/,
+    );
+    assert.match(body ?? "", /from line 3 in bounded windows/);
+    assert.doesNotMatch(body ?? "", /read_file|offset=|limit=/);
+  });
+
   test("clamps caller budgets and can preserve discovery with no excerpt", () => {
     write("AGENTS.md", "a".repeat(MAX_AGENTS_GUIDE_FILE_BYTES));
     for (const maxInlineBytes of [Infinity, NaN, MAX_AGENTS_GUIDE_FILE_BYTES]) {

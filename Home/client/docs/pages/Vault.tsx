@@ -177,14 +177,11 @@ export function Vault() {
         that work is finished. Grant checks happen again at the moment of use, so revocation fails
         closed.
       </Callout>
-      <Callout kind="info" title="Coding is isolated or disabled by mode">
-        A working directory alone cannot contain a same-user shell: it could read the Vault
-        database, installation encryption key, or another Browser session. So <Code>bash</Code> is
-        available only in a working Linux bubblewrap deployment — the default — and nowhere else:
-        where that sandbox cannot start, boot falls back to disabled mode, which exposes no coding
-        tools at all. Genosyn gives AI Employees in separately acknowledged host mode only
-        path-confined file and search tools. This boundary applies even to an employee with no Vault
-        Grants.
+      <Callout kind="info" title="Host coding shares the App process authority">
+        Vault Grants govern access through Genosyn&apos;s tools. The default host coding mode is not
+        an OS sandbox: a command can access files and services available to the App process user.
+        Select optional bubblewrap or disable coding when that process-level separation is required.
+        See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
       </Callout>
       <P>
         With Manage, <Code>update_vault_login</Code> can change the title, username, or private
@@ -242,8 +239,7 @@ export function Vault() {
 
       <H2 id="create">Let an AI Employee create a login safely</H2>
       <P>
-        AI Employees can store new credentials without first learning the password in model context.
-        {" "}
+        AI Employees can store new credentials without first learning the password in model context.{" "}
         <Code>create_vault_login</Code> generates a strong password inside Genosyn, encrypts it
         immediately, creates a company-visible login, and gives the creating employee a Manage
         Grant. Members can therefore recover the credential, while other AI Employees still receive
@@ -263,12 +259,10 @@ export function Vault() {
         During authenticator enrollment, <Code>browser_prepare_vault_totp</Code> first binds an
         AI-created Login to the exact origin. <Code>browser_save_vault_totp</Code> then reads the
         selected same-origin setup key, authenticator QR image, or containing element. Genosyn
-        validates and encrypts it server-side, and the Vault action itself does not return the
-        setup key. Browser output stays unfiltered, so a key or code the site displays can still
-        appear in a snapshot or screenshot. Later, <Code>browser_fill_vault</Code> with the{" "}
-        <Code>totp</Code> field generates and fills a current code. For approval-gated forms,{
-          " "
-        }
+        validates and encrypts it server-side, and the Vault action itself does not return the setup
+        key. Browser output stays unfiltered, so a key or code the site displays can still appear in
+        a snapshot or screenshot. Later, <Code>browser_fill_vault</Code> with the <Code>totp</Code>{" "}
+        field generates and fills a current code. For approval-gated forms,{" "}
         <Code>browser_submit_with_vault_totp</Code> generates that code only after Approval is
         claimed and submits it immediately. A QR format Genosyn cannot decode still needs take-over
         or manual setup-key entry in the Vault editor.
@@ -276,8 +270,7 @@ export function Vault() {
       <P>
         Passkeys use bounded Browser ceremonies. <Code>browser_create_vault_passkey</Code> triggers
         the selected registration control, captures and encrypts the resulting credential, and
-        removes the temporary authenticator before returning. <Code>browser_use_vault_passkey</Code>
-        {" "}
+        removes the temporary authenticator before returning. <Code>browser_use_vault_passkey</Code>{" "}
         similarly restores one granted credential only for the selected sign-in action, saves its
         updated counter, and removes it before returning. These tools are refused in Member browsers
         and never access Touch ID, Face ID, a password-manager passkey, or a hardware security key.
@@ -304,8 +297,7 @@ export function Vault() {
       </P>
       <Callout kind="info" title="The Audit log page is gated.">
         Reading the Audit log needs the Scale plan on Genosyn Cloud, or a Genosyn Enterprise license
-        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and
-        {" "}
+        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and{" "}
         <DocLink to="/docs/enterprise-license" />.
       </Callout>
       <UL>

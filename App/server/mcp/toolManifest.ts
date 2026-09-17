@@ -8,7 +8,7 @@
  * is not stored here.
  *
  * Two consumers read this manifest:
- *   - the in-process agent (`services/agent/tools/genosyn.ts`), which maps each
+ *   - the runtime tool registry (`services/agent/tools/genosyn.ts`), which maps each
  *     entry to a model tool and dispatches calls to `POST /tools/<name>`; and
  *   - the external Streamable-HTTP endpoint (`routes/mcpConnect.ts`), which
  *     imports it directly to answer `tools/list` for outside MCP clients.
@@ -34,9 +34,9 @@ export type McpToolSpec = {
   description: string;
   inputSchema: McpToolInputSchema;
   /**
-   * The tool only observes state. The in-process agent runs a model turn's
-   * read-only calls concurrently; anything unmarked is treated as a write and
-   * keeps the model's ordering. See `AgentTool.readOnly`.
+   * The tool only observes state. This informs MCP annotations and restricted
+   * work surfaces; it does not bypass live authorization or imply concurrency.
+   * See `AgentTool.readOnly`.
    */
   readOnly?: boolean;
 };

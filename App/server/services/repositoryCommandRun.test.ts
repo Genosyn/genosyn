@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { after, before, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import {
   MAX_SESSION_COMMAND_OUTPUT,
@@ -14,9 +14,8 @@ import {
 /**
  * Running a command for a Repository work session.
  *
- * The production path is bubblewrap and only bubblewrap, so these tests keep
- * the execution mode set to it and stand a shim in for the `bwrap` binary,
- * which a developer machine will not have. The shim honours the two parts of
+ * The optional bubblewrap suites stand a shim in for the `bwrap` binary,
+ * which a developer machine may not have. The shim honours the two parts of
  * the invocation these tests are about — `--setenv` and everything after `--`
  * — and ignores the namespace flags, which have their own construction suite
  * in `agent/bubblewrap.test.ts`. Everything else on the path is the real code:
@@ -94,13 +93,12 @@ describe("whether a session may run commands at all", () => {
     assert.match(decision.available ? "" : decision.reason, /does not let AI employees run/);
   });
 
-  test("no in host mode, however the repository is configured", () => {
+  test("yes in enabled host mode, with no sandbox executable needed", () => {
     mutableCodingConfig.executionMode = "host";
     mutableCodingConfig.allowUnsafeHostExecution = true;
     try {
       const decision = workSessionCommandAvailability({ commandMode: "all" });
-      assert.equal(decision.available, false);
-      assert.match(decision.available ? "" : decision.reason, /bubblewrap/);
+      assert.deepEqual(decision, { available: true });
     } finally {
       mutableCodingConfig.executionMode = "bubblewrap";
       mutableCodingConfig.allowUnsafeHostExecution = original.allowUnsafeHostExecution;
@@ -463,5 +461,202 @@ describe("refusing one", () => {
       command: "echo hi",
     });
     assert.ok(isCommandRefusal(result));
+  });
+});
+
+describe("host commands used by OpenCode work sessions", () => {
+  beforeEach(() => {
+    mutableCodingConfig.enabled = true;
+    mutableCodingConfig.executionMode = "host";
+    mutableCodingConfig.allowUnsafeHostExecution = true;
+  });
+  afterEach(() => {
+    mutableCodingConfig.executionMode = "bubblewrap";
+    mutableCodingConfig.allowUnsafeHostExecution = original.allowUnsafeHostExecution;
+  });
+
+  test("runs an allowed package script in a nested package without launching bubblewrap", async (t) => {
+    const directory = await worktree(t);
+    const cwd = "packages/company site";
+    await fs.mkdir(path.join(directory, cwd), { recursive: true });
+    await fs.writeFile(
+      path.join(directory, cwd, "package.json"),
+      JSON.stringify({
+        name: "host-session-fixture",
+        scripts: { test: "node -e \"console.log('host package passed')\"" },
+      }),
+    );
+    await fs.writeFile(argvLog, "not invoked");
+    const result = await runWorkSessionCommand({
+      repo: LISTED_REPO,
+      directory,
+      cwd,
+      command: "npm test",
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.exitCode, 0, result.output);
+    assert.equal(result.cwd, cwd);
+    assert.match(result.output, /host package passed/);
+    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+  });
+
+  test("captures stdout, stderr, and a failing exit status", async (t) => {
+    const directory = await worktree(t);
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "echo checked; echo failure >&2; exit 7",
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.exitCode, 7);
+    assert.match(result.output, /checked/);
+    assert.match(result.output, /failure/);
+    assert.equal(result.aborted, false);
+    assert.equal(result.timedOut, false);
+  });
+
+  test("uses a clean temporary home and removes it after the command", async (t) => {
+    const directory = await worktree(t);
+    const secretName = "GENOSYN_HOST_COMMAND_PARENT_TEST_SECRET";
+    const previousSecret = process.env[secretName];
+    const previousBashEnv = process.env.BASH_ENV;
+    process.env[secretName] = "must-not-be-inherited";
+    process.env.BASH_ENV = path.join(directory, "profile.sh");
+    await fs.writeFile(process.env.BASH_ENV, "echo unexpected-profile\n");
+    t.after(() => {
+      if (previousSecret === undefined) delete process.env[secretName];
+      else process.env[secretName] = previousSecret;
+      if (previousBashEnv === undefined) delete process.env.BASH_ENV;
+      else process.env.BASH_ENV = previousBashEnv;
+    });
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: `node -e 'console.log(JSON.stringify({ home: process.env.HOME, ci: process.env.CI, secret: process.env.${secretName}, bashEnv: process.env.BASH_ENV })); require("node:fs").writeFileSync(process.env.HOME + "/cache", "temporary")'`,
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.exitCode, 0);
+    const reported = JSON.parse(result.output) as {
+      home: string;
+      ci: string;
+      secret?: string;
+      bashEnv?: string;
+    };
+    assert.equal(reported.ci, "1");
+    assert.equal(reported.secret, undefined);
+    assert.equal(reported.bashEnv, undefined);
+    assert.ok(!reported.home.startsWith(directory));
+    await assert.rejects(fs.stat(reported.home), { code: "ENOENT" });
+    assert.deepEqual((await fs.readdir(directory)).sort(), [".git", "profile.sh"]);
+  });
+
+  test("preserves the Repository command list and command-off setting", async (t) => {
+    const directory = await worktree(t);
+    for (const repo of [
+      { commandMode: "allowlist" as const, allowedCommands: "npm test" },
+      { commandMode: "off" as const, allowedCommands: "" },
+    ]) {
+      const result = await runWorkSessionCommand({ repo, directory, command: "touch forbidden" });
+      assert.ok(isCommandRefusal(result));
+      await assert.rejects(fs.stat(path.join(directory, "forbidden")), { code: "ENOENT" });
+    }
+  });
+
+  test("preserves an explicit install opt-out", async (t) => {
+    const directory = await worktree(t);
+    mutableCodingConfig.allowUnsafeHostExecution = false;
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "touch forbidden",
+    });
+    assert.ok(isCommandRefusal(result));
+    await assert.rejects(fs.stat(path.join(directory, "forbidden")), { code: "ENOENT" });
+  });
+
+  test("rejects a working directory outside the session and managed Git metadata", async (t) => {
+    const directory = await worktree(t);
+    for (const cwd of ["../", "/tmp", ".git"]) {
+      const result = await runWorkSessionCommand({
+        repo: OPEN_REPO,
+        directory,
+        cwd,
+        command: "true",
+      });
+      assert.ok(isCommandRefusal(result));
+    }
+  });
+
+  test("timeout stops the process and retains its evidence", async (t) => {
+    const directory = await worktree(t);
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "echo started; sleep 30",
+      timeoutMs: 700,
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.timedOut, true);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /started/);
+  });
+
+  test("cancellation stops a running host command", async (t) => {
+    const directory = await worktree(t);
+    const controller = new AbortController();
+    const pending = runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "sleep 30",
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 100);
+    const result = await pending;
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.aborted, true);
+    assert.equal(result.exitCode, null);
+  });
+
+  test("an already cancelled session does not launch its command", async (t) => {
+    const directory = await worktree(t);
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "touch forbidden",
+      signal: controller.signal,
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.aborted, true);
+    await assert.rejects(fs.stat(path.join(directory, "forbidden")), { code: "ENOENT" });
+  });
+
+  test("background descendants are stopped as soon as the shell exits", async (t) => {
+    const directory = await worktree(t);
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "sleep 30 & echo finished",
+      timeoutMs: 2_000,
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.timedOut, false, "a background process must not keep the command open");
+    assert.match(result.output, /finished/);
+  });
+
+  test("large host output keeps its beginning and failure summary", async (t) => {
+    const directory = await worktree(t);
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: `node -e 'process.stdout.write("FIRST\\n" + "x".repeat(200000) + "\\nFAILURE SUMMARY")'`,
+    });
+    assert.ok(!isCommandRefusal(result));
+    assert.equal(result.truncated, true);
+    assert.match(result.output, /^FIRST/);
+    assert.match(result.output, /FAILURE SUMMARY$/);
+    assert.ok(Buffer.byteLength(result.output) < MAX_SESSION_COMMAND_OUTPUT + 1024);
   });
 });

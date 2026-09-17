@@ -215,11 +215,11 @@ try {
   await page.getByLabel("Base URL", { exact: true }).fill(modelURL);
   await page.getByLabel("Model ID", { exact: true }).fill("qa-local-model");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByText("Avery QA's models", { exact: true }).waitFor();
+  await page.getByText("Avery QA's models", { exact: true }).waitFor({ timeout: 150_000 });
   assert(serverLog.includes("[fullstack-model-probe] verified"));
   const models = await read<Array<{ status: string; isActive: boolean }>>(`${employeeBase}/models`);
   assert(models.some((model) => model.status === "connected" && model.isActive));
-  record("Assigned mock AI Model after a real streaming tool-use connection test");
+  record("Connected an AI Model through real OpenCode and a local streaming tool-use test");
 
   await page.getByRole("button", { name: "Choose Routines", exact: true }).click();
   await page.getByRole("heading", { name: "Suggested Routines", exact: true }).waitFor();
@@ -275,14 +275,14 @@ try {
   assert(skills.some((skill) => skill.name === "Release checklist"));
   record("Skill created for the AI Employee");
 
-  // Exercise the actual model loop, scoped failure-report tool, persistence and
-  // browser Run log together. The loopback model returns deterministic replies.
+  // Exercise actual OpenCode, the scoped failure-report tool, persistence, and
+  // browser Run log together. Only the loopback model replies are deterministic.
   for (const [marker, expectedStatus, label] of [
     ["qa-routine-success", "completed", "Completed"],
     ["qa-routine-failure", "failed", "Failed"],
     ["qa-routine-error", "error", "Error"],
     ["qa-routine-timeout-recovered", "completed", "Completed after model timeouts"],
-    ["qa-routine-timeout-exhausted", "error", "Error after five model timeout retries"],
+    ["qa-routine-retry-terminal-error", "error", "Error after a retried request becomes terminal"],
   ] as const) {
     const created = await page.request.post(`${origin}${employeeBase}/routines`, {
       data: { name: marker, cronExpr: "0 0 1 1 *" },
@@ -304,7 +304,7 @@ try {
     assert.equal(startResponse.status(), 200, await startResponse.text());
     const run = (await startResponse.json()) as { id: string };
     const dialog = page.getByRole("dialog");
-    await dialog.getByText(expectedStatus, { exact: true }).waitFor();
+    await dialog.getByText(expectedStatus, { exact: true }).waitFor({ timeout: 180_000 });
     const persisted = await read<{
       status: string;
       errorKind: string | null;
@@ -314,10 +314,9 @@ try {
       retryAt: string | null;
     }>(`/api/companies/${company.id}/runs/${run.id}/log`);
     assert.equal(persisted.status, expectedStatus);
-    if (marker.startsWith("qa-routine-timeout-")) {
+    if (marker === "qa-routine-timeout-recovered" || marker === "qa-routine-retry-terminal-error") {
       const recovered = marker === "qa-routine-timeout-recovered";
-      const expectedRequests = recovered ? 3 : 6;
-      const expectedRetries = recovered ? [2, 3] : [2, 3, 4, 5, 6];
+      const expectedRequests = 3;
       const attempts = serverLog
         .split("\n")
         .filter((line) => line.startsWith("[fullstack-model-timeout] "))
@@ -339,24 +338,14 @@ try {
       );
       assert.deepEqual(
         attempts.map((attempt) => attempt.status),
-        recovered ? [504, 504, 200] : [504, 504, 504, 504, 504, 504],
+        recovered ? [504, 504, 200] : [504, 504, 400],
       );
       assert.equal(
         new Set(attempts.map((attempt) => attempt.requestHash)).size,
         1,
         "automatic retries must repeat the same model request",
       );
-      const retryLines = [
-        ...persisted.content.matchAll(
-          /\[model\] HTTP 504; retrying attempt (\d+) of (\d+) in ([\d.]+)s/g,
-        ),
-      ];
-      assert.deepEqual(
-        retryLines.map((line) => Number(line[1])),
-        expectedRetries,
-      );
-      assert(retryLines.every((line) => Number(line[2]) === 6));
-      assert.doesNotMatch(persisted.content, /retrying attempt 7|mark_run_failed|\[failed\]/);
+      assert.doesNotMatch(persisted.content, /mark_run_failed|\[failed\]/);
       assert.equal(persisted.failureReason, null);
       assert.equal(persisted.errorKind, recovered ? null : "runtime");
       assert.equal(persisted.attempt, 1, "model retries stay inside the original Run");
@@ -369,23 +358,7 @@ try {
         [{ id: run.id, status: expectedStatus, attempt: 1 }],
       );
       assert.equal(await dialog.getByText("failed", { exact: true }).count(), 0);
-      if (recovered) {
-        const waits = retryLines.map((line) => Number(line[3]));
-        assert(waits[0] >= 0.7 && waits[0] <= 1, `first backoff: ${waits[0]}s`);
-        assert(waits[1] >= 1.4 && waits[1] <= 2, `second backoff: ${waits[1]}s`);
-        assert(attempts[1].atMs - attempts[0].atMs >= 700, "first real backoff was awaited");
-        assert(attempts[2].atMs - attempts[1].atMs >= 1400, "second real backoff was awaited");
-      } else {
-        assert(
-          retryLines.every((line) => Number(line[3]) === 0),
-          "Retry-After is respected",
-        );
-        assert.match(persisted.content, /The test AI Model request timed out/);
-      }
-      await dialog
-        .locator("pre")
-        .filter({ hasText: /retrying attempt 2 of 6/ })
-        .waitFor();
+      if (!recovered) assert.match(persisted.content, /HTTP 400/);
     } else if (expectedStatus === "failed") {
       const reason =
         "The required source document was unavailable, so the report could not be completed.";
@@ -395,18 +368,18 @@ try {
       assert.match(persisted.content, /mark_run_failed/);
     } else if (expectedStatus === "error") {
       assert.equal(persisted.errorKind, "runtime");
-      assert.match(persisted.content, /The test AI Model request could not finish/);
+      assert.match(persisted.content, /HTTP 400/);
     }
     await page.screenshot({
       path: path.join(
         output,
-        marker.startsWith("qa-routine-timeout-")
+        marker.startsWith("qa-routine-timeout-") || marker.startsWith("qa-routine-retry-")
           ? `${marker}.png`
           : `routine-run-${expectedStatus}.png`,
       ),
     });
     await page.keyboard.press("Escape");
-    record(`Routine Run persisted and displayed ${label} through the real model loop`);
+    record(`Routine Run persisted and displayed ${label} through the pinned OpenCode runtime`);
   }
 
   const customersApi = `/api/companies/${company.id}/customers`;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { config } from "../../../config.js";
 
 import {
   codingRuntimeAvailability,
@@ -7,6 +8,12 @@ import {
   noteCodingSandboxFallback,
   requireCodingRuntime,
 } from "./codingAvailability.js";
+
+test("the shipped OpenCode host default is available without sandbox setup", () => {
+  assert.equal(config.agent.codingTools.executionMode, "host");
+  assert.equal(config.agent.codingTools.allowUnsafeHostExecution, true);
+  assert.deepEqual(codingRuntimeAvailability(), { available: true, reason: null });
+});
 
 test("coding runtime is unavailable when the install-level switch is off", () => {
   const availability = codingRuntimeAvailability({

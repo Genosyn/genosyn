@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { after, afterEach, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test, type TestContext } from "node:test";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -18,6 +18,7 @@ import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import type { SandboxCommandResult } from "./agent/sandboxCommandRun.js";
+import { agentRuntime } from "./agent/runtime.js";
 import { createCheck, runChecksForRun } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
 import { interruptCoveredRuns, stopStanddowns } from "./standdowns.js";
@@ -152,7 +153,8 @@ async function makeRoutine(values: Partial<Routine> = {}): Promise<Routine> {
     cronExpr: "0 3 * * *",
     body: "Do the work.",
     acceptanceCriteria: "",
-    timeoutSec: 60,
+    // Work, two remediation turns, and reflection each start an external runtime.
+    timeoutSec: 480,
     maxAttempts: 1,
     ...values,
   });
@@ -201,6 +203,28 @@ async function connectModel(): Promise<AIModel> {
       modelId: "checks-test",
     }),
   });
+}
+
+/** Deadline tests control the model boundary so process startup cannot consume their budget. */
+function completedModelForDeadlineTest(
+  t: TestContext,
+  beforeReturn: (call: number) => Promise<void>,
+): () => number {
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async () => {
+    await beforeReturn(++calls);
+    return { finalText: completionText, steps: 1, stopReason: "end_turn" };
+  });
+  return () => calls;
+}
+
+async function setRemainingRunBudget(t: TestContext, routine: Routine, remainingMs: number) {
+  const run = await AppDataSource.getRepository(Run).findOneByOrFail({
+    routineId: routine.id,
+    status: "running",
+  });
+  const now = run.startedAt.getTime() + routine.timeoutSec * 1000 - remainingMs;
+  t.mock.method(Date, "now", () => now);
 }
 
 async function resultsFor(runId: string): Promise<RunCheckResult[]> {
@@ -522,22 +546,22 @@ describe("the check phase inside a Run", () => {
     );
   });
 
-  test("a Run out of budget stops remediating instead of extending its own timeout", async () => {
+  test("a Run out of budget stops remediating instead of extending its own timeout", async (t) => {
     await connectModel();
-    // Four seconds of wall clock, and the setup seam eats the first 1.5 — the
-    // work turn still has room, but the first check round lands with far less
-    // than the ten seconds `runCheckPhase` requires to brief a fix into.
-    const routine = await makeRoutine({ timeoutSec: 4, retryOnTimeout: false });
+    // Complete the model with four seconds left: the first Check round has
+    // less than the ten seconds runCheckPhase requires to brief a fix into.
+    const routine = await makeRoutine({ retryOnTimeout: false });
     await effectCheck(routine.id, "an invoice was sent", { action: "invoice.send", min: 1 });
+    const modelCalls = completedModelForDeadlineTest(t, async (call) => {
+      if (call === 1) await setRemainingRunBudget(t, routine, 4_000);
+    });
 
-    const startedAt = Date.now();
     const started = await startRoutineRun(routine, {
       triggerKind: "schedule",
-      beforeRunPersist: () => new Promise((resolve) => setTimeout(resolve, 1_500)),
     });
     const run = await started.completion;
-    const elapsed = Date.now() - startedAt;
 
+    assert.ok(modelCalls() >= 1, "the model must finish before the Check budget is tested");
     assert.equal(run.status, "failed", "unfinished work must not be reported as a timeout");
     assert.equal(run.errorKind, null);
     assert.equal(run.checksVerdict, "failed");
@@ -547,9 +571,10 @@ describe("the check phase inside a Run", () => {
       /asking for a fix/,
       "a round with no time to work in must not start a turn certain to be aborted",
     );
-    assert.ok(
-      elapsed < 10_000,
-      `remediation must not outlive the Run's own budget — took ${elapsed}ms`,
+    assert.deepEqual(
+      (await resultsFor(run.id)).map((result) => result.attempt),
+      [0],
+      "the completed work must be checked without starting a remediation round",
     );
   });
 
@@ -564,14 +589,16 @@ describe("the check phase inside a Run", () => {
    * The count is what a human reads to judge how much trouble a Run was in,
    * and it is off by one in the direction that overstates.
    */
-  test("checkRemediations counts only rounds that actually ran", async () => {
+  test("checkRemediations counts only rounds that actually ran", async (t) => {
     await connectModel();
-    const routine = await makeRoutine({ timeoutSec: 4, retryOnTimeout: false });
+    const routine = await makeRoutine({ retryOnTimeout: false });
     await effectCheck(routine.id, "an invoice was sent", { action: "invoice.send", min: 1 });
+    const modelCalls = completedModelForDeadlineTest(t, async (call) => {
+      if (call === 1) await setRemainingRunBudget(t, routine, 4_000);
+    });
 
     const started = await startRoutineRun(routine, {
       triggerKind: "schedule",
-      beforeRunPersist: () => new Promise((resolve) => setTimeout(resolve, 1_500)),
     });
     const run = await started.completion;
 
@@ -579,6 +606,7 @@ describe("the check phase inside a Run", () => {
     // the check phase would also report zero remediations.
     assert.equal(run.status, "failed");
     assert.equal(run.checksVerdict, "failed");
+    assert.ok(modelCalls() >= 1, "the model must finish before the Check budget is tested");
     assert.doesNotMatch(run.logContent, /asking for a fix/);
     assert.equal(run.checkRemediations, 0, "no fix round was ever briefed");
   });
@@ -717,21 +745,25 @@ test("a Standdown interruption is Error during work or remediation", async () =>
 
 test("a post-model exception after the deadline remains a timeout Error", async (t) => {
   await connectModel();
-  const routine = await makeRoutine({ timeoutSec: 2, maxAttempts: 3, retryOnTimeout: false });
-  beforeCompletion = async () => {
+  const routine = await makeRoutine({ maxAttempts: 3, retryOnTimeout: false });
+  let failed = false;
+  const modelCalls = completedModelForDeadlineTest(t, async () => {
     const runs = AppDataSource.getRepository(Run);
+    const running = await runs.findOneByOrFail({ routineId: routine.id, status: "running" });
+    const afterDeadline = running.startedAt.getTime() + routine.timeoutSec * 1000 + 100;
     const findOneBy = runs.findOneBy.bind(runs);
-    let failed = false;
     t.mock.method(runs, "findOneBy", async (...args: Parameters<typeof runs.findOneBy>) => {
       if (!failed) {
         failed = true;
-        await new Promise((resolve) => setTimeout(resolve, 2_100));
+        t.mock.method(Date, "now", () => afterDeadline);
         throw new Error("The Run query did not finish before the deadline.");
       }
       return findOneBy(...args);
     });
-  };
+  });
   const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
+  assert.equal(modelCalls(), 1, "the model must return before the storage query fails");
+  assert.equal(failed, true, "the post-model storage query must actually fail");
   assert.equal(run.status, "error");
   assert.equal(run.errorKind, "timeout");
   assert.equal(
@@ -745,7 +777,7 @@ test("a post-model exception after the deadline remains a timeout Error", async 
 test("runtime and timeout Errors revoke earned Waivers and leave a journal", async (t) => {
   await connectModel();
   for (const timedOut of [false, true]) {
-    const routine = await makeRoutine({ timeoutSec: timedOut ? 1 : 60 });
+    const routine = await makeRoutine({ timeoutSec: timedOut ? 1 : 180 });
     const waiver = await insert(AutonomyWaiver, {
       companyId: company.id,
       employeeId: employee.id,

@@ -1,6 +1,5 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
 import { PROVIDERS } from "../providers.js";
-import { isModelRequestTimeout } from "./modelRetry.js";
 
 /**
  * Turn a provider SDK error into a safe, actionable message for chat and Run
@@ -26,11 +25,17 @@ export function formatModelError(model: AIModel, error: unknown): string {
   if (meta.requestId) lines.push(`Request ID: ${meta.requestId}`);
 
   lines.push("", "What to check:", ...guidance(category, model));
-  lines.push("", "Open Settings → Model for this employee, then retry.");
+  lines.push(
+    "",
+    category === "runtime"
+      ? "Ask the Genosyn operator to restore the runtime, then retry."
+      : "Open Settings → Model for this employee, then retry.",
+  );
   return lines.join("\n");
 }
 
 type ErrorCategory =
+  | "runtime"
   | "network"
   | "timeout"
   | "authentication"
@@ -84,6 +89,13 @@ function classifyError(meta: ErrorMetadata, error: unknown): ErrorCategory {
   const haystack = `${meta.name} ${meta.message} ${meta.code ?? ""}`.toLowerCase();
 
   if (
+    /opencode (did not start|stopped|could not open|rejected the generated|did not create a session)|installed opencode runtime|opencode's activity stream/.test(
+      haystack,
+    )
+  )
+    return "runtime";
+
+  if (
     meta.status === 401 ||
     meta.status === 403 ||
     /authentication|unauthori[sz]ed|permission denied|invalid api key/.test(haystack)
@@ -123,6 +135,8 @@ function classifyError(meta: ErrorMetadata, error: unknown): ErrorCategory {
 
 function heading(category: ErrorCategory): string {
   switch (category) {
+    case "runtime":
+      return "The OpenCode runtime could not complete this work.";
     case "network":
       return "Couldn’t reach the selected AI Model.";
     case "timeout":
@@ -144,6 +158,13 @@ function heading(category: ErrorCategory): string {
 
 function guidance(category: ErrorCategory, model: AIModel): string[] {
   const provider = model.provider;
+  if (category === "runtime") {
+    return [
+      "• Confirm the Genosyn installation includes its pinned OpenCode executable.",
+      "• Check available memory, process capacity, and the Genosyn server logs.",
+      "• Restart the application after correcting the reported runtime problem.",
+    ];
+  }
   if (category === "network") {
     return provider === "custom"
       ? [
@@ -166,7 +187,7 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
       ];
     }
     return [
-      "• Genosyn retries unanswered model requests up to five times with exponential backoff, within the Run or chat deadline.",
+      "• OpenCode manages model retries within the Run or chat deadline.",
       "• Confirm the model service is healthy and not overloaded.",
       "• Check proxy and load-balancer timeouts between Genosyn and the model API.",
       "• Retry once the service is responding normally.",
@@ -217,7 +238,7 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
       ];
     }
     return [
-      "• Set the model’s context window accurately so Genosyn can compact before the limit.",
+      "• Set the model’s context window accurately so OpenCode can compact before the limit.",
       "• Reduce unusually large Soul, Skill, attachment, or tool output content.",
     ];
   }
@@ -230,8 +251,8 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
       ];
     }
     return [
-      "• Genosyn retries transient failures before any output; it never replays a partial response.",
-      "• If no response had started, this failure outlasted the automatic retry window.",
+      "• OpenCode manages transient model-service retries.",
+      "• Check the Run log for the reported failure and retry activity.",
       "• Retry later after checking the model service’s status or server logs.",
       "• If the failure persists, switch the employee to another AI Model.",
     ];
@@ -274,4 +295,24 @@ function numberField(record: Record<string, unknown> | null, key: string): numbe
 function oneLine(value: string, max: number): string {
   const clean = value.replace(/\s+/g, " ").trim() || "Unknown error";
   return clean.length > max ? clean.slice(0, max - 1) + "…" : clean;
+}
+
+/** Request timeouts, including SDK errors and nested transport/stream causes. */
+export function isModelRequestTimeout(error: unknown): boolean {
+  const record = asRecord(error);
+  const status = numberField(record, "status") ?? numberField(record, "statusCode");
+  if (status === 408 || status === 504) return true;
+  // A timeout mentioned in an authentication/validation response is not a
+  // transient request timeout. Keep those HTTP responses authoritative.
+  if (status !== null && status < 500) return false;
+
+  const timeout = /time[\s_-]*out|timed[\s_-]*out/i;
+  if (!record) return timeout.test(String(error));
+  let current: Record<string, unknown> | null = record;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const detail = ["name", "message", "code"].map((key) => stringField(current, key) ?? "");
+    if (timeout.test(detail.join(" "))) return true;
+    current = asRecord(current.cause);
+  }
+  return false;
 }

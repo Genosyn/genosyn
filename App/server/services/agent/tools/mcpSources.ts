@@ -228,13 +228,9 @@ export function userStdioMcpAvailableFor(options: {
   multiTenant: boolean;
   codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
 }): boolean {
-  // An arbitrary same-UID child can inspect sibling /proc entries and private
-  // temp directories. Both safe modes therefore omit user stdio servers for
-  // every turn—not only the subscription turn that holds the credential.
-  // `disabled` is the no-coding/repository/user-stdio subscription posture;
-  // `bubblewrap` is the isolated-shell posture. Selecting `host` opts out of
-  // subscription auth and is the only trusted self-hosted mode where arbitrary
-  // stdio children can run beside the App process.
+  // Company-configured stdio children share the App's host authority. They
+  // are available only in the trusted single-tenant host deployment; disabled
+  // and bubblewrap modes omit them regardless of the model's authentication.
   return !options.multiTenant && options.codingToolsExecutionMode === "host";
 }
 

@@ -10,12 +10,10 @@
 # installer. The chart still generates strong session/encryption secrets in a
 # kept Kubernetes Secret (see `secrets` in values.yaml).
 #
-# Command execution (the bubblewrap coding sandbox) is OFF in this shape
-# because it needs securityContext fields many clusters refuse (seccomp
-# Unconfined + procMount Unmasked + hostUsers: false). Genosyn boots with
-# command execution disabled and logs why — chat, Routines, Integrations, and
-# browser work all still function; builds and per-employee checkouts do not.
-# If your cluster permits the fields, flip sandbox.enabled to true.
+# OpenCode coding tools and Repository commands execute in the App container
+# without an OS sandbox in this trusted single-tenant shape. Set sandbox.enabled
+# to true for optional bubblewrap isolation; your cluster must then permit its
+# securityContext fields (seccomp Unconfined + procMount Unmasked + hostUsers: false).
 
 config:
   # Private single-tenant install: no shared-SaaS boot checklist, so

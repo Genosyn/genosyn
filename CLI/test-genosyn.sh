@@ -138,6 +138,8 @@ check "enable adds one cron entry" \
   "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
 check "wrapper captures the custom port" \
   "$(grep -Fxc 'export GENOSYN_PORT=9000' "$(auto_update_wrapper_path)")" '1'
+check "wrapper preserves the default ordinary container profile" \
+  "$(grep -Fxc 'export GENOSYN_SANDBOX=0' "$(auto_update_wrapper_path)")" '1'
 check "wrapper captures the backup directory" \
   "$(grep -Fxc "export GENOSYN_BACKUP_DIR=${test_root}/backups" "$(auto_update_wrapper_path)")" '1'
 check "wrapper runs the safe upgrade command" \
@@ -390,11 +392,9 @@ bash -c 'source "$1"; run_container_with_image "$2"' \
   _ "${HERE}/genosyn" "registry:5000/genosyn/app:test"
 check "run container binds the selected name, port, volume, and image" \
   "$(cat "${command_log}")" \
-  "docker <run> <-d> <--name> <company-one> <--restart> <unless-stopped> <--security-opt> <seccomp=unconfined> <--security-opt> <systempaths=unconfined> <-p> <9123:8471> <-v> <company-one-data:/app/data> <registry:5000/genosyn/app:test>"
+  "docker <run> <-d> <--name> <company-one> <--restart> <unless-stopped> <-p> <9123:8471> <-v> <company-one-data:/app/data> <registry:5000/genosyn/app:test>"
 
-# Bubblewrap can neither create a user namespace nor mount a private /proc
-# under Docker's stock profile, so a container created without those two
-# options boots with command execution disabled. They are not decoration.
+# The default host execution needs no namespace-related Docker options.
 : >"${command_log}"
 PATH="${test_root}/bin:${PATH}" \
 MOCK_DOCKER_LOG="${command_log}" \
@@ -404,6 +404,16 @@ bash -c 'source "$1"; run_container_with_image "$2"' \
 check "GENOSYN_SANDBOX=0 keeps the stock container profile" \
   "$(cat "${command_log}")" \
   "docker <run> <-d> <--name> <genosyn> <--restart> <unless-stopped> <-p> <8471:8471> <-v> <genosyn-data:/app/data> <registry:5000/genosyn/app:test>"
+
+: >"${command_log}"
+PATH="${test_root}/bin:${PATH}" \
+MOCK_DOCKER_LOG="${command_log}" \
+GENOSYN_SANDBOX="1" \
+bash -c 'source "$1"; run_container_with_image "$2"' \
+  _ "${HERE}/genosyn" "registry:5000/genosyn/app:test"
+check "explicit optional sandbox support adds both required Docker options" \
+  "$(cat "${command_log}")" \
+  "docker <run> <-d> <--name> <genosyn> <--restart> <unless-stopped> <--security-opt> <seccomp=unconfined> <--security-opt> <systempaths=unconfined> <-p> <8471:8471> <-v> <genosyn-data:/app/data> <registry:5000/genosyn/app:test>"
 
 : >"${command_log}"
 PATH="${test_root}/bin:${PATH}" \
@@ -452,6 +462,7 @@ check "retained masked paths mean the sandbox cannot start" \
 PATH="${test_root}/bin:${PATH}" \
 MOCK_SECURITY_OPT='["seccomp=unconfined"]' \
 MOCK_MASKED_PATHS='["/proc/kcore"]' \
+GENOSYN_SANDBOX="1" \
   bash -c 'source "$1"
     recreate_log="$2"
     wait_for_ready() { return 0; }
@@ -466,6 +477,7 @@ check "an existing container missing the options is recreated from its own image
 PATH="${test_root}/bin:${PATH}" \
 MOCK_SECURITY_OPT='["seccomp=unconfined"]' \
 MOCK_MASKED_PATHS='[]' \
+GENOSYN_SANDBOX="1" \
   bash -c 'source "$1"
     recreate_log="$2"
     run_container_with_image() { printf "recreated %s\n" "$1" >>"${recreate_log}"; }
@@ -475,9 +487,20 @@ check "a container that already has them is left alone" \
   "$(cat "${command_log}")" \
   ''
 
-# Not every container runtime speaks Docker's security options. Refusing to
-# install at all would be a worse answer than installing without command
-# execution and saying so.
+# Ordinary upgrades never recreate a container just to add sandbox options.
+: >"${command_log}"
+PATH="${test_root}/bin:${PATH}" \
+MOCK_SECURITY_OPT='null' \
+MOCK_MASKED_PATHS='["/proc/kcore"]' \
+  bash -c 'source "$1"
+    recreate_log="$2"
+    run_container_with_image() { printf "unexpected recreation\n" >>"${recreate_log}"; }
+    ensure_container_sandbox' \
+  _ "${HERE}/genosyn" "${command_log}" >/dev/null 2>&1
+check "the host default leaves existing containers alone without sandbox options" \
+  "$(cat "${command_log}")" ''
+
+# Optional sandbox options may be unsupported. The stock host mode still runs.
 cat >"${test_root}/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 printf 'docker' >>"${MOCK_DOCKER_LOG}"
@@ -494,6 +517,7 @@ chmod +x "${test_root}/bin/docker"
 sandbox_reject_stderr="$(
   PATH="${test_root}/bin:${PATH}" \
   MOCK_DOCKER_LOG="${command_log}" \
+  GENOSYN_SANDBOX="1" \
     bash -c 'source "$1"; run_container_with_image "$2"' \
     _ "${HERE}/genosyn" "registry:5000/genosyn/app:test" 2>&1 >/dev/null
 )"
@@ -503,10 +527,10 @@ check "a runtime that rejects the options still gets a container" \
 check "the rejected attempt is cleaned up before the retry" \
   "$(grep -Fc 'docker <rm> <-f> <genosyn>' "${command_log}" || true)" '1'
 case "${sandbox_reject_stderr}" in
-  *"command execution will be off"*) sandbox_reject_explained="explained" ;;
+  *"Host execution remains available"*) sandbox_reject_explained="explained" ;;
   *) sandbox_reject_explained="${sandbox_reject_stderr}" ;;
 esac
-check "and the operator is told why command execution is off" \
+check "the operator is told optional sandbox rejection does not disable host execution" \
   "${sandbox_reject_explained}" 'explained'
 
 # A failure that has nothing to do with sandboxing is the operator's to read.

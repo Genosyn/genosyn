@@ -57,14 +57,16 @@ export function OpenSourceModels() {
 
       <H2 id="the-shape">The shape of the integration</H2>
       <P>
-        Genosyn&apos;s in-process agent loop talks to your model over an OpenAI-compatible HTTP API
-        — no CLI to install, nothing to spawn. The runtime path is always:
+        Genosyn starts its bundled OpenCode runtime, which talks to your model over an
+        OpenAI-compatible HTTP API. You configure the endpoint in Genosyn; no separate OpenCode
+        setup is needed. The runtime path is:
       </P>
       <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
-        {`Genosyn agent loop (in-process, runner + chat)
-   └─ HTTP to an OpenAI-compatible /v1/chat/completions endpoint
-        └─ your local server (Ollama / vLLM / llama.cpp / LM Studio)
-             └─ the model weights on your GPU or Mac`}
+        {`Genosyn runner + chat
+   └─ managed OpenCode runtime
+        └─ HTTP to an OpenAI-compatible /v1/chat/completions endpoint
+             └─ your local server (Ollama / vLLM / llama.cpp / LM Studio)
+                  └─ the model weights on your GPU or Mac`}
       </pre>
       <P>So you need two pieces wired up:</P>
       <OL>
@@ -193,9 +195,9 @@ llama-server \\
 
       <H3 id="context-window">Tell Genosyn your context window</H3>
       <P>
-        A run budgets its history against the model&apos;s window, dropping the oldest tool results
-        when the next prompt wouldn&apos;t fit. It can only do that if it knows the number, and
-        self-hosted servers disagree about whether to publish one on <Code>/v1/models</Code>:
+        OpenCode manages history and compaction using the context window Genosyn supplies. Set an
+        accurate window so the runtime can compact before a request grows too large. Self-hosted
+        servers differ in what they publish on <Code>/v1/models</Code>:
       </P>
       <KeyList
         rows={[
@@ -254,8 +256,7 @@ llama-server \\
         The system prompt carries the Soul, every Skill, and the whole tool catalog on{" "}
         <em>every</em> turn — easily 30k tokens on a well-equipped employee. On a 64k model
         that&apos;s half the window gone before the first tool runs. If routines keep compacting
-        away work you wanted kept, trim the employee&apos;s Skills or serve the model at a longer
-        {" "}
+        away work you wanted kept, trim the employee&apos;s Skills or serve the model at a longer{" "}
         <Code>--max-model-len</Code> before reaching for a bigger box.
       </Callout>
 
@@ -354,15 +355,14 @@ llama-server \\
         </LI>
         <LI>
           <Strong>&quot;This model&apos;s maximum context length is N tokens.&quot;</Strong> The
-          prompt outgrew the window. Genosyn drops old tool results and retries once, so this
-          shouldn&apos;t fail a run — but seeing <Code>[compact]</Code> with reason{" "}
-          <Code>overflow</Code> in the log means it was caught late. Set the model&apos;s context
-          window on its card and the next run budgets ahead instead of reacting.
+          prompt outgrew the window. Set the model&apos;s context window on its card so OpenCode can
+          manage compaction against the actual limit. Reduce large Skills or attached material if
+          the initial request itself exceeds the window.
         </LI>
         <LI>
-          <Strong>Employee forgets what a tool told it earlier.</Strong> Look for{" "}
-          <Code>[compact]</Code> in the run log: history was dropped to fit the window. Give the
-          model a longer context, or trim the Skills and tools that ride along on every turn.
+          <Strong>Employee forgets what a tool told it earlier.</Strong> Long sessions may require
+          OpenCode to compact earlier history. Give the model a longer context, trim the Skills that
+          accompany each turn, or save durable findings in a Workstream.
         </LI>
         <LI>
           <Strong>Slow.</Strong> Quantize down (q8 → q5), enable batching on vLLM, or pin the layers

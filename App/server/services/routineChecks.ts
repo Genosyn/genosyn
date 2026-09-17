@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -39,15 +38,12 @@ import { countEffects } from "./runEffects.js";
  *     absent, not "inconclusive". M58 exists because "we could not verify" was
  *     recorded with the same word as "verified" and every consumer read both as
  *     fine; reintroducing that inside the fix would be absurd.
- *  3. **A Check that can never pass must never be created.** `command` checks
- *     are bubblewrap-only for the same reason `bash` is, so
- *     {@link createCheck} refuses one where the sandbox cannot start, with the
- *     reason inline instead of a Run failing forever on a check nobody could
- *     have known was doomed.
+ *  3. **A Check that can never pass must never be created.** Command Checks
+ *     follow the install's execution mode. {@link createCheck} refuses one
+ *     when coding is disabled, with the reason inline.
  *
- * `effect` checks are what keep the whole primitive from being a
- * bubblewrap-only luxury: two queries against the ledger, no shell, no model,
- * working on a stock `disabled`-mode install.
+ * Effect Checks need no command execution: two queries against the ledger,
+ * no shell, no model, working even on a disabled-mode install.
  */
 
 /** The 400-able one. Everything a Member can get wrong writing a Check. */
@@ -153,19 +149,6 @@ export function commandChecksAvailable():
   | { available: false; reason: string } {
   const runtime = codingRuntimeAvailability();
   if (!runtime.available) return { available: false, reason: runtime.reason };
-  // Bubblewrap or nothing, exactly as `bash` and `repository_run_command` are.
-  // A host shell runs as the App's own OS user, where a working directory is a
-  // convention rather than a boundary — and a Check is not the place to hand an
-  // AI Employee's Routine a same-UID shell for the first time.
-  // Read late rather than cached: boot may fall back from the shipped
-  // bubblewrap default after this module is first loaded.
-  if (config.agent.codingTools.executionMode !== "bubblewrap") {
-    return {
-      available: false,
-      reason:
-        "Command checks run only behind bubblewrap isolation, and this Genosyn installation is not using it.",
-    };
-  }
   return { available: true };
 }
 
@@ -645,7 +628,7 @@ async function runCommandCheck(check: RoutineCheck, params: CheckRunParams): Pro
       login: false,
     });
   } catch (error) {
-    return unrunnable(`the sandbox could not be prepared (${messageOf(error)})`);
+    return unrunnable(`the command could not be prepared (${messageOf(error)})`);
   }
 
   const spawner = params.runCommand ?? spawnSandboxedCommand;
