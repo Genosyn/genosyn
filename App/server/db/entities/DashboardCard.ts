@@ -8,7 +8,7 @@ import {
 } from "typeorm";
 
 /**
- * One Chart placed on a Dashboard. Coordinates are on a 12-column grid
+ * One Chart or formula placed on a Dashboard. Coordinates are on a 12-column grid
  * (CSS grid-friendly): `x` is 0–11, `w` is 1–12, `y` and `h` are unbounded
  * positive ints. The renderer pins cards in row-major order if two cards
  * happen to claim the same cell.
@@ -27,8 +27,12 @@ export class DashboardCard {
   @Column({ type: "varchar" })
   dashboardId!: string;
 
-  @Column({ type: "varchar" })
-  chartId!: string;
+  @Column({ type: "varchar", nullable: true })
+  chartId!: string | null;
+
+  /** A formula references other cards on this Dashboard by their stable IDs. */
+  @Column({ type: "text", nullable: true })
+  formulaJson!: string | null;
 
   @Column({ type: "int", default: 0 })
   x!: number;

@@ -19,6 +19,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { ChartVizType } from "../db/entities/Chart.js";
 import { decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
+import type { ExploreFormula } from "../../shared/exploreFormula.js";
+import { parseDashboardFormula } from "./exploreDashboardCards.js";
 
 /**
  * Explore — Metabase-style analytics. Re-uses the company's existing
@@ -507,7 +509,8 @@ export function serializeChart(c: Chart): ChartDTO {
 export type DashboardCardDTO = {
   id: string;
   dashboardId: string;
-  chartId: string;
+  chartId: string | null;
+  formula: ExploreFormula | null;
   x: number;
   y: number;
   w: number;
@@ -520,6 +523,7 @@ export function serializeCard(c: DashboardCard): DashboardCardDTO {
     id: c.id,
     dashboardId: c.dashboardId,
     chartId: c.chartId,
+    formula: parseDashboardFormula(c.formulaJson),
     x: c.x,
     y: c.y,
     w: c.w,

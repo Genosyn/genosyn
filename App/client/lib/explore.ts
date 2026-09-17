@@ -18,6 +18,24 @@ export type VizConfig = {
   columns?: string[];
 };
 
+/** Use the same raw cell for Number cards and any formulas that depend on them. */
+export function exploreScalarMeasure(
+  row: Record<string, unknown> | undefined,
+  config: VizConfig,
+): string {
+  if (!row) return "";
+  if (config.measure && Object.hasOwn(row, config.measure) && row[config.measure] !== undefined)
+    return config.measure;
+  return (
+    Object.entries(row).find(
+      ([, value]) =>
+        typeof value === "number" || (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)),
+    )?.[0] ??
+    Object.keys(row)[0] ??
+    ""
+  );
+}
+
 export type ExploreProvider = "postgres" | "mysql" | "clickhouse";
 
 export type ExploreSchemaColumn = {

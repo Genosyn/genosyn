@@ -38,6 +38,11 @@ import {
   VIZ_TYPES,
 } from "../services/explore.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import {
+  createDashboardCard,
+  DashboardCardError,
+  patchDashboardCard,
+} from "../services/exploreDashboardCards.js";
 
 /**
  * Explore — Metabase-style analytics over the company's existing database
@@ -378,7 +383,7 @@ exploreRouter.get("/explore/dashboards/:slug", async (req, res) => {
     where: { dashboardId: row.id },
     order: { y: "ASC", x: "ASC" },
   });
-  const chartIds = [...new Set(cards.map((c) => c.chartId))];
+  const chartIds = [...new Set(cards.flatMap((c) => (c.chartId ? [c.chartId] : [])))];
   const charts = chartIds.length
     ? await AppDataSource.getRepository(Chart).find({
         where: { id: In(chartIds), companyId: cid },
@@ -432,8 +437,25 @@ exploreRouter.delete("/explore/dashboards/:slug", async (req, res) => {
 
 // ---------- Dashboard cards ----------
 
-const createCardSchema = z.object({
-  chartId: z.string().uuid(),
+const formulaSchema = z
+  .object({
+    expression: z.string().min(1).max(2000),
+    inputs: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(32),
+            cardId: z.string().uuid(),
+          })
+          .strict(),
+      )
+      .max(32),
+    prefix: z.string().max(32).optional(),
+    suffix: z.string().max(32).optional(),
+  })
+  .strict();
+
+const cardLayoutSchema = z.object({
   x: z.number().int().min(0).max(11).optional(),
   y: z.number().int().min(0).max(10_000).optional(),
   w: z.number().int().min(1).max(12).optional(),
@@ -441,80 +463,56 @@ const createCardSchema = z.object({
   titleOverride: z.string().max(200).optional(),
 });
 
+const createCardSchema = cardLayoutSchema
+  .extend({
+    chartId: z.string().uuid().optional(),
+    formula: formulaSchema.optional(),
+  })
+  .refine((body) => Boolean(body.chartId) !== Boolean(body.formula), {
+    message: "Choose either a Chart or a formula",
+  });
+
 exploreRouter.post(
   "/explore/dashboards/:slug/cards",
   validateBody(createCardSchema),
-  async (req, res) => {
+  async (req, res, next) => {
     const { cid, slug } = params(req);
-    const dashboard = await loadDashboard(cid, slug);
-    if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
-    const body = req.body as z.infer<typeof createCardSchema>;
-    const chart = await AppDataSource.getRepository(Chart).findOneBy({
-      id: body.chartId,
-      companyId: cid,
-    });
-    if (!chart) return res.status(400).json({ error: "Unknown chart" });
-    const duplicate = await AppDataSource.getRepository(DashboardCard).findOneBy({
-      dashboardId: dashboard.id,
-      chartId: chart.id,
-    });
-    if (duplicate) {
-      return res.status(409).json({ error: "Chart is already on this dashboard" });
+    try {
+      const dashboard = await loadDashboard(cid, slug);
+      if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
+      const body = req.body as z.infer<typeof createCardSchema>;
+      const row = await createDashboardCard(dashboard, body);
+      res.status(201).json(serializeCard(row));
+    } catch (error) {
+      if (error instanceof DashboardCardError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
     }
-
-    // Default placement: append to the bottom of the grid so a freshly
-    // added card doesn't overlap an existing one. New row is `maxY + maxH`.
-    let defaultY = 0;
-    if (body.y === undefined) {
-      const existing = await AppDataSource.getRepository(DashboardCard).find({
-        where: { dashboardId: dashboard.id },
-        order: { y: "DESC" },
-        take: 12,
-      });
-      defaultY = existing.reduce((m, c) => Math.max(m, c.y + c.h), 0);
-    }
-
-    const repo = AppDataSource.getRepository(DashboardCard);
-    const row = repo.create({
-      dashboardId: dashboard.id,
-      chartId: chart.id,
-      x: body.x ?? 0,
-      y: body.y ?? defaultY,
-      w: body.w ?? 6,
-      h: body.h ?? 4,
-      titleOverride: body.titleOverride ?? "",
-    });
-    await repo.save(row);
-    res.status(201).json(serializeCard(row));
   },
 );
 
-const patchCardSchema = z.object({
-  x: z.number().int().min(0).max(11).optional(),
-  y: z.number().int().min(0).max(10_000).optional(),
-  w: z.number().int().min(1).max(12).optional(),
-  h: z.number().int().min(1).max(40).optional(),
-  titleOverride: z.string().max(200).optional(),
+const patchCardSchema = cardLayoutSchema.extend({
+  formula: formulaSchema.optional(),
 });
 
 exploreRouter.patch(
   "/explore/dashboards/:slug/cards/:cardId",
   validateBody(patchCardSchema),
-  async (req, res) => {
+  async (req, res, next) => {
     const { cid, slug, cardId } = params(req);
-    const dashboard = await loadDashboard(cid, slug);
-    if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
-    const repo = AppDataSource.getRepository(DashboardCard);
-    const card = await repo.findOneBy({ id: cardId, dashboardId: dashboard.id });
-    if (!card) return res.status(404).json({ error: "Card not found" });
-    const body = req.body as z.infer<typeof patchCardSchema>;
-    if (body.x !== undefined) card.x = body.x;
-    if (body.y !== undefined) card.y = body.y;
-    if (body.w !== undefined) card.w = body.w;
-    if (body.h !== undefined) card.h = body.h;
-    if (body.titleOverride !== undefined) card.titleOverride = body.titleOverride;
-    await repo.save(card);
-    res.json(serializeCard(card));
+    try {
+      const dashboard = await loadDashboard(cid, slug);
+      if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
+      const body = req.body as z.infer<typeof patchCardSchema>;
+      const card = await patchDashboardCard(dashboard, cardId, body);
+      res.json(serializeCard(card));
+    } catch (error) {
+      if (error instanceof DashboardCardError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
+    }
   },
 );
 

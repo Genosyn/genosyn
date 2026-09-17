@@ -1,5 +1,6 @@
 import React from "react";
 import type { QueryResult, VizConfig } from "./ChartRenderer";
+import { exploreScalarMeasure } from "@/lib/explore";
 
 /**
  * Single big number. Picks `vizConfig.measure` if present, otherwise the
@@ -7,13 +8,7 @@ import type { QueryResult, VizConfig } from "./ChartRenderer";
  * unit decoration ("$", "%"). Renders the value with the same locale
  * formatting as the table cells.
  */
-export function ChartScalar({
-  config,
-  result,
-}: {
-  config: VizConfig;
-  result: QueryResult;
-}) {
+export function ChartScalar({ config, result }: { config: VizConfig; result: QueryResult }) {
   const row = result.rows[0];
   if (!row) {
     return (
@@ -22,10 +17,7 @@ export function ChartScalar({
       </div>
     );
   }
-  const measure =
-    config.measure && row[config.measure] !== undefined
-      ? config.measure
-      : pickNumericKey(row) ?? Object.keys(row)[0];
+  const measure = exploreScalarMeasure(row, config);
   const raw = row[measure];
   const value = formatScalar(raw);
   return (
@@ -40,14 +32,6 @@ export function ChartScalar({
       </div>
     </div>
   );
-}
-
-function pickNumericKey(row: Record<string, unknown>): string | null {
-  for (const [k, v] of Object.entries(row)) {
-    if (typeof v === "number") return k;
-    if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)) return k;
-  }
-  return null;
 }
 
 function formatScalar(raw: unknown): string {

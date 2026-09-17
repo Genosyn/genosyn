@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUp,
   Check,
+  Calculator,
   ChevronLeft,
   Pencil,
   Plus,
@@ -34,6 +35,14 @@ import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ExploreDashboardDetailsModal } from "../components/explore/ExploreDashboardDetailsModal";
+import { ExploreFormulaModal } from "@/components/explore/ExploreFormulaModal";
+import {
+  dashboardCardStates,
+  formulaChartSlugs,
+  type DashboardCard as CardDTO,
+  type DashboardRunState as RunState,
+} from "@/lib/exploreDashboard";
+import type { ExploreFormula } from "../../shared/exploreFormula";
 
 /**
  * Dashboard detail. Renders the saved cards in a 12-column CSS grid and
@@ -54,17 +63,6 @@ type ChartDTO = {
   updatedAt: string;
 };
 
-type CardDTO = {
-  id: string;
-  dashboardId: string;
-  chartId: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  titleOverride: string;
-};
-
 type DashboardDetail = {
   id: string;
   slug: string;
@@ -73,12 +71,6 @@ type DashboardDetail = {
   cards: CardDTO[];
   charts: ChartDTO[];
 };
-
-type RunState =
-  | { kind: "idle" }
-  | { kind: "running" }
-  | { kind: "ok"; result: QueryResult }
-  | { kind: "error"; message: string };
 
 export default function ExploreDashboardDetail({ company }: { company: Company }) {
   const { slug = "" } = useParams<{ slug: string }>();
@@ -90,12 +82,23 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState(false);
   const [picking, setPicking] = React.useState(false);
+  const [formulaEditor, setFormulaEditor] = React.useState<{ card: CardDTO | null } | null>(null);
+  const [formulaError, setFormulaError] = React.useState<string | null>(null);
+  const [savingFormula, setSavingFormula] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
   const [editingDetails, setEditingDetails] = React.useState(false);
   const [savingDetails, setSavingDetails] = React.useState(false);
   const [detailsError, setDetailsError] = React.useState<string | null>(null);
   const [addCardError, setAddCardError] = React.useState<string | null>(null);
   const [runs, setRuns] = React.useState<Record<string, RunState>>({});
+  const runRequests = React.useRef(new Map<string, symbol>());
+  const runScope = React.useRef("");
+  const scope = `${company.id}/${slug}`;
+  if (runScope.current !== scope) {
+    runScope.current = scope;
+    runRequests.current.clear();
+  }
+  React.useEffect(() => setRuns({}), [scope]);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -133,14 +136,20 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
 
   const runChart = React.useCallback(
     async (chartSlug: string) => {
+      const request = Symbol(chartSlug);
+      const requestScope = runScope.current;
+      runRequests.current.set(chartSlug, request);
+      const isCurrent = () =>
+        runScope.current === requestScope && runRequests.current.get(chartSlug) === request;
       setRuns((r) => ({ ...r, [chartSlug]: { kind: "running" } }));
       try {
         const result = await api.post<QueryResult>(
           `/api/companies/${company.id}/explore/charts/${chartSlug}/run`,
           {},
         );
-        setRuns((r) => ({ ...r, [chartSlug]: { kind: "ok", result } }));
+        if (isCurrent()) setRuns((r) => ({ ...r, [chartSlug]: { kind: "ok", result } }));
       } catch (err) {
+        if (!isCurrent()) return;
         setRuns((r) => ({
           ...r,
           [chartSlug]: { kind: "error", message: errorMessage(err) },
@@ -211,6 +220,26 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
     }
   }
 
+  async function saveFormula(titleOverride: string, formula: ExploreFormula) {
+    if (!data || !formulaEditor) return;
+    setSavingFormula(true);
+    setFormulaError(null);
+    try {
+      const base = `/api/companies/${company.id}/explore/dashboards/${data.slug}/cards`;
+      if (formulaEditor.card) {
+        await api.patch(`${base}/${formulaEditor.card.id}`, { titleOverride, formula });
+      } else {
+        await api.post(base, { titleOverride, formula, w: 6, h: 3 });
+      }
+      setFormulaEditor(null);
+      await reload();
+    } catch (err) {
+      setFormulaError(errorMessage(err));
+    } finally {
+      setSavingFormula(false);
+    }
+  }
+
   async function deleteCard(card: CardDTO) {
     if (!data) return;
     try {
@@ -255,6 +284,12 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   }
 
   const chartById = new Map(data.charts.map((c) => [c.id, c]));
+  const cardStates = dashboardCardStates(data.cards, data.charts, runs);
+
+  function openFormula(card: CardDTO | null = null) {
+    setFormulaError(null);
+    setFormulaEditor({ card });
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-50 dark:bg-slate-900">
@@ -313,6 +348,11 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           </Button>
         )}
         {editing && (
+          <Button variant="secondary" size="sm" onClick={() => openFormula()}>
+            <Calculator size={14} /> Add formula
+          </Button>
+        )}
+        {editing && (
           <Button size="sm" onClick={() => setPicking(true)}>
             <Plus size={14} /> Add chart
           </Button>
@@ -333,21 +373,28 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
             title="No cards yet"
             description="Pin a saved Chart to start filling this dashboard."
             action={
-              <Button size="sm" onClick={() => setPicking(true)}>
-                <Plus size={14} /> Add chart
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" onClick={() => setPicking(true)}>
+                  <Plus size={14} /> Add chart
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => openFormula()}>
+                  <Calculator size={14} /> Add formula
+                </Button>
+              </div>
             }
           />
         ) : (
           <div className="explore-dashboard-grid">
             {data.cards.map((card) => {
-              const chart = chartById.get(card.chartId);
-              if (!chart) return null;
-              const run = runs[chart.slug] ?? { kind: "idle" as const };
-              const label = card.titleOverride || chart.title;
+              const chart = card.chartId ? chartById.get(card.chartId) : undefined;
+              if (!chart && !card.formula) return null;
+              const run = cardStates.get(card.id) ?? { kind: "idle" as const };
+              const label = card.titleOverride || chart?.title || "Formula";
               return (
                 <div
                   key={card.id}
+                  role="region"
+                  aria-label={label}
                   className="explore-dashboard-card flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950"
                   style={
                     {
@@ -361,9 +408,19 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
                       <>
                         <CardTitleEditor
                           card={card}
-                          chartTitle={chart.title}
+                          chartTitle={chart?.title ?? "Formula"}
                           onChange={(titleOverride) => patchCard(card, { titleOverride })}
                         />
+                        {card.formula && (
+                          <button
+                            onClick={() => openFormula(card)}
+                            aria-label={`Edit formula ${label}`}
+                            title="Edit formula"
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800"
+                          >
+                            <Calculator size={14} />
+                          </button>
+                        )}
                         <CardEditControls
                           card={card}
                           onChange={(patch) => patchCard(card, patch)}
@@ -372,17 +429,35 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
                       </>
                     ) : (
                       <>
-                        <Link
-                          to={`/c/${company.slug}/explore/charts/${chart.slug}`}
-                          className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-indigo-300"
-                          title={chart.title}
-                        >
-                          {label}
-                        </Link>
+                        {chart ? (
+                          <Link
+                            to={`/c/${company.slug}/explore/charts/${chart.slug}`}
+                            className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-indigo-300"
+                            title={chart.title}
+                          >
+                            {label}
+                          </Link>
+                        ) : (
+                          <button
+                            onClick={() => openFormula(card)}
+                            title="Edit formula"
+                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-indigo-300"
+                          >
+                            <Calculator size={12} className="shrink-0" />
+                            <span className="truncate">{label}</span>
+                          </button>
+                        )}
                         <button
-                          onClick={() => runChart(chart.slug)}
+                          onClick={() => {
+                            for (const chartSlug of formulaChartSlugs(
+                              card.id,
+                              data.cards,
+                              data.charts,
+                            ))
+                              void runChart(chartSlug);
+                          }}
                           className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                          title="Refresh chart"
+                          title={card.formula ? "Refresh formula inputs" : "Refresh chart"}
                           aria-label={`Refresh ${label}`}
                         >
                           <RefreshCw size={12} />
@@ -404,8 +479,16 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
                     {run.kind === "ok" && (
                       <div className="h-full p-2">
                         <ChartRenderer
-                          vizType={chart.vizType}
-                          vizConfig={chart.vizConfig}
+                          vizType={card.formula ? "scalar" : chart!.vizType}
+                          vizConfig={
+                            card.formula
+                              ? {
+                                  measure: "value",
+                                  prefix: card.formula.prefix,
+                                  suffix: card.formula.suffix,
+                                }
+                              : chart!.vizConfig
+                          }
                           result={run.result}
                         />
                       </div>
@@ -427,7 +510,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         <ChartPicker
           companyId={company.id}
           companySlug={company.slug}
-          alreadyOn={new Set(data.cards.map((c) => c.chartId))}
+          alreadyOn={new Set(data.cards.flatMap((c) => (c.chartId ? [c.chartId] : [])))}
           error={addCardError}
           onClose={() => {
             setPicking(false);
@@ -437,6 +520,20 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         />
       )}
 
+      {formulaEditor && (
+        <ExploreFormulaModal
+          card={formulaEditor.card}
+          cards={data.cards}
+          charts={data.charts}
+          runs={runs}
+          saving={savingFormula}
+          error={formulaError}
+          onClose={() => {
+            if (!savingFormula) setFormulaEditor(null);
+          }}
+          onSave={(title, formula) => void saveFormula(title, formula)}
+        />
+      )}
       <ExploreShareModal
         open={sharing}
         onClose={() => setSharing(false)}
@@ -472,7 +569,7 @@ function CardEditControls({
   onDelete: () => void;
 }) {
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+    <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-0.5">
       <button
         onClick={() => onChange({ x: card.x - 1 })}
         disabled={card.x <= 0}
@@ -509,6 +606,7 @@ function CardEditControls({
         <ArrowDown size={11} />
       </button>
       <Select
+        containerClassName="w-24"
         value={card.w}
         onChange={(e) => {
           const width = Number(e.target.value);
@@ -526,6 +624,7 @@ function CardEditControls({
         <option value={12}>Full</option>
       </Select>
       <Select
+        containerClassName="w-24"
         value={card.h}
         onChange={(e) => onChange({ h: Number(e.target.value) })}
         className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-900"
@@ -567,6 +666,10 @@ function CardTitleEditor({
 
   function commit() {
     const next = value.trim();
+    if (card.formula && !next) {
+      setValue(card.titleOverride);
+      return;
+    }
     if (next !== card.titleOverride) onChange(next);
   }
 

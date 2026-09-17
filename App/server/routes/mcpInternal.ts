@@ -17496,7 +17496,7 @@ mcpInternalRouter.post(
       where: { dashboardId: row.id },
       order: { y: "ASC", x: "ASC" },
     });
-    const chartIds = [...new Set(cards.map((c) => c.chartId))];
+    const chartIds = [...new Set(cards.flatMap((c) => c.chartId ? [c.chartId] : []))];
     // Hide cards whose underlying Chart this employee can't read. A
     // dashboard read grant is not transitive to its charts — without
     // this we'd leak the SQL/data behind a chart the human meant to
@@ -17509,7 +17509,10 @@ mcpInternalRouter.post(
     const accessibleChartIds = await listAccessibleChartIds(self.id);
     const charts = allCharts.filter((c) => accessibleChartIds.has(c.id));
     const visibleChartIdSet = new Set(charts.map((c) => c.id));
-    const visibleCards = cards.filter((c) => visibleChartIdSet.has(c.chartId));
+    // Formula cards can depend on several Charts, including through other
+    // formulas. Keep them out of this Chart-granted surface until that full
+    // dependency access is represented here.
+    const visibleCards = cards.filter((c) => c.chartId && visibleChartIdSet.has(c.chartId));
     res.json({
       dashboard: serializeDashboard(row),
       cards: visibleCards.map(serializeCard),

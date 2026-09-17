@@ -38,8 +38,8 @@ export function Explore() {
           visualization choice (table, scalar, bar, line, area, pie).
         </LI>
         <LI>
-          <Strong>Dashboard</Strong> — a grid of Charts, each one a <Code>DashboardCard</Code> with
-          its own size and position.
+          <Strong>Dashboard</Strong> — a grid of Charts and formula widgets, each with its own
+          size and position. Formula widgets combine the numbers shown by other widgets.
         </LI>
         <LI>
           <Strong>Run</Strong> — every execution (ad-hoc from the editor or from a saved Chart) goes
@@ -133,7 +133,7 @@ export function Explore() {
           },
           {
             term: "scalar",
-            def: "A single big number. Reads the first cell of the first row. Use for KPIs: MRR, weekly signups, p99 latency.",
+            def: "A single big number. Reads the selected measure from the first row, or the first numeric column when no measure is selected. Use for KPIs: MRR, weekly signups, p99 latency.",
           },
           {
             term: "bar",
@@ -176,6 +176,40 @@ export function Explore() {
           as the editor.
         </LI>
       </OL>
+
+      <H3 id="formula-widgets">Combining widgets with a formula</H3>
+      <OL>
+        <LI>
+          Add the Charts you want to combine and choose the <Code>Number</Code> visualization for
+          each. Open the Dashboard, click <Code>Edit</Code>, then <Code>Add formula</Code>.
+        </LI>
+        <LI>
+          Give the widget a title. Choose a Number or formula widget from this Dashboard for each
+          input, such as <Code>A</Code> and <Code>B</Code>.
+        </LI>
+        <LI>
+          Write the formula, check its preview, and save. Use <Code>A + B</Code> or{" "}
+          <Code>SUM(A, B)</Code> for a total, <Code>A - B</Code> for a difference, or{" "}
+          <Code>(A / B) * 100</Code> for a percentage. Optional prefix and suffix fields can add a
+          currency symbol or <Code>%</Code>.
+        </LI>
+      </OL>
+      <P>
+        Formulas support numbers, parentheses, <Code>+</Code>, <Code>-</Code>, <Code>*</Code>,{" "}
+        <Code>/</Code>, and the functions <Code>SUM</Code>, <Code>AVG</Code>, <Code>MIN</Code>, and{" "}
+        <Code>MAX</Code>. Each Number input uses the same first-row measure displayed on its card.
+        Formula widgets can use other formula widgets as inputs. Source Charts may use different
+        Connections as long as their cards are on the same Dashboard.
+      </P>
+      <P>
+        Refreshing a source Chart recalculates formulas that use it. <Code>Refresh</Code> at the top
+        reloads the Dashboard&apos;s Charts and updates all formulas. A formula card&apos;s own
+        refresh button reloads the Charts behind its inputs, including inputs reached through
+        other formulas. In <Code>Edit</Code> mode, use a formula card&apos;s edit control to change
+        its inputs or expression. Missing or
+        nonnumeric inputs, division by zero, and circular references show an inline error instead
+        of a misleading number.
+      </P>
 
       <H2 id="grants">Sharing with AI Employees</H2>
       <P>
@@ -222,6 +256,11 @@ export function Explore() {
           <Code>add_dashboard_card</Code> — dashboard authoring.
         </LI>
       </UL>
+      <P>
+        Formula widgets are currently managed by Members in the Dashboard UI. The AI dashboard
+        tools omit formula cards and continue to work with Chart cards; adding a formula does not
+        change access to its source Charts.
+      </P>
 
       <H2 id="limits">Limits</H2>
       <KeyList

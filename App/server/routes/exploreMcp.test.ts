@@ -266,4 +266,44 @@ describe("Explore AI authoring", () => {
     });
     assert.equal(dashboardGrant.accessLevel, "write");
   });
+
+  test("dashboard access keeps formula bindings hidden from the Chart-granted AI surface", async () => {
+    await grant(postgres);
+    const chart = await createChart();
+    const created = await aiCall<{ dashboard: { id: string; slug: string } }>("create_dashboard", {
+      title: "Company pulse",
+    });
+    const card = await aiCall<{ card: { id: string } }>("add_dashboard_card", {
+      dashboardSlug: created.body.dashboard.slug,
+      chartSlug: chart.body.chart.slug,
+    });
+    await insert(DashboardCard, {
+      dashboardId: created.body.dashboard.id,
+      chartId: null,
+      titleOverride: "Private calculation",
+      formulaJson: JSON.stringify({
+        expression: "A * 2",
+        inputs: [{ name: "A", cardId: card.body.card.id }],
+      }),
+    });
+    const visible = await aiCall<{ cards: { id: string }[] }>("get_dashboard", {
+      dashboardSlug: created.body.dashboard.slug,
+    });
+    assert.equal(visible.status, 200);
+    assert.deepEqual(
+      visible.body.cards.map((entry) => entry.id),
+      [card.body.card.id],
+    );
+
+    await AppDataSource.getRepository(EmployeeChartGrant).delete({
+      employeeId: employee.id,
+      chartId: chart.body.chart.id,
+    });
+    const hidden = await aiCall<{ cards: unknown[]; charts: unknown[] }>("get_dashboard", {
+      dashboardSlug: created.body.dashboard.slug,
+    });
+    assert.equal(hidden.status, 200);
+    assert.deepEqual(hidden.body.cards, []);
+    assert.deepEqual(hidden.body.charts, []);
+  });
 });
