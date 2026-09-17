@@ -1183,6 +1183,14 @@ try {
         originalOrder,
       );
       await retainsMailEditor(secondEditor);
+      // Cancel restores focus on the next frame. Let that finish before
+      // moving to the other editor so its callback cannot race this check.
+      await page.waitForFunction(
+        (button) => button === document.activeElement,
+        await firstEditor.row
+          .getByRole("button", { name: "Edit email", exact: true })
+          .elementHandle(),
+      );
       await secondEditor.textarea.focus();
       const oldestUrgent = decision({
         id: "oldest-urgent",
