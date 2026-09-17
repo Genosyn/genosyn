@@ -90,6 +90,12 @@ export type AgentTool = ToolDef & {
 export type StreamCallbacks = {
   /** Human-visible reply prose, streamed token-by-token. */
   onText?: (delta: string) => void;
+  /**
+   * Snapshot at the start of each assistant message to withhold prose generated
+   * before a required source read. Later tool execution cannot change that
+   * message's eligibility merely because its text arrives over a slower stream.
+   */
+  shouldStreamText?: () => boolean;
   /** Ephemeral direct-chat progress, explicitly reported by the employee. */
   onProgress?: (progress: AgentProgress) => void;
   /** Fired before retrying a transient model-service or transport failure. */

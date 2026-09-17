@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { createServer as createPortReservation } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -8,6 +10,40 @@ import type { Config } from "@opencode-ai/sdk/v2";
 
 const require = createRequire(import.meta.url);
 export const OPENCODE_START_TIMEOUT_MS = 90_000;
+const activeProcesses = new Set<{ child: ChildProcess; home: string }>();
+let exitHookInstalled = false;
+
+function trackOpenCodeProcess(child: ChildProcess, home: string) {
+  const active = { child, home };
+  activeProcesses.add(active);
+  if (!exitHookInstalled) {
+    exitHookInstalled = true;
+    process.once("exit", () => {
+      for (const owned of activeProcesses) {
+        signalOpenCodeProcess(owned.child, "SIGKILL");
+        try {
+          rmSync(owned.home, { recursive: true, force: true });
+        } catch {
+          /* Best effort during parent exit. */
+        }
+      }
+    });
+  }
+  return () => activeProcesses.delete(active);
+}
+
+async function allocateOpenCodePort(): Promise<number> {
+  const reservation = createPortReservation();
+  await new Promise<void>((resolve, reject) => {
+    reservation.once("error", reject);
+    reservation.listen(0, "127.0.0.1", resolve);
+  });
+  const address = reservation.address();
+  await new Promise<void>((resolve) => reservation.close(() => resolve()));
+  if (!address || typeof address === "string")
+    throw new Error("Could not allocate an OpenCode server port.");
+  return address.port;
+}
 
 /** Only intentionally supplied coding environment values reach this child. */
 export function openCodeEnvironment(args: {
@@ -65,6 +101,7 @@ export type OpenCodeServer = {
   url: string;
   directory: string;
   authorization: string;
+  processId?: number;
   exited: Promise<never>;
   close(): Promise<void>;
 };
@@ -81,6 +118,7 @@ export async function startOpenCodeServer(args: {
   const home = await mkdtemp(path.join(os.tmpdir(), "genosyn-opencode-"));
   const password = randomBytes(32).toString("hex");
   let child: ChildProcess | undefined;
+  let untrack: (() => boolean) | undefined;
   try {
     const directory = args.cwd ? path.resolve(args.cwd) : path.join(home, "workspace");
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -94,18 +132,26 @@ export async function startOpenCodeServer(args: {
       bin: { opencode: string };
     };
     const executable = path.resolve(path.dirname(packagePath), packageJson.bin.opencode);
-    child = spawn(executable, ["serve", "--hostname=127.0.0.1", "--port=0", "--log-level=ERROR"], {
-      cwd: home,
-      env: openCodeEnvironment({
-        home,
-        config: args.config,
-        password,
-        toolEnv: args.toolEnv,
-        bashTimeoutMs: args.bashTimeoutMs,
-      }),
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
+    // OpenCode interprets port=0 as "try4096 first". Choose a real ephemeral
+    // port so one turn cannot inherit a pooled connection to an earlier child.
+    const port = await allocateOpenCodePort();
+    child = spawn(
+      executable,
+      ["serve", "--hostname=127.0.0.1", `--port=${port}`, "--log-level=ERROR"],
+      {
+        cwd: home,
+        env: openCodeEnvironment({
+          home,
+          config: args.config,
+          password,
+          toolEnv: args.toolEnv,
+          bashTimeoutMs: args.bashTimeoutMs,
+        }),
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+      },
+    );
+    untrack = trackOpenCodeProcess(child, home);
     const proc = child;
     let startupOutput = "";
     let started = false;
@@ -171,17 +217,20 @@ export async function startOpenCodeServer(args: {
       url,
       directory,
       authorization: `Basic ${Buffer.from(`genosyn:${password}`).toString("base64")}`,
+      processId: proc.pid,
       exited,
       async close() {
         if (closed) return;
         closed = true;
         await stopOpenCodeProcess(proc);
         await rm(home, { recursive: true, force: true });
+        untrack?.();
       },
     };
   } catch (error) {
     if (child) await stopOpenCodeProcess(child);
     await rm(home, { recursive: true, force: true });
+    untrack?.();
     throw error;
   }
 }
@@ -199,14 +248,7 @@ export function openCodeStartupError(output: string, code: number | null): strin
 }
 
 async function stopOpenCodeProcess(child: ChildProcess): Promise<void> {
-  const kill = (signal: NodeJS.Signals) => {
-    try {
-      if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
-      else child.kill(signal);
-    } catch {
-      /* The process group has already ended. */
-    }
-  };
+  const kill = (signal: NodeJS.Signals) => signalOpenCodeProcess(child, signal);
   if (child.exitCode !== null || child.signalCode !== null) {
     kill("SIGKILL");
     return;
@@ -223,4 +265,13 @@ async function stopOpenCodeProcess(child: ChildProcess): Promise<void> {
     });
     kill("SIGTERM");
   });
+}
+
+function signalOpenCodeProcess(child: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    /* The owned process group has already ended. */
+  }
 }

@@ -12,7 +12,7 @@ export type ContextWindowSource = "probed" | "manual";
  * to active at a time via `isActive` — the runner and non-interactive chat
  * seams use the active row, while dedicated employee Chat may select another
  * employee-owned row per turn. API-key and custom models run through the
- * in-process provider loop. OpenAI subscription models run through the pinned
+ * pinned OpenCode runtime. OpenAI subscription models run through the pinned
  * official Codex app-server with the same Genosyn tool registry. Credentials
  * are always encrypted in `configJson`; a managed ChatGPT session is
  * materialized only into a private temporary `CODEX_HOME` for login/a turn.

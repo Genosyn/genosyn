@@ -9,6 +9,11 @@ import type { AgentMessage } from "./types.js";
 export const OPENCODE_PROVIDER = "genosyn-model";
 export const OPENCODE_AGENT = "genosyn";
 export const OPENCODE_MCP = "genosyn";
+export function openCodeProviderId(provider?: OpenCodeModel["provider"]): string {
+  // Preserve OpenCode's own OpenAI catalog, including each model's actual
+  // output ceiling. A custom alias would discard those capabilities.
+  return provider === "openai" ? "openai" : OPENCODE_PROVIDER;
+}
 export const OPENCODE_NATIVE_PERMISSIONS = [
   "read",
   "edit",
@@ -92,7 +97,8 @@ export function buildOpenCodeConfig(args: {
   if (model.provider === "anthropic" && (effort === "none" || effort === "minimal")) {
     throw new Error("The selected effort is not supported by this Anthropic AI Model.");
   }
-  const modelRef = `${OPENCODE_PROVIDER}/${model.id}`;
+  const providerId = openCodeProviderId(model.provider);
+  const modelRef = `${providerId}/${model.id}`;
   const outputLimit =
     model.provider === "anthropic" && /^claude-3-(opus|sonnet|haiku)-/.test(model.id) ? 4096 : 8192;
   const options =
@@ -112,7 +118,7 @@ export function buildOpenCodeConfig(args: {
     watcher: { ignore: ["**/*"] },
     formatter: false,
     lsp: nativeCoding,
-    enabled_providers: [OPENCODE_PROVIDER],
+    enabled_providers: [providerId],
     model: modelRef,
     small_model: modelRef,
     default_agent: OPENCODE_AGENT,
@@ -132,7 +138,7 @@ export function buildOpenCodeConfig(args: {
       summary: { disable: true },
     },
     provider: {
-      [OPENCODE_PROVIDER]: {
+      [providerId]: {
         name: "Genosyn AI Model",
         npm:
           model.provider === "anthropic"
@@ -145,23 +151,23 @@ export function buildOpenCodeConfig(args: {
           [model.id]: {
             id: model.id,
             name: model.id,
+            status: "active",
             tool_call: true,
             attachment: true,
             modalities: { input: ["text", "image"], output: ["text"] },
-            limit: {
-              // OpenCode treats zero as unknown and skips preemptive
-              // compaction; keep that uncertainty in Genosyn's context gauge.
-              context: model.contextWindow ?? 0,
-              // OpenAI's output budget includes reasoning. Zero delegates its
-              // ceiling to OpenCode instead of imposing Genosyn's text cap.
-              output:
-                model.provider === "openai"
-                  ? 0
-                  : Math.min(
+            ...(model.provider === "openai"
+              ? {}
+              : {
+                  limit: {
+                    // OpenCode treats zero as unknown and skips preemptive
+                    // compaction; keep that uncertainty in Genosyn's context gauge.
+                    context: model.contextWindow ?? 0,
+                    output: Math.min(
                       outputLimit,
                       model.contextWindow ? Math.floor(model.contextWindow / 4) : outputLimit,
                     ),
-            },
+                  },
+                }),
             options,
           },
         },

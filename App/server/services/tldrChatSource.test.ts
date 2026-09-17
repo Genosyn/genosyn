@@ -416,11 +416,12 @@ describe("TLDR direct-chat source", () => {
           ["read_tldr"],
         );
       }
-      assert.deepEqual(requests[0].tools?.[0]?.function?.parameters, {
-        type: "object",
-        properties: {},
-        additionalProperties: false,
-      });
+      // Runtime-added schema metadata must not hide a broader input surface.
+      const parameters = requests[0].tools?.[0]?.function?.parameters;
+      assert.equal(parameters?.type, "object");
+      assert.deepEqual(parameters?.properties, {});
+      assert.equal(parameters?.additionalProperties, false);
+      assert.deepEqual(parameters?.required ?? [], []);
       assert.match(requests[0].messages?.[0]?.content ?? "", /discussion-only/i);
       assert.match(requests[0].messages?.[0]?.content ?? "", /only tool available/i);
       assert.match(requests[0].messages?.[0]?.content ?? "", /## Soul/);

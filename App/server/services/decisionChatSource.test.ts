@@ -596,11 +596,13 @@ describe("Decision discussion model boundary", () => {
           request.tools?.map((tool) => tool.function?.name),
           ["read_decision"],
         );
-        assert.deepEqual(request.tools?.[0]?.function?.parameters, {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        });
+        // OpenCode owns provider schema metadata; the bound reader still accepts
+        // exactly an empty object and cannot take a different Decision ID.
+        const parameters = request.tools?.[0]?.function?.parameters;
+        assert.equal(parameters?.type, "object");
+        assert.deepEqual(parameters?.properties, {});
+        assert.equal(parameters?.additionalProperties, false);
+        assert.deepEqual(parameters?.required ?? [], []);
       }
     });
   });

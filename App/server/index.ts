@@ -171,8 +171,8 @@ async function main() {
   // The standdown cache before the scheduler: a heartbeat that ran with an
   // empty cache would dispatch work a human had already stopped.
   await bootStanddowns();
-  // Settle the shipped bubblewrap default against this host before validation
-  // reads it, and before any tool registry, Run, or repository clone does.
+  // Resolve any explicitly selected sandbox mode before validation reads it,
+  // and before any tool registry, Run, or repository clone does.
   resolveCodingExecutionMode();
   validateRuntimeSecurity();
   await validateRuntimeDependencies();

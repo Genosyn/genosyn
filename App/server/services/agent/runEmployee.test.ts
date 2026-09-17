@@ -125,7 +125,7 @@ test("Repository work sessions retain their exact domain tool surface", async (t
 
 test("disabled coding remains disabled with OpenCode", async (t) => {
   const seen = capture(t);
-  config.agent.codingTools.executionMode = "disabled";
+  Object.assign(config.agent.codingTools, { executionMode: "disabled" });
   await runEmployeeAgent(params);
   assert.equal(seen[0].nativeCoding, false);
   assert.equal(seen[0].registry.resolve("bash"), undefined);
@@ -133,7 +133,7 @@ test("disabled coding remains disabled with OpenCode", async (t) => {
 
 test("explicit bubblewrap keeps native host tools off", async (t) => {
   const seen = capture(t);
-  config.agent.codingTools.executionMode = "bubblewrap";
+  Object.assign(config.agent.codingTools, { executionMode: "bubblewrap" });
   await runEmployeeAgent(params);
   assert.equal(seen[0].nativeCoding, false);
   assert.equal(seen[0].registry.resolve("read_file"), undefined);

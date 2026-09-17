@@ -711,7 +711,7 @@ import {
 /**
  * Internal HTTP surface for the built-in `genosyn` tools.
  *
- * The in-process agent (`services/agent/`) calls these endpoints over loopback
+ * The runtime tool registry (`services/agent/`) calls these endpoints over loopback
  * with a short-lived Bearer token when the model invokes a genosyn tool, and
  * the `browser` MCP child calls them to queue approvals. Authentication is the
  * token, which resolves to the acting {employee, company} pair via
@@ -1032,7 +1032,7 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
 
 /**
  * The static tool catalogue. This route + `mcp/toolManifest.ts` are the single
- * source of truth; the in-process agent imports STATIC_TOOLS directly, so this
+ * source of truth; the runtime registry imports STATIC_TOOLS directly, so this
  * endpoint is retained mainly for external/manifest consumers. The list is
  * identical for every employee; integration-backed tools are discovered
  * separately via `/integrations/_list`.
@@ -1145,13 +1145,10 @@ function serializeRoutine(
 /**
  * How much of a Routine's brief `list_routines` shows per row.
  *
- * A brief can be 20k chars, and `services/agent/loop.ts` hard-clips a whole
- * tool result at `toolResultCap()` — as little as 8k on a small-window model.
- * Returning full briefs from a *list* therefore truncated the JSON mid-array,
- * and every routine past the cut lost its `id` — the one field `update_routine`
- * needs. The employee could see the routine existed and still had no way to
- * edit it. A listing stays identity-first and bounded; `get_routine` serves the
- * full brief for the one routine the model actually cares about.
+ * A brief can be 20k chars. Returning full briefs from a list can exceed the
+ * runtime's tool-result budget and hide later rows, including the ids needed
+ * to update them. A listing stays identity-first and bounded; `get_routine`
+ * serves the full brief for the one routine the model actually cares about.
  */
 const ROUTINE_BRIEF_PREVIEW_CHARS = 280;
 

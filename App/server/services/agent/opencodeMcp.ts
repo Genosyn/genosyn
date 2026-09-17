@@ -28,6 +28,7 @@ export async function serveOpenCodeTools(args: {
   registry: ToolRegistry;
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
+  beforeCall?: (wireName: string) => Promise<void>;
 }): Promise<{ url: string; token: string; close(): Promise<void> }> {
   const token = randomBytes(32).toString("hex");
   const expected = Buffer.from(`Bearer ${token}`);
@@ -65,6 +66,8 @@ export async function serveOpenCodeTools(args: {
       // issues several MCP requests concurrently. Native coding remains owned
       // by OpenCode; this queue only orders the Genosyn registry boundary.
       const execution = pending.then(async () => {
+        if (closed || args.signal?.aborted) throw new Error("The Genosyn turn has ended.");
+        await args.beforeCall?.(params.name);
         if (closed || args.signal?.aborted) throw new Error("The Genosyn turn has ended.");
         const tool = args.registry.resolve(originalNames.get(params.name) ?? params.name);
         if (!tool) throw new Error(`Unknown Genosyn tool: ${params.name}`);

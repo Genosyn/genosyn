@@ -1,4 +1,5 @@
 import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2";
+import { Agent } from "undici";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import type { ModelEffort } from "../../../shared/modelEffort.js";
 import type { PrivilegedToolCallAuthorizer } from "../memberTurnAuthority.js";
@@ -8,14 +9,16 @@ import {
   buildOpenCodeConfig,
   openCodePromptParts,
   OPENCODE_AGENT,
-  OPENCODE_PROVIDER,
+  openCodeProviderId,
   OPENCODE_NATIVE_PERMISSIONS,
   resolveOpenCodeModel,
 } from "./opencodeConfig.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
-import { OpenCodeEvents } from "./opencodeEvents.js";
+import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
+import { openCodeModelLimits, updateOpenCodeGlobalConfig } from "./opencodeModelLimits.js";
+import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
 export type OpenCodeTurnParams = {
   model: AIModel;
@@ -38,10 +41,12 @@ export type OpenCodeTurnResult = { finalText: string; steps: number; stopReason:
 export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenCodeTurnResult> {
   if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
   const model = await resolveOpenCodeModel(params.model);
-  const bridge = await serveOpenCodeTools(params);
+  const gate = new OpenCodeToolGate(params.signal);
+  let bridge: Awaited<ReturnType<typeof serveOpenCodeTools>> | undefined;
   let proxy: Awaited<ReturnType<typeof serveOpenCodeModel>> | undefined;
   let server: OpenCodeServer | undefined;
   try {
+    bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
     proxy = await serveOpenCodeModel(model, params.signal);
     server = await startOpenCodeServer({
       config: buildOpenCodeConfig({
@@ -56,14 +61,15 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
       bashTimeoutMs: params.bashTimeoutMs,
       signal: params.signal,
     });
-    return await runOpenCodeSession(server, model.id, params);
+    return await runOpenCodeSession(server, model.id, params, gate);
   } catch (error) {
     if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
     throw error;
   } finally {
+    gate.close();
     await server?.close();
     await proxy?.close();
-    await bridge.close();
+    await bridge?.close();
   }
 }
 
@@ -71,20 +77,75 @@ export async function runOpenCodeSession(
   server: OpenCodeServer,
   modelId: string,
   params: OpenCodeTurnParams,
+  toolGate?: OpenCodeToolGate,
 ): Promise<OpenCodeTurnResult> {
+  const dispatcher = new Agent({ pipelining: 0 });
+  const localFetch: typeof fetch = (input, init) => {
+    const options = { ...init, dispatcher, redirect: "error" as const };
+    return fetch(input, options);
+  };
   const client = createOpencodeClient({
     baseUrl: server.url,
     directory: server.directory,
     headers: { Authorization: server.authorization },
     throwOnError: true,
+    fetch: localFetch,
   });
+  try {
+    return await runOpenCodeSessionWithClient(server, modelId, params, toolGate, client);
+  } finally {
+    await dispatcher.destroy();
+  }
+}
+
+async function runOpenCodeSessionWithClient(
+  server: OpenCodeServer,
+  modelId: string,
+  params: OpenCodeTurnParams,
+  toolGate: OpenCodeToolGate | undefined,
+  client: ReturnType<typeof createOpencodeClient>,
+): Promise<OpenCodeTurnResult> {
+  const providerID = openCodeProviderId(params.model.provider);
+  if (providerID === "openai") {
+    const catalog = await Promise.race([
+      client.provider.list({}, { signal: params.signal }),
+      server.exited,
+    ]);
+    const registered = catalog.data?.all.find((provider) => provider.id === providerID)?.models[
+      modelId
+    ];
+    if (!registered) throw new Error("OpenCode could not resolve the configured OpenAI model.");
+    // Global config belongs to the disposable server HOME. Never use the
+    // directory config endpoint, which could write into the employee cwd.
+    await updateOpenCodeGlobalConfig(
+      client,
+      server,
+      {
+        provider: {
+          [providerID]: {
+            models: {
+              [modelId]: {
+                limit: openCodeModelLimits(registered.limit, params.model.contextWindow),
+              },
+            },
+          },
+        },
+      },
+      params.signal,
+    );
+  }
   const created = await client.session.create(
     { title: "Genosyn AI Employee", agent: OPENCODE_AGENT },
     { signal: params.signal },
   );
   if (!created.data) throw new Error("OpenCode did not create a session.");
   const sessionID = created.data.id;
-  const events = new OpenCodeEvents(sessionID, params.callbacks, params.model.contextWindow);
+  const events = new OpenCodeEvents(
+    sessionID,
+    params.callbacks,
+    params.model.contextWindow,
+    (part) => toolGate?.observe(part),
+  );
   const streamController = new AbortController();
   const promptController = new AbortController();
   let limited = false;
@@ -135,7 +196,13 @@ export async function runOpenCodeSession(
     if (params.signal?.aborted) abort();
     const subscription = await client.event.subscribe(
       {},
-      { signal: streamController.signal, sseMaxRetryAttempts: 0 },
+      {
+        signal: streamController.signal,
+        sseMaxRetryAttempts: 0,
+        onSseError: (error) => {
+          if (!streamController.signal.aborted) streamError = openCodeActivityError(error);
+        },
+      },
     );
     listen = (async () => {
       for await (const event of subscription.stream) {
@@ -148,7 +215,9 @@ export async function runOpenCodeSession(
         }
       }
       if (!streamController.signal.aborted)
-        throw new Error("OpenCode's activity stream ended before the turn finished.");
+        throw (
+          streamError ?? new Error("OpenCode's activity stream ended before the turn finished.")
+        );
     })().catch((error: unknown) => {
       if (streamController.signal.aborted) return;
       streamError =
@@ -175,7 +244,7 @@ export async function runOpenCodeSession(
         {
           sessionID,
           agent: OPENCODE_AGENT,
-          model: { providerID: OPENCODE_PROVIDER, modelID: modelId },
+          model: { providerID, modelID: modelId },
           system: `${params.system}\n\nGenosyn company tool names have a genosyn_ prefix in this runtime. When the instructions name a Genosyn tool such as find_tools or repository_read_file, call genosyn_find_tools or genosyn_repository_read_file. Arguments to call_tool still use the original unprefixed tool name. Conversation history is supplied as labelled records; continue the current request without replaying recorded actions.${params.nativeCoding ? "\nFor native coding, older Skills may name read_file, write_file, edit_file, or list_dir. Their OpenCode equivalents are read (filePath), write (filePath, content), edit (filePath, oldString, newString), and list (path). Native glob and grep use pattern and an optional path; bash uses command and description. Follow each available tool's actual schema. These native tools have no genosyn_ prefix." : ""}`,
           parts: openCodePromptParts(params.messages),
         },

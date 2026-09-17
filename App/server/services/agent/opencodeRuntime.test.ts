@@ -8,10 +8,12 @@ import type { AIModel } from "../../db/entities/AIModel.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, openCodePromptParts } from "./opencodeConfig.js";
 import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
-import { OpenCodeEvents } from "./opencodeEvents.js";
+import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
+import { openCodeModelLimits } from "./opencodeModelLimits.js";
+import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
 const model = {
   id: "fixture",
@@ -63,10 +65,10 @@ test("provider mapping preserves Responses, Anthropic effort and endpoint model 
       nativeCoding: false,
       mcp: { url: "http://localhost/mcp", token: "secret" },
     });
-    const mapped = cfg.provider?.["genosyn-model"];
+    const mapped = cfg.provider?.[provider === "openai" ? "openai" : "genosyn-model"];
     assert.equal(mapped?.npm, `@ai-sdk/${provider}`);
     assert.equal(mapped?.models?.["company/model"].id, "company/model");
-    if (provider === "openai") assert.equal(mapped?.models?.["company/model"].limit?.output, 0);
+    if (provider === "openai") assert.equal(mapped?.models?.["company/model"].limit, undefined);
     assert.deepEqual(
       mapped?.models?.["company/model"].options,
       provider === "openai" ? { store: false, reasoningEffort: "high" } : { effort: "high" },
@@ -83,6 +85,24 @@ test("provider mapping preserves Responses, Anthropic effort and endpoint model 
       }),
     /default effort/,
   );
+});
+
+test("OpenAI limits inherit published output caps and reserve input for small windows", () => {
+  assert.deepEqual(openCodeModelLimits({ context: 128000, output: 16384 }, 128000), {
+    context: 128000,
+    input: 128000,
+    output: 16384,
+  });
+  assert.deepEqual(openCodeModelLimits({ context: 8192, output: 8192 }, 8192), {
+    context: 8192,
+    input: 8192,
+    output: 4096,
+  });
+  assert.deepEqual(
+    openCodeModelLimits({ context: 400000, input: 272000, output: 128000 }, 400000),
+    { context: 400000, input: 272000, output: 128000 },
+  );
+  assert.deepEqual(openCodeModelLimits({ context: 0, output: 0 }, null), { context: 0, output: 0 });
 });
 
 test("unknown context stays unknown and legacy Anthropic models keep their output ceiling", () => {
@@ -231,6 +251,69 @@ test("events stream only assistant prose, deduplicate snapshots and preserve act
   assert.equal(events.finalText, "Hi there");
   assert.equal(events.steps, 1);
   assert.deepEqual(usage, [{ inputTokens: 13, outputTokens: 4 }]);
+});
+
+test("tool execution waits for streamed ordering and text readiness is fixed for each message", async () => {
+  let wasRead = false;
+  const text: string[] = [];
+  const gate = new OpenCodeToolGate();
+  const events = new OpenCodeEvents(
+    "session",
+    { shouldStreamText: () => wasRead, onText: (value) => text.push(value) },
+    null,
+    (part) => gate.observe(part),
+  );
+  const waiting = gate.enter("read_decision").then(() => {
+    wasRead = true;
+  });
+  events.accept({
+    id: "first",
+    type: "message.updated",
+    properties: { sessionID: "session", info: assistant("first") },
+  });
+  events.part({
+    id: "before",
+    type: "text",
+    sessionID: "session",
+    messageID: "first",
+    text: "Before the read",
+  });
+  assert.equal(wasRead, false);
+  const tool: Part = {
+    id: "read",
+    type: "tool",
+    sessionID: "session",
+    messageID: "first",
+    callID: "read",
+    tool: "genosyn_read_decision",
+    state: { status: "running", input: {}, time: { start: 1 } },
+  };
+  events.part(tool);
+  events.part(tool);
+  await waiting;
+  events.part({
+    id: "late",
+    type: "text",
+    sessionID: "session",
+    messageID: "first",
+    text: "Still generated before seeing the read result",
+  });
+  events.accept({
+    id: "next",
+    type: "message.updated",
+    properties: { sessionID: "session", info: assistant("next") },
+  });
+  events.part({
+    id: "answer",
+    type: "text",
+    sessionID: "session",
+    messageID: "next",
+    text: "Grounded answer",
+  });
+  assert.deepEqual(text, ["Grounded answer"]);
+  const queued = gate.enter("read_decision");
+  gate.close();
+  await assert.rejects(queued, /turn has ended/);
 });
 
 test("retries are visible again in later steps and empty final replies do not reuse narration", () => {
@@ -413,10 +496,16 @@ async function fakeOpenCode(
     emit: (event: Event) => void,
     body: Record<string, unknown>,
   ) => Promise<{ info: AssistantMessage; parts: Part[] }>,
-  options: { hangControl?: boolean } = {},
+  options: {
+    hangControl?: boolean;
+    openAiModel?: { id: string; limit: { context: number; output: number } };
+  } = {},
 ) {
   let stream: ServerResponse | undefined;
+  let globalStream: ServerResponse | undefined;
+  let configurationPending = false;
   const permissions: Record<string, unknown>[] = [];
+  const globalConfigs: Record<string, unknown>[] = [];
   let aborts = 0;
   const server = createServer(async (req, res) => {
     const pathname = new URL(req.url!, "http://localhost").pathname;
@@ -426,6 +515,39 @@ async function fakeOpenCode(
       ? (JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>)
       : {};
     const emit = (event: Event) => stream?.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (pathname === "/global/event") {
+      globalStream = res;
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(
+        `data: ${JSON.stringify({ directory: "global", payload: { id: "connected", type: "server.connected", properties: {} } })}\n\n`,
+      );
+      return;
+    }
+    if (pathname === "/provider") {
+      const model = options.openAiModel;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          all: model ? [{ id: "openai", models: { [model.id]: { limit: model.limit } } }] : [],
+          default: {},
+          connected: ["openai"],
+        }),
+      );
+      return;
+    }
+    if (pathname === "/global/config") {
+      globalConfigs.push(body);
+      configurationPending = true;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(body));
+      setTimeout(() => {
+        configurationPending = false;
+        globalStream?.write(
+          `data: ${JSON.stringify({ directory: "global", payload: { id: "disposed", type: "global.disposed", properties: {} } })}\n\n`,
+        );
+      }, 100);
+      return;
+    }
     if (pathname === "/event") {
       stream = res;
       res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -433,6 +555,7 @@ async function fakeOpenCode(
       return;
     }
     if (pathname === "/session" && req.method === "POST") {
+      assert.equal(configurationPending, false, "session must wait for global config disposal");
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ id: "session" }));
       return;
@@ -456,6 +579,7 @@ async function fakeOpenCode(
   assert.ok(addr && typeof addr !== "string");
   return {
     permissions,
+    globalConfigs,
     get aborts() {
       return aborts;
     },
@@ -468,6 +592,7 @@ async function fakeOpenCode(
     },
     close: async () => {
       stream?.end();
+      globalStream?.end();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
@@ -519,6 +644,33 @@ test("SDK session streams a completed turn and passes policy plus current reques
     });
     assert.deepEqual(result, { finalText: "Finished", steps: 1, stopReason: "end_turn" });
     assert.equal(seen.join(""), "Finished");
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("OpenAI sessions reconcile catalog limits through disposable global config before prompting", async () => {
+  const runtime = await fakeOpenCode(
+    async (_emit, body) => {
+      assert.equal((body.model as { providerID: string }).providerID, "openai");
+      assert.deepEqual(runtime.globalConfigs, [
+        {
+          provider: {
+            openai: {
+              models: { "gpt-4": { limit: { context: 8192, input: 8192, output: 4096 } } },
+            },
+          },
+        },
+      ]);
+      return { info: assistant(), parts: [] };
+    },
+    { openAiModel: { id: "gpt-4", limit: { context: 8192, output: 8192 } } },
+  );
+  try {
+    await runOpenCodeSession(runtime.connection, "gpt-4", {
+      ...turnParams(),
+      model: { provider: "openai", contextWindow: 8192 } as AIModel,
+    });
   } finally {
     await runtime.close();
   }
@@ -791,4 +943,12 @@ test("startup diagnostics explain installation errors without exposing raw outpu
     /install scripts enabled/,
   );
   assert.doesNotMatch(openCodeStartupError("ConfigInvalidError secret", 1), /secret/);
+  assert.match(
+    openCodeActivityError({ message: "secret", cause: { code: "ECONNRESET" } }).message,
+    /ECONNRESET/,
+  );
+  assert.doesNotMatch(
+    openCodeActivityError({ message: "secret", cause: { code: "private-secret" } }).message,
+    /secret/,
+  );
 });

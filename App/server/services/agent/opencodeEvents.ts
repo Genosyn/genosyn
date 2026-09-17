@@ -8,6 +8,7 @@ export class OpenCodeEvents {
   readonly parts = new Map<string, Part>();
   readonly assistants = new Map<string, AssistantMessage>();
   private roles = new Map<string, "user" | "assistant">();
+  private textReady = new Map<string, boolean>();
   private completedSteps = new Set<string>();
   private startedTools = new Set<string>();
   private finishedTools = new Set<string>();
@@ -22,6 +23,7 @@ export class OpenCodeEvents {
     readonly sessionId: string,
     private callbacks?: StreamCallbacks,
     private window: number | null = null,
+    private onMcpTool?: (part: Part) => void,
   ) {}
 
   accept(event: Event): void {
@@ -30,6 +32,8 @@ export class OpenCodeEvents {
       if (info.sessionID !== this.sessionId) return;
       this.roles.set(info.id, info.role);
       if (info.role !== "assistant") return;
+      if (!this.textReady.has(info.id))
+        this.textReady.set(info.id, this.callbacks?.shouldStreamText?.() ?? true);
       this.assistants.set(info.id, info);
       this.currentMessageId = info.id;
       if (info.error && info.error.name !== "MessageAbortedError")
@@ -71,6 +75,7 @@ export class OpenCodeEvents {
       if (
         part?.type !== "text" ||
         this.roles.get(part.messageID) !== "assistant" ||
+        !this.textReady.get(part.messageID) ||
         this.assistants.get(part.messageID)?.summary ||
         part.synthetic ||
         part.ignored
@@ -88,9 +93,15 @@ export class OpenCodeEvents {
     if (part.sessionID !== this.sessionId) return;
     const old = this.parts.get(part.id);
     this.parts.set(part.id, { ...part });
+    // A tool part also establishes assistant provenance if its message
+    // snapshot was delayed. Freeze readiness before the MCP gate can run.
+    if (part.type === "tool" && !this.textReady.has(part.messageID))
+      this.textReady.set(part.messageID, this.callbacks?.shouldStreamText?.() ?? true);
+    if (part.type === "tool" && part.tool.startsWith(`${OPENCODE_MCP}_`)) this.onMcpTool?.(part);
     if (
       part.type === "text" &&
       this.roles.get(part.messageID) === "assistant" &&
+      this.textReady.get(part.messageID) &&
       !this.assistants.get(part.messageID)?.summary &&
       !part.synthetic &&
       !part.ignored
@@ -193,4 +204,24 @@ export function openCodeError(error: NonNullable<AssistantMessage["error"]>): Er
       "The AI Model's context window was exceeded after OpenCode tried to compact the conversation.",
     );
   return new Error(`OpenCode could not complete the AI Model turn (${error.name}).`);
+}
+
+export function openCodeActivityError(error: unknown): Error {
+  const cause =
+    error && typeof error === "object"
+      ? (error as { code?: unknown; cause?: { code?: unknown }; message?: unknown })
+      : undefined;
+  const code = cause?.cause?.code ?? cause?.code;
+  const safeCode =
+    typeof code === "string" &&
+    /^(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|UND_ERR_[A-Z_]+)$/.test(code)
+      ? code
+      : undefined;
+  const status =
+    typeof cause?.message === "string"
+      ? /^SSE failed: (\d{3})\b/.exec(cause.message)?.[1]
+      : undefined;
+  return new Error(
+    `OpenCode's activity connection failed${safeCode ? ` (${safeCode})` : status ? ` (HTTP ${status})` : ""}.`,
+  );
 }

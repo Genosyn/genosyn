@@ -1,19 +1,65 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer, type ServerResponse } from "node:http";
+import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AIModel } from "../../db/entities/AIModel.js";
-import type { AgentTool } from "./types.js";
+import type { AgentMessage, AgentTool } from "./types.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
 import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
+import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
 type ToolCall = { name: string; input: Record<string, unknown> };
+const png =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+const imageMessages: AgentMessage[] = [
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "Verify this tiny PNG and the supplied tools." },
+      { type: "image", mimeType: "image/png", data: png, sourceLabel: "fixture.png" },
+    ],
+  },
+];
+function assertWireImage(body: Record<string, unknown>, provider: OpenCodeModel["provider"]) {
+  const messages = (provider === "openai" ? body.input : body.messages) as Array<{
+    content?: Array<Record<string, unknown>>;
+  }>;
+  const parts = messages.flatMap((message) =>
+    Array.isArray(message.content) ? message.content : [],
+  );
+  if (provider === "anthropic")
+    assert.ok(
+      parts.some(
+        (part) =>
+          part.type === "image" &&
+          (part.source as { media_type?: string; data?: string })?.media_type === "image/png" &&
+          Boolean((part.source as { data?: string }).data),
+      ),
+    );
+  else if (provider === "openai")
+    assert.ok(
+      parts.some(
+        (part) =>
+          part.type === "input_image" &&
+          String(part.image_url).startsWith("data:image/png;base64,"),
+      ),
+    );
+  else
+    assert.ok(
+      parts.some(
+        (part) =>
+          part.type === "image_url" &&
+          (part.image_url as { url?: string })?.url?.startsWith("data:image/png;base64,"),
+      ),
+    );
+}
 async function fakeProvider(
   script: (request: Record<string, unknown>, index: number) => string | ToolCall | "hang",
 ) {
@@ -173,7 +219,7 @@ async function realTurn(
   onServer?: (server: OpenCodeServer) => void,
 ) {
   const params: OpenCodeTurnParams = {
-    model: { contextWindow: 32000 } as AIModel,
+    model: { provider: model.provider, contextWindow: model.contextWindow } as AIModel,
     system: "Complete the requested work with the supplied tools.",
     messages: [{ role: "user", content: [{ type: "text", text: "Verify the fixture" }] }],
     registry: residentOnlyRegistry(tools),
@@ -181,7 +227,8 @@ async function realTurn(
     signal: AbortSignal.timeout(150_000),
     ...overrides,
   };
-  const bridge = await serveOpenCodeTools(params);
+  const gate = new OpenCodeToolGate(params.signal);
+  const bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
   const proxy = await serveOpenCodeModel(model, params.signal);
   let server: Awaited<ReturnType<typeof startOpenCodeServer>> | undefined;
   try {
@@ -197,8 +244,9 @@ async function realTurn(
       signal: params.signal,
     });
     onServer?.(server);
-    return await runOpenCodeSession(server, model.id, params);
+    return await runOpenCodeSession(server, model.id, params, gate);
   } finally {
+    gate.close();
     await server?.close();
     await proxy.close();
     await bridge.close();
@@ -239,7 +287,7 @@ test(
             },
           },
         ],
-        { callbacks: { onUsage: (value) => usage.push(value) } },
+        { messages: imageMessages, callbacks: { onUsage: (value) => usage.push(value) } },
       );
       assert.equal(called, 1);
       assert.equal(result.finalText, "Verified");
@@ -253,6 +301,7 @@ test(
         ),
       );
       assert.ok(JSON.stringify(fixture.requests[1].body).includes("Actual tool confirmed"));
+      assertWireImage(fixture.requests[0].body, "custom");
       assert.ok(usage.length >= 1);
     } finally {
       await fixture.close();
@@ -277,9 +326,14 @@ for (const provider of ["openai", "anthropic"] as const)
             contextWindow: 200000,
           },
           [],
-          { effort: "high", callbacks: { onUsage: (value) => usage.push(value) } },
+          {
+            effort: "high",
+            messages: imageMessages,
+            callbacks: { onUsage: (value) => usage.push(value) },
+          },
         );
         assert.equal(result.finalText, "Verified");
+        assertWireImage(fixture.requests[0].body, provider);
         assert.deepEqual(usage, [{ inputTokens: 29, outputTokens: 5 }]);
         assert.equal(
           fixture.requests[0].url,
@@ -296,6 +350,35 @@ for (const provider of ["openai", "anthropic"] as const)
             "high",
           );
         }
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+
+for (const legacy of [
+  { id: "gpt-4o", context: 128000, output: 16384 },
+  { id: "gpt-4", context: 8192, output: 4096 },
+])
+  test(
+    `pinned OpenCode respects ${legacy.id} output metadata without repeated compaction`,
+    { timeout: 180_000 },
+    async () => {
+      const fixture = await fakeProvider(() => "Verified");
+      try {
+        const result = await realTurn(
+          {
+            id: legacy.id,
+            provider: "openai",
+            apiKey: "private",
+            baseURL: fixture.baseURL,
+            contextWindow: legacy.context,
+          },
+          [],
+        );
+        assert.equal(result.finalText, "Verified");
+        assert.equal(fixture.requests.length, 1);
+        assert.equal(fixture.requests[0].body.max_output_tokens, legacy.output);
       } finally {
         await fixture.close();
       }
@@ -388,6 +471,74 @@ test(
       await assert.rejects(fetch(ownedServer.url, { signal: AbortSignal.timeout(2000) }));
     } finally {
       controller.abort();
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode exits and removes private state when its parent exits normally",
+  { timeout: 180_000 },
+  async () => {
+    const script = `
+    import { startOpenCodeServer } from './server/services/agent/opencodeServer.ts';
+    process.on('SIGTERM', () => process.exit(1));
+    const server = await startOpenCodeServer({ config: { share: 'disabled', autoupdate: false, plugin: [], permission: { '*': 'deny' } }, signal: AbortSignal.timeout(120000) });
+    process.stdout.write(JSON.stringify({ url: server.url, directory: server.directory, processId: server.processId }), () => process.exit(0));
+  `;
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "--eval", script],
+      {
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+        signal: AbortSignal.timeout(150_000),
+      },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.resume();
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", resolve);
+    });
+    assert.equal(code, 0);
+    const owned = JSON.parse(output) as { url: string; directory: string; processId: number };
+    await assert.rejects(access(path.dirname(owned.directory)), { code: "ENOENT" });
+    await assert.rejects(fetch(owned.url, { signal: AbortSignal.timeout(2000) }));
+    assert.throws(() => process.kill(owned.processId, 0), { code: "ESRCH" });
+  },
+);
+
+test(
+  "pinned OpenCode consecutive turns have isolated local transports and server ports",
+  { timeout: 300_000 },
+  async () => {
+    const fixture = await fakeProvider(() => "Verified");
+    const ports: string[] = [];
+    try {
+      for (let index = 0; index < 2; index++) {
+        const result = await realTurn(
+          {
+            id: "fixture",
+            provider: "custom",
+            apiKey: "private",
+            baseURL: fixture.baseURL,
+            contextWindow: 32000,
+          },
+          [],
+          {},
+          (server) => {
+            ports.push(new URL(server.url).port);
+          },
+        );
+        assert.equal(result.finalText, "Verified");
+      }
+      assert.equal(new Set(ports).size, 2);
+      assert.equal(fixture.requests.length, 2);
+    } finally {
       await fixture.close();
     }
   },

@@ -73,11 +73,9 @@ export { RUN_LOG_MAX_BYTES } from "./runLog.js";
  *  1. Load the employee, company, active model, and skill list.
  *  2. Compose a system prompt (Soul + Memory + Skills + tools briefing) and the
  *     routine instruction, all pulled from the DB.
- *  3. Run the in-process agent against the model's API (Anthropic / OpenAI /
- *     custom OpenAI-compatible endpoint), handing it the built-in coding tools,
- *     the genosyn MCP tools, browser tools (when enabled), and any
- *     company-configured MCP servers — buffering the transcript into the Run's
- *     `logContent`.
+ *  3. Run OpenCode (or official Codex for subscription access), supplying the
+ *     authorized Genosyn, browser, and company MCP tools and the selected coding
+ *     mode, while buffering the transcript into the Run's `logContent`.
  *
  * Degradation: if no Model is connected we write a clear stub log and mark the
  * Run as skipped — the product must keep working on a fresh self-host before

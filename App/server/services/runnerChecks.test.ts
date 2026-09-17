@@ -153,7 +153,8 @@ async function makeRoutine(values: Partial<Routine> = {}): Promise<Routine> {
     cronExpr: "0 3 * * *",
     body: "Do the work.",
     acceptanceCriteria: "",
-    timeoutSec: 180,
+    // Work, two remediation turns, and reflection each start an external runtime.
+    timeoutSec: 480,
     maxAttempts: 1,
     ...values,
   });
