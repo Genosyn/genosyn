@@ -17,7 +17,9 @@ import type {
 import type { ToolRegistry } from "./tools/toolRegistry.js";
 import { PARSE_ERROR_KEY } from "./modelClients/parseArgs.js";
 import {
+  isModelRequestTimeout,
   isRetryableModelError,
+  MODEL_TIMEOUT_MAX_ATTEMPTS,
   MODEL_TURN_MAX_ATTEMPTS,
   modelRetryDelayMs,
   modelRetryReason,
@@ -203,9 +205,12 @@ async function streamTurnWithRecovery(params: {
   const { client, system, messages, toolDefs, signal, callbacks } = params;
   let overflowRecovered = false;
   let transientRetries = 0;
+  let attempts = 0;
+  let maxAttempts = MODEL_TURN_MAX_ATTEMPTS;
 
   for (;;) {
     let outputStarted = false;
+    attempts += 1;
     try {
       return await client.streamTurn({
         system,
@@ -218,6 +223,14 @@ async function streamTurnWithRecovery(params: {
         },
       });
     } catch (err) {
+      // Once a request times out, keep the smaller budget for this turn.
+      // Count every request, including context recovery, so another error
+      // cannot open a seventh attempt or reset time already spent retrying.
+      if (isModelRequestTimeout(err)) {
+        maxAttempts = Math.min(maxAttempts, MODEL_TIMEOUT_MAX_ATTEMPTS);
+      }
+      if (signal?.aborted || outputStarted || attempts >= maxAttempts) throw err;
+
       if (isContextOverflowError(err) && !overflowRecovered) {
         // We know the prompt exceeded the window but not by how much — the call
         // failed, so there's no usage to read. Rather than invent a number to
@@ -245,21 +258,15 @@ async function streamTurnWithRecovery(params: {
 
       // Replaying after text has reached chat or a Run log would duplicate the
       // partial answer. Tool calls are not executed until streamTurn resolves,
-      // so a failure with no text is safe to replay.
-      if (
-        signal?.aborted ||
-        outputStarted ||
-        transientRetries >= MODEL_TURN_MAX_ATTEMPTS - 1 ||
-        !isRetryableModelError(err)
-      ) {
-        throw err;
-      }
+      // so a transient failure with no text is safe to replay under the guards
+      // above, which also protect context recovery.
+      if (!isRetryableModelError(err)) throw err;
 
       transientRetries += 1;
       const delayMs = modelRetryDelayMs(err, transientRetries);
       callbacks?.onModelRetry?.({
-        attempt: transientRetries + 1,
-        maxAttempts: MODEL_TURN_MAX_ATTEMPTS,
+        attempt: attempts + 1,
+        maxAttempts,
         delayMs,
         reason: modelRetryReason(err),
       });

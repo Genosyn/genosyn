@@ -7,7 +7,7 @@ import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import express from "express";
 import { config } from "../config.js";
 
@@ -41,6 +41,7 @@ Object.assign(config.agent.codingTools, { enabled: false, executionMode: "disabl
 
 // Only this fake model is used. It exercises the real custom model streaming client and
 // verification endpoint without an external account or network request.
+const timeoutAttempts = new Map<string, number>();
 const model = http.createServer(async (req, res) => {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -55,9 +56,46 @@ const model = http.createServer(async (req, res) => {
       .filter((message: { role: string }) => message.role === "user")
       .map((message: { content: unknown }) => JSON.stringify(message.content))
       .join("\n");
+    // Restrict these responses to the actual work turn. The retrospective also
+    // reads the Routine brief, but has only its submission tool and must not
+    // accidentally contribute another retry cycle to this fixture's counts.
+    const routineWork = request.tools?.some(
+      (tool: { function?: { name?: string } }) =>
+        tool.function?.name === "call_tool" || tool.function?.name === "mark_run_failed",
+    );
+    const timeoutMarker = ["qa-routine-timeout-recovered", "qa-routine-timeout-exhausted"].find(
+      (marker) => !probe && routineWork && routineBrief.includes(marker),
+    );
+    if (timeoutMarker) {
+      const attempt = (timeoutAttempts.get(timeoutMarker) ?? 0) + 1;
+      timeoutAttempts.set(timeoutMarker, attempt);
+      const exhausted = timeoutMarker === "qa-routine-timeout-exhausted";
+      const shouldTimeout = exhausted || attempt <= 2;
+      console.log(
+        `[fullstack-model-timeout] ${JSON.stringify({
+          marker: timeoutMarker,
+          attempt,
+          status: shouldTimeout ? 504 : 200,
+          atMs: Date.now(),
+          requestHash: createHash("sha256").update(JSON.stringify(request)).digest("hex"),
+        })}`,
+      );
+      if (shouldTimeout) {
+        res.writeHead(504, {
+          "Content-Type": "application/json",
+          // Keep the exhaustion case fast without bypassing the real retry
+          // loop. The recovery case exercises its actual exponential waits.
+          ...(exhausted ? { "Retry-After": "0" } : {}),
+        });
+        res.end(JSON.stringify({ error: { message: "The test AI Model request timed out." } }));
+        return;
+      }
+    }
     if (!probe && routineBrief.includes("qa-routine-error")) {
       res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: { message: "The test AI Model request could not finish." } }));
+      res.end(
+        JSON.stringify({ error: { message: "The test AI Model request could not finish." } }),
+      );
       return;
     }
     const reportFailure =
@@ -88,7 +126,8 @@ const model = http.createServer(async (req, res) => {
                   arguments: JSON.stringify({
                     name: "mark_run_failed",
                     args_json: JSON.stringify({
-                      reason: "The required source document was unavailable, so the report could not be completed.",
+                      reason:
+                        "The required source document was unavailable, so the report could not be completed.",
                     }),
                   }),
                 },

@@ -819,12 +819,26 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H3 id="retries">Retries</H3>
       <P>
-        Retries after <Strong>Failed</Strong> Runs and runtime <Strong>Errors</Strong> are <Strong>off by default.</Strong> Raise{" "}
+        A temporary <Strong>model request timeout</Strong> is retried inside the current Run for
+        API-key and custom-endpoint AI Models: up to five retries after the initial request, waiting
+        roughly 1, 2, 4, 8, and 16 seconds with jitter. A provider&apos;s <Code>Retry-After</Code>
+        header can set the delay, capped at 30 seconds. Each retry appears on a{" "}
+        <Code>[model]</Code> line in the Run log. If the requests keep timing out, the same Run
+        ends <Strong>Error</Strong>. Stopping the Run, reaching its deadline, or receiving partial
+        output prevents further request retries. See{" "}
+        <DocLink to="/docs/models#model-errors">model errors</DocLink> for the other model failures
+        and subscription behavior.
+      </P>
+      <P>
+        Retrying the <Strong>whole Routine</Strong> creates a new Run. These retries after{" "}
+        <Strong>Failed</Strong> Runs and runtime <Strong>Errors</Strong> are{" "}
+        <Strong>off by default.</Strong> Raise{" "}
         <Strong>Attempts</Strong> above 1 in the routine&apos;s Settings to retry them
         automatically, up to 5 attempts, waiting a randomized, doubling interval between each (from
         {" "}
-        <Strong>Retry backoff</Strong>, capped at six hours). Timeouts are opted in separately,
-        because retrying one re-burns the routine&apos;s whole time budget. An interrupted initial
+        <Strong>Retry backoff</Strong>, capped at six hours). Retrying after the Run&apos;s own
+        deadline is opted in separately, because retrying one re-burns the routine&apos;s whole
+        time budget. An interrupted initial
         scheduled Run on an enabled routine without an approval gate is the safety exception: even
         at 1 attempt, it receives one recovery attempt after an hour. Above 1, interrupted retries
         use the configured bounded backoff until the chain reaches its cap.

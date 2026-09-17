@@ -388,14 +388,21 @@ export function Models() {
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
         For API-key and custom-endpoint models, temporary model-service and network failures are
-        retried automatically before Genosyn reports an error. Each model turn gets{" "}
-        <Strong>one attempt plus ten retries</Strong> with exponential backoff — waits of roughly
-        1s, 2s, 4s, 8s and 16s, then 30s for every retry after that, so a model service that stays
-        down costs about three minutes of waiting before the error surfaces. A provider{" "}
-        <Code>Retry-After</Code> header wins over that schedule and is respected up to 30 seconds,
-        and cancelling the chat or Run cancels the wait. A turn is never replayed after visible
-        output has started, because doing so could duplicate a partial answer. Run transcripts
-        record each retry on a <Code>[model]</Code> line. The Codex app-server manages retries for
+        retried automatically before Genosyn reports an error. A model request timeout gets up to{" "}
+        <Strong>five retries after the initial request</Strong>, for six attempts in total. Waits
+        grow exponentially: roughly <Strong>1s, 2s, 4s, 8s, and 16s</Strong>, with a small random
+        reduction to avoid sending every retry at once. Once a turn encounters a timeout, its
+        six-attempt ceiling stays in place even if a later response reports a different temporary
+        error. Earlier retries count toward that allowance; if they have already used it, the
+        timeout stops retrying immediately. Other temporary failures retain one initial attempt
+        plus ten retries, with waits capped at 30 seconds.
+      </P>
+      <P>
+        A provider <Code>Retry-After</Code> header takes precedence, up to 30 seconds. Cancelling
+        the chat or Run, or reaching its deadline, stops further attempts and cancels any wait. A
+        turn is never replayed after visible output has started. Run transcripts record each retry
+        on a <Code>[model]</Code> line. Request retries continue within the same Run; an exhausted
+        request ends it with <Strong>Error</Strong>. The Codex app-server manages retries for
         subscription-auth turns, so those turns do not use Genosyn&apos;s retry loop or its retry
         transcript lines.
       </P>

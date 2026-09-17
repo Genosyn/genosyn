@@ -55,7 +55,11 @@ describe("formatModelError classification", () => {
   test("recognizes timeouts by status, name, and message", () => {
     const gateway = formatModelError(model("openai"), { statusCode: 504, message: "gateway" });
     assert.match(gateway, /did not respond in time/);
-    assert.match(gateway, /retries an unanswered turn ten times with backoff/);
+    assert.match(
+      gateway,
+      /retries unanswered model requests up to five times with exponential backoff/,
+    );
+    assert.match(gateway, /within the Run or chat deadline/);
     assert.match(
       formatModelError(model("openai"), { name: "AbortError", message: "cancelled" }),
       /did not respond in time/,
@@ -66,7 +70,23 @@ describe("formatModelError classification", () => {
       message: "gateway",
     });
     assert.match(subscription, /Codex app-server manages retries/);
-    assert.doesNotMatch(subscription, /Genosyn retries an unanswered turn/);
+    assert.doesNotMatch(subscription, /Genosyn retries unanswered model requests/);
+  });
+
+  test("uses the retry timeout classification for nested causes and permanent responses", () => {
+    const nested = formatModelError(
+      model("custom"),
+      new Error("The response failed", {
+        cause: new DOMException("The deadline elapsed", "TimeoutError"),
+      }),
+    );
+    assert.match(nested, /did not respond in time/);
+    assert.match(nested, /up to five times with exponential backoff/);
+    const permanent = formatModelError(model("custom"), {
+      status: 400,
+      message: "Invalid timeout parameter",
+    });
+    assert.doesNotMatch(permanent, /did not respond in time|five times/);
   });
 
   test("recognizes context-window failures before treating them as generic requests", () => {
