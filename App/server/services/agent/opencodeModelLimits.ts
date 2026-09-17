@@ -15,51 +15,29 @@ export function openCodeModelLimits(
   };
 }
 
-/** The config API responds before its background instance disposal finishes. */
+/** Apply private config and wait until the previous model instance is disposed. */
 export async function updateOpenCodeGlobalConfig(
   client: OpencodeClient,
   server: OpenCodeServer,
   config: Config,
   signal?: AbortSignal,
 ): Promise<void> {
-  const controller = new AbortController();
-  const eventSignal = AbortSignal.any([
-    controller.signal,
-    AbortSignal.timeout(60_000),
-    ...(signal ? [signal] : []),
-  ]);
-  const subscription = await client.global.event({ signal: eventSignal, sseMaxRetryAttempts: 0 });
-  let connectedResolve!: () => void;
-  let disposedResolve!: () => void;
-  const connected = new Promise<void>((resolve) => {
-    connectedResolve = resolve;
-  });
-  const disposed = new Promise<void>((resolve) => {
-    disposedResolve = resolve;
-  });
-  let completed = false;
-  const listen = (async () => {
-    for await (const packet of subscription.stream) {
-      if (packet.payload.type === "server.connected") connectedResolve();
-      if (packet.payload.type === "global.disposed") {
-        completed = true;
-        disposedResolve();
-        return;
-      }
-    }
-    if (!completed) throw new Error("OpenCode did not finish applying its model configuration.");
-  })();
-  void listen.catch(() => {});
+  const timeout = AbortSignal.timeout(60_000);
+  const requestSignal = signal ? AbortSignal.any([timeout, signal]) : timeout;
   try {
-    await Promise.race([connected, listen, server.exited]);
     await Promise.race([
-      client.global.config.update({ config }, { signal: eventSignal }),
+      client.global.config.update({ config }, { signal: requestSignal }),
       server.exited,
     ]);
-    await Promise.race([disposed, listen, server.exited]);
-  } finally {
-    controller.abort();
-    await listen.catch(() => {});
+    // The update eagerly starts a background disposal. In the pinned engine,
+    // this synchronous endpoint joins that same in-flight instance disposer.
+    // Waiting for global.disposed is unsafe: the event stream sends connected
+    // before attaching its listener, and unchanged config emits no disposal.
+    await Promise.race([client.global.dispose({ signal: requestSignal }), server.exited]);
+  } catch (error) {
+    if (timeout.aborted && !signal?.aborted)
+      throw new Error("OpenCode did not finish applying its model configuration.");
+    throw error;
   }
 }
 import type { OpencodeClient, Config } from "@opencode-ai/sdk/v2";

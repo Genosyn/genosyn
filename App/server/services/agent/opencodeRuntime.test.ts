@@ -548,11 +548,13 @@ async function fakeOpenCode(
   options: {
     hangControl?: boolean;
     openAiModel?: { id: string; limit: { context: number; output: number } };
+    unchangedConfig?: boolean;
   } = {},
 ) {
   let stream: ServerResponse | undefined;
-  let globalStream: ServerResponse | undefined;
   let configurationPending = false;
+  let disposal = Promise.resolve();
+  let disposals = 0;
   const permissions: Record<string, unknown>[] = [];
   const globalConfigs: Record<string, unknown>[] = [];
   let aborts = 0;
@@ -564,14 +566,6 @@ async function fakeOpenCode(
       ? (JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>)
       : {};
     const emit = (event: Event) => stream?.write(`data: ${JSON.stringify(event)}\n\n`);
-    if (pathname === "/global/event") {
-      globalStream = res;
-      res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.write(
-        `data: ${JSON.stringify({ directory: "global", payload: { id: "connected", type: "server.connected", properties: {} } })}\n\n`,
-      );
-      return;
-    }
     if (pathname === "/provider") {
       const model = options.openAiModel;
       res.setHeader("Content-Type", "application/json");
@@ -586,15 +580,26 @@ async function fakeOpenCode(
     }
     if (pathname === "/global/config") {
       globalConfigs.push(body);
-      configurationPending = true;
+      configurationPending = !options.unchangedConfig;
+      if (configurationPending)
+        disposal = new Promise<void>((resolve) => {
+          setTimeout(() => {
+            configurationPending = false;
+            resolve();
+          }, 100);
+        });
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(body));
-      setTimeout(() => {
-        configurationPending = false;
-        globalStream?.write(
-          `data: ${JSON.stringify({ directory: "global", payload: { id: "disposed", type: "global.disposed", properties: {} } })}\n\n`,
-        );
-      }, 100);
+      // Deliberately emit no global.disposed: it can precede subscription
+      // registration, and an unchanged update emits no event at all.
+      return;
+    }
+    if (pathname === "/global/dispose") {
+      disposals++;
+      // The actual endpoint shares the update's in-flight disposer.
+      await disposal;
+      res.setHeader("Content-Type", "application/json");
+      res.end("true");
       return;
     }
     if (pathname === "/event") {
@@ -632,6 +637,9 @@ async function fakeOpenCode(
     get aborts() {
       return aborts;
     },
+    get disposals() {
+      return disposals;
+    },
     connection: {
       url: `http://127.0.0.1:${addr.port}`,
       directory: "/tmp",
@@ -641,7 +649,6 @@ async function fakeOpenCode(
     },
     close: async () => {
       stream?.end();
-      globalStream?.end();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
@@ -698,32 +705,34 @@ test("SDK session streams a completed turn and passes policy plus current reques
   }
 });
 
-test("OpenAI sessions reconcile catalog limits through disposable global config before prompting", async () => {
-  const runtime = await fakeOpenCode(
-    async (_emit, body) => {
-      assert.equal((body.model as { providerID: string }).providerID, "openai");
-      assert.deepEqual(runtime.globalConfigs, [
-        {
-          provider: {
-            openai: {
-              models: { "gpt-4": { limit: { context: 8192, input: 8192, output: 4096 } } },
+for (const unchangedConfig of [false, true])
+  test(`OpenAI sessions await config disposal before prompting when the update is ${unchangedConfig ? "unchanged" : "still disposing without a lifecycle event"}`, async () => {
+    const runtime = await fakeOpenCode(
+      async (_emit, body) => {
+        assert.equal((body.model as { providerID: string }).providerID, "openai");
+        assert.equal(runtime.disposals, 1);
+        assert.deepEqual(runtime.globalConfigs, [
+          {
+            provider: {
+              openai: {
+                models: { "gpt-4": { limit: { context: 8192, input: 8192, output: 4096 } } },
+              },
             },
           },
-        },
-      ]);
-      return { info: assistant(), parts: [] };
-    },
-    { openAiModel: { id: "gpt-4", limit: { context: 8192, output: 8192 } } },
-  );
-  try {
-    await runOpenCodeSession(runtime.connection, "gpt-4", {
-      ...turnParams(),
-      model: { provider: "openai", contextWindow: 8192 } as AIModel,
-    });
-  } finally {
-    await runtime.close();
-  }
-});
+        ]);
+        return { info: assistant(), parts: [] };
+      },
+      { openAiModel: { id: "gpt-4", limit: { context: 8192, output: 8192 } }, unchangedConfig },
+    );
+    try {
+      await runOpenCodeSession(runtime.connection, "gpt-4", {
+        ...turnParams(),
+        model: { provider: "openai", contextWindow: 8192 } as AIModel,
+      });
+    } finally {
+      await runtime.close();
+    }
+  });
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 5000;
