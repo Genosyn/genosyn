@@ -253,6 +253,55 @@ test("events stream only assistant prose, deduplicate snapshots and preserve act
   assert.deepEqual(usage, [{ inputTokens: 13, outputTokens: 4 }]);
 });
 
+test("text callbacks wait for visible output and omit empty or unchanged updates", () => {
+  const chunks: string[] = [];
+  const interrupted = new AbortController();
+  const events = new OpenCodeEvents("session", {
+    onText: (chunk) => {
+      chunks.push(chunk);
+      interrupted.abort();
+    },
+  });
+  events.accept({
+    id: "message",
+    type: "message.updated",
+    properties: { sessionID: "session", info: assistant() },
+  });
+  const part: Part = {
+    id: "reply",
+    type: "text",
+    sessionID: "session",
+    messageID: "assistant",
+    text: "",
+  };
+  const delta = (text: string): Event => ({
+    id: "delta",
+    type: "message.part.delta",
+    properties: {
+      sessionID: "session",
+      messageID: "assistant",
+      partID: "reply",
+      field: "text",
+      delta: text,
+    },
+  });
+  events.accept(updated(part));
+  events.accept(updated(part));
+  events.accept(delta(""));
+  assert.deepEqual(chunks, []);
+  assert.equal(interrupted.signal.aborted, false);
+
+  events.accept(delta("Visible"));
+  assert.deepEqual(chunks, ["Visible"]);
+  assert.equal(interrupted.signal.aborted, true);
+  events.accept(updated({ ...part, text: "Visible" }));
+  events.accept(delta(""));
+  events.accept(updated({ ...part, text: "Visible reply." }));
+  events.accept(updated({ ...part, text: "Visible reply." }));
+  assert.deepEqual(chunks, ["Visible", " reply."]);
+  assert.equal(events.finalText, "Visible reply.");
+});
+
 test("tool execution waits for streamed ordering and text readiness is fixed for each message", async () => {
   let wasRead = false;
   const text: string[] = [];

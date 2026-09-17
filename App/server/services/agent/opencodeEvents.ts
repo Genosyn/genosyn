@@ -70,7 +70,7 @@ export class OpenCodeEvents {
     }
     if (event.type === "message.part.delta") {
       const { sessionID, partID, field, delta } = event.properties;
-      if (sessionID !== this.sessionId || field !== "text") return;
+      if (sessionID !== this.sessionId || field !== "text" || delta.length === 0) return;
       const part = this.parts.get(partID);
       if (
         part?.type !== "text" ||
@@ -107,7 +107,8 @@ export class OpenCodeEvents {
       !part.ignored
     ) {
       const before = old?.type === "text" ? old.text : "";
-      if (part.text.startsWith(before)) this.callbacks?.onText?.(part.text.slice(before.length));
+      if (part.text.startsWith(before) && part.text.length > before.length)
+        this.callbacks?.onText?.(part.text.slice(before.length));
     } else if (part.type === "step-finish" && !this.completedSteps.has(part.id)) {
       this.completedSteps.add(part.id);
       this.steps++;
