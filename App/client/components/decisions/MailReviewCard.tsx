@@ -258,10 +258,12 @@ export function MailReviewCard({
   company,
   approval,
   onResolved,
+  onEditingChange,
 }: {
   company: Company;
   approval: HomeApproval;
   onResolved: (announcement?: string) => Promise<void> | void;
+  onEditingChange?: (approvalId: string, editing: boolean) => void;
 }) {
   const review = mailReview(approval);
   const fallbackTitle = review?.source.threadId ? "Customer reply" : "Email review";
@@ -280,6 +282,10 @@ export function MailReviewCard({
     // may mark it stale, but only an explicit reload may replace its text.
     if (editingBaseRevision !== null && review?.revision !== editingBaseRevision) setStale(true);
   }, [editingBaseRevision, review?.revision]);
+  React.useEffect(() => {
+    onEditingChange?.(approval.id, editing);
+    return () => onEditingChange?.(approval.id, false);
+  }, [approval.id, editing, onEditingChange]);
   function returnFocusToEditButton() {
     window.requestAnimationFrame(() => editButtonRef.current?.focus());
   }

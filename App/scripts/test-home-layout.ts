@@ -3,6 +3,7 @@
  * Tests the real Home greeting, cards and employee day with deterministic API
  * fixtures. Geometry assertions catch reserved columns and overflow that static
  * rendering cannot. Every unexpected request fails the suite.
+ * Set GENOSYN_HOME_TEST_FILTER to a check-name substring while iterating.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -592,6 +593,34 @@ const card = (page: Page, title: string) =>
 const activeDecisions = (page: Page) =>
   page.getByRole("region", { name: "Active decisions", exact: true });
 const decisionRows = (page: Page) => activeDecisions(page).locator(":scope > ul > li");
+async function editMailReply(page: Page, id: string, body: string) {
+  const row = page.locator(`#review-${id}`);
+  await row.getByRole("button", { name: "Edit email", exact: true }).click();
+  const textarea = row.getByRole("textbox", { name: "Email", exact: true });
+  await textarea.fill(body);
+  await textarea.press("ArrowLeft");
+  const element = await textarea.elementHandle();
+  assert.ok(element);
+  return { row, textarea, element, body };
+}
+async function retainsMailEditor(
+  editor: Awaited<ReturnType<typeof editMailReply>>,
+  focused = false,
+) {
+  assert.equal(await editor.element.evaluate((element) => element.isConnected), true);
+  assert.equal(await editor.textarea.inputValue(), editor.body);
+  assert.equal(
+    await editor.textarea.evaluate((element) => (element as HTMLTextAreaElement).selectionStart),
+    editor.body.length - 1,
+    "the editor must retain the insertion point",
+  );
+  if (focused)
+    assert.equal(
+      await editor.element.evaluate((element) => element === document.activeElement),
+      true,
+      "refresh must leave keyboard focus in the same textarea",
+    );
+}
 const markReadButton = (page: Page, label: string) =>
   page.getByRole("button", {
     name: `Mark ${label} as read`,
@@ -652,6 +681,8 @@ async function openDay(page: Page, index = 0, key?: string) {
 }
 let checks = 0;
 async function check(name: string, run: () => Promise<void>) {
+  if (process.env.GENOSYN_HOME_TEST_FILTER && !name.includes(process.env.GENOSYN_HOME_TEST_FILTER))
+    return;
   console.log(`RUN ${name}`);
   try {
     await run();
@@ -1004,6 +1035,186 @@ try {
         .getByRole("heading", { name: "Nothing needs you right now", exact: true })
         .waitFor();
       assert.equal(await activeDecisions(page).count(), 0);
+      await page.close();
+    },
+  );
+  await check(
+    "an open email editor survives urgent Decisions changing the Home preview",
+    async () => {
+      const existing = [
+        decision({
+          id: "first",
+          title: "First customer question",
+          urgency: "normal",
+          createdAt: "2026-09-09T06:00:00.000Z",
+        }),
+        decision({
+          id: "second",
+          title: "Second customer question",
+          urgency: "normal",
+          createdAt: "2026-09-09T07:00:00.000Z",
+        }),
+      ];
+      const urgent = decision({ id: "urgent", title: "A new urgent question" });
+      const fixture = await open({
+        quiet: true,
+        live: true,
+        role: "admin",
+        decisions: existing,
+        decisionApprovals: [review("mail_send")],
+      });
+      const { page } = fixture;
+      const originalOrder = [
+        "First customer question",
+        "Second customer question",
+        "Review the customer reply",
+      ];
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        originalOrder,
+      );
+      const editor = await editMailReply(
+        page,
+        "mail-review",
+        "My unsaved reply must survive the urgent arrival.",
+      );
+
+      fixture.setDecisions([urgent, ...existing]);
+      fixture.emitResourceEvent("decision");
+      await activeDecisions(page)
+        .getByRole("link", { name: "View all decisions · 1 more waiting", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).getByText("4", { exact: true }).count(), 1);
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        originalOrder,
+      );
+      assert.equal(await decisionRows(page).count(), 3);
+      await retainsMailEditor(editor, true);
+      await page.screenshot({
+        path: path.join(output, "home-active-email-editor.png"),
+        fullPage: true,
+      });
+
+      await editor.row.getByRole("button", { name: "Cancel", exact: true }).click();
+      await activeDecisions(page)
+        .getByRole("heading", { name: urgent.title, exact: true })
+        .waitFor();
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        [urgent.title, ...existing.map((item) => item.title)],
+      );
+      assert.equal(
+        await editor.row.count(),
+        0,
+        "closing the editor restores the normal three-item cutoff",
+      );
+      assert.deepEqual(
+        fixture.mutations,
+        [],
+        "unsaved edits and cancellation must not write the email",
+      );
+      await page.close();
+    },
+  );
+  await check(
+    "multiple open email editors keep the Home preview stable until the last closes",
+    async () => {
+      const existing = decision({
+        id: "existing",
+        title: "Existing customer question",
+        urgency: "normal",
+        createdAt: "2026-09-09T06:00:00.000Z",
+      });
+      const firstMail = {
+        ...review("mail_send"),
+        id: "first-mail",
+        title: "Review the first email",
+        requestedAt: "2026-09-09T07:00:00.000Z",
+      };
+      const secondMail = {
+        ...review("mail_send"),
+        id: "second-mail",
+        title: "Review the second email",
+      };
+      const urgent = [
+        decision({
+          id: "urgent-one",
+          title: "First urgent arrival",
+          createdAt: "2026-09-09T08:50:00.000Z",
+        }),
+        decision({
+          id: "urgent-two",
+          title: "Second urgent arrival",
+          createdAt: "2026-09-09T08:55:00.000Z",
+        }),
+      ];
+      const fixture = await open({
+        quiet: true,
+        live: true,
+        role: "admin",
+        decisions: [existing],
+        decisionApprovals: [firstMail, secondMail],
+      });
+      const { page } = fixture;
+      const firstEditor = await editMailReply(page, firstMail.id, "Unsaved first reply.");
+      const secondEditor = await editMailReply(page, secondMail.id, "Unsaved second reply.");
+      const originalOrder = [existing.title, firstMail.title, secondMail.title];
+
+      fixture.setDecisions([...urgent, existing]);
+      fixture.emitResourceEvent("decision");
+      await activeDecisions(page)
+        .getByRole("link", { name: "View all decisions · 2 more waiting", exact: true })
+        .waitFor();
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        originalOrder,
+      );
+      assert.equal(
+        await activeDecisions(page).getByRole("form", { name: "Edit email", exact: true }).count(),
+        2,
+      );
+      await retainsMailEditor(firstEditor);
+      await retainsMailEditor(secondEditor, true);
+
+      await firstEditor.row.getByRole("button", { name: "Cancel", exact: true }).click();
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        originalOrder,
+      );
+      await retainsMailEditor(secondEditor);
+      await secondEditor.textarea.focus();
+      const oldestUrgent = decision({
+        id: "oldest-urgent",
+        title: "An older urgent question",
+        createdAt: "2026-09-09T08:40:00.000Z",
+      });
+      fixture.setDecisions([oldestUrgent, ...urgent, existing]);
+      fixture.emitResourceEvent("decision");
+      await activeDecisions(page)
+        .getByRole("link", { name: "View all decisions · 3 more waiting", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).getByText("6", { exact: true }).count(), 1);
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        originalOrder,
+      );
+      assert.equal(await decisionRows(page).count(), 3);
+      await retainsMailEditor(secondEditor, true);
+
+      await secondEditor.row.getByRole("button", { name: "Cancel", exact: true }).click();
+      await activeDecisions(page)
+        .getByRole("heading", { name: oldestUrgent.title, exact: true })
+        .waitFor();
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        [oldestUrgent.title, ...urgent.map((item) => item.title)],
+      );
+      assert.equal(
+        await activeDecisions(page).getByRole("form", { name: "Edit email", exact: true }).count(),
+        0,
+      );
+      assert.deepEqual(fixture.mutations, []);
       await page.close();
     },
   );

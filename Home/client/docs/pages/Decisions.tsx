@@ -52,8 +52,10 @@ export function Decisions() {
         Home shows <Strong>Active decisions</Strong> near the top: up to three pending items,
         ordered by urgency and then oldest first, with the total waiting. Answer a Decision directly
         on Home; owners and admins can also review proposed work and email replies there. The
-        section updates as items arrive or are resolved and disappears when nothing is waiting.
-        Select <Strong>All decisions</Strong> to open the full stack and history.
+        section updates as items arrive or are resolved and disappears when nothing is waiting. An
+        email you are editing stays visible while new items arrive. Select{" "}
+        <Strong>All decisions</Strong>
+        to open the full stack and history.
       </P>
 
       <H2 id="reviewing-email">Reviewing an email</H2>

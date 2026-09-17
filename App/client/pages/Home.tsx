@@ -730,6 +730,14 @@ function ActiveDecisions({
   data: HomeData;
   onResolved: (announcement?: string) => Promise<void> | void;
 }) {
+  const [editingReviewIds, setEditingReviewIds] = React.useState<string[]>([]);
+  const previewKeys = React.useRef<string[]>([]);
+  const handleReviewEditingChange = React.useCallback((approvalId: string, editing: boolean) => {
+    setEditingReviewIds((current) => {
+      if (current.includes(approvalId) === editing) return current;
+      return editing ? [...current, approvalId] : current.filter((id) => id !== approvalId);
+    });
+  }, []);
   const reviews = homeDecisionReviews(company, data);
   const canReview = company.role === "owner" || company.role === "admin";
   const total =
@@ -738,19 +746,35 @@ function ActiveDecisions({
   const items = [
     ...data.decisions.map((decision) => ({
       kind: "decision" as const,
+      key: `decision-${decision.id}`,
       at: decision.createdAt,
       urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
       decision,
     })),
     ...reviews.map((approval) => ({
       kind: "review" as const,
+      key: `review-${approval.id}`,
       at: approval.requestedAt,
       urgency: 1,
       approval,
     })),
   ].sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at));
-  if (items.length === 0) return null;
-  const preview = items.slice(0, 3);
+  const itemsByKey = new Map(items.map((item) => [item.key, item] as const));
+  // Keep the visible cards mounted and ordered while an email editor owns
+  // unsaved text. Resolved rows still leave, and new items fill their places.
+  const retained = previewKeys.current.flatMap((key) => {
+    const item = itemsByKey.get(key);
+    return item ? [item] : [];
+  });
+  const retainedKeys = new Set(retained.map((item) => item.key));
+  const preview =
+    editingReviewIds.length > 0
+      ? [...retained, ...items.filter((item) => !retainedKeys.has(item.key))].slice(0, 3)
+      : items.slice(0, 3);
+  React.useEffect(() => {
+    previewKeys.current = preview.map((item) => item.key);
+  }, [preview]);
+  if (preview.length === 0) return null;
   const hidden = Math.max(0, total - preview.length);
   const href = `/c/${company.slug}/decisions`;
 
@@ -788,21 +812,22 @@ function ActiveDecisions({
         {preview.map((item) =>
           item.kind === "decision" ? (
             <DecisionCard
-              key={item.decision.id}
+              key={item.key}
               company={company}
               decision={item.decision}
               onResolved={onResolved}
             />
           ) : item.approval.kind === "mail_send" ? (
             <MailReviewCard
-              key={item.approval.id}
+              key={item.key}
               company={company}
               approval={item.approval}
               onResolved={onResolved}
+              onEditingChange={handleReviewEditingChange}
             />
           ) : (
             <WorkReviewCard
-              key={item.approval.id}
+              key={item.key}
               company={company}
               approval={item.approval}
               onResolved={onResolved}
