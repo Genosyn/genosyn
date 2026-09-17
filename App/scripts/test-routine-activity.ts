@@ -357,6 +357,21 @@ async function names(page: Page, section: "running" | "today") {
     rows.map((row) => row.getAttribute("aria-label")!.split(": view ")[0]),
   );
 }
+async function expectNames(page: Page, section: "running" | "today", expected: string[]) {
+  const headingId = section === "running" ? "running-now-heading" : "ran-today-heading";
+  await page.waitForFunction(
+    ({ headingId, expected }) => {
+      const region = document.querySelector(`section[aria-labelledby="${headingId}"]`);
+      const actual = Array.from(
+        region?.querySelectorAll("a") ?? [],
+        (link) => link.getAttribute("aria-label")!.split(": view ")[0],
+      );
+      return JSON.stringify(actual) === JSON.stringify(expected);
+    },
+    { headingId, expected },
+  );
+  assert.deepEqual(await names(page, section), expected);
+}
 async function fits(page: Page) {
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -364,10 +379,14 @@ async function fits(page: Page) {
     "Routines must not scroll sideways",
   );
   assert.equal(
-    await page.getByRole("button", { name: "New routine", exact: true }).evaluate((button) => {
-      const box = button.getBoundingClientRect();
-      return box.left >= 0 && box.right <= innerWidth;
-    }),
+    await page
+      .getByRole("button", { name: "New routine", exact: true })
+      // The desktop sidebar has an icon button with the same accessible name.
+      .filter({ hasText: /^New routine$/ })
+      .evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        return box.left >= 0 && box.right <= innerWidth;
+      }),
     true,
     "the New routine button must remain fully visible on narrow screens",
   );
@@ -416,8 +435,8 @@ try {
       const fixture = await open();
       try {
         await running(fixture.page).waitFor();
-        assert.deepEqual(await names(fixture.page, "running"), ["Inbox sweep", "Overnight audit"]);
-        assert.deepEqual(await names(fixture.page, "today"), [
+        await expectNames(fixture.page, "running", ["Inbox sweep", "Overnight audit"]);
+        await expectNames(fixture.page, "today", [
           "Invoice follow-up",
           "Inbox sweep",
           "Account review",
@@ -510,20 +529,20 @@ try {
       await running(page).waitFor();
       const search = page.getByRole("textbox", { name: "Search routines", exact: true });
       await search.fill("inbox");
-      assert.deepEqual(await names(page, "running"), ["Inbox sweep"]);
-      assert.deepEqual(await names(page, "today"), ["Inbox sweep"]);
+      await expectNames(page, "running", ["Inbox sweep"]);
+      await expectNames(page, "today", ["Inbox sweep"]);
       await search.press("Escape");
       await page.getByRole("button", { name: "Customer", exact: true }).click();
-      assert.deepEqual(await names(page, "running"), ["Inbox sweep"]);
-      assert.deepEqual(await names(page, "today"), ["Inbox sweep", "Account review"]);
+      await expectNames(page, "running", ["Inbox sweep"]);
+      await expectNames(page, "today", ["Inbox sweep", "Account review"]);
       await page.getByRole("button", { name: /^Needs attention/ }).click();
-      assert.equal(await running(page).count(), 0);
-      assert.deepEqual(await names(page, "today"), ["Account review"]);
+      await running(page).waitFor({ state: "detached" });
+      await expectNames(page, "today", ["Account review"]);
       await page.getByRole("button", { name: /^All \d/ }).click();
       await page.getByRole("button", { name: "Customer", exact: true }).click();
       await page.getByRole("button", { name: /^Paused/ }).click();
-      assert.deepEqual(await names(page, "running"), ["Overnight audit"]);
-      assert.equal(await today(page).getByRole("link").count(), 0);
+      await expectNames(page, "running", ["Overnight audit"]);
+      await expectNames(page, "today", []);
     } finally {
       await fixture.close();
     }
@@ -534,14 +553,14 @@ try {
     try {
       await running(page).waitFor();
       await page.locator('aside a[href="/c/company/routines?employee=alex"]').click();
-      assert.deepEqual(await names(page, "running"), ["Overnight audit"]);
-      assert.deepEqual(await names(page, "today"), ["Invoice follow-up"]);
+      await expectNames(page, "running", ["Overnight audit"]);
+      await expectNames(page, "today", ["Invoice follow-up"]);
       await page.locator('aside a[href="/c/company/routines?folder=operations"]').click();
-      assert.deepEqual(await names(page, "running"), ["Inbox sweep"]);
-      assert.deepEqual(await names(page, "today"), ["Inbox sweep", "Account review"]);
+      await expectNames(page, "running", ["Inbox sweep"]);
+      await expectNames(page, "today", ["Inbox sweep", "Account review"]);
       await page.locator('aside a[href="/c/company/routines?folder=unfiled"]').click();
-      assert.deepEqual(await names(page, "running"), ["Overnight audit"]);
-      assert.equal(await today(page).getByRole("link").count(), 0);
+      await expectNames(page, "running", ["Overnight audit"]);
+      await expectNames(page, "today", []);
     } finally {
       await fixture.close();
     }
@@ -560,7 +579,7 @@ try {
         fixture.event();
         await running(fixture.page).waitFor({ state: "detached" });
         await today(fixture.page).getByText("1 routine · 2 Runs", { exact: true }).waitFor();
-        assert.deepEqual(await names(fixture.page, "today"), ["Inbox sweep"]);
+        await expectNames(fixture.page, "today", ["Inbox sweep"]);
         assert.equal(
           await today(fixture.page).getByRole("link").getAttribute("href"),
           "/c/company/routines/jamie/inbox?run=inbox-live",
@@ -640,6 +659,7 @@ try {
           await today(fixture.page)
             .getByRole("button", { name: "Show all 7 routines", exact: true })
             .click();
+          await today(fixture.page).getByRole("link").nth(6).waitFor();
           assert.equal(await today(fixture.page).getByRole("link").count(), 7);
           await fixture.page.screenshot({
             path: path.join(output, `routines-activity-mobile-${width}.png`),
@@ -654,6 +674,7 @@ try {
           await today(fixture.page)
             .getByRole("button", { name: "Show fewer", exact: true })
             .click();
+          await today(fixture.page).getByRole("link").nth(5).waitFor({ state: "detached" });
           assert.equal(await today(fixture.page).getByRole("link").count(), 5);
         } finally {
           await fixture.close();
