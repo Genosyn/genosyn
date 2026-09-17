@@ -37,6 +37,7 @@ import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders"
 import { filterRoutinesBySearch } from "../lib/routineSearch";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { TagChips, TagFilterBar } from "../components/TagPicker";
+import { RoutineActivity } from "@/components/routines/RoutineActivity";
 
 /**
  * Every routine in the company. Filterable by the employee it's assigned to
@@ -288,7 +289,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
       <TopBar
         title={title}
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             {routines.length > 0 && (
               <Button
                 variant="secondary"
@@ -432,6 +433,14 @@ export default function RoutinesIndex({ company }: { company: Company }) {
               })
             }
           />
+
+          <RoutineActivity key={company.id} company={company} routines={shown} />
+
+          <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {employee || folder || unfiledView || searching || health !== "all" || selectedTagId
+              ? "Matching routines"
+              : "All routines"}
+          </h2>
 
           {selecting && (
             <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-2.5 text-sm dark:border-indigo-500/30 dark:bg-indigo-500/10">

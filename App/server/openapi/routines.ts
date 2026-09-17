@@ -322,6 +322,79 @@ const RoutineDetail = RoutineColumns.extend({
   lastRun: RunOrNull,
 }).openapi("RoutineDetail");
 
+const RoutineActivityRun = Run.pick({
+  id: true,
+  routineId: true,
+  status: true,
+  errorKind: true,
+  startedAt: true,
+  finishedAt: true,
+  exitCode: true,
+  attempt: true,
+  retryAt: true,
+  missedSlots: true,
+})
+  .extend({
+    outcomeVerdict: z.enum(["achieved", "unclear", "off_goal", "unverified"]).nullable(),
+    checksVerdict: z.enum(["passed", "failed", "not_run"]).nullable(),
+  })
+  .openapi("RoutineActivityRun");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/routines/activity",
+  summary: "Show active Routines and Routines that ran during a calendar day",
+  description:
+    "Available to every company Member. Running includes all active Runs, even when " +
+    "they started before the requested day. Today groups terminal Runs by Routine, " +
+    "excluding skipped ticks, whose start or finish falls in [from, to). Each group " +
+    "contains its Run count and latest Run by finish time (or start time when absent), " +
+    "with Run ID breaking ties. Both sections contain metadata only, without transcripts " +
+    "or prose. Supply local-day midnight boundaries as ISO instants with timezone offsets; " +
+    "the interval must advance and span at most 26 hours to allow clock changes.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid() }),
+    query: z.object({
+      from: z.string().datetime({ offset: true }).describe("Inclusive start of the local day."),
+      to: z.string().datetime({ offset: true }).describe("Exclusive end of the local day."),
+    }),
+  },
+  responses: {
+    200: {
+      description:
+        "Active Run summaries and one daily summary per Routine; empty arrays when absent",
+      content: {
+        "application/json": {
+          schema: z.object({
+            running: z.array(RoutineActivityRun),
+            today: z.array(
+              z.object({
+                routineId: z.string().uuid(),
+                runCount: z.number().int().positive(),
+                latestRun: RoutineActivityRun,
+              }),
+            ),
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Invalid company UUID, datetime, or interval",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    401: {
+      description: "Not authenticated",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Not a Member of this company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/routines",

@@ -56,6 +56,24 @@ export function Routines() {
         filtered to them.
       </P>
 
+      <H2 id="recent-runs">Running now and today</H2>
+      <P>
+        Above the full list, <Strong>Running now</Strong> shows each active Run with its Routine,
+        assigned AI Employee, and start time. It disappears when nothing is running. Open a card to
+        follow that Run in the Routine&apos;s detail page.
+      </P>
+      <P>
+        <Strong>Ran today</Strong> shows each Routine&apos;s latest finished Run and how many times
+        it ran today, newest first. Status, outcome, and Check badges keep their separate meanings.
+        Open a row for that Run&apos;s log; the Routine&apos;s <Strong>Runs</Strong> tab holds
+        earlier Runs. Use <Strong>Show all</Strong> to expand a busy day.
+      </P>
+      <P>
+        Today follows your browser&apos;s local calendar day, including Runs that started yesterday
+        and finished today. Skipped Runs are excluded. Both sections update automatically and follow
+        the same search, employee, folder, tag, and health filters as the list below.
+      </P>
+
       <H2 id="search">Searching the list</H2>
       <P>
         Folders ask <Strong>where does this live</Strong> and tags ask{" "}

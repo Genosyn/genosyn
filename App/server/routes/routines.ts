@@ -13,7 +13,7 @@ import { Approval } from "../db/entities/Approval.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import crypto from "node:crypto";
-import { validateBody, validateParams } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import {
   requireAuth,
   requireBrowserSession,
@@ -51,9 +51,30 @@ import {
 import { resolveFolderForCompany, RoutineFolderError } from "../services/routineFolders.js";
 import { PlanLimitError, assertRoutineCapacity } from "../services/entitlements.js";
 import { emitResourceChange } from "../services/resourceEvents.js";
+import { getRoutineActivity, ROUTINE_ACTIVITY_MAX_WINDOW_MS } from "../services/routineActivity.js";
+
+const activityParamsSchema = z.object({ cid: z.string().uuid() });
+const activityQuerySchema = z
+  .object({
+    from: z.string().datetime({ offset: true }),
+    to: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .superRefine((query, ctx) => {
+    const length = Date.parse(query.to) - Date.parse(query.from);
+    if (!Number.isFinite(length) || length <= 0 || length > ROUTINE_ACTIVITY_MAX_WINDOW_MS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Choose a calendar day spanning no more than 26 hours, with from before to",
+      });
+    }
+  });
 
 export const routinesRouter = Router({ mergeParams: true });
 routinesRouter.use(requireAuth);
+routinesRouter.use(
+  onRoutePaths([/^\/routines\/activity\/?$/], validateParams(activityParamsSchema)),
+);
 routinesRouter.use(requireCompanyMember);
 routinesRouter.use(
   onRoutePaths(
@@ -190,6 +211,12 @@ routinesRouter.get("/routines", async (req, res) => {
       a.name.localeCompare(b.name),
   );
   res.json(rows);
+});
+
+routinesRouter.get("/routines/activity", validateQuery(activityQuerySchema), async (req, res) => {
+  const { cid } = req.params as z.infer<typeof activityParamsSchema>;
+  const { from, to } = req.query as z.infer<typeof activityQuerySchema>;
+  res.json(await getRoutineActivity({ companyId: cid, from: new Date(from), to: new Date(to) }));
 });
 
 routinesRouter.get("/employees/:eid/routines", async (req, res) => {
