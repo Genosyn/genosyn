@@ -62,7 +62,7 @@ export function App() {
 /** The landing page follows the numbered story from product proof through installation. */
 function Landing() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
+    <div className="min-h-screen overflow-x-clip bg-slate-50 text-slate-900">
       <Nav />
       <main>
         <Hero />

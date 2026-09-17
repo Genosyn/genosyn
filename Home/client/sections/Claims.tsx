@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useId, useState } from "react";
+import { ArrowRight } from "lucide-react";
 import { LANES } from "@/sections/Board";
 
 const CLAIMS = LANES.flatMap((lane) =>
@@ -23,36 +24,48 @@ function clock(hours: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-const INTERVAL = 2600;
-
 export function Claims({ className = "" }: { className?: string }) {
+  const exampleId = useId();
   const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const id = window.setInterval(() => setIndex((i) => (i + 1) % CLAIMS.length), INTERVAL);
-    return () => window.clearInterval(id);
-  }, []);
+  const claim = CLAIMS[index];
 
   return (
     <div className={className}>
-      <span className="sr-only">
-        {`Overnight, without anyone signed in: ${CLAIMS.map((c) => `${c.lane}, ${clock(c.at)}, ${c.label}`).join(";")}.`}
-      </span>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs font-medium text-slate-500">A sample night at work</p>
+        <button
+          type="button"
+          aria-controls={exampleId}
+          onClick={() => setIndex((value) => (value + 1) % CLAIMS.length)}
+          className="group -mr-2 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          Next example
+          <ArrowRight
+            aria-hidden
+            className="h-3.5 w-3.5 transition-transform motion-safe:group-hover:translate-x-0.5"
+          />
+        </button>
+      </div>
 
-      <div aria-hidden className="min-h-[5.25rem]">
+      <div
+        id={exampleId}
+        aria-live="polite"
+        aria-atomic="true"
+        className="min-h-[7rem] sm:min-h-[5.5rem]"
+      >
         <div key={index} className="claim-in">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
               <span
-                className={`h-2 w-2 rounded-full ${DEPT[CLAIMS[index].lane] ?? "bg-indigo-600"}`}
+                aria-hidden
+                className={`h-2 w-2 rounded-full ${DEPT[claim.lane] ?? "bg-indigo-600"}`}
               />
-              {CLAIMS[index].lane}
+              {claim.lane}
             </span>
-            <span className="font-mono text-xs text-slate-500">{clock(CLAIMS[index].at)}</span>
+            <span className="font-mono text-xs text-slate-500">{clock(claim.at)}</span>
           </div>
           <p className="mt-2.5 max-w-[34ch] text-base font-medium leading-6 text-slate-900 sm:text-lg">
-            {CLAIMS[index].label}
+            {claim.label}
           </p>
         </div>
       </div>

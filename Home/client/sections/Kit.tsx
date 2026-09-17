@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useReveal } from "@/components/Reveal";
 import { Link } from "@/lib/router";
 
 /**
@@ -182,8 +183,9 @@ export function Head({
   aside?: ReactNode;
   className?: string;
 }) {
+  const ref = useReveal<HTMLDivElement>();
   return (
-    <div className={className}>
+    <div ref={ref} className={className}>
       {eyebrow && <div className="t-field mb-3 text-muted">{eyebrow}</div>}
       <div className="grid gap-x-12 gap-y-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <h2 className="t-h2 max-w-[26ch] text-[clamp(1.75rem,3vw,2.75rem)] text-ink">{title}</h2>
@@ -255,8 +257,10 @@ export function Pane({
   className?: string;
   children: ReactNode;
 }) {
+  const ref = useReveal<HTMLDivElement>();
   return (
     <div
+      ref={ref}
       className={`relative overflow-hidden rounded-xl border border-rule bg-surface shadow-sm ${className}`}
     >
       {dept && (
@@ -288,8 +292,9 @@ export function Plate({
   className?: string;
   children: ReactNode;
 }) {
+  const ref = useReveal<HTMLElement>();
   return (
-    <figure className={className}>
+    <figure ref={ref} className={className}>
       <div className="overflow-hidden rounded-xl border border-rule bg-surface shadow-sm">
         {children}
       </div>
@@ -412,7 +417,7 @@ export function Button({
     variant === "primary"
       ? "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
       : "border border-rule bg-surface text-ink shadow-sm hover:bg-slate-50";
-  const classes = `inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 ${skin} ${className}`;
+  const classes = `motion-button inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${skin} ${className}`;
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={classes}>
@@ -444,13 +449,13 @@ export function ActionStrip({
   className?: string;
   children: ReactNode;
 }) {
-  const classes = `group flex min-h-[3.25rem] w-full items-center justify-between gap-4 rounded-xl border border-rule bg-surface px-4 text-ink shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 ${className}`;
+  const classes = `motion-strip group flex min-h-[3.25rem] w-full items-center justify-between gap-4 rounded-xl border border-rule bg-surface px-4 text-ink shadow-sm hover:border-slate-300 hover:bg-slate-50 ${className}`;
   const inner = (
     <>
       <span className={`min-w-0 truncate ${mono ? "t-data text-[13px]" : "text-[15px]"}`}>
         {children}
       </span>
-      {trailing && <span className="t-field shrink-0 opacity-70">{trailing}</span>}
+      {trailing && <span className="motion-trailing t-field shrink-0 opacity-70">{trailing}</span>}
     </>
   );
   if (external) {
@@ -541,7 +546,7 @@ export function Row({
   children: ReactNode;
 }) {
   const base = `relative flex items-start gap-x-6 gap-y-2 rounded-lg border border-rule bg-surface py-4 shadow-sm ${
-    href ? "group transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50" : ""
+    href ? "motion-card group hover:border-slate-300 hover:bg-slate-50" : ""
   } ${dept ? "pl-9 pr-4" : "px-4"} ${className}`;
   const spine = dept ? (
     <span

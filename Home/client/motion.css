@@ -1,0 +1,60 @@
+/* Reusable interactions stay small enough to preserve the page's quiet rhythm. */
+.motion-button,
+.motion-card,
+.motion-strip {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.motion-button > svg,
+.motion-card > svg,
+.motion-strip > .motion-trailing {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.motion-button:focus-visible,
+.motion-card:focus-visible,
+.motion-strip:focus-visible {
+  box-shadow: 0 4px 12px -6px rgb(15 23 42 / 24%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .motion-button:hover,
+  .motion-strip:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 18px -10px rgb(15 23 42 / 30%);
+  }
+
+  .motion-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 24px -16px rgb(15 23 42 / 30%);
+  }
+
+  .motion-button:hover > svg,
+  .motion-card:hover > svg,
+  .motion-strip:hover > .motion-trailing {
+    transform: translateX(2px);
+  }
+
+  .motion-button:active,
+  .motion-card:active,
+  .motion-strip:active {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-button,
+  .motion-card,
+  .motion-strip,
+  .motion-button > svg,
+  .motion-card > svg,
+  .motion-strip > .motion-trailing {
+    transform: none !important;
+    transition: none !important;
+  }
+}

@@ -1,17 +1,9 @@
+import { ArrowRight, Terminal } from "lucide-react";
+import { Reveal } from "@/components/Reveal";
 import { GITHUB_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
-import {
-  ActionStrip,
-  Band,
-  Container,
-  Field,
-  Heading,
-  Lede,
-  Note,
-  Rail,
-  Sheet,
-} from "@/sections/Kit";
+import { Band, Container, Field, Note, Rail, Sheet } from "@/sections/Kit";
 
 const ROLE_LINKS = [
   ["AI SDR", "/roles/sdr"],
@@ -45,25 +37,41 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
   return (
     <Band id="install" tone="ground" open="l" close="s">
       <Container>
-        <Rail sheet={sheet} fields={["Apache-2.0", `v${__APP_VERSION__}`]}>
-          <Heading as="h2" className="max-w-[16ch]">
-            Tomorrow one thing is finished before 09:30.
-          </Heading>
-
-          <Lede className="mt-7">
-            Install Genosyn, register an AI Model, write one role, and put it on a schedule. The
-            company grows from there.
-          </Lede>
-
-          <div className="mt-10 max-w-[36rem] space-y-3">
-            <ActionStrip href="/docs/install" trailing="Guide">
-              Install on your own hardware
-            </ActionStrip>
-            <ActionStrip href={GITHUB_URL} external trailing="Source">
-              Read every line on GitHub
-            </ActionStrip>
+        <Reveal className="on-night grid items-center gap-8 rounded-2xl bg-slate-950 p-6 sm:p-10 lg:grid-cols-[1.3fr_1fr] lg:gap-16 lg:p-12">
+          <div>
+            <span className="text-xs font-medium uppercase tracking-widest text-indigo-300">
+              {sheet}
+            </span>
+            <h2 className="mt-5 max-w-[18ch] text-balance text-3xl font-semibold leading-tight tracking-tight text-white sm:text-4xl">
+              Give tomorrow a head start.
+            </h2>
+            <p className="mt-4 max-w-lg text-base leading-7 text-slate-300">
+              One AI Employee. One Routine. Start with the work you want off your plate and build
+              from there.
+            </p>
           </div>
-        </Rail>
+          <div>
+            <div className="mb-5 flex items-center gap-3 text-sm text-slate-300">
+              <Terminal aria-hidden className="h-5 w-5 text-indigo-300" />
+              Self-hosted. Open source. Yours to run.
+            </div>
+            <Link
+              href="/docs/install"
+              className="motion-button flex min-h-12 items-center justify-between gap-4 rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-900 hover:bg-indigo-50"
+            >
+              Install Genosyn <ArrowRight aria-hidden className="h-4 w-4" />
+            </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex items-center gap-2 text-sm text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white"
+            >
+              Read the source on GitHub
+              <span className="sr-only">(opens in a new tab)</span>
+            </a>
+          </div>
+        </Reveal>
       </Container>
     </Band>
   );

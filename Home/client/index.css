@@ -163,21 +163,6 @@ body {
   animation: arrive 160ms ease-out both;
 }
 
-/* The end state is the real style, so content remains visible without motion. */
-.wall-pane {
-  opacity: 1;
-  transform: translateY(0);
-  transition:
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.wall-pane[data-enter="pending"] {
-  opacity: 0;
-  transform: translateY(8px);
-  transition: none;
-}
-
 /* Small transitions used by live product demonstrations. */
 @keyframes row-in {
   from {
@@ -256,13 +241,6 @@ body {
     scroll-behavior: auto;
   }
 
-  .wall-pane,
-  .wall-pane[data-enter="pending"] {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-
   .claim-in,
   .row-in,
   [data-sweep] .strip-draw,
@@ -274,6 +252,34 @@ body {
   .prototype-progress,
   .animate-strip,
   .animate-arrive {
+    animation: none;
+  }
+}
+
+/* A quiet drafting grid frames the opening without competing with the preview. */
+.hero-grid {
+  background-image: radial-gradient(#cbd5e1 0.7px, transparent 0.7px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(to bottom, #00000030, transparent 85%);
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.site-menu {
+  animation: menu-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-menu {
     animation: none;
   }
 }

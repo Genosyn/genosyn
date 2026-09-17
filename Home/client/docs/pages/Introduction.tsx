@@ -116,6 +116,15 @@ export function Introduction() {
         </LI>
       </UL>
 
+      <H2 id="explore-the-website">Explore the website</H2>
+      <P>
+        The <DocLink to="/">Genosyn website</DocLink> shows a sample company so you can see how work
+        moves between departments. Use <Strong>Pause animation</Strong> above the dashboard to stop
+        its updates, or <Strong>Next example</Strong> to browse the sample morning reports at your
+        own pace. Website motion follows your device&apos;s reduced-motion preference. The examples
+        are illustrative; they are not connected to your company&apos;s records.
+      </P>
+
       <H2 id="where-to-start">Where to start</H2>
       <P>
         If you&apos;ve never run Genosyn before, the fastest path is{" "}

@@ -10,6 +10,14 @@ primary actions and focus. Semantic hues stay local to compact statuses and
 department markers. Compatibility tokens live in `tailwind.config.ts`; shared
 surfaces, headings, and controls live in `client/sections/Kit.tsx`.
 
+The site uses brief entrances as headings and product cards enter the viewport,
+with small hover and keyboard-focus responses on links and actions. Shared
+motion lives in `client/components/Reveal.tsx` and `client/motion.css`. Content
+is visible in prerendered HTML and when motion APIs are unavailable. Entrances
+run once, stop when their content receives keyboard focus, and respect the
+system's reduced-motion setting, including changes made while the page is open.
+Reduced motion also removes hover movement and animated transitions.
+
 ## Scripts
 
 ```bash
@@ -38,6 +46,8 @@ Home/
 │   ├── main.tsx
 │   ├── App.tsx                # routing for /, /roles, /products, /docs, …
 │   ├── index.css              # Tailwind entrypoint
+│   ├── motion.css             # shared action interactions and reduced-motion rules
+│   ├── components/            # accessible, reusable motion primitives
 │   ├── lib/                   # router, head manager, siteMeta (SEO registry)
 │   ├── public/favicon.svg
 │   ├── sections/              # Nav, Hero, Roles, Autonomy, Features, Footer
