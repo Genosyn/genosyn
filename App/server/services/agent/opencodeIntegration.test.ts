@@ -3,6 +3,7 @@ import test from "node:test";
 import { createServer, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AIModel } from "../../db/entities/AIModel.js";
@@ -506,9 +507,26 @@ test(
     });
     assert.equal(code, 0);
     const owned = JSON.parse(output) as { url: string; directory: string; processId: number };
+    // Parent exit does not wait for child reaping. Linux may retain a terminated
+    // orphan as a zombie, for which kill(pid, 0) still succeeds.
+    const stopDeadline = Date.now() + 5000;
+    for (;;) {
+      try {
+        process.kill(owned.processId, 0);
+        if (process.platform === "linux") {
+          const status = await readFile(`/proc/${owned.processId}/status`, "utf8");
+          if (/^State:\s+[ZX]\b/m.test(status)) break;
+        }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ESRCH" || (process.platform === "linux" && code === "ENOENT")) break;
+        throw error;
+      }
+      assert.ok(Date.now() < stopDeadline, "OpenCode remained running after its parent exited.");
+      await delay(25);
+    }
     await assert.rejects(access(path.dirname(owned.directory)), { code: "ENOENT" });
     await assert.rejects(fetch(owned.url, { signal: AbortSignal.timeout(2000) }));
-    assert.throws(() => process.kill(owned.processId, 0), { code: "ESRCH" });
   },
 );
 
