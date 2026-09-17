@@ -70,6 +70,7 @@ export function buildWorkspaceGitInvocation(
   executionMode: CodingExecutionMode = config.agent.codingTools.executionMode,
   bubblewrapPath: string = config.agent.codingTools.bubblewrapPath,
   allowUnsafeHostExecution: boolean = config.agent.codingTools.allowUnsafeHostExecution,
+  platform: NodeJS.Platform = process.platform,
 ): GitInvocation {
   if (!options.serverOwned) {
     requireCodingRuntime({
@@ -100,7 +101,12 @@ export function buildWorkspaceGitInvocation(
   }
 
   const childEnv: Record<string, string> = {
-    PATH: SAFE_PATH,
+    // Apple Silicon Homebrew supplies a standalone Git without relying on
+    // Apple's developer-tool setup. Keep the namespace path unchanged.
+    PATH:
+      platform === "darwin" && executionMode !== "bubblewrap"
+        ? `/opt/homebrew/bin:${SAFE_PATH}`
+        : SAFE_PATH,
     HOME: executionMode === "bubblewrap" ? "/workspace" : options.workspaceRoot,
     LANG: "C.UTF-8",
     GIT_TERMINAL_PROMPT: "0",
