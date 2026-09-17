@@ -38,11 +38,13 @@ export function delegatedSystemPrompt(parentSystem: string, label: string): stri
     `You are handling the delegated brief ${JSON.stringify(label)} as a temporary copy of the parent AI Employee.`,
     "Work only on this brief. You do not receive the parent conversation, so rely on the self-contained instruction below.",
     "Use your tools when needed, but do not create a Handoff or try to delegate again. Return a concise, factual result with evidence the parent can verify and synthesize.",
+    "Report any unfinished work to the parent. Only the parent can mark its Routine Run as failed.",
   ].join("\n");
 }
 
 function stripGeneratedDelegationReference(line: string): string | null {
   if (line.startsWith("- Parallel delegation: `delegate_parallel_work`")) return null;
+  if (line.startsWith("Run outcome: ")) return null;
   if (!line.startsWith("_Tools: ")) return line;
 
   const tools = line

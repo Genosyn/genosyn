@@ -145,6 +145,7 @@ describe("Routine outcome blocks shared by the popup and employee day", () => {
 
   const stopped = [
     ["failed", /This run failed/],
+    ["error", /encountered a model or runtime error/],
     ["timeout", /ran out of time/],
     ["skipped", /did not run because no AI Model was assigned/],
     ["interrupted", /was interrupted/],
@@ -153,7 +154,8 @@ describe("Routine outcome blocks shared by the popup and employee day", () => {
     test(`a ${status} Run shows its factual state rather than a stale successful report`, () => {
       const html = renderEntry(routineEntry({ status, summary, outcomeVerdict: "achieved" }));
       assert.match(html, expected);
-      assert.ok(html.includes(`>${status}</`));
+      const label = status === "timeout" || status === "interrupted" ? "error" : status;
+      assert.ok(html.includes(`>${label}</`));
       assert.ok(!html.includes(summary));
       assert.doesNotMatch(html, />completed<|happening now/);
       assert.match(html, />achieved</);
@@ -169,6 +171,20 @@ describe("Routine outcome blocks shared by the popup and employee day", () => {
     assert.match(html, />off goal</);
     assert.match(visibleText(html), /checks failed/);
     assert.match(visibleText(html), /required Check failed/);
+  });
+
+  test("shows the employee's failure reason without replacing the Run status and verdict", () => {
+    const html = renderEntry(routineEntry({
+      status: "failed",
+      failureReason: "The source report is missing.",
+      outcomeVerdict: "unverified",
+      checksVerdict: "failed",
+    }));
+    assert.match(html, /The source report is missing/);
+    assert.match(html, />failed</);
+    assert.match(html, />unverified</);
+    assert.match(html, /checks failed/);
+    assert.ok(!html.includes(summary));
   });
 
   test("a proactive review is neutral and never presents a draft report or delivery grade as completed work", () => {

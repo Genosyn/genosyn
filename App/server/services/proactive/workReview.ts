@@ -18,6 +18,7 @@ import {
   RUN_WORK_SUMMARY_MAX_CHARS,
   runWorkSummary,
 } from "../runWorkSummary.js";
+import { finishedRunEvidence } from "../runEvidence.js";
 import { proactiveId } from "./ids.js";
 import { findRoutineParticipation, listParticipatingRoutines } from "../routineParticipation.js";
 
@@ -25,7 +26,6 @@ export const OWN_WORK_REVIEW_LIMIT = 20;
 const TEXT_LIMIT = 400;
 const LABEL_LIMIT = 120;
 const EVIDENCE_LIMIT = 10;
-const FINISHED_RUN_STATUSES = ["completed", "failed", "timeout"];
 const uuid = z.string().uuid();
 
 export class OwnWorkReviewError extends Error {
@@ -114,15 +114,15 @@ export async function getOwnWorkReview(
   const participations = await listParticipatingRoutines(companyId, employeeId);
   const participatingIds = participations.items.map((item) => item.routine.id);
   const participatingRuns = participatingIds.length
-    ? await AppDataSource.getRepository(Run).find({
-        where: {
-          routineId: In(participatingIds),
-          status: In(FINISHED_RUN_STATUSES),
-          finishedAt: Between(since, until),
-        },
-        order: { finishedAt: "DESC", id: "DESC" },
-        take,
-      })
+    ? await AppDataSource.getRepository(Run)
+        .createQueryBuilder("run")
+        .where("run.routineId IN (:...participatingIds)", { participatingIds })
+        .andWhere(finishedRunEvidence())
+        .andWhere("run.finishedAt BETWEEN :since AND :until", { since, until })
+        .orderBy("run.finishedAt", "DESC")
+        .addOrderBy("run.id", "DESC")
+        .take(take)
+        .getMany()
     : [];
   const sharedPending = participatingIds.length
     ? await AppDataSource.getRepository(RevisionProposal).find({
@@ -151,7 +151,7 @@ export async function getOwnWorkReview(
       .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
         selfReviewOnly: false,
       })
-      .andWhere("run.status IN (:...statuses)", { statuses: FINISHED_RUN_STATUSES })
+      .andWhere(finishedRunEvidence())
       .andWhere("run.finishedAt BETWEEN :since AND :until", { since, until })
       .orderBy("run.finishedAt", "DESC")
       .addOrderBy("run.id", "DESC")
@@ -180,7 +180,7 @@ export async function getOwnWorkReview(
       .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
         selfReviewOnly: false,
       })
-      .andWhere("run.status IN (:...statuses)", { statuses: FINISHED_RUN_STATUSES })
+      .andWhere(finishedRunEvidence())
       .andWhere("run.finishedAt IS NOT NULL AND run.finishedAt <= :until", { until })
       .orderBy("lesson.createdAt", "DESC")
       .addOrderBy("lesson.id", "DESC")
@@ -290,7 +290,7 @@ export async function getOwnWorkReview(
         .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
           selfReviewOnly: false,
         })
-        .andWhere("run.status IN (:...statuses)", { statuses: FINISHED_RUN_STATUSES })
+        .andWhere(finishedRunEvidence())
         .andWhere("run.finishedAt IS NOT NULL AND run.finishedAt <= :until", { until })
         .getMany()
     : [];

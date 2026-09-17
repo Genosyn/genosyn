@@ -6,10 +6,13 @@ import { after, afterEach, before, beforeEach, describe, test } from "node:test"
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AutonomyWaiver } from "../db/entities/AutonomyWaiver.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
+import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineCheck } from "../db/entities/RoutineCheck.js";
+import { Standdown } from "../db/entities/Standdown.js";
 import { Run } from "../db/entities/Run.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { encryptSecret } from "../lib/secret.js";
@@ -17,7 +20,7 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.
 import type { SandboxCommandResult } from "./agent/sandboxCommandRun.js";
 import { createCheck, runChecksForRun } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
-import { stopStanddowns } from "./standdowns.js";
+import { interruptCoveredRuns, stopStanddowns } from "./standdowns.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { runWorkSummary } from "./runWorkSummary.js";
 
@@ -46,6 +49,8 @@ let upstreamTurns = 0;
 let completionText = "I have done what was asked.";
 let lastModelRequest = "";
 let rejectRemediation = false;
+let rejectAll = false;
+let beforeCompletion: (() => Promise<void>) | null = null;
 
 let company: Company;
 let employee: AIEmployee;
@@ -53,10 +58,11 @@ let employee: AIEmployee;
 before(async () => {
   await initTestDb();
   upstream = createServer((request, response) => {
-    void drain(request).then((body) => {
+    void drain(request).then(async (body) => {
       lastModelRequest = body;
       upstreamTurns += 1;
-      if (rejectRemediation && upstreamTurns > 1) {
+      await beforeCompletion?.();
+      if (rejectAll || (rejectRemediation && upstreamTurns > 1)) {
         response.writeHead(400, { "content-type": "application/json" });
         response.end(
           JSON.stringify({
@@ -114,6 +120,8 @@ beforeEach(async () => {
   completionText = "I have done what was asked.";
   lastModelRequest = "";
   rejectRemediation = false;
+  rejectAll = false;
+  beforeCompletion = null;
   await resetTestDb();
   company = await insert(Company, {
     name: "Checks Co",
@@ -401,7 +409,8 @@ describe("the check phase inside a Run", () => {
     await effectCheck(routine.id, "an invoice was sent", { action: "invoice.send", min: 1 });
     const started = await startRoutineRun(routine, { triggerKind: "schedule" });
     const run = await started.completion;
-    assert.equal(run.status, "completed");
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, "runtime");
     assert.equal(run.checksVerdict, "failed");
     assert.match(run.logContent, /remediation turn failed/);
     assert.equal(runWorkSummary(run), null);
@@ -482,7 +491,7 @@ describe("the check phase inside a Run", () => {
     const started = await startRoutineRun(routine, { triggerKind: "schedule" });
     const run = await started.completion;
 
-    assert.equal(run.status, "completed");
+    assert.equal(run.status, "failed");
     assert.equal(run.checksVerdict, "failed");
     assert.equal(
       run.checkRemediations,
@@ -506,7 +515,11 @@ describe("the check phase inside a Run", () => {
       5,
       "both remediation rounds invalidate the old summary before recording a new one",
     );
-    assert.equal(runWorkSummary(run), completionText);
+    assert.equal(
+      runWorkSummary(run),
+      null,
+      "a failed Check must not present a successful work claim",
+    );
   });
 
   test("a Run out of budget stops remediating instead of extending its own timeout", async () => {
@@ -525,7 +538,8 @@ describe("the check phase inside a Run", () => {
     const run = await started.completion;
     const elapsed = Date.now() - startedAt;
 
-    assert.equal(run.status, "completed", "the Run itself must not have timed out");
+    assert.equal(run.status, "failed", "unfinished work must not be reported as a timeout");
+    assert.equal(run.errorKind, null);
     assert.equal(run.checksVerdict, "failed");
     assert.match(run.logContent, /no time left in this Run's budget for another attempt/);
     assert.doesNotMatch(
@@ -563,9 +577,213 @@ describe("the check phase inside a Run", () => {
 
     // Guards against passing for the wrong reason: a Run that timed out before
     // the check phase would also report zero remediations.
-    assert.equal(run.status, "completed");
+    assert.equal(run.status, "failed");
     assert.equal(run.checksVerdict, "failed");
     assert.doesNotMatch(run.logContent, /asking for a fix/);
     assert.equal(run.checkRemediations, 0, "no fix round was ever briefed");
   });
+});
+
+describe("Run completion states", () => {
+  test("a model request error is Error, with no invented failure reason or outcome", async () => {
+    await connectModel();
+    rejectAll = true;
+    const routine = await makeRoutine();
+    const run = await (await startRoutineRun(routine)).completion;
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, "runtime");
+    assert.equal(run.failureReason, null);
+    assert.equal(run.outcomeVerdict, null);
+    assert.equal(run.checksVerdict, null);
+  });
+
+  test("an employee's durable failure report finalizes Failed and retains its reason", async () => {
+    await connectModel();
+    const routine = await makeRoutine({ maxAttempts: 2 });
+    beforeCompletion = async () => {
+      await AppDataSource.getRepository(Run).update(
+        { routineId: routine.id, status: "running" },
+        { failureReason: "The source report does not include the required totals." },
+      );
+    };
+    const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
+    const stored = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+    assert.equal(run.status, "failed");
+    assert.equal(stored.status, "failed");
+    assert.equal(stored.failureReason, "The source report does not include the required totals.");
+    assert.equal(stored.errorKind, null);
+    assert.equal(stored.outcomeVerdict, null);
+    assert.equal(stored.checksVerdict, null);
+    assert.ok(stored.retryAt);
+  });
+
+  test("a failure report racing the terminal write cannot leave a Completed Run", async (t) => {
+    await connectModel();
+    const routine = await makeRoutine({ maxAttempts: 2 });
+    const repo = AppDataSource.getRepository(Run);
+    const update = repo.update.bind(repo);
+    let raced = false;
+    t.mock.method(repo, "update", async (...args: Parameters<typeof repo.update>) => {
+      if (!raced && args[1].status === "completed") {
+        raced = true;
+        await update(
+          { routineId: routine.id, status: "running" },
+          { failureReason: "Delivery remained incomplete." },
+        );
+      }
+      return update(...args);
+    });
+    const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
+    assert.equal(raced, true);
+    assert.equal(run.status, "failed");
+    assert.equal(run.failureReason, "Delivery remained incomplete.");
+    assert.ok(run.retryAt);
+    assert.equal((await repo.findOneByOrFail({ id: run.id })).status, "failed");
+  });
+
+  test("recovery that wins while the model works retains its terminal Error and transcript", async () => {
+    await connectModel();
+    const routine = await makeRoutine();
+    beforeCompletion = async () => {
+      await AppDataSource.getRepository(Run).update(
+        { routineId: routine.id, status: "running" },
+        {
+          status: "error",
+          errorKind: "interrupted",
+          finishedAt: new Date(),
+          logContent: "Recovered after a server restart.",
+        },
+      );
+    };
+    const run = await (await startRoutineRun(routine)).completion;
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, "interrupted");
+    assert.equal(run.logContent, "Recovered after a server restart.");
+  });
+
+  test("a failure report during remediation survives a later passing Check", async () => {
+    await connectModel();
+    const routine = await makeRoutine();
+    await effectCheck(routine.id, "an invoice was sent", { action: "invoice.send", min: 1 });
+    beforeCompletion = async () => {
+      if (upstreamTurns !== 2) return;
+      await AppDataSource.getRepository(Run).update(
+        { routineId: routine.id, status: "running" },
+        { failureReason: "The invoice was sent but its delivery could not be confirmed." },
+      );
+      await AppDataSource.getRepository(RoutineCheck).update(
+        { routineId: routine.id },
+        { spec: JSON.stringify({ action: "invoice.send", min: 0 }) },
+      );
+    };
+    const run = await (await startRoutineRun(routine)).completion;
+    assert.equal(run.status, "failed");
+    assert.equal(run.checksVerdict, "passed");
+    assert.equal(
+      run.failureReason,
+      "The invoice was sent but its delivery could not be confirmed.",
+    );
+    assert.equal(run.checkRemediations, 1);
+  });
+});
+
+test("a Standdown interruption is Error during work or remediation", async () => {
+  await connectModel();
+  for (const duringRemediation of [false, true]) {
+    upstreamTurns = 0;
+    const routine = await makeRoutine();
+    if (duringRemediation)
+      await effectCheck(routine.id, "an invoice was sent", { action: "invoice.send", min: 1 });
+    let interrupted = false;
+    beforeCompletion = async () => {
+      if (upstreamTurns !== (duringRemediation ? 2 : 1)) return;
+      const ids = interruptCoveredRuns(
+        Object.assign(new Standdown(), {
+          companyId: company.id,
+          scope: "routine",
+          scopeId: routine.id,
+        }),
+      );
+      interrupted = ids.length === 1;
+    };
+    const run = await (await startRoutineRun(routine)).completion;
+    assert.equal(interrupted, true);
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, "interrupted");
+    assert.equal(run.failureReason, null);
+    assert.equal(run.checkRemediations, duringRemediation ? 1 : 0);
+  }
+});
+
+test("a post-model exception after the deadline remains a timeout Error", async (t) => {
+  await connectModel();
+  const routine = await makeRoutine({ timeoutSec: 2, maxAttempts: 3, retryOnTimeout: false });
+  beforeCompletion = async () => {
+    const runs = AppDataSource.getRepository(Run);
+    const findOneBy = runs.findOneBy.bind(runs);
+    let failed = false;
+    t.mock.method(runs, "findOneBy", async (...args: Parameters<typeof runs.findOneBy>) => {
+      if (!failed) {
+        failed = true;
+        await new Promise((resolve) => setTimeout(resolve, 2_100));
+        throw new Error("The Run query did not finish before the deadline.");
+      }
+      return findOneBy(...args);
+    });
+  };
+  const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
+  assert.equal(run.status, "error");
+  assert.equal(run.errorKind, "timeout");
+  assert.equal(
+    run.retryAt,
+    null,
+    "the timeout retry setting must still apply after the model returns",
+  );
+  assert.match(run.logContent, /\[timeout\]/);
+});
+
+test("runtime and timeout Errors revoke earned Waivers and leave a journal", async (t) => {
+  await connectModel();
+  for (const timedOut of [false, true]) {
+    const routine = await makeRoutine({ timeoutSec: timedOut ? 1 : 60 });
+    const waiver = await insert(AutonomyWaiver, {
+      companyId: company.id,
+      employeeId: employee.id,
+      kind: "routine_approval",
+      routineId: routine.id,
+    });
+    if (!timedOut) {
+      beforeCompletion = async () => {
+        const runs = AppDataSource.getRepository(Run);
+        const findOneBy = runs.findOneBy.bind(runs);
+        let failed = false;
+        t.mock.method(runs, "findOneBy", async (...args: Parameters<typeof runs.findOneBy>) => {
+          if (!failed) {
+            failed = true;
+            throw new Error("The Run storage is temporarily unavailable.");
+          }
+          return findOneBy(...args);
+        });
+      };
+    }
+    const run = await (
+      await startRoutineRun(routine, {
+        beforeRunPersist: timedOut
+          ? () => new Promise((resolve) => setTimeout(resolve, 1_100))
+          : undefined,
+      })
+    ).completion;
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, timedOut ? "timeout" : "runtime");
+    assert.equal(await AppDataSource.getRepository(JournalEntry).countBy({ runId: run.id }), 1);
+    assert.ok(
+      (await AppDataSource.getRepository(AutonomyWaiver).findOneByOrFail({ id: waiver.id }))
+        .revokedAt,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id }))
+        .requiresApproval,
+      true,
+    );
+  }
 });

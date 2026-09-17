@@ -6,9 +6,13 @@ export type RunStatus =
   | "completed"
   | "reviewed"
   | "failed"
+  | "error"
   | "skipped"
   | "timeout"
   | "interrupted";
+
+/** Durable cause for an Error; legacy timeout/interrupted statuses remain readable. */
+export type RunErrorKind = "runtime" | "timeout" | "interrupted";
 
 /**
  * How a completed Run measured against its Routine's acceptance criteria,
@@ -39,10 +43,9 @@ export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal" | "unverifie
  * `failed`  — at least one required Check did not pass, or could not be run.
  * `not_run` — the Routine declares no enabled Checks.
  *
- * Null for Runs that never reached the check phase (a failure, a timeout, a
- * Run that predates the column). Like `outcomeVerdict`, it never changes
- * `status`: `completed` keeps meaning "the loop returned", and the
- * consequences attach to the axis rather than to the status.
+ * Null for Runs that never reached the check phase or predate the column.
+ * Required Check failures make the Run `failed`; the separate verdict retains
+ * the independent evidence behind that status.
  */
 export type RunChecksVerdict = "passed" | "failed" | "not_run";
 
@@ -78,6 +81,18 @@ export class Run {
 
   @Column({ type: "varchar" })
   status!: RunStatus;
+
+  /** Infrastructure or model failure cause, separate from unmet work. */
+  @Column({ type: "varchar", nullable: true })
+  errorKind!: RunErrorKind | null;
+
+  /**
+   * The AI Employee's explanation of work it could not finish. Reporting this
+   * while running makes finalization fail the Run, without authoring a Check
+   * or an outcome verdict. Immutable once reported; runtime errors still win.
+   */
+  @Column({ type: "text", nullable: true })
+  failureReason!: string | null;
 
   /**
    * Captured model text and tool activity, plus runner framing lines (headers,

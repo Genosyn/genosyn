@@ -587,7 +587,7 @@ describe("the evidence tools are published, deferred, and reachable", () => {
   });
 
   test("they sit in the runs domain with keywords for how they are actually asked for", () => {
-    assert.deepEqual(TOOL_DOMAINS.runs.tools, ["list_runs", "get_run_report"]);
+    assert.deepEqual(TOOL_DOMAINS.runs.tools, ["list_runs", "get_run_report", "mark_run_failed"]);
     assert.equal(TOOL_DOMAINS.runs.label, "runs");
     for (const phrase of ["run history", "did it work", "last run", "what happened"]) {
       assert.ok(TOOL_KEYWORDS.list_runs.includes(phrase), `list_runs lost "${phrase}"`);

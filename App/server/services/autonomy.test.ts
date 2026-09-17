@@ -131,11 +131,12 @@ describe("promotion eligibility", () => {
     assert.equal(await computeAutonomyPromotions(), 0);
   });
 
-  test("a failed run in the window disqualifies everything", async () => {
+  test("an Error in the window disqualifies promotions", async () => {
     const routine = await seedCleanRecord();
     await insert(Run, {
       routineId: routine.id,
-      status: "failed",
+      status: "error",
+      errorKind: "runtime",
       logContent: "",
       triggerKind: "schedule",
       startedAt: new Date(),

@@ -5,6 +5,9 @@ import {
   drainAttachmentsForToken,
   drainSidecarsForToken,
   issueMcpToken,
+  issueDelegatedMcpToken,
+  isTokenTainted,
+  markTokenTainted,
   noteAttachmentForToken,
   resolveMcpToken,
   revokeMcpToken,
@@ -29,6 +32,7 @@ describe("short-lived MCP tokens", () => {
       companyId: "company",
       runId: "run",
       routineId: "routine",
+      delegated: false,
       conversationId: null,
       mailThreadId: null,
       mailDeliveryMode: null,
@@ -83,6 +87,45 @@ describe("short-lived MCP tokens", () => {
     assert.equal(resolveMcpToken(token)?.requesterUserId, "member");
     assert.equal(resolveMcpToken(token)?.requesterSessionVersion, 7);
     revokeMcpToken(token);
+  });
+
+  test("workers retain the parent's scope and shared artifacts with narrower Run authority", () => {
+    const parent = issueMcpToken("employee", "company", {
+      runId: "run",
+      routineId: "routine",
+      mailDeliveryMode: "review",
+      authority: "member",
+      requesterUserId: "member",
+      requesterSessionVersion: 7,
+    });
+    const child = issueDelegatedMcpToken(parent);
+    const sibling = issueDelegatedMcpToken(parent);
+    assert.deepEqual(resolveMcpToken(child), {
+      ...resolveMcpToken(parent),
+      token: child,
+      delegated: true,
+    });
+    assert.throws(() => issueDelegatedMcpToken(child), /active parent turn/);
+    noteAttachmentForToken(parent, "input");
+    assert.equal(tokenOwnsAttachment(child, "input"), true);
+    stageAttachmentForToken(child, "output");
+    stageSidecarForToken(child, "draft", { id: "draft" });
+    markTokenTainted(child);
+    assert.equal(tokenOwnsAttachment(sibling, "output"), true);
+    assert.equal(isTokenTainted(parent), true);
+    assert.equal(isTokenTainted(sibling), true);
+    revokeMcpToken(child);
+    assert.ok(resolveMcpToken(parent));
+    assert.equal(resolveMcpToken(child), null);
+    assert.equal(tokenOwnsAttachment(child, "output"), false);
+    assert.equal(tokenOwnsAttachment(parent, "output"), true);
+    assert.deepEqual(drainAttachmentsForToken(parent), ["output"]);
+    assert.deepEqual(drainSidecarsForToken(parent), { draft: [{ id: "draft" }] });
+    revokeMcpToken(parent);
+    assert.equal(resolveMcpToken(sibling), null);
+    assert.throws(() => issueDelegatedMcpToken(parent), /active parent turn/);
+    stageAttachmentForToken(sibling, "late");
+    assert.deepEqual(drainAttachmentsForToken(parent), []);
   });
 
   test("rejects contradictory authority metadata", () => {

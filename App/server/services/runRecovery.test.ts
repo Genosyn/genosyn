@@ -88,7 +88,8 @@ async function interruptedRun(routineId: string, values: Partial<Run> = {}): Pro
     routineId,
     startedAt: new Date(NOW.getTime() - 10 * 60 * 1000),
     finishedAt: new Date(NOW.getTime() - 5 * 60 * 1000),
-    status: "interrupted",
+    status: "error",
+    errorKind: "interrupted",
     exitCode: null,
     logContent: "interrupted\n",
     dismissedAt: null,
@@ -118,7 +119,8 @@ describe("Routine Run crash recovery", () => {
 
     assert.deepEqual(result, { interrupted: 1, retriesScheduled: 1, leasesCleared: 1 });
     const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
-    assert.equal(recovered.status, "interrupted");
+    assert.equal(recovered.status, "error");
+    assert.equal(recovered.errorKind, "interrupted");
     assert.equal(recovered.finishedAt?.getTime(), NOW.getTime());
     assert.equal(recovered.retryAt?.getTime(), NOW.getTime() + INTERRUPTED_RECOVERY_DELAY_MS);
     assert.equal(recovered.logContent, `durable line\n${ORPHAN_LOG_MARKER}`);
@@ -171,7 +173,8 @@ describe("Routine Run crash recovery", () => {
     });
     const finished = await started.completion;
 
-    assert.equal(finished.status, "timeout");
+    assert.equal(finished.status, "error");
+    assert.equal(finished.errorKind, "timeout");
     assert.equal(finished.retryAt, null);
     assert.match(finished.logContent, /\[timeout\] Stopped after 1s/);
   });
@@ -204,7 +207,8 @@ describe("Routine Run crash recovery", () => {
       const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({
         id: item.row.id,
       });
-      assert.equal(recovered.status, "interrupted");
+      assert.equal(recovered.status, "error");
+      assert.equal(recovered.errorKind, "interrupted");
       assert.equal(recovered.retryAt !== null, item.shouldSchedule);
       if (item.shouldSchedule) {
         // Attempt 2 uses a 120s jitter ceiling at the default 60s base.
@@ -217,6 +221,8 @@ describe("Routine Run crash recovery", () => {
     const { employee } = await fixture();
     const scheduled = await routine(employee.id, "historical");
     const historical = await interruptedRun(scheduled.id, {
+      status: "interrupted",
+      errorKind: null,
       finishedAt: new Date(NOW.getTime() - 24 * 60 * 60 * 1000),
       retryAt: null,
     });
@@ -460,7 +466,8 @@ describe("Routine Run crash recovery", () => {
     assert.deepEqual(result, { interrupted: 3, retriesScheduled: 0, leasesCleared: 1 });
     for (const id of [disabledRun.id, gatedRun.id, deletedRun.id]) {
       const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id });
-      assert.equal(recovered.status, "interrupted");
+      assert.equal(recovered.status, "error");
+      assert.equal(recovered.errorKind, "interrupted");
       assert.equal(recovered.retryAt, null);
     }
   });
@@ -486,7 +493,8 @@ describe("Routine Run crash recovery", () => {
     assert.equal(result.retriesScheduled, 2);
     for (const id of [first.id, second.id]) {
       const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id });
-      assert.equal(recovered.status, "interrupted");
+      assert.equal(recovered.status, "error");
+      assert.equal(recovered.errorKind, "interrupted");
       assert.notEqual(recovered.retryAt, null);
     }
   });

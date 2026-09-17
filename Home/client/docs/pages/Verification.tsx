@@ -40,10 +40,9 @@ export function Verification() {
 
       <H2 id="three-axes">Three axes, three different claims</H2>
       <P>
-        A Run carries three independent judgements, and reading any one of them as the others is how
-        a convincingly wrong Run passes for a good one. They never overwrite each other — a Run with
-        failing Checks still ends <Code>completed</Code>, because that word has a narrow meaning
-        worth keeping.
+        A Run carries its status, Check results, and outcome verdict. Failed required Checks or an
+        off-goal verdict make the Run <Strong>Failed</Strong>, while their own badges retain the
+        evidence behind that status. A status alone does not prove the work succeeded.
       </P>
       <KeyList
         rows={[
@@ -51,9 +50,11 @@ export function Verification() {
             term: "status",
             def: (
               <>
-                <Strong>The loop returned.</Strong> <Code>completed</Code> means the agent finished
-                without erroring, timing out, or being interrupted. It is a statement about the
-                runtime, not about the work. See <DocLink to="/docs/routines#runs">Runs</DocLink>.
+                <Strong>How the Run ended.</Strong> <Strong>Error</Strong> means a model request or
+                runtime problem. <Strong>Failed</Strong> means intended work was not completed,
+                including an AI Employee&apos;s explicit failure report. <Strong>Completed</Strong>
+                {" "}means no known failure, and still needs the other axes for verification. See{" "}
+                <DocLink to="/docs/routines#runs">Runs</DocLink>.
               </>
             ),
           },
@@ -100,7 +101,7 @@ export function Verification() {
         rows={[
           {
             term: "required",
-            def: "A required Check that does not pass fails the Run's checks verdict. A non-required one reports its result and changes nothing — the way to watch a new signal for a fortnight before letting it stop work.",
+            def: "A required Check that does not pass after remediation marks the Run and its Checks verdict Failed. A non-required one reports its result without failing the Run.",
           },
           {
             term: "enabled",
@@ -118,7 +119,6 @@ export function Verification() {
           },
         ]}
       />
-
       <H3 id="effect-checks">Writing an effect Check</H3>
       <P>
         An <Code>effect</Code> Check is a predicate over what the server recorded this Run changing
@@ -205,7 +205,7 @@ export function Verification() {
         history.
       </P>
 
-      <H2 id="tools">What an AI Employee can read</H2>
+      <H2 id="tools">What an AI Employee can read and report</H2>
       <P>
         Until now there was no run-reading tool in Genosyn at all, which made a whole class of
         question unanswerable from inside the company: a manager asked why a colleague&apos;s work
@@ -224,6 +224,13 @@ export function Verification() {
           },
         ]}
       />
+      <P>
+        An AI Employee can also report incomplete work during its own active Run with{" "}
+        <Code>mark_run_failed</Code> and a concrete <Code>reason</Code>. The Run becomes{" "}
+        <Strong>Failed</Strong> when it finishes, and its log shows the reason. This report does not
+        write Check results or an outcome verdict; a later runtime problem still makes the Run{" "}
+        <Strong>Error</Strong>. See <DocLink to="/docs/routines#runs">Run statuses</DocLink>.
+      </P>
       <Callout kind="warn" title="No tool writes a Check or lifts a Standdown">
         <P>
           An employee reads its Routine&apos;s Checks in its Run brief and can read any Run&apos;s
@@ -267,7 +274,7 @@ export function Verification() {
       <P>
         Every round&apos;s results are kept, so the strip on the Run is honest about a Run that only
         went green on the second try, and the number of rounds spent shows beside the verdict. If
-        the Check still fails, the Run finalizes with <Code>checksVerdict: failed</Code> — a real
+        the Check still fails, the Run finalizes as <Strong>Failed</Strong> with <Code>checksVerdict: failed</Code> — a real
         outcome, notified like any other bad Run, not a retry loop nobody watched.
       </P>
 

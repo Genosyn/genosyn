@@ -33,6 +33,7 @@ type RunBucket = {
   completed: number;
   reviewed: number;
   failed: number;
+  error: number;
   skipped: number;
   timeout: number;
   interrupted: number;
@@ -47,6 +48,7 @@ function emptyBucket(): RunBucket {
     completed: 0,
     reviewed: 0,
     failed: 0,
+    error: 0,
     skipped: 0,
     timeout: 0,
     interrupted: 0,
@@ -63,6 +65,7 @@ function accumulate(b: RunBucket, run: Run): void {
   if (run.status === "completed") b.completed += 1;
   else if (run.status === "reviewed") b.reviewed += 1;
   else if (run.status === "failed") b.failed += 1;
+  else if (run.status === "error") b.error += 1;
   else if (run.status === "skipped") b.skipped += 1;
   else if (run.status === "timeout") b.timeout += 1;
   else if (run.status === "interrupted") b.interrupted += 1;

@@ -893,6 +893,25 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "mark_run_failed",
+    description:
+      "Mark your current Routine Run as Failed when you cannot complete its intended work. Give a concrete reason explaining what remains undone and why, then finish your report. The first reason is permanent. Only the top-level AI Employee currently running the Routine can call this; chats, temporary workers and Repository work sessions cannot. It does not change Checks or the independent outcome assessment, and runtime faults still finish as Error. There is no Run id argument and no tool to mark a Run successful.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          minLength: 1,
+          maxLength: 2000,
+          description:
+            "What intended work you could not complete and the reason it remains undone.",
+        },
+      },
+      required: ["reason"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_goals",
     description:
       "List the company's Goals — the measurable objectives the company is steering toward. Each row carries the goal's `id`, `slug`, target, current value, direction, deadline, owner, and computed progress. Goals you own are your accountability; a Routine may declare the goal it serves.",

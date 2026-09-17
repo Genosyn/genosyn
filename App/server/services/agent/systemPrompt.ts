@@ -215,6 +215,21 @@ export function toolsBriefing(
     );
   }
 
+  if (!isChat) {
+    lines.push(
+      "Run outcome: before finishing, compare your actual result with this Routine's intended work. " +
+        "If you could not complete it, use `mark_run_failed` with a concrete reason stating what remains " +
+        "undone and why, then finish your report. " +
+        (discovery ? "Find it with `find_tools` and invoke it through `call_tool`. " : "") +
+        "A prose-only admission does not mark the Run as Failed. Report a failure only when you have " +
+        "concluded the intended work cannot be completed in this Run; the first reason is permanent. " +
+        "Do not mark an expected no-op or a successfully completed review as failed. The tool reports " +
+        "your own work; it cannot alter Checks, independent outcome assessments, or another Run. " +
+        "Runtime faults such as a model request timeout are recorded as Error by the server.",
+      "",
+    );
+  }
+
   lines.push(discovery ? "### Always loaded" : "### Your tools");
 
   if (codingToolsAvailable && isolatedCodingTools) {

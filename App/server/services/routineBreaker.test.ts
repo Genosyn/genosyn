@@ -98,9 +98,7 @@ function sendCompletion(response: ServerResponse, text: string): void {
       object: "chat.completion.chunk",
       created: 1,
       model: "breaker-test",
-      choices: [
-        { index: 0, delta: { role: "assistant", content: text }, finish_reason: "stop" },
-      ],
+      choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: "stop" }],
     })}\n\n`,
   );
   response.end("data: [DONE]\n\n");
@@ -189,11 +187,11 @@ describe("counting bad Runs", () => {
     upstreamMode = "reject";
 
     const first = await runOnce(routine);
-    assert.equal(first.status, "failed");
+    assert.equal(first.status, "error");
     assert.equal(await failuresOn(routine.id), 1);
 
     const second = await runOnce(routine);
-    assert.equal(second.status, "failed");
+    assert.equal(second.status, "error");
     assert.equal(await failuresOn(routine.id), 2);
   });
 
@@ -228,7 +226,7 @@ describe("counting bad Runs", () => {
 
     const run = await runOnce(routine);
 
-    assert.equal(run.status, "completed", "the loop returned; only the Checks disagreed");
+    assert.equal(run.status, "failed", "required Checks determine whether the work finished");
     assert.equal(run.checksVerdict, "failed");
     assert.equal(
       await failuresOn(routine.id),
@@ -244,7 +242,8 @@ describe("counting bad Runs", () => {
 
     const run = await runOnce(routine);
 
-    assert.equal(run.status, "failed");
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, "runtime");
     assert.notEqual(run.retryAt, null, "the fixture must actually owe a retry");
     assert.equal(
       await failuresOn(routine.id),
@@ -355,7 +354,8 @@ describe("Runs the breaker never sees", () => {
     });
     const run = await started.completion;
 
-    assert.equal(run.status, "timeout");
+    assert.equal(run.status, "error");
+    assert.equal(run.errorKind, "timeout");
     assert.equal(run.retryAt, null, "no retry is owed, so nothing defers the count");
     assert.equal(
       await failuresOn(routine.id),

@@ -59,8 +59,8 @@ export function Autonomy() {
       </P>
       <UL>
         <LI>
-          At least <Strong>10</Strong> terminal Runs, with <Strong>zero</Strong> failures or
-          timeouts, nothing graded <DocLink to="/docs/routines#outcome-check">off goal</DocLink>,
+          At least <Strong>10</Strong> terminal Runs, with <Strong>zero</Strong> Failed Runs or
+          Errors, nothing graded <DocLink to="/docs/routines#outcome-check">off goal</DocLink>,
           and no required <DocLink to="/docs/verification">Check</DocLink> failed.
         </LI>
         <LI>
@@ -95,10 +95,8 @@ export function Autonomy() {
 
       <H2 id="demotion">Demotion is automatic</H2>
       <P>
-        The reverse direction has no inbox and no waiting. Any Run that ends <Code>failed</Code> or
-        {" "}
-        <Code>timeout</Code>, or completes but is graded <Code>off goal</Code>, or completes with a
-        required <DocLink to="/docs/verification">Check</DocLink> failed, revokes{" "}
+        The reverse direction has no inbox and no waiting. Any Run that ends <Strong>Failed</Strong> or
+        {" "}<Strong>Error</Strong> revokes{" "}
         <Strong>every</Strong> active waiver the employee holds and re-arms the gates on the spot. A
         failed Check counts here exactly like an off-goal grade — it is the stronger evidence of the
         two, since no model had a say in it. The employee&apos;s journal records what happened and

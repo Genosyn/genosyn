@@ -66,15 +66,16 @@ describe("findLiveRunFailures", () => {
   test("returns failures in the window, newest first, with the true total", async () => {
     await run(routine, "failed", 3);
     await run(routine, "timeout", 2);
+    await run(routine, "error", 1.5);
     await run(other, "interrupted", 1);
     await run(other, "completed", 4);
     await run(routine, "failed", 30); // outside the 24h window
 
     const { rows, count } = await live();
-    assert.equal(count, 3);
+    assert.equal(count, 4);
     assert.deepEqual(
       rows.map((r) => r.status),
-      ["interrupted", "timeout", "failed"],
+      ["interrupted", "error", "timeout", "failed"],
     );
   });
 

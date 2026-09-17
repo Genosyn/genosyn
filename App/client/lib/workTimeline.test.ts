@@ -858,10 +858,11 @@ describe("an entry in sentences", () => {
   });
 
   const stopped = [
-    ["failed", "This run failed. Open the run log for details."],
-    ["timeout", "This run ran out of time before it finished."],
+    ["failed", "This run failed to complete its intended work. Open the run log for details."],
+    ["error", "This run encountered a model or runtime error. Open the run log for details."],
+    ["timeout", "This run encountered an error: it ran out of time before it finished."],
     ["skipped", "This routine did not run because no AI Model was assigned."],
-    ["interrupted", "This run was interrupted before it finished."],
+    ["interrupted", "This run encountered an error: it was interrupted before it finished."],
   ] as const;
   for (const [status, expected] of stopped) {
     for (const supplied of [null, summary]) {
@@ -910,8 +911,38 @@ describe("an entry in sentences", () => {
 
   test("a failed Check remains visible when a Run also failed", () => {
     const narrative = workNarrative(finished({ status: "failed", checksVerdict: "failed" }));
-    assert.equal(narrative.headline, "This run failed. Open the run log for details.");
+    assert.equal(narrative.headline, "This run failed to complete its intended work. Open the run log for details.");
     assert.deepEqual(narrative.body, ["A required Check failed."]);
+  });
+
+  test("a reported failure stays visible alongside the independent off-goal verdict", () => {
+    const narrative = workNarrative(finished({
+      status: "failed",
+      failureReason: "The source report was unavailable",
+      outcomeVerdict: "off_goal",
+    }));
+    assert.deepEqual(narrative.body, [
+      "The source report was unavailable.",
+      "The result did not meet the routine's acceptance criteria.",
+    ]);
+    assert.doesNotMatch(narrative.headline, /qualified Contacts/);
+  });
+
+  test("a runtime error retains the earlier employee failure report and unverified outcome", () => {
+    const narrative = workNarrative(finished({
+      status: "error",
+      errorKind: "timeout",
+      failureReason: "Missing source report",
+      outcomeVerdict: "unverified",
+    }));
+    assert.equal(narrative.headline, "This run encountered an error: it ran out of time before it finished.");
+    assert.deepEqual(narrative.body, ["Missing source report.", "The outcome has not been verified."]);
+  });
+
+  test("new interrupted Errors explain the same stop as legacy interrupted Runs", () => {
+    const current = workNarrative(finished({ status: "error", errorKind: "interrupted" }));
+    const legacy = workNarrative(finished({ status: "interrupted" }));
+    assert.equal(current.headline, legacy.headline);
   });
 
   test("normalises only sentence whitespace and punctuation in the server's summary", () => {

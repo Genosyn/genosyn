@@ -51,6 +51,19 @@ const model = http.createServer(async (req, res) => {
     const probe = request.tools?.some(
       (tool: { function?: { name?: string } }) => tool.function?.name === "connection_test",
     );
+    const routineBrief = request.messages
+      .filter((message: { role: string }) => message.role === "user")
+      .map((message: { content: unknown }) => JSON.stringify(message.content))
+      .join("\n");
+    if (!probe && routineBrief.includes("qa-routine-error")) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "The test AI Model request could not finish." } }));
+      return;
+    }
+    const reportFailure =
+      !probe &&
+      routineBrief.includes("qa-routine-failure") &&
+      !request.messages.some((message: { role: string }) => message.role === "tool");
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     const delta = probe
       ? {
@@ -63,9 +76,28 @@ const model = http.createServer(async (req, res) => {
             },
           ],
         }
-      : { content: "No external work performed in this browser regression." };
+      : reportFailure
+        ? {
+            tool_calls: [
+              {
+                index: 0,
+                id: "qa-report-failure",
+                type: "function",
+                function: {
+                  name: "call_tool",
+                  arguments: JSON.stringify({
+                    name: "mark_run_failed",
+                    args_json: JSON.stringify({
+                      reason: "The required source document was unavailable, so the report could not be completed.",
+                    }),
+                  }),
+                },
+              },
+            ],
+          }
+        : { content: "No external work performed in this browser regression." };
     res.end(
-      `data: ${JSON.stringify({ id: "qa-completion", object: "chat.completion.chunk", created: 1, model: "qa-local-model", choices: [{ index: 0, delta, finish_reason: probe ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "qa-completion", object: "chat.completion.chunk", created: 1, model: "qa-local-model", choices: [{ index: 0, delta, finish_reason: probe || reportFailure ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
     console.log(`[fullstack-model-probe] ${probe ? "verified" : "reply"}`);
     return;

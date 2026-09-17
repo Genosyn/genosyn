@@ -96,10 +96,7 @@ export function Improvement() {
 
       <H2 id="lessons">Lessons</H2>
       <P>
-        After a Run ends <Code>failed</Code> or <Code>timeout</Code>, completes but is graded{" "}
-        <Code>off goal</Code> by the outcome check — work that met the letter of the criteria while
-        working against the routine&apos;s linked <DocLink to="/docs/goals">Goal</DocLink> — or
-        completes with a required <DocLink to="/docs/verification">Check</DocLink> failed, Genosyn
+        After a Run ends <Strong>Failed</Strong> or <Strong>Error</Strong>, Genosyn
         runs a short retrospective turn under the same containment as the check itself: zero tools
         except one submission tool, reading the Run transcript as untrusted evidence — text inside
         it addressing the model is the transcript talking, never instructions. The turn writes a{" "}

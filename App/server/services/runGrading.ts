@@ -10,6 +10,7 @@ import { resolveRoutineModel } from "./models.js";
 import { notifyRunOffGoal } from "./runAlerts.js";
 import { assessRunOutcome, type CheckResultEvidence } from "./runVerdicts.js";
 import type { EffectRow } from "./runEffects.js";
+import { automaticRetryDelayMs, shouldRetry } from "./cronMath.js";
 import { getContainmentSettings } from "./runtimeSettings.js";
 
 /**
@@ -88,6 +89,26 @@ export async function gradeAndPersistRunOutcome(args: {
       runRestricted: args.runRestricted,
     });
 
+    const status = assessment.verdict === "off_goal" ? "failed" : "completed";
+    const retryAt =
+      status === "failed" &&
+      shouldRetry({
+        status,
+        triggerKind: run.triggerKind,
+        attempt: run.attempt,
+        maxAttempts: fresh.maxAttempts,
+        retryOnTimeout: fresh.retryOnTimeout,
+      })
+        ? new Date(
+            Date.now() +
+              automaticRetryDelayMs({
+                status,
+                attempt: run.attempt,
+                maxAttempts: fresh.maxAttempts,
+                baseMs: fresh.retryBackoffSec * 1000,
+              }),
+          )
+        : null;
     const tokensIn = run.tokensIn + assessment.usage.inputTokens;
     const tokensOut = run.tokensOut + assessment.usage.outputTokens;
     const updated = await runRepo.update(
@@ -100,6 +121,8 @@ export async function gradeAndPersistRunOutcome(args: {
       {
         // ResourceChangeSubscriber routes Run updates by this relation key.
         routineId: run.routineId,
+        status,
+        retryAt,
         outcomeVerdict: assessment.verdict,
         outcomeNote: assessment.note,
         // Stamped for every outcome including `unverified`: the column records
@@ -113,6 +136,8 @@ export async function gradeAndPersistRunOutcome(args: {
     if (updated.affected !== 1) {
       return { graded: false, reason: "another grader reached this run first" };
     }
+    run.status = status;
+    run.retryAt = retryAt;
     run.outcomeVerdict = assessment.verdict;
     run.outcomeNote = assessment.note;
     run.outcomeCheckedAt = new Date();

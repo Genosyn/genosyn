@@ -480,15 +480,38 @@ try {
     [
       "failed run",
       { status: "failed", exitCode: 1 },
-      "This run failed. Open the run log for details.",
+      "This run failed to complete its intended work. Open the run log for details.",
     ],
-    ["timeout", { status: "timeout" }, "This run ran out of time before it finished."],
+    [
+      "employee reported failure",
+      { status: "failed", failureReason: "The source document was unavailable." },
+      "The source document was unavailable.",
+    ],
+    [
+      "model error",
+      { status: "error", errorKind: "runtime" },
+      "This run encountered a model or runtime error. Open the run log for details.",
+    ],
+    [
+      "timeout error",
+      { status: "error", errorKind: "timeout" },
+      "This run encountered an error: it ran out of time before it finished.",
+    ],
+    [
+      "timeout",
+      { status: "timeout" },
+      "This run encountered an error: it ran out of time before it finished.",
+    ],
     [
       "skipped",
       { status: "skipped" },
       "This routine did not run because no AI Model was assigned.",
     ],
-    ["interrupted", { status: "interrupted" }, "This run was interrupted before it finished."],
+    [
+      "interrupted",
+      { status: "interrupted" },
+      "This run encountered an error: it was interrupted before it finished.",
+    ],
   ] as Array<[string, Partial<WorkEntryRun>, string]>) {
     await check(
       `${name} gives an honest short fallback without tool counts or stale success`,

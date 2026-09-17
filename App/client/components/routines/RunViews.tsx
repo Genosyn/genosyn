@@ -22,6 +22,7 @@ import {
   RunChecksVerdict,
   RunEffect,
   RunEffectList,
+  RunErrorKind,
   RunLog,
   RunOutcomeVerdict,
   RunStatus,
@@ -31,6 +32,7 @@ import { FormError } from "../ui/FormError";
 import { Modal } from "../ui/Modal";
 import { errorMessage } from "../../lib/errors";
 import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
+import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
 
 /**
  * Shared rendering for Runs — one execution of a Routine. Lives here rather
@@ -48,28 +50,32 @@ const RUN_STATUS_STYLE: Record<RunStatus, string> = {
     "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
   failed:
     "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
+  error:
+    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
   skipped:
     "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
   timeout:
     "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
   interrupted:
-    "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/30",
+    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
 };
 
 /**
- * The status word itself is the label — no display-name map. Two read oddly at
- * first: `skipped` means the routine fired but had no model connected, so
- * nothing ran; `interrupted` means the server stopped mid-run, so we know what
- * the transcript captured and nothing about what happened after.
+ * Errors are operational problems; Failed means intended work was not done.
+ * Legacy timeout/interrupted rows use Error while their detail stays on hover.
  */
-export function RunStatusChip({ status, size = "sm" }: { status: RunStatus; size?: "xs" | "sm" }) {
+export function RunStatusChip({
+  status,
+  errorKind,
+  size = "sm",
+}: {
+  status: RunStatus;
+  errorKind?: RunErrorKind | null;
+  size?: "xs" | "sm";
+}) {
   return (
     <span
-      title={
-        status === "reviewed"
-          ? "The proactive review finished. This Run did not carry out the proposed work."
-          : undefined
-      }
+      title={runStatusHint(status, errorKind)}
       className={
         "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
         (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
@@ -77,8 +83,19 @@ export function RunStatusChip({ status, size = "sm" }: { status: RunStatus; size
       }
     >
       {status === "running" && <Loader2 size={10} className="animate-spin" />}
-      {status}
+      {runStatusLabel(status)}
     </span>
+  );
+}
+
+/** Separate from the transcript so an explicit incomplete-work report is easy to find. */
+export function RunFailureNotice({ reason }: { reason?: string | null }) {
+  if (!reason?.trim()) return null;
+  return (
+    <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm dark:border-rose-500/30 dark:bg-rose-500/10">
+      <p className="font-medium text-rose-800 dark:text-rose-200">Why this Run failed</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-rose-700 dark:text-rose-300">{reason}</p>
+    </div>
   );
 }
 
@@ -133,7 +150,7 @@ const OUTCOME_HINT: Record<RunOutcomeVerdict, string> = {
 };
 
 /**
- * The second axis on a run: status says the loop returned, the verdict says
+ * The second axis on a run: status records how it ended, the verdict says
  * whether the work met the Routine's acceptance criteria. Only rendered when a
  * verdict exists — routines without criteria stay exactly as before.
  */
@@ -914,7 +931,7 @@ export function RunLiveModal({
     <Modal open onClose={onClose} title={`Run: ${routine.name}`} size="xl">
       <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <RunStatusChip status={status} />
+          <RunStatusChip status={status} errorKind={log?.errorKind ?? initialRun.errorKind} />
           {status !== "reviewed" && log?.outcomeVerdict && (
             <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
           )}
@@ -958,6 +975,7 @@ export function RunLiveModal({
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
         {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
+        <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />
         {log?.outcomeNote && (
           <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
         )}
@@ -1006,7 +1024,7 @@ export function RunLiveModal({
           {onRetry &&
             !log?.retryAt &&
             isTerminal &&
-            (status === "failed" || status === "timeout" || status === "interrupted") && (
+            runNeedsAttention(status) && (
               <Button variant="secondary" onClick={onRetry}>
                 <RotateCcw size={14} /> Retry
               </Button>

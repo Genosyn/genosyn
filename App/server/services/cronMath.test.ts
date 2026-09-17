@@ -220,3 +220,32 @@ test("leaves human- and caller-triggered runs alone", () => {
   // A retry may itself be retried, up to the budget.
   assert.equal(shouldRetry({ ...base, status: "failed", triggerKind: "retry" }), true);
 });
+
+test("Error preserves timeout and restart recovery policies using its durable cause", () => {
+  assert.equal(shouldRetry({ ...base, status: "error", errorKind: "runtime" }), true);
+  assert.equal(shouldRetry({ ...base, status: "error", errorKind: "timeout" }), false);
+  assert.equal(
+    shouldRetry({ ...base, status: "error", errorKind: "timeout", retryOnTimeout: true }),
+    true,
+  );
+  assert.equal(
+    shouldRetry({ ...base, status: "error", errorKind: "interrupted", maxAttempts: 1 }),
+    true,
+  );
+  assert.equal(
+    shouldRetry({ ...base, status: "error", errorKind: "interrupted", maxAttempts: 1, attempt: 2 }),
+    false,
+  );
+  assert.equal(automaticRetryLimit("error", 1, "interrupted"), 2);
+  assert.equal(
+    automaticRetryDelayMs({
+      status: "error",
+      errorKind: "interrupted",
+      attempt: 1,
+      maxAttempts: 1,
+      baseMs: 10,
+      rng: () => 0,
+    }),
+    INTERRUPTED_RECOVERY_DELAY_MS,
+  );
+});

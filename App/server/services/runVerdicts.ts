@@ -20,8 +20,9 @@ import { renderEffectDigest, runEffects, type EffectRow } from "./runEffects.js"
  * turn the check into an action. The verdict lands on the Run row, in the
  * journal, and (when off-goal) on the bell.
  *
- * The checker never changes the Run's status. `completed` keeps meaning "the
- * loop returned"; `outcomeVerdict` is the separate, honest axis.
+ * `runGrading.ts` turns an `off_goal` judgement into a Failed Run, while the
+ * outcome verdict remains the independent assessment. An unverified assessment
+ * is still distinct from a judgement that the work missed its criteria.
  *
  * **M58 gives the checker evidence.** Until now its entire input was a
  * transcript the graded model wrote about itself, and the system prompt asked

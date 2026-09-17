@@ -58,6 +58,8 @@ function findTools(grantDead = new Set<string>()) {
  * matching gets it wrong.
  */
 const RECALL_CASES: Array<{ query: string; expect: string }> = [
+  { query: "mark my routine failed", expect: "mark_run_failed" },
+  { query: "cannot complete the intended work", expect: "mark_run_failed" },
   { query: "read a spreadsheet", expect: "list_base_rows" },
   { query: "spreadsheet", expect: "list_bases" },
   { query: "add a column to the table", expect: "add_base_field" },

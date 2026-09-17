@@ -1,4 +1,5 @@
 import React from "react";
+import { runStatusLabel } from "@/lib/runStatus";
 import {
   useAssistantChatSession,
   type AssistantQueuedMessage,
@@ -447,7 +448,7 @@ export function RoutineAssistant({
     const lastStatus = routine.lastRun?.status;
     if (lastStatus && lastStatus !== "completed") {
       list.push(
-        `The last run ${lastStatus === "timeout" ? "timed out" : `ended ${lastStatus}`} — why?`,
+        `The last run ended ${runStatusLabel(lastStatus)} — why?`,
       );
     } else {
       list.push("Summarize how the recent runs went.");

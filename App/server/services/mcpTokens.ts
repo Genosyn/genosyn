@@ -27,6 +27,8 @@ export type McpTokenInfo = {
    */
   runId: string | null;
   routineId: string | null;
+  /** Temporary workers retain provenance but cannot decide the parent's Run outcome. */
+  delegated: boolean;
   /**
    * The chat thread or email thread this turn is working, when the surface that
    * spawned it has one. Same best-effort provenance role as `runId` above: a
@@ -77,6 +79,8 @@ export type McpTokenInfo = {
 const TTL_MS = 7 * 60 * 60 * 1000;
 
 const tokens = new Map<string, McpTokenInfo>();
+/** Workers share turn artifacts and taint with the parent, as they did with one token. */
+const delegatedTokenParents = new Map<string, string>();
 
 /**
  * Per-token staging area for attachment ids the AI uploaded during this
@@ -175,6 +179,7 @@ export function issueMcpToken(
     companyId,
     runId: origin.runId ?? null,
     routineId: origin.routineId ?? null,
+    delegated: false,
     conversationId: origin.conversationId ?? null,
     mailThreadId: origin.mailThreadId ?? null,
     mailDeliveryMode: origin.mailDeliveryMode ?? null,
@@ -190,10 +195,25 @@ export function issueMcpToken(
   return token;
 }
 
+/** Derive a narrower worker credential without extending its parent's lifetime. */
+export function issueDelegatedMcpToken(parentToken: string): string {
+  const parent = resolveMcpToken(parentToken);
+  if (!parent || parent.delegated) throw new Error("Parallel work requires an active parent turn.");
+  const token = crypto.randomBytes(32).toString("hex");
+  tokens.set(token, { ...parent, token, delegated: true });
+  delegatedTokenParents.set(token, parentToken);
+  return token;
+}
+
+function turnStateToken(token: string): string {
+  return delegatedTokenParents.get(token) ?? token;
+}
+
 export function stageAttachmentForToken(token: string, attachmentId: string): void {
   // A revoked token's drain has already run (or never will) — staging for it
   // would leak the entry for the life of the process.
   if (!tokens.has(token)) return;
+  token = turnStateToken(token);
   const list = stagedAttachments.get(token) ?? [];
   list.push(attachmentId);
   stagedAttachments.set(token, list);
@@ -207,6 +227,7 @@ export function stageAttachmentForToken(token: string, attachmentId: string): vo
  */
 export function noteAttachmentForToken(token: string, attachmentId: string): void {
   if (!tokens.has(token)) return;
+  token = turnStateToken(token);
   const owned = tokenAttachments.get(token) ?? new Set<string>();
   owned.add(attachmentId);
   tokenAttachments.set(token, owned);
@@ -214,20 +235,24 @@ export function noteAttachmentForToken(token: string, attachmentId: string): voi
 
 /** Did this turn create or open the attachment? */
 export function tokenOwnsAttachment(token: string, attachmentId: string): boolean {
+  if (!tokens.has(token)) return false;
+  token = turnStateToken(token);
   return tokenAttachments.get(token)?.has(attachmentId) ?? false;
 }
 
 /** Mark this turn as having ingested untrusted web content. */
 export function markTokenTainted(token: string): void {
   if (!tokens.has(token)) return;
+  token = turnStateToken(token);
   taintedTokens.add(token);
 }
 
 export function isTokenTainted(token: string): boolean {
-  return taintedTokens.has(token);
+  return tokens.has(token) && taintedTokens.has(turnStateToken(token));
 }
 
 export function drainAttachmentsForToken(token: string): string[] {
+  token = turnStateToken(token);
   const list = stagedAttachments.get(token);
   stagedAttachments.delete(token);
   return list ?? [];
@@ -237,6 +262,7 @@ export function stageSidecarForToken(token: string, kind: string, payload: unkno
   // Same dead-token guard as attachments: a handler that finishes after the
   // turn's revoke must not resurrect an undrainable entry.
   if (!tokens.has(token)) return;
+  token = turnStateToken(token);
   const byKind = stagedSidecars.get(token) ?? new Map<string, unknown[]>();
   const list = byKind.get(kind) ?? [];
   list.push(payload);
@@ -246,6 +272,7 @@ export function stageSidecarForToken(token: string, kind: string, payload: unkno
 
 /** Drain every staged sidecar payload for a token, grouped by kind. */
 export function drainSidecarsForToken(token: string): Record<string, unknown[]> {
+  token = turnStateToken(token);
   const byKind = stagedSidecars.get(token);
   stagedSidecars.delete(token);
   if (!byKind) return {};
@@ -261,7 +288,7 @@ export function resolveMcpToken(token: string): McpTokenInfo | null {
   const info = tokens.get(token);
   if (!info) return null;
   if (info.expiresAt < Date.now()) {
-    tokens.delete(token);
+    revokeMcpToken(token);
     return null;
   }
   return info;
@@ -273,6 +300,13 @@ export function resolveMcpToken(token: string): McpTokenInfo | null {
  */
 export function revokeMcpToken(token: string): void {
   tokens.delete(token);
+  if (delegatedTokenParents.delete(token)) return;
+  for (const [child, parent] of delegatedTokenParents) {
+    if (parent === token) {
+      tokens.delete(child);
+      delegatedTokenParents.delete(child);
+    }
+  }
   stagedAttachments.delete(token);
   tokenAttachments.delete(token);
   stagedSidecars.delete(token);
@@ -283,10 +317,7 @@ function sweep(): void {
   const now = Date.now();
   for (const [k, v] of tokens) {
     if (v.expiresAt < now) {
-      tokens.delete(k);
-      stagedAttachments.delete(k);
-      tokenAttachments.delete(k);
-      stagedSidecars.delete(k);
+      revokeMcpToken(k);
     }
   }
   // Reclaim staged entries whose token is gone entirely — belt-and-braces

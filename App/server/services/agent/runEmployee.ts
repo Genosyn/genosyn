@@ -23,7 +23,7 @@ import { createChatProgressTool } from "./tools/chatProgress.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
-import { resolveMcpToken } from "../mcpTokens.js";
+import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
 import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
 import { proactiveReviewToolScope, PROACTIVE_REVIEW_BRIEF } from "../proactive/workReviewPolicy.js";
 
@@ -485,24 +485,31 @@ async function runDelegatedBrief(
     // every provider call, worker or not.
   };
 
-  const result = await runEmployeeAgent({
-    ...parent,
-    system: delegatedSystemPrompt(parent.system, brief.label),
-    messages: [
-      {
-        role: "user",
-        content: [{ type: "text", text: delegatedUserMessage(brief) }],
-      },
-    ],
-    // A child is a bounded specialist, not another full-length top-level run.
-    maxSteps: Math.min(parent.maxSteps, 30),
-    // Give each browser-enabled worker an independent browser session instead
-    // of racing the parent conversation's persistent page state.
-    conversationId: undefined,
-    callbacks,
-    delegationDepth: (parent.delegationDepth ?? 0) + 1,
-    delegationBudget,
-  });
+  const workerToken = issueDelegatedMcpToken(parent.genosynToken);
+  let result: EmployeeAgentResult;
+  try {
+    result = await runEmployeeAgent({
+      ...parent,
+      genosynToken: workerToken,
+      system: delegatedSystemPrompt(parent.system, brief.label),
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: delegatedUserMessage(brief) }],
+        },
+      ],
+      // A child is a bounded specialist, not another full-length top-level run.
+      maxSteps: Math.min(parent.maxSteps, 30),
+      // Give each browser-enabled worker an independent browser session instead
+      // of racing the parent conversation's persistent page state.
+      conversationId: undefined,
+      callbacks,
+      delegationDepth: (parent.delegationDepth ?? 0) + 1,
+      delegationBudget,
+    });
+  } finally {
+    revokeMcpToken(workerToken);
+  }
 
   if (parent.signal?.aborted) {
     return { status: "failed", error: "The parent turn was aborted." };

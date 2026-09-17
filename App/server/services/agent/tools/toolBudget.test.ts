@@ -192,7 +192,10 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // discovery miss cannot hide the path from a draft to a numbered quote. Their
 // compact names add 27 characters; the 40-character allowance leaves 2,560
 // characters at the minimum result cap for returned schemas.
-const DOMAIN_FOOTER_CHARS_MAX = 5_440;
+// Explicit Run failure reporting adds one deferred name (17 characters with
+// its separator). Naming the escape hatch makes unfinished work reportable;
+// resident schemas stay unchanged, with 2,540 characters left for results.
+const DOMAIN_FOOTER_CHARS_MAX = 5_460;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
@@ -286,7 +289,10 @@ describe("resident tool budget", () => {
   test("Excel attachment tools remain granular and deferred without adding to every turn", () => {
     const { passthrough } = collapseStaticTools();
     for (const name of ["read_xlsx", "edit_xlsx"]) {
-      assert.equal(resident.some((tool) => tool.name === name), false);
+      assert.equal(
+        resident.some((tool) => tool.name === name),
+        false,
+      );
       assert.equal(RESIDENT_GENOSYN_TOOLS.includes(name), false);
       const tool = passthrough.find((entry) => entry.name === name);
       assert.ok(tool, `${name} must remain available in the built-in catalogue`);
@@ -294,6 +300,18 @@ describe("resident tool budget", () => {
       assert.equal("op" in tool.inputSchema.properties, false);
       assert.equal(tool.readOnly === true, name === "read_xlsx");
     }
+  });
+
+  test("Run failure reporting stays outside the resident schema budget", () => {
+    assert.equal(
+      resident.some((tool) => tool.name === "mark_run_failed"),
+      false,
+    );
+    const { passthrough } = collapseStaticTools();
+    const report = passthrough.find((tool) => tool.name === "mark_run_failed");
+    assert.ok(report);
+    assert.ok(TOOL_DOMAINS.runs.tools.includes(report.name));
+    assert.equal("op" in report.inputSchema.properties, false);
   });
 });
 

@@ -215,7 +215,7 @@ export function Routines() {
             def: (
               <>
                 Hard timeout in seconds. The runner aborts the in-process agent after this long and
-                marks the Run <Code>timeout</Code>. Defaults to <Strong>60 minutes</Strong> and is
+                marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to <Strong>60 minutes</Strong> and is
                 editable per routine (10s – 6h) from the routine editor — raise it for long jobs,
                 lower it to fail fast.
               </>
@@ -238,7 +238,7 @@ export function Routines() {
             def: (
               <>
                 Total attempts per scheduled occurrence, counting the first. <Strong>1</Strong> by
-                default — failed and timed-out Runs do not retry, while a newly interrupted initial
+                default — Failed Runs and runtime or timeout Errors do not retry, while a newly interrupted initial
                 scheduled Run on an enabled routine without an approval gate still receives one
                 recovery attempt an hour after Genosyn marks it. Higher limits also bound
                 interrupted retries later in the same chain. Paired with{" "}
@@ -586,16 +586,25 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </Callout>
       <UL>
         <LI>
-          <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{" "}
-          <Code>completed</Code>, <Code>reviewed</Code> (proactive evidence review only),{" "}
-          <Code>failed</Code>, <Code>skipped</Code> (no model was
-          connected), <Code>timeout</Code>, or <Code>interrupted</Code> (the server stopped
-          mid-run). A Run stopped by the step-limit backstop — the model kept calling tools without
-          ever finishing — is marked <Code>failed</Code>, with the reason in the transcript.
-          Completed only ever means the loop returned cleanly; whether the work met its bar is
-          answered by the other two axes — this routine&apos;s{" "}
-          <DocLink to="/docs/routines#checks">Checks</DocLink> and its{" "}
-          <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> — never by the status.
+          <Strong>Status</Strong> starts at <Strong>Running</Strong> and ends at{" "}
+          <Strong>Completed</Strong>, <Strong>Reviewed</Strong> (proactive evidence review only),{" "}
+          <Strong>Failed</Strong>, <Strong>Error</Strong>, or <Strong>Skipped</Strong> (no AI Model
+          was connected). Completed means the work finished without a known failure; the separate{" "}
+          <DocLink to="/docs/routines#checks">Checks</DocLink> and{" "}
+          <DocLink to="/docs/routines#outcome-check">outcome verdict</DocLink> show what was verified.
+        </LI>
+        <LI>
+          <Strong>Error</Strong> means a model request or runtime problem stopped the Run: a
+          request timeout, an unavailable AI Model, or an interrupted server. The Run log retains
+          the cause. Older timeout and interrupted Runs also display Error.
+        </LI>
+        <LI>
+          <Strong>Failed</Strong> means the intended work was not completed. An AI Employee can
+          call <Code>mark_run_failed</Code> with a <Code>reason</Code> during its own active Run;
+          that reason appears under <Strong>Why this Run failed</Strong> in the log. It cannot
+          mark another Run, change a Check, or mark itself successful. Reaching the step limit,
+          exhausting required Check remediation, or an <Code>off goal</Code> outcome also fails
+          the Run. A later runtime error takes precedence and retains the reported failure reason.
         </LI>
         <LI>
           Each Run also records the <Strong>tokens</Strong> it consumed — the provider&apos;s own
@@ -610,8 +619,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           Manual Runs from the &quot;Run now&quot; button live in the same table as scheduled Runs.
         </LI>
         <LI>
-          <Strong>Retry</Strong> a Run that <Code>failed</Code>, <Code>timed out</Code>, or was{" "}
-          <Code>interrupted</Code> straight from its run history. It re-triggers the routine
+          <Strong>Retry</Strong> a Run marked <Strong>Failed</Strong> or <Strong>Error</Strong>
+          {" "}straight from its run history. It re-triggers the routine
           immediately, outside the schedule, and opens the live log for the new Run.
         </LI>
       </UL>
@@ -621,11 +630,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         directory and are included in whole-instance backups.
       </P>
       <P>
-        Failures are loud: a Run that ends <Code>failed</Code>, <Code>timeout</Code>, or{" "}
-        <Code>interrupted</Code> with no retry still scheduled sends a bell (and web push)
+        A Run that ends <Strong>Failed</Strong> or <Strong>Error</Strong> with no retry still scheduled sends a bell (and web push)
         notification to the company&apos;s owners and admins and to the Member the employee reports
         to, deep-linked to the Run log. The Home page additionally shows a{" "}
-        <Strong>Failed routines</Strong> panel for anything that broke in the last 24 hours —
+        <Strong>Routines needing attention</Strong> panel for anything that broke in the last 24 hours —
         clicking a row there opens that Run&apos;s log over Home rather than sending you to the
         routine — and every <Strong>Journal</Strong> entry for a Run links straight to that
         routine&apos;s run history, where the Retry button is one click away. Once you&apos;ve looked at a failure,
@@ -656,9 +664,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="outcome-check">The outcome check</H2>
       <P>
-        A green <Code>completed</Code> proves the loop returned — it says nothing about whether the
-        work was any good. A convincingly wrong Run used to look byte-identical to a great one. The
-        outcome check is the second axis: give a routine <Strong>acceptance criteria</Strong>
+        A <Strong>Completed</Strong> Run has no known failure, but that alone is not verification.
+        The outcome check adds an independent assessment: give a routine <Strong>acceptance criteria</Strong>
         {" "}
         (Settings → Outcome check) — a plain-language definition of done, like &quot;the digest was
         posted to #general and covers every failed run since the last digest&quot; — and two things
@@ -681,12 +688,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
       </UL>
       <P>
-        An <Code>off goal</Code> verdict notifies admins and the employee&apos;s manager the same
+        An <Code>off goal</Code> verdict marks the Run <Strong>Failed</Strong> and notifies admins and the employee&apos;s manager the same
         way a failure does — convincing-but-wrong is exactly the failure mode a green checkmark
         hides. The verdict also lands in the employee&apos;s Journal entry for the Run, so the
         employee itself learns from past outcomes instead of only seeing that runs
-        &quot;finished&quot;. The check never changes the Run&apos;s status, and a routine with no
-        criteria behaves exactly as before — no verdict, no extra model turn, no extra cost.
+        &quot;finished&quot;. <Code>unclear</Code> and <Code>unverified</Code> keep their own meanings;
+        neither is evidence that the work succeeded. A routine with no criteria has no outcome
+        verdict, extra model turn, or grading cost.
       </P>
       <P>
         A routine can also declare which company <DocLink to="/docs/goals">Goal</DocLink> its work
@@ -751,10 +759,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A Run that was executing when the process died can&apos;t report its own outcome — nobody
         was left to write the row. The scheduler notices on its next heartbeat and marks it{" "}
-        <Code>interrupted</Code>, appending a line after the last durable checkpoint. The Run log
+        <Strong>Error</Strong> with an interruption reason, appending a line after the last durable checkpoint. The Run log
         still shows the model text and tool activity captured before the stop, so the final line
         identifies where the visible work ended. Nothing is known about work the employee did after
-        that line, which is exactly why the status is its own word and not <Code>failed</Code>.
+        that line. The interruption describes a runtime problem; it does not judge the work itself.
       </P>
       <P>
         When Genosyn marks an initial scheduled Run on an enabled routine interrupted, it also
@@ -793,7 +801,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H3 id="retries">Retries</H3>
       <P>
-        Retries after <Code>failed</Code> Runs are <Strong>off by default.</Strong> Raise{" "}
+        Retries after <Strong>Failed</Strong> Runs and runtime <Strong>Errors</Strong> are <Strong>off by default.</Strong> Raise{" "}
         <Strong>Attempts</Strong> above 1 in the routine&apos;s Settings to retry them
         automatically, up to 5 attempts, waiting a randomized, doubling interval between each (from
         {" "}
@@ -824,7 +832,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           the outcome, so nothing respawns behind their back.
         </LI>
         <LI>
-          A run with a retry pending stays out of the Home <Strong>Failed routines</Strong> panel
+          A run with a retry pending stays out of the Home <Strong>Routines needing attention</Strong> panel
           until its last attempt is spent — it isn&apos;t something to act on yet. It shows under
           {" "}
           <Strong>Runs waiting to retry</Strong> in System Health instead.
@@ -846,7 +854,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <UL>
         <LI>
-          <Strong>Failed</Strong> runs — failures, timeouts, and restarts that interrupted a run,
+          <Strong>Runs needing attention</Strong> — Failed Runs and Errors, including timeouts and restarts,
           excluding anything already scheduled for a retry.
         </LI>
         <LI>

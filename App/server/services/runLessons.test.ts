@@ -7,14 +7,16 @@ import { Routine } from "../db/entities/Routine.js";
 import type { Run } from "../db/entities/Run.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { AppDataSource } from "../db/datasource.js";
-import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId, testId } from "../test/dbHarness.js";
-import type { AgentTool } from "./agent/types.js";
 import {
-  composeLessonsBlock,
-  dismissLesson,
-  reflectOnRun,
-  shouldReflect,
-} from "./runLessons.js";
+  closeTestDb,
+  initTestDb,
+  insert,
+  resetTestDb,
+  testCompanyId,
+  testId,
+} from "../test/dbHarness.js";
+import type { AgentTool } from "./agent/types.js";
+import { composeLessonsBlock, dismissLesson, reflectOnRun, shouldReflect } from "./runLessons.js";
 
 /**
  * The reflection half of the improvement loop: which Runs earn one, that the
@@ -72,6 +74,9 @@ function submitting(cause: string, advice: string) {
 describe("shouldReflect", () => {
   test("failures and timeouts reflect; clean completions do not", () => {
     assert.equal(shouldReflect("failed", null), true);
+    assert.equal(shouldReflect("error", null, null, "runtime"), true);
+    assert.equal(shouldReflect("error", null, null, "timeout"), true);
+    assert.equal(shouldReflect("error", null, null, "interrupted"), false);
     assert.equal(shouldReflect("timeout", null), true);
     assert.equal(shouldReflect("completed", null), false);
     assert.equal(shouldReflect("completed", "achieved"), false);
@@ -136,7 +141,10 @@ describe("reflectOnRun", () => {
       runRestricted: submitting("Cause B", "Advice B"),
     });
     assert.equal(second, null);
-    assert.equal(await AppDataSource.getRepository(RunLesson).countBy({ routineId: routine.id }), 1);
+    assert.equal(
+      await AppDataSource.getRepository(RunLesson).countBy({ routineId: routine.id }),
+      1,
+    );
   });
 
   test("a turn that submits nothing stores nothing", async () => {
@@ -152,7 +160,10 @@ describe("reflectOnRun", () => {
       })) as never,
     });
     assert.equal(lesson, null);
-    assert.equal(await AppDataSource.getRepository(RunLesson).countBy({ routineId: routine.id }), 0);
+    assert.equal(
+      await AppDataSource.getRepository(RunLesson).countBy({ routineId: routine.id }),
+      0,
+    );
   });
 
   test("a Run that failed a Check is told so, as fact rather than as a reading", async () => {

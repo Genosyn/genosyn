@@ -560,13 +560,19 @@ function runFallbackSentence(run: WorkEntryRun | null, active: boolean): string 
     case "reviewed":
       return "The proactive review finished. This Run did not carry out the proposed work.";
     case "failed":
-      return "This run failed. Open the run log for details.";
+      return "This run failed to complete its intended work. Open the run log for details.";
+    case "error":
+      if (run.errorKind === "timeout")
+        return "This run encountered an error: it ran out of time before it finished.";
+      if (run.errorKind === "interrupted")
+        return "This run encountered an error: it was interrupted before it finished.";
+      return "This run encountered a model or runtime error. Open the run log for details.";
     case "timeout":
-      return "This run ran out of time before it finished.";
+      return "This run encountered an error: it ran out of time before it finished.";
     case "skipped":
       return "This routine did not run because no AI Model was assigned.";
     case "interrupted":
-      return "This run was interrupted before it finished.";
+      return "This run encountered an error: it was interrupted before it finished.";
     default:
       return "No outcome summary is available for this run.";
   }
@@ -634,8 +640,10 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
       if (completed) {
         const outcome = runOutcomeSentence(run);
         if (outcome) body.push(outcome);
-      } else if (!entry.active && run?.status !== "reviewed" && run?.checksVerdict === "failed") {
-        body.push("A required Check failed.");
+      } else if (!entry.active && run && run.status !== "reviewed") {
+        if (run.failureReason?.trim()) body.push(asSentence(run.failureReason.trim()));
+        const outcome = runOutcomeSentence(run);
+        if (outcome) body.push(outcome);
       }
       const routine = subject || run?.routineName.trim() || "Routine";
       const duration = entry.active ? forSoFar && `${forSoFar} so far` : took;

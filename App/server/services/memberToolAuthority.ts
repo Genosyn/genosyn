@@ -376,6 +376,8 @@ const ADMIN_TOOLS = [
 export const INTERACTIVE_MEMBER_DENIED_TOOLS = new Set([
   "revise_work_review",
   "revise_mail_review",
+  // Failure reporting belongs only to the server-bound current Routine Run.
+  "mark_run_failed",
 ] as const);
 
 const FINANCE_READ_TOOLS = [

@@ -4,7 +4,13 @@ import { AppDataSource } from "../db/datasource.js";
 import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import type { Routine } from "../db/entities/Routine.js";
-import type { Run, RunChecksVerdict, RunOutcomeVerdict, RunStatus } from "../db/entities/Run.js";
+import type {
+  Run,
+  RunChecksVerdict,
+  RunErrorKind,
+  RunOutcomeVerdict,
+  RunStatus,
+} from "../db/entities/Run.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool } from "./agent/types.js";
@@ -68,7 +74,9 @@ export function shouldReflect(
   status: RunStatus,
   outcomeVerdict: RunOutcomeVerdict | null,
   checksVerdict: RunChecksVerdict | null = null,
+  errorKind: RunErrorKind | null = null,
 ): boolean {
+  if (status === "error") return errorKind !== "interrupted";
   if (status === "failed" || status === "timeout") return true;
   if (status !== "completed") return false;
   return checksVerdict === "failed" || outcomeVerdict === "off_goal";
@@ -197,9 +205,7 @@ export async function reflectOnRun(params: {
         model: params.model,
         employeeId: employee.id,
         system: reflectionSystemPrompt(employee, routine, run),
-        messages: [
-          { role: "user", content: [{ type: "text", text: reflectionUserPrompt(run) }] },
-        ],
+        messages: [{ role: "user", content: [{ type: "text", text: reflectionUserPrompt(run) }] }],
         tools: [submitTool],
         maxSteps: REFLECT_MAX_STEPS,
         signal: controller.signal,

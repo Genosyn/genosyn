@@ -57,7 +57,7 @@ import { NotificationPeekModal } from "../components/home/NotificationPeekModal"
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
-import { RunLiveModal } from "../components/routines/RunViews";
+import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
 import { DecisionCard } from "../components/decisions/DecisionCard";
@@ -588,6 +588,8 @@ function HomeOverlayHost({
             startedAt: overlay.run.startedAt,
             finishedAt: null,
             status: overlay.run.status,
+            errorKind: overlay.run.errorKind,
+            failureReason: overlay.run.failureReason,
             exitCode: overlay.run.exitCode,
             createdAt: overlay.run.startedAt,
           }}
@@ -611,6 +613,8 @@ function HomeOverlayHost({
             startedAt: overlay.entry.at,
             finishedAt: overlay.entry.endedAt,
             status: run.status,
+            errorKind: run.errorKind,
+            failureReason: run.failureReason,
             exitCode: run.exitCode,
             createdAt: overlay.entry.at,
           }}
@@ -688,7 +692,8 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Nothing needs you right now
       </h2>
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
-        Pending Decisions, Repository AI work, failed routines, mentions, todos, emails, and
+        Pending Decisions, Repository AI work, routines needing attention, mentions, todos,
+        emails, and
         approvals appear here the moment they arrive.
       </p>
       <Link
@@ -965,14 +970,6 @@ function failedRunLink(company: Company, r: HomeFailedRun): string {
   return `/c/${company.slug}/routines?${params.toString()}`;
 }
 
-function failedRunBadge(r: HomeFailedRun): string {
-  if (r.status === "timeout") return "timeout";
-  // A run the server died in the middle of. Shares the panel with outright
-  // failures — all three are work that didn't get done.
-  if (r.status === "interrupted") return "interrupted";
-  return r.exitCode !== null ? `exit ${r.exitCode}` : "failed";
-}
-
 /**
  * High-visibility alert listing routine runs that failed in the last 24h and
  * are still worth acting on — the server drops a failure the routine's next
@@ -1031,7 +1028,7 @@ function FailedRoutinesAlert({
     const ok = await dialog.confirm({
       title: `Run ${r.routineName} again?`,
       message:
-        r.status === "interrupted"
+        r.status === "interrupted" || r.errorKind === "interrupted"
           ? "The server stopped part-way through, so nothing is known about work done after the log's last line. Run it again only if repeating that work is safe."
           : "The run stopped part-way through, so any work it had already done stands. Run it again only if repeating that work is safe — otherwise open the log first.",
       confirmLabel: "Retry",
@@ -1057,7 +1054,7 @@ function FailedRoutinesAlert({
           <AlertTriangle size={15} />
         </span>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Failed routines
+          Routines needing attention
         </h2>
         <span className="rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold tabular-nums text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
           {data.failedRunCount}
@@ -1091,9 +1088,7 @@ function FailedRoutinesAlert({
                   {r.employee.name} · {formatRelative(r.startedAt)}
                 </span>
               </span>
-              <span className="shrink-0 rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300">
-                {failedRunBadge(r)}
-              </span>
+              <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
             </HomeRow>
             {/* Whatever went wrong, the next thing a person wants is another
                 attempt — so offer it right where the failure is. */}

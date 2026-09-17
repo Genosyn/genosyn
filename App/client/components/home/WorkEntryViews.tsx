@@ -143,7 +143,7 @@ function WorkRunChips({ entry }: { entry: WorkEntry }) {
   if (!entry.run) return null;
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <RunStatusChip status={entry.run.status} size="xs" />
+      <RunStatusChip status={entry.run.status} errorKind={entry.run.errorKind} size="xs" />
       {entry.run.status !== "reviewed" && entry.run.outcomeVerdict && (
         <RunOutcomeChip verdict={entry.run.outcomeVerdict} note={entry.run.outcomeNote} size="xs" />
       )}
