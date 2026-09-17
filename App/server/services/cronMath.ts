@@ -1,5 +1,5 @@
 import parser from "cron-parser";
-import type { RunStatus, RunTrigger } from "../db/entities/Run.js";
+import type { RunErrorKind, RunStatus, RunTrigger } from "../db/entities/Run.js";
 
 /**
  * Pure scheduling arithmetic for downtime recovery and retries.
@@ -128,8 +128,14 @@ export function backoffDelayMs(
  * `maxAttempts = 1`, so its effective ceiling is two. Keeping this calculation
  * in one place prevents logs and journals from saying "attempt 2 of 1".
  */
-export function automaticRetryLimit(status: RunStatus, maxAttempts: number): number {
-  return status === "interrupted" ? Math.max(2, maxAttempts) : maxAttempts;
+export function automaticRetryLimit(
+  status: RunStatus,
+  maxAttempts: number,
+  errorKind?: RunErrorKind | null,
+): number {
+  return status === "interrupted" || (status === "error" && errorKind === "interrupted")
+    ? Math.max(2, maxAttempts)
+    : maxAttempts;
 }
 
 /**
@@ -141,12 +147,13 @@ export function automaticRetryLimit(status: RunStatus, maxAttempts: number): num
  */
 export function automaticRetryDelayMs(a: {
   status: RunStatus;
+  errorKind?: RunErrorKind | null;
   attempt: number;
   maxAttempts: number;
   baseMs: number;
   rng?: () => number;
 }): number {
-  if (a.status === "interrupted" && a.maxAttempts <= 1) {
+  if (automaticRetryLimit(a.status, a.maxAttempts, a.errorKind) > a.maxAttempts) {
     return INTERRUPTED_RECOVERY_DELAY_MS;
   }
   return backoffDelayMs(a.attempt, { baseMs: a.baseMs, rng: a.rng });
@@ -162,15 +169,17 @@ export function automaticRetryDelayMs(a: {
  */
 export function shouldRetry(a: {
   status: RunStatus;
+  errorKind?: RunErrorKind | null;
   triggerKind: RunTrigger;
   attempt: number;
   maxAttempts: number;
   retryOnTimeout: boolean;
 }): boolean {
   if (a.triggerKind !== "schedule" && a.triggerKind !== "retry") return false;
-  const attemptLimit = automaticRetryLimit(a.status, a.maxAttempts);
+  const attemptLimit = automaticRetryLimit(a.status, a.maxAttempts, a.errorKind);
   if (attemptLimit <= 1 || a.attempt >= attemptLimit) return false;
-  if (a.status === "failed" || a.status === "interrupted") return true;
-  if (a.status === "timeout") return a.retryOnTimeout;
+  if (a.status === "timeout" || (a.status === "error" && a.errorKind === "timeout"))
+    return a.retryOnTimeout;
+  if (a.status === "failed" || a.status === "error" || a.status === "interrupted") return true;
   return false;
 }

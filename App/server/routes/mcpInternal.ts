@@ -10,6 +10,12 @@ import {
 import { boundWorkReviewPacket } from "../services/proactive/reviewPacketBudget.js";
 import { isActiveOwnReview, reviewTrackingRoutine } from "../services/proactive/reviewTracking.js";
 import { getOwnWorkReview, OwnWorkReviewError } from "../services/proactive/workReview.js";
+import {
+  canReportRunFailure,
+  markCurrentRunFailed,
+  RunFailureReportError,
+  RUN_FAILURE_REASON_MAX_LENGTH,
+} from "../services/runFailureReport.js";
 import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
 import { performMailSenderAction } from "../services/mail/blockedSenders.js";
 import {
@@ -856,6 +862,12 @@ function requireDelegatedToolAuthority(
   }
   const toolName = /^\/tools\/([^/]+)/.exec(req.path)?.[1];
   if (!toolName) return next();
+  // An approved proactive delivery Run carries its approving Member. It can
+  // report its own unfinished work, while ordinary Member chat cannot choose
+  // any Run. The handler still verifies live Run and Routine ownership.
+  if (toolName === "mark_run_failed" && canReportRunFailure(resolveMcpToken(req.mcpToken!))) {
+    return next();
+  }
   const policy = memberToolPolicy(toolName) ?? memberInternalCallbackPolicy(toolName);
   if (!policy) {
     return res.status(403).json({
@@ -8618,6 +8630,7 @@ const TERMINAL_RUN_STATUSES: RunStatus[] = [
   "completed",
   "reviewed",
   "failed",
+  "error",
   "skipped",
   "timeout",
   "interrupted",
@@ -8632,6 +8645,8 @@ function serializeRunRow(run: Run, routineName: string | null) {
     routineId: run.routineId,
     routineName,
     status: run.status,
+    failureReason: run.failureReason,
+    errorKind: run.errorKind,
     /** Did its required Checks pass. The one axis no model has a say in. */
     checksVerdict: run.checksVerdict,
     outcomeVerdict: run.outcomeVerdict,
@@ -8703,6 +8718,31 @@ mcpInternalRouter.post(
 );
 
 const getRunReportSchema = z.object({ runId: z.string().min(1).max(200) }).strict();
+
+const markRunFailedSchema = z
+  .object({ reason: z.string().trim().min(1).max(RUN_FAILURE_REASON_MAX_LENGTH) })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/mark_run_failed",
+  validateBody(markRunFailedSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof markRunFailedSchema>;
+    try {
+      const report = await markCurrentRunFailed(req.mcpToken!, body.reason);
+      res.json({
+        ok: true,
+        ...report,
+        note: "Failure recorded. Finish your report; this Run will finish as Failed unless a runtime error or interruption takes precedence. Checks and the independent outcome assessment are unchanged.",
+      });
+    } catch (error) {
+      if (error instanceof RunFailureReportError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
 
 mcpInternalRouter.post(
   "/tools/get_run_report",

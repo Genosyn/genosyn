@@ -1,8 +1,8 @@
-import type { Repository } from "typeorm";
+import { IsNull, type Repository } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
-import type { RunTrigger } from "../db/entities/Run.js";
+import type { RunErrorKind, RunTrigger } from "../db/entities/Run.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
@@ -225,6 +225,8 @@ export async function startRoutineRun(
     routineId: routine.id,
     startedAt,
     status: "running",
+    errorKind: null,
+    failureReason: null,
     logContent: "",
     triggerKind: opts.triggerKind ?? "manual",
     attempt: opts.attempt ?? 1,
@@ -306,14 +308,17 @@ export async function startRoutineRun(
         : `\n[error] Run setup failed before work began: ${errorMessage(err)}`,
     );
     saved.finishedAt = new Date();
-    saved.status = setupTimedOut ? "timeout" : "failed";
+    saved.status = "error";
+    saved.errorKind = setupTimedOut ? "timeout" : "runtime";
     saved.exitCode = null;
-    stampRetry(saved, routine, log);
     try {
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
       saved = finalization.run;
       if (finalization.persisted) {
         await settleAfterRun(routine.id, saved.finishedAt);
+        await journalQuietly(emp.id, routine, saved);
+        await contractAutonomyOnBadRun({ run: saved, employee: emp });
+        await updateRoutineBreaker(saved, routine, co.id, emp.id);
       }
     } finally {
       liveBuffers.delete(saved.id);
@@ -323,21 +328,22 @@ export async function startRoutineRun(
 
   const completion = (async (): Promise<Run> => {
     let mcpToken: string | null = null;
-    let agentInvocationStarted = false;
+    let interrupted = false;
     const deadlineReached = (): boolean => Date.now() >= deadlineAtMs;
     const finalizeTimedOutRun = async (): Promise<Run> => {
       saved.finishedAt = new Date();
       log.line(
         `\n[timeout] Stopped after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
       );
-      saved.status = "timeout";
+      saved.status = "error";
+      saved.errorKind = "timeout";
       saved.exitCode = null;
-      stampRetry(saved, routine, log);
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
       await journalQuietly(emp.id, routine, saved);
+      await contractAutonomyOnBadRun({ run: saved, employee: emp });
       // The breaker has to see this. A timeout is the *characteristic* shape of
       // the failure it exists for — a deleted integration, a renamed report, a
       // Connection whose token expired all hang rather than returning a tidy
@@ -385,7 +391,7 @@ export async function startRoutineRun(
         );
         saved.finishedAt = new Date();
         saved.status = "skipped";
-        const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+        const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
         saved = finalization.run;
         if (!finalization.persisted) return saved;
         await settleAfterRun(routine.id, saved.finishedAt);
@@ -538,7 +544,10 @@ export async function startRoutineRun(
       registerRunInterrupter(
         saved.id,
         { companyId: co.id, employeeId: emp.id, routineId: routine.id },
-        () => controller.abort(),
+        () => {
+          interrupted = true;
+          controller.abort();
+        },
       );
       const timer = setTimeout(() => {
         timedOut = true;
@@ -555,7 +564,6 @@ export async function startRoutineRun(
           timedOut = true;
           controller.abort();
         } else {
-          agentInvocationStarted = true;
           result = await runEmployeeAgent({
             model,
             employeeId: emp.id,
@@ -624,9 +632,15 @@ export async function startRoutineRun(
       if (!result) throw new Error("The AI Model returned no Run result.");
 
       saved.finishedAt = new Date();
-      if (result.status === "error") {
+      if (interrupted || (result.status === "ok" && result.stopReason === "aborted")) {
+        log.line("\n[interrupted] The Run was stopped before its work finished.");
+        saved.status = "error";
+        saved.errorKind = "interrupted";
+        saved.exitCode = null;
+      } else if (result.status === "error") {
         log.line(`\n[error] ${result.error}`);
-        saved.status = "failed";
+        saved.status = "error";
+        saved.errorKind = "runtime";
         saved.exitCode = null;
       } else if (result.stopReason === "max_steps") {
         // The runaway backstop stopped the loop, not the model deciding it was
@@ -635,7 +649,7 @@ export async function startRoutineRun(
         // like any other.
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
         log.line(
-          `\n[error] Stopped after reaching the ${RUN_MAX_STEPS}-turn step limit without finishing — marked failed.`,
+          `\n[failed] Stopped after reaching the ${RUN_MAX_STEPS}-turn step limit without finishing.`,
         );
         saved.status = "failed";
         saved.exitCode = null;
@@ -652,13 +666,24 @@ export async function startRoutineRun(
         }
       }
 
+      // The employee's report is durable tool output, not part of the stale
+      // Run object captured before the model turn. A recovered terminal row
+      // wins before we spend more work on Checks or remediation.
+      const afterWork = await runRepo.findOneBy({ id: saved.id });
+      if (!afterWork || afterWork.status !== "running") return afterWork ?? saved;
+      saved.failureReason = afterWork.failureReason;
+      if (saved.failureReason && (saved.status === "completed" || saved.status === "reviewed")) {
+        saved.status = "failed";
+        log.line(`\n[failed] ${saved.failureReason}`);
+      }
+
       // ---- Checks (M58) ----
       //
       // The bar no model has a say in, run before the Run is allowed to
       // finalize green. It sits here, above `stampRetry` and the terminal
       // save, because a Run that failed its Checks is a Run whose retry policy
-      // should see the failure — and below the status assignment because
-      // `status` keeps meaning "the loop returned". Nothing here can change it.
+      // should see the failure. The Check verdict remains independent evidence
+      // of why the intended work did not complete.
       //
       // Remediation is a fresh briefed turn rather than a resumption of the
       // same transcript. That is the fourth time this codebase has made that
@@ -690,11 +715,18 @@ export async function startRoutineRun(
         checkResults = checkPhase.results;
         saved.tokensIn += checkPhase.tokensIn;
         saved.tokensOut += checkPhase.tokensOut;
+        if (deadlineReached()) return await finalizeTimedOutRun();
+        if (checkPhase.errorKind) {
+          saved.status = "error";
+          saved.errorKind = checkPhase.errorKind;
+          saved.exitCode = null;
+        } else if (checkPhase.verdict === "failed" || checkPhase.incomplete) {
+          saved.status = "failed";
+        }
       }
 
-      // Before log.value(): stampRetry writes its own transcript line.
-      stampRetry(saved, routine, log);
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      saved.finishedAt = new Date();
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       // Deliberately not inside the try that owns the status: a throw from
@@ -717,8 +749,16 @@ export async function startRoutineRun(
       // stay quiet. The same Runs contract earned autonomy (M53): demotion is
       // automatic and only tightens, so it runs before the reflection spends a
       // model turn — the gates must re-arm even if reflection cannot run.
-      if (shouldReflect(saved.status, saved.outcomeVerdict, saved.checksVerdict)) {
+      const reflect = shouldReflect(
+        saved.status,
+        saved.outcomeVerdict,
+        saved.checksVerdict,
+        saved.errorKind,
+      );
+      if (saved.status === "error" || saved.status === "failed" || reflect) {
         await contractAutonomyOnBadRun({ run: saved, employee: emp });
+      }
+      if (reflect) {
         await reflectOnRun({ run: saved, routine, employee: emp, model });
       }
       // The breaker (M58). Same seam and same reasoning as the demotion above:
@@ -727,19 +767,21 @@ export async function startRoutineRun(
       await updateRoutineBreaker(saved, routine, co.id, emp.id);
       return saved;
     } catch (err) {
-      if (!agentInvocationStarted && saved.status === "running" && deadlineReached()) {
+      if (deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
       log.line(`\n[error] ${err instanceof Error ? err.message : String(err)}`);
       saved.finishedAt = new Date();
-      saved.status = "failed";
+      saved.status = "error";
+      saved.errorKind = interrupted ? "interrupted" : "runtime";
       saved.exitCode = null;
-      stampRetry(saved, routine, log);
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
+      await journalQuietly(emp.id, routine, saved);
+      await contractAutonomyOnBadRun({ run: saved, employee: emp });
       // Same reason as the timeout path: a Run that threw is a failed Run, and
       // a Routine whose every attempt throws is precisely what the breaker is
       // watching for.
@@ -766,6 +808,7 @@ async function finalizeRunFromRunning(
   runRepo: Repository<Run>,
   run: Run,
   log: DurableRunLog,
+  routine: Routine,
 ): Promise<{ run: Run; persisted: boolean }> {
   try {
     await finalizeBrowserRecordingsForRun(run.id);
@@ -782,32 +825,51 @@ async function finalizeRunFromRunning(
     // so a failed progress checkpoint must not strand the row as `running`.
     log.line(`\n[warn] A progress checkpoint failed while finalizing: ${errorMessage(err)}`);
   }
-  run.logContent = log.value();
-  const result = await runRepo.update(
-    { id: run.id, status: "running" },
-    {
-      // ResourceChangeSubscriber uses this unchanged relation key to route
-      // Run updates to the correct Routine detail stream.
-      routineId: run.routineId,
-      finishedAt: run.finishedAt,
-      status: run.status,
-      logContent: run.logContent,
-      exitCode: run.exitCode,
-      retryAt: run.retryAt,
-      tokensIn: run.tokensIn,
-      tokensOut: run.tokensOut,
-      checksVerdict: run.checksVerdict,
-      checkRemediations: run.checkRemediations,
-      ...(run.status === "reviewed"
-        ? { outcomeVerdict: run.outcomeVerdict, outcomeNote: run.outcomeNote }
-        : {}),
-    },
-  );
-  if (result.affected === 1) {
+  // mark_run_failed writes once while the model turn is active. Re-read after
+  // remediation/recording shutdown, then include its value in the terminal
+  // compare-and-set. If a report lands between read and write, retry once with
+  // that durable reason; if recovery finalized the Run, its verdict wins.
+  for (;;) {
+    const current = await runRepo.findOneBy({ id: run.id });
+    if (!current || current.status !== "running") {
+      releaseBrowserRecordingRunFinalizing(run.id);
+      return { run: current ?? run, persisted: false };
+    }
+    run.failureReason = current.failureReason;
+    if (run.failureReason && (run.status === "completed" || run.status === "reviewed")) {
+      run.status = "failed";
+      log.line(`\n[failed] ${run.failureReason}`);
+    }
+    if (!run.retryAt) stampRetry(run, routine, log);
+    run.logContent = log.value();
+    const result = await runRepo.update(
+      { id: run.id, status: "running", failureReason: current.failureReason ?? IsNull() },
+      {
+        // ResourceChangeSubscriber routes this update to its Routine stream.
+        routineId: run.routineId,
+        finishedAt: run.finishedAt,
+        status: run.status,
+        errorKind: run.errorKind,
+        // failureReason is tool-owned. The CAS protects it without replacing it.
+        logContent: run.logContent,
+        exitCode: run.exitCode,
+        retryAt: run.retryAt,
+        tokensIn: run.tokensIn,
+        tokensOut: run.tokensOut,
+        checksVerdict: run.checksVerdict,
+        checkRemediations: run.checkRemediations,
+        ...(run.status === "reviewed"
+          ? { outcomeVerdict: run.outcomeVerdict, outcomeNote: run.outcomeNote }
+          : {}),
+      },
+    );
+    if (result.affected !== 1) continue;
     releaseBrowserRecordingRunFinalizing(run.id);
-    if ((run.status === "failed" || run.status === "timeout") && !run.retryAt) {
-      // Terminal breakage with no attempt left — page a human. Fire-and-forget:
-      // an alerting outage must never change the Run's verdict.
+    if (
+      (run.status === "failed" || run.status === "error" || run.status === "timeout") &&
+      !run.retryAt
+    ) {
+      // An alerting outage must never change the Run's verdict.
       void notifyRunFailure(run).catch((err) => {
         // eslint-disable-next-line no-console
         console.error(`[runner] failed to notify about run ${run.id}:`, err);
@@ -815,16 +877,6 @@ async function finalizeRunFromRunning(
     }
     return { run, persisted: true };
   }
-
-  // Reconciliation (or another terminal owner) won. Return the authoritative
-  // row and, critically, do not run post-completion bookkeeping for our stale
-  // verdict. A deleted Routine may have cascaded the Run away altogether; in
-  // that case the local object is safe to return but must not be persisted.
-  const current = await runRepo.findOneBy({ id: run.id });
-  if (!current || current.status !== "running") {
-    releaseBrowserRecordingRunFinalizing(run.id);
-  }
-  return { run: current ?? run, persisted: false };
 }
 
 function errorMessage(error: unknown): string {
@@ -930,18 +982,21 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
       ? "was reviewed; proposed work needs human approval"
       : run.status === "completed"
         ? "completed"
-        : run.status === "failed"
-          ? "failed"
-          : run.status === "skipped"
-            ? "was skipped"
-            : run.status === "timeout"
-              ? "timed out"
-              : run.status === "interrupted"
-                ? "was interrupted"
-                : "finished";
+        : run.status === "error"
+          ? "ended with an error"
+          : run.status === "failed"
+            ? "failed"
+            : run.status === "skipped"
+              ? "was skipped"
+              : run.status === "timeout"
+                ? "timed out"
+                : run.status === "interrupted"
+                  ? "was interrupted"
+                  : "finished";
   const title = `Routine "${routine.name}" ${verb}`;
   const bodyLines: string[] = [];
   if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);
+  if (run.failureReason) bodyLines.push(`unfinished work: ${run.failureReason}`);
   // The verdict is what makes this entry teachable: the 7-day journal
   // injection used to say only that runs finished, never whether they worked.
   if (run.outcomeVerdict) {
@@ -1035,11 +1090,15 @@ async function runCheckPhase(args: {
   remediations: number;
   tokensIn: number;
   tokensOut: number;
+  errorKind: RunErrorKind | null;
+  incomplete: boolean;
 }> {
   const { log } = args;
   let tokensIn = 0;
   let tokensOut = 0;
   let remediations = 0;
+  let errorKind: RunErrorKind | null = null;
+  let incomplete = false;
 
   const base = {
     run: args.run,
@@ -1053,7 +1112,15 @@ async function runCheckPhase(args: {
 
   let phase = await runChecksForRun({ ...base, attempt: 0 });
   if (phase.verdict === "not_run")
-    return { verdict: "not_run", results: [], remediations: 0, tokensIn, tokensOut };
+    return {
+      verdict: "not_run",
+      results: [],
+      remediations: 0,
+      tokensIn,
+      tokensOut,
+      errorKind,
+      incomplete,
+    };
   log.line(`\n[checks] ${describeCheckPhase(phase)}`);
 
   while (
@@ -1079,6 +1146,14 @@ async function runCheckPhase(args: {
     // previous report no longer describes that state unless a new one returns.
     log.line(workSummaryLogLine(""));
     const controller = new AbortController();
+    registerRunInterrupter(
+      args.run.id,
+      { companyId: args.co.id, employeeId: args.emp.id, routineId: args.routine.id },
+      () => {
+        errorKind = "interrupted";
+        controller.abort();
+      },
+    );
     const timer = setTimeout(() => controller.abort(), remainingMs);
     try {
       const tokenAuthority = resolveMcpToken(args.mcpToken);
@@ -1127,27 +1202,44 @@ async function runCheckPhase(args: {
           },
         },
       });
-      if (result.status === "error") {
+      if (controller.signal.aborted || (result.status === "ok" && result.stopReason === "aborted")) {
+        errorKind = args.deadlineReached() ? "timeout" : "interrupted";
+        log.line("\n[checks] remediation was interrupted before finishing.");
+        log.line(workSummaryLogLine(""));
+      } else if (result.status === "error") {
+        errorKind = "runtime";
         log.line(`\n[checks] remediation turn failed: ${result.error}`);
         log.line(workSummaryLogLine(""));
       } else if (result.stopReason !== "max_steps" && result.stopReason !== "aborted") {
         log.line(workSummaryLogLine(result.finalText));
       } else {
+        incomplete = true;
         log.line(workSummaryLogLine(""));
       }
     } catch (err) {
-      // A remediation turn that throws leaves the previous verdict standing.
-      // It cannot make the Run worse, and it must not make it better.
+      errorKind ??= args.deadlineReached() ? "timeout" : "runtime";
+      // Preserve the prior Check evidence while recording the runtime error.
       log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
       log.line(workSummaryLogLine(""));
     } finally {
       clearTimeout(timer);
+      unregisterRunInterrupter(args.run.id);
     }
     phase = await runChecksForRun({ ...base, attempt: remediations });
     log.line(`\n[checks] ${describeCheckPhase(phase)}`);
+    const current = await AppDataSource.getRepository(Run).findOneBy({ id: args.run.id });
+    if (errorKind || incomplete || current?.failureReason || current?.status !== "running") break;
   }
 
-  return { verdict: phase.verdict, results: phase.results, remediations, tokensIn, tokensOut };
+  return {
+    verdict: phase.verdict,
+    results: phase.results,
+    remediations,
+    tokensIn,
+    tokensOut,
+    errorKind,
+    incomplete,
+  };
 }
 
 function describeCheckPhase(phase: {
@@ -1266,6 +1358,7 @@ function stampRetry(run: Run, routine: Routine, log: DurableRunLog): void {
   if (
     !shouldRetry({
       status: run.status,
+      errorKind: run.errorKind,
       triggerKind: run.triggerKind,
       attempt: run.attempt,
       maxAttempts: routine.maxAttempts,
@@ -1276,13 +1369,14 @@ function stampRetry(run: Run, routine: Routine, log: DurableRunLog): void {
   }
   const delay = automaticRetryDelayMs({
     status: run.status,
+    errorKind: run.errorKind,
     attempt: run.attempt,
     maxAttempts: routine.maxAttempts,
     baseMs: routine.retryBackoffSec * 1000,
   });
   run.retryAt = new Date(Date.now() + delay);
   log.line(
-    `\n[retry] attempt ${run.attempt + 1} of ${automaticRetryLimit(run.status, routine.maxAttempts)} scheduled in ~${Math.round(delay / 1000)}s`,
+    `\n[retry] attempt ${run.attempt + 1} of ${automaticRetryLimit(run.status, routine.maxAttempts, run.errorKind)} scheduled in ~${Math.round(delay / 1000)}s`,
   );
 }
 

@@ -9,6 +9,7 @@ export const PROACTIVE_REVIEW_TOOLS = [
   "get_routine",
   "list_runs",
   "get_run_report",
+  "mark_run_failed",
   "list_goals",
   "get_goal",
   "get_proactive_work",

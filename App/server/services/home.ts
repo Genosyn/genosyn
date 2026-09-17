@@ -5,13 +5,13 @@ import { Approval } from "../db/entities/Approval.js";
 import { Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
-import { RunStatus } from "../db/entities/Run.js";
+import { RunErrorKind, RunStatus } from "../db/entities/Run.js";
 import { Todo, TodoPriority } from "../db/entities/Todo.js";
 import { countUnreadForUser, listUnreadForUser, NotificationDTO } from "./notifications.js";
 import { listAccessibleProjectIds } from "./projects.js";
 import { getSystemHealthSummary, SystemHealthSummary } from "./systemHealth.js";
 import { listChannelsForUser } from "./workspaceChat.js";
-import { redactApprovalSummary } from "./approvalRedaction.js";
+import { redactApprovalSummary, redactSensitiveText } from "./approvalRedaction.js";
 import { isVaultCaptureApproval } from "./approvals.js";
 import {
   proactiveWorkReviewDetails,
@@ -79,6 +79,8 @@ export type HomeFailedRun = {
   routineId: string;
   routineName: string;
   status: RunStatus;
+  errorKind: RunErrorKind | null;
+  failureReason: string | null;
   exitCode: number | null;
   startedAt: string;
   employee: { id: string; name: string; slug: string; avatarKey: string | null };
@@ -360,6 +362,8 @@ export async function getHomeData(params: {
           routineId: routine.id,
           routineName: routine.name,
           status: run.status,
+          errorKind: run.errorKind,
+          failureReason: run.failureReason ? redactSensitiveText(run.failureReason) : null,
           exitCode: run.exitCode,
           startedAt: run.startedAt.toISOString(),
           employee: {

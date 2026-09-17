@@ -3,14 +3,14 @@ import { Run, RunStatus } from "../db/entities/Run.js";
 
 /**
  * The one definition of "a routine failure a human still has to deal with",
- * shared by the Home "Failed routines" panel and the System Health
- * "Failed routine runs" probe. Those two surfaces are meant to agree — a row
+ * shared by the Home and System Health "Routines needing attention" surfaces.
+ * Those two surfaces are meant to agree — a row
  * dismissed on Home should not keep the health check red — so the filter that
  * decides which failures are live lives here rather than being spelled twice.
  */
 
 /** Run statuses that mean "the work did not get done". */
-export const FAILED_RUN_STATUSES: RunStatus[] = ["failed", "timeout", "interrupted"];
+export const FAILED_RUN_STATUSES: RunStatus[] = ["failed", "error", "timeout", "interrupted"];
 
 export type LiveRunFailureQuery = {
   routineIds: string[];
@@ -21,7 +21,7 @@ export type LiveRunFailureQuery = {
 };
 
 /**
- * Failed / timed-out / interrupted runs in the window that are still worth a
+ * Failed Runs and Errors in the window that are still worth a
  * member's attention, newest first, with the unpaginated total.
  *
  * Three things take a failure off the list:
@@ -32,10 +32,10 @@ export type LiveRunFailureQuery = {
  * - **the routine has completed a run since**, which is the interesting one.
  *   A failure the next tick fixed by itself is history, not an alert: leaving
  *   it up teaches people that the red panel is usually stale, which is exactly
- *   how a real failure gets scrolled past. The comparison is on `status`
- *   alone, the same axis the panel filters on — an outcome verdict of
- *   `off_goal` or `unverified` is a different problem with its own surfaces,
- *   and nothing here treats a missing verdict as a clean one.
+ *   how a real failure gets scrolled past. Off-goal grading now changes the
+ *   later Run to Failed, so it cannot clear a prior failure. Unverified work
+ *   still carries its separate assessment; clearing an older alert does not
+ *   establish that the later work was verified.
  */
 export async function findLiveRunFailures({
   routineIds,

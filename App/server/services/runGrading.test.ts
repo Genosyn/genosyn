@@ -168,6 +168,7 @@ describe("gradeAndPersistRunOutcome", () => {
     assert.equal(result.graded && result.verdict, "unverified");
     const stored = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
     assert.equal(stored.outcomeVerdict, "unverified");
+    assert.equal(stored.status, "completed");
     assert.notEqual(
       stored.outcomeCheckedAt,
       null,
@@ -185,10 +186,7 @@ describe("gradeAndPersistRunOutcome", () => {
     await sweepUngradedRuns(NOW);
     const after = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
     assert.equal(after.outcomeVerdict, "unverified");
-    assert.equal(
-      after.outcomeNote,
-      "The outcome check could not run: the provider returned 503",
-    );
+    assert.equal(after.outcomeNote, "The outcome check could not run: the provider returned 503");
   });
 
   test("two concurrent graders produce exactly one verdict and one token charge", async () => {
@@ -477,4 +475,28 @@ describe("sweepUngradedRuns", () => {
 
     assert.deepEqual(await selectedRunIds(), []);
   });
+});
+
+test("an off-goal assessment makes the Run Failed and applies its retry policy", async () => {
+  const { employee, routine } = await fixture();
+  routine.maxAttempts = 2;
+  await AppDataSource.getRepository(Routine).save(routine);
+  const run = await completedRun(routine.id, { triggerKind: "schedule" });
+  await gradeAndPersistRunOutcome({
+    run,
+    routine,
+    employee,
+    model: stubModel(),
+    runRestricted: submitting("off_goal", "The required invoices were not sent."),
+  });
+  const stored = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+  assert.equal(run.status, "failed");
+  assert.equal(stored.status, "failed");
+  assert.equal(stored.outcomeVerdict, "off_goal");
+  assert.equal(
+    stored.failureReason,
+    null,
+    "a checker must not impersonate an employee failure report",
+  );
+  assert.ok(stored.retryAt);
 });

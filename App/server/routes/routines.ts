@@ -128,6 +128,8 @@ async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>>
       "run.id",
       "run.routineId",
       "run.status",
+      "run.errorKind",
+      "run.failureReason",
       "run.startedAt",
       "run.finishedAt",
       "run.exitCode",
@@ -652,6 +654,8 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.startedAt",
       "run.finishedAt",
       "run.status",
+      "run.errorKind",
+      "run.failureReason",
       "run.exitCode",
       "run.createdAt",
       "run.triggerKind",
@@ -864,6 +868,8 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     size,
     live: live !== null,
     status: run.status,
+    errorKind: run.errorKind,
+    failureReason: run.failureReason,
     exitCode: run.exitCode,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
@@ -900,10 +906,10 @@ routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
   // Company-scope the run through its owning routine.
   const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
   if (!found) return res.status(404).json({ error: "Not found" });
-  if (run.status !== "failed" && run.status !== "timeout" && run.status !== "interrupted") {
+  if (!["failed", "error", "timeout", "interrupted"].includes(run.status)) {
     return res
       .status(409)
-      .json({ error: "Only failed, timed-out, or interrupted runs can be dismissed" });
+      .json({ error: "Only Runs that failed or ended with an Error can be dismissed" });
   }
   if (!run.dismissedAt) {
     run.dismissedAt = new Date();

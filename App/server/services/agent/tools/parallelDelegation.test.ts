@@ -63,6 +63,8 @@ test("a temporary worker's inherited briefing does not promise recursive delegat
   assert.match(worker, /- Browser tools/);
   assert.match(worker, /## Temporary parallel worker/);
   assert.match(worker, /delegated brief "Issue 41"/);
+  assert.doesNotMatch(worker, /Run outcome: before finishing/);
+  assert.match(worker, /Only the parent can mark its Routine Run as failed/);
 });
 
 test("chat and Routine briefings promise only tools the runtime offers", () => {

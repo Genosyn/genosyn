@@ -1,4 +1,5 @@
 import React from "react";
+import { isRunError } from "@/lib/runStatus";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -70,6 +71,7 @@ import {
   RunChecksChip,
   RunChecksStrip,
   RunEffectsPane,
+  RunFailureNotice,
   RunLogPane,
   RunOutcomeChip,
   RunReviewNotice,
@@ -285,7 +287,13 @@ export default function RoutineDetail({ company }: { company: Company }) {
                   <Pause size={10} /> paused
                 </span>
               )}
-              {routine.lastRun && <RunStatusChip status={routine.lastRun.status} size="xs" />}
+              {routine.lastRun && (
+                <RunStatusChip
+                  status={routine.lastRun.status}
+                  errorKind={routine.lastRun.errorKind}
+                  size="xs"
+                />
+              )}
               {routine.lastRun?.status !== "reviewed" && routine.lastRun?.outcomeVerdict && (
                 <RunOutcomeChip verdict={routine.lastRun.outcomeVerdict} size="xs" />
               )}
@@ -638,7 +646,7 @@ function OverviewTab({
                     onClick={() => onOpenRun(run.id)}
                     className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-900"
                   >
-                    <RunStatusChip status={run.status} size="xs" />
+                    <RunStatusChip status={run.status} errorKind={run.errorKind} size="xs" />
                     {run.status !== "reviewed" && run.outcomeVerdict && (
                       <RunOutcomeChip
                         verdict={run.outcomeVerdict}
@@ -1175,6 +1183,7 @@ function RunsTab({
 
   return (
     <div className="flex flex-col gap-3">
+      <RunFailureNotice reason={log?.failureReason ?? activeRun?.failureReason} />
       <div
         className={clsx("flex flex-col gap-3", !compact && "md:flex-row")}
         style={{ minHeight: 460 }}
@@ -1198,7 +1207,7 @@ function RunsTab({
                   }
                 >
                   <div className="flex items-center gap-2">
-                    <RunStatusChip status={r.status} size="xs" />
+                    <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
                     {r.status !== "reviewed" && r.outcomeVerdict && (
                       <RunOutcomeChip verdict={r.outcomeVerdict} note={r.outcomeNote} size="xs" />
                     )}
@@ -1289,11 +1298,13 @@ function RunsTab({
         <div className="text-xs text-slate-500 dark:text-slate-400">
           {pendingRetryAt
             ? `Automatic recovery is scheduled ${timeUntil(pendingRetryAt)}. Cancel it before running manually to avoid two Runs.`
-            : activeRun?.status === "interrupted"
+            : activeRun?.status === "interrupted" || activeRun?.errorKind === "interrupted"
               ? "The log above shows activity captured before the server stopped; anything after its final line is unknown. Run it again only if repeating the work is safe."
-              : activeRun && (activeRun.status === "failed" || activeRun.status === "timeout")
-                ? "This run didn't finish cleanly. Retry to run the routine again now."
-                : "Showing the 50 most recent runs."}
+              : activeRun?.status === "failed"
+                ? "This Run did not complete its intended work. Review the reason before running it again."
+                : isRunError(activeRun?.status)
+                  ? "This Run encountered an error. Review the log before running it again."
+                  : "Showing the 50 most recent runs."}
         </div>
         <div className="flex shrink-0 gap-2">
           {pendingRetryAt ? (
@@ -1536,7 +1547,7 @@ function SettingsTab({
               onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 3600))}
             />
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Hard kill after this long. The run is marked <code>timeout</code>.
+              Stop after this long. The Run is marked <strong>Error</strong>, with a timeout reason.
             </div>
           </div>
 
@@ -1761,8 +1772,8 @@ function SettingsTab({
               }
             />
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Counting the first. At 1, failed and timed-out Runs do not retry, but an initial
-              scheduled Run on an enabled routine without an approval gate still receives one
+              Counting the first. At 1, Failed Runs and runtime or timeout Errors do not retry,
+              but an initial scheduled Run on an enabled routine without an approval gate still receives one
               recovery attempt after an hour if a restart interrupts it. Retries re-run the whole
               brief and are at-least-once — an interrupted Run may already have sent the email. Use
               Cancel retry on the Run if repeating its actions would be unsafe.

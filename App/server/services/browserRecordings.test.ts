@@ -703,7 +703,7 @@ describe("Routine browser recordings", () => {
 
     assert.equal(
       (await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id })).status,
-      "interrupted",
+      "error",
     );
     assert.equal(
       (await AppDataSource.getRepository(BrowserSession).findOneByOrFail({ id: session.id }))

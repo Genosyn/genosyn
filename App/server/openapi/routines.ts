@@ -71,10 +71,23 @@ const Run = z
       "completed",
       "reviewed",
       "failed",
+      "error",
       "skipped",
       "timeout",
       "interrupted",
     ]),
+    errorKind: z
+      .enum(["runtime", "timeout", "interrupted"])
+      .nullable()
+      .describe(
+        "Cause of an Error. Timeout and interruption retain their existing automatic retry policy.",
+      ),
+    failureReason: z
+      .string()
+      .nullable()
+      .describe(
+        "The AI Employee's reason the intended work could not be completed; separate from outcome grading and Checks.",
+      ),
     exitCode: z.number().nullable(),
     startedAt: z.string().datetime(),
     finishedAt: z.string().datetime().nullable(),

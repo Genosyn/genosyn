@@ -84,9 +84,9 @@ export function Standdowns() {
         <LI>
           <Strong>In-flight Runs are aborted.</Strong> A covered Run stops where it is and finalizes
           {" "}
-          <Code>interrupted</Code> — the status that already means &quot;nobody can say what
-          happened after this line&quot;. It is not marked <Code>failed</Code>, because nothing
-          failed; the work was stopped.
+          <Strong>Error</Strong> with an interruption reason. The log shows what was captured
+          before work stopped; anything after its final line is unknown. This records the
+          interruption without judging whether the intended work was done.
         </LI>
         <LI>
           <Strong>Queued retries are deferred, not cancelled.</Strong> A Run with a retry pending

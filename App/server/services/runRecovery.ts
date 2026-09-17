@@ -1,6 +1,8 @@
 import { Between, In, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { contractAutonomyOnBadRun } from "./autonomy.js";
 import { Run } from "../db/entities/Run.js";
 import { Routine } from "../db/entities/Routine.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -138,7 +140,7 @@ export async function cancelPendingRetry(runId: string): Promise<CancelPendingRe
 }
 
 /**
- * Mark crash-orphaned `running` Runs `interrupted`, stamp a retry on the ones
+ * Mark crash-orphaned `running` Runs `error`, stamp a retry on the ones
  * that are owed another attempt, and clear abandoned chat-reply leases.
  *
  * @param opts.boot true on the first pass of a freshly started process.
@@ -169,7 +171,8 @@ export async function reconcileOrphanedRuns(opts?: {
       const timeoutSec = routine?.timeoutSec ?? 3600;
       if (!singleProcessBoot && !isRunOrphaned(run.startedAt, timeoutSec, now)) continue;
 
-      run.status = "interrupted";
+      run.status = "error";
+      run.errorKind = "interrupted";
       run.exitCode = null;
       run.finishedAt = now;
       run.logContent = (run.logContent ?? "") + ORPHAN_LOG_MARKER;
@@ -179,7 +182,8 @@ export async function reconcileOrphanedRuns(opts?: {
         routine?.enabled &&
         !routine.requiresApproval &&
         shouldRetry({
-          status: "interrupted",
+          status: run.status,
+          errorKind: run.errorKind,
           triggerKind: run.triggerKind,
           attempt: run.attempt,
           maxAttempts: routine.maxAttempts,
@@ -187,7 +191,8 @@ export async function reconcileOrphanedRuns(opts?: {
         })
       ) {
         retryDelayMs = automaticRetryDelayMs({
-          status: "interrupted",
+          status: run.status,
+          errorKind: run.errorKind,
           attempt: run.attempt,
           maxAttempts: routine.maxAttempts,
           baseMs: routine.retryBackoffSec * 1000,
@@ -214,6 +219,7 @@ export async function reconcileOrphanedRuns(opts?: {
         { id: run.id, status: "running" },
         {
           status: run.status,
+          errorKind: run.errorKind,
           routineId: run.routineId,
           exitCode: run.exitCode,
           finishedAt: run.finishedAt,
@@ -236,6 +242,10 @@ export async function reconcileOrphanedRuns(opts?: {
       result.interrupted += 1;
 
       if (routine) {
+        const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+          id: routine.employeeId,
+        });
+        if (employee) await contractAutonomyOnBadRun({ run, employee });
         await journalInterrupted(routine, run, retryDelayMs).catch((error) => {
           // The Run and its durable retry are already saved. A journal outage
           // must not abort reconciliation and strand later orphaned Runs.
@@ -263,7 +273,7 @@ export async function reconcileOrphanedRuns(opts?: {
       .createQueryBuilder("session")
       .select("DISTINCT session.runId", "runId")
       .innerJoin(Run, "run", "run.id = session.runId")
-      .where("run.status = :status", { status: "interrupted" })
+      .where("run.status IN (:...statuses)", { statuses: ["error", "interrupted"] })
       .andWhere("session.runId IS NOT NULL")
       .getRawMany<{ runId: string }>();
     await Promise.all(
@@ -340,10 +350,10 @@ async function journalInterrupted(
   const body =
     retryDelayMs === null
       ? !routine.enabled
-        ? "The run is marked interrupted. No recovery was scheduled because the routine is disabled."
+        ? "The Run ended with an Error after a server interruption. No recovery was scheduled because the routine is disabled."
         : routine.requiresApproval
-          ? "The run is marked interrupted. No recovery was scheduled because the routine now requires approval."
-          : "The run is marked interrupted. Its automatic recovery attempt budget is exhausted."
+          ? "The Run ended with an Error after a server interruption. No recovery was scheduled because the routine now requires approval."
+          : "The Run ended with an Error after a server interruption. Its automatic recovery attempt budget is exhausted."
       : `A retry is scheduled in about ${Math.max(1, Math.round(retryDelayMs / 1000))}s (attempt ${run.attempt + 1} of ${automaticRetryLimit("interrupted", routine.maxAttempts)}).`;
   await repo.save(
     repo.create({

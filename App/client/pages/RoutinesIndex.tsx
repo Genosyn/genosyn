@@ -1,4 +1,5 @@
 import React from "react";
+import { runNeedsAttention } from "@/lib/runStatus";
 import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -73,7 +74,7 @@ const MOVE_BATCH_LIMIT = 200;
  */
 function needsAttention(r: RoutineWithMeta): boolean {
   const status = r.lastRun?.status;
-  if (status === "failed" || status === "timeout" || status === "interrupted") return true;
+  if (runNeedsAttention(status)) return true;
   if (!r.enabled) return false;
   if (r.nextRunAt === null) return true;
   return overdueFor(r.nextRunAt) !== null;
@@ -758,7 +759,7 @@ function RoutineRow({
       <div className="min-w-0">
         {r.lastRun ? (
           <div className="flex items-center gap-2">
-            <RunStatusChip status={r.lastRun.status} size="xs" />
+            <RunStatusChip status={r.lastRun.status} errorKind={r.lastRun.errorKind} size="xs" />
             {r.lastRun.status !== "reviewed" && r.lastRun.outcomeVerdict && (
               <RunOutcomeChip verdict={r.lastRun.outcomeVerdict} size="xs" />
             )}

@@ -145,7 +145,8 @@ async function employeeRecord(employeeId: string, since: Date): Promise<Employee
   const terminal = runs.filter((r) => r.status !== "running" && r.status !== "reviewed");
   return {
     terminalRuns: terminal.length,
-    failed: terminal.filter((r) => r.status === "failed" || r.status === "timeout").length,
+    failed: terminal.filter((r) => ["failed", "error", "timeout", "interrupted"].includes(r.status))
+      .length,
     offGoal: terminal.filter((r) => r.outcomeVerdict === "off_goal").length,
     verified: terminal.filter((r) => r.outcomeVerdict === "achieved").length,
     unverified: terminal.filter(

@@ -38,7 +38,7 @@ describe("interactive Member tool policy", () => {
     ]) {
       assert.equal(memberToolPolicy(tool), "admin", tool);
     }
-    for (const tool of ["revise_work_review", "revise_mail_review"] as const) {
+    for (const tool of ["revise_work_review", "revise_mail_review", "mark_run_failed"] as const) {
       assert.equal(memberToolPolicy(tool), null, tool);
       assert.equal(INTERACTIVE_MEMBER_DENIED_TOOLS.has(tool), true, tool);
     }

@@ -2,6 +2,8 @@ import { config } from "../../../../config.js";
 import { collapseStaticTools } from "./genosynFamilies.js";
 import { buildFamilyAliases } from "./familyAliases.js";
 import type { AgentTool, ToolResult } from "../types.js";
+import { resolveMcpToken } from "../../mcpTokens.js";
+import { canReportRunFailure } from "../../runFailureReport.js";
 
 /**
  * The built-in `genosyn` tools — routines, todos, journal, memory, bases, chat
@@ -81,7 +83,10 @@ export async function loadGenosynTools(
     run: (input) => callInternal(token, `/tools/${t.name}`, input, signal),
   }));
 
-  const staticTools: AgentTool[] = [...familyTools, ...passthroughTools];
+  const mayReportRunFailure = canReportRunFailure(resolveMcpToken(token));
+  const staticTools: AgentTool[] = [...familyTools, ...passthroughTools].filter(
+    (tool) => tool.name !== "mark_run_failed" || mayReportRunFailure,
+  );
 
   // The retired family names, resolvable but never advertised. They dispatch
   // through the very same granular closures built above, so a Skill that still

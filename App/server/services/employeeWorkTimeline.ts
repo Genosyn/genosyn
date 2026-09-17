@@ -16,6 +16,7 @@ import { Routine } from "../db/entities/Routine.js";
 import {
   Run,
   RunChecksVerdict,
+  RunErrorKind,
   RunOutcomeVerdict,
   RunStatus,
   RunTrigger,
@@ -142,6 +143,8 @@ export type WorkEntryRun = {
   routineId: string;
   routineName: string;
   status: RunStatus;
+  errorKind: RunErrorKind | null;
+  failureReason: string | null;
   exitCode: number | null;
   triggerKind: RunTrigger;
   attempt: number;
@@ -662,6 +665,8 @@ export async function getEmployeeWorkTimeline(params: {
         routineId: routine.id,
         routineName: routine.name,
         status: run.status,
+        errorKind: run.errorKind,
+        failureReason: run.failureReason ? safe(run.failureReason) : null,
         exitCode: run.exitCode,
         triggerKind: run.triggerKind,
         attempt: run.attempt,

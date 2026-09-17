@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { chromium, type APIResponse, type Browser, type Page } from "playwright-core";
+import { chromium, type APIResponse, type Browser, type Page, type Response } from "playwright-core";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.resolve(appRoot, "../output/playwright");
@@ -269,6 +269,57 @@ try {
   assert(skills.some((skill) => skill.name === "Release checklist"));
   record("Skill created for the AI Employee");
 
+  // Exercise the actual model loop, scoped failure-report tool, persistence and
+  // browser Run log together. The loopback model returns deterministic replies.
+  for (const [marker, expectedStatus, label] of [
+    ["qa-routine-success", "completed", "Completed"],
+    ["qa-routine-failure", "failed", "Failed"],
+    ["qa-routine-error", "error", "Error"],
+  ] as const) {
+    const created = await page.request.post(`${origin}${employeeBase}/routines`, {
+      data: { name: marker, cronExpr: "0 0 1 1 *" },
+    });
+    assert.equal(created.status(), 200, await created.text());
+    const newRoutine = (await created.json()) as { id: string; slug: string };
+    const routineApi = `/api/companies/${company.id}/routines/${newRoutine.id}`;
+    const briefSaved = await page.request.put(`${origin}${routineApi}/readme`, {
+      data: { content: `Complete the local browser exercise ${marker}.` },
+    });
+    assert.equal(briefSaved.status(), 200, await briefSaved.text());
+    await go(`/c/${company.slug}/routines/${employee.slug}/${newRoutine.slug}`);
+    const started: Promise<Response> = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`${routineApi}/run`) && response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Run now", exact: true }).first().click();
+    const startResponse: Response = await started;
+    assert.equal(startResponse.status(), 200, await startResponse.text());
+    const run = (await startResponse.json()) as { id: string };
+    const dialog = page.getByRole("dialog");
+    await dialog.getByText(expectedStatus, { exact: true }).waitFor();
+    const persisted = await read<{
+      status: string;
+      errorKind: string | null;
+      failureReason: string | null;
+      content: string;
+    }>(`/api/companies/${company.id}/runs/${run.id}/log`);
+    assert.equal(persisted.status, expectedStatus);
+    if (expectedStatus === "failed") {
+      const reason =
+        "The required source document was unavailable, so the report could not be completed.";
+      assert.equal(persisted.failureReason, reason);
+      assert.equal(persisted.errorKind, null);
+      await dialog.getByText(reason, { exact: true }).waitFor();
+      assert.match(persisted.content, /mark_run_failed/);
+    } else if (expectedStatus === "error") {
+      assert.equal(persisted.errorKind, "runtime");
+      assert.match(persisted.content, /The test AI Model request could not finish/);
+    }
+    await page.screenshot({ path: path.join(output, `routine-run-${expectedStatus}.png`) });
+    await page.keyboard.press("Escape");
+    record(`Routine Run persisted and displayed ${label} through the real model loop`);
+  }
+
   const customersApi = `/api/companies/${company.id}/customers`;
   for (let index = 0; index < 31; index += 1) {
     const featured = index === 0;
@@ -316,7 +367,7 @@ try {
   await page.getByRole("heading", { name: "Customers", exact: true }).waitFor();
   const customerTable = page.getByRole("table", { name: "Customers", exact: true });
   const customerResultsStatus = page.locator('p[role="status"][aria-live="polite"]');
-  const customerRange = page.locator("span.tabular-nums");
+  const customerRange = page.locator("span.tabular-nums").filter({ hasText: /customers?$/ });
   const waitForCustomerRange = async (expected: string) => {
     await customerRange.filter({ hasText: expected }).waitFor();
     assert.equal(await customerRange.textContent(), expected);

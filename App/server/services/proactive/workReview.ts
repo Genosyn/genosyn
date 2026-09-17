@@ -25,7 +25,7 @@ export const OWN_WORK_REVIEW_LIMIT = 20;
 const TEXT_LIMIT = 400;
 const LABEL_LIMIT = 120;
 const EVIDENCE_LIMIT = 10;
-const FINISHED_RUN_STATUSES = ["completed", "failed", "timeout"];
+const FINISHED_RUN_STATUSES = ["completed", "failed", "error", "timeout", "interrupted"];
 const uuid = z.string().uuid();
 
 export class OwnWorkReviewError extends Error {

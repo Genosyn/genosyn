@@ -288,7 +288,7 @@ export async function createRevisionProposal(
           { employeeId, sharedRoutineId: target.sharedRoutineId },
         )
         .andWhere("run.status IN (:...statuses)", {
-          statuses: ["completed", "failed", "timeout"],
+          statuses: ["completed", "failed", "error", "timeout", "interrupted"],
         })
         .andWhere("run.finishedAt IS NOT NULL");
       // Automatic reflection cannot manufacture fresh evidence by citing a

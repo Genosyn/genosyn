@@ -151,10 +151,7 @@ async function sampleOrCount<T extends ObjectLiteral>(
  * Compute every health check for a company. Returns checks in a stable order
  * (healthy ones included, so the Settings page can show "all clear" rows).
  */
-async function computeChecks(
-  companyId: string,
-  itemLimit: number,
-): Promise<HealthProbe[]> {
+async function computeChecks(companyId: string, itemLimit: number): Promise<HealthProbe[]> {
   const company = await AppDataSource.getRepository(Company).findOneBy({
     id: companyId,
   });
@@ -356,38 +353,27 @@ async function computeChecks(
   // Employees that own at least one enabled routine but have no AI model row
   // at all — their routines will silently skip every time they fire.
   const empWithModel = new Set(modelRows.map((m) => m.employeeId));
-  const empWithEnabledRoutine = new Set(
-    routines.filter((r) => r.enabled).map((r) => r.employeeId),
-  );
-  const offlineEmpIds = [...empWithEnabledRoutine].filter(
-    (id) => !empWithModel.has(id),
-  );
+  const empWithEnabledRoutine = new Set(routines.filter((r) => r.enabled).map((r) => r.employeeId));
+  const offlineEmpIds = [...empWithEnabledRoutine].filter((id) => !empWithModel.has(id));
 
   const checks: HealthProbe[] = [];
 
   checks.push({
     id: "failed_runs",
-    title: "Failed routine runs",
+    title: "Routines needing attention",
     description:
-      `Routine runs that failed, timed out, or were interrupted by a restart in the last ` +
+      `Routine Runs that failed or ended with an Error in the last ` +
       `${RECENT_WINDOW_HOURS} hours, and are not scheduled for a retry.`,
     severity: failedCount > 0 ? "error" : "ok",
     count: failedCount,
     summary:
       failedCount > 0
-        ? `${plural(failedCount, "run", "runs")} failed or timed out in the last ${RECENT_WINDOW_HOURS} hours.`
-        : `No routine runs have failed in the last ${RECENT_WINDOW_HOURS} hours.`,
+        ? `${plural(failedCount, "run", "runs")} failed or ended with an Error in the last ${RECENT_WINDOW_HOURS} hours.`
+        : `No Routine Runs failed or ended with an Error in the last ${RECENT_WINDOW_HOURS} hours.`,
     items: failedRows.map((r) => ({
       label: routineById.get(r.routineId)?.name ?? "Unknown routine",
       sublabel: `${empName(r.routineId)} · ${relativeTime(r.startedAt)}`,
-      badge:
-        r.status === "timeout"
-          ? "timeout"
-          : r.status === "interrupted"
-            ? "interrupted"
-            : r.exitCode !== null
-              ? `exit ${r.exitCode}`
-              : "failed",
+      badge: r.status === "failed" ? "Failed" : "Error",
       link: routineLink(r.routineId, r.id),
     })),
   });
@@ -594,9 +580,7 @@ async function computeChecks(
   return checks;
 }
 
-export async function getSystemHealthReport(
-  companyId: string,
-): Promise<SystemHealthReport> {
+export async function getSystemHealthReport(companyId: string): Promise<SystemHealthReport> {
   const checks = await computeChecks(companyId, MAX_ITEMS);
   return {
     generatedAt: new Date().toISOString(),
@@ -607,9 +591,7 @@ export async function getSystemHealthReport(
   };
 }
 
-export async function getSystemHealthSummary(
-  companyId: string,
-): Promise<SystemHealthSummary> {
+export async function getSystemHealthSummary(companyId: string): Promise<SystemHealthSummary> {
   // itemLimit 0 — the Home card only needs counts, so skip materializing the
   // per-check example rows.
   const checks = await computeChecks(companyId, 0);

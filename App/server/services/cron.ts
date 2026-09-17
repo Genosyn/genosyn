@@ -274,6 +274,7 @@ function isRetryDispatchEligible(parent: Run, routine: Routine): boolean {
     !routine.requiresApproval &&
     shouldRetry({
       status: parent.status,
+      errorKind: parent.errorKind,
       triggerKind: parent.triggerKind,
       attempt: parent.attempt,
       maxAttempts: routine.maxAttempts,
@@ -364,7 +365,7 @@ export async function dispatchDueRetries(
       const startOptions: StartRunOptions = {
         triggerKind: "retry",
         attempt: parent.attempt + 1,
-        attemptLimit: automaticRetryLimit(parent.status, routine.maxAttempts),
+        attemptLimit: automaticRetryLimit(parent.status, routine.maxAttempts, parent.errorKind),
         parentRunId: parent.id,
         missedSlots: 0,
       };
@@ -396,7 +397,11 @@ export async function dispatchDueRetries(
         routine.maxAttempts = currentRoutine.maxAttempts;
         routine.retryBackoffSec = currentRoutine.retryBackoffSec;
         routine.retryOnTimeout = currentRoutine.retryOnTimeout;
-        startOptions.attemptLimit = automaticRetryLimit(parent.status, currentRoutine.maxAttempts);
+        startOptions.attemptLimit = automaticRetryLimit(
+          parent.status,
+          currentRoutine.maxAttempts,
+          parent.errorKind,
+        );
       };
       ({ completion } = await startRoutineRun(routine, startOptions));
     } catch (err) {

@@ -190,6 +190,16 @@ earned an employee the same credit toward unattended work as a graded success.
 Do not collapse them again, and do not let a new consumer treat a null verdict
 as a clean one.
 
+**A Run's "Error" is not "Failed".** `error` means an operational problem
+prevented the Run from finishing: a model request error, timeout, or interrupted
+server. `errorKind` preserves that cause for retry and recovery policy. `failed`
+means the intended work was not completed: the employee reported a blocker with
+`mark_run_failed`, exhausted its steps, failed a required Check, or was graded
+off-goal. The employee can report only its own active Run, with a durable
+`failureReason`; it cannot change Checks, grading, or another Run. Check and
+outcome verdicts remain separate evidence, and an unverified assessment never
+becomes success. Legacy `timeout` and `interrupted` statuses display as Error.
+
 **"Decision" and "Approval" are not synonyms**, and the split is the whole
 point of both. An **Approval** is the *system* interposing on an action an
 employee already attempted — a gated routine tick, a payment over a threshold,

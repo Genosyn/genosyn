@@ -50,7 +50,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     label: "runs",
     blurb:
       "The record of scheduled work: what each Run did, how it was graded, and the evidence behind the verdict.",
-    tools: ["list_runs", "get_run_report"],
+    tools: ["list_runs", "get_run_report", "mark_run_failed"],
   },
   goals: {
     label: "goals",
@@ -1340,6 +1340,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   // look at all.
   list_runs: ["run history", "did it work", "last run", "what happened"],
   get_run_report: ["run evidence", "why did it fail", "check results", "what did it change"],
+  mark_run_failed: ["mark failed", "report failure", "cannot complete", "work unfinished"],
   list_goals: ["kpi", "okr", "objective", "target", "metric", "mission"],
   get_goal: ["kpi", "okr", "objective", "target"],
   update_goal_progress: ["kpi", "okr", "report progress", "metric update", "number"],

@@ -93,3 +93,14 @@ describe("Excel attachment guidance", () => {
     });
   }
 });
+
+test("Routine prompts explain explicit failure reporting without changing independent grading", () => {
+  const routine = compose({ surface: "routine" });
+  assert.match(routine, /Run outcome: before finishing/);
+  assert.match(routine, /use `mark_run_failed` with a concrete reason/);
+  assert.match(routine, /prose-only admission does not mark the Run as Failed/);
+  assert.match(routine, /first reason is permanent/);
+  assert.match(routine, /Do not mark an expected no-op/);
+  assert.match(routine, /Runtime faults such as a model request timeout are recorded as Error/);
+  assert.doesNotMatch(compose({ surface: "chat" }), /Run outcome: before finishing/);
+});

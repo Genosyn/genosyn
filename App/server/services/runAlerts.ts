@@ -85,7 +85,7 @@ function notificationInputs(
 }
 
 /**
- * A Run reached a terminal `failed` / `timeout` / `interrupted` with no retry
+ * A Run reached a terminal `failed` / `error` (or legacy timeout/interrupted) with no retry
  * still owed. Callers fire-and-forget; a notification outage must never change
  * a Run's verdict, so everything here is best-effort.
  */
@@ -94,13 +94,10 @@ export async function notifyRunFailure(run: Run): Promise<void> {
   const ctx = await loadContext(run);
   if (!ctx) return;
   const verb =
-    run.status === "timeout"
-      ? "timed out"
-      : run.status === "interrupted"
-        ? "was interrupted"
-        : "failed";
-  const attempts =
-    run.attempt > 1 ? ` after ${run.attempt} attempts` : "";
+    run.status === "error" || run.status === "timeout" || run.status === "interrupted"
+      ? "ended with an Error"
+      : "failed";
+  const attempts = run.attempt > 1 ? ` after ${run.attempt} attempts` : "";
   await createNotifications(
     notificationInputs(
       ctx,
@@ -117,6 +114,7 @@ export async function notifyRunFailure(run: Run): Promise<void> {
  * convincing-but-wrong is the failure mode a green checkmark hides.
  */
 export async function notifyRunOffGoal(run: Run, note: string): Promise<void> {
+  if (run.retryAt) return;
   const ctx = await loadContext(run);
   if (!ctx) return;
   // The note is model-written from an untrusted Run transcript and this copy
@@ -126,6 +124,11 @@ export async function notifyRunOffGoal(run: Run, note: string): Promise<void> {
     ? redactSensitiveText(note)
     : "The Run completed, but its work does not meet the Routine's acceptance criteria.";
   await createNotifications(
-    notificationInputs(ctx, "run_off_goal", `Routine "${ctx.routine.name}" finished off-goal`, body),
+    notificationInputs(
+      ctx,
+      "run_off_goal",
+      `Routine "${ctx.routine.name}" finished off-goal`,
+      body,
+    ),
   );
 }

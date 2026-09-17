@@ -947,14 +947,19 @@ export type RunStatus =
   /** Proactive review finished; proposed work requires a separate Approval. */
   | "reviewed"
   | "completed"
+  /** A model request or runtime problem prevented the Run from finishing. */
+  | "error"
+  /** The Run did not complete its intended work. */
   | "failed"
   | "skipped"
+  /** Legacy timeout history, displayed as Error. */
   | "timeout"
   /**
-   * The server stopped while this Run was executing. Newly interrupted
-   * scheduled/retry Runs are eligible for durable automatic recovery.
+   * Legacy interrupted history, displayed as Error. New interruptions use
+   * status error with errorKind interrupted and retain automatic recovery.
    */
   | "interrupted";
+export type RunErrorKind = "runtime" | "timeout" | "interrupted";
 /** Manual, webhook, approval, and event Runs never receive automatic retries. */
 export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry" | "event";
 export type Run = {
@@ -963,6 +968,9 @@ export type Run = {
   startedAt: string;
   finishedAt: string | null;
   status: RunStatus;
+  errorKind?: RunErrorKind | null;
+  /** Why the intended work could not be completed, including employee reports. */
+  failureReason?: string | null;
   exitCode: number | null;
   createdAt: string;
   triggerKind?: RunTrigger;
@@ -1020,6 +1028,8 @@ export type RunLog = {
   size?: number;
   live?: boolean;
   status?: RunStatus;
+  errorKind?: RunErrorKind | null;
+  failureReason?: string | null;
   exitCode?: number | null;
   startedAt?: string;
   finishedAt?: string | null;
@@ -1329,6 +1339,7 @@ export type UsageBucket = {
   completed: number;
   /** Evidence-review Runs consume resources without counting as delivered work. */
   reviewed: number;
+  error: number;
   failed: number;
   skipped: number;
   timeout: number;
@@ -3313,6 +3324,8 @@ export type HomeFailedRun = {
   routineId: string;
   routineName: string;
   status: RunStatus;
+  errorKind?: RunErrorKind | null;
+  failureReason?: string | null;
   exitCode: number | null;
   startedAt: string;
   employee: {
@@ -3371,6 +3384,8 @@ export type WorkEntryRun = {
   routineId: string;
   routineName: string;
   status: RunStatus;
+  errorKind?: RunErrorKind | null;
+  failureReason?: string | null;
   exitCode: number | null;
   triggerKind: RunTrigger;
   attempt: number;
