@@ -13,6 +13,7 @@ import { UUID_RE } from "./bases.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
 import { managingMemberIdForEmployee } from "./reportingLine.js";
+import { finishedRunEvidence } from "./runEvidence.js";
 import { findRoutineParticipation } from "./routineParticipation.js";
 
 /**
@@ -287,9 +288,7 @@ export async function createRevisionProposal(
             : "routine.employeeId = :employeeId",
           { employeeId, sharedRoutineId: target.sharedRoutineId },
         )
-        .andWhere("run.status IN (:...statuses)", {
-          statuses: ["completed", "failed", "error", "timeout", "interrupted"],
-        })
+        .andWhere(finishedRunEvidence())
         .andWhere("run.finishedAt IS NOT NULL");
       // Automatic reflection cannot manufacture fresh evidence by citing a
       // previous reflection. Ordinary proposals keep their existing scope.
@@ -302,7 +301,7 @@ export async function createRevisionProposal(
       const evidenceRuns = evidence.length ? await evidenceQuery.getMany() : [];
       if (evidenceRuns.length !== evidence.length) {
         throw new RevisionError(
-          "Evidence must cite your own existing finished completed, failed, or timeout Runs, or finished Runs of this exact participating Routine",
+          "Evidence must cite your own existing finished Runs or finished Runs of this exact participating Routine; interrupted Runs are excluded",
         );
       }
       if (target.body === proposedBody) {

@@ -179,8 +179,11 @@ test("finished Runs retain null and unverified outcomes separately from completi
     );
   runs.push(await addRun({ status: "failed", outcomeNote: "The model failed." }));
   runs.push(await addRun({ status: "timeout", outcomeNote: "The deadline expired." }));
+  runs.push(await addRun({ status: "error", errorKind: "runtime" }));
+  runs.push(await addRun({ status: "error", errorKind: "timeout" }));
+  runs.push(await addRun({ status: "error", errorKind: null }));
   const result = await review();
-  assert.equal(result.runs.items.length, 7);
+  assert.equal(result.runs.items.length, 10);
   for (const run of runs) {
     const item = result.runs.items.find((entry) => entry.id === run.id)!;
     assert.equal(item.status, run.status);
@@ -197,6 +200,7 @@ test("finished Runs retain null and unverified outcomes separately from completi
 
 test("Run windows use finish time and exclude unfinished, skipped, interrupted, old and future work", async () => {
   for (const status of ["running", "skipped", "interrupted"] as const) await addRun({ status });
+  await addRun({ status: "error", errorKind: "interrupted" });
   await addRun({ finishedAt: null });
   await addRun({ finishedAt: ago(31) });
   await addRun({ finishedAt: ago(-1) });
@@ -731,4 +735,43 @@ test("shared Runs obey window, completion, review exclusion and live company own
   result = await review();
   assert.deepEqual(result.participatingRoutines.items, []);
   assert.deepEqual(result.participatingRuns.items, []);
+});
+
+test("interrupted Errors stay out of Lessons and cited evidence while completed error attempts remain eligible", async () => {
+  const interrupted = await addRun({ status: "error", errorKind: "interrupted" });
+  const runtime = await addRun({ status: "error", errorKind: "runtime" });
+  const timeout = await addRun({ status: "error", errorKind: "timeout" });
+  await addLesson(interrupted.id);
+  const runtimeLesson = await addLesson(runtime.id);
+  const timeoutLesson = await addLesson(timeout.id);
+  await addProposal({
+    evidenceRunIdsJson: JSON.stringify([interrupted.id, runtime.id, timeout.id]),
+  });
+  const result = await review();
+  assert.deepEqual(
+    new Set(result.lessons.items.map((row) => row.id)),
+    new Set([runtimeLesson.id, timeoutLesson.id]),
+  );
+  assert.deepEqual(result.revisions.pending.items[0].evidenceRunIds, [runtime.id, timeout.id]);
+  assert.equal(result.revisions.pending.items[0].evidenceLimited, true);
+});
+
+test("shared participation includes runtime and timeout Errors but excludes interruptions before applying its limit", async () => {
+  const { shared } = await sharedRoutine();
+  for (let index = 0; index < OWN_WORK_REVIEW_LIMIT + 1; index++) {
+    await addRun({
+      routineId: shared.id,
+      status: "error",
+      errorKind: "interrupted",
+      finishedAt: now,
+    });
+  }
+  const runtime = await addRun({ routineId: shared.id, status: "error", errorKind: "runtime" });
+  const timeout = await addRun({ routineId: shared.id, status: "error", errorKind: "timeout" });
+  const result = await review();
+  assert.deepEqual(
+    new Set(result.participatingRuns.items.map((row) => row.id)),
+    new Set([runtime.id, timeout.id]),
+  );
+  assert.equal(result.participatingRuns.truncated, false);
 });

@@ -312,19 +312,32 @@ describe("serialization", () => {
 });
 
 describe("revision evidence validation", () => {
-  test("accepts owned finished completed, failed, and timeout Runs, preserving order", async () => {
+  test("accepts owned finished attempts including runtime and timeout Errors, preserving order", async () => {
     const completed = await evidenceRun();
     const failed = await evidenceRun({ status: "failed" });
     const timeout = await evidenceRun({ status: "timeout" });
+    const runtimeError = await evidenceRun({ status: "error", errorKind: "runtime" });
+    const timeoutError = await evidenceRun({ status: "error", errorKind: "timeout" });
+    const unknownError = await evidenceRun({ status: "error", errorKind: null });
     const proposal = await createRevisionProposal(
       companyId,
       employee.id,
-      soulInput([timeout.id.toUpperCase(), completed.id, failed.id]),
+      soulInput([
+        timeout.id.toUpperCase(),
+        completed.id,
+        failed.id,
+        runtimeError.id,
+        timeoutError.id,
+        unknownError.id,
+      ]),
     );
     assert.deepEqual(serializeRevisionProposal(proposal).evidenceRunIds, [
       timeout.id,
       completed.id,
       failed.id,
+      runtimeError.id,
+      timeoutError.id,
+      unknownError.id,
     ]);
     assert.equal(proposal.reviewRunId, null);
   });
@@ -358,6 +371,11 @@ describe("revision evidence validation", () => {
         /own existing finished/,
       );
     }
+    const interruptedError = await evidenceRun({ status: "error", errorKind: "interrupted" });
+    await assert.rejects(
+      createRevisionProposal(companyId, employee.id, soulInput([interruptedError.id])),
+      /own existing finished/,
+    );
     const unfinished = await evidenceRun({ finishedAt: null });
     await assert.rejects(
       createRevisionProposal(companyId, employee.id, soulInput([unfinished.id])),

@@ -465,7 +465,8 @@ test("Check remediation cannot broaden a suggestion-only review into new work", 
   });
   const fresh = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
   const run = await (await startRoutineRun(fresh, { triggerKind: "schedule" })).completion;
-  assert.equal(run.status, "completed", run.logContent);
+  assert.equal(run.status, "failed", run.logContent);
+  assert.equal(run.checksVerdict, "failed");
   assert.equal(run.checkRemediations, 2);
   assert.ok(observedReviewScopes.length >= 3);
   assert.ok(observedReviewScopes.every((value) => value === true));
