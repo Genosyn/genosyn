@@ -293,7 +293,11 @@ describe("TLDR direct-chat source", () => {
       for await (const chunk of request) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
-      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedOpenAIRequest);
+      const captured = JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedOpenAIRequest;
+      for (const tool of captured.tools ?? [])
+        if (tool.function?.name?.startsWith("genosyn_"))
+          tool.function.name = tool.function.name.slice(8);
+      requests.push(captured);
 
       if (requests.length === 1 || requests.length === 4) {
         sendSse(response, {
@@ -312,7 +316,7 @@ describe("TLDR direct-chat source", () => {
                     index: 0,
                     id: "call_read_tldr",
                     type: "function",
-                    function: { name: "read_tldr", arguments: "{}" },
+                    function: { name: "genosyn_read_tldr", arguments: "{}" },
                   },
                 ],
               },

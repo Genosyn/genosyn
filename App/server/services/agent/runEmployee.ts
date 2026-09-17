@@ -1,7 +1,8 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
 import type { ModelEffort } from "../../../shared/modelEffort.js";
-import { runAgentLoop } from "./loop.js";
-import { createModelClient } from "./modelClients/index.js";
+import { agentRuntime } from "./runtime.js";
+import { config } from "../../../config.js";
+import { codingRuntimeAvailability } from "./codingAvailability.js";
 import {
   gatherEmployeeTools,
   guardPrivilegedTools,
@@ -32,10 +33,10 @@ import { proactiveReviewToolScope, PROACTIVE_REVIEW_BRIEF } from "../proactive/w
  * and the routine runner call.
  *
  * This is the whole runtime job:
- *   1. build the direct model client, or the pinned official OpenAI Codex
- *      subscription runtime, from the employee's AIModel credentials;
+ *   1. configure OpenCode, or the official OpenAI Codex subscription runtime,
+ *      from the employee's AIModel credentials;
  *   2. assemble the tool list (coding + genosyn + browser + user MCP servers);
- *   3. run the tool-use loop, streaming text and tool activity via `callbacks`;
+ *   3. let the selected runtime run its loop and forward activity to `callbacks`;
  *   4. tear the bridged MCP connections down.
  *
  * Returns the model's final reply text, or a friendly error the seam can show.
@@ -56,7 +57,7 @@ export type EmployeeAgentParams = {
   toolEnv: Record<string, string>;
   /** Short-lived MCP token scoping genosyn/browser tool calls to this employee. */
   genosynToken: string;
-  /** Hard ceiling on a single bash invocation. */
+  /** Default native bash timeout; Genosyn command tools enforce it as a ceiling. */
   bashTimeoutMs: number;
   /** Max model turns before we stop (runaway-loop backstop). */
   maxSteps: number;
@@ -100,7 +101,7 @@ export type EmployeeAgentResult =
       finalText: string;
       steps: number;
       /**
-       * Why the loop ended, from {@link runAgentLoop}: `"end_turn"`,
+       * Why the runtime ended: `"end_turn"`,
        * `"max_steps"`, `"aborted"`, or a provider-specific reason. Undefined on
        * the OpenAI subscription runtime, which does not report one. Callers
        * that care about honest completion treat `"max_steps"` as unfinished
@@ -164,7 +165,8 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
       runEmployeeTurn({ ...params, signal }),
     );
   } catch (error) {
-    if (error instanceof CompanyAgentCapacityError) return { status: "error", error: error.message };
+    if (error instanceof CompanyAgentCapacityError)
+      return { status: "error", error: error.message };
     return { status: "error", error: formatModelError(params.model, error) };
   }
 }
@@ -219,9 +221,6 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     return runSubscriptionEmployeeAgent(params, localTools);
   }
 
-  const built = await createModelClient(params.model, { effort: params.effort });
-  if ("error" in built) return { status: "error", error: built.error };
-
   const gathered = await gatherEmployeeTools({
     employeeId: params.employeeId,
     genosynToken: params.genosynToken,
@@ -237,6 +236,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     allowPrivilegedToolSources: params.allowPrivilegedToolSources,
     authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
     toolScope: params.toolScope,
+    nativeCoding: config.agent.codingTools.executionMode === "host",
     onDeprecatedFamily: (family, target) => {
       console.warn(
         `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +
@@ -247,25 +247,35 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
 
   params.callbacks?.onToolsDeferred?.(gathered.registry.stats);
 
+  const nativeCoding =
+    allowPrivileged &&
+    !params.toolScope?.surfaceOnly &&
+    config.agent.codingTools.executionMode === "host" &&
+    codingRuntimeAvailability().available;
+
   // Kept as a backstop even though the resident set is now far under any
   // provider cap: it is the only guard against a 400 that kills the whole run,
-  // and a bridged MCP server could still hand us a hundred tools.
+  // and a bridged MCP server could still hand us a hundred tools. Reserve
+  // sixteen slots for OpenCode's native tools when coding is on.
   gathered.registry.resident = trimToProviderCap(
     gathered.registry.resident,
-    built.client.maxTools,
+    params.model.provider === "openai" ? (nativeCoding ? 112 : 128) : null,
     params.callbacks,
   );
 
   try {
-    const result = await runAgentLoop({
-      client: built.client,
+    const result = await agentRuntime.run({
+      model: params.model,
+      effort: params.effort,
       system: params.system,
       messages: params.messages,
       registry: gathered.registry,
       maxSteps: params.maxSteps,
-      // Read off the model row rather than taking it as a param: it's the only
-      // source, and every seam that can run an agent already holds the row.
-      contextWindow: params.model.contextWindow,
+      cwd: params.cwd,
+      toolEnv: params.toolEnv,
+      bashTimeoutMs: params.bashTimeoutMs,
+      nativeCoding,
+      authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
       signal: params.signal,
       callbacks: params.callbacks,
     });
@@ -298,7 +308,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
  * Keep this separate from the full employee runtime instead of adding a
  * boolean that can be forgotten at a call site: a restricted turn has no cwd,
  * MCP token, tool environment, repo materialization, or discovery catalogue to
- * accidentally widen later. Both direct API models and the official OpenAI
+ * accidentally widen later. Both OpenCode and the official OpenAI
  * subscription runtime receive the same tiny registry.
  */
 export async function runRestrictedEmployeeAgent(
@@ -309,7 +319,8 @@ export async function runRestrictedEmployeeAgent(
       runRestrictedEmployeeTurn({ ...params, signal }),
     );
   } catch (error) {
-    if (error instanceof CompanyAgentCapacityError) return { status: "error", error: error.message };
+    if (error instanceof CompanyAgentCapacityError)
+      return { status: "error", error: error.message };
     return { status: "error", error: formatModelError(params.model, error) };
   }
 }
@@ -333,15 +344,14 @@ async function runRestrictedEmployeeTurn(
       return { status: "ok", finalText: result.finalText, steps: result.steps };
     }
 
-    const built = await createModelClient(params.model, { effort: params.effort });
-    if ("error" in built) return { status: "error", error: built.error };
-    const result = await runAgentLoop({
-      client: built.client,
+    const result = await agentRuntime.run({
+      model: params.model,
+      effort: params.effort,
       system: params.system,
       messages: params.messages,
       registry,
       maxSteps: params.maxSteps,
-      contextWindow: params.model.contextWindow,
+      nativeCoding: false,
       signal: params.signal,
       callbacks: params.callbacks,
     });
@@ -384,7 +394,6 @@ async function runSubscriptionEmployeeAgent(
       conversationId: params.conversationId,
       runId: params.runId,
       signal: params.signal,
-      requireIsolatedBash: true,
       allowPrivilegedToolSources: params.allowPrivilegedToolSources,
       authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
       toolScope: params.toolScope,

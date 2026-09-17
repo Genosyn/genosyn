@@ -27,7 +27,7 @@ import { editSubscriptionModel } from "../services/subscriptionModelSetup.js";
 import { canProbeContextWindow } from "../services/agent/contextWindow.js";
 import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
 import { recordAudit } from "../services/audit.js";
-import { config } from "../../config.js";
+import { codingRuntimeAvailability } from "../services/agent/codingAvailability.js";
 import {
   cancelSubscriptionDeviceLogin,
   cancelSubscriptionDeviceLoginsForModel,
@@ -166,10 +166,7 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     subscriptionUnavailableReason: unavailable,
     subscriptionCredentialKind: subscriptionCredentialKind(m),
     subscriptionShellAvailable:
-      spec.supportsSubscription &&
-      unavailable === null &&
-      config.agent.codingTools.enabled &&
-      config.agent.codingTools.executionMode === "bubblewrap",
+      spec.supportsSubscription && unavailable === null && codingRuntimeAvailability().available,
     supportsCustomEndpoint: spec.supportsCustomEndpoint,
     customEndpointHost,
     customEndpointModelId,

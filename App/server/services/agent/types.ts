@@ -1,22 +1,10 @@
-/**
- * Provider-agnostic types for the in-process agent runtime.
- *
- * This is the seam that replaced generic CLI harnesses. API-key and custom
- * models use the direct provider loop; the narrow OpenAI subscription adapter
- * renders the same messages, callbacks, and ToolRegistry through the official
- * Codex app-server dynamic-tool protocol. Either way the employee receives
- * Genosyn's built-in coding toolset plus its granted genosyn, browser, and
- * company-configured MCP tools.
- *
- * The message + tool shapes here are a small common denominator; each model
- * client converts to/from its own wire format.
- */
+/** Common messages, tools, and activity callbacks shared by the OpenCode and Codex adapters. */
 
 import type { ContextUsage } from "./contextUsage.js";
 
 export type { ContextUsage } from "./contextUsage.js";
 
-/** The three brains an employee can run on now that harnesses are gone. */
+/** Supported AI Model services. */
 export type AgentProvider = "anthropic" | "openai" | "custom";
 
 // ---------- messages ----------
@@ -77,12 +65,9 @@ export type AgentTool = ToolDef & {
    * The tool observes state and never changes it — a file read, a search, a
    * listing, a diff.
    *
-   * The loop runs a batch of tool calls concurrently only when every call in
-   * it is read-only. A model that asks for five files at once is asking a
-   * question with five parts, and answering them one after another spends
-   * wall-clock on nothing; a batch with a write in it stays sequential, because
-   * the model's own ordering is the only statement of intent about which read
-   * should see which write. Unset means "assume it writes".
+   * Exposed as an MCP annotation. Genosyn serializes its registry calls to
+   * preserve company write ordering; OpenCode owns native-tool scheduling.
+   * Unset means "assume it writes".
    */
   readOnly?: boolean;
   /**
@@ -91,7 +76,7 @@ export type AgentTool = ToolDef & {
    * Only dispatching tools implement it. `call_tool` runs every deferred tool
    * in the catalogue, so without this every one of them would appear in the
    * transcript as `call_tool` — turning the most useful column in a run log
-   * into a constant. Returning `{name, input}` lets the loop report the target
+   * into a constant. Returning `{name, input}` lets the adapter report the target
    * the model actually reached for.
    */
   describeCall?(input: Record<string, unknown>): {
@@ -100,7 +85,7 @@ export type AgentTool = ToolDef & {
   };
 };
 
-// ---------- model client ----------
+// ---------- runtime activity ----------
 
 export type StreamCallbacks = {
   /** Human-visible reply prose, streamed token-by-token. */
@@ -112,10 +97,9 @@ export type StreamCallbacks = {
   /**
    * Fired when the model decides to call a tool (before we execute it).
    *
-   * `callId` is the provider's id for the call, so a consumer that records
-   * activity can pair this with its {@link onToolResult} — which matters once
-   * read-only calls run concurrently and results no longer arrive in the
-   * order the calls were announced.
+   * `callId` identifies this call within the turn, so recorded activity can
+   * pair it with {@link onToolResult} even when the runtime reports concurrent
+   * native calls out of order.
    */
   onToolUse?: (name: string, input: Record<string, unknown>, callId?: string) => void;
   /** Fired after a tool returns, before the result is fed back to the model. */
@@ -135,9 +119,8 @@ export type StreamCallbacks = {
    */
   onContextUsage?: (usage: ContextUsage) => void;
   /**
-   * Fired when the loop dropped older tool results to keep the prompt inside
-   * the model's context window. Worth surfacing: it's the difference between a
-   * run that quietly forgot something and a run that behaves inexplicably.
+   * Fired when the external runtime compacts the conversation to fit the
+   * model's context window. Counts remain null when it does not report them.
    */
   onCompact?: (info: CompactionInfo) => void;
   /**
@@ -189,11 +172,11 @@ export type ToolTrimInfo = {
 
 /** What one round of compaction did, and what forced it. */
 export type CompactionInfo = {
-  /** How many tool results were emptied. */
-  evicted: number;
-  /** Roughly how many tokens that freed (our estimate, not the provider's). */
-  freedTokens: number;
-  /** "budget" = we saw it coming. "overflow" = the provider rejected the turn. */
+  /** How many tool results were emptied, or null when not reported. */
+  evicted: number | null;
+  /** Runtime-reported estimate of freed tokens, or null when not reported. */
+  freedTokens: number | null;
+  /** "budget" = proactive compaction. "overflow" = provider context rejection. */
   reason: "budget" | "overflow";
 };
 
@@ -217,50 +200,10 @@ export type TurnUsage = {
 export type ModelRetryInfo = {
   /** The provider call about to start, counting the original as attempt 1. */
   attempt: number;
-  /** Total provider calls allowed for this turn. */
-  maxAttempts: number;
+  /** Total provider calls allowed, or null when the runtime does not report it. */
+  maxAttempts: number | null;
   /** Backoff before the next provider call. */
   delayMs: number;
   /** Safe summary such as `HTTP 500`; never the provider response body. */
   reason: string;
 };
-
-export type AssistantTurn = {
-  /** Text + tool_use blocks the model produced this turn. */
-  blocks: AssistantBlock[];
-  /** Provider stop reason, normalized loosely: "tool_use" when tools are pending. */
-  stopReason: string;
-  /** Token counts for this turn, when the provider reported them. */
-  usage?: TurnUsage;
-};
-
-/**
- * One provider's client. `streamTurn` performs a single assistant turn:
- * it streams text via `onText`, collects any tool calls, and resolves with the
- * full turn. The loop ({@link ../loop}) decides whether to continue.
- */
-export interface ModelClient {
-  readonly model: string;
-  /**
-   * The most tools this provider will accept on one request, or null when it
-   * doesn't publish a limit.
-   *
-   * Sibling of {@link AIModel.contextWindow}: a hard provider ceiling we have to
-   * respect or the turn dies. OpenAI's Chat Completions rejects an over-length
-   * `tools` array with a 400 that fails the whole run, and — like the context
-   * window — it can't be inferred. So each client declares what it knows and
-   * null means "unknown", never "unlimited": callers must treat null as no cap
-   * rather than substituting a guess, because a wrong ceiling silently drops
-   * tools an employee needs.
-   */
-  readonly maxTools: number | null;
-  streamTurn(params: {
-    system: string;
-    messages: AgentMessage[];
-    tools: ToolDef[];
-    signal?: AbortSignal;
-    onText?: (delta: string) => void;
-    /** Optional small output budget for a connection probe. */
-    maxOutputTokens?: number;
-  }): Promise<AssistantTurn>;
-}

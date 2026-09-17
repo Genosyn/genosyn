@@ -6,12 +6,12 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { successfulModelStream } from "../test/modelVerification.js";
+import { agentRuntime } from "./agent/runtime.js";
 import {
   connectApiModel,
   editApiModel,
   replaceApiKey,
-  verifyDirectModel,
+  verifyOpenCodeModel,
   verifyModelEdit,
 } from "./modelSetup.js";
 import { ModelSetupError } from "./modelCatalog.js";
@@ -42,22 +42,23 @@ function mockModel(
   provider: "openai" | "anthropic",
   options: { status?: number; textOnly?: boolean; tool?: string; ok?: boolean } = {},
 ) {
-  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
-  t.mock.method(globalThis, "fetch", async (input: string, init?: RequestInit) => {
-    const url = String(input);
-    if (url.endsWith("/models") || url.includes("/models?"))
-      return Response.json(
-        provider === "openai"
-          ? { data: [{ id: "gpt-live-default", created: 100 }] }
-          : { data: [{ id: "claude-live-default", created_at: "2026-09-01" }], has_more: false },
-      );
-    requests.push({ url, body: JSON.parse(String(init?.body)) });
+  const requests: Array<Parameters<typeof agentRuntime.run>[0]> = [];
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      provider === "openai"
+        ? { data: [{ id: "gpt-live-default", created: 100 }] }
+        : { data: [{ id: "claude-live-default", created_at: "2026-09-01" }], has_more: false },
+    ),
+  );
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    requests.push(params);
     if (options.status)
-      return Response.json(
-        { error: { message: "secret-key-DO-NOT-ECHO" } },
-        { status: options.status },
-      );
-    return successfulModelStream(provider, options);
+      throw Object.assign(new Error("secret-key-DO-NOT-ECHO"), { status: options.status });
+    if (!options.textOnly)
+      await params.registry
+        .resolve(options.tool ?? "connection_test")
+        ?.run({ ok: options.ok ?? true });
+    return { finalText: "OK", steps: 2, stopReason: "end_turn" };
   });
   return requests;
 }
@@ -96,9 +97,12 @@ for (const provider of ["openai", "anthropic"] as const) {
     assert.equal(decryptSecret(JSON.parse(saved.configJson).apiKeyEncrypted), "secret-key");
     assert.ok(!saved.configJson.includes("secret-key"));
     assert.equal(calls.length, 1);
-    assert.match(calls[0].url, provider === "openai" ? /\/responses$/ : /\/messages$/);
-    assert.equal(calls[0].body[provider === "openai" ? "max_output_tokens" : "max_tokens"], 1024);
-    assert.equal((calls[0].body.tools as unknown[]).length, 1);
+    assert.equal(calls[0].model.provider, provider);
+    assert.equal(calls[0].nativeCoding, false);
+    assert.equal(calls[0].registry.resident.length, 1);
+    assert.equal(calls[0].maxSteps, 2);
+    assert.equal(calls[0].cwd, undefined);
+    assert.equal(calls[0].toolEnv, undefined);
   });
 }
 
@@ -112,7 +116,7 @@ test("an explicit model bypasses catalog permission and is never replaced", asyn
     model: "gpt-explicit",
   });
   assert.equal(model.model, "gpt-explicit");
-  assert.equal(calls[0].body.model, "gpt-explicit");
+  assert.equal(calls[0].model.model, "gpt-explicit");
 });
 
 for (const status of [401, 403, 404, 429, 500]) {
@@ -145,7 +149,7 @@ for (const options of [{ textOnly: true }, { tool: "wrong_tool" }, { ok: false }
   test(`a reply without successful harmless tool use fails verification: ${JSON.stringify(options)}`, async (t) => {
     const model = await existing();
     mockModel(t, "openai", options);
-    await assert.rejects(verifyDirectModel(model), /tool-use test/);
+    await assert.rejects(verifyOpenCodeModel(model), /tool-use test/);
   });
 }
 
@@ -197,9 +201,10 @@ test("a successful model edit preserves manual context only when the model is un
 
 test("a concurrent credential replacement cannot be overwritten by a stale successful test", async (t) => {
   const model = await existing();
-  t.mock.method(globalThis, "fetch", async () => {
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
     await AppDataSource.getRepository(AIModel).update({ id: model.id }, { configJson: "{}" });
-    return successfulModelStream("openai");
+    await params.registry.resolve("connection_test")!.run({ ok: true });
+    return { finalText: "OK", steps: 2, stopReason: "end_turn" };
   });
   await assert.rejects(
     replaceApiKey(model, "new-key", "company"),
@@ -214,12 +219,13 @@ test("a concurrent credential replacement cannot be overwritten by a stale succe
 for (const method of ["replace-key", "edit-key"] as const) {
   test(`${method} preserves a manual context edit made while the connection test is running`, async (t) => {
     const model = await existing();
-    t.mock.method(globalThis, "fetch", async () => {
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
       await AppDataSource.getRepository(AIModel).update(
         { id: model.id },
         { contextWindow: 80000, contextWindowSource: "manual" },
       );
-      return successfulModelStream("openai");
+      await params.registry.resolve("connection_test")!.run({ ok: true });
+      return { finalText: "OK", steps: 2, stopReason: "end_turn" };
     });
     const saved =
       method === "replace-key"
@@ -258,9 +264,10 @@ test("concurrent first API connections leave exactly one active model", async (t
 });
 
 test("an employee deleted during verification cannot leave an orphan model", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => {
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
     await AppDataSource.getRepository(AIEmployee).delete({ id: "employee" });
-    return successfulModelStream("openai");
+    await params.registry.resolve("connection_test")!.run({ ok: true });
+    return { finalText: "OK", steps: 2, stopReason: "end_turn" };
   });
   await assert.rejects(
     connectApiModel({
@@ -288,9 +295,10 @@ test("switching API services requires a fresh key", async () => {
 
 test("generic model edits cannot test an old custom endpoint model and save a different display ID", async (t) => {
   let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => {
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
     calls++;
-    return successfulModelStream("openai");
+    await params.registry.resolve("connection_test")!.run({ ok: true });
+    return { finalText: "OK", steps: 2, stopReason: "end_turn" };
   });
   await assert.rejects(
     verifyModelEdit(

@@ -39,8 +39,8 @@ Object.assign(config.security, {
 });
 Object.assign(config.agent.codingTools, { enabled: false, executionMode: "disabled" });
 
-// Only this fake model is used. It exercises the real custom model streaming client and
-// verification endpoint without an external account or network request.
+// Only the model endpoint is fake: Genosyn starts the actual pinned OpenCode runtime,
+// whose HTTP requests and MCP tool calls cross real process and network boundaries.
 const timeoutAttempts = new Map<string, number>();
 const model = http.createServer(async (req, res) => {
   const chunks: Buffer[] = [];
@@ -49,9 +49,17 @@ const model = http.createServer(async (req, res) => {
     const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     assert.equal(request.model, "qa-local-model");
     assert.equal(request.stream, true);
-    const probe = request.tools?.some(
-      (tool: { function?: { name?: string } }) => tool.function?.name === "connection_test",
+    const offeredTool = (name: string): string | undefined =>
+      request.tools?.find(
+        (tool: { function?: { name?: string } }) =>
+          tool.function?.name === name || tool.function?.name === `genosyn_${name}`,
+      )?.function?.name;
+    const probeTool = offeredTool("connection_test");
+    const probe = Boolean(probeTool);
+    const hasToolResult = request.messages.some(
+      (message: { role: string }) => message.role === "tool",
     );
+    const invokeProbe = probe && !hasToolResult;
     const routineBrief = request.messages
       .filter((message: { role: string }) => message.role === "user")
       .map((message: { content: unknown }) => JSON.stringify(message.content))
@@ -59,35 +67,39 @@ const model = http.createServer(async (req, res) => {
     // Restrict these responses to the actual work turn. The retrospective also
     // reads the Routine brief, but has only its submission tool and must not
     // accidentally contribute another retry cycle to this fixture's counts.
-    const routineWork = request.tools?.some(
-      (tool: { function?: { name?: string } }) =>
-        tool.function?.name === "call_tool" || tool.function?.name === "mark_run_failed",
-    );
-    const timeoutMarker = ["qa-routine-timeout-recovered", "qa-routine-timeout-exhausted"].find(
+    const routineWork = Boolean(offeredTool("call_tool") || offeredTool("mark_run_failed"));
+    const timeoutMarker = ["qa-routine-timeout-recovered", "qa-routine-retry-terminal-error"].find(
       (marker) => !probe && routineWork && routineBrief.includes(marker),
     );
     if (timeoutMarker) {
       const attempt = (timeoutAttempts.get(timeoutMarker) ?? 0) + 1;
       timeoutAttempts.set(timeoutMarker, attempt);
-      const exhausted = timeoutMarker === "qa-routine-timeout-exhausted";
-      const shouldTimeout = exhausted || attempt <= 2;
+      const terminalError = timeoutMarker === "qa-routine-retry-terminal-error" && attempt > 2;
+      const shouldTimeout = attempt <= 2;
       console.log(
         `[fullstack-model-timeout] ${JSON.stringify({
           marker: timeoutMarker,
           attempt,
-          status: shouldTimeout ? 504 : 200,
+          status: shouldTimeout ? 504 : terminalError ? 400 : 200,
           atMs: Date.now(),
           requestHash: createHash("sha256").update(JSON.stringify(request)).digest("hex"),
         })}`,
       );
-      if (shouldTimeout) {
-        res.writeHead(504, {
+      if (shouldTimeout || terminalError) {
+        res.writeHead(shouldTimeout ? 504 : 400, {
           "Content-Type": "application/json",
-          // Keep the exhaustion case fast without bypassing the real retry
-          // loop. The recovery case exercises its actual exponential waits.
-          ...(exhausted ? { "Retry-After": "0" } : {}),
+          // Exercise runtime retries without tying the suite to OpenCode's backoff timings.
+          ...(shouldTimeout ? { "Retry-After": "0" } : {}),
         });
-        res.end(JSON.stringify({ error: { message: "The test AI Model request timed out." } }));
+        res.end(
+          JSON.stringify({
+            error: {
+              message: shouldTimeout
+                ? "The test AI Model request timed out."
+                : "The test AI Model rejected the request parameters.",
+            },
+          }),
+        );
         return;
       }
     }
@@ -100,17 +112,18 @@ const model = http.createServer(async (req, res) => {
     }
     const reportFailure =
       !probe &&
+      routineWork &&
       routineBrief.includes("qa-routine-failure") &&
       !request.messages.some((message: { role: string }) => message.role === "tool");
     res.writeHead(200, { "Content-Type": "text/event-stream" });
-    const delta = probe
+    const delta = invokeProbe
       ? {
           tool_calls: [
             {
               index: 0,
               id: "qa-probe",
               type: "function",
-              function: { name: "connection_test", arguments: '{"ok":true}' },
+              function: { name: probeTool, arguments: '{"ok":true}' },
             },
           ],
         }
@@ -122,7 +135,7 @@ const model = http.createServer(async (req, res) => {
                 id: "qa-report-failure",
                 type: "function",
                 function: {
-                  name: "call_tool",
+                  name: offeredTool("call_tool"),
                   arguments: JSON.stringify({
                     name: "mark_run_failed",
                     args_json: JSON.stringify({
@@ -136,7 +149,7 @@ const model = http.createServer(async (req, res) => {
           }
         : { content: "No external work performed in this browser regression." };
     res.end(
-      `data: ${JSON.stringify({ id: "qa-completion", object: "chat.completion.chunk", created: 1, model: "qa-local-model", choices: [{ index: 0, delta, finish_reason: probe || reportFailure ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "qa-completion", object: "chat.completion.chunk", created: 1, model: "qa-local-model", choices: [{ index: 0, delta, finish_reason: invokeProbe || reportFailure ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
     console.log(`[fullstack-model-probe] ${probe ? "verified" : "reply"}`);
     return;

@@ -647,7 +647,7 @@ export async function streamChatWithEmployee(
             onModelRetry: (retry) => {
               console.warn(
                 `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
-                  `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
+                  `${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${retry.delayMs}ms`,
               );
             },
             onText: (delta) => {
@@ -707,9 +707,7 @@ export async function streamChatWithEmployee(
         ? [...CODING_TOOL_NAMES]
         : config.agent.codingTools.executionMode === "bubblewrap"
           ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-          : model.authMode === "subscription"
-            ? [...CODING_TOOL_NAMES]
-            : [];
+          : [];
     const unavailableSkillTools = [
       ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
       ...unavailableCodingTools,
@@ -905,7 +903,7 @@ export async function streamChatWithEmployee(
           onModelRetry: (retry) => {
             console.warn(
               `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
-                `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
+                `${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${retry.delayMs}ms`,
             );
             options.activity?.onModelRetry?.(retry);
           },

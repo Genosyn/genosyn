@@ -92,36 +92,17 @@ import { emitResourceChange } from "./resourceEvents.js";
  * moment the Member decides to merge them — there is nothing to transfer and
  * no second copy of the history.
  *
- * The employee never gets *filesystem* access to that worktree. It reaches it
- * only through the `repository_*` tools, which the App executes on its behalf
- * with every path validated. Three consequences follow, and they are the
- * reason this design was chosen over handing the model a checkout:
+ * The OpenCode turn receives only the repository_* domain tools. Genosyn owns
+ * path validation, Git operations, activity, checkpointing and delivery.
+ * Reading, writing and committing work even when command execution is disabled.
+ * File tools reject .git segments and links that escape the worktree; repository
+ * credentials stay in the server-owned delivery path.
  *
- *   1. **It works on every install.** Reading, writing and committing need no
- *      coding tools, no bubblewrap, and no host execution. A design that
- *      required them would have made "ask AI to update the strategy doc"
- *      unavailable to almost everybody.
- *   2. **The checkout cannot be made hostile to Git.** Every write goes
- *      through {@link normalizeRepositoryPath}, which refuses any path with a
- *      `.git` segment; through `resolveInCheckout`, which refuses any path
- *      whose parent resolves outside the worktree; and through
- *      `writeFileInCheckout`, which refuses to follow a symlink at the leaf.
- *      The last of those is what keeps this true now that a command can create
- *      a symlink the earlier two never anticipated: without it, writing
- *      "through" a planted link would reach `.git` by another name or land
- *      outside the worktree entirely.
- *   3. **The session cannot reach the remote.** Credentials live only in the
- *      delivery path. A Member can publish, or an employee with the separate
- *      forge Connection Grant can propose its completed branch as a PR.
- *
- * `repository_run_command` is the one exception, and it is shaped to keep all
- * three true. It runs behind the same bubblewrap boundary as every other
- * command Genosyn executes, rooted at the session worktree and nothing above
- * it, so the Member checkout and every other session stay unreachable and Git
- * itself is not available inside it. It is off wherever command execution is
- * off, which is what keeps (1) intact, and what a repository will run is a
- * company decision on the Repository row — see
- * `services/repositoryCommandPolicy.ts`.
+ * repository_run_command follows the Repository command policy and the install's
+ * execution mode. The default host mode is trusted execution as the App OS user;
+ * a working directory is not an OS isolation boundary. Optional bubblewrap mode
+ * confines commands to the worktree and excludes Git. Disabling commands leaves
+ * the other repository operations available. See repositoryCommandPolicy.ts.
  *
  * The separate per-employee checkout at `<employeeDir>/repositories/<slug>/`
  * is untouched by all of this. It still exists for open-ended chat and Routine
@@ -2167,7 +2148,7 @@ export function composeWorkSystemPrompt(
   return [
     `## Repository work session`,
     `You are working inside the Genosyn Repository "${repo.name}" — ${subject}.`,
-    `Your working copy for this session is isolated: session id \`${sessionId}\`. Nobody else is editing it, and your tools cannot publish or merge it. Members can watch your progress live — every tool call, its result, and your step list — and read your final report beside the diff.`,
+    `Your working copy for this session is isolated: session id \`${sessionId}\`. Use the Repository tools for file changes and commits; leave publishing and merging to the separate delivery flow. Members can watch your progress live — every tool call, its result, and your step list — and read your final report beside the diff.`,
     "",
     "### Tools",
     "The `repository_*` tools are the whole of what you can reach here; anything else is refused. They act on your working copy only.",
@@ -2209,8 +2190,8 @@ export function composeWorkSystemPrompt(
  * anything to verify it with.
  *
  * The old text told every session it had no shell and could not run tests.
- * That was true of every session once, and is now true only of an install whose sandbox could not start or a repository whose
- * company switched commands off — so it has to be asked rather than assumed.
+ * That was true of every session once. It now depends on whether the install
+ * or Repository disabled commands, so it must be asked rather than assumed.
  * Getting it wrong in either direction is expensive: an employee told it has
  * no shell will not reach for one, and an employee told it has one where it
  * does not spends the turn finding out.

@@ -138,7 +138,7 @@ env:
 
 ## The coding sandbox (`sandbox.enabled`)
 
-Genosyn runs every command an AI Employee asks for inside bubblewrap, which
+With sandbox isolation enabled, Genosyn runs coding commands inside bubblewrap, which
 needs to create a user namespace and mount its own `/proc`. A stock pod
 allows neither, so `sandbox.enabled=true` sets on the container:
 
@@ -155,11 +155,11 @@ renders pod-spec `hostUsers: false` (from `sandbox.hostUsers`, default
 `sandbox.hostUsers` to `null` on clusters without that gate to omit the
 field. Pod Security admission rejects these fields below the `privileged`
 level. Disabled (`--set sandbox.enabled=false`, which `values-selfhost.yaml`
-does), Genosyn boots with command execution disabled and logs why — chat,
-Routines, Integrations, and browser work all still function; builds, test
-suites, and per-employee checkouts do not. Multi-tenant mode — the default —
-is the exception: it refuses to boot without a working sandbox, so the chart
-refuses `multiTenant` + `sandbox.enabled=false` at template time.
+does), the trusted single-tenant configuration uses host coding: OpenCode and
+Repository commands run inside the App container without an OS sandbox. No
+special namespace permissions are required. Shared SaaS retains its isolation
+requirement, so the chart refuses `multiTenant` + `sandbox.enabled=false` at
+template time.
 
 ## Multi-tenant (shared SaaS) mode
 

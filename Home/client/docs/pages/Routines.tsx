@@ -40,16 +40,13 @@ export function Routines() {
         Routines have their own section in the nav, under <Strong>AI → Routines</Strong>. That list
         is company-wide: every routine, every employee, one page. Narrow it with the{" "}
         <DocLink to="/docs/routines#search">search box</DocLink> at the top, or filter by the{" "}
-        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —
-        {" "}
+        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —{" "}
         <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Two more
-        axes group routines across employees: <DocLink to="/docs/routines#folders">folders</DocLink>
-        {" "}
+        axes group routines across employees: <DocLink to="/docs/routines#folders">folders</DocLink>{" "}
         in the sidebar, and company <DocLink to="/docs/tags">Tags</DocLink> as chips above the list.
       </P>
       <P>
-        Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,
-        {" "}
+        Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
         <Strong>Runs</Strong>, and <Strong>Settings</Strong>, with{" "}
         <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the header. Each AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
@@ -91,8 +88,8 @@ export function Routines() {
           The <Strong>AI Employee</Strong> it is assigned to.
         </LI>
         <LI>
-          The <Strong>folder</Strong> it is filed in, by full path — searching{" "}
-          <Code>Finance</Code> finds everything under <Code>Finance/Month-end</Code> too.
+          The <Strong>folder</Strong> it is filed in, by full path — searching <Code>Finance</Code>{" "}
+          finds everything under <Code>Finance/Month-end</Code> too.
         </LI>
         <LI>
           Its <DocLink to="/docs/tags">tags</DocLink>.
@@ -108,8 +105,8 @@ export function Routines() {
       <P>
         Several words are all required, and they may land in different fields —{" "}
         <Code>finance digest</Code> finds the digest filed under Finance. Case and accents are
-        ignored. Press <Code>/</Code> anywhere on the page to jump into the box and{" "}
-        <Code>Esc</Code> to empty it.
+        ignored. Press <Code>/</Code> anywhere on the page to jump into the box and <Code>Esc</Code>{" "}
+        to empty it.
       </P>
       <Callout kind="info" title="Search stacks with the other filters.">
         It narrows within whatever folder or employee you are already looking at, and the{" "}
@@ -160,8 +157,7 @@ export function Routines() {
         AI Employees can file their own work too: <Code>create_routine</Code> and{" "}
         <Code>update_routine</Code> both take a <Code>folder</Code> — a name like{" "}
         <Code>Finance</Code> or a path like <Code>Finance/Month-end</Code>. Any segment that
-        doesn&apos;t exist yet is created, the same way tag names are. Passing an empty string to
-        {" "}
+        doesn&apos;t exist yet is created, the same way tag names are. Passing an empty string to{" "}
         <Code>update_routine</Code> unfiles the routine.
       </P>
 
@@ -232,10 +228,10 @@ export function Routines() {
             term: "timeoutSec",
             def: (
               <>
-                Hard timeout in seconds. The runner aborts the in-process agent after this long and
-                marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to <Strong>60 minutes</Strong> and is
-                editable per routine (10s – 6h) from the routine editor — raise it for long jobs,
-                lower it to fail fast.
+                Hard timeout in seconds. The runner aborts the active runtime after this long and
+                marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to{" "}
+                <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) from the routine
+                editor — raise it for long jobs, lower it to fail fast.
               </>
             ),
           },
@@ -243,8 +239,7 @@ export function Routines() {
             term: "catchUpPolicy",
             def: (
               <>
-                What to do about slots missed while the server was down. <Strong>Run once</Strong>
-                {" "}
+                What to do about slots missed while the server was down. <Strong>Run once</Strong>{" "}
                 (the default) fires a single catch-up run; <Strong>Skip</Strong> declines it when
                 the slot is already more than a minute late. See{" "}
                 <DocLink to="/docs/routines#recovery">Downtime and recovery</DocLink>.
@@ -256,10 +251,10 @@ export function Routines() {
             def: (
               <>
                 Total attempts per scheduled occurrence, counting the first. <Strong>1</Strong> by
-                default — Failed Runs and runtime or timeout Errors do not retry, while a newly interrupted initial
-                scheduled Run on an enabled routine without an approval gate still receives one
-                recovery attempt an hour after Genosyn marks it. Higher limits also bound
-                interrupted retries later in the same chain. Paired with{" "}
+                default — Failed Runs and runtime or timeout Errors do not retry, while a newly
+                interrupted initial scheduled Run on an enabled routine without an approval gate
+                still receives one recovery attempt an hour after Genosyn marks it. Higher limits
+                also bound interrupted retries later in the same chain. Paired with{" "}
                 <Code>retryBackoffSec</Code> and <Code>retryOnTimeout</Code>.
               </>
             ),
@@ -317,9 +312,9 @@ export function Routines() {
       </UL>
       <P>
         Underneath, the control writes a plain English sentence, the cron expression it compiled,
-        and the next few times the routine will actually fire — so you can check the schedule
-        before you save rather than after the first Run lands. Times are server-local. The same
-        control appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
+        and the next few times the routine will actually fire — so you can check the schedule before
+        you save rather than after the first Run lands. Times are server-local. The same control
+        appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
         <DocLink to="/docs/pipelines">Pipeline</DocLink> schedule trigger.
       </P>
 
@@ -402,12 +397,12 @@ Post it to the #morning channel.`}</Pre>
         from somewhere else.
       </P>
       <P>
-        The working status remains visible beside the composer throughout the reply. Keep typing
-        or attaching files and press <Strong>Queue message</Strong> to add a follow-up. Pending
+        The working status remains visible beside the composer throughout the reply. Keep typing or
+        attaching files and press <Strong>Queue message</Strong> to add a follow-up. Pending
         messages appear above the composer and send one at a time after the preceding reply
-        finishes; remove a message before it starts if it is no longer needed. The queue stays
-        with this routine&apos;s conversation as you navigate around the app. If a reply fails,
-        pending messages remain available for you to resume.
+        finishes; remove a message before it starts if it is no longer needed. The queue stays with
+        this routine&apos;s conversation as you navigate around the app. If a reply fails, pending
+        messages remain available for you to resume.
       </P>
       <P>
         Each routine&apos;s chat is independent, and a reply in progress belongs to the server
@@ -425,8 +420,7 @@ Post it to the #morning channel.`}</Pre>
         Starting a Routine does not make its AI Employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
         places no per-company ceiling on overlapping top-level AI work. Chat threads are independent
-        too: one AI Employee answers several conversations at once, and only a second message in the
-        {" "}
+        too: one AI Employee answers several conversations at once, and only a second message in the{" "}
         <em>same</em> thread waits for the reply ahead of it. Your deployment operator and AI Model
         provider still determine real capacity, cost, and rate limits.
       </P>
@@ -561,13 +555,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <H2 id="runs">Runs</H2>
       <P>
         Every cron tick — and every manual trigger — creates a <Code>Run</Code> row. The runner runs
-        the in-process agent in the employee&apos;s directory and stores the agent transcript — the
-        model&apos;s messages and tool trace, not captured CLI stdout — on{" "}
-        <Code>Run.logContent</Code>. It records what each tool <Strong>returned</Strong>, not only
-        what was called, and an oversized transcript is elided in the middle rather than cut off at
-        the cap: the ending is where a Run says what it did, and it is the last thing worth losing.
-        While the Run is active, Genosyn checkpoints that transcript to the database about once a
-        second, so it survives a server or container crash.
+        OpenCode (or the official Codex app-server for subscription models) with the employee&apos;s
+        context and stores the agent transcript — the model&apos;s messages and tool trace, not
+        captured CLI stdout — on <Code>Run.logContent</Code>. It records what each tool{" "}
+        <Strong>returned</Strong>, not only what was called, and an oversized transcript is elided
+        in the middle rather than cut off at the cap: the ending is where a Run says what it did,
+        and it is the last thing worth losing. While the Run is active, Genosyn checkpoints that
+        transcript to the database about once a second, so it survives a server or container crash.
       </P>
       <P>
         The transcript is still the model&apos;s account of its own work. What the server recorded
@@ -587,9 +581,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Open the Run log to watch the browser as it records. The <Strong>Browser recording</Strong>{" "}
-        panel beside the log shows <Strong>Live</Strong> and follows the current browser view.
-        When the recording is ready, it switches automatically to a player where you can replay,
-        seek, or download the finished MP4. A Run may have more than one recording when it delegates
+        panel beside the log shows <Strong>Live</Strong> and follows the current browser view. When
+        the recording is ready, it switches automatically to a player where you can replay, seek, or
+        download the finished MP4. A Run may have more than one recording when it delegates
         independent browser work; use the numbered Browser buttons above the player to switch
         between them.
       </P>
@@ -609,20 +603,21 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <Strong>Failed</Strong>, <Strong>Error</Strong>, or <Strong>Skipped</Strong> (no AI Model
           was connected). Completed means the work finished without a known failure; the separate{" "}
           <DocLink to="/docs/routines#checks">Checks</DocLink> and{" "}
-          <DocLink to="/docs/routines#outcome-check">outcome verdict</DocLink> show what was verified.
+          <DocLink to="/docs/routines#outcome-check">outcome verdict</DocLink> show what was
+          verified.
         </LI>
         <LI>
-          <Strong>Error</Strong> means a model request or runtime problem stopped the Run: a
-          request timeout, an unavailable AI Model, or an interrupted server. The Run log retains
-          the cause. Older timeout and interrupted Runs also display Error.
+          <Strong>Error</Strong> means a model request or runtime problem stopped the Run: a request
+          timeout, an unavailable AI Model, or an interrupted server. The Run log retains the cause.
+          Older timeout and interrupted Runs also display Error.
         </LI>
         <LI>
-          <Strong>Failed</Strong> means the intended work was not completed. An AI Employee can
-          call <Code>mark_run_failed</Code> with a <Code>reason</Code> during its own active Run;
-          that reason appears under <Strong>Why this Run failed</Strong> in the log. It cannot
-          mark another Run, change a Check, or mark itself successful. Reaching the step limit,
-          exhausting required Check remediation, or an <Code>off goal</Code> outcome also fails
-          the Run. A later runtime error takes precedence and retains the reported failure reason.
+          <Strong>Failed</Strong> means the intended work was not completed. An AI Employee can call{" "}
+          <Code>mark_run_failed</Code> with a <Code>reason</Code> during its own active Run; that
+          reason appears under <Strong>Why this Run failed</Strong> in the log. It cannot mark
+          another Run, change a Check, or mark itself successful. Reaching the step limit,
+          exhausting required Check remediation, or an <Code>off goal</Code> outcome also fails the
+          Run. A later runtime error takes precedence and retains the reported failure reason.
         </LI>
         <LI>
           Each Run also records the <Strong>tokens</Strong> it consumed — the provider&apos;s own
@@ -637,9 +632,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           Manual Runs from the &quot;Run now&quot; button live in the same table as scheduled Runs.
         </LI>
         <LI>
-          <Strong>Retry</Strong> a Run marked <Strong>Failed</Strong> or <Strong>Error</Strong>
-          {" "}straight from its run history. It re-triggers the routine
-          immediately, outside the schedule, and opens the live log for the new Run.
+          <Strong>Retry</Strong> a Run marked <Strong>Failed</Strong> or <Strong>Error</Strong>{" "}
+          straight from its run history. It re-triggers the routine immediately, outside the
+          schedule, and opens the live log for the new Run.
         </LI>
       </UL>
       <P>
@@ -648,19 +643,20 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         directory and are included in whole-instance backups.
       </P>
       <P>
-        A Run that ends <Strong>Failed</Strong> or <Strong>Error</Strong> with no retry still scheduled sends a bell (and web push)
-        notification to the company&apos;s owners and admins and to the Member the employee reports
-        to, deep-linked to the Run log. The Home page additionally shows a{" "}
-        <Strong>Routines needing attention</Strong> panel for anything that broke in the last 24 hours —
-        clicking a row there opens that Run&apos;s log over Home rather than sending you to the
-        routine — and every <Strong>Journal</Strong> entry for a Run links straight to that
-        routine&apos;s run history, where the Retry button is one click away. Once you&apos;ve looked at a failure,
-        hit the <Strong>✕</Strong> on its row to <Strong>dismiss</Strong> it — the run stays in the
-        routine&apos;s history, but it drops off the panel (and out of the System Health failed-runs
-        count) so it stops nagging the whole team. A dismissed failure still appears in the
-        employee&apos;s <DocLink to="/docs/employees#work-timeline">work timeline</DocLink>, opened
-        from their bubble on Home, alongside every Run that went fine. Acknowledging a failure
-        keeps it in the account of what happened that day.
+        A Run that ends <Strong>Failed</Strong> or <Strong>Error</Strong> with no retry still
+        scheduled sends a bell (and web push) notification to the company&apos;s owners and admins
+        and to the Member the employee reports to, deep-linked to the Run log. The Home page
+        additionally shows a <Strong>Routines needing attention</Strong> panel for anything that
+        broke in the last 24 hours — clicking a row there opens that Run&apos;s log over Home rather
+        than sending you to the routine — and every <Strong>Journal</Strong> entry for a Run links
+        straight to that routine&apos;s run history, where the Retry button is one click away. Once
+        you&apos;ve looked at a failure, hit the <Strong>✕</Strong> on its row to{" "}
+        <Strong>dismiss</Strong> it — the run stays in the routine&apos;s history, but it drops off
+        the panel (and out of the System Health failed-runs count) so it stops nagging the whole
+        team. A dismissed failure still appears in the employee&apos;s{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink>, opened from their
+        bubble on Home, alongside every Run that went fine. Acknowledging a failure keeps it in the
+        account of what happened that day.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer
@@ -671,23 +667,22 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         you&apos;re not sure repeating the work is safe.
       </P>
       <P>
-        A failure the routine has already recovered from clears itself. If the routine has
-        completed a Run since — the next scheduled tick, an automatic retry, or a Retry you
-        clicked — the older failure drops off the panel and out of the System Health failed-runs
-        count without anyone dismissing it. It stays in the routine&apos;s run history, where the
-        Run log and the <Strong>Journal</Strong> still have it. The point is that a red panel on
-        Home always means something is broken <Strong>now</Strong>: a panel that is usually stale
-        is a panel people learn to scroll past.
+        A failure the routine has already recovered from clears itself. If the routine has completed
+        a Run since — the next scheduled tick, an automatic retry, or a Retry you clicked — the
+        older failure drops off the panel and out of the System Health failed-runs count without
+        anyone dismissing it. It stays in the routine&apos;s run history, where the Run log and the{" "}
+        <Strong>Journal</Strong> still have it. The point is that a red panel on Home always means
+        something is broken <Strong>now</Strong>: a panel that is usually stale is a panel people
+        learn to scroll past.
       </P>
 
       <H2 id="outcome-check">The outcome check</H2>
       <P>
         A <Strong>Completed</Strong> Run has no known failure, but that alone is not verification.
-        The outcome check adds an independent assessment: give a routine <Strong>acceptance criteria</Strong>
-        {" "}
-        (Settings → Outcome check) — a plain-language definition of done, like &quot;the digest was
-        posted to #general and covers every failed run since the last digest&quot; — and two things
-        happen.
+        The outcome check adds an independent assessment: give a routine{" "}
+        <Strong>acceptance criteria</Strong> (Settings → Outcome check) — a plain-language
+        definition of done, like &quot;the digest was posted to #general and covers every failed run
+        since the last digest&quot; — and two things happen.
       </P>
       <UL>
         <LI>
@@ -706,13 +701,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
       </UL>
       <P>
-        An <Code>off goal</Code> verdict marks the Run <Strong>Failed</Strong> and notifies admins and the employee&apos;s manager the same
-        way a failure does — convincing-but-wrong is exactly the failure mode a green checkmark
-        hides. The verdict also lands in the employee&apos;s Journal entry for the Run, so the
-        employee itself learns from past outcomes instead of only seeing that runs
-        &quot;finished&quot;. <Code>unclear</Code> and <Code>unverified</Code> keep their own meanings;
-        neither is evidence that the work succeeded. A routine with no criteria has no outcome
-        verdict, extra model turn, or grading cost.
+        An <Code>off goal</Code> verdict marks the Run <Strong>Failed</Strong> and notifies admins
+        and the employee&apos;s manager the same way a failure does — convincing-but-wrong is
+        exactly the failure mode a green checkmark hides. The verdict also lands in the
+        employee&apos;s Journal entry for the Run, so the employee itself learns from past outcomes
+        instead of only seeing that runs &quot;finished&quot;. <Code>unclear</Code> and{" "}
+        <Code>unverified</Code> keep their own meanings; neither is evidence that the work
+        succeeded. A routine with no criteria has no outcome verdict, extra model turn, or grading
+        cost.
       </P>
       <P>
         A routine can also declare which company <DocLink to="/docs/goals">Goal</DocLink> its work
@@ -722,8 +718,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         objective is <Code>off goal</Code>.
       </P>
       <P>
-        Verdicts also feed forward: a Run that fails, times out, or grades <Code>off goal</Code>
-        {" "}
+        Verdicts also feed forward: a Run that fails, times out, or grades <Code>off goal</Code>{" "}
         writes a <Strong>Lesson</Strong> into the routine&apos;s future briefs — see{" "}
         <DocLink to="/docs/improvement">the improvement loop</DocLink>.
       </P>
@@ -751,10 +746,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           least one <Code>mail.send</Code>, at most three. No shell, no model, no extra cost.
         </LI>
         <LI>
-          A <Strong>command</Strong> Check runs a shell command in the sandbox and passes on exit
-          {" "}
-          <Code>0</Code> — a test suite, a <Code>git diff --exit-code</Code>, a script that checks
-          the thing was deployed.
+          A <Strong>command</Strong> Check runs a shell command in the configured execution mode and
+          passes on exit <Code>0</Code> — a test suite, a <Code>git diff --exit-code</Code>, a
+          script that checks the thing was deployed.
         </LI>
       </UL>
       <P>
@@ -777,10 +771,11 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A Run that was executing when the process died can&apos;t report its own outcome — nobody
         was left to write the row. The scheduler notices on its next heartbeat and marks it{" "}
-        <Strong>Error</Strong> with an interruption reason, appending a line after the last durable checkpoint. The Run log
-        still shows the model text and tool activity captured before the stop, so the final line
-        identifies where the visible work ended. Nothing is known about work the employee did after
-        that line. The interruption describes a runtime problem; it does not judge the work itself.
+        <Strong>Error</Strong> with an interruption reason, appending a line after the last durable
+        checkpoint. The Run log still shows the model text and tool activity captured before the
+        stop, so the final line identifies where the visible work ended. Nothing is known about work
+        the employee did after that line. The interruption describes a runtime problem; it does not
+        judge the work itself.
       </P>
       <P>
         When Genosyn marks an initial scheduled Run on an enabled routine interrupted, it also
@@ -800,8 +795,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A routine fires <Strong>once</Strong> when the server comes back, never once per missed
         slot. An hourly digest that was down overnight produces one run, not twelve. The catch-up
-        run records how many occurrences it stands in for — you&apos;ll see <Code>+11 missed</Code>
-        {" "}
+        run records how many occurrences it stands in for — you&apos;ll see <Code>+11 missed</Code>{" "}
         on the run row — and its brief tells the employee to cover the whole period rather than just
         the last interval.
       </P>
@@ -819,29 +813,24 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H3 id="retries">Retries</H3>
       <P>
-        A temporary <Strong>model request timeout</Strong> is retried inside the current Run for
-        API-key and custom-endpoint AI Models: up to five retries after the initial request, waiting
-        roughly 1, 2, 4, 8, and 16 seconds with jitter. A provider&apos;s <Code>Retry-After</Code>
-        header can set the delay, capped at 30 seconds. Each retry appears on a{" "}
-        <Code>[model]</Code> line in the Run log. If the requests keep timing out, the same Run
-        ends <Strong>Error</Strong>. Stopping the Run, reaching its deadline, or receiving partial
-        output prevents further request retries. See{" "}
+        OpenCode manages temporary model-request retries for API-key and custom AI Models; the Codex
+        app-server manages subscription retries. These attempts remain inside the current Run. If
+        the runtime cannot complete the request, the same Run ends
+        <Strong> Error</Strong>. Stopping the Run or reaching its deadline stops the runtime. See{" "}
         <DocLink to="/docs/models#model-errors">model errors</DocLink> for the other model failures
         and subscription behavior.
       </P>
       <P>
         Retrying the <Strong>whole Routine</Strong> creates a new Run. These retries after{" "}
         <Strong>Failed</Strong> Runs and runtime <Strong>Errors</Strong> are{" "}
-        <Strong>off by default.</Strong> Raise{" "}
-        <Strong>Attempts</Strong> above 1 in the routine&apos;s Settings to retry them
-        automatically, up to 5 attempts, waiting a randomized, doubling interval between each (from
-        {" "}
-        <Strong>Retry backoff</Strong>, capped at six hours). Retrying after the Run&apos;s own
-        deadline is opted in separately, because retrying one re-burns the routine&apos;s whole
-        time budget. An interrupted initial
-        scheduled Run on an enabled routine without an approval gate is the safety exception: even
-        at 1 attempt, it receives one recovery attempt after an hour. Above 1, interrupted retries
-        use the configured bounded backoff until the chain reaches its cap.
+        <Strong>off by default.</Strong> Raise <Strong>Attempts</Strong> above 1 in the
+        routine&apos;s Settings to retry them automatically, up to 5 attempts, waiting a randomized,
+        doubling interval between each (from <Strong>Retry backoff</Strong>, capped at six hours).
+        Retrying after the Run&apos;s own deadline is opted in separately, because retrying one
+        re-burns the routine&apos;s whole time budget. An interrupted initial scheduled Run on an
+        enabled routine without an approval gate is the safety exception: even at 1 attempt, it
+        receives one recovery attempt after an hour. Above 1, interrupted retries use the configured
+        bounded backoff until the chain reaches its cap.
       </P>
       <Callout kind="warn" title="Retries are at-least-once.">
         An interrupted Run may already have sent the email, posted the update, or moved the money
@@ -864,10 +853,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           the outcome, so nothing respawns behind their back.
         </LI>
         <LI>
-          A run with a retry pending stays out of the Home <Strong>Routines needing attention</Strong> panel
-          until its last attempt is spent — it isn&apos;t something to act on yet. It shows under
-          {" "}
-          <Strong>Runs waiting to retry</Strong> in System Health instead.
+          A run with a retry pending stays out of the Home{" "}
+          <Strong>Routines needing attention</Strong> panel until its last attempt is spent — it
+          isn&apos;t something to act on yet. It shows under <Strong>Runs waiting to retry</Strong>{" "}
+          in System Health instead.
         </LI>
         <LI>
           <Strong>Cancel retry</Strong> from the run&apos;s log view stops the chain without pausing
@@ -886,8 +875,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <UL>
         <LI>
-          <Strong>Runs needing attention</Strong> — Failed Runs and Errors, including timeouts and restarts,
-          excluding anything already scheduled for a retry.
+          <Strong>Runs needing attention</Strong> — Failed Runs and Errors, including timeouts and
+          restarts, excluding anything already scheduled for a retry.
         </LI>
         <LI>
           <Strong>Runs waiting to retry</Strong> — an in-progress retry chain, so it&apos;s visible
@@ -903,8 +892,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           routines that never actually ran because no model was connected.
         </LI>
         <LI>
-          <Strong>Approvals waiting too long</Strong>, <Strong>email delivery failures</Strong>, and
-          {" "}
+          <Strong>Approvals waiting too long</Strong>, <Strong>email delivery failures</Strong>, and{" "}
           <Strong>integration connections</Strong> in an error/expired state.
         </LI>
       </UL>
@@ -922,17 +910,15 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         A company owner or admin must approve or reject it from a logged-in browser session; API
         keys and ordinary Members cannot open the inbox or decide approvals. Approval claims are
         one-shot, so double-clicks and concurrent reviewers cannot replay the action. If the
-        approved action fails, the row moves to{" "}
-        <Code>execution_failed</Code> for investigation instead of becoming eligible to run again.
-        Replay payloads, provider results, and raw provider failures are never returned by the inbox
-        API.
+        approved action fails, the row moves to <Code>execution_failed</Code> for investigation
+        instead of becoming eligible to run again. Replay payloads, provider results, and raw
+        provider failures are never returned by the inbox API.
       </P>
       <P>
         A pending Approval never expires, so a gated tick nobody answers is lost, not queued.
         Genosyn no longer lets that happen in silence: an Approval still pending after{" "}
         <Strong>24 hours</Strong> re-pages the owners and admins with a stall reminder — once per
-        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and overdue
-        {" "}
+        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and overdue{" "}
         <Strong>Handoffs</Strong> get the same treatment; see{" "}
         <DocLink to="/docs/decisions">the Decision Stack</DocLink> and{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink>.

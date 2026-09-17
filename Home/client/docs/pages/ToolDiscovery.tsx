@@ -36,10 +36,9 @@ export function ToolDiscovery() {
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools</Strong> — none in disabled mode, the path-confined file/search tools
-          in separately acknowledged host mode, or isolated <Code>bash</Code> in bubblewrap mode.
-          When present, their arguments are large free-form strings, which survive better sent
-          directly.
+          <Strong>Coding tools</Strong> — OpenCode&apos;s native coding tools for ordinary host-mode
+          work, none in disabled or restricted review turns, or isolated <Code>bash</Code> in
+          optional bubblewrap mode. Repository work sessions have their own scoped tools.
         </LI>
         <LI>
           <Strong>Everything that writes</Strong> — creating a Routine, a Project, a Todo, a journal
@@ -57,8 +56,7 @@ export function ToolDiscovery() {
       <H2 id="catalogue">The catalogue</H2>
       <P>
         Everything else — mail, finance, revenue, Bases, Notes, Resources, charts, dashboards,
-        workspace channels, handoffs, <DocLink to="/docs/pipelines">Pipelines</DocLink>, and every
-        {" "}
+        workspace channels, handoffs, <DocLink to="/docs/pipelines">Pipelines</DocLink>, and every{" "}
         <DocLink to="/docs/integrations">Integration</DocLink> tool — lives in the catalogue. The
         employee calls <Code>find_tools</Code> with what it is trying to do (&quot;record a
         payment&quot;, &quot;reply to that email&quot;, &quot;read a spreadsheet&quot;) and gets

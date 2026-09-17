@@ -237,9 +237,9 @@ export function Repositories() {
         <Strong>Failed</Strong>. Open a session from the card to read its Activity, review Changes,
         or ask the employee for another pass. Choose <Strong>Throw away</Strong> on the row to
         remove its local branch and working copy without opening the session; Genosyn asks you to
-        confirm first, keeps the session in Repository history, and leaves any remote branch or
-        pull request open. Use <Strong>Show more</Strong> to reach the rest of a longer queue.
-        Archived sessions stay out of the card, and it disappears when nothing needs attention.
+        confirm first, keeps the session in Repository history, and leaves any remote branch or pull
+        request open. Use <Strong>Show more</Strong> to reach the rest of a longer queue. Archived
+        sessions stay out of the card, and it disappears when nothing needs attention.
       </P>
 
       <H3 id="quick-start">Start with a useful brief</H3>
@@ -257,11 +257,12 @@ export function Repositories() {
       <OL>
         <LI>
           Pick the <Strong>AI employee</Strong> by name, choose a suggested brief if it helps, and
-          describe the outcome. If the employee has multiple assigned models, <Strong>AI Model</Strong>{" "}
-          lists them all and selects its connected default, or another connected model if needed.
-          Disconnected models are shown but cannot be selected. With one assigned model, there is
-          no picker. Your choice applies to this session and its follow-ups without changing the
-          employee&apos;s <DocLink to="/docs/models#multiple-models">active model</DocLink>.
+          describe the outcome. If the employee has multiple assigned models,{" "}
+          <Strong>AI Model</Strong> lists them all and selects its connected default, or another
+          connected model if needed. Disconnected models are shown but cannot be selected. With one
+          assigned model, there is no picker. Your choice applies to this session and its follow-ups
+          without changing the employee&apos;s{" "}
+          <DocLink to="/docs/models#multiple-models">active model</DocLink>.
         </LI>
         <LI>
           Choose <Strong>Effort</Strong> to control how much work the selected AI Model puts into
@@ -277,21 +278,21 @@ export function Repositories() {
           Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}
           <Strong>default branch</Strong> as it stands there — see{" "}
           <Strong>Where a session starts</Strong> below — in a git <Strong>worktree</Strong> of its
-          own, on a fresh branch under <Code>genosyn/</Code>. Two sessions never collide.
+          own, on a fresh branch under <Code>genosyn/</Code>. Each session has a separate working copy.
         </LI>
         <LI>
           Genosyn reads the root contributor guide into the employee&apos;s briefing and records
-          that it loaded it in Activity. It recognizes <Code>AGENTS.md</Code>, <Code>agent.md</Code>,
-          and other capitalization variants, with <Code>CLAUDE.md</Code> as a fallback. See{" "}
+          that it loaded it in Activity. It recognizes <Code>AGENTS.md</Code>, <Code>agent.md</Code>
+          , and other capitalization variants, with <Code>CLAUDE.md</Code> as a fallback. See{" "}
           <DocLink to="#agents-md">Contributor guides</DocLink>.
         </LI>
         <LI>
-          The employee works through tools Genosyn runs on its behalf, and gets no filesystem access
-          of its own. It can list the files and find them by name pattern, search their contents,
+          The employee works through Genosyn&apos;s Repository tools. It can list the files and
+          find them by name pattern, search their contents,
           read a file with line numbers, change one by exact replacement of text it copied from a
           read, create or delete a file, check its working copy&apos;s status and diff, keep a
-          visible step list of its plan, and commit. Where your installation has the isolation for
-          it, it can also <Strong>run commands</Strong> in its working copy — your tests, your
+          visible step list of its plan, and commit. When command execution is enabled,
+          it can also <Strong>run commands</Strong> in its working copy — your tests, your
           linter, your build — so it verifies its own work before you read the diff. What it may run
           is yours to decide; see <DocLink to="#commands">Commands</DocLink>.
         </LI>
@@ -434,26 +435,26 @@ export function Repositories() {
         employee&apos;s granted checkouts. Activity shows when a work session loads its root guide.
       </P>
       <P>
-        Names are matched without regard to capitalization: <Code>AGENTS.md</Code> takes
-        precedence over <Code>AGENT.md</Code>, then <Code>CLAUDE.md</Code>. Lowercase names such
-        as <Code>agents.md</Code> and <Code>agent.md</Code> work too. The first readable,
-        nonempty guide in that order is used per directory. Guides in subdirectories apply only
-        to that directory and its descendants. Work-session file reads and directory listings
-        include the applicable guides, from the root down; deeper guidance takes precedence
-        within its scope. In ordinary chats and Routines, employees are instructed to read nested
-        guides before editing those directories.
+        Names are matched without regard to capitalization: <Code>AGENTS.md</Code> takes precedence
+        over <Code>AGENT.md</Code>, then <Code>CLAUDE.md</Code>. Lowercase names such as{" "}
+        <Code>agents.md</Code> and <Code>agent.md</Code> work too. The first readable, nonempty
+        guide in that order is used per directory. Guides in subdirectories apply only to that
+        directory and its descendants. Work-session file reads and directory listings include the
+        applicable guides, from the root down; deeper guidance takes precedence within its scope. In
+        ordinary chats and Routines, employees are instructed to read nested guides before editing
+        those directories.
       </P>
       <P>
-        Large guides include continuation instructions so the employee can read the remaining
-        text before making changes. Guidance controls repository conventions and verification
-        scope, including instructions to run only targeted tests. It cannot change the
-        Member&apos;s request, company Policies, or the employee&apos;s access. A guide is read
-        as instructions for the employee; its Markdown is never executed as a script.
+        Large guides include continuation instructions so the employee can read the remaining text
+        before making changes. Guidance controls repository conventions and verification scope,
+        including instructions to run only targeted tests. It cannot change the Member&apos;s
+        request, company Policies, or the employee&apos;s access. A guide is read as instructions
+        for the employee; its Markdown is never executed as a script.
       </P>
       <P>
         Name each required command, its directory, and when it should run. For example:
-        <Code>npm run lint</Code> in <Code>App/</Code> and <Code>Home/</Code> before committing.
-        The employee is instructed to run applicable commands, including checks for document
+        <Code>npm run lint</Code> in <Code>App/</Code> and <Code>Home/</Code> before committing. The
+        employee is instructed to run applicable commands, including checks for document
         repositories, and report their directory and result. If a command cannot run, its report
         should name the command and the reason. Expand its Activity entry to inspect the recorded
         output and exit status; a commit alone does not prove verification passed.
@@ -493,61 +494,60 @@ export function Repositories() {
       <P>
         Commands can run in a subdirectory of the session&apos;s working copy. The employee supplies
         that directory separately from the command, so <Code>npm run lint</Code> in <Code>App</Code>
-        meets the same command policy as it does at the root. Every call starts in its own directory;
-        changing directories in one call does not affect the next. Activity includes the directory
-        alongside the command.
+        meets the same command policy as it does at the root. Every call starts in its own
+        directory; changing directories in one call does not affect the next. Activity includes the
+        directory alongside the command.
       </P>
-      <Callout kind="info" title="The list is intent. The isolation is the boundary.">
-        Whichever mode you pick, a command runs behind <Code>bubblewrap</Code> with the
-        session&apos;s own worktree as its entire filesystem: no shared checkout, no other session,
-        no rest of the server, no <Code>git</Code>, and no network unless your installation allows
-        one. Where that isolation is unavailable — <Code>disabled</Code> or <Code>host</Code>{" "}
-        execution — work sessions run without commands whatever this setting says. Genosyn does not
-        give an AI Employee a shell outside a sandbox.
+      <Callout kind="info" title="Commands use the installation's execution mode.">
+        The default host mode runs commands in the session&apos;s worktree with the App process
+        user&apos;s authority. The command list expresses what the company permits; it is not an OS
+        sandbox. Optional <Code>bubblewrap</Code> mode isolates commands to that worktree and
+        applies the installation&apos;s network setting. Disabled mode runs work sessions without
+        commands. OpenCode uses the scoped Repository tools in every mode, preserving work-session
+        activity, command policy, and review before delivery.
       </Callout>
       <Callout kind="warn" title="A working copy holds only what git tracks.">
-        A session&apos;s worktree is created from the repository&apos;s history, so it has no{" "}
-        <Code>node_modules</Code>, no virtualenv, and no vendor directory. A repository whose checks
-        need those can fetch them only where your installation allows the sandbox a network (
-        <Code>agent.codingTools.allowNetwork</Code> in <Code>config.ts</Code>, off by default).
-        Without one, the employee tells you it could not install them rather than reporting checks
-        it did not run.
+        A session&apos;s worktree is created from the Repository&apos;s history, so it has no
+        <Code> node_modules</Code>, virtualenv, or vendor directory. Host execution can install
+        dependencies using the App container&apos;s network. With optional bubblewrap, network
+        access depends on <Code>agent.codingTools.allowNetwork</Code>, off by default. If required
+        dependencies cannot be installed, the employee reports the checks it could not run.
       </Callout>
       <H2 id="proactive-work">Work that starts from email or a Routine</H2>
       <P>
         A customer&apos;s bug report first becomes a work proposal in the{" "}
         <DocLink to="/docs/decisions">Decision stack</DocLink>. The AI Employee reads the available
-        evidence and explains the suggested investigation or fix. It cannot start a Work session
-        or change the Repository until an owner or admin approves the proposal.
+        evidence and explains the suggested investigation or fix. It cannot start a Work session or
+        change the Repository until an owner or admin approves the proposal.
       </P>
       <P>
-        After approval, the employee needs a <Strong>write Grant</Strong> on the Repository to
-        start the Work session. The approved plan should name the expected scope and verification
-        steps: investigate the reported issue, make a focused fix, run relevant tests, and prepare
-        the result for review. Approval does not add Grants or allow merging the result.
+        After approval, the employee needs a <Strong>write Grant</Strong> on the Repository to start
+        the Work session. The approved plan should name the expected scope and verification steps:
+        investigate the reported issue, make a focused fix, run relevant tests, and prepare the
+        result for review. Approval does not add Grants or allow merging the result.
       </P>
       <P>
-        The work runs separately. The employee can save its session id in a Workstream and check
-        the final report before drafting a customer update. Follow-up work keeps the original
-        delivery limits and needs any applicable work approval. Each session keeps
-        its own branch and working copy; its tools cannot send mail or reach other Connections.
-        You can inspect its Activity and Changes from the Repository at any time.
+        The work runs separately. The employee can save its session id in a Workstream and check the
+        final report before drafting a customer update. Follow-up work keeps the original delivery
+        limits and needs any applicable work approval. Each session keeps its own branch and working
+        copy; its tools cannot send mail or reach other Connections. You can inspect its Activity
+        and Changes from the Repository at any time.
       </P>
       <P>
         For automatic pull requests, explicitly authorize delivery in the Soul or Routine, choose
-        the Repository through its GitHub or Forgejo Connection, and grant that same Connection
-        to the employee. It needs both Grants: Repository write access prepares the fix; the
-        separate Connection Grant permits the completed branch to be pushed and proposed.
-        Personal tokens or SSH keys stored directly on a Repository remain for Member delivery.
-        Genosyn rechecks the Grants before delivery and refuses unfinished, stopped, or failed
-        work. Existing pull requests receive the new branch commits; merging and publishing the
-        default branch remain Member actions.
+        the Repository through its GitHub or Forgejo Connection, and grant that same Connection to
+        the employee. It needs both Grants: Repository write access prepares the fix; the separate
+        Connection Grant permits the completed branch to be pushed and proposed. Personal tokens or
+        SSH keys stored directly on a Repository remain for Member delivery. Genosyn rechecks the
+        Grants before delivery and refuses unfinished, stopped, or failed work. Existing pull
+        requests receive the new branch commits; merging and publishing the default branch remain
+        Member actions.
       </P>
       <P>
         Continue with <DocLink to="/docs/routines">Routines</DocLink> and{" "}
-        <DocLink to="/docs/soul">Soul</DocLink> to define when the employee acts and what it may send.
+        <DocLink to="/docs/soul">Soul</DocLink> to define when the employee acts and what it may
+        send.
       </P>
-
     </>
   );
 }

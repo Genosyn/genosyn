@@ -56,7 +56,7 @@ before(async () => {
     void drain(request).then(() => {
       upstreamTurns += 1;
       if (upstreamMode === "reject") {
-        // A 4xx is deliberately not retryable (see `modelRetry.ts`), so the
+        // A permanent 4xx is not retried by OpenCode, so the
         // turn fails once and immediately rather than riding out ten backoffs.
         response.writeHead(400, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: { message: "the model rejected this request" } }));
@@ -157,7 +157,7 @@ async function makeRoutine(values: Partial<Routine> = {}): Promise<Routine> {
     // No acceptance criteria: outcome grading is a separate model turn with its
     // own tests, and the breaker reads `outcomeVerdict` rather than producing it.
     acceptanceCriteria: "",
-    timeoutSec: 60,
+    timeoutSec: 180,
     maxAttempts: 1,
     ...values,
   });

@@ -45,8 +45,7 @@ export function Integrations() {
         title="Integrations"
         lead={
           <>
-            An <Strong>Integration</Strong> is a connector type — Stripe, Gmail, GitHub, Postgres. A
-            {" "}
+            An <Strong>Integration</Strong> is a connector type — Stripe, Gmail, GitHub, Postgres. A{" "}
             <Strong>Connection</Strong> is one authenticated account inside an integration. A{" "}
             <Strong>Grant</Strong> gives an AI Employee access to one Connection.
           </>
@@ -96,11 +95,10 @@ export function Integrations() {
       </Callout>
       <Callout kind="warn" title="Process and hosted restrictions">
         Company-configured stdio MCP servers run only in trusted single-tenant host execution mode.
-        The safe disabled and bubblewrap modes omit those same-UID children; host mode in turn
-        rejects OpenAI subscription auth. HTTP MCP servers remain available. In shared SaaS,
-        Connection URLs and hosts must resolve to public addresses, including at socket connection
-        time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP Postgres and
-        MySQL Connections stay disabled until an isolated egress worker is configured.
+        Disabled and bubblewrap modes omit those children. HTTP MCP servers remain available. In
+        shared SaaS, Connection URLs and hosts must resolve to public addresses, including at socket
+        connection time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP
+        Postgres and MySQL Connections stay disabled until an isolated egress worker is configured.
       </Callout>
 
       <H2 id="instance-oauth-apps">Register an OAuth app once, connect with one click</H2>
@@ -188,7 +186,7 @@ export function Integrations() {
 
       <H2 id="how-tools-show-up">How tools show up</H2>
       <P>
-        Every run, the in-process agent regenerates the MCP server list. The built-in{" "}
+        Every Run, Genosyn regenerates the MCP server list for the selected runtime. The built-in{" "}
         <Code>genosyn</Code> server lists every integration tool the employee has a Grant for; the
         agent reaches every one of them the same way and never has to know anything about
         Connections. Integration tools live in the searchable catalogue rather than the up-front
@@ -209,8 +207,7 @@ export function Integrations() {
           the username, the password, and its authenticator setup key if it has one.
         </LI>
         <LI>
-          <Strong>Grant the item, not the password.</Strong> An employee with <Strong>Use</Strong>
-          {" "}
+          <Strong>Grant the item, not the password.</Strong> An employee with <Strong>Use</Strong>{" "}
           fills those fields through <Code>browser_fill_vault</Code>, so the plaintext never reaches
           the model, the Run transcript, or a log.
         </LI>
@@ -232,8 +229,8 @@ export function Integrations() {
       <H2 id="external-mcp">Connecting an external MCP client</H2>
       <P>
         The built-in <Code>genosyn</Code> tools an employee gets inside a run — the same tool
-        catalog the in-process <DocLink to="/docs/models">agent</DocLink> loads per run — are also
-        reachable over the network. Point any MCP client at an employee&apos;s endpoint and it
+        catalog Genosyn supplies to the <DocLink to="/docs/models">runtime</DocLink> per Run — are
+        also reachable over the network. Point any MCP client at an employee&apos;s endpoint and it
         drives that employee from anywhere: Claude Desktop, Cursor, VS Code, or your own agent, all
         seeing the same tools, Grants, and audit trail as the in-app assistant.
       </P>
@@ -285,8 +282,7 @@ export function Integrations() {
       <P>
         <Strong>Claude Desktop</Strong> has no field for a custom auth header yet, so bridge the
         endpoint through <Code>mcp-remote</Code> in <Code>claude_desktop_config.json</Code>. Keep
-        the token in an env var, where its space survives — passed as a raw <Code>--header</Code>
-        {" "}
+        the token in an env var, where its space survives — passed as a raw <Code>--header</Code>{" "}
         arg it can get mangled:
       </P>
       <Pre lang="json">{`{
@@ -403,8 +399,7 @@ export function Integrations() {
       <P>
         GitHub and Forgejo Connections are special: a Connection holds a list of repositories the
         employee is allowed to touch, and the runner materializes a git checkout of each allowed
-        repository into <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>
-        {" "}
+        repository into <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>{" "}
         before each run. The git token exists only inside a short-lived server-owned clone or
         refresh operation. It is never copied into the checkout, an environment variable visible to
         the AI Employee, or a reusable credential helper. A matching HTTPS Repository can reuse the
@@ -483,8 +478,7 @@ export function Integrations() {
       <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>
       <P>
         Gmail search results are paginated. If a call to <Code>gmail_search_messages</Code> returns
-        a <Code>nextPageToken</Code>, the employee passes that value back as <Code>pageToken</Code>
-        {" "}
+        a <Code>nextPageToken</Code>, the employee passes that value back as <Code>pageToken</Code>{" "}
         with the same query and labels. It repeats this until Gmail omits <Code>nextPageToken</Code>
         , so busy date windows are scanned in full instead of stopping at the first 100 messages.
       </P>

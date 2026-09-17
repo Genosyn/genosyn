@@ -84,17 +84,9 @@ export function resetBubblewrapProbeCacheForTests(): void {
 }
 
 /**
- * Resolve the shipped `bubblewrap` default against the host that actually
- * booted, once, before anything reads the execution mode.
- *
- * Command execution is on by default so a fresh install can run a build, a
- * test suite, or a repository connection test without an operator decision.
- * The boundary that makes that safe is Linux-only: bubblewrap needs
- * unprivileged user namespaces, which a macOS source install does not have at
- * all and a hardened container runtime may refuse. Handing the model a shell
- * that fails per call — and, worse, blocking subscription sign-in behind a
- * sandbox that will never work — is not a default, so fall back to `disabled`
- * and say why.
+ * Probe an explicitly selected bubblewrap sandbox once before work starts.
+ * The default host mode needs no probe. When an operator selected isolation,
+ * an unusable sandbox still disables coding rather than changing that choice.
  *
  * This can only ever narrow. There is no path from an unusable sandbox to
  * host execution: that remains the operator's separate, acknowledged choice.
@@ -116,7 +108,7 @@ export function resolveCodingExecutionMode(): void {
   noteCodingSandboxFallback(unusable);
   // eslint-disable-next-line no-console
   console.warn(
-    `[security] command execution is disabled: the coding sandbox cannot start (${unusable}). Genosyn only runs commands behind bubblewrap. ${codingSandboxRemediation(unusable)}`,
+    `[security] command execution is disabled: the selected coding sandbox cannot start (${unusable}). ${codingSandboxRemediation(unusable)}`,
   );
 }
 
@@ -221,15 +213,6 @@ export function validateRuntimeSecurity(): void {
       // eslint-disable-next-line no-console
       console.warn(
         `[security] self-hosted production is using relaxed settings:\n- ${warnings.join("\n- ")}`,
-      );
-    }
-    if (
-      config.agent.codingTools.executionMode === "host" &&
-      config.agent.codingTools.allowUnsafeHostExecution
-    ) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "[security] AI coding tools have explicit unsafe host execution access; use Bubblewrap or disable coding tools before adding untrusted Members or another company",
       );
     }
   }

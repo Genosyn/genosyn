@@ -86,7 +86,7 @@ describe("high context warning", () => {
   });
 
   test("warns before the loop starts compacting", () => {
-    // contextBudget reserves 15% of the window for the reply, so compaction
+    // The display warns at 80%; runtime compaction
     // begins around 85%. The warning has to land under that or it would only
     // ever appear alongside the history loss it is supposed to precede.
     assert.ok(CONTEXT_WARN_PCT < 85);

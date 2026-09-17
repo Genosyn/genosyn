@@ -405,9 +405,7 @@ export async function startRoutineRun(
           ? [...CODING_TOOL_NAMES]
           : config.agent.codingTools.executionMode === "bubblewrap"
             ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-            : model.authMode === "subscription"
-              ? [...CODING_TOOL_NAMES]
-              : [];
+            : [];
       const unavailableSkillTools = [
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
@@ -590,7 +588,7 @@ export async function startRoutineRun(
             callbacks: {
               onModelRetry: (retry) =>
                 log.line(
-                  `\n[model] ${retry.reason}; retrying attempt ${retry.attempt} of ${retry.maxAttempts} in ${(retry.delayMs / 1000).toFixed(1)}s`,
+                  `\n[model] ${retry.reason}; retrying attempt ${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${(retry.delayMs / 1000).toFixed(1)}s`,
                 ),
               onText: (delta) => {
                 streamedAny = true;
@@ -927,6 +925,8 @@ function usageLine(u: TurnUsage, contextWindow: number | null): string {
  * model's context window is unknown, so there was nothing to budget against.
  */
 function compactLine(c: CompactionInfo): string {
+  if (c.evicted === null)
+    return "[compact] OpenCode compacted the conversation to fit the model context window.";
   const what = `dropped ${c.evicted} older tool result${c.evicted === 1 ? "" : "s"} (~${c.freedTokens} tokens) to fit the context window`;
   return c.reason === "budget"
     ? `[compact] ${what}`
@@ -1202,7 +1202,10 @@ async function runCheckPhase(args: {
           },
         },
       });
-      if (controller.signal.aborted || (result.status === "ok" && result.stopReason === "aborted")) {
+      if (
+        controller.signal.aborted ||
+        (result.status === "ok" && result.stopReason === "aborted")
+      ) {
         errorKind = args.deadlineReached() ? "timeout" : "interrupted";
         log.line("\n[checks] remediation was interrupted before finishing.");
         log.line(workSummaryLogLine(""));

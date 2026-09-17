@@ -288,9 +288,8 @@ export function RepoFormFields({
  * repository, and a security question asked before it is relevant is a
  * question people click past.
  *
- * The copy carries one load-bearing fact and repeats it because it is the
- * thing that makes the third option defensible: the list is about intent, and
- * the isolation is what contains the command either way.
+ * The list expresses the company's command policy. Host execution has the
+ * App process authority; optional bubblewrap supplies OS isolation.
  */
 export function RepoCommandFields({
   form,
@@ -314,7 +313,7 @@ export function RepoCommandFields({
     {
       value: "all",
       title: "Every command",
-      blurb: "No list, no check. Genosyn's isolation still applies.",
+      blurb: "No command restrictions. Uses the installation's execution mode.",
     },
   ];
 
@@ -324,17 +323,16 @@ export function RepoCommandFields({
         <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Commands</div>
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           What an AI employee may run in a work session — the tests, the linter, the build — so it
-          can check its own work before you read the diff. A command runs inside that session&apos;s
-          own working copy and nowhere else: it cannot reach this server, your checkout, another
-          session, git itself, or the network unless this installation allows it. Where the
-          isolation Genosyn requires is unavailable, work sessions carry on without commands
-          whatever is chosen here.
+          can check its own work before you read the diff. Commands start in the session&apos;s
+          working copy and follow this installation&apos;s execution mode. The default host mode
+          uses the App process&apos;s access; optional bubblewrap adds isolation. When command
+          execution is disabled, work sessions carry on without commands.
         </p>
         <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           A session&apos;s working copy holds only what git tracks, so a repository whose checks
-          need installed dependencies can fetch them only if your installation allows the sandbox a
-          network. Without one, an employee reports that it could not install them rather than
-          pretending the checks passed.
+          need installed dependencies also need network access. Host mode uses the App
+          container&apos;s network; optional bubblewrap uses its configured network setting. The
+          employee reports any checks it could not run.
         </p>
       </div>
 
@@ -394,11 +392,10 @@ export function RepoCommandFields({
         <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/5 dark:text-amber-200">
           <div className="text-sm font-medium">Every command is allowed</div>
           <p className="mt-1">
-            An employee can run anything in a work session on this repository, including reaching
-            the network where this installation allows it. The isolation around the session is
-            unchanged, and you still review the diff before anything is merged or pushed — but
-            Genosyn will not refuse a command on your behalf. Choose this when the repository&apos;s
-            own tooling needs more than a list can express.
+            An employee can run any command in a work session on this repository. Host execution
+            uses the App process&apos;s filesystem and network access; optional bubblewrap applies
+            its configured isolation. Choose this when the repository&apos;s own tooling needs
+            more than a list can express.
           </p>
         </div>
       )}

@@ -7,24 +7,20 @@ import type { Repository, RepositoryCommandMode } from "../db/entities/Repositor
  * of patterns. Everything about actually spawning a process — the sandbox, the
  * timeout, the operator's execution mode — lives in `repositoryCommandRun.ts`.
  *
- * Nothing here can *grant* anything. A session runs commands only behind
- * bubblewrap, and only where the install has it; `all` widens what Genosyn
- * will agree to run, never where it runs.
+ * The install's execution switch must allow commands before this policy is
+ * consulted. `all` widens what Genosyn will agree to run, never where it runs.
  *
  * ## What this is, and what it is not
  *
- * It is **not** the security boundary. That is bubblewrap: the command runs in
- * its own user, PID, IPC and UTS namespaces, with the session's worktree as
- * its whole filesystem and no network unless the operator turned it on. A
- * repository that allows every command is still confined to a throwaway
- * worktree whose diff a human reads before anything reaches a remote.
+ * It is **not** a security boundary. Host commands have ordinary process
+ * access. Optional bubblewrap adds namespace isolation around the worktree.
  *
  * Nor could it be the boundary, and pretending otherwise would be the failure
  * mode to avoid: a shell allowlist is porous by construction. `npm test` runs
  * whatever the repository's own `package.json` says, and `find -exec` runs
  * whatever follows it. That is not a hole to be plugged — running the
- * repository's own code is the job — which is exactly why the containment has
- * to come from the namespace rather than from this file.
+ * repository's own code is the job. Any required containment has to come from
+ * the execution environment rather than from this file.
  *
  * It is a **statement of intent**, and it is where the intent is enforced. A
  * session exists to change one repository; fetching a URL, opening an SSH

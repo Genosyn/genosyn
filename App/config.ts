@@ -9,7 +9,7 @@
  *      `data/.instance-secrets.json`; explicit values take precedence.
  *   2. **Database coordinates** — where the data is and how to reach it.
  *   3. **The fail-closed security posture** — the whole `security` block plus
- *      the two agent isolation switches. These are validated at startup and a
+ *      the agent execution switches. These are validated at startup and a
  *      multi-tenant install refuses to boot when they do not meet the shared
  *      SaaS baseline, which is only meaningful if they cannot be edited by
  *      whoever happens to be signed in.
@@ -102,38 +102,24 @@ export const config = {
     bootstrapMasterAdminEmail: "",
   },
 
-  // AI Employee execution controls. Command execution is on by default, and
-  // `bubblewrap` is the only mode that default is allowed to mean: every shell
-  // invocation and repository Git child runs in user/mount/PID namespaces with
-  // only the employee workspace writable. The stock Docker image ships the
-  // executable, so an out-of-the-box install can run commands, materialize
-  // repositories, and test a Repository connection without an operator
-  // deciding anything — and a ChatGPT subscription still signs in beside it.
-  // Bubblewrap is Linux-only and needs unprivileged user namespaces, so boot
-  // probes it once and falls back to `disabled` when the sandbox cannot run
-  // (see services/runtimeSecurity.ts). That fallback only ever narrows: a host
-  // that cannot isolate a shell gets no shell, never an unsandboxed one.
-  // `disabled` exposes no coding tools, materializes no repositories, and
-  // permits no user-configured stdio MCP children; it still supports ChatGPT
-  // subscription auth. Acknowledged `host` mode keeps path-confined file/search
-  // tools but never exposes bash: a same-UID host shell could read App data,
-  // Vault encryption roots, and sibling process tokens. It permits user stdio
-  // MCP and therefore rejects subscription credentials. Shared SaaS requires
-  // bubblewrap and disables network access inside the coding sandbox;
-  // networked work goes through governed Integration, browser, and HTTP
-  // surfaces instead.
+  // AI Employee execution controls. OpenCode runs directly on the host by
+  // default, with ordinary file and command access. This includes Repository
+  // work-session commands and command Checks; no Linux namespace support or
+  // Docker security options are required for a self-hosted install.
+  // `disabled` exposes no coding tools and materializes no repositories.
+  // `bubblewrap` remains available for installs that explicitly require
+  // isolation; boot disables coding if that selected sandbox cannot start.
+  // Shared multi-tenant installs still require bubblewrap and no sandbox
+  // network access. ChatGPT subscription auth remains single-tenant only.
   agent: {
     codingTools: {
       enabled: true,
-      executionMode: "bubblewrap" as "host" | "bubblewrap" | "disabled",
+      executionMode: "host" as "host" | "bubblewrap" | "disabled",
       bubblewrapPath: "/usr/bin/bwrap",
       allowNetwork: false,
-      // Emergency compatibility escape hatch for a trusted, single-company
-      // install only. This acknowledgement enables host-mode coding tools and
-      // server-owned Git work. The model tools stay path-confined, but all of
-      // that work runs outside a namespace; selecting host mode alone is not
-      // sufficient.
-      allowUnsafeHostExecution: false,
+      // Retained for existing operator configurations. Set false to deny host
+      // execution even when executionMode is host.
+      allowUnsafeHostExecution: true,
     },
     // The current app-owned Chromium process shares the API container. Keep it
     // off in multi-tenant mode until a separately isolated browser worker is

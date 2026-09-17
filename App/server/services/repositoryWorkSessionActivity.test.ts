@@ -358,6 +358,24 @@ describe("SessionActivityRecorder", () => {
     );
     assert.deepEqual(detail(rows[2]), { attempt: 2, maxAttempts: 11, delayMs: 500 });
   });
+
+  test("OpenCode compaction and retries preserve unavailable counts without inventing totals", async () => {
+    const rec = recorder();
+    rec.compact({ evicted: null, freedTokens: null, reason: "budget" });
+    rec.retry({ attempt: 2, maxAttempts: null, delayMs: 500, reason: "HTTP 503" });
+    await rec.finish();
+
+    const rows = await events();
+    assert.deepEqual(
+      rows.map((row) => [row.kind, row.summary]),
+      [
+        ["compact", "OpenCode compacted the conversation to fit the model context window"],
+        ["retry", "Model call retried (2): HTTP 503"],
+      ],
+    );
+    assert.deepEqual(detail(rows[0]), { evicted: null, freedTokens: null, reason: "budget" });
+    assert.deepEqual(detail(rows[1]), { attempt: 2, maxAttempts: null, delayMs: 500 });
+  });
 });
 
 // ───────────────────────────── reading back ─────────────────────────────

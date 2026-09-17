@@ -22,7 +22,7 @@ import { enqueueDurableChatTurn, executeDurableChatTurn } from "./durableChatTur
  * the persisted chat row.
  *
  * The layers above and below are unit-tested (`agent/contextUsage.test.ts`,
- * `agent/loop.test.ts`, `chatTurnContextUsage.test.ts`), but the wiring between
+ * the OpenCode adapter, and `chatTurnContextUsage.test.ts`), but the wiring between
  * them is the part that compiles clean while doing nothing: the SSE payload is
  * untyped, the entity columns break no consumer, and an omitted callback is
  * legal everywhere. So this drives a real AI Model — a `custom` OpenAI-
@@ -184,16 +184,16 @@ async function runTurn(
 
 describe("durable chat turn context gauge", () => {
   test("streams and persists the provider's prompt count against the model window", async () => {
-    await startUpstream([{ text: "All good.", usage: { promptTokens: 92_000, completionTokens: 40 } }]);
+    await startUpstream([
+      { text: "All good.", usage: { promptTokens: 92_000, completionTokens: 40 } },
+    ]);
     const seed = await fixture(200_000);
 
     const { readings, row } = await runTurn(seed);
 
     assert.equal(row.status, "ok");
     assert.equal(row.content, "All good.");
-    assert.deepEqual(readings, [
-      { promptTokens: 92_000, contextWindow: 200_000, percent: 46 },
-    ]);
+    assert.deepEqual(readings, [{ promptTokens: 92_000, contextWindow: 200_000, percent: 46 }]);
     // Persisted, not just streamed: a browser that reloads or never had the
     // stream at all reads the row.
     assert.equal(row.contextTokens, 92_000);
@@ -208,9 +208,7 @@ describe("durable chat turn context gauge", () => {
 
     const { readings, row } = await runTurn(seed);
 
-    assert.deepEqual(readings, [
-      { promptTokens: 142_311, contextWindow: null, percent: null },
-    ]);
+    assert.deepEqual(readings, [{ promptTokens: 142_311, contextWindow: null, percent: null }]);
     assert.equal(row.contextTokens, 142_311);
     assert.equal(row.contextWindow, null);
   });

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { config } from "../../config.js";
@@ -21,6 +24,7 @@ import type { SandboxCommandResult } from "./agent/sandboxCommandRun.js";
 import {
   MAX_CHECKS_PER_ROUTINE,
   RoutineCheckError,
+  commandChecksAvailable,
   composeChecksBlock,
   composeRemediationMessage,
   createCheck,
@@ -51,6 +55,7 @@ import {
 const mutableCodingConfig = config.agent.codingTools as {
   enabled: boolean;
   executionMode: "host" | "bubblewrap" | "disabled";
+  allowUnsafeHostExecution: boolean;
 };
 const originalCodingConfig = { ...mutableCodingConfig };
 
@@ -69,8 +74,7 @@ after(async () => {
 beforeEach(async () => {
   await resetTestDb();
   Object.assign(mutableCodingConfig, originalCodingConfig);
-  // The shipped default. `createCheck` refuses a command check without it, and
-  // most of these tests need to be able to create one.
+  // The optional isolated path remains covered through the command seam.
   mutableCodingConfig.enabled = true;
   mutableCodingConfig.executionMode = "bubblewrap";
   companyId = testCompanyId();
@@ -428,6 +432,59 @@ describe("runChecksForRun — the command kind", () => {
       createdById: null,
     });
   }
+
+  for (const exitCode of [0, 4]) {
+    test(`a real host command with exit ${exitCode} persists its Check result`, async (t) => {
+      mutableCodingConfig.executionMode = "host";
+      mutableCodingConfig.allowUnsafeHostExecution = true;
+      assert.deepEqual(commandChecksAvailable(), { available: true });
+      const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-host-check-"));
+      t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+      await fs.writeFile(path.join(cwd, "evidence.txt"), "verified work");
+      await fs.writeFile(
+        path.join(cwd, "check.cjs"),
+        `process.stdout.write(require("node:fs").readFileSync("evidence.txt")); process.exit(${exitCode});`,
+      );
+      await commandCheck("node check.cjs");
+      const outcome = await runChecks({ cwd });
+      assert.equal(outcome.verdict, exitCode === 0 ? "passed" : "failed");
+      assert.equal(outcome.results[0].exitCode, exitCode);
+      assert.equal(outcome.results[0].detail, "verified work");
+      const stored = await AppDataSource.getRepository(RunCheckResult).findOneByOrFail({
+        runId: run.id,
+      });
+      assert.equal(stored.exitCode, exitCode);
+      assert.equal(stored.passed, exitCode === 0);
+    });
+  }
+
+  test("host Checks preserve Environment values and obey the Run deadline", async (t) => {
+    mutableCodingConfig.executionMode = "host";
+    mutableCodingConfig.allowUnsafeHostExecution = true;
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-host-check-"));
+    t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+    await fs.writeFile(
+      path.join(cwd, "check.sh"),
+      'printf \'%s\\n\' "$CHECK_VALUE"\nexec sleep 30\n',
+    );
+    await commandCheck("sh check.sh", 300);
+    const outcome = await runChecks({
+      cwd,
+      toolEnv: { CHECK_VALUE: "expected environment" },
+      deadlineAtMs: Date.now() + 2_000,
+    });
+    assert.equal(outcome.verdict, "failed");
+    assert.equal(outcome.results[0].exitCode, null);
+    assert.match(outcome.results[0].detail, /expected environment/);
+    assert.match(outcome.results[0].detail, /stopped after/);
+  });
+
+  test("host Checks respect the explicit execution opt-out before creating a Check", async () => {
+    mutableCodingConfig.executionMode = "host";
+    mutableCodingConfig.allowUnsafeHostExecution = false;
+    assert.equal(commandChecksAvailable().available, false);
+    await assert.rejects(commandCheck(), /host execution|host command execution/i);
+  });
 
   test("exit 0 passes and keeps the output as the detail", async () => {
     await commandCheck();

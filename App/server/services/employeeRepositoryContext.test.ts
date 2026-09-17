@@ -356,7 +356,7 @@ describe("materialized employee repository contributor context", () => {
   });
 
   for (const mode of ["host", "bubblewrap"] as const) {
-    test(`large guides use ${mode === "host" ? "read_file" : "bash"} and stay within the shared budget`, async () => {
+    test(`large guides use ${mode === "host" ? "the available file reader" : "bash"} and stay within the shared budget`, async () => {
       const { synced } = await grantedCheckout(
         "large",
         "AGENTS.md",
@@ -366,7 +366,8 @@ describe("materialized employee repository contributor context", () => {
       const result = await context([synced]);
       assert.ok(result.length <= REPOSITORIES_CONTEXT_MAX_CHARS);
       assert.match(result, /truncat|excerpt|omitted/i);
-      assert.ok(result.includes(mode === "host" ? "read_file" : "bash"));
+      assert.ok(result.includes(mode === "host" ? "the available file-reading tool" : "bash"));
+      if (mode === "host") assert.doesNotMatch(result, /read_file/);
       assert.match(result, /repositories\/large\/AGENTS.md/);
     });
   }

@@ -2437,8 +2437,8 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
  * Create or edit one Check.
  *
  * The `command` option is disabled — with the server's own reason shown beside
- * it — wherever the sandbox cannot start. Command checks run in the same
- * bubblewrap boundary as `bash`, so on those installs one could never pass,
+ * it — wherever command execution is unavailable. Checks follow the configured
+ * host or bubblewrap execution mode, so on disabled installs one could never pass,
  * and letting somebody author it would produce a Routine that fails forever
  * for a reason nothing on screen explains.
  */
@@ -2599,8 +2599,8 @@ function CheckEditor({
         ) : (
           <div className="flex flex-col gap-3">
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Runs in the same isolated sandbox as the employee&apos;s shell, rooted at its working
-              directory. It passes on exit 0.
+              Runs in the employee&apos;s working directory using this installation&apos;s command
+              execution mode. It passes on exit 0.
             </div>
             <Input
               label="Command"

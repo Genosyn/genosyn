@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
-import { createModelClient } from "./agent/modelClients/index.js";
+import { agentRuntime } from "./agent/runtime.js";
+import { residentOnlyRegistry } from "./agent/tools/toolRegistry.js";
 import {
   discoverApiModels,
   modelSetupFailure,
@@ -12,16 +13,16 @@ import {
 import { isModelConnected } from "./providers.js";
 import { createActiveModel } from "./models.js";
 
-/** Exercise the same streaming/tool API used by employee Runs, without executing tools. */
-export async function verifyDirectModel(model: AIModel): Promise<void> {
+/** Exercise the same OpenCode runtime as employee Runs using one harmless tool. */
+export async function verifyOpenCodeModel(model: AIModel): Promise<void> {
+  let verified = false;
   try {
-    const resolved = await createModelClient(model);
-    if ("error" in resolved) throw new ModelSetupError(resolved.error);
-    const turn = await resolved.client.streamTurn({
+    await agentRuntime.run({
+      model,
       system:
         "This is a connection test. Call connection_test exactly once with ok set to true. Do not do anything else.",
       messages: [{ role: "user", content: [{ type: "text", text: "Test the connection now." }] }],
-      tools: [
+      registry: residentOnlyRegistry([
         {
           name: "connection_test",
           description:
@@ -32,17 +33,21 @@ export async function verifyDirectModel(model: AIModel): Promise<void> {
             required: ["ok"],
             additionalProperties: false,
           },
+          readOnly: true,
+          run: async (input) => {
+            verified = input.ok === true;
+            return {
+              content: verified ? "Connection verified. Reply OK and finish." : "Expected ok=true.",
+              isError: !verified,
+            };
+          },
         },
-      ],
-      signal: AbortSignal.timeout(45_000),
-      maxOutputTokens: 1024,
+      ]),
+      nativeCoding: false,
+      signal: AbortSignal.timeout(120_000),
+      maxSteps: 2,
     });
-    if (
-      !turn.blocks.some(
-        (block) =>
-          block.type === "tool_use" && block.name === "connection_test" && block.input.ok === true,
-      )
-    ) {
+    if (!verified) {
       throw new ModelSetupError(
         "The AI Model responded but did not complete the tool-use test. Choose another model or try again.",
       );
@@ -80,7 +85,7 @@ export async function connectApiModel(options: {
     connectedAt: null,
   });
   model.configJson = configWithApiKey(model, options.apiKey, options.companyId);
-  await verifyDirectModel(model);
+  await verifyOpenCodeModel(model);
   model.connectedAt = new Date();
   // Nothing is saved or activated before a real model reply succeeds.
   const saved = await createActiveModel(model);
@@ -96,7 +101,7 @@ export async function replaceApiKey(
   const candidate = Object.assign(new AIModel(), model, {
     configJson: configWithApiKey(model, apiKey, companyId),
   });
-  await verifyDirectModel(candidate);
+  await verifyOpenCodeModel(candidate);
   candidate.connectedAt = new Date();
   return saveVerifiedModel(model, candidate);
 }
@@ -110,7 +115,7 @@ export async function verifyModelEdit(model: AIModel, modelId: string): Promise<
     );
   }
   if (!isModelConnected(model) || model.authMode === "subscription") return;
-  await verifyDirectModel(Object.assign(new AIModel(), model, { model: modelId }));
+  await verifyOpenCodeModel(Object.assign(new AIModel(), model, { model: modelId }));
 }
 
 export async function saveVerifiedModel(
@@ -173,7 +178,7 @@ export async function editApiModel(
   if (options.apiKey)
     candidate.configJson = configWithApiKey(candidate, options.apiKey, options.companyId);
   if (isModelConnected(candidate)) {
-    await verifyDirectModel(candidate);
+    await verifyOpenCodeModel(candidate);
     candidate.connectedAt = new Date();
   }
   return saveVerifiedModel(previous, candidate, {

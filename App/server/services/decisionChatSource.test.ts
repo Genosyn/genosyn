@@ -438,8 +438,16 @@ function readThenAnswer(request: ModelRequest) {
 }
 
 function sendSse(response: ServerResponse, payload: Record<string, unknown>): void {
+  // OpenCode namespaces MCP tools on the provider wire. Keep fixture scenarios
+  // expressed in domain names, while exercising the actual prefixed runtime call.
+  const wire = JSON.parse(JSON.stringify(payload)) as {
+    choices?: Array<{ delta?: { tool_calls?: Array<{ function: { name: string } }> } }>;
+  };
+  for (const choice of wire.choices ?? [])
+    for (const call of choice.delta?.tool_calls ?? [])
+      call.function.name = `genosyn_${call.function.name}`;
   response.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
-  response.end(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`);
+  response.end(`data: ${JSON.stringify(wire)}\n\ndata: [DONE]\n\n`);
 }
 
 async function withModel(
@@ -458,6 +466,11 @@ async function withModel(
       for await (const chunk of request)
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       const captured = JSON.parse(Buffer.concat(chunks).toString("utf8")) as ModelRequest;
+      // Remove only OpenCode's transport namespace; unexpected native tools remain
+      // visible to the restricted-surface assertions below.
+      for (const tool of captured.tools ?? [])
+        if (tool.function?.name?.startsWith("genosyn_"))
+          tool.function.name = tool.function.name.slice(8);
       requests.push(captured);
       sendSse(response, await respond(captured, requests.length));
     } catch (error) {

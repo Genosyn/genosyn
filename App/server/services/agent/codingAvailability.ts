@@ -15,12 +15,9 @@ export type CodingRuntimeAvailability =
 let sandboxFallbackReason: string | null = null;
 
 /**
- * Why boot dropped the shipped `bubblewrap` default, if it did. Command
- * execution is on out of the box, so "disabled" is usually something the host
- * decided rather than the operator — and a Member reading the Repository page
- * deserves the actual cause, not a flat statement of policy. Set once by
- * {@link resolveCodingExecutionMode}; an operator who chose `disabled`
- * themselves leaves it null and keeps the plain message.
+ * Why boot disabled an explicitly selected bubblewrap sandbox, if it did.
+ * A Member reading the Repository page should see the actual cause. The
+ * shipped host default does not probe or depend on bubblewrap.
  */
 export function noteCodingSandboxFallback(reason: string | null): void {
   sandboxFallbackReason = reason;
@@ -39,16 +36,15 @@ export function codingSandboxRemediation(reason: string): string {
   if (reason.startsWith("no bubblewrap executable")) {
     return "Install bubblewrap on the host (Debian/Ubuntu: `apt-get install bubblewrap`), or run the standard Docker image, which ships it.";
   }
-  return "Under Docker, the container has to be created with `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` — `genosyn upgrade` recreates it that way. On a bare Linux host, allow unprivileged user namespaces.";
+  return "Under Docker, the container has to be created with `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` — `GENOSYN_SANDBOX=1 genosyn upgrade` recreates it that way. On a bare Linux host, allow unprivileged user namespaces.";
 }
 
 /**
  * One fail-closed availability decision for every coding execution seam.
  *
- * Host mode is deliberately a two-part opt-in: selecting `host` alone does
- * not authorize a child process with the App user's filesystem and network
- * access. Callers must not duplicate this policy, because repository Git and
- * the shell need to agree about whether host execution is allowed.
+ * Host execution is enabled in the shipped configuration. Existing operators
+ * can retain their explicit opt-out with allowUnsafeHostExecution=false.
+ * Repository commands, Checks, and coding tools share this decision.
  */
 export function codingRuntimeAvailability(
   settings: CodingRuntimeSettings = config.agent.codingTools,
@@ -57,7 +53,7 @@ export function codingRuntimeAvailability(
     return {
       available: false,
       reason: sandboxFallbackReason
-        ? `Command execution is disabled: the coding sandbox could not start (${sandboxFallbackReason}). Genosyn runs commands only behind bubblewrap, which needs Linux unprivileged user namespaces. ${codingSandboxRemediation(sandboxFallbackReason)}`
+        ? `Command execution is disabled: the selected coding sandbox could not start (${sandboxFallbackReason}). Bubblewrap needs Linux unprivileged user namespaces. ${codingSandboxRemediation(sandboxFallbackReason)}`
         : "Command execution is disabled on this Genosyn installation.",
     };
   }

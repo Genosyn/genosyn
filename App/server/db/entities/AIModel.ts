@@ -81,9 +81,9 @@ export class AIModel {
    * a default: guessing high fails the run, guessing low truncates work that
    * would have fit.
    *
-   * The agent loop budgets against this to decide when to drop older tool
-   * results (services/agent/contextBudget.ts). With it null there is no budget,
-   * and an over-long prompt is only caught after the provider rejects a turn.
+   * OpenCode receives a known window for its context compaction. When it is
+   * unknown, the runtime uses its own fallback; the UI still reports unknown
+   * rather than presenting that fallback as a provider-reported limit.
    */
   @Column({ type: "integer", nullable: true })
   contextWindow!: number | null;

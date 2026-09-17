@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { config } from "../../config.js";
 import type { Repository } from "../db/entities/Repository.js";
@@ -15,26 +16,13 @@ import { normalizeRepositoryPath, resolveInCheckout } from "./repositoryWorkspac
 /**
  * Running one command inside a Repository work session's worktree.
  *
- * There is one execution mode here, and it is bubblewrap. The session worktree
- * is the sandbox root — not the employee's working directory, and not the
- * repository workspace above it. That choice is the whole design:
- *
- *   - The Member checkout beside it stays unreachable. It is the tree that
- *     holds a real `origin` and pushes with the company's credential, and the
- *     reason `repositoryWorkspace.ts` keeps two checkouts at all is that this
- *     one is model-unreachable. A command that could read or write it would
- *     collapse that distinction.
- *   - Other sessions stay unreachable, including this employee's own.
- *   - Git does not work inside the sandbox, and that is intended rather than
- *     tolerated. A worktree's `.git` is a pointer to a directory in the
- *     Member checkout, which is not mounted, so `git` reports no repository.
- *     Recording work stays the App's job through `repository_commit`, where
- *     the committer identity, the branch, and the hooks-off, config-scoped
- *     invocation are all server-owned.
- *
- * What the command *can* do is the thing the feature exists for: run the
- * repository's tests, its linter, its formatter, its build — against the files
- * the employee just edited, before a human is asked to read the diff.
+ * Commands run directly on the host by default, with the session worktree as
+ * their working directory. The Repository's command policy, bounded output,
+ * timeout, and cancellation apply in both host and optional bubblewrap mode.
+ * Genosyn continues to own checkpoint commits and delivery through its
+ * Repository tools. A host working directory is not filesystem isolation.
+ * When bubblewrap is selected, only the session worktree is mounted and its
+ * .git pointer stays read-only.
  */
 
 /** Default ceiling for one command. Long enough for a real test suite. */
@@ -47,12 +35,8 @@ export const MAX_SESSION_COMMAND_MS = 10 * 60 * 1000;
  * Output kept from one command, head and tail — see `sandboxCommandRun.ts`
  * for why both ends survive.
  *
- * Sized to fit under the agent loop's own clip on a tool result (60,000
- * characters on any window that is not tiny, `contextBudget.ts`). It used to
- * be 120 KB, which meant a long test run was cut twice: this module kept the
- * head and the tail, and the loop then kept only the head of that — throwing
- * away the failure summary the tail had been kept for. The tail gets the
- * larger share because that is where a test runner prints what failed.
+ * Keep one command's evidence manageable for the runtime. The tail gets the
+ * larger share because that is where a test runner prints its failure summary.
  */
 export const MAX_SESSION_COMMAND_OUTPUT = 48 * 1024;
 const HEAD_OUTPUT_BYTES = 16 * 1024;
@@ -77,8 +61,8 @@ export const SESSION_COMMAND_ENV: Record<string, string> = {
 };
 
 /**
- * `$HOME` for a session command: the sandbox's private `/tmp`, which exists
- * for exactly one command. See `SandboxShellOptions.home`.
+ * `$HOME` inside an optional sandbox. Host commands get a temporary directory
+ * outside the worktree so caches are not included in checkpoint commits.
  */
 export const SESSION_COMMAND_HOME = "/tmp";
 
@@ -100,27 +84,13 @@ export function isCommandRefusal(
  *
  * Read before the turn starts so the briefing tells the employee the truth: a
  * session that is about to be told "run the tests before you commit" on an
- * install with no sandbox would spend the turn discovering that itself.
+ * install with commands disabled would spend the turn discovering that itself.
  */
 export function workSessionCommandAvailability(
   repo: Pick<Repository, "commandMode">,
 ): { available: true } | { available: false; reason: string } {
   const runtime = codingRuntimeAvailability();
   if (!runtime.available) return { available: false, reason: runtime.reason };
-  // Bubblewrap or nothing, for the same reason `bash` is bubblewrap-only in
-  // `agent/tools/index.ts`: a host shell runs as the App's own OS user, where
-  // a working directory is a convention rather than a boundary — it could read
-  // the database, the managed encryption roots, or another child's bearer
-  // token through /proc. Acknowledging host execution buys server-owned Git
-  // and the path-confined file tools; it has never bought an employee a shell,
-  // and a work session is not the place to start.
-  if (config.agent.codingTools.executionMode !== "bubblewrap") {
-    return {
-      available: false,
-      reason:
-        "Commands in a work session run only behind bubblewrap isolation, and this Genosyn installation is not using it.",
-    };
-  }
   if (repo.commandMode === "off") {
     return {
       available: false,
@@ -164,10 +134,14 @@ export async function runWorkSessionCommand(args: {
   let childEnv: Record<string, string>;
   let commandDirectory: string;
   let relativeCwd: string;
+  let hostHome: string | undefined;
   try {
     const resolved = resolveCommandDirectory(args.directory, args.cwd ?? ".");
     commandDirectory = resolved.directory;
     relativeCwd = resolved.cwd;
+    if (config.agent.codingTools.executionMode === "host") {
+      hostHome = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-session-command-"));
+    }
     const invocation = buildSandboxShellInvocation({
       workspaceRoot: args.directory,
       cwd: commandDirectory,
@@ -184,28 +158,33 @@ export async function runWorkSessionCommand(args: {
       login: false,
       // And `$HOME` is not the worktree either, or every package manager's
       // cache would land inside it and be committed. See `SESSION_COMMAND_HOME`.
-      home: SESSION_COMMAND_HOME,
+      home: hostHome ?? SESSION_COMMAND_HOME,
       readOnlyPaths: gitPointerOverlay(args.directory),
     });
     executable = invocation.executable;
     spawnArgs = invocation.args;
     childEnv = invocation.env;
   } catch (error) {
+    if (hostHome) fs.rmSync(hostHome, { recursive: true, force: true });
     return { refused: `Could not prepare the command: ${messageOf(error)}` };
   }
 
-  const result = await spawnSandboxedCommand({
-    executable,
-    args: spawnArgs,
-    cwd: commandDirectory,
-    env: childEnv,
-    timeoutMs,
-    signal: args.signal,
-    maxOutputBytes: MAX_SESSION_COMMAND_OUTPUT,
-    headOutputBytes: HEAD_OUTPUT_BYTES,
-    abortedMessage: "The command was stopped because the work session ended.",
-  });
-  return { ...result, cwd: relativeCwd };
+  try {
+    const result = await spawnSandboxedCommand({
+      executable,
+      args: spawnArgs,
+      cwd: commandDirectory,
+      env: childEnv,
+      timeoutMs,
+      signal: args.signal,
+      maxOutputBytes: MAX_SESSION_COMMAND_OUTPUT,
+      headOutputBytes: HEAD_OUTPUT_BYTES,
+      abortedMessage: "The command was stopped because the work session ended.",
+    });
+    return { ...result, cwd: relativeCwd };
+  } finally {
+    if (hostHome) fs.rmSync(hostHome, { recursive: true, force: true });
+  }
 }
 
 /** Resolve the command's folder without changing what the sandbox exposes. */

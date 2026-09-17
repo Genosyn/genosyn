@@ -927,7 +927,7 @@ export const ROLES: RoleDef[] = [
     description:
       "Reproduces the overnight error spike, opens the fix as a pull request with a regression test, and clears fourteen stale packages. Merging still needs a human.",
     intro:
-      "At 02:10 the checkout error rate tripled. Sam reproduced it in a bubblewrap-isolated worktree, isolated the null case, and opened a pull request with a regression test before the standup that would have assigned it. Nothing merged: a Member reads the diff and merges it, and only an owner or admin can push.",
+      "At 02:10 the checkout error rate tripled. Sam reproduced it in a separate worktree, isolated the null case, and opened a pull request with a regression test before the standup that would have assigned it. Nothing merged: a Member reads the diff and merges it, and only an owner or admin can push.",
     reclaims:
       "Your phone goes off at 02:10, and the fourteen dependency bumps nobody has volunteered for since March are still waiting on Monday.",
     shipped: "opened 6 pull requests with tests",
@@ -936,7 +936,7 @@ export const ROLES: RoleDef[] = [
         time: "02:10",
         at: 2.17,
         title: "Picks up the spike nobody is awake for",
-        body: "Checkout's error rate triples. Sam reproduces the failure in a sandboxed worktree, narrows it to the null case, and opens a pull request with the fix and a regression test attached.",
+        body: "Checkout's error rate triples. Sam reproduces the failure in a separate worktree, narrows it to the null case, and opens a pull request with the fix and a regression test attached.",
         where: "Repositories",
       },
       {
@@ -1022,8 +1022,8 @@ export const ROLES: RoleDef[] = [
     capabilities: [
       {
         icon: "lock",
-        title: "Isolated by default",
-        body: "Code runs behind bubblewrap's Linux namespaces, rooted at the work session's own worktree. Your checkout, sibling sessions, and git itself stay outside. A host that cannot isolate a shell gets no shell at all.",
+        title: "Commands follow your policy",
+        body: "Commands start in the work session's own worktree, with the Repository's command policy applied. Host execution inside the App container is the default; bubblewrap is optional. Review and delivery remain explicit steps.",
       },
       {
         icon: "gitFork",
@@ -1048,7 +1048,7 @@ export const ROLES: RoleDef[] = [
       },
       {
         q: "Where does the code actually run?",
-        a: "In a bubblewrap sandbox with private PID and /tmp namespaces, rooted at the work session's worktree. Where namespaces are unavailable, execution is disabled rather than falling back to your host.",
+        a: "In the work session's worktree. The default host mode runs inside the App container with the App process user's authority. You can choose optional bubblewrap isolation or disable command execution.",
       },
       {
         q: "Does it get my repository credentials?",

@@ -109,12 +109,12 @@ export const PRODUCTS: ProductDef[] = [
       },
     ],
     employees: {
-      heading: "Genosyn runs the model loop in process",
-      body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on a trusted single-tenant install. Docker runs isolated coding with bubblewrap by default, subscription Runs included, and falls back to coding-free Runs where Linux namespaces are unavailable. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
+      heading: "OpenCode runs the AI work",
+      body: "OpenCode runs API-key and custom models, managing the model loop, coding tools, and context compaction. Genosyn supplies the Soul, Skills, and company tool registry, enforces Grants and Approvals, and records the work. Host coding is the trusted self-host default; bubblewrap is optional. Eligible OpenAI subscription models keep using the official Codex app-server.",
       bullets: [
         {
           title: "Tools match the deployment",
-          body: "Coding tools are on by default, and only ever behind bubblewrap's Linux namespaces — a host that cannot isolate a shell gets none. Separately acknowledged trusted host mode adds path-confined file helpers instead. Opt-in browser tools drive a headless Chromium with a host allow-list and human take-over for captchas.",
+          body: "OpenCode's native coding tools are on by default for ordinary employee work, running with the App process user's authority inside the App container. Optional bubblewrap isolates commands; disabled mode omits coding. Browser tools drive Chromium with a host allowlist and human takeover for captchas.",
         },
         {
           title: "Memory that persists",
@@ -129,11 +129,11 @@ export const PRODUCTS: ProductDef[] = [
     faqs: [
       {
         q: "What exactly is an AI Employee — is it just a chatbot persona?",
-        a: "No. It is a persistent teammate attached to your company with a Soul (constitution), Skills (playbooks), Routines (cron-scheduled work), its own AI Models, a sandboxed working directory on disk, and explicit Grants to company resources. Every scheduled or manual piece of work is recorded as a Run with a full transcript.",
+        a: "No. It is a persistent teammate attached to your company with a Soul (constitution), Skills (playbooks), Routines (cron-scheduled work), its own AI Models, a working directory on disk, and explicit Grants to company resources. Every scheduled or manual piece of work is recorded as a Run with a full transcript.",
       },
       {
         q: "Which models can an employee run on?",
-        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Trusted single-tenant deployments can also connect OpenAI through a ChatGPT subscription; the Docker default runs it with bubblewrap-isolated coding, or without coding tools where Linux namespaces are unavailable. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
+        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Trusted single-tenant deployments can also connect OpenAI through a ChatGPT subscription; the Docker default supports host coding without requiring Linux namespaces. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
       },
       {
         q: "Where do model credentials live?",
@@ -141,11 +141,11 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Can an AI Employee take an action I haven't approved?",
-        a: "Not if you gate it. Flip approval-required on a Routine and the run blocks on a human checkmark; browser form submits can require approval per employee; guarded MCP tools and spend-increasing ad-platform changes queue for approval automatically. An Approvals inbox surfaces everything waiting.",
+        a: "Genosyn enforces Approvals on its product tools. Require approval on a Routine to stop before work starts; browser form submits, guarded tools, and spend-increasing ad-platform changes can also wait for a Member. Host coding shares the App process authority, so those product gates are not an OS sandbox.",
       },
       {
         q: "Do I need to install a provider CLI or wrapper per model?",
-        a: "No generic provider CLI is required. API-key and custom models run through Genosyn's in-process loop. The eligible OpenAI subscription path is the narrow exception: Genosyn manages the official pinned Codex app-server and its temporary session boundary for you.",
+        a: "No separate runtime setup is required. Genosyn bundles and manages pinned OpenCode for API-key and custom models. Eligible OpenAI subscription models use the official pinned Codex app-server, also managed by Genosyn.",
       },
     ],
     docsPath: "/docs/employees",
@@ -1501,15 +1501,15 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "A session ends with one branch and one report",
-      body: "Grant an employee a Repository and you can hand it a piece of work the way you would hand it to a person: describe the outcome, let it work in isolation, then read what it did before any of it lands.",
+      body: "Grant an employee a Repository and you can hand it a piece of work the way you would hand it to a person: describe the outcome, let it work on a separate branch, then read what it did before any of it lands.",
       bullets: [
         {
-          title: "Isolated by construction",
-          body: "Each session gets its own git worktree and branch. Two sessions never collide, and an employee cannot reach the shared checkout, write into .git, or make a tool follow a symlink out of the tree.",
+          title: "A separate branch per session",
+          body: "Each session gets its own git worktree and branch. Genosyn's file tools stay inside that tree and protect .git. Host commands use the App process authority; select optional bubblewrap when commands also need OS isolation.",
         },
         {
           title: "Commands you decide on",
-          body: "Choose per repository what an employee may run: nothing, only what matches your list, or anything. The default list covers the usual test, lint, and build tooling and leaves out curl, ssh, and git push. Commands run behind bubblewrap with the session's worktree as their whole filesystem — and where that isolation is unavailable, sessions carry on reading, writing, and committing without them.",
+          body: "Choose per repository what an employee may run: nothing, only what matches your list, or anything. The default list covers the usual test, lint, and build tooling and leaves out curl, ssh, and git push. Commands run in the session's worktree using the configured execution mode: host by default, optional bubblewrap, or disabled. The command policy and work-session review flow apply in either execution mode.",
         },
         {
           title: "A diff and a report",
@@ -1532,7 +1532,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Do I need coding tools or a sandbox enabled?",
-        a: "Not for reading, writing, and committing: the browser editor and AI work sessions run against a server-owned checkout with no shell involved. You need the sandbox for two things. One is letting an employee run your tests and linter inside a work session. The other is the separate per-employee checkout, the one an employee uses with ordinary git during open-ended chat and Routine work. The standard Docker install has the sandbox by default, unless its host denies bubblewrap the Linux namespaces it needs.",
+        a: "No sandbox is required. The default host mode supports coding and Repository commands inside the App container, including tests and linters. Optional bubblewrap adds OS isolation. Disabled mode still supports the browser editor and work-session reading, writing, and committing, while omitting shell commands and the separate per-employee checkout.",
       },
       {
         q: "Can an AI Employee push straight to my remote?",

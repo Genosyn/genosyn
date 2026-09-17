@@ -338,7 +338,7 @@ export function llmsFullTxt(): string {
     "",
     `> ${SITE_DESCRIPTION}`,
     "",
-    "Genosyn is an open-source (Apache 2.0), self-hostable platform for running companies autonomously with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models run through Genosyn's in-process loop. Trusted single-tenant deployments, including the standard Docker default, can use OpenAI subscription access through the official pinned Codex app-server alongside bubblewrap-isolated coding and repository work, or without coding tools where Linux namespaces are unavailable. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
+    "Genosyn is an open-source (Apache 2.0), self-hostable platform for running companies autonomously with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models use the bundled OpenCode runtime. Trusted single-tenant deployments use host coding by default, including standard Docker, with bubblewrap isolation optional. OpenAI subscription access keeps using the official pinned Codex app-server. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
     "",
     `Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` starts Genosyn on localhost:8471.`,
     "",

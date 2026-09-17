@@ -534,11 +534,7 @@ export async function fastForwardEmployeeDefaultBranch(
     if (dirty.stdout.trim()) return;
     // `--ff-only` refuses a divergence, which is the remaining case this must
     // not resolve on its own.
-    await runGit(workspaceRoot, repoPath, [
-      "merge",
-      "--ff-only",
-      `refs/remotes/origin/${branch}`,
-    ]);
+    await runGit(workspaceRoot, repoPath, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
   } catch {
     // Every failure here — no such remote branch, a divergence, a detached
     // HEAD, a repository with no commits yet — means "leave it alone", which
@@ -833,7 +829,7 @@ export async function composeRepositoriesContext(
     if (guideBudget <= 0) continue;
     const guide = await readContributorGuide(checkout.path, {
       pathPrefix: relativePath,
-      readTool: config.agent.codingTools.executionMode === "bubblewrap" ? "bash" : "read_file",
+      readTool: config.agent.codingTools.executionMode === "bubblewrap" ? "bash" : "available",
       maxInlineBytes: guideBudget,
     });
     if (!guide) continue;

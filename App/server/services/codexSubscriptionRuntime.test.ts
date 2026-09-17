@@ -253,22 +253,25 @@ describe("OpenAI subscription credential runtime", () => {
     assert.deepEqual(await fs.readdir(tempRoot), []);
   });
 
-  test("host and multi-tenant policies reject service writes before credentials change", async () => {
+  test("host mode keeps subscription credentials encrypted and removes their temporary runtime homes", async () => {
     const model = await insertSubscriptionModel();
     const accessToken = `codex-test-${randomUUID()}-${randomUUID()}`;
-
     codingTools.executionMode = "host";
-    await assert.rejects(
-      subscription.saveSubscriptionAccessToken(model.id, accessToken),
-      /host-process tools/,
-    );
-    await assert.rejects(subscription.prepareCodexRuntime(model.id), /host-process tools/);
-    assert.equal(
-      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: model.id })).configJson,
-      "{}",
-    );
+    await subscription.saveSubscriptionAccessToken(model.id, accessToken);
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: model.id });
+    assert.equal(saved.configJson.includes(accessToken), false);
+    const lease = await subscription.prepareCodexRuntime(model.id);
+    assert.equal(lease.env.CODEX_ACCESS_TOKEN, accessToken);
+    assert.equal((await fs.stat(lease.home.authRoot)).mode & 0o777, 0o700);
+    const authRoot = lease.home.authRoot;
+    await lease.finish();
+    await assertMissing(authRoot);
     assert.deepEqual(await fs.readdir(tempRoot), []);
+  });
 
+  test("multi-tenant policies reject service writes before credentials change", async () => {
+    const model = await insertSubscriptionModel();
+    const accessToken = `codex-test-${randomUUID()}-${randomUUID()}`;
     codingTools.executionMode = "disabled";
     security.multiTenant = true;
     await assert.rejects(

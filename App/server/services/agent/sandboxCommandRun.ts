@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 /**
- * Running one sandboxed command to completion, and keeping what it printed.
+ * Running one host or sandboxed command to completion and keeping its output.
  *
  * `sandboxShell.ts` is the sibling of this module and states the reason both
  * exist: two callers building the same child must not drift. That file owns
@@ -159,6 +159,9 @@ export function spawnSandboxedCommand(
     };
 
     child.on("error", (error) => finish(null, `Could not run the command: ${error.message}`));
+    // A background child can keep stdout/stderr open after the shell exits.
+    // Kill descendants on exit, before waiting for close to drain the pipes.
+    child.on("exit", killGroup);
     child.on("close", (code) => {
       if (timedOut) {
         finish(null, `The command was stopped after ${Math.round(options.timeoutMs / 1000)}s.`);

@@ -66,28 +66,31 @@ into its working directory. Everything under `data/` is gitignored.
 The cron-driven runner in `server/services/runner.ts` drives the employee's
 active model with a prompt composed from their Soul + Skills + Routine.
 Anthropic and OpenAI API keys, plus OpenAI-compatible custom endpoints, use
-the direct in-process agent loop. A trusted, single-tenant OpenAI subscription
-model uses the official pinned `@openai/codex` app-server with an isolated
-temporary `CODEX_HOME` and a separate empty scratch directory; generic provider
-CLI harnesses remain removed. The default `bubblewrap` execution mode—including
-in the standard Docker installer—supports subscription sign-in and Runs
-alongside sandboxed `bash` and repository work. The installer creates the container with
-`--security-opt seccomp=unconfined --security-opt systempaths=unconfined`,
-without which bubblewrap can neither create its user namespace nor mount its
-own `/proc`. Where the sandbox cannot start anyway, boot falls back to
-`disabled`, which supports the same sign-in and Runs without coding tools,
-repository materialization, or user-configured stdio MCP. Every model turn in a bubblewrap deployment
-receives only sandboxed `bash` from the coding family. Host-process file tools
-are omitted install-wide so a concurrent API-key or custom-model turn cannot
-race a workspace symlink into the subscription credential. Server-managed
-repository clone/fetch and credential wiring use the same boundary, a cleared
-environment, and only the configured remote. The model receives the genosyn
-MCP tools (routines/todos/journal/memory/bases/attachments), browser tools when
-enabled, and company-configured HTTP MCP servers. User-configured stdio MCP
-servers are omitted in disabled and bubblewrap modes so an arbitrary same-UID
-child cannot inspect a subscription credential. Host mode permits those child
-processes and therefore rejects subscription auth. The agent transcript is
-written to `Run.logContent` (capped at 256KB). When no model or usable credential
+the pinned OpenCode 1.18.31 binary and SDK. OpenCode manages model turns,
+tool execution, and context compaction; Genosyn supplies the company context,
+Grants, Approvals, and domain tools and persists the transcript and work state.
+The default `host` execution mode enables OpenCode's native coding tools for
+ordinary employee work, including shell commands, without an OS sandbox. In
+Docker those commands run inside the App container with the App process user's
+authority; no special Docker security options are required. `disabled` skips
+coding and employee repository materialization. Optional `bubblewrap` uses the
+scoped command tool and disables OpenCode's native coding tools. Restricted
+review turns also omit native coding. Repository work sessions receive only
+`repository_*` tools, retaining their own worktrees, command policy, review,
+and delivery lifecycle in host or optional bubblewrap mode.
+
+A trusted, single-tenant OpenAI subscription model continues to use the
+official pinned `@openai/codex` app-server with a locked temporary `CODEX_HOME`
+and a separate empty scratch directory. Subscription coding uses Genosyn's
+coding wrappers in the selected host or bubblewrap mode. Model credentials remain encrypted on
+the AI Model row. API-key requests pass through a per-turn Genosyn proxy, so
+OpenCode receives only a disposable proxy token. Runtime authentication and state are temporary and never
+stored in employee working directories. Genosyn provides the product tools
+(Routines/Todos/Journal/Memory/Bases/attachments), browser tools when enabled,
+and company-configured HTTP MCP servers. User-configured stdio MCP servers are
+available in trusted single-tenant host mode and omitted in disabled and
+bubblewrap modes. The agent transcript is written to `Run.logContent` (capped
+at 256KB). When no model or usable credential
 is configured, the run is marked `skipped` with an explanatory log. Subscription
 auth supports one trusted, single-tenant App process; use API-key models when
 horizontally scaling App replicas.

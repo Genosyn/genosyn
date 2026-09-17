@@ -23,16 +23,14 @@ export function Verification() {
           <>
             Almost everything Genosyn used to know about a <Strong>Run</Strong> came from the Run.
             The status said the loop returned; the transcript was the model narrating its own work;
-            the verdict was a second model reading that narration. <Strong>Checks</Strong> and the
-            {" "}
+            the verdict was a second model reading that narration. <Strong>Checks</Strong> and the{" "}
             <Strong>Effects</Strong> list are the parts no model has a say in.
           </>
         }
       />
 
       <Callout kind="info" title='"Check" is the word.'>
-        Genosyn never says &quot;test,&quot; &quot;assertion,&quot; or &quot;gate&quot; for this. A
-        {" "}
+        Genosyn never says &quot;test,&quot; &quot;assertion,&quot; or &quot;gate&quot; for this. A{" "}
         <Strong>Check</Strong> is a machine-verifiable assertion a Run must pass before it finalizes
         green. System Health keeps the word <Strong>probe</Strong> for its own diagnostics precisely
         so this one stays free.
@@ -52,8 +50,8 @@ export function Verification() {
               <>
                 <Strong>How the Run ended.</Strong> <Strong>Error</Strong> means a model request or
                 runtime problem. <Strong>Failed</Strong> means intended work was not completed,
-                including an AI Employee&apos;s explicit failure report. <Strong>Completed</Strong>
-                {" "}means no known failure, and still needs the other axes for verification. See{" "}
+                including an AI Employee&apos;s explicit failure report. <Strong>Completed</Strong>{" "}
+                means no known failure, and still needs the other axes for verification. See{" "}
                 <DocLink to="/docs/routines#runs">Runs</DocLink>.
               </>
             ),
@@ -144,28 +142,23 @@ export function Verification() {
       </UL>
       <Pre lang="json">{`{ "action": "mail.send", "targetType": "mail_thread", "min": 1, "max": 3 }`}</Pre>
       <P>
-        The result records the arithmetic, not a verdict word — <em>expected at least 1</em>
-        {" "}
+        The result records the arithmetic, not a verdict word — <em>expected at least 1</em>{" "}
         <Code>mail.send</Code>, <em>the ledger has 0</em> — so the person reading it later does not
         have to re-derive why it failed.
       </P>
 
       <H3 id="command-checks">Writing a command Check</H3>
       <P>
-        A <Code>command</Code> Check runs a shell command inside the same bubblewrap boundary the
-        {" "}
-        <Code>bash</Code> tool uses, rooted at the employee&apos;s working directory, and passes on
-        exit <Code>0</Code>. Anything the sandbox can run is fair game — a test suite, a{" "}
-        <Code>git diff --exit-code</Code>, a script that curls the endpoint the Run was supposed to
-        deploy. The exit code and the tail of the output land on the result.
+        A <Code>command</Code> Check runs a shell command in the configured execution mode, rooted
+        at the employee&apos;s working directory, and passes on exit <Code>0</Code>. It can run a
+        test suite, a <Code>git diff --exit-code</Code>, or a script that checks the endpoint the
+        Run was supposed to deploy. The exit code and the tail of the output land on the result.
       </P>
-      <Callout kind="warn" title="Command Checks need the sandbox.">
-        They are available only where bubblewrap can actually start — the same rule that governs the
-        {" "}
-        <Code>bash</Code> tool, and for the same reason: host mode never gives an AI Employee a
-        same-UID shell. On a <Code>disabled</Code>-mode install, write <Code>effect</Code> Checks
-        instead. A Check that could not be run records <Strong>not passed</Strong>, with the reason;
-        it never quietly counts as a pass.
+      <Callout kind="info" title="Command Checks follow the execution mode.">
+        Command Checks work in the default host mode and in optional bubblewrap mode. Host commands
+        have the App process user&apos;s authority; bubblewrap commands use the configured isolated
+        boundary. In disabled mode, use <Code>effect</Code> Checks instead. A Check that cannot run
+        records <Strong>not passed</Strong>, with the reason; it never counts as a pass.
       </Callout>
 
       <H2 id="effects">The Effects list</H2>
@@ -274,8 +267,9 @@ export function Verification() {
       <P>
         Every round&apos;s results are kept, so the strip on the Run is honest about a Run that only
         went green on the second try, and the number of rounds spent shows beside the verdict. If
-        the Check still fails, the Run finalizes as <Strong>Failed</Strong> with <Code>checksVerdict: failed</Code> — a real
-        outcome, notified like any other bad Run, not a retry loop nobody watched.
+        the Check still fails, the Run finalizes as <Strong>Failed</Strong> with{" "}
+        <Code>checksVerdict: failed</Code> — a real outcome, notified like any other bad Run, not a
+        retry loop nobody watched.
       </P>
 
       <H2 id="consequences">What a failed Check costs</H2>

@@ -1871,9 +1871,8 @@ function SubscriptionPanel({
 
       {!model.subscriptionShellAvailable && (
         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-          Subscription turns receive the shell tool only when coding tools are enabled in bubblewrap
-          mode. It is unavailable on this install; subscription turns do not expose the host-process
-          file tools.
+          Shell commands are disabled on this install. Subscription work remains available with the
+          employee&apos;s granted company tools.
         </div>
       )}
 

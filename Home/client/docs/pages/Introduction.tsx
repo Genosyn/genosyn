@@ -51,9 +51,9 @@ export function Introduction() {
       <P>
         Everything is plain markdown stored on the database row. You can read it, diff it, copy it,
         share it — there is no opaque &ldquo;agent configuration&rdquo; in another system. The
-        scheduler is <Code>node-cron</Code>, which invokes the selected agent runtime with tools
-        rooted in the employee&apos;s sandboxed directory and credentials scoped to that employee
-        only.
+        scheduler is <Code>node-cron</Code>, which starts OpenCode for API-key and custom models, or
+        the official Codex app-server for ChatGPT subscription access. Genosyn supplies the
+        employee&apos;s company context and granted tools and keeps the work record.
       </P>
 
       <H2 id="who-its-for">Who it&apos;s for</H2>
@@ -70,8 +70,8 @@ export function Introduction() {
           <Strong>Anyone</Strong> who prefers their tools open source, self-hosted, and
           bring-your-own-model: use Anthropic / OpenAI API keys, a custom OpenAI-compatible
           endpoint, or eligible ChatGPT subscription access for OpenAI on a trusted single-tenant
-          install. Docker runs isolated coding with bubblewrap by default, and falls back to
-          subscription work without coding where Linux namespaces are unavailable.
+          install. The default executes coding work directly inside the App container; bubblewrap
+          isolation is optional.
         </LI>
       </UL>
 
@@ -93,8 +93,8 @@ export function Introduction() {
           <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You bring an Anthropic /
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
           access for OpenAI on a trusted single-tenant install, then point each employee at the
-          model you choose. The Docker default runs isolated coding and repository work with
-          bubblewrap, subscriptions included. Claude subscription credentials are not supported; see{" "}
+          model you choose. OpenCode is bundled, so there is no separate runtime to install. Claude
+          subscription credentials are not supported; see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>

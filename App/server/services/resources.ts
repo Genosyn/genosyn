@@ -546,7 +546,7 @@ export async function grantResourceToAllEmployees(
  * A Resource body is capped at 1 MiB, and until now every read of one was
  * all-or-nothing: `get_resource` returned the whole column and the agent loop
  * head-clipped it at `toolResultCap` (60,000 chars, or as little as 8,000 on a
- * small context window — `services/agent/contextBudget.ts`). The model was
+ * small context window — `services/agent/toolResultBudget.ts`). The model was
  * handed the first few percent of a book, told how much had been thrown away,
  * and given no second call that could reach the rest. Search had the mirror
  * problem: it returned whole rows and no indication of *where* in a megabyte

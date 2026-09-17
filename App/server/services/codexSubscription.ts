@@ -147,12 +147,7 @@ export function subscriptionUnavailableReasonFor(options: {
   if (options.multiTenant) {
     return "ChatGPT subscription sign-in is limited to trusted self-hosted Genosyn installs.";
   }
-  if (options.codingToolsExecutionMode === "disabled") {
-    return null;
-  }
-  if (options.codingToolsExecutionMode === "host") {
-    return 'ChatGPT subscription auth cannot run beside host-process tools. Set config.agent.codingTools.executionMode to "disabled" for subscription access without coding tools, or use "bubblewrap" on Linux for an isolated shell.';
-  }
+  if (options.codingToolsExecutionMode !== "bubblewrap") return null;
   if (!options.codingToolsEnabled) {
     return null;
   }
@@ -186,11 +181,9 @@ export function subscriptionUnavailableReason(): string | null {
 }
 
 /**
- * Repository checkouts are writable by the AI Employee, including `.git/config`.
- * Never hand one of those configs to a host-side git process immediately before
- * materializing a subscription credential: git config can name executable
- * credential helpers, SSH commands, remote helpers, and other hooks into the
- * App UID. Subscription turns keep repository work inside the coding sandbox.
+ * Repository materialization follows the install's coding switch for every
+ * auth mode. Subscription credentials remain in temporary runtime homes;
+ * trusted self-host installs may explicitly use ordinary host execution.
  */
 export function shouldMaterializeRepositoriesForTurnFor(options: {
   authMode: AIModel["authMode"];
@@ -198,9 +191,6 @@ export function shouldMaterializeRepositoriesForTurnFor(options: {
   codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
 }): boolean {
   if (!options.codingToolsEnabled || options.codingToolsExecutionMode === "disabled") return false;
-  if (options.authMode === "subscription") {
-    return options.codingToolsExecutionMode === "bubblewrap";
-  }
   return true;
 }
 

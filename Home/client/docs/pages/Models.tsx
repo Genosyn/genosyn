@@ -24,10 +24,9 @@ export function Models() {
             Every AI Employee can register one or more <Strong>AI Models</Strong> — their brains —
             and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
             an API key, point at your own OpenAI-compatible endpoint, or use eligible ChatGPT
-            subscription access for OpenAI on a trusted single-tenant install. The standard Docker
-            default runs subscription work beside bubblewrap-isolated coding, and without coding
-            tools where Linux namespaces are unavailable. Switch the active model any time without
-            losing the others&apos; credentials.
+            subscription access for OpenAI on a trusted single-tenant install. OpenCode runs API-key
+            and custom models, with host coding access enabled by default. Switch the active model
+            any time without losing the others&apos; credentials.
           </>
         }
       />
@@ -54,10 +53,10 @@ export function Models() {
 
       <H2 id="supported-providers">Provider kinds</H2>
       <P>
-        Three provider kinds cover every setup. API-key and custom-endpoint models talk straight to
-        the model API from Genosyn&apos;s in-process agent loop. OpenAI subscription models use
-        OpenAI&apos;s official Codex app-server; there is still no generic provider CLI to install
-        or maintain.
+        Three provider kinds cover every setup. API-key and custom-endpoint models use the bundled,
+        pinned OpenCode runtime. Genosyn starts it automatically and supplies the selected model,
+        company context, and granted tools. OpenAI subscription models use OpenAI&apos;s official
+        Codex app-server.
       </P>
 
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -105,20 +104,19 @@ export function Models() {
         </LI>
         <LI>
           <Strong>OpenAI API key.</Strong> Paste an OpenAI Platform API key for direct, usage-based
-          access through Genosyn&apos;s in-process model loop.
+          access through OpenCode.
         </LI>
         <LI>
           <Strong>OpenAI subscription.</Strong> On a trusted single-tenant Genosyn deployment,
           complete ChatGPT device sign-in or paste a Codex access token from an eligible Business or
           Enterprise workspace. Genosyn runs this model through the pinned{" "}
-          <Code>@openai/codex</Code> app-server. The standard Docker default runs it beside
-          bubblewrap-isolated coding and repository work; a host without Linux user namespaces falls
-          back to subscription Runs with no coding tools.
+          <Code>@openai/codex</Code> app-server. It remains available with the default host
+          execution mode, optional bubblewrap, or coding disabled.
         </LI>
         <LI>
           <Strong>Custom.</Strong> Paste a base URL and a model id, plus an optional API key if your
-          endpoint requires one. Genosyn tests a real tool-use reply before saving the endpoint. The
-          loop then points every request at that endpoint.
+          endpoint requires one. Genosyn tests a real tool-use reply before saving the endpoint.
+          OpenCode then sends model requests to that endpoint.
         </LI>
       </UL>
 
@@ -147,18 +145,17 @@ export function Models() {
       <P>
         To change a connected ChatGPT AI Model, edit its model ID and save. Genosyn tests the new
         choice with the existing sign-in before saving. Leave the model ID blank to discover and
-        test the workspace&apos;s current default. If the test fails, the previous model stays selected.
+        test the workspace&apos;s current default. If the test fails, the previous model stays
+        selected.
       </P>
 
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
-        Subscription access is available on a trusted single-tenant deployment when coding execution
-        is isolated with working Linux bubblewrap — the standard Docker default — or disabled. In
-        the add-model form, choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
-        <Strong>Connect with</Strong> to <Strong>ChatGPT sign-in</Strong>, then select{" "}
-        <Strong>Continue to ChatGPT sign-in</Strong>. Genosyn uses your workspace&apos;s current
-        default model and tests a real reply before marking it connected. The model card offers two
-        official Codex authentication paths:
+        Subscription access is available on a trusted single-tenant deployment. In the add-model
+        form, choose <Strong>OpenAI / ChatGPT</Strong>, set <Strong>Connect with</Strong> to{" "}
+        <Strong>ChatGPT sign-in</Strong>, then select <Strong>Continue to ChatGPT sign-in</Strong>.
+        Genosyn uses your workspace&apos;s current default model and tests a real reply before
+        marking it connected. The model card offers two official Codex authentication paths:
       </P>
       <UL>
         <LI>
@@ -197,22 +194,13 @@ export function Models() {
         process-local, so Genosyn keeps this path inside the trust boundary of one self-hosted App
         process.
       </Callout>
-      <Callout kind="info" title="An isolated Linux shell, or no coding at all">
-        <Code>config.agent.codingTools.executionMode</Code> ships as <Code>bubblewrap</Code>, which
-        gives subscription sign-in and Runs an isolated <Code>bash</Code> and repository work. Where
-        Linux user namespaces are unavailable, boot falls back to <Code>disabled</Code>: sign-in and
-        Runs still work, with no coding tools, repository materialization, or user-configured stdio
-        MCP. Set <Code>disabled</Code> yourself to make that the posture everywhere.{" "}
-        <Code>host</Code> mode permits same-UID child processes and therefore rejects subscription
-        auth. API-key models are unchanged.
-      </Callout>
-      <Callout kind="info" title="Coding and repository sync share one boundary">
-        Disabled mode skips coding tools and repository materialization entirely. Every model turn
-        in a bubblewrap deployment exposes only sandboxed <Code>bash</Code> from the coding family.
-        The host-process file tools are omitted install-wide, so an overlapping API-key or
-        custom-model turn cannot race a workspace symlink into a subscription credential. Automatic
-        repository clone, fetch, and credential setup run through the same private PID and
-        temporary-filesystem boundary with a cleared environment and only the configured remote.
+      <Callout kind="info" title="Host coding is the default">
+        <Code>config.agent.codingTools.executionMode</Code> ships as <Code>host</Code>. Coding
+        commands run with the App process user&apos;s authority, inside the App container in Docker;
+        they do not require an OS sandbox or Linux user namespaces. Choose <Code>disabled</Code> to
+        omit coding and employee repository materialization, or <Code>bubblewrap</Code> to opt into
+        isolated command execution. These modes do not change Genosyn&apos;s Grant and Approval
+        checks on company tools. See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
       </Callout>
       <Callout kind="warn" title="Run one App replica">
         Device sessions and managed ChatGPT refresh locks currently live in one Genosyn process. Use
@@ -234,79 +222,53 @@ export function Models() {
 
       <Callout kind="info" title="Encrypted at rest, ephemeral when materialized.">
         API keys, endpoints, and OpenAI subscription credentials are AES-256-GCM encrypted in the
-        database. Direct API credentials are decrypted in memory only when the agent loop makes a
-        request. Managed Codex authentication requires file-backed state, so a subscription login or
-        Run gets a new locked temporary <Code>CODEX_HOME</Code>; Genosyn materializes the credential
-        there, never in the employee workspace, and removes the directory afterward. The app-server
-        itself gets a separate empty scratch directory; Genosyn&apos;s granted tools remain the only
-        route to the employee workspace. Cleanup retries, and startup removes stale Genosyn Codex
-        directories left by a prior crash. Removing a model (or firing the employee) deletes the
-        encrypted row, so access dies with it.
+        database. Genosyn keeps the selected model&apos;s API key and gives OpenCode a temporary
+        token for its model-request proxy. Managed Codex authentication requires file-backed state,
+        so a subscription login or Run gets a new locked temporary <Code>CODEX_HOME</Code>; Genosyn
+        materializes the credential there, never in the employee workspace, and removes the
+        directory afterward. The app-server itself gets a separate empty scratch directory. This is
+        credential lifecycle management; default host execution does not isolate processes from one
+        another. Cleanup retries, and startup removes stale Genosyn Codex directories left by a
+        prior crash. Removing a model (or firing the employee) deletes the encrypted row, so access
+        dies with it.
       </Callout>
 
       <H2 id="context-window">Context window</H2>
       <P>
-        Every turn sends the employee&apos;s Soul, their Skills, and their working set of tools, and
-        each tool call adds its result on top. A long routine therefore grows until it reaches
-        whatever the model will accept — so the direct agent loop needs to know how much room there
-        is. When an API-key or custom-endpoint model connects, Genosyn asks the provider and shows
-        the answer on the model card. For an OpenAI subscription model, the Codex app-server owns
-        context management, so its card does not show the manual context-window controls.
+        Every turn includes the employee&apos;s Soul, Skills, and tools, and tool results add more
+        history as work progresses. OpenCode owns context management and compaction for API-key and
+        custom models. Genosyn passes the model&apos;s known context window to it; the Codex
+        app-server manages context for subscription models.
       </P>
       <P>
-        Once it knows, a run <Strong>budgets</Strong> against it: when the next prompt wouldn&apos;t
-        fit, the oldest tool results are dropped to a stub so recent work and the routine&apos;s
-        instruction survive. The run log says <Code>[compact]</Code> whenever that happens, so a
-        forgetful-looking employee is always explained by its transcript.
+        Genosyn probes the context window when a model connects and every three hours afterward. The
+        model card shows the result. If your endpoint does not report a window, select
+        <Strong> Set manually</Strong> and enter the number your server supports, such as
+        vLLM&apos;s <Code>--max-model-len</Code> or llama.cpp&apos;s <Code>-c</Code>. A manual value
+        takes precedence; <Strong>Clear</Strong> returns to the detected value, and
+        <Strong> Ask the provider</Strong> retries detection immediately. A failed probe keeps the
+        previous value. Subscription model cards omit these controls.
       </P>
-      <P>
-        Not every server reports a window. vLLM, LM Studio, and llama.cpp publish one; plain Ollama
-        and OpenAI&apos;s own API don&apos;t. When the card reads <Strong>Unknown</Strong>, use{" "}
-        <Strong>Ask the provider</Strong> to retry, or <Strong>Set manually</Strong> and type the
-        number in — whatever the server was launched with, such as vLLM&apos;s{" "}
-        <Code>--max-model-len</Code> or llama.cpp&apos;s <Code>-c</Code>. A number you set by hand
-        always wins over the probe, and <Strong>Clear</Strong> hands the field back to it.
-      </P>
-      <P>
-        Genosyn also <Strong>re-asks every three hours</Strong>, because the answer changes:
-        relaunch vLLM with a different <Code>--max-model-len</Code>, point the same model id at new
-        weights, or wait for a hosted provider to raise a published limit, and the card catches up
-        on its own. A failed check keeps the number it already had rather than blanking it, and a
-        window you set by hand is never touched — so the recheck can only ever improve what Genosyn
-        budgets against. <Strong>Ask the provider</Strong> is the shortcut when you just changed
-        something and don&apos;t want to wait for the next pass.
-      </P>
-      <Callout kind="warn" title="Unknown is worth fixing.">
-        With no window there is nothing to budget against, so a run can only discover it has overrun
-        when the provider rejects a turn. Genosyn recovers — it drops history and retries once
-        rather than failing the run — but it wastes a round-trip and loses more history than it
-        needed to. Small self-hosted models feel this first: a 64k window can be half spent on the
-        system prompt before any work begins. It also costs you the percentage readout under the
-        chat composer — see <DocLink to="/docs/employees">AI Employees</DocLink>.
-      </Callout>
 
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
-        API-key and custom-endpoint models run through Genosyn&apos;s in-process agent loop; an
-        OpenAI subscription model runs through the official Codex app-server. Both receive the same
-        granted product and built-in browser <Strong>catalogue</Strong>. Subscription turns omit
-        parallel delegation because they serialize on the model&apos;s credential-refresh lock. The
-        installation mode controls coding tools and user-configured stdio MCP as described below. An
-        employee is shown a small working set every turn and looks the rest up on demand; see{" "}
+        API-key and custom-endpoint models run through OpenCode; an OpenAI subscription model runs
+        through the official Codex app-server. Both receive the same granted product and built-in
+        browser <Strong>catalogue</Strong>. Subscription turns omit parallel delegation because they
+        serialize on the model&apos;s credential-refresh lock. The installation mode controls coding
+        tools and user-configured stdio MCP as described below. An employee is shown a small working
+        set every turn and looks the rest up on demand; see{" "}
         <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>. The catalogue is:
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools.</Strong> Disabled mode exposes no coding tools and materializes no
-          repositories. In separately acknowledged host mode, <Code>read_file</Code>,{" "}
-          <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
-          and <Code>grep</Code> are confined to the employee directory; unrestricted host bash is
-          never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed{" "}
-          <Code>bash</Code> and performs file work through it. OpenAI subscription access supports
-          disabled or working bubblewrap mode, but rejects host mode. The dedicated file helpers cap
-          full reads, writes, and edits at 400 KiB; <Code>read_file</Code> can still stream a
-          bounded line slice from a larger text file, and <Code>bash</Code> handles larger generated
-          artifacts.
+          <Strong>Coding tools.</Strong> Ordinary employee work uses OpenCode&apos;s native file,
+          search, edit, and shell tools in the default host mode. Subscription models use
+          Genosyn&apos;s coding tools through Codex. Host commands execute with the App process
+          user&apos;s authority. Disabled mode omits coding entirely. Optional bubblewrap mode
+          disables native coding and supplies an isolated command tool. Restricted review turns omit
+          coding, and Repository work sessions use only their scoped
+          <Code> repository_*</Code> tools and the Repository&apos;s command policy.
         </LI>
         <LI>
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write
@@ -326,9 +288,7 @@ export function Models() {
         <LI>
           <Strong>Company MCP servers.</Strong> HTTP MCP servers your company has configured are
           added alongside the built-ins. User-configured stdio servers are omitted in disabled and
-          bubblewrap modes, across every model turn, because an arbitrary same-UID child would break
-          the subscription credential boundary. They are available only in trusted single-tenant
-          host mode, which rejects subscription auth.
+          bubblewrap modes. They are available in trusted single-tenant host mode.
         </LI>
       </UL>
 
@@ -387,30 +347,17 @@ export function Models() {
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
-        For API-key and custom-endpoint models, temporary model-service and network failures are
-        retried automatically before Genosyn reports an error. A model request timeout gets up to{" "}
-        <Strong>five retries after the initial request</Strong>, for six attempts in total. Waits
-        grow exponentially: roughly <Strong>1s, 2s, 4s, 8s, and 16s</Strong>, with a small random
-        reduction to avoid sending every retry at once. Once a turn encounters a timeout, its
-        six-attempt ceiling stays in place even if a later response reports a different temporary
-        error. Earlier retries count toward that allowance; if they have already used it, the
-        timeout stops retrying immediately. Other temporary failures retain one initial attempt
-        plus ten retries, with waits capped at 30 seconds.
+        OpenCode manages temporary model-service retries for API-key and custom models. The Codex
+        app-server manages subscription retries. Genosyn keeps the same Run while the runtime
+        retries; cancelling work or reaching the Run deadline stops it. If the runtime cannot
+        complete a model request, the Run ends with <Strong>Error</Strong>. Retry timing and context
+        compaction belong to the selected runtime rather than a second Genosyn model loop.
       </P>
       <P>
-        A provider <Code>Retry-After</Code> header takes precedence, up to 30 seconds. Cancelling
-        the chat or Run, or reaching its deadline, stops further attempts and cancels any wait. A
-        turn is never replayed after visible output has started. Run transcripts record each retry
-        on a <Code>[model]</Code> line. Request retries continue within the same Run; an exhausted
-        request ends it with <Strong>Error</Strong>. The Codex app-server manages retries for
-        subscription-auth turns, so those turns do not use Genosyn&apos;s retry loop or its retry
-        transcript lines.
-      </P>
-      <P>
-        The error names the model used for that turn, shows the safe host-only endpoint, preserves
-        the provider&apos;s detail and request ID when available, and lists checks for that failure
-        type. In chat, use <Strong>Review AI Model settings</Strong> on the error to jump straight
-        to the active employee&apos;s model roster. A separate{" "}
+        The error names the model used for that turn, shows the safe host-only endpoint, and
+        explains the failure type or HTTP status. Runtime provider response bodies are not copied
+        into the Run log. In chat, use <Strong>Review AI Model settings</Strong> on the error to
+        jump straight to the active employee&apos;s model roster. A separate{" "}
         <Strong>chat connection interrupted</Strong> message means the browser lost its stream to
         the Genosyn server; confirm the server is running and inspect its logs before retrying. A{" "}
         <Strong>Genosyn couldn&apos;t complete this chat turn</Strong> message includes the

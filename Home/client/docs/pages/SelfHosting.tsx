@@ -37,8 +37,7 @@ export function SelfHosting() {
       <H2 id="config-ts">config.ts</H2>
       <P>
         The file holds three kinds of thing and nothing else: <Strong>secrets</Strong>,{" "}
-        <Strong>database coordinates</Strong>, and the <Strong>fail-closed security posture</Strong>
-        {" "}
+        <Strong>database coordinates</Strong>, and the <Strong>fail-closed security posture</Strong>{" "}
         that startup validation checks before the process accepts a request. That is the whole
         shape, with the same comments you&apos;ll see in the file:
       </P>
@@ -81,12 +80,11 @@ export function SelfHosting() {
   agent: {
     codingTools: {
       enabled: true,
-      // Command execution is on by default, and only ever behind bubblewrap.
-      // Boot probes the sandbox and falls back to disabled where Linux user
-      // namespaces are unavailable; it never falls back to host execution.
-      executionMode: "bubblewrap",
+      // Trusted self-host default: OpenCode coding tools execute directly.
+      // Use "disabled" to omit coding, or "bubblewrap" for optional isolation.
+      executionMode: "host",
       bubblewrapPath: "/usr/bin/bwrap", allowNetwork: false,
-      allowUnsafeHostExecution: false,
+      allowUnsafeHostExecution: true,
     },
     // The app-owned Chromium shares the API container. Startup validation
     // enforces this boundary in shared SaaS mode.
@@ -101,46 +99,36 @@ export function SelfHosting() {
         Members and Routines can create, and monitor your AI Model provider&apos;s concurrency,
         token, spend, and rate limits. Provider-side throttling still applies.
       </P>
-      <Callout kind="info" title="Command execution is on by default, behind bubblewrap.">
-        The standard Docker image ships the <Code>bwrap</Code> executable, so an out-of-the-box
-        install runs sandboxed <Code>bash</Code> and repository work without you deciding anything —
-        and a ChatGPT subscription still signs in beside it on a trusted single-tenant install.
-        Bubblewrap needs Linux unprivileged user namespaces, so Genosyn probes the sandbox at boot
-        and falls back to <Code>disabled</Code> when it cannot start, logging the reason. In that
-        mode there are no coding tools, no repository materialization, and no user-configured stdio
-        MCP, and subscription Runs still work. The fallback never reaches for host execution.
-        Separately acknowledged host mode exposes path-confined file and search tools and permits
-        host child processes, so it rejects subscription auth.
+      <Callout kind="info" title="OpenCode and host coding are enabled by default.">
+        The App image includes pinned OpenCode. Genosyn starts it automatically for API-key and
+        custom models and enables native coding tools for ordinary employee work. Commands run with
+        the App process user&apos;s filesystem and network authority, inside the App container in
+        Docker. No Linux namespaces or additional Docker security options are needed. The host
+        default is for trusted single-tenant installs; shared SaaS retains its stricter startup
+        requirements. ChatGPT subscription models keep using the official Codex app-server.
       </Callout>
-      <Callout kind="info" title="A container has to be created able to start that sandbox.">
-        Bubblewrap creates a user namespace and mounts its own <Code>/proc</Code> for every command.
-        Docker&apos;s stock profile denies both — the default seccomp filter rejects{" "}
-        <Code>clone</Code> and <Code>unshare</Code> carrying the namespace flags, and its masked{" "}
-        <Code>/proc</Code> entries are locked mounts a nested namespace may not mount over. So the
-        container is created with{" "}
-        <Code>--security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code>, which
-        the <DocLink to="/docs/cli">CLI</DocLink> passes for you; <Code>genosyn upgrade</Code> also
-        recreates an older container that predates them. What that loosens is the App container,
-        Genosyn&apos;s own process. What it buys is the stronger boundary around the untrusted part:
-        each AI-authored command gets its own user, PID, IPC and UTS namespaces, a fresh{" "}
-        <Code>/proc</Code>, no <Code>/sys</Code>, no network, and a filesystem view holding nothing
-        but its workspace — and the container still runs unprivileged as <Code>node</Code> with no
-        added capabilities. Never add <Code>--privileged</Code> or <Code>--cap-add SYS_ADMIN</Code>
-        {" "}
-        instead; those hand the container the host, and neither is needed. To keep the stock
-        profile, install with <Code>GENOSYN_SANDBOX=0</Code> and run without command execution. If
-        the sandbox still cannot start, the host itself is refusing unprivileged user namespaces: on
-        Ubuntu 24.04 and later check <Code>kernel.apparmor_restrict_unprivileged_userns</Code> and
-        keep Docker current, and on Debian check <Code>kernel.unprivileged_userns_clone</Code>.
-      </Callout>
-      <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
-        A trusted, single-company operator can select <Code>host</Code> and separately set{" "}
-        <Code>allowUnsafeHostExecution: true</Code> to enable path-confined file/search tools and
-        let Genosyn&apos;s repository Git operations run outside bubblewrap. AI Employees still
-        receive no host shell, but the coding tools and server-owned Git children share the App
-        process user&apos;s filesystem and network authority. Never use it for multiple companies or
-        with untrusted Members, prompts, Skills, repositories, or content.
-      </Callout>
+      <P>
+        Select <Code>executionMode: &quot;disabled&quot;</Code> to omit coding tools and employee
+        repository materialization. An existing explicit opt-out remains effective. Restricted
+        review turns omit coding, and Repository work sessions always use Genosyn&apos;s scoped
+        tools, command policy, and delivery controls. Host execution does not isolate one process
+        from another.
+      </P>
+      <H3 id="optional-sandbox">Optional bubblewrap isolation</H3>
+      <P>
+        Set <Code>executionMode: &quot;bubblewrap&quot;</Code> to isolate commands. OpenCode&apos;s
+        native coding tools are disabled in this mode, and Genosyn supplies the scoped command tool.
+        The image includes <Code>bwrap</Code>; Linux user namespaces must also be available. Boot
+        probes the sandbox and falls back to disabled if it cannot start.
+      </P>
+      <P>
+        Docker must permit namespace creation and a private <Code>/proc</Code>. For this optional
+        mode, install with <Code>GENOSYN_SANDBOX=1</Code>, or create the container with
+        <Code> --security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code>. A
+        container must be recreated to change those options. They are not required for the default
+        host mode. Shared SaaS also requires working isolation; see
+        <DocLink to="/docs/saas-hosting"> SaaS hosting</DocLink>.
+      </P>
 
       <H3 id="runtime-settings">Everything else is in the database</H3>
       <P>
@@ -156,8 +144,7 @@ export function SelfHosting() {
             term: "Admin → Runtime",
             def: (
               <>
-                <Strong>Web tools</Strong> (on/off, search provider, result and document limits),
-                {" "}
+                <Strong>Web tools</Strong> (on/off, search provider, result and document limits),{" "}
                 <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
@@ -195,10 +182,8 @@ export function SelfHosting() {
       <P>
         Genosyn refuses any outbound request that resolves to a loopback, private, or link-local
         address, which is what stops a Connection form or a fetched page from being pointed at your
-        internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model endpoint at
-        {" "}
-        <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per line, under
-        {" "}
+        internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model endpoint at{" "}
+        <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per line, under{" "}
         <Strong>Outbound network</Strong> at <Code>Admin → Runtime</Code> and they become reachable
         within about 30 seconds — no file to edit, no container to restart.
       </P>
@@ -228,10 +213,10 @@ export function SelfHosting() {
       <P>
         Open <Code>Admin → General → Custom JavaScript</Code> to add Google Tag Manager, Google
         Analytics, or another trusted browser script. Paste either raw JavaScript or the complete
-        vendor snippet with its <Code>&lt;script&gt;</Code> elements; an external script element must use
-        HTTPS and include <Code>async</Code>. Select <Strong>Save changes</Strong>. It runs on the
-        next eligible signed-in App page load without a restart. Clear the field and save again to
-        disable it.
+        vendor snippet with its <Code>&lt;script&gt;</Code> elements; an external script element
+        must use HTTPS and include <Code>async</Code>. Select <Strong>Save changes</Strong>. It runs
+        on the next eligible signed-in App page load without a restart. Clear the field and save
+        again to disable it.
       </P>
       <Callout kind="warn" title="Custom code has every Member's browser authority.">
         It can read the page and make same-origin requests as whoever is signed in. Use only code
@@ -308,8 +293,7 @@ export function SelfHosting() {
         history and removes them when the owning Routine or company is deleted.
       </P>
       <Callout kind="info" title="Source installs need ffmpeg and ffprobe">
-        The standard Docker image includes <Code>ffmpeg</Code> for encoding browser recordings and
-        {" "}
+        The standard Docker image includes <Code>ffmpeg</Code> for encoding browser recordings and{" "}
         <Code>ffprobe</Code> for validating recoverable recordings. They are normally installed
         together. If you run the App directly from source, make sure both are on <Code>PATH</Code>.
         A missing encoder leaves the Run and its log intact, but its browser recording is shown as
@@ -322,8 +306,7 @@ export function SelfHosting() {
         being replaced silently, and the database stores a matching non-secret key ID so replacing
         or losing both files stops startup. Keep the whole data directory together: losing the
         secret file makes data encrypted with its managed key unreadable. Never expose its values in
-        logs, support bundles, employee working trees, or source control. Explicit strong values in
-        {" "}
+        logs, support bundles, employee working trees, or source control. Explicit strong values in{" "}
         <Code>config.ts</Code> remain supported and take precedence.
       </Callout>
 
@@ -359,8 +342,7 @@ export function SelfHosting() {
         the first operator account before any mail server exists. When a global transport is
         configured, adding a company SMTP provider at <Code>Settings → Email</Code> pre-fills the
         host, port, encryption, username, and sender address from it — you only enter the password.
-        Every send appends an <Code>EmailLog</Code> row that company owners and admins can read at
-        {" "}
+        Every send appends an <Code>EmailLog</Code> row that company owners and admins can read at{" "}
         <Code>Settings → Email Logs</Code>. Member-role accounts cannot read recipient addresses,
         subjects, delivery errors, or body previews. Bearer links such as company invitations are
         redacted from the stored preview.
@@ -385,8 +367,7 @@ export function SelfHosting() {
         Secrets are encrypted at rest with the instance key and never returned to the browser; the
         page shows the Client ID and whether a secret is stored. Removing a registration only
         affects <em>new</em> Connections — existing ones keep the credentials they were created with
-        and go on refreshing their tokens. Rotate the secret while keeping the same Client ID and a
-        {" "}
+        and go on refreshing their tokens. Rotate the secret while keeping the same Client ID and a{" "}
         <Strong>Reconnect</Strong> moves an existing Connection onto it. Companies that need their
         own client pick <Strong>Use my own OAuth client instead</Strong> on the connect form, which
         takes precedence for that Connection.
@@ -423,8 +404,7 @@ export function SelfHosting() {
             term: "Connection config",
             def: (
               <>
-                Encrypted per-Connection blobs on <Code>IntegrationConnection.encryptedConfig</Code>
-                {" "}
+                Encrypted per-Connection blobs on <Code>IntegrationConnection.encryptedConfig</Code>{" "}
                 (AES-256-GCM). Decrypted at tool-call time.
               </>
             ),
@@ -526,8 +506,7 @@ export function SelfHosting() {
         </LI>
         <LI>
           <Strong>Companies</Strong> — every company (tenant) on the instance, with its owner and
-          member + AI-employee counts. Deleting one runs the same cascade as a company&apos;s own
-          {" "}
+          member + AI-employee counts. Deleting one runs the same cascade as a company&apos;s own{" "}
           <Code>Delete company</Code> action — every employee, routine, message, note, and finance
           record it owns, plus its files on disk — so an operator can prune any tenant without
           switching into it first.
@@ -539,8 +518,7 @@ export function SelfHosting() {
 
       <H3 id="signups">Sign-ups</H3>
       <P>
-        <Code>Admin → Sign-ups</Code> is an instance-wide toggle for self-service registration. Flip
-        {" "}
+        <Code>Admin → Sign-ups</Code> is an instance-wide toggle for self-service registration. Flip{" "}
         <Strong>Disable sign-ups</Strong> on and the public sign-up page stops accepting new
         accounts — anyone who lands on it sees a &ldquo;sign-ups are closed&rdquo; notice instead of
         the form, and the API refuses a registration attempt with a <Code>403</Code>. Existing
@@ -555,12 +533,12 @@ export function SelfHosting() {
         inviting them into a company from that company&apos;s <Code>Settings → Members</Code>.
       </P>
       <P>
-        A new Member follows the invitation email and chooses <Strong>Create account</Strong>.
-        That form stays available when public sign-ups are closed, for that invitation&apos;s email
-        address only. In shared SaaS, they verify their email first, choose <Strong>Continue</Strong>
-        {" "}on the verification page, then choose <Strong>Accept invitation</Strong>. Registering
-        does not consume the invitation or add a company membership. An expired invitation needs
-        to be replaced by an owner or admin.
+        A new Member follows the invitation email and chooses <Strong>Create account</Strong>. That
+        form stays available when public sign-ups are closed, for that invitation&apos;s email
+        address only. In shared SaaS, they verify their email first, choose{" "}
+        <Strong>Continue</Strong> on the verification page, then choose{" "}
+        <Strong>Accept invitation</Strong>. Registering does not consume the invitation or add a
+        company membership. An expired invitation needs to be replaced by an owner or admin.
       </P>
 
       <H3 id="sso">SSO</H3>
@@ -578,8 +556,7 @@ export function SelfHosting() {
       <UL>
         <LI>
           Register an OAuth client at your identity provider and set its authorized redirect URI to
-          the <Strong>Callback URL</Strong> shown on the page (it follows the public URL saved at
-          {" "}
+          the <Strong>Callback URL</Strong> shown on the page (it follows the public URL saved at{" "}
           <Code>Admin → General</Code>).
         </LI>
         <LI>
@@ -609,8 +586,7 @@ export function SelfHosting() {
         application database — the same SQLite or Postgres the app itself runs on. It is meant for
         operators who need to inspect or repair an install directly: check a row the UI doesn&apos;t
         surface, audit what an AI Employee wrote, or fix up data after a botched import. Distinct
-        from <DocLink to="/docs/explore">Explore</DocLink>, which runs SQL against a company&apos;s
-        {" "}
+        from <DocLink to="/docs/explore">Explore</DocLink>, which runs SQL against a company&apos;s{" "}
         <em>external</em> database integrations.
       </P>
       <UL>
@@ -637,10 +613,8 @@ export function SelfHosting() {
 
       <H3 id="migrations">Migrations</H3>
       <P>
-        <Code>Admin → Migrations</Code> is a read-only ledger of every TypeORM schema migration —
-        {" "}
-        <Code>Total</Code> / <Code>Applied</Code> / <Code>Pending</Code> / <Code>Unknown</Code>
-        {" "}
+        <Code>Admin → Migrations</Code> is a read-only ledger of every TypeORM schema migration —{" "}
+        <Code>Total</Code> / <Code>Applied</Code> / <Code>Pending</Code> / <Code>Unknown</Code>{" "}
         tiles over the full list. Nothing runs from here: boot applies pending migrations
         automatically, so this is the detail view behind the Instance Health probe.
       </P>
@@ -659,8 +633,7 @@ export function SelfHosting() {
           <Strong>Drift</Strong> — the database disagrees with the code. <Strong>Unknown</Strong> is
           a migrations-table row matching no shipped migration file (a downgrade, or a hand-edited
           database); <Strong>out-of-order</Strong> is an older migration applied after a newer one
-          (usually a branch merge). Take a <DocLink to="/docs/self-hosting#backups">backup</DocLink>
-          {" "}
+          (usually a branch merge). Take a <DocLink to="/docs/self-hosting#backups">backup</DocLink>{" "}
           before repairing either.
         </LI>
       </UL>
@@ -742,8 +715,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <H3 id="retention">Retention (deleting old backups)</H3>
       <P>
         Left alone, <Code>data/Backup/</Code> grows forever. Tick{" "}
-        <Code>Automatically delete old backups</Code> under <Code>Admin → Backups → Retention</Code>
-        {" "}
+        <Code>Automatically delete old backups</Code> under <Code>Admin → Backups → Retention</Code>{" "}
         and set a number of days: anything older is deleted. Genosyn checks hourly and again
         straight after every backup, so a window that lapses at midday is honoured at midday.
       </P>

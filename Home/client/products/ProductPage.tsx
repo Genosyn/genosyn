@@ -108,7 +108,7 @@ const PAGES: Record<string, PageCopy> = {
     title: "Fourteen role templates ship with Genosyn.",
     fields: ["14 TEMPLATES", "0 6 * * *"],
     does: "Six pieces make one AI Employee.",
-    staff: "Genosyn owns the model loop.",
+    staff: "OpenCode runs the AI work.",
     caption: "An AI Employee mid-Run at 06:00, one exception stacked.",
     crop: "screen",
     stop: { kind: "decision", line: "One exception is waiting for a Member to answer." },
@@ -350,13 +350,7 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
  * the 3px department edge — the treatment the Kit reserves for "a picture of * the application" — and the caption is the same two-part figcaption `Plate`
  * prints, so the figure reads identically to every other one on the site.
  */
-function ProductFigure({
-  product,
-  page,
-}: {
-  product: ProductDef;
-  page: PageCopy;
-}) {
+function ProductFigure({ product, page }: { product: ProductDef; page: PageCopy }) {
   return (
     <figure>
       <Pane className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
@@ -477,13 +471,7 @@ function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) 
  * sequence of slabs. It is a plain surface band now, and the near-black is
  * spent on the one thing that earns it: the stop.
  */
-function WithEmployees({
-  product,
-  page,
-}: {
-  product: ProductDef;
-  page: PageCopy;
-}) {
+function WithEmployees({ product, page }: { product: ProductDef; page: PageCopy }) {
   return (
     <Band id="with-employees" tone="surface" pad="m">
       <Container>

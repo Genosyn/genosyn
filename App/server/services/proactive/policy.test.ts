@@ -77,13 +77,17 @@ before(async () => {
   app.post("/v1/chat/completions", (req, res) => {
     const tools = (req.body.tools ?? []) as Array<{ function?: { name?: string } }>;
     offeredTools.push(
-      ...tools.flatMap((tool) => (tool.function?.name ? [tool.function.name] : [])),
+      ...tools.flatMap((tool) =>
+        tool.function?.name ? [tool.function.name.replace(/^genosyn_/, "")] : [],
+      ),
     );
     const messages = (req.body.messages ?? []) as Array<{ role: string; content: unknown }>;
     const result = messages.filter((message) => message.role === "tool").at(-1);
     if (result) toolResults.push(String(result.content));
     const shouldAttempt =
-      deliveryAttempt && tools.some((tool) => tool.function?.name === "call_tool") && !result;
+      deliveryAttempt &&
+      tools.some((tool) => tool.function?.name === "genosyn_call_tool") &&
+      !result;
     res.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
     res.write(
       `data: ${JSON.stringify({
@@ -103,7 +107,7 @@ before(async () => {
                       id: "attempt-send",
                       type: "function",
                       function: {
-                        name: "call_tool",
+                        name: "genosyn_call_tool",
                         arguments: JSON.stringify({
                           name: "send_mail",
                           args_json: JSON.stringify({
