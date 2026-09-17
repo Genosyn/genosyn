@@ -11,13 +11,16 @@
  * Total provider calls allowed for one turn, counting the first — one attempt
  * plus ten retries.
  *
- * A model service that times out or 5xxs is usually overloaded rather than
+ * A model service that 5xxs is usually overloaded rather than
  * broken, and the failure often outlasts a handful of quick retries. Riding it
  * out beats handing the employee an error it can do nothing about: nothing has
  * been streamed yet, the backoff below keeps the pressure off the service, and
  * the chat or Run deadline still bounds the whole turn.
  */
 export const MODEL_TURN_MAX_ATTEMPTS = 11;
+
+/** A timed-out request gets its initial attempt plus at most five retries. */
+export const MODEL_TIMEOUT_MAX_ATTEMPTS = 6;
 
 const RETRY_BASE_DELAY_MS = 1_000;
 /**
@@ -29,6 +32,26 @@ const RETRY_MAX_DELAY_MS = 30_000;
 const RETRY_AFTER_MAX_MS = 30_000;
 
 type ErrorRecord = Record<string, unknown>;
+
+/** Request timeouts, including SDK errors and nested transport/stream causes. */
+export function isModelRequestTimeout(error: unknown): boolean {
+  const record = asRecord(error);
+  const status = numberField(record, "status") ?? numberField(record, "statusCode");
+  if (status === 408 || status === 504) return true;
+  // A timeout mentioned in an authentication/validation response is not a
+  // transient request timeout. Keep those HTTP responses authoritative.
+  if (status !== null && status < 500) return false;
+
+  const timeout = /time[\s_-]*out|timed[\s_-]*out/i;
+  if (!record) return timeout.test(String(error));
+  let current: ErrorRecord | null = record;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const detail = ["name", "message", "code"].map((key) => stringField(current, key) ?? "");
+    if (timeout.test(detail.join(" "))) return true;
+    current = asRecord(current.cause);
+  }
+  return false;
+}
 
 /**
  * Retry only failures that can plausibly succeed without changing the request.
@@ -43,6 +66,7 @@ export function isRetryableModelError(error: unknown): boolean {
   const status = numberField(record, "status") ?? numberField(record, "statusCode");
   if (status === 408 || status === 409 || status === 429) return true;
   if (status !== null) return status >= 500;
+  if (isModelRequestTimeout(error)) return true;
 
   const name = stringField(record, "name") ?? "";
   const message = stringField(record, "message") ?? String(error);
@@ -58,6 +82,7 @@ export function modelRetryReason(error: unknown): string {
   const record = asRecord(error);
   const status = numberField(record, "status") ?? numberField(record, "statusCode");
   if (status !== null) return `HTTP ${status}`;
+  if (isModelRequestTimeout(error)) return "model request timed out";
   const code = causeString(record, "code");
   return code ? `transport error ${code}` : "temporary model connection error";
 }

@@ -10,7 +10,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { chromium, type APIResponse, type Browser, type Page, type Response } from "playwright-core";
+import {
+  chromium,
+  type APIResponse,
+  type Browser,
+  type Page,
+  type Response,
+} from "playwright-core";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.resolve(appRoot, "../output/playwright");
@@ -275,6 +281,8 @@ try {
     ["qa-routine-success", "completed", "Completed"],
     ["qa-routine-failure", "failed", "Failed"],
     ["qa-routine-error", "error", "Error"],
+    ["qa-routine-timeout-recovered", "completed", "Completed after model timeouts"],
+    ["qa-routine-timeout-exhausted", "error", "Error after five model timeout retries"],
   ] as const) {
     const created = await page.request.post(`${origin}${employeeBase}/routines`, {
       data: { name: marker, cronExpr: "0 0 1 1 *" },
@@ -302,9 +310,83 @@ try {
       errorKind: string | null;
       failureReason: string | null;
       content: string;
+      attempt: number;
+      retryAt: string | null;
     }>(`/api/companies/${company.id}/runs/${run.id}/log`);
     assert.equal(persisted.status, expectedStatus);
-    if (expectedStatus === "failed") {
+    if (marker.startsWith("qa-routine-timeout-")) {
+      const recovered = marker === "qa-routine-timeout-recovered";
+      const expectedRequests = recovered ? 3 : 6;
+      const expectedRetries = recovered ? [2, 3] : [2, 3, 4, 5, 6];
+      const attempts = serverLog
+        .split("\n")
+        .filter((line) => line.startsWith("[fullstack-model-timeout] "))
+        .map(
+          (line) =>
+            JSON.parse(line.slice("[fullstack-model-timeout] ".length)) as {
+              marker: string;
+              attempt: number;
+              status: number;
+              atMs: number;
+              requestHash: string;
+            },
+        )
+        .filter((attempt) => attempt.marker === marker);
+      assert.equal(attempts.length, expectedRequests);
+      assert.deepEqual(
+        attempts.map((attempt) => attempt.attempt),
+        Array.from({ length: expectedRequests }, (_, index) => index + 1),
+      );
+      assert.deepEqual(
+        attempts.map((attempt) => attempt.status),
+        recovered ? [504, 504, 200] : [504, 504, 504, 504, 504, 504],
+      );
+      assert.equal(
+        new Set(attempts.map((attempt) => attempt.requestHash)).size,
+        1,
+        "automatic retries must repeat the same model request",
+      );
+      const retryLines = [
+        ...persisted.content.matchAll(
+          /\[model\] HTTP 504; retrying attempt (\d+) of (\d+) in ([\d.]+)s/g,
+        ),
+      ];
+      assert.deepEqual(
+        retryLines.map((line) => Number(line[1])),
+        expectedRetries,
+      );
+      assert(retryLines.every((line) => Number(line[2]) === 6));
+      assert.doesNotMatch(persisted.content, /retrying attempt 7|mark_run_failed|\[failed\]/);
+      assert.equal(persisted.failureReason, null);
+      assert.equal(persisted.errorKind, recovered ? null : "runtime");
+      assert.equal(persisted.attempt, 1, "model retries stay inside the original Run");
+      assert.equal(persisted.retryAt, null, "manual Runs do not schedule a new Run");
+      const runHistory = await read<Array<{ id: string; status: string; attempt: number }>>(
+        `${routineApi}/runs`,
+      );
+      assert.deepEqual(
+        runHistory.map((row) => ({ id: row.id, status: row.status, attempt: row.attempt })),
+        [{ id: run.id, status: expectedStatus, attempt: 1 }],
+      );
+      assert.equal(await dialog.getByText("failed", { exact: true }).count(), 0);
+      if (recovered) {
+        const waits = retryLines.map((line) => Number(line[3]));
+        assert(waits[0] >= 0.7 && waits[0] <= 1, `first backoff: ${waits[0]}s`);
+        assert(waits[1] >= 1.4 && waits[1] <= 2, `second backoff: ${waits[1]}s`);
+        assert(attempts[1].atMs - attempts[0].atMs >= 700, "first real backoff was awaited");
+        assert(attempts[2].atMs - attempts[1].atMs >= 1400, "second real backoff was awaited");
+      } else {
+        assert(
+          retryLines.every((line) => Number(line[3]) === 0),
+          "Retry-After is respected",
+        );
+        assert.match(persisted.content, /The test AI Model request timed out/);
+      }
+      await dialog
+        .locator("pre")
+        .filter({ hasText: /retrying attempt 2 of 6/ })
+        .waitFor();
+    } else if (expectedStatus === "failed") {
       const reason =
         "The required source document was unavailable, so the report could not be completed.";
       assert.equal(persisted.failureReason, reason);
@@ -315,7 +397,14 @@ try {
       assert.equal(persisted.errorKind, "runtime");
       assert.match(persisted.content, /The test AI Model request could not finish/);
     }
-    await page.screenshot({ path: path.join(output, `routine-run-${expectedStatus}.png`) });
+    await page.screenshot({
+      path: path.join(
+        output,
+        marker.startsWith("qa-routine-timeout-")
+          ? `${marker}.png`
+          : `routine-run-${expectedStatus}.png`,
+      ),
+    });
     await page.keyboard.press("Escape");
     record(`Routine Run persisted and displayed ${label} through the real model loop`);
   }

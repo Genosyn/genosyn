@@ -1,5 +1,6 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
 import { PROVIDERS } from "../providers.js";
+import { isModelRequestTimeout } from "./modelRetry.js";
 
 /**
  * Turn a provider SDK error into a safe, actionable message for chat and Run
@@ -9,7 +10,7 @@ import { PROVIDERS } from "../providers.js";
  */
 export function formatModelError(model: AIModel, error: unknown): string {
   const meta = errorMetadata(error);
-  const category = classifyError(meta);
+  const category = classifyError(meta, error);
   const modelLabel = `${PROVIDERS[model.provider].label} · ${oneLine(model.model, 160)}`;
   const endpoint = endpointLabel(model);
   const lines = [heading(category), "", `Model: ${modelLabel}`];
@@ -79,7 +80,7 @@ function stringInCauseChain(record: Record<string, unknown> | null, key: string)
   return null;
 }
 
-function classifyError(meta: ErrorMetadata): ErrorCategory {
+function classifyError(meta: ErrorMetadata, error: unknown): ErrorCategory {
   const haystack = `${meta.name} ${meta.message} ${meta.code ?? ""}`.toLowerCase();
 
   if (
@@ -100,9 +101,8 @@ function classifyError(meta: ErrorMetadata): ErrorCategory {
     return "context";
   }
   if (
-    meta.status === 408 ||
-    meta.status === 504 ||
-    /timed? ?out|timeout|aborted|aborterror/.test(haystack)
+    isModelRequestTimeout(error) ||
+    (meta.status === null && /aborted|aborterror/.test(haystack))
   ) {
     return "timeout";
   }
@@ -166,7 +166,7 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
       ];
     }
     return [
-      "• Genosyn retries an unanswered turn ten times with backoff before reporting this.",
+      "• Genosyn retries unanswered model requests up to five times with exponential backoff, within the Run or chat deadline.",
       "• Confirm the model service is healthy and not overloaded.",
       "• Check proxy and load-balancer timeouts between Genosyn and the model API.",
       "• Retry once the service is responding normally.",

@@ -631,6 +631,223 @@ test("stops after eleven transient attempts", async () => {
   assert.equal(calls, 11);
 });
 
+function requestTimeout(): Error {
+  return Object.assign(new Error("The model request timed out"), {
+    name: "TimeoutError",
+    headers: new Headers({ "retry-after": "0" }),
+  });
+}
+
+test("recovers on the fifth timeout retry and reports six total attempts", async () => {
+  let calls = 0;
+  const retries: ModelRetryInfo[] = [];
+  const result = await runAgentLoop({
+    client: client(async () => {
+      if (++calls <= 5) throw requestTimeout();
+      return successfulTurn;
+    }),
+    system: "test",
+    messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+    registry: residentOnlyRegistry([]),
+    maxSteps: 1,
+    callbacks: { onModelRetry: (info) => retries.push(info) },
+  });
+  assert.equal(result.finalText, "recovered");
+  assert.equal(calls, 6);
+  assert.deepEqual(
+    retries.map((retry) => retry.attempt),
+    [2, 3, 4, 5, 6],
+  );
+  assert.ok(retries.every((retry) => retry.maxAttempts === 6));
+  assert.ok(retries.every((retry) => retry.reason === "model request timed out"));
+});
+
+test("stops a persistent timeout after the initial request and five retries", async () => {
+  let calls = 0;
+  const retries: ModelRetryInfo[] = [];
+  await assert.rejects(
+    runAgentLoop({
+      client: client(async () => {
+        calls += 1;
+        throw requestTimeout();
+      }),
+      system: "test",
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      registry: residentOnlyRegistry([]),
+      maxSteps: 1,
+      callbacks: { onModelRetry: (info) => retries.push(info) },
+    }),
+    /model request timed out/,
+  );
+  assert.equal(calls, 6);
+  assert.equal(retries.length, 5);
+});
+
+test("a timeout keeps the smaller budget when mixed with other transient errors", async () => {
+  let calls = 0;
+  const retries: ModelRetryInfo[] = [];
+  await assert.rejects(
+    runAgentLoop({
+      client: client(async () => {
+        calls += 1;
+        if (calls === 2) throw requestTimeout();
+        throw Object.assign(new Error("Service unavailable"), {
+          status: 503,
+          headers: new Headers({ "retry-after": "0" }),
+        });
+      }),
+      system: "test",
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      registry: residentOnlyRegistry([]),
+      maxSteps: 1,
+      callbacks: { onModelRetry: (info) => retries.push(info) },
+    }),
+    /Service unavailable/,
+  );
+  assert.equal(calls, 6);
+  assert.deepEqual(
+    retries.map((retry) => retry.maxAttempts),
+    [11, 6, 6, 6, 6],
+  );
+});
+
+test("context recovery shares the timeout attempt budget and cannot open a seventh request", async () => {
+  for (const overflowAttempt of [1, 6]) {
+    const messages: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "original request" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "old", name: "lookup", input: {} }] },
+      {
+        role: "user",
+        content: [{ type: "tool_result", toolUseId: "old", content: "old".repeat(1_000) }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "recent", name: "lookup", input: {} }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", toolUseId: "recent", content: "recent".repeat(100) }],
+      },
+    ];
+    let calls = 0;
+    let compactions = 0;
+    const retries: ModelRetryInfo[] = [];
+    await assert.rejects(
+      runAgentLoop({
+        client: client(async () => {
+          calls += 1;
+          if (calls === overflowAttempt) {
+            throw Object.assign(new Error("maximum context length exceeded"), {
+              status: 400,
+              code: "context_length_exceeded",
+            });
+          }
+          throw requestTimeout();
+        }),
+        system: "test",
+        messages,
+        registry: residentOnlyRegistry([]),
+        maxSteps: 1,
+        callbacks: {
+          onCompact: () => {
+            compactions += 1;
+          },
+          onModelRetry: (info) => retries.push(info),
+        },
+      }),
+      overflowAttempt === 1 ? /model request timed out/ : /maximum context length exceeded/,
+    );
+    assert.equal(calls, 6);
+    assert.equal(compactions, overflowAttempt === 1 ? 1 : 0);
+    assert.deepEqual(
+      retries.map((retry) => retry.attempt),
+      overflowAttempt === 1 ? [3, 4, 5, 6] : [2, 3, 4, 5, 6],
+    );
+    assert.ok(retries.every((retry) => retry.maxAttempts === 6));
+  }
+});
+
+test("timeout recovery does not replay a tool executed by the previous model turn", async () => {
+  let calls = 0;
+  let effects = 0;
+  const result = await runAgentLoop({
+    client: client(async ({ messages }) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          blocks: [{ type: "tool_use", id: "write-1", name: "write", input: {} }],
+          stopReason: "tool_use",
+        };
+      }
+      assert.equal(toolResults(messages)[0].content, "written");
+      if (calls < 7) throw requestTimeout();
+      return successfulTurn;
+    }),
+    system: "test",
+    messages: [{ role: "user", content: [{ type: "text", text: "work" }] }],
+    registry: residentOnlyRegistry([
+      tool("write", async () => {
+        effects += 1;
+        return { content: "written" };
+      }),
+    ]),
+    maxSteps: 2,
+  });
+  assert.equal(result.finalText, "recovered");
+  assert.equal(calls, 7);
+  assert.equal(effects, 1);
+});
+
+test("cancellation and a Run deadline interrupt timeout backoff before another request", async () => {
+  for (const name of ["AbortError", "TimeoutError"]) {
+    const controller = new AbortController();
+    let calls = 0;
+    await assert.rejects(
+      runAgentLoop({
+        client: client(async () => {
+          calls += 1;
+          throw Object.assign(new Error("request timed out"), { name: "TimeoutError" });
+        }),
+        system: "test",
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        registry: residentOnlyRegistry([]),
+        maxSteps: 1,
+        signal: controller.signal,
+        callbacks: { onModelRetry: () => controller.abort(new DOMException("Stopped", name)) },
+      }),
+      { name },
+    );
+    assert.equal(calls, 1);
+  }
+});
+
+test("does not retry a timeout after partial text or an already-expired Run deadline", async () => {
+  for (const interrupt of ["partial", "deadline"]) {
+    const controller = new AbortController();
+    let calls = 0;
+    let retries = 0;
+    await assert.rejects(
+      runAgentLoop({
+        client: client(async ({ onText }) => {
+          calls += 1;
+          if (interrupt === "partial") onText?.("Partial answer");
+          else controller.abort(new DOMException("Deadline elapsed", "TimeoutError"));
+          throw requestTimeout();
+        }),
+        system: "test",
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        registry: residentOnlyRegistry([]),
+        maxSteps: 1,
+        signal: controller.signal,
+        callbacks: { onModelRetry: () => (retries += 1) },
+      }),
+      /model request timed out/,
+    );
+    assert.equal(calls, 1);
+    assert.equal(retries, 0);
+  }
+});
+
 test("does not retry a permanent error or replay a partial streamed answer", async () => {
   let permanentCalls = 0;
   await assert.rejects(
@@ -693,7 +910,9 @@ test("reports how full the context window is after every counted turn", async ()
     contextWindow: 200_000,
     callbacks: {
       onContextUsage: (usage) =>
-        readings.push(`${usage.promptTokens}/${String(usage.contextWindow)}=${String(usage.percent)}`),
+        readings.push(
+          `${usage.promptTokens}/${String(usage.contextWindow)}=${String(usage.percent)}`,
+        ),
     },
   });
 
