@@ -1,6 +1,8 @@
 name: Lint
 
 on:
+  # A fixed release-candidate branch can finish validation while main advances.
+  workflow_dispatch:
   push:
     branches: [main]
     paths:

@@ -77,6 +77,39 @@ git push origin main
 If you forget this step, the release workflow runs but does nothing — it
 emits a `::notice::` saying the tag already exists. Re-run after bumping.
 
+### When main keeps moving during validation
+
+Main's CI and image builds cancel superseded runs. If frequent pushes prevent
+the full test suite from finishing, pin the chosen main commit, including its
+version bump, to a unique candidate branch and dispatch the same checks there:
+
+```bash
+release_candidate="codex/release-$(cat VERSION)"
+git branch "$release_candidate" main
+git push origin "$release_candidate"
+gh workflow run lint.yml --ref "$release_candidate"
+gh workflow run docker.yml --ref "$release_candidate"
+```
+
+Keep that branch fixed while both workflows run. These are the full checks;
+the separate ref prevents later main pushes from canceling them. Candidate
+images get candidate-branch and SHA tags and do not move `main` or `latest`.
+
+Once both runs are green, fetch the current branches and verify that the
+candidate remains on main and is a fast-forward of release:
+
+```bash
+git fetch origin main release
+git merge-base --is-ancestor "$release_candidate" origin/main
+git merge-base --is-ancestor origin/release "$release_candidate"
+git push origin "$release_candidate":release
+```
+
+Use that push instead of step 3 below, then watch and verify the normal release
+workflows. If release already contains the candidate, verify that newer release
+instead. Never force release backward or reuse a version already published from
+a different commit; choose and validate a new candidate when necessary.
+
 ### 3. Fast-forward `release` to `main`
 
 ```bash
