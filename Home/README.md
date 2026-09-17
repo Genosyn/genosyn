@@ -10,13 +10,20 @@ primary actions and focus. Semantic hues stay local to compact statuses and
 department markers. Compatibility tokens live in `tailwind.config.ts`; shared
 surfaces, headings, and controls live in `client/sections/Kit.tsx`.
 
-The site uses brief entrances as headings and product cards enter the viewport,
-with small hover and keyboard-focus responses on links and actions. Shared
-motion lives in `client/components/Reveal.tsx` and `client/motion.css`. Content
-is visible in prerendered HTML and when motion APIs are unavailable. Entrances
-run once, stop when their content receives keyboard focus, and respect the
-system's reduced-motion setting, including changes made while the page is open.
-Reduced motion also removes hover movement and animated transitions.
+The homepage opens with an animated sample company. Visitors can choose Support,
+Finance, or Engineering and follow an AI Employee from an incoming request,
+through readable work steps, to a finished result. Pause and manual step controls
+let visitors explore at their own pace. These are illustrative examples, not
+live company records.
+
+Headings and product cards also animate into view, with small hover and
+keyboard-focus responses on links and actions. Shared motion lives in
+`client/components/Reveal.tsx` and `client/motion.css`. Content is visible in
+prerendered HTML and when motion APIs are unavailable. Entrances run once and
+stop when their content receives keyboard focus. The system's reduced-motion
+setting, including changes while the page is open, removes animated transitions
+and automatic demo playback; the examples remain available through manual
+controls.
 
 ## Scripts
 

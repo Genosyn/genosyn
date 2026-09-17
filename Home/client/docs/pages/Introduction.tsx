@@ -118,11 +118,13 @@ export function Introduction() {
 
       <H2 id="explore-the-website">Explore the website</H2>
       <P>
-        The <DocLink to="/">Genosyn website</DocLink> shows a sample company so you can see how work
-        moves between departments. Use <Strong>Pause animation</Strong> above the dashboard to stop
-        its updates, or <Strong>Next example</Strong> to browse the sample morning reports at your
-        own pace. Website motion follows your device&apos;s reduced-motion preference. The examples
-        are illustrative; they are not connected to your company&apos;s records.
+        The <DocLink to="/">Genosyn website</DocLink> opens with a sample company at work. Choose{" "}
+        <Strong>Support</Strong>, <Strong>Finance</Strong>, or <Strong>Engineering</Strong> to follow
+        an AI Employee from an incoming request through each work step to a finished result. Use{" "}
+        <Strong>Pause animation</Strong> to stop playback, then select a step or use{" "}
+        <Strong>Next step</Strong> to explore at your own pace. Your device&apos;s reduced-motion
+        preference stops automatic playback; every example remains available. The examples are
+        illustrative and are not connected to your company&apos;s records.
       </P>
 
       <H2 id="where-to-start">Where to start</H2>

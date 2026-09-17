@@ -10,73 +10,77 @@ const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden bg-slate-50">
+    <section className="hero-stage relative overflow-hidden bg-slate-50">
       <div
         aria-hidden
-        className="hero-grid pointer-events-none absolute inset-x-0 top-0 h-[35rem]"
+        className="hero-grid pointer-events-none absolute inset-x-0 top-0 h-[45rem]"
       />
-      <Container className="relative pb-12 pt-14 sm:pb-16 sm:pt-20 lg:pt-24">
-        <div className="mx-auto max-w-4xl text-center">
-          <Reveal>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700"
-            >
-              <Github aria-hidden className="h-3.5 w-3.5" />
-              Open source. Built for your company.
-              <span className="border-l border-slate-200 pl-2.5 text-slate-500">{`v${__APP_VERSION__}`}</span>
-              <span className="sr-only">(opens in a new tab)</span>
-            </a>
-          </Reveal>
-
-          <Reveal delay={80}>
-            <h1 className="mt-7 text-balance text-[clamp(3rem,7.5vw,6rem)] font-semibold leading-[1.03] tracking-[-0.055em] text-slate-950">
-              Your company.
-              <br />
-              <span className="text-indigo-600">Already at work.</span>
-            </h1>
-          </Reveal>
-
-          <Reveal delay={160}>
-            <p className="mx-auto mt-6 max-w-[36rem] text-pretty text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-              AI Employees with real roles, shared tools, and Routines that keep work moving. You
-              set the direction. Genosyn gets to work.
-            </p>
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button href="/docs/install" className="min-h-12 px-6">
-                Get started <ArrowRight aria-hidden className="h-4 w-4" />
-              </Button>
-              <Button href="#roles" variant="secondary" className="min-h-12 px-6">
-                Meet your AI Employees <ArrowDown aria-hidden className="h-4 w-4" />
-              </Button>
-            </div>
-          </Reveal>
-
-          <Reveal delay={240}>
-            <ul className="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-3 text-xs text-slate-500 sm:text-sm">
-              <li className="inline-flex items-center gap-2">
-                <Server aria-hidden className="h-3.5 w-3.5" />
-                Self-hosted. Your data.
-              </li>
-              <li className="inline-flex items-center gap-2">
+      <Container className="relative pb-12 pt-10 sm:pb-16 sm:pt-14 lg:pt-16">
+        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-10 xl:gap-14">
+          <div className="mx-auto min-w-0 max-w-2xl text-center lg:mx-0 lg:text-left">
+            <Reveal>
+              <a
+                href={GITHUB_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700"
+              >
                 <Github aria-hidden className="h-3.5 w-3.5" />
-                Apache 2.0
-              </li>
-              <li className="inline-flex items-center gap-2">
-                <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
-                Human oversight built in
-              </li>
-            </ul>
-          </Reveal>
+                Open source. Yours to run.
+                <span className="border-l border-slate-200 pl-2.5 text-slate-500">{`v${__APP_VERSION__}`}</span>
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+            </Reveal>
+
+            <Reveal delay={80}>
+              <h1 className="mt-7 text-balance text-[clamp(2.4rem,11.5vw,4.6rem)] font-semibold leading-[1.06] tracking-[-0.055em] text-slate-950 lg:text-[clamp(3rem,5vw,4.6rem)]">
+                Your company.
+                <br />
+                <span className="hero-heading-accent inline-block text-indigo-600">
+                  Already at work.
+                </span>
+              </h1>
+            </Reveal>
+
+            <Reveal delay={160}>
+              <p className="mx-auto mt-6 max-w-[32rem] text-pretty text-base leading-7 text-slate-600 sm:text-lg sm:leading-8 lg:mx-0">
+                Replies drafted. Books reconciled. Patches prepared. Your AI Employees do the work,
+                with you in control.
+              </p>
+              <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
+                <Button href="/docs/install" className="min-h-12 px-6">
+                  Get started <ArrowRight aria-hidden className="h-4 w-4" />
+                </Button>
+                <Button href="#roles" variant="secondary" className="min-h-12 px-6">
+                  Meet your AI Employees <ArrowDown aria-hidden className="h-4 w-4" />
+                </Button>
+              </div>
+            </Reveal>
+
+            <Reveal delay={240}>
+              <ul className="mt-7 flex flex-wrap justify-center gap-x-5 gap-y-3 text-xs text-slate-500 lg:justify-start">
+                <li className="inline-flex items-center gap-2">
+                  <Server aria-hidden className="h-3.5 w-3.5" />
+                  Self-hosted. Your data.
+                </li>
+                <li className="inline-flex items-center gap-2">
+                  <Github aria-hidden className="h-3.5 w-3.5" />
+                  Apache 2.0
+                </li>
+                <li className="inline-flex items-center gap-2">
+                  <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+                  Human oversight built in
+                </li>
+              </ul>
+            </Reveal>
+          </div>
+
+          <div id="work-demo" className="min-w-0 scroll-mt-24">
+            <Wall />
+          </div>
         </div>
 
-        <div className="mt-12 sm:mt-16">
-          <Wall />
-        </div>
-
-        <Reveal className="mt-6 grid gap-6 rounded-xl border border-slate-200 bg-white p-5 sm:p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:gap-10">
+        <Reveal className="mt-10 grid gap-6 rounded-xl border border-slate-200 bg-white/90 p-5 sm:mt-12 sm:p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:gap-10">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900">
               Your infrastructure. One command away.

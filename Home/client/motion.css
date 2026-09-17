@@ -1,4 +1,36 @@
-/* Reusable interactions stay small enough to preserve the page's quiet rhythm. */
+/* Work stays the focus; entrances and interactions make the rest of the page respond. */
+.hero-stage {
+  background-image:
+    radial-gradient(ellipse at 85% 30%, rgb(199 210 254 / 38%), transparent 48%),
+    radial-gradient(ellipse at 10% 85%, rgb(224 231 255 / 30%), transparent 50%);
+}
+
+.hero-heading-accent {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero-heading-accent::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: auto 1% 0.05em;
+  height: 0.16em;
+  border-radius: 999px;
+  background: rgb(165 180 252 / 38%);
+  transform-origin: left;
+  animation: hero-underline 1100ms cubic-bezier(0.22, 1, 0.36, 1) 350ms both;
+}
+
+@keyframes hero-underline {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 .motion-button,
 .motion-card,
 .motion-strip {
@@ -25,13 +57,13 @@
 @media (hover: hover) and (pointer: fine) {
   .motion-button:hover,
   .motion-strip:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 18px -10px rgb(15 23 42 / 30%);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 22px -10px rgb(15 23 42 / 32%);
   }
 
   .motion-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 24px -16px rgb(15 23 42 / 30%);
+    transform: translateY(-5px);
+    box-shadow: 0 14px 28px -16px rgb(15 23 42 / 34%);
   }
 
   .motion-button:hover > svg,
@@ -48,6 +80,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hero-heading-accent::after {
+    animation: none;
+  }
+
   .motion-button,
   .motion-card,
   .motion-strip,

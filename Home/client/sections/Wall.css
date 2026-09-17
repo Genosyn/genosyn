@@ -1,0 +1,157 @@
+/* This sample stays fully readable before motion support is established. */
+.work-showcase .work-stage {
+  min-height: 265px;
+}
+.work-showcase[data-playing="true"] .work-progress {
+  transition: transform 100ms linear;
+}
+
+.work-showcase[data-motion="true"][data-manual="false"] .work-stage-entry {
+  animation: work-stage-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.work-showcase[data-motion="true"][data-manual="false"] .work-document-entry {
+  animation: work-document-in 750ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.work-showcase[data-motion="true"][data-manual="false"] .work-context-entry {
+  animation: work-context-in 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.work-showcase[data-motion="true"][data-manual="false"] .work-complete-entry {
+  animation: work-complete-in 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.work-showcase[data-motion="true"] .work-step-orbit {
+  animation: work-orbit 1.4s linear infinite;
+}
+.work-showcase[data-motion="true"] .work-status-dot {
+  animation: work-pulse 1.5s ease-in-out infinite;
+}
+.work-showcase[data-motion="true"] .work-scan {
+  animation: work-scan 2.1s ease-in-out infinite;
+}
+.work-showcase[data-motion="true"] .work-nudge {
+  animation: work-nudge 1.5s ease-in-out infinite;
+}
+.work-showcase[data-motion="true"] .work-search {
+  animation: work-search 800ms ease-in-out infinite alternate;
+}
+.work-showcase[data-motion="true"] .work-cursor {
+  animation: work-cursor 700ms step-end infinite;
+}
+
+/* The same switch stops every CSS effect as well as the component's clock. */
+.work-showcase[data-playing="false"] *,
+.work-showcase[data-playing="false"] *::before,
+.work-showcase[data-playing="false"] *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+
+@keyframes work-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes work-document-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) rotate(-1.5deg) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0) scale(1);
+  }
+}
+@keyframes work-context-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes work-complete-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-12deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.12) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes work-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes work-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgb(99 102 241 / 0.2);
+  }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 4px rgb(99 102 241 / 0);
+  }
+}
+@keyframes work-scan {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.75;
+  }
+  85% {
+    opacity: 0.75;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+@keyframes work-nudge {
+  0%,
+  100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+@keyframes work-search {
+  from {
+    transform: translateX(-1px) rotate(-10deg);
+  }
+  to {
+    transform: translateX(1px) rotate(10deg);
+  }
+}
+@keyframes work-cursor {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-showcase *,
+  .work-showcase *::before,
+  .work-showcase *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

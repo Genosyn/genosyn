@@ -20,6 +20,13 @@ export function useReveal<T extends HTMLElement>(delay = 0) {
 
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (preference.matches) return;
+    const supportsEvents =
+      typeof preference.addEventListener === "function" &&
+      typeof preference.removeEventListener === "function";
+    const supportsLegacyEvents =
+      typeof preference.addListener === "function" &&
+      typeof preference.removeListener === "function";
+    if (!supportsEvents && !supportsLegacyEvents) return;
 
     let animation: Animation | undefined;
     const observer = new IntersectionObserver(
@@ -31,11 +38,11 @@ export function useReveal<T extends HTMLElement>(delay = 0) {
 
         animation = element.animate(
           [
-            { opacity: 0, transform: "translateY(18px)" },
-            { opacity: 1, transform: "translateY(0)" },
+            { opacity: 0, transform: "translateY(28px) scale(0.985)" },
+            { opacity: 1, transform: "translateY(0) scale(1)" },
           ],
           {
-            duration: 650,
+            duration: 800,
             delay: Math.max(0, delay),
             easing: "cubic-bezier(0.22, 1, 0.36, 1)",
             fill: "both",
@@ -62,7 +69,7 @@ export function useReveal<T extends HTMLElement>(delay = 0) {
 
     observer.observe(element);
     element.addEventListener("focusin", finish);
-    if (typeof preference.addEventListener === "function") {
+    if (supportsEvents) {
       preference.addEventListener("change", onPreferenceChange);
     } else {
       preference.addListener(onPreferenceChange);
@@ -72,7 +79,7 @@ export function useReveal<T extends HTMLElement>(delay = 0) {
       observer.disconnect();
       animation?.cancel();
       element.removeEventListener("focusin", finish);
-      if (typeof preference.removeEventListener === "function") {
+      if (supportsEvents) {
         preference.removeEventListener("change", onPreferenceChange);
       } else {
         preference.removeListener(onPreferenceChange);
