@@ -79,7 +79,7 @@ const reload = (id: string) => AppDataSource.getRepository(MailHandover).findOne
 
 describe("queued proactive mail work", () => {
   for (const mode of ["work", "draft", "reply", "triage"] as const) {
-    test(`${mode} reviews once as the employee, retaining proactive and stack-only ceilings even with a Send Grant`, async () => {
+    test(`${mode} prepares once as the employee, retaining proactive and delivery ceilings even with a Send Grant`, async () => {
       const { handover, thread } = await fixture(mode);
       let calls = 0;
       const runChat: typeof chatWithEmployee = async (
@@ -95,19 +95,29 @@ describe("queued proactive mail work", () => {
         assert.equal(options?.proactiveReview, true);
         assert.equal(options?.mailHandoverId, handover.id);
         assert.equal(options?.mailThreadId, thread.id);
-        assert.match(prompt, /Mode: PROACTIVE REVIEW/);
-        assert.match(prompt, /request_work_review/);
+        assert.match(prompt, /Mode: PROACTIVE PREPARATION/);
         if (mode === "triage") {
-          assert.match(prompt, /Do not change the thread, block its sender/);
-          assert.doesNotMatch(prompt, /File the thread with update_mail_thread/);
+          assert.match(prompt, /Apply the trusted filing instruction with update_mail_thread/);
+          assert.match(prompt, /Do not ask approval for this ordinary filing/);
+          assert.match(
+            prompt,
+            /Do not change labels, block a sender, unsubscribe, compose a reply, or send mail/,
+          );
+          assert.doesNotMatch(prompt, /request_work_review/);
         } else {
+          assert.match(prompt, /complete permitted factual recordkeeping and Workstream updates/);
           assert.match(prompt, /request_mail_review/);
+          assert.match(prompt, /without a separate approval to prepare it/);
+          assert.match(
+            prompt,
+            /Use request_work_review only for consequential work outside this scope/,
+          );
           assert.match(prompt, /Never send or create a Gmail or IMAP draft/);
         }
         assert.doesNotMatch(prompt, /create_mail_draft/);
         return {
           status: "ok",
-          reply: "Proposed a bounded review.",
+          reply: "Completed the permitted preparation.",
           attachmentIds: [],
           sidecars: {},
         };
