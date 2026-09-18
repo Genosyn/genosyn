@@ -354,6 +354,14 @@ export function Models() {
         compaction belong to the selected runtime rather than a second Genosyn model loop.
       </P>
       <P>
+        If Genosyn loses the response connection while OpenCode is still working, it reconnects to
+        the same session with exponential backoff: roughly 1s, 2s, 4s, 8s and 16s, then up to 30s.
+        It reads the existing session&apos;s progress and final result, preserving completed work
+        without submitting the request again. Recovery stops on cancellation, the original Run or
+        chat deadline, or ten consecutive failed reconnection attempts. Retries appear in the Run
+        log.
+      </P>
+      <P>
         The error names the model used for that turn, shows the safe host-only endpoint, and
         explains the failure type or HTTP status. Runtime provider response bodies are not copied
         into the Run log. In chat, use <Strong>Review AI Model settings</Strong> on the error to

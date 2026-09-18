@@ -549,6 +549,7 @@ async function fakeOpenCode(
     hangControl?: boolean;
     openAiModel?: { id: string; limit: { context: number; output: number } };
     unchangedConfig?: boolean;
+    losePromptResponse?: boolean;
   } = {},
 ) {
   let stream: ServerResponse | undefined;
@@ -558,6 +559,11 @@ async function fakeOpenCode(
   const permissions: Record<string, unknown>[] = [];
   const globalConfigs: Record<string, unknown>[] = [];
   let aborts = 0;
+  let prompts = 0;
+  let statusReads = 0;
+  let messageReads = 0;
+  let promptPending = false;
+  let completed: { info: AssistantMessage; parts: Part[] } | undefined;
   const server = createServer(async (req, res) => {
     const pathname = new URL(req.url!, "http://localhost").pathname;
     const chunks: Buffer[] = [];
@@ -614,10 +620,29 @@ async function fakeOpenCode(
       res.end(JSON.stringify({ id: "session" }));
       return;
     }
-    if (pathname === "/session/session/message") {
-      const result = await action(emit, body);
+    if (pathname === "/session/status" && req.method === "GET") {
+      statusReads++;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify(result));
+      res.end(JSON.stringify({ session: { type: promptPending ? "busy" : "idle" } }));
+      return;
+    }
+    if (pathname === "/session/session/message" && req.method === "GET") {
+      messageReads++;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(completed ? [completed] : []));
+      return;
+    }
+    if (pathname === "/session/session/message" && req.method === "POST") {
+      prompts++;
+      promptPending = true;
+      // The server accepted the prompt and keeps working even though the
+      // caller lost the long-lived HTTP response. Its SSE stream stays open.
+      if (options.losePromptResponse) res.destroy();
+      completed = await action(emit, body);
+      promptPending = false;
+      if (res.destroyed) return;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(completed));
       return;
     }
     if (pathname.startsWith("/permission/")) {
@@ -639,6 +664,15 @@ async function fakeOpenCode(
     },
     get disposals() {
       return disposals;
+    },
+    get prompts() {
+      return prompts;
+    },
+    get statusReads() {
+      return statusReads;
+    },
+    get messageReads() {
+      return messageReads;
     },
     connection: {
       url: `http://127.0.0.1:${addr.port}`,
@@ -700,6 +734,124 @@ test("SDK session streams a completed turn and passes policy plus current reques
     });
     assert.deepEqual(result, { finalText: "Finished", steps: 1, stopReason: "end_turn" });
     assert.equal(seen.join(""), "Finished");
+  } finally {
+    await runtime.close();
+  }
+});
+
+test(
+  "a lost prompt response recovers the same session without repeating work or streamed activity",
+  { timeout: 10_000 },
+  async () => {
+    const text: string[] = [];
+    const calls: unknown[] = [];
+    const results: unknown[] = [];
+    const usages: unknown[] = [];
+    const retries: number[] = [];
+    const runtime = await fakeOpenCode(
+      async (emit) => {
+        emit({
+          id: "message",
+          type: "message.updated",
+          properties: { sessionID: "session", info: assistant() },
+        });
+        const tool: Part = {
+          id: "write",
+          sessionID: "session",
+          messageID: "assistant",
+          type: "tool",
+          tool: "write",
+          callID: "write-result",
+          state: {
+            status: "completed",
+            input: { filePath: "report.md", content: "Finished" },
+            output: "File written",
+            title: "Write report",
+            metadata: {},
+            time: { start: 1, end: 2 },
+          },
+        };
+        emit(updated(tool));
+        // Keep the accepted turn active through the first recovery poll.
+        await waitFor(() => runtime.statusReads > 0);
+        const part: Part = {
+          id: "reply",
+          sessionID: "session",
+          messageID: "assistant",
+          type: "text",
+          text: "Finished",
+        };
+        const finish: Part = {
+          id: "finish",
+          sessionID: "session",
+          messageID: "assistant",
+          type: "step-finish",
+          reason: "stop",
+          cost: 0,
+          tokens: assistant().tokens,
+        };
+        emit(updated(part));
+        emit(updated(finish));
+        return { info: assistant(), parts: [tool, part, finish] };
+      },
+      { losePromptResponse: true },
+    );
+    try {
+      const result = await runOpenCodeSession(runtime.connection, "fixture", {
+        ...turnParams(),
+        callbacks: {
+          onText: (value) => text.push(value),
+          onToolUse: (...args) => calls.push(args),
+          onToolResult: (...args) => results.push(args),
+          onUsage: (usage) => usages.push(usage),
+          onModelRetry: (retry) => retries.push(retry.delayMs),
+        },
+      });
+      assert.deepEqual(result, { finalText: "Finished", steps: 1, stopReason: "end_turn" });
+      assert.equal(runtime.prompts, 1);
+      assert.ok(runtime.statusReads >= 2);
+      assert.equal(runtime.messageReads, 1);
+      assert.deepEqual(text, ["Finished"]);
+      assert.deepEqual(calls, [
+        ["write", { filePath: "report.md", content: "Finished" }, "assistant:write-result"],
+      ]);
+      assert.deepEqual(results, [["write", { content: "File written" }, "assistant:write-result"]]);
+      assert.deepEqual(usages, [{ inputTokens: 13, outputTokens: 4 }]);
+      assert.equal(retries.length, 2);
+      assert.ok(retries[0] >= 750 && retries[0] <= 1000);
+      assert.ok(retries[1] >= 1500 && retries[1] <= 2000);
+    } finally {
+      await runtime.close();
+    }
+  },
+);
+
+test("cancellation during prompt recovery aborts the accepted turn without replaying it", async () => {
+  const controller = new AbortController();
+  let retries = 0;
+  const runtime = await fakeOpenCode(
+    async () => {
+      await waitFor(() => runtime.aborts === 1);
+      return { info: assistant(), parts: [] };
+    },
+    { losePromptResponse: true },
+  );
+  try {
+    const result = await runOpenCodeSession(runtime.connection, "fixture", {
+      ...turnParams(),
+      signal: controller.signal,
+      callbacks: {
+        onModelRetry: () => {
+          retries++;
+          controller.abort();
+        },
+      },
+    });
+    assert.equal(result.stopReason, "aborted");
+    assert.equal(runtime.prompts, 1);
+    assert.equal(runtime.aborts, 1);
+    assert.equal(retries, 1);
+    assert.equal(runtime.messageReads, 0);
   } finally {
     await runtime.close();
   }

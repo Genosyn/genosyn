@@ -19,6 +19,7 @@ import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
 import { openCodeModelLimits, updateOpenCodeGlobalConfig } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
+import { recoverOpenCodePrompt } from "./opencodeRecovery.js";
 
 export type OpenCodeTurnParams = {
   model: AIModel;
@@ -79,7 +80,9 @@ export async function runOpenCodeSession(
   params: OpenCodeTurnParams,
   toolGate?: OpenCodeToolGate,
 ): Promise<OpenCodeTurnResult> {
-  const dispatcher = new Agent({ pipelining: 0 });
+  // The prompt response spans the entire session, including tool work. Its
+  // deadline belongs to the caller, not undici's shorter response timeout.
+  const dispatcher = new Agent({ pipelining: 0, headersTimeout: 0, bodyTimeout: 0 });
   const localFetch: typeof fetch = (input, init) => {
     const options = { ...init, dispatcher, redirect: "error" as const };
     return fetch(input, options);
@@ -240,16 +243,28 @@ async function runOpenCodeSessionWithClient(
     if (streamError) throw streamError;
     if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
     const response = await Promise.race([
-      client.session.prompt(
-        {
-          sessionID,
-          agent: OPENCODE_AGENT,
-          model: { providerID, modelID: modelId },
-          system: `${params.system}\n\nGenosyn company tool names have a genosyn_ prefix in this runtime. When the instructions name a Genosyn tool such as find_tools or repository_read_file, call genosyn_find_tools or genosyn_repository_read_file. Arguments to call_tool still use the original unprefixed tool name. Conversation history is supplied as labelled records; continue the current request without replaying recorded actions.${params.nativeCoding ? "\nFor native coding, older Skills may name read_file, write_file, edit_file, or list_dir. Their OpenCode equivalents are read (filePath), write (filePath, content), edit (filePath, oldString, newString), and list (path). Native glob and grep use pattern and an optional path; bash uses command and description. Follow each available tool's actual schema. These native tools have no genosyn_ prefix." : ""}`,
-          parts: openCodePromptParts(params.messages),
-        },
-        { signal: promptController.signal },
-      ),
+      client.session
+        .prompt(
+          {
+            sessionID,
+            agent: OPENCODE_AGENT,
+            model: { providerID, modelID: modelId },
+            system: `${params.system}\n\nGenosyn company tool names have a genosyn_ prefix in this runtime. When the instructions name a Genosyn tool such as find_tools or repository_read_file, call genosyn_find_tools or genosyn_repository_read_file. Arguments to call_tool still use the original unprefixed tool name. Conversation history is supplied as labelled records; continue the current request without replaying recorded actions.${params.nativeCoding ? "\nFor native coding, older Skills may name read_file, write_file, edit_file, or list_dir. Their OpenCode equivalents are read (filePath), write (filePath, content), edit (filePath, oldString, newString), and list (path). Native glob and grep use pattern and an optional path; bash uses command and description. Follow each available tool's actual schema. These native tools have no genosyn_ prefix." : ""}`,
+            parts: openCodePromptParts(params.messages),
+          },
+          { signal: promptController.signal },
+        )
+        .catch((error: unknown) =>
+          recoverOpenCodePrompt({
+            session: client.session,
+            sessionID,
+            error,
+            signal: params.signal
+              ? AbortSignal.any([params.signal, promptController.signal])
+              : promptController.signal,
+            callbacks: params.callbacks,
+          }),
+        ),
       server.exited,
     ]);
     if (response.data) {
@@ -280,5 +295,8 @@ async function runOpenCodeSessionWithClient(
     streamController.abort();
     promptController.abort();
     await listen;
+    // A recovery wait can stop before the asynchronous session abort reaches
+    // OpenCode. Keep its HTTP dispatcher alive until that bounded request ends.
+    await stopping;
   }
 }
