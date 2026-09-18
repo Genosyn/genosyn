@@ -119,11 +119,14 @@ export function Introduction() {
       <H2 id="explore-the-website">Explore the website</H2>
       <P>
         The <DocLink to="/">Genosyn website</DocLink> opens with a sample company at work. Choose{" "}
-        <Strong>Support</Strong>, <Strong>Finance</Strong>, or <Strong>Engineering</Strong> to follow
-        an AI Employee from an incoming request through each work step to a finished result. Use{" "}
-        <Strong>Pause animation</Strong> to stop playback, then select a step or use{" "}
-        <Strong>Next step</Strong> to explore at your own pace. Your device&apos;s reduced-motion
-        preference stops automatic playback; every example remains available. The examples are
+        <Strong>Support</Strong>, <Strong>Finance</Strong>, or <Strong>Engineering</Strong> to
+        follow an AI Employee from an incoming request through each work step to a finished result.
+        Choosing an example, selecting a step, or using <Strong>Next step</Strong> pauses playback
+        so you can read at your own pace. <Strong>Pause animation</Strong> freezes the current
+        moment; <Strong>Play animation</Strong> resumes it. Product previews also have selectable
+        steps and playback controls. Automatic playback rests when a demo is off screen or its
+        browser tab is hidden. Your device&apos;s reduced-motion preference stops automatic playback
+        and page entrances throughout the website; every example remains available. The examples are
         illustrative and are not connected to your company&apos;s records.
       </P>
 

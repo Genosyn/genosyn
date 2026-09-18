@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Reveal, useReveal } from "@/components/Reveal";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
 import {
@@ -175,6 +176,7 @@ function hours(role: RoleDef): string {
  * always a subordinate clause about an abstraction ("while the pipeline builds * itself").
  */
 function RoleHero({ role, dept }: { role: RoleDef; dept: Dept }) {
+  const facts = useReveal<HTMLDivElement>(160, 60);
   const stop = role.day.find(isStop);
   const fields = [
     hours(role),
@@ -185,31 +187,35 @@ function RoleHero({ role, dept }: { role: RoleDef; dept: Dept }) {
   return (
     <Band tone="ground" pad="m" rule={false}>
       <Container>
-        <div className="mb-5">
+        <Reveal className="mb-5">
           <Chip dept={dept}>{dept}</Chip>
-        </div>
+        </Reveal>
 
         <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-start">
           <div className="min-w-0">
-            <Display as="h1" className="max-w-[20ch]">
-              {`${role.name} works ${role.day[0].time} to ${role.day[role.day.length - 1].time}.`}
-            </Display>
+            <Reveal delay={60}>
+              <Display as="h1" className="max-w-[20ch]">
+                {`${role.name} works ${role.day[0].time} to ${role.day[role.day.length - 1].time}.`}
+              </Display>
+            </Reveal>
 
             <div className="mt-7 min-w-0">
-              <Lede>{role.intro}</Lede>
+              <Reveal delay={120}>
+                <Lede>{role.intro}</Lede>
+              </Reveal>
 
-              <div className="mt-9 max-w-[34rem] space-y-2">
+              <Reveal delay={180} stagger={55} className="mt-9 max-w-[34rem] space-y-2">
                 <ActionStrip href="/docs/install" trailing="Free">
                   Install it on your own hardware
                 </ActionStrip>
                 <ActionStrip href="/docs/employees" trailing="Docs">
                   How a Soul and its Skills are written
                 </ActionStrip>
-              </div>
+              </Reveal>
             </div>
           </div>
 
-          <div className="min-w-0">
+          <div ref={facts} className="min-w-0">
             <Sheet>What a human loses today</Sheet>
             {/* The note face, at the size the colophon uses. It is the one
                 voice on the site with a different skeleton, and this is the
@@ -245,11 +251,15 @@ function RoleHero({ role, dept }: { role: RoleDef; dept: Dept }) {
           </div>
         </div>
 
-        <div className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-hairline pt-4">
+        <Reveal
+          delay={200}
+          stagger={35}
+          className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-hairline pt-4"
+        >
           {fields.map((field) => (
             <Field key={field}>{field}</Field>
           ))}
-        </div>
+        </Reveal>
       </Container>
     </Band>
   );
@@ -341,6 +351,8 @@ function Day({ role }: { role: RoleDef }) {
  * sentences, and none of the hues meant anything.
  */
 function Capabilities({ role }: { role: RoleDef }) {
+  const rows = useReveal<HTMLDivElement>(0, 55);
+  const productRows = useReveal<HTMLDivElement>(0, 45);
   // `flatMap` with an empty array is the terse way to drop a slug that no
   // longer resolves: `products/data.ts` is owned by another pass and a role
   // must not render an empty row when a product is renamed out from under it.
@@ -360,7 +372,10 @@ function Capabilities({ role }: { role: RoleDef }) {
           lede="The work happens in the products your team already opens, on the same rows a Member edits. Nothing is exported and there is no second system of record."
         />
 
-        <div className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div
+          ref={rows}
+          className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+        >
           {role.capabilities.map((capability) => (
             <Row
               key={capability.title}
@@ -382,7 +397,10 @@ function Capabilities({ role }: { role: RoleDef }) {
 
         <div className="mt-12">
           <Sheet>Where the work lands</Sheet>
-          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div
+            ref={productRows}
+            className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+          >
             {products.map((product) => (
               <Row
                 key={product.slug}
@@ -419,11 +437,7 @@ function Capabilities({ role }: { role: RoleDef }) {
  * either needs a person or does not, and a column that could not answer that
  * question would not belong in this band.
  */
-function SetupColumn({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function SetupColumn({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col gap-10 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       {children}
@@ -646,6 +660,7 @@ function Questions({ role }: { role: RoleDef }) {
  * page is actually scanning for.
  */
 function Roster({ current }: { current: string }) {
+  const rows = useReveal<HTMLDivElement>(0, 45);
   const others = ROLES.filter((role) => role.slug !== current);
 
   return (
@@ -657,7 +672,10 @@ function Roster({ current }: { current: string }) {
           aside={<TextLink href="/roles">{`All ${ROLES.length} roles, side by side`}</TextLink>}
         />
 
-        <div className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div
+          ref={rows}
+          className="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+        >
           {others.map((role) => (
             <Row
               key={role.slug}

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -125,11 +125,11 @@ const STEPS = [
   { label: "Prepare", icon: FileText, action: "Preparing the result", status: "Preparing" },
   { label: "Ready", icon: CheckCheck, action: "Work ready to review", status: "Ready" },
 ];
-const STEP_DURATION = 3600;
+// Leave more time for the finished result than the initial handover.
+const STEP_DURATIONS = [2800, 3400, 4200, 4800];
 type Playback = {
   example: number;
   step: number;
-  elapsed: number;
   manual: boolean;
   revision: number;
 };
@@ -141,7 +141,6 @@ function advance(previous: Playback, manual = false): Playback {
         ? (previous.example + 1) % EXAMPLES.length
         : previous.example,
     step: (previous.step + 1) % STEPS.length,
-    elapsed: 0,
     manual,
     revision: previous.revision + 1,
   };
@@ -149,11 +148,12 @@ function advance(previous: Playback, manual = false): Playback {
 
 export function Wall() {
   const previewRef = useRef<HTMLElement>(null);
+  const progressRef = useRef<HTMLDivElement>(null);
+  const elapsedRef = useRef(0);
   const stageId = useId();
   const [playback, setPlayback] = useState<Playback>({
     example: 0,
     step: 0,
-    elapsed: 0,
     manual: false,
     revision: 0,
   });
@@ -167,7 +167,8 @@ export function Wall() {
   useEffect(() => {
     if (
       typeof window.matchMedia !== "function" ||
-      typeof window.IntersectionObserver !== "function"
+      typeof window.IntersectionObserver !== "function" ||
+      typeof window.requestAnimationFrame !== "function"
     )
       return;
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -202,53 +203,69 @@ export function Wall() {
   const playing = motionEnabled && inView && pageVisible && !paused;
 
   useEffect(() => {
+    elapsedRef.current = 0;
+  }, [playback.revision, motionEnabled]);
+
+  useEffect(() => {
     if (!playing) return;
+    const duration = STEP_DURATIONS[playback.step];
     let previousTime = performance.now();
-    const interval = window.setInterval(() => {
-      const now = performance.now();
-      const elapsed = Math.min(now - previousTime, 250);
+    let frame: number;
+    const tick = (now: number) => {
+      elapsedRef.current = Math.min(duration, elapsedRef.current + now - previousTime);
       previousTime = now;
-      setPlayback((previous) => {
-        const nextElapsed = previous.elapsed + elapsed;
-        if (nextElapsed >= STEP_DURATION) return advance(previous);
-        return { ...previous, elapsed: nextElapsed };
-      });
-    }, 80);
-    return () => window.clearInterval(interval);
-  }, [playing]);
+      if (progressRef.current) {
+        progressRef.current.style.transform = `scaleX(${(playback.step + elapsedRef.current / duration) / STEPS.length})`;
+      }
+      if (elapsedRef.current >= duration) {
+        setPlayback((previous) => advance(previous));
+      } else {
+        frame = window.requestAnimationFrame(tick);
+      }
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [playing, playback.step, playback.revision]);
 
   const example = EXAMPLES[playback.example];
   const currentStep = STEPS[playback.step];
   const showFullContent = !motionEnabled || playback.manual;
-  const progress =
-    (playback.step + (showFullContent ? 1 : playback.elapsed / STEP_DURATION)) / STEPS.length;
+  const progress = (playback.step + (showFullContent ? 1 : 0)) / STEPS.length;
 
   function selectExample(index: number) {
+    setPaused(true);
     setPlayback((previous) => ({
       example: index,
       step: 0,
-      elapsed: 0,
-      manual: !playing,
+      manual: true,
       revision: previous.revision + 1,
     }));
     setAnnouncement(`${EXAMPLES[index].department} example. Step 1 of 4: Receive.`);
   }
   function selectStep(step: number) {
+    setPaused(true);
     setPlayback((previous) => ({
       ...previous,
       step,
-      elapsed: 0,
-      manual: !playing,
+      manual: true,
       revision: previous.revision + 1,
     }));
     setAnnouncement(`${example.department}. Step ${step + 1} of 4: ${STEPS[step].label}.`);
   }
   function nextStep() {
-    const next = advance(playback, !playing);
+    setPaused(true);
+    const next = advance(playback, true);
     setPlayback(next);
     setAnnouncement(
       `${EXAMPLES[next.example].department}. Step ${next.step + 1} of 4: ${STEPS[next.step].label}.`,
     );
+  }
+
+  function togglePlayback() {
+    if (paused && playback.manual) {
+      setPlayback((previous) => ({ ...previous, manual: false, revision: previous.revision + 1 }));
+    }
+    setPaused((value) => !value);
   }
 
   return (
@@ -259,6 +276,7 @@ export function Wall() {
       data-motion={motionEnabled}
       data-manual={playback.manual}
       data-example={example.id}
+      data-step={playback.step}
     >
       <figcaption className="flex min-h-12 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-slate-100 px-4 py-1.5 sm:px-5">
         <div className="flex min-w-0 items-center gap-2">
@@ -275,7 +293,7 @@ export function Wall() {
         <button
           type="button"
           disabled={!motionEnabled}
-          onClick={() => setPaused((value) => !value)}
+          onClick={togglePlayback}
           aria-label={
             reducedMotion
               ? "Motion reduced by your system preference"
@@ -354,10 +372,12 @@ export function Wall() {
         </div>
 
         <div className="relative mb-4 mt-4">
-          <div
-            aria-hidden
-            className="absolute left-[12.5%] right-[12.5%] top-4 h-px bg-slate-200"
-          />
+          <div aria-hidden className="absolute left-[12.5%] right-[12.5%] top-4 h-px bg-slate-200">
+            <div
+              className="work-step-track h-full origin-left bg-indigo-400"
+              style={{ transform: `scaleX(${playback.step / (STEPS.length - 1)})` }}
+            />
+          </div>
           <ol className="relative grid grid-cols-4">
             {STEPS.map((step, index) => {
               const completed = index < playback.step;
@@ -410,7 +430,7 @@ export function Wall() {
             </span>
           </div>
           <div key={playback.revision} className="work-stage-entry px-3.5 pb-3.5 pt-3">
-            <WorkStage example={example} playback={playback} showFullContent={showFullContent} />
+            <WorkStage example={example} playback={playback} />
           </div>
         </div>
       </div>
@@ -433,6 +453,7 @@ export function Wall() {
         </div>
         <div aria-hidden className="h-1 overflow-hidden rounded-full bg-slate-100">
           <div
+            ref={progressRef}
             className="work-progress h-full w-full origin-left rounded-full bg-indigo-500"
             style={{ transform: `scaleX(${progress})` }}
           />
@@ -445,15 +466,7 @@ export function Wall() {
   );
 }
 
-function WorkStage({
-  example,
-  playback,
-  showFullContent,
-}: {
-  example: Example;
-  playback: Playback;
-  showFullContent: boolean;
-}) {
+function WorkStage({ example, playback }: { example: Example; playback: Playback }) {
   if (playback.step === 0) {
     return (
       <div>
@@ -464,7 +477,12 @@ function WorkStage({
             <FileText aria-hidden className="h-3 w-3" />
             {example.reference}
           </div>
-          <span aria-hidden className="work-scan absolute inset-x-0 top-0 h-0.5 bg-indigo-400/60" />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg"
+          >
+            <span className="work-scan absolute inset-0" />
+          </span>
         </div>
         <p className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-indigo-600">
           <ArrowDown aria-hidden className="work-nudge h-3.5 w-3.5" />
@@ -479,27 +497,34 @@ function WorkStage({
         <p className="text-sm font-semibold text-slate-900">The right context, gathered.</p>
         <div className="mt-3 space-y-2">
           {example.context.map((item, index) => {
-            const checked = showFullContent || playback.elapsed > 400 + index * 650;
             return (
               <div
                 key={item.label}
                 className="work-context-entry flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5"
-                style={{ animationDelay: `${index * 140}ms` }}
+                style={
+                  {
+                    "--row-delay": `${index * 140}ms`,
+                    "--check-delay": `${500 + index * 650}ms`,
+                  } as CSSProperties
+                }
               >
                 <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${checked ? "bg-emerald-50 text-emerald-600" : "bg-indigo-50 text-indigo-400"}`}
+                  aria-hidden
+                  className="relative flex h-5 w-5 shrink-0 items-center justify-center"
                 >
-                  {checked ? (
-                    <Check aria-hidden className="h-3 w-3" />
-                  ) : (
-                    <Search aria-hidden className="work-search h-3 w-3" />
-                  )}
+                  <span className="work-reading absolute inset-0 flex items-center justify-center rounded-full bg-indigo-50 text-indigo-400">
+                    <Search className="h-3 w-3" />
+                  </span>
+                  <span className="work-checked absolute inset-0 flex items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                    <Check className="h-3 w-3" />
+                  </span>
                 </span>
                 <span className="min-w-0 flex-1 text-[11px] text-slate-500">{item.label}</span>
-                <span
-                  className={`shrink-0 text-[11px] font-medium ${checked ? "text-slate-900" : "text-slate-500"}`}
-                >
-                  {checked ? item.value : "Reading…"}
+                <span className="relative shrink-0 text-right text-[11px] font-medium text-slate-900">
+                  <span aria-hidden className="work-reading absolute right-0 text-slate-500">
+                    Reading…
+                  </span>
+                  <span className="work-checked">{item.value}</span>
                 </span>
               </div>
             );
@@ -513,10 +538,6 @@ function WorkStage({
     );
   }
   if (playback.step === 2) {
-    const text = example.draft.join("\n");
-    const visibleCharacters = showFullContent
-      ? text.length
-      : Math.max(0, Math.floor((playback.elapsed / 2500) * text.length));
     const code = example.id === "engineering";
     return (
       <div>
@@ -530,13 +551,15 @@ function WorkStage({
           <p
             className={`whitespace-pre-wrap text-xs leading-[1.85] ${code ? "font-mono text-emerald-300" : "text-slate-700"}`}
           >
-            <span className="sr-only">{text}</span>
-            <span aria-hidden>
-              {text.slice(0, visibleCharacters)}
-              {visibleCharacters < text.length && (
-                <span className="work-cursor ml-0.5 inline-block h-3 w-0.5 translate-y-0.5 bg-indigo-400" />
-              )}
-            </span>
+            {example.draft.map((line, index) => (
+              <span
+                key={line}
+                className="work-draft-line block"
+                style={{ animationDelay: `${250 + index * 750}ms` }}
+              >
+                {line}
+              </span>
+            ))}
           </p>
         </div>
         <p className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500">

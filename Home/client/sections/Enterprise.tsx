@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useReveal } from "@/components/Reveal";
 import { GITHUB_URL } from "@/lib/constants";
 import {
   Band,
@@ -161,11 +162,12 @@ const LICENSE_FACTS: Array<[string, ReactNode]> = [
  * scale is the only emphasis left that is not a lie.
  */
 function License() {
+  const introduction = useReveal<HTMLDivElement>(0, 55);
   return (
     <Band tone="ground" pad="m" rule={false}>
       <Container>
         <div className="grid gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-          <div className="min-w-0">
+          <div ref={introduction} className="min-w-0">
             <Sheet>01 / Enterprise</Sheet>
             <Fields items={["APACHE-2.0", `v${__APP_VERSION__}`]} className="mt-3" />
 
@@ -188,6 +190,7 @@ function License() {
 
           <div className="min-w-0 lg:pt-1">
             <Pane
+              delay={180}
               title="Community and Enterprise"
               meta={`${EDITIONS.length} CAPABILITIES`}
               className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
@@ -367,6 +370,7 @@ function Architecture() {
             black things in the band — which is the whole inversion, on the one
             page where it is also the subject matter. */}
         <Pane
+          reveal={false}
           className="mt-14 max-w-[64rem] overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
           title="What stops an AI Employee"
           meta="3 INSTRUMENTS"
@@ -398,8 +402,7 @@ function Architecture() {
             fields={["company", "employee", "routine"]}
           >
             A revocable stop on all AI work at one scope, placed by a human or tripped by the
-            consecutive-failure breaker. Runs already moving finalize <Field>interrupted</Field>
-            {" "}
+            consecutive-failure breaker. Runs already moving finalize <Field>interrupted</Field>{" "}
             rather than failed, because nothing failed. Queued retries keep their due time and fire
             after the lift. A slot that arrives during one is declined and the schedule advances, so
             lifting an old Standdown produces no catch-up storm.
@@ -629,14 +632,14 @@ const DEFAULTS: Array<[string, ReactNode]> = [
   [
     "Breaker",
     <>
-      <Field>5</Field> consecutive bad Runs put a Standdown on that Routine, recorded with source
-      {" "}
+      <Field>5</Field> consecutive bad Runs put a Standdown on that Routine, recorded with source{" "}
       <Field>breaker</Field> rather than a person. <Field>0</Field> switches it off.
     </>,
   ],
 ];
 
 function Deployment() {
+  const topologies = useReveal<HTMLDivElement>(0, 80);
   return (
     <Band id="deployment" tone="ground" pad="m">
       <Container>
@@ -651,7 +654,7 @@ function Deployment() {
             is a whole choice — a command, a database, a volume shape — and
             reading them as three columns is how you compare them; as rows you
             can only read them in order. */}
-        <div className="mt-12 grid gap-4 lg:grid-cols-3">
+        <div ref={topologies} className="mt-12 grid gap-4 lg:grid-cols-3">
           {TOPOLOGIES.map((topology) => (
             <div
               key={topology.index}
@@ -729,8 +732,7 @@ const SUPPORT: Array<[string, ReactNode]> = [
   [
     "Security review",
     <>
-      A data-flow map for your controls: what is a database row, what is <Field>AES-256-GCM</Field>
-      {" "}
+      A data-flow map for your controls: what is a database row, what is <Field>AES-256-GCM</Field>{" "}
       at rest, what never leaves <Field>/app/data</Field>, what an employee token can write, and
       what the license verifies without a network.
     </>,

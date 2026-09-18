@@ -2,6 +2,7 @@ import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { PageHero } from "@/sections/HeroKit";
 import { Link } from "@/lib/router";
+import { Reveal } from "@/components/Reveal";
 import {
   ActionStrip,
   Band,
@@ -231,20 +232,18 @@ function Catalogue() {
                 aria-label={category}
                 className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm first:mt-0"
               >
-                <div
-                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50/80 px-4 py-3"
-                >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
                   <span className="text-sm font-semibold text-slate-900">{category}</span>
                   <Field>
                     {`${products.length} ${products.length === 1 ? "PRODUCT" : "PRODUCTS"}`}
                   </Field>
                 </div>
 
-                <div className="divide-y divide-slate-100">
+                <Reveal stagger={45} className="divide-y divide-slate-100">
                   {products.map((product) => (
                     <ProductRow key={product.slug} product={product} />
                   ))}
-                </div>
+                </Reveal>
               </section>
             );
           })}

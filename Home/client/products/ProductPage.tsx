@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Reveal, useReveal } from "@/components/Reveal";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { Mark } from "@/components/Marks";
@@ -286,18 +287,22 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
   return (
     <Band tone="ground" pad="m" rule={false}>
       <Container>
-        <div className="mb-5">
+        <Reveal className="mb-5">
           <Chip dept={dept}>{dept}</Chip>
-        </div>
+        </Reveal>
 
         <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-start">
           <div className="min-w-0">
-            <Display as="h1" className="max-w-[20ch]">
-              {page.title}
-            </Display>
+            <Reveal delay={60}>
+              <Display as="h1" className="max-w-[20ch]">
+                {page.title}
+              </Display>
+            </Reveal>
 
             <div className="mt-7 min-w-0">
-              <Lede>{product.intro}</Lede>
+              <Reveal delay={120}>
+                <Lede>{product.intro}</Lede>
+              </Reveal>
 
               {/* The breadcrumb keeps its landmark and its label. It sits
                   under the lede rather than over the headline because the
@@ -313,7 +318,7 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
               {/* The install band at the foot of this page carries the same
                   offer, so the strip goes to the guide rather than scrolling
                   the reader four screens to find it. */}
-              <div className="mt-6 max-w-[34rem] space-y-2">
+              <Reveal delay={180} stagger={55} className="mt-6 max-w-[34rem] space-y-2">
                 <ActionStrip href="/docs/install" trailing="Guide">
                   Install Genosyn
                 </ActionStrip>
@@ -322,7 +327,7 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
                 <ActionStrip href={product.docsPath ?? "/docs"} trailing="Docs">
                   {product.docsPath ? `Read the ${product.name} docs` : "Read the documentation"}
                 </ActionStrip>
-              </div>
+              </Reveal>
             </div>
           </div>
 
@@ -331,11 +336,15 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
           </div>
         </div>
 
-        <div className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-hairline pt-4">
+        <Reveal
+          delay={200}
+          stagger={35}
+          className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-hairline pt-4"
+        >
           {page.fields.map((field) => (
             <Field key={field}>{field}</Field>
           ))}
-        </div>
+        </Reveal>
       </Container>
     </Band>
   );
@@ -353,7 +362,7 @@ function ProductHero({ product, page, dept }: { product: ProductDef; page: PageC
 function ProductFigure({ product, page }: { product: ProductDef; page: PageCopy }) {
   return (
     <figure>
-      <Pane className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
+      <Pane delay={180} className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
         <ProductPrototype product={product} crop={page.crop} />
       </Pane>
       <figcaption className="mt-3 flex flex-wrap items-baseline gap-x-3">
@@ -432,6 +441,7 @@ function StackHeader({ columns, children }: { columns: string; children: ReactNo
  * this needs none, because a stack of rows has no leftovers.
  */
 function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) {
+  const rows = useReveal<HTMLDivElement>(0, 55);
   return (
     <Band id="what-it-does" tone="ground" pad="m">
       <Container>
@@ -441,7 +451,7 @@ function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) 
           lede={product.summary}
         />
 
-        <div className={`mt-10 ${STACK_CARD}`}>
+        <div ref={rows} className={`mt-10 ${STACK_CARD}`}>
           <StackHeader columns={FEATURE_COLUMNS}>
             <Sheet>No.</Sheet>
             <Sheet>Part</Sheet>
@@ -472,6 +482,7 @@ function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) 
  * spent on the one thing that earns it: the stop.
  */
 function WithEmployees({ product, page }: { product: ProductDef; page: PageCopy }) {
+  const rows = useReveal<HTMLDivElement>(0, 55);
   return (
     <Band id="with-employees" tone="surface" pad="m">
       <Container>
@@ -482,7 +493,7 @@ function WithEmployees({ product, page }: { product: ProductDef; page: PageCopy 
           aside={page.stop && <Stop stop={page.stop} />}
         />
 
-        <div className={`mt-10 ${STACK_CARD}`}>
+        <div ref={rows} className={`mt-10 ${STACK_CARD}`}>
           {product.employees.bullets.map((bullet, index) => (
             <Row key={bullet.title} className={STACK_ROW}>
               <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
@@ -590,6 +601,7 @@ function Questions({ product }: { product: ProductDef }) {
  * not stop being that department because a cursor is over it.
  */
 function MoreProducts({ current }: { current: ProductDef }) {
+  const rows = useReveal<HTMLDivElement>(0, 55);
   const related = [
     ...PRODUCTS.filter(
       (product) => product.slug !== current.slug && product.category === current.category,
@@ -608,7 +620,7 @@ function MoreProducts({ current }: { current: ProductDef }) {
           aside={<TextLink href="/products">All products</TextLink>}
         />
 
-        <div className={`mt-10 ${STACK_CARD}`}>
+        <div ref={rows} className={`mt-10 ${STACK_CARD}`}>
           {related.map((product) => (
             <Row
               key={product.slug}

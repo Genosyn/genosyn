@@ -142,6 +142,33 @@ body {
 /* Motion is brief, opt-in, and disabled below for reduced-motion users. */
 
 /* Timestamped demonstration bars keep their relative delay on one sweep. */
+@keyframes strip {
+  from {
+    transform: translateY(-50%) scaleX(0);
+  }
+  to {
+    transform: translateY(-50%) scaleX(1);
+  }
+}
+
+@keyframes wipe {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 [data-sweep] .strip-draw {
   transform-origin: left;
   animation: strip 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
@@ -157,6 +184,13 @@ body {
 [data-sweep] .arrive-in {
   animation: arrive 240ms linear both;
   animation-delay: calc(var(--sweep, 1800ms) * var(--at, 9.5) / 24 + 160ms);
+}
+
+/* Keyboard navigation must never land on a bar still waiting to draw. */
+[data-sweep]:focus-within .strip-draw,
+[data-sweep]:focus-within .arrive-wipe,
+[data-sweep]:focus-within .arrive-in {
+  animation: none;
 }
 
 .arrive-in {
@@ -250,6 +284,8 @@ body {
   .arrive-in,
   .prototype-stage > :first-child,
   .prototype-progress,
+  .animate-pulse,
+  .animate-spin,
   .animate-strip,
   .animate-arrive {
     animation: none;
@@ -263,23 +299,30 @@ body {
   mask-image: linear-gradient(to bottom, #00000030, transparent 85%);
 }
 
-@keyframes menu-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.site-menu {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    visibility 0s 280ms;
 }
 
-.site-menu {
-  animation: menu-in 180ms ease-out;
+.site-menu[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.site-menu-clip {
+  min-height: 0;
+  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .site-menu {
-    animation: none;
+    transition: none;
   }
 }

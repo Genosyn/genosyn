@@ -1,20 +1,13 @@
 import { useState } from "react";
+import { useReveal } from "@/components/Reveal";
 import { ROLES } from "@/roles/data";
 import { DaySchedule, RoleRail, roleDept } from "@/roles/RoleDay";
-import {
-  Band,
-  Body,
-  Container,
-  DEPT_FULL,
-  Field,
-  Head,
-  Row,
-  Sheet,
-} from "@/sections/Kit";
+import { Band, Body, Container, DEPT_FULL, Field, Head, Row, Sheet } from "@/sections/Kit";
 
 /** The day-in-the-life selector and its roster summary. */
 export function Roles() {
   const [active, setActive] = useState(ROLES[0].slug);
+  const [hasSwitched, setHasSwitched] = useState(false);
   const role = ROLES.find((item) => item.slug === active) ?? ROLES[0];
   const last = role.day[role.day.length - 1].time;
 
@@ -23,13 +16,23 @@ export function Roles() {
       <Container>
         <Head
           eyebrow="02 / One role's day"
-          title={`${role.person} ${role.shipped} by ${last}.`}
+          title={
+            <span key={role.slug} className={hasSwitched ? "motion-content block" : "block"}>
+              {`${role.person} ${role.shipped} by ${last}.`}
+            </span>
+          }
           lede="Pick a role and read its day. Every line is a Routine on a schedule: what it did, which product it did it in, and the one hour it stopped and put a question in front of a person."
         />
 
         <div className="mt-12 grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0">
-            <RoleTabs active={active} onSelect={setActive} />
+            <RoleTabs
+              active={active}
+              onSelect={(slug) => {
+                setActive(slug);
+                setHasSwitched(true);
+              }}
+            />
             <div className="mt-4">
               <DaySchedule role={role} />
             </div>
@@ -76,6 +79,7 @@ function RoleTabs({ active, onSelect }: { active: string; onSelect: (slug: strin
 
 /** Every shipped role, with its first Routine and schedule read from role data. */
 export function Roster() {
+  const rows = useReveal<HTMLDivElement>(0, 45);
   const routines = ROLES.reduce((total, role) => total + role.routines.length, 0);
 
   return (
@@ -88,7 +92,7 @@ export function Roster() {
           aside={<Field>{`${ROLES.length} ROLES · ${routines} ROUTINES`}</Field>}
         />
 
-        <div className="mt-10 space-y-2">
+        <div ref={rows} className="mt-10 space-y-2">
           {/* The three columns only appear where the longest schedule stays readable. */}
           <div className="hidden gap-x-6 pb-3 pl-4 xl:flex">
             <Sheet className="w-[13rem] shrink-0">Role</Sheet>
@@ -117,9 +121,7 @@ export function Roster() {
                 </Body>
 
                 <div className="w-full xl:w-[19rem] xl:shrink-0">
-                  <span className="block text-[13px] leading-5 text-slate-600">
-                    {routine.name}
-                  </span>
+                  <span className="block text-[13px] leading-5 text-slate-600">{routine.name}</span>
                   <Field className="mt-1 block">{routine.when}</Field>
                 </div>
               </Row>

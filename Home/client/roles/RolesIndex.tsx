@@ -1,4 +1,5 @@
 import { Nav } from "@/sections/Nav";
+import { Reveal } from "@/components/Reveal";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { PageHero } from "@/sections/HeroKit";
 import {
@@ -208,11 +209,11 @@ function Roster() {
                   <span className="text-sm font-semibold text-slate-900">{discipline}</span>
                 </div>
 
-                <div className="divide-y divide-slate-100">
+                <Reveal stagger={45} className="divide-y divide-slate-100">
                   {roles.map((role) => (
                     <RoleRow key={role.slug} role={role} />
                   ))}
-                </div>
+                </Reveal>
               </section>
             );
           })}

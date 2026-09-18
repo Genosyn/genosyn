@@ -76,7 +76,9 @@ export function Hero() {
           </div>
 
           <div id="work-demo" className="min-w-0 scroll-mt-24">
-            <Wall />
+            <Reveal delay={160}>
+              <Wall />
+            </Reveal>
           </div>
         </div>
 

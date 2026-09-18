@@ -248,19 +248,24 @@ export function Pane({
   dept,
   title,
   meta,
+  delay = 0,
+  reveal = true,
   className = "",
   children,
 }: {
   dept?: Dept;
   title?: string;
   meta?: string;
+  delay?: number;
+  /** Dense reference content can remain still while its heading enters. */
+  reveal?: boolean;
   className?: string;
   children: ReactNode;
 }) {
-  const ref = useReveal<HTMLDivElement>();
+  const ref = useReveal<HTMLDivElement>(delay);
   return (
     <div
-      ref={ref}
+      ref={reveal ? ref : undefined}
       className={`relative overflow-hidden rounded-xl border border-rule bg-surface shadow-sm ${className}`}
     >
       {dept && (
@@ -284,15 +289,17 @@ export function Pane({
 export function Plate({
   figure,
   caption,
+  delay = 0,
   className = "",
   children,
 }: {
   figure: string;
   caption: string;
+  delay?: number;
   className?: string;
   children: ReactNode;
 }) {
-  const ref = useReveal<HTMLElement>();
+  const ref = useReveal<HTMLElement>(delay);
   return (
     <figure ref={ref} className={className}>
       <div className="overflow-hidden rounded-xl border border-rule bg-surface shadow-sm">
@@ -491,7 +498,7 @@ export function TextLink({
       {children}
       <span
         aria-hidden
-        className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-indigo-600 transition-transform duration-150 group-hover:scale-x-100"
+        className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-indigo-600 transition-transform duration-200 group-hover:scale-x-100 group-focus-visible:scale-x-100 motion-reduce:transition-none"
       />
     </span>
   );

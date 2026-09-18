@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Pause, Play } from "lucide-react";
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { productPreview } from "@/products/previews";
 import { LogoMark } from "@/components/Logo";
 import { Mark, type MarkState } from "@/components/Marks";
 import { primaryUseCaseForProduct, SHOWCASE_USE_CASES } from "@/products/useCases";
 import { Chip, type Dept } from "@/sections/Kit";
+import "./ProductPrototype.css";
 
 /**
  * The product prototype — a picture of the running app, inside a `Pane`.
@@ -53,8 +55,8 @@ import { Chip, type Dept } from "@/sections/Kit";
  *     second one is an HTML conformance error that leaves a screen reader two
  *     "main" regions to choose between. The chrome is `aria-hidden` under one
  *     `sr-only` sentence instead.
- *   - The `prototype-*` classes still live in `index.css` and still own the
- *     containment, the stage height and the step timer bar.
+ *   - `index.css` owns the stage geometry. Playback and story transitions live
+ *     beside this component, and no motion is needed to read the first frame.
  */
 
 type PrototypeStory = {
@@ -67,7 +69,7 @@ type PrototypeStory = {
   state: MarkState;
 };
 
-const STORY_DURATION_MS = 3200;
+const STORY_DURATION_MS = 4800;
 
 /**
  * How much of the mock a page shows.
@@ -462,7 +464,13 @@ export function ProductPrototype({
 }: ProductPrototypeProps) {
   const [showcaseIndex, setShowcaseIndex] = useState(0);
   const [storyIndex, setStoryIndex] = useState(0);
-  const [motionEnabled, setMotionEnabled] = useState(true);
+  const [motionEnabled, setMotionEnabled] = useState(false);
+  const [inView, setInView] = useState(false);
+  const [pageVisible, setPageVisible] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const remainingRef = useRef(STORY_DURATION_MS);
+  const playing = motionEnabled && inView && pageVisible && !paused;
 
   const activeUseCase = product
     ? primaryUseCaseForProduct(product.slug)
@@ -488,15 +496,42 @@ export function ProductPrototype({
   }, [product?.slug]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setMotionEnabled(false);
-    }
+    const node = sectionRef.current;
+    if (!node || typeof window.matchMedia !== "function") return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncMotion = () => setMotionEnabled(!preference.matches);
+    const syncVisibility = () => setPageVisible(document.visibilityState === "visible");
+    syncMotion();
+    syncVisibility();
+    preference.addEventListener("change", syncMotion);
+    document.addEventListener("visibilitychange", syncVisibility);
+
+    // Older browsers retain a static, manually selectable preview.
+    const observer =
+      typeof IntersectionObserver === "function"
+        ? new IntersectionObserver(
+            ([entry]) => setInView(entry.isIntersecting && entry.intersectionRatio >= 0.15),
+            { threshold: 0.15 },
+          )
+        : undefined;
+    observer?.observe(node);
+    return () => {
+      preference.removeEventListener("change", syncMotion);
+      document.removeEventListener("visibilitychange", syncVisibility);
+      observer?.disconnect();
+    };
   }, []);
 
   useEffect(() => {
-    if (!motionEnabled || stories.length === 0) return;
+    remainingRef.current = STORY_DURATION_MS;
+  }, [motionEnabled, product?.slug, showcaseIndex, storyIndex]);
+
+  useEffect(() => {
+    if (!playing || stories.length === 0) return;
+    const startedAt = performance.now();
+    let completed = false;
     const timer = window.setTimeout(() => {
+      completed = true;
       if (storyIndex < stories.length - 1) {
         setStoryIndex((current) => current + 1);
         return;
@@ -506,25 +541,37 @@ export function ProductPrototype({
       if (!product) {
         setShowcaseIndex((current) => (current + 1) % SHOWCASE_USE_CASES.length);
       }
-    }, STORY_DURATION_MS);
-    return () => window.clearTimeout(timer);
-  }, [motionEnabled, product, stories.length, storyIndex]);
+    }, remainingRef.current);
+    return () => {
+      window.clearTimeout(timer);
+      if (!completed) {
+        remainingRef.current = Math.max(0, remainingRef.current - (performance.now() - startedAt));
+      }
+    };
+  }, [playing, product, showcaseIndex, stories.length, storyIndex]);
+
+  function selectStory(index: number) {
+    setPaused(true);
+    setStoryIndex(index);
+  }
 
   return (
     // No border of its own. The `Pane` this is mounted in draws the 1px frame
     // and the 3px department edge, and two frames around one picture is the
     // "screenshot in a card" move the revamp deleted everywhere else.
     <section
-      aria-label={`Animated ${activeProduct.name} product preview`}
-      className={`prototype-shell pointer-events-none select-none overflow-hidden bg-slate-50 ${className}`}
+      ref={sectionRef}
+      aria-label={`${activeProduct.name} product preview`}
+      data-motion={motionEnabled}
+      data-playing={playing}
+      className={`prototype-shell overflow-hidden bg-slate-50 ${className}`}
     >
-      {/* The one sentence a screen reader gets. Everything below it is a
-          picture of a UI, so it is hidden rather than narrated cell by cell. */}
+      {/* The mock remains a picture; its playback controls are real UI. */}
       <span className="sr-only">
         Genosyn running a {activeUseCase.role} use case in {activeProduct.name}.
       </span>
 
-      <div aria-hidden>
+      <div aria-hidden className="pointer-events-none select-none">
         <PrototypeFascia clock={clock} />
 
         {/* The identity row, and the one place the department is named in
@@ -569,21 +616,53 @@ export function ProductPrototype({
               <Preview />
             </div>
           )}
-          {story && <StoryLine story={story} clock={clock} />}
-        </div>
-
-        <div className="grid grid-cols-3 border-t border-slate-200">
-          {stories.map((candidate, index) => (
-            <StoryStep
-              key={candidate.label}
-              story={candidate}
-              index={index}
-              storyIndex={storyIndex}
-              ticking={motionEnabled}
-            />
-          ))}
+          {story && <StoryLine key={story.label} story={story} clock={clock} />}
         </div>
       </div>
+
+      {stories.length > 0 && (
+        <>
+          <div
+            role="group"
+            aria-label="Preview steps"
+            className="grid grid-cols-3 border-t border-slate-200"
+          >
+            {stories.map((candidate, index) => (
+              <StoryStep
+                key={`${activeProduct.slug}-${showcaseIndex}-${candidate.label}`}
+                story={candidate}
+                index={index}
+                storyIndex={storyIndex}
+                motionEnabled={motionEnabled}
+                onSelect={() => selectStory(index)}
+              />
+            ))}
+          </div>
+          <div className="flex min-h-10 items-center justify-between gap-3 border-t border-slate-200 bg-white px-3 py-1.5">
+            <span className="text-[10px] font-medium text-slate-500">
+              Sample work · Step {storyIndex + 1} of {stories.length}
+            </span>
+            {motionEnabled && (
+              <button
+                type="button"
+                onClick={() => setPaused((value) => !value)}
+                aria-label={paused ? "Play product preview" : "Pause product preview"}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+              >
+                {paused ? (
+                  <Play aria-hidden className="h-3 w-3" />
+                ) : (
+                  <Pause aria-hidden className="h-3 w-3" />
+                )}
+                {paused ? "Play" : "Pause"}
+              </button>
+            )}
+          </div>
+          <p className="sr-only" aria-live={paused || !motionEnabled ? "polite" : "off"}>
+            {story ? `${story.label}. ${story.detail}` : ""}
+          </p>
+        </>
+      )}
     </section>
   );
 }
@@ -632,20 +711,13 @@ function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
   const stateTone = story.state === "decision" ? "text-violet-700" : "text-amber-700";
 
   return (
-    <div className="absolute inset-x-0 bottom-0 flex items-center gap-2.5 border-t border-slate-200 bg-white px-3 py-2 shadow-sm">
+    <div className="prototype-story-entry absolute inset-x-0 bottom-0 flex items-center gap-2.5 border-t border-slate-200 bg-white px-3 py-2 shadow-sm">
       <span
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
-          human
-            ? story.state === "decision"
-              ? "bg-violet-50"
-              : "bg-amber-50"
-            : "bg-indigo-50"
+          human ? (story.state === "decision" ? "bg-violet-50" : "bg-amber-50") : "bg-indigo-50"
         }`}
       >
-        <Mark
-          state={story.state}
-          className={`h-3 w-3 ${human ? stateTone : "text-indigo-600"}`}
-        />
+        <Mark state={story.state} className={`h-3 w-3 ${human ? stateTone : "text-indigo-600"}`} />
       </span>
       <span className="min-w-0">
         <span className="block text-[10px] font-semibold text-slate-800">{story.label}</span>
@@ -683,12 +755,14 @@ function StoryStep({
   story,
   index,
   storyIndex,
-  ticking,
+  motionEnabled,
+  onSelect,
 }: {
   story: PrototypeStory;
   index: number;
   storyIndex: number;
-  ticking: boolean;
+  motionEnabled: boolean;
+  onSelect: () => void;
 }) {
   const current = index === storyIndex;
   const done = index < storyIndex;
@@ -707,11 +781,17 @@ function StoryStep({
       : "bg-white text-slate-500";
 
   return (
-    <div
-      className={`relative min-w-0 border-l border-slate-200 px-2.5 py-2.5 first:border-l-0 ${skin}`}
+    <button
+      type="button"
+      aria-pressed={current}
+      aria-label={`Step ${index + 1}: ${story.label}. ${story.detail}`}
+      onClick={onSelect}
+      className={`prototype-step relative min-h-11 min-w-0 border-l border-slate-200 px-2.5 py-2.5 text-left first:border-l-0 hover:bg-slate-100 focus-visible:z-10 focus-visible:outline-offset-[-3px] ${skin}`}
     >
       <span className="flex items-center gap-1.5">
-        <Mark state={done ? "run" : story.state} className="h-2.5 w-2.5 shrink-0" />
+        <span aria-hidden>
+          <Mark state={done ? "run" : story.state} className="h-2.5 w-2.5 shrink-0" />
+        </span>
         {/* The index is dropped on the narrowest screens: three cells across
             375px leave the label about nine characters, and an ordinal is the
             part a reader can infer from position. */}
@@ -720,8 +800,9 @@ function StoryStep({
         </span>
         <span className="t-field min-w-0 truncate text-[10px]">{story.label}</span>
       </span>
-      {current && ticking && (
+      {current && motionEnabled && (
         <span
+          aria-hidden
           className={`prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left ${
             human
               ? story.state === "decision"
@@ -731,6 +812,6 @@ function StoryStep({
           }`}
         />
       )}
-    </div>
+    </button>
   );
 }

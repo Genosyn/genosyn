@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Reveal } from "@/components/Reveal";
 import { Band, Container, Display, Field, Lede } from "@/sections/Kit";
 
 /**
@@ -68,9 +69,11 @@ export function PageHero({
   const label = eyebrow ?? (sheet ? sheet.replace(/^\d+\s*\/\s*/, "") : undefined);
 
   const headline = (
-    <Display as="h1" className="max-w-[20ch]">
-      {title}
-    </Display>
+    <Reveal delay={60}>
+      <Display as="h1" className="max-w-[20ch]">
+        {title}
+      </Display>
+    </Reveal>
   );
 
   // The copy block moves between the two columns depending on whether there
@@ -79,8 +82,14 @@ export function PageHero({
   // side by side rather than leaving half the band empty.
   const copy = (
     <div className={aside ? "mt-7 min-w-0" : "min-w-0 lg:pt-2"}>
-      <Lede>{lede}</Lede>
-      {actions && <div className="mt-9 max-w-[34rem] space-y-2">{actions}</div>}
+      <Reveal delay={120}>
+        <Lede>{lede}</Lede>
+      </Reveal>
+      {actions && (
+        <Reveal delay={180} stagger={55} className="mt-9 max-w-[34rem] space-y-2">
+          {actions}
+        </Reveal>
+      )}
     </div>
   );
 
@@ -91,9 +100,9 @@ export function PageHero({
     <Band tone="ground" pad="m" rule={false}>
       <Container>
         {label && (
-          <div className="mb-5 text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
+          <Reveal className="mb-5 text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
             {label}
-          </div>
+          </Reveal>
         )}
 
         {/* `gap-y-10` is what separates the stacked halves below `lg`; above
@@ -111,11 +120,15 @@ export function PageHero({
         </div>
 
         {fields && fields.length > 0 && (
-          <div className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-slate-200 pt-4">
+          <Reveal
+            delay={200}
+            stagger={35}
+            className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-slate-200 pt-4"
+          >
             {fields.map((field) => (
               <Field key={field}>{field}</Field>
             ))}
-          </div>
+          </Reveal>
         )}
       </Container>
     </Band>

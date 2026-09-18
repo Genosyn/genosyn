@@ -1,4 +1,5 @@
 import { Mark } from "@/components/Marks";
+import { useReveal } from "@/components/Reveal";
 import { type RoleDef, type RoleMoment } from "@/roles/data";
 import {
   Body,
@@ -150,6 +151,7 @@ const STOP_WORD = { decision: "Decision", approval: "Approval" } as const;
 
 export function DaySchedule({ role }: { role: RoleDef }) {
   const dept = roleDept(role);
+  const moments = useReveal<HTMLDivElement>(0, 45);
 
   // Counted and named separately: a Decision and an Approval are different
   // stops (see the note on RoleMoment.kind), and a header that called one the
@@ -162,12 +164,15 @@ export function DaySchedule({ role }: { role: RoleDef }) {
   ].filter(Boolean);
 
   return (
-    <Pane className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
+    <Pane reveal={false} className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm">
       {/* Pane's own `title`/`meta` header holds two strings and this one holds
           five, so the header is drawn here. The chip is the legend key for the
           edge above it: without it the reader has a coloured pane and no way
           to learn what the colour means. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-slate-50/80 px-4 pt-4 pb-3">
+      <div
+        key={role.slug}
+        className="motion-content flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-slate-50/80 px-4 pt-4 pb-3"
+      >
         <Chip dept={dept}>{DEPT_LABEL[dept]}</Chip>
         <span className="t-h3 text-[15px] text-ink">Tuesday</span>
         <span className="text-[13px] leading-5 text-ink2">{`${role.person} · ${role.name}`}</span>
@@ -186,7 +191,7 @@ export function DaySchedule({ role }: { role: RoleDef }) {
       {/* No horizontal padding: the rows are full-bleed so their department
           spines sit on the pane's own left edge and read as one column of
           colour rather than eight floating tabs. */}
-      <div className="pb-1">
+      <div ref={moments} className="pb-1">
         {role.day.map((moment) => (
           <MomentRow key={moment.time} moment={moment} />
         ))}
@@ -433,7 +438,10 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
   return (
     <div className="flex flex-col gap-6">
       {identity && (
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div
+          key={role.slug}
+          className="motion-content rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
           {/* The chip names the DEPARTMENT, not the discipline. Colouring
               `role.discipline` broke the legend outright: the Assistant's
               discipline string is "Operations", so the rail printed the word

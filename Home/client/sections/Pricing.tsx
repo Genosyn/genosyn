@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { useReveal } from "@/components/Reveal";
 import { GITHUB_URL } from "@/lib/constants";
 import {
   Band,
@@ -241,11 +242,12 @@ export function Pricing(): ReactNode {
  * "what does it cost", and the tiles below then have room to say why.
  */
 function PricingHead() {
+  const introduction = useReveal<HTMLDivElement>(0, 55);
   return (
     <Band tone="ground" pad="m" rule={false}>
       <Container>
         <div className="grid gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-          <div className="min-w-0">
+          <div ref={introduction} className="min-w-0">
             <Sheet>01 / Pricing</Sheet>
             <Fields items={["APACHE-2.0", `v${__APP_VERSION__}`, "USD"]} className="mt-3" />
 
@@ -268,6 +270,7 @@ function PricingHead() {
 
           <div className="min-w-0 lg:pt-1">
             <Pane
+              delay={180}
               title="Every plan"
               meta="USD / MO"
               className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
@@ -433,6 +436,7 @@ function Compared() {
             no 3px department edge: five plans are not a department, and a hue
             here would be the first place the legend breaks. */}
         <Pane
+          reveal={false}
           className="mt-10 max-w-[74rem] overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
           title="What differs"
           meta="5 PLANS · 4 LINES"
@@ -574,7 +578,12 @@ function Fields({ items, className = "" }: { items: string[]; className?: string
  * notches at every junction.
  */
 function TileStrip({ className = "", children }: { className?: string; children: ReactNode }) {
-  return <div className={`grid gap-4 ${className}`}>{children}</div>;
+  const cards = useReveal<HTMLDivElement>(0, 80);
+  return (
+    <div ref={cards} className={`grid gap-4 ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -652,7 +661,7 @@ function ActionTile({
         <p className="mt-2 max-w-[28ch] text-[14px] leading-[1.5] text-slate-600">{body}</p>
         <a
           href={href}
-          className="mt-4 inline-flex w-fit items-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+          className="motion-button mt-4 inline-flex w-fit items-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           {label}
         </a>
