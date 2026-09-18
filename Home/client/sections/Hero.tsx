@@ -37,7 +37,7 @@ export function Hero() {
                 Your company
                 <br />
                 <span className="hero-heading-accent inline-block text-indigo-600">
-                  can run automatically.
+                  can now run automatically.
                 </span>
               </h1>
             </Reveal>
