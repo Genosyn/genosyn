@@ -34,10 +34,10 @@ export function Hero() {
 
             <Reveal delay={80}>
               <h1 className="mt-7 text-balance text-[clamp(2.4rem,11.5vw,4.6rem)] font-semibold leading-[1.06] tracking-[-0.055em] text-slate-950 lg:text-[clamp(3rem,5vw,4.6rem)]">
-                Your company.
+                Your company
                 <br />
                 <span className="hero-heading-accent inline-block text-indigo-600">
-                  Already at work.
+                  can run automatically.
                 </span>
               </h1>
             </Reveal>
