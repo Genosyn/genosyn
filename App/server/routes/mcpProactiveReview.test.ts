@@ -13,6 +13,9 @@ import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Company } from "../db/entities/Company.js";
 import { Contact } from "../db/entities/Contact.js";
+import { EmployeeRevenueGrant } from "../db/entities/EmployeeRevenueGrant.js";
+import { Deal } from "../db/entities/Deal.js";
+import { Activity } from "../db/entities/Activity.js";
 import { Decision } from "../db/entities/Decision.js";
 import { DecisionPolicy } from "../db/entities/DecisionPolicy.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
@@ -107,6 +110,7 @@ beforeEach(async () => {
     slug: randomUUID(),
     cronExpr: "0 9 * * 1",
     body: "Read new requests and propose useful work.",
+    mailDeliveryMode: "draft",
   });
   run = await insert(Run, {
     routineId: routine.id,
@@ -166,7 +170,7 @@ async function assertNoWorkStarted(): Promise<void> {
   );
 }
 
-test("proactive review rejects edits, code work, delivery and deferred work before their handlers", async () => {
+test("proactive preparation rejects unbounded edits, code work, delivery and deferred work", async () => {
   for (const name of [
     "start_repository_work_session",
     "continue_repository_work_session",
@@ -178,13 +182,9 @@ test("proactive review rejects edits, code work, delivery and deferred work befo
     "send_mail",
     "mail_unsubscribe",
     "mail_block_sender",
-    "create_contact",
-    "update_contact",
     "create_estimate",
     "create_note",
     "update_routine",
-    "create_workstream",
-    "update_workstream",
     "schedule_wakeup",
     "handoff",
     "delegate_parallel_work",
@@ -331,12 +331,16 @@ test("the model registry cannot widen a proactive token with local tools, Skills
 
 test("a complete plan queues one pending work Approval without performing the proposed work", async () => {
   const args = {
+    humanDecisionReason:
+      "The checkout incident affects customer payments and needs authorization for a production-facing Repository change.",
     title: "Investigate Acme's checkout bug",
     context:
       "Acme reported checkout failing after yesterday's release; confirm impact before changing it.",
     plan: "Inspect the granted Repository, reproduce the reported failure, prepare a focused fix and relevant tests, then leave the branch for Member review. Draft a customer update without sending it.",
   };
   for (const invalid of [
+    { ...args, humanDecisionReason: undefined },
+    { ...args, humanDecisionReason: "routine" },
     { ...args, title: "   " },
     { ...args, plan: "" },
     { ...args, origin: { routineId: randomUUID(), proactiveReview: false } },
@@ -367,7 +371,8 @@ test("a complete plan queues one pending work Approval without performing the pr
     plan: string;
     origin: { routineId: string; runId: string; mailDeliveryMode: string };
   };
-  assert.equal(payload.context, args.context);
+  assert.ok(payload.context.includes(args.context));
+  assert.ok(payload.context.includes(args.humanDecisionReason));
   assert.equal(payload.plan, args.plan);
   assert.equal(payload.origin.routineId, routine.id);
   assert.equal(payload.origin.runId, run.id);
@@ -383,6 +388,8 @@ test("a complete plan queues one pending work Approval without performing the pr
 
 test("review submission cannot be invoked from an ordinary employee turn or a review-only self assessment", async () => {
   const args = {
+    humanDecisionReason:
+      "The proposed change requires a material contractual commitment from the company.",
     title: "Send a customer update",
     context: "A customer is waiting for an update.",
     plan: "Read the evidence and prepare a reply.",
@@ -418,6 +425,8 @@ test("a review Decision stays human-only and answering it cannot start a pickup 
     isActive: true,
   });
   const args = {
+    humanDecisionReason:
+      "The contractual support deadline affects a material customer commitment and no verified date is available.",
     title: "Confirm Acme's support deadline",
     body: "Acme asks when to expect a response. Which date did we promise?",
     options: [
@@ -469,4 +478,135 @@ test("a review Decision stays human-only and answering it cannot start a pickup 
   assert.equal(afterAnswer.pickupStartedAt, null);
   assert.equal(afterAnswer.note, "18 September, agreed in the signed support contract.");
   await assertNoWorkStarted();
+});
+
+test("routine factual upkeep proceeds with Grants and leaves no Decision or work Approval", async () => {
+  const newContact = { name: "James", email: "james@example.test" };
+  assert.equal((await tool("create_contact", newContact)).status, 403);
+  await insert(EmployeeRevenueGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "write",
+  });
+  const created = await tool<{ contact: { id: string } }>("create_contact", newContact);
+  assert.equal(created.status, 200);
+  const contactId = created.body.contact.id;
+  assert.equal(
+    (await tool("update_contact", { contactId, name: "James Barnett", title: "Founder" })).status,
+    200,
+  );
+  assert.equal((await tool("update_contact", { contactId, doNotContact: false })).status, 403);
+  assert.equal(
+    (await tool("update_contact", { contactId, email: "other@example.test" })).status,
+    403,
+  );
+  const deal = await insert(Deal, {
+    companyId: company.id,
+    title: "Active evaluation",
+    stageId: randomUUID(),
+    amountCents: 50000,
+  });
+  assert.equal(
+    (
+      await tool("update_deal", {
+        dealId: deal.id,
+        nextStep: "Prepare a contextual reply using the current evaluation notes.",
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await tool("update_deal", { dealId: deal.id, amountCents: 0 })).status, 403);
+  assert.equal(
+    (
+      await tool("log_activity", {
+        kind: "note",
+        contactId,
+        dealId: deal.id,
+        subject: "Evaluation context",
+        bodyText: "Active testing confirmed in the source email.",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await tool("log_activity", { kind: "task", subject: "Start different work" })).status,
+    403,
+  );
+  const stream = await tool<{ workstream: { id: string } }>("create_workstream", {
+    title: "Evaluation follow-through",
+    stateDoc:
+      "Source reviewed; factual updates complete. Reply still needs its configured send review.",
+    routineId: routine.id,
+  });
+  assert.equal(stream.status, 200);
+  assert.equal(
+    (
+      await tool("update_workstream", {
+        workstreamId: stream.body.workstream.id,
+        stateDoc: "Current evidence and next check recorded.",
+      })
+    ).status,
+    200,
+  );
+  const contact = await AppDataSource.getRepository(Contact).findOneByOrFail({ id: contactId });
+  assert.equal(contact.name, "James Barnett");
+  assert.equal(contact.email, "james@example.test");
+  assert.equal(
+    (await AppDataSource.getRepository(Deal).findOneByOrFail({ id: deal.id })).amountCents,
+    50000,
+  );
+  assert.equal(await AppDataSource.getRepository(Activity).countBy({ kind: "note" }), 1);
+  assert.equal(await AppDataSource.getRepository(Decision).count(), 0);
+  assert.equal(await AppDataSource.getRepository(Approval).count(), 0);
+  assert.ok((await AppDataSource.getRepository(AuditEvent).count()) >= 5);
+  assert.equal(await AppDataSource.getRepository(EmployeeWakeup).count(), 0);
+  assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+});
+
+test("proactive preparation cannot feed work into another Routine or recurring follow-up", async () => {
+  const otherRoutine = await insert(Routine, {
+    employeeId: employee.id,
+    name: "Broader work",
+    slug: randomUUID(),
+    cronExpr: "0 9 * * *",
+    body: "Authorized work",
+  });
+  assert.equal(
+    (await tool("create_workstream", { title: "Bypass", routineId: otherRoutine.id })).status,
+    403,
+  );
+  const stream = await insert(Workstream, {
+    companyId: company.id,
+    employeeId: employee.id,
+    routineId: otherRoutine.id,
+    title: "Existing work",
+    stateDoc: "Keep existing scope",
+  });
+  assert.equal(
+    (await tool("update_workstream", { workstreamId: stream.id, stateDoc: "Do blocked work" }))
+      .status,
+    403,
+  );
+  await insert(EmployeeRevenueGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "write",
+  });
+  const recurring = await insert(Activity, {
+    companyId: company.id,
+    kind: "task",
+    subject: "Recurring work",
+    occurredAt: new Date(),
+    recurrenceRule: "FREQ=DAILY",
+    assignedEmployeeId: employee.id,
+  });
+  assert.equal(
+    (await tool("update_follow_up", { followUpId: recurring.id, status: "completed" })).status,
+    403,
+  );
+  assert.equal(await AppDataSource.getRepository(Activity).count(), 1);
+  assert.equal(
+    (await AppDataSource.getRepository(Workstream).findOneByOrFail({ id: stream.id })).stateDoc,
+    "Keep existing scope",
+  );
 });

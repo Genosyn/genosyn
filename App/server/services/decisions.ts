@@ -20,14 +20,16 @@ import { redactApprovalSummary } from "./approvalRedaction.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications, markEntityNotificationsRead } from "./notifications.js";
 import { emitResourceChange } from "./resourceEvents.js";
+import { withHumanDecisionReason } from "./humanDecisionGuidance.js";
 import { toSlug } from "../lib/slug.js";
 
 /**
  * The Decision Stack — questions AI Employees stopped to ask a human.
  *
  * An employee raises one with `request_decision` when it has done the work up
- * to a fork it should not take alone: a drafted reply it could send, a post it
- * could publish, two vendors it could pick. It writes the question and the
+ * to a major fork it should not take alone: a strategic direction, a material
+ * commitment, or a consequential risk that needs human judgment. Routine
+ * preparation and reversible upkeep stay with the employee. It writes the question and the
  * options; a human presses one of them; the employee reads the answer on its
  * next turn and carries on.
  *
@@ -481,6 +483,8 @@ export async function createDecision(params: {
   employeeId: string;
   title: string;
   body?: string;
+  /** Required at model-facing intake; optional for internal/legacy callers. */
+  humanDecisionReason?: string;
   options: DecisionOptionInput[];
   urgency?: DecisionUrgency;
   assigneeUserId?: string | null;
@@ -500,7 +504,11 @@ export async function createDecision(params: {
   // as approvals do, so the stack can never become an exfiltration path.
   const title = (redactApprovalSummary(params.title) ?? "").trim().slice(0, 200);
   if (!title) throw new Error("A decision needs a title.");
-  const body = (redactApprovalSummary(params.body ?? "") ?? "").slice(0, 20_000);
+  const body = (
+    params.humanDecisionReason === undefined
+      ? (redactApprovalSummary(params.body ?? "") ?? "")
+      : withHumanDecisionReason(params.body ?? "", params.humanDecisionReason)
+  ).slice(0, 20_000);
 
   const repo = AppDataSource.getRepository(Decision);
   const decision = repo.create({

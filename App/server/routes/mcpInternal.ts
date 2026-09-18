@@ -2,6 +2,11 @@ import { withRepositoryGuidance } from "../services/repositoryGuidance.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { selfReviewToolError } from "../services/proactive/reviewPolicy.js";
+import {
+  humanDecisionReasonSchema,
+  withHumanDecisionReason,
+} from "../services/humanDecisionGuidance.js";
+import { proactivePreparationError } from "../services/proactive/preparationScope.js";
 import { proactiveReviewToolError } from "../services/proactive/workReviewPolicy.js";
 import {
   createProactiveWorkApproval,
@@ -893,15 +898,29 @@ function requireDelegatedToolAuthority(
 
 mcpInternalRouter.use(requireDelegatedToolAuthority);
 
-mcpInternalRouter.use((req: McpRequest, res, next) => {
+mcpInternalRouter.use(async (req: McpRequest, res, next) => {
   if (!req.mcpProactiveReview || req.path === "/manifest") return next();
   if (req.path === "/integrations/_list") return res.json({ tools: [] });
   const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
   const error = name
-    ? proactiveReviewToolError(true, name)
+    ? proactiveReviewToolError(true, name, req.body ?? {})
     : "Proactive review cannot use external Connections or other work surfaces.";
   if (error) return res.status(403).json({ error });
-  return next();
+  try {
+    const preparationError = await proactivePreparationError(
+      {
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        routineId: req.mcpRoutineId,
+      },
+      name!,
+      req.body ?? {},
+    );
+    if (preparationError) return res.status(403).json({ error: preparationError });
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 });
 
 mcpInternalRouter.use(async (req: McpRequest, res, next) => {
@@ -12517,7 +12536,8 @@ mcpInternalRouter.post(
 const workReviewSchema = z
   .object({
     title: z.string().trim().min(1).max(200),
-    context: z.string().trim().min(1).max(4_000),
+    context: z.string().trim().min(1).max(2_400),
+    humanDecisionReason: humanDecisionReasonSchema,
     plan: z.string().trim().min(1).max(8_000),
   })
   .strict();
@@ -12699,7 +12719,9 @@ mcpInternalRouter.post(
     const approval = await createProactiveWorkApproval({
       companyId: req.mcpCompany!.id,
       employeeId: req.mcpEmployee!.id,
-      ...body,
+      title: body.title,
+      context: withHumanDecisionReason(body.context, body.humanDecisionReason),
+      plan: body.plan,
       origin: {
         routineId: req.mcpRoutineId,
         runId: req.mcpRunId,
@@ -12742,6 +12764,7 @@ mcpInternalRouter.post(
 
 const requestDecisionSchema = z
   .object({
+    humanDecisionReason: humanDecisionReasonSchema,
     title: z.string().min(1).max(200),
     body: z.string().max(20_000).optional(),
     options: z
@@ -12806,6 +12829,7 @@ mcpInternalRouter.post(
         employeeId: self.id,
         title: body.title,
         body: body.body,
+        humanDecisionReason: body.humanDecisionReason,
         options: body.options,
         urgency: body.urgency,
         assigneeUserId,
@@ -12835,7 +12859,7 @@ mcpInternalRouter.post(
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
         note: req.mcpProactiveReview
-          ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work. Use request_work_review for a concrete plan and wait for human approval before acting."
+          ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work or expand this turn’s authority. Continue only permitted preparation; a consequential action outside that scope needs its own human approval."
           : decision.pickupStatus === "skipped"
             ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."
             : decision.routedToEmployeeId
@@ -17490,7 +17514,7 @@ mcpInternalRouter.post(
       where: { dashboardId: row.id },
       order: { y: "ASC", x: "ASC" },
     });
-    const chartIds = [...new Set(cards.flatMap((c) => c.chartId ? [c.chartId] : []))];
+    const chartIds = [...new Set(cards.flatMap((c) => (c.chartId ? [c.chartId] : [])))];
     // Hide cards whose underlying Chart this employee can't read. A
     // dashboard read grant is not transitive to its charts — without
     // this we'd leak the SQL/data behind a chart the human meant to

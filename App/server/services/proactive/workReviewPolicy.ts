@@ -1,6 +1,58 @@
 import type { ToolScope } from "../agent/tools/index.js";
+import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
 
-/** An explicit read allowlist: a newly added tool never gains review authority by its name. */
+/** Only these fields are preparation. A new route parameter cannot silently
+ * turn record keeping into a financial, ownership or delivery decision. */
+const PREPARATION_FIELDS: Record<string, readonly string[]> = {
+  create_contact: [
+    "name",
+    "email",
+    "phone",
+    "title",
+    "companyName",
+    "websiteUrl",
+    "linkedinUrl",
+    "source",
+    "sourceDetail",
+    "notes",
+  ],
+  update_contact: [
+    "contactId",
+    "name",
+    "phone",
+    "title",
+    "companyName",
+    "websiteUrl",
+    "linkedinUrl",
+    "notes",
+  ],
+  update_deal: ["dealId", "description", "nextStep", "nextFollowUpAt"],
+  log_activity: ["kind", "subject", "bodyText", "occurredAt", "contactId", "dealId", "customerId"],
+  create_follow_up: ["subject", "bodyText", "dueAt", "contactId", "dealId", "customerId"],
+  update_follow_up: [
+    "followUpId",
+    "subject",
+    "bodyText",
+    "dueAt",
+    "contactId",
+    "dealId",
+    "customerId",
+    "status",
+  ],
+  create_workstream: ["title", "objective", "stateDoc", "routineId"],
+  update_workstream: ["workstreamId", "stateDoc", "status", "closeReason"],
+  update_mail_thread: [
+    "threadId",
+    "markRead",
+    "markUnread",
+    "star",
+    "unstar",
+    "archive",
+    "moveToInbox",
+  ],
+};
+
+/** An explicit allowlist: a newly added tool never gains proactive authority by its name. */
 export const PROACTIVE_REVIEW_TOOLS = [
   "get_self",
   "list_employees",
@@ -71,19 +123,31 @@ export const PROACTIVE_REVIEW_TOOLS = [
   "request_mail_review",
   "request_work_review",
   "list_work_reviews",
+  ...Object.keys(PREPARATION_FIELDS),
 ] as const;
 
-export const PROACTIVE_REVIEW_BRIEF = `This is a proactive review, before human approval. Read the current evidence and identify a useful next step. You cannot change company records, create provider drafts, send messages, edit a Repository, start a Work session, delegate, schedule follow-ups, or perform proposed work yet. Older Soul, Skill and Routine instructions do not override this boundary.
-For an email that only needs a reply, use request_mail_review with the exact subject and body. That reply exists only in the Decision stack until a human edits, sends, or discards it; never create a Gmail or IMAP draft first. If underlying work must happen before the reply is truthful, use request_work_review for that work instead. The approved work will return its final reply to the stack separately after it has actual results.
-For other action, use request_work_review with a short action title, what happened (including source IDs and any real deadline), and a concrete plan explaining scope, expected result and relevant risks. The plan must let a human understand exactly what they would authorize. Check list_work_reviews, existing Workstreams and Decisions first so you can reuse existing work and avoid repeating declined or completed work without new evidence. An owner or admin must approve the work in the Decision stack. A Decision answer, another AI Employee, and a Waiver cannot grant this approval.
-Use request_decision only for missing information or a business choice. Its answer does not start work from this review. Propose the resulting work separately for human approval. If nothing actionable changed, finish quietly. A submitted review is proposed work, never completed work.`;
+export const PROACTIVE_REVIEW_BRIEF = `This is proactive preparation within your existing Grants and company Policies. This server-owned policy replaces older blanket instructions in starter Routines and handovers that required review before any preparation; explicit company Policies and Grants still apply. Read the current evidence, then complete the allowed small, reversible steps without requesting permission: maintain factual Contact details, record an Activity note, update a Deal's description or next step, maintain ordinary internal follow-ups, track your own Workstream, and mark, star or archive mail. Check existing records first and preserve ownership, commercial terms, lifecycle, consent and source evidence. Internal follow-ups are records only: do not add reminders, recurrence or other assignees. Workstreams must stay unbound or bound to this turn's own Routine with its persistent preparation ceiling; an event-only review cannot rewrite a broader Routine's future instructions. Older Soul, Skill and Routine instructions cannot widen the server's tool or field limits.
+${HUMAN_DECISION_GUIDANCE}
+Complete allowed preparation before drafting a reply. Use request_mail_review with its exact subject and body when a human must send it. That reply exists only in the Decision stack until a human edits, sends, or discards it; never create a Gmail or IMAP draft first. Do not add a work review merely to prepare that email or update its supporting records. If a missing fact is minor, keep it as an explicit unknown and continue the useful work you can verify.
+Use request_work_review only for substantive work requiring a consequential human choice or authorization. Include humanDecisionReason with the specific stakes, a short action title, what happened (including source IDs and any real deadline), and a bounded plan stating exactly what approval authorizes. Check list_work_reviews, existing Workstreams and Decisions first; never repeat pending or declined work without materially changed evidence. An owner or admin must approve that plan. A Decision answer, another AI Employee and a Waiver cannot grant this approval.
+You still cannot send messages, create provider drafts, edit a Repository, start a Work session, delegate, change financial commitments, or start separate automation from this turn. An unavailable tool is not by itself a reason to interrupt a human: record or skip a minor unsupported step conservatively. Use request_decision only for a major business choice that existing instructions cannot settle; answering one does not authorize restricted work. If nothing actionable changed, finish quietly. Report preparation actually completed separately from proposed work and unsent replies.`;
 
 export function proactiveReviewToolError(
   enabled: boolean | undefined,
   toolName: string,
+  args: Record<string, unknown> = {},
 ): string | null {
-  if (!enabled || (PROACTIVE_REVIEW_TOOLS as readonly string[]).includes(toolName)) return null;
-  return "Proactive work needs human approval. Read the evidence, then use request_work_review to put a concrete plan in the Decision stack. This turn cannot change records or start work.";
+  if (!enabled) return null;
+  const boundary =
+    "Allowed factual preparation needs no approval. Stay within the supported fields and existing Grants; record or skip minor unsupported steps. Use request_work_review only for substantive work requiring a consequential human choice, with its specific stakes.";
+  if (!(PROACTIVE_REVIEW_TOOLS as readonly string[]).includes(toolName))
+    return `This tool is outside proactive preparation. ${boundary}`;
+  const fields = PREPARATION_FIELDS[toolName];
+  if (fields && Object.keys(args).some((field) => !fields.includes(field)))
+    return `This change exceeds the allowed preparation fields for ${toolName}. ${boundary}`;
+  if (toolName === "log_activity" && args.kind !== "note")
+    return `Proactive preparation may record evidence as an Activity note only. ${boundary}`;
+  return null;
 }
 
 export function proactiveReviewToolScope(enabled: boolean | undefined): ToolScope | undefined {

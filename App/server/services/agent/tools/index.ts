@@ -280,7 +280,7 @@ export async function gatherEmployeeTools(params: {
 
   const wanted = new Set([
     ...RESIDENT_GENOSYN_TOOLS,
-    // The only action a proactive reviewer can take must be visible without a lookup.
+    // Keep review submission visible; bounded preparation tools remain discoverable.
     ...(tokenInfo?.proactiveReview
       ? ["request_mail_review", "request_work_review", "get_proactive_work", "list_workstreams"]
       : []),

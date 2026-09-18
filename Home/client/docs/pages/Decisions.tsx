@@ -8,9 +8,9 @@ export function Decisions() {
         title="Decision stack"
         lead={
           <>
-            Review customer replies, proposed work, and questions from your AI Employees in one
-            ordered queue. Every card tells the story first, then gives you the few actions that
-            make sense for that item.
+            Review consequential choices, major work proposals, and customer replies that need
+            your authority. AI Employees handle routine preparation and housekeeping within their
+            Grants, keeping this queue focused on work that needs you.
           </>
         }
       />
@@ -23,16 +23,23 @@ export function Decisions() {
         until an owner or admin sends or discards it.
       </P>
       <P>
-        A <Strong>work review</Strong> asks you to authorize a specific piece of proactive work,
-        such as investigating a customer&apos;s bug report or preparing a quote. An employee can
-        read the available evidence to explain the proposal, but waits for an owner or admin to
-        approve before carrying it out. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
+        A <Strong>work review</Strong> asks you to authorize consequential proactive work, such as
+        starting a Repository fix or making a commercial commitment. The proposal explains why
+        human judgement or authority is needed. The employee completes permitted research and
+        preparation first, then waits for an owner or admin to approve that plan. See{" "}
+        <DocLink to="/docs/reactivity">Proactive work</DocLink>.
       </P>
       <P>
-        A <Strong>Decision</Strong> asks for your judgement or missing information: which approach
-        to take, what deadline you promised, or who should review a draft. Each choice explains what
-        the employee will do with your answer. A Decision answer does not replace approval to start
-        proactive work or bypass the employee&apos;s existing limits.
+        A <Strong>Decision</Strong> asks for consequential judgement or information only a human can
+        supply: a change in business direction, a customer commitment, or a significant tradeoff.
+        Each choice explains what the employee will do with your answer. A Decision answer does not
+        replace a required work Approval or bypass the employee&apos;s existing limits.
+      </P>
+      <P>
+        Routine research, reply wording, duplicate checks, recordkeeping and factual customer
+        updates do not need their own Decision or work review. Employees inspect sources and use a
+        conservative, reversible default when the stakes are low; they record assumptions or skip
+        an uncertain update. An exact email review still appears when sending needs your approval.
       </P>
 
       <H2 id="reading-a-card">Read the timeline, then act</H2>
@@ -93,8 +100,8 @@ export function Decisions() {
         <Strong>What the AI Employee recommends</Strong>. An owner or admin selects{" "}
         <Strong>Approve &amp; start</Strong> to authorize exactly that plan. Select{" "}
         <Strong>Request changes</Strong> to open a linked conversation with the employee, or{" "}
-        <Strong>Don&apos;t do this</Strong> to close it. Future proactive work still needs its own
-        review.
+        <Strong>Don&apos;t do this</Strong> to close it. Future work that needs human authority
+        still needs its own review.
       </P>
       <P>
         Approval keeps the original restrictions: work limited to an email review still cannot send
@@ -103,12 +110,13 @@ export function Decisions() {
       </P>
       <P>
         A proactive Routine&apos;s initial Run finishes as <Strong>Reviewed</Strong>: the employee
-        examined evidence and left any proposed work for human review. Delivery is still unverified.
-        Approval starts a separate Routine Run that performs the approved work and runs the original{" "}
+        examined evidence, completed any permitted preparation, and left consequential work for
+        human review. Delivery is still unverified. Approval starts a separate Routine Run that
+        performs the approved work and runs the original{" "}
         <DocLink to="/docs/routines#checks">Checks</DocLink> and outcome grading. A proposal from an
-        email handover instead starts approved handover work. For example, a customer bug report
-        first produces a work review describing the investigation and proposed Repository work. Only{" "}
-        <Strong>Approve &amp; start</Strong> lets the employee begin that work. When it has real
+        email handover instead starts approved handover work. For example, the employee can read a
+        customer bug report and related records before proposing a Repository fix. Only{" "}
+        <Strong>Approve &amp; start</Strong> lets it begin the Repository work. When it has real
         results, its exact customer reply returns as a separate email review. It is never saved to
         Gmail or IMAP Drafts along the way.
       </P>

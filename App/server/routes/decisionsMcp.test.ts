@@ -34,6 +34,8 @@ let company: Company;
 let employee: AIEmployee;
 let owner: User;
 let member: User;
+const humanDecisionReason =
+  "This commitment binds the company for three years and exceeds the employee's delegated authority.";
 
 before(async () => {
   await initTestDb();
@@ -104,6 +106,7 @@ describe("decision tools are published", () => {
     const request = STATIC_TOOLS.find((tool) => tool.name === "request_decision");
     assert.ok(request);
     assert.equal("expiresInHours" in (request.inputSchema.properties ?? {}), false);
+    assert.ok(request.inputSchema.required?.includes("humanDecisionReason"));
   });
 });
 
@@ -112,8 +115,9 @@ describe("request_decision", () => {
     const response = await tool<{ decisionId: string; options: Array<{ id: string }>; note: string }>(
       "request_decision",
       {
-        title: "Send the pricing reply to Acme?",
-        body: "Hi Dana — here is the quote.",
+        title: "Commit to Acme's three-year contract?",
+        body: "The buyer requests a three-year fixed-price commitment.",
+        humanDecisionReason,
         options: [
           { label: "Send it", tone: "primary" },
           { label: "Hold for now" },
@@ -136,6 +140,8 @@ describe("request_decision", () => {
     assert.equal(row.employeeId, employee.id);
     assert.equal(row.status, "pending");
     assert.equal(row.urgency, "high");
+    assert.match(row.body, /^## Why this needs a human decision/);
+    assert.ok(row.body.includes(humanDecisionReason));
 
     const journal = await AppDataSource.getRepository(JournalEntry).find({
       where: { employeeId: employee.id },
@@ -144,9 +150,23 @@ describe("request_decision", () => {
     assert.match(journal[0].title, /Asked for a decision/);
   });
 
+  test("refuses minor work without a human judgment rationale before writing or notifying", async () => {
+    for (const reason of [undefined, "   ", "Not sure"]) {
+      const response = await tool("request_decision", {
+        title: "Update the Contact name and investigate the support request?",
+        options: [{ label: "Do the work" }],
+        ...(reason === undefined ? {} : { humanDecisionReason: reason }),
+      });
+      assert.equal(response.status, 400);
+    }
+    assert.equal(await AppDataSource.getRepository(Decision).count(), 0);
+    assert.equal(await AppDataSource.getRepository(JournalEntry).count(), 0);
+  });
+
   test("resolves an assignee by handle", async () => {
     const response = await tool<{ decisionId: string }>("request_decision", {
       title: "Which vendor?",
+      humanDecisionReason,
       options: [{ label: "A" }, { label: "B" }],
       assignee: "@mo",
     });
@@ -167,6 +187,7 @@ describe("request_decision", () => {
     assert.ok(stranger.id);
     const response = await tool<{ error: string }>("request_decision", {
       title: "Which vendor?",
+      humanDecisionReason,
       options: [{ label: "A" }],
       assignee: "@stranger",
     });
@@ -178,6 +199,7 @@ describe("request_decision", () => {
   test("rejects more options than a human should be asked to weigh", async () => {
     const response = await tool("request_decision", {
       title: "Pick one",
+      humanDecisionReason,
       options: Array.from({ length: 7 }, (_, i) => ({ label: `Option ${i}` })),
     });
     assert.equal(response.status, 400);
@@ -185,7 +207,8 @@ describe("request_decision", () => {
 
   test("accepts an older client's deadline without making the Decision expire", async () => {
     const response = await tool<{ decisionId: string }>("request_decision", {
-      title: "Ship the changelog today?",
+      title: "Make the acquisition announcement today?",
+      humanDecisionReason,
       options: [{ label: "Ship" }],
       expiresInHours: 6,
     });
@@ -208,13 +231,14 @@ describe("list_decisions", () => {
     });
     const mine = await tool<{ decisionId: string }>("request_decision", {
       title: "Mine",
+      humanDecisionReason,
       options: [{ label: "Yes" }, { label: "No" }],
     });
     const theirToken = issueMcpToken(other.id, company.id, { authority: "employee" });
     await fetch(`${baseUrl}/internal/mcp/tools/request_decision`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${theirToken}` },
-      body: JSON.stringify({ title: "Theirs", options: [{ label: "Yes" }] }),
+      body: JSON.stringify({ title: "Theirs", humanDecisionReason, options: [{ label: "Yes" }] }),
     });
     revokeMcpToken(theirToken);
 
@@ -245,6 +269,7 @@ describe("list_decisions", () => {
   test("keeps a pending Decision with a retired deadline pending on read", async () => {
     const raised = await tool<{ decisionId: string }>("request_decision", {
       title: "Moot by now",
+      humanDecisionReason,
       options: [{ label: "Yes" }],
     });
     await AppDataSource.getRepository(Decision).update(
@@ -260,6 +285,7 @@ describe("cancel_decision", () => {
   test("retracts the employee's own pending question", async () => {
     const raised = await tool<{ decisionId: string }>("request_decision", {
       title: "Never mind",
+      humanDecisionReason,
       options: [{ label: "Yes" }],
     });
     const cancelled = await tool<{ status: string }>("cancel_decision", {
@@ -282,7 +308,7 @@ describe("cancel_decision", () => {
     const theirs = await fetch(`${baseUrl}/internal/mcp/tools/request_decision`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${theirToken}` },
-      body: JSON.stringify({ title: "Theirs", options: [{ label: "Yes" }] }),
+      body: JSON.stringify({ title: "Theirs", humanDecisionReason, options: [{ label: "Yes" }] }),
     });
     const { decisionId } = (await theirs.json()) as { decisionId: string };
     revokeMcpToken(theirToken);
@@ -309,6 +335,7 @@ describe("request_decision records where the employee was working", () => {
     token = issueMcpToken(employee.id, company.id, { authority: "employee", ...origin });
     const response = await tool<{ decisionId: string }>("request_decision", {
       title,
+      humanDecisionReason,
       options: [{ label: "Yes" }],
     });
     assert.equal(response.status, 200);
@@ -353,6 +380,7 @@ describe("request_decision records where the employee was working", () => {
     token = issueMcpToken(employee.id, company.id, { authority: "employee" });
     const response = await tool<{ note: string }>("request_decision", {
       title: "Send it?",
+      humanDecisionReason,
       options: [{ label: "Yes" }],
     });
     assert.match(response.body.note, /started again in a fresh session/);

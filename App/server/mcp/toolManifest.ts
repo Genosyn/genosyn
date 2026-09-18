@@ -2134,19 +2134,26 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "request_work_review",
     description:
-      "Submit a concrete proactive work plan to the Decision stack before acting. Available only in a proactive review turn. Only a human owner or admin can approve it; submission performs none of the proposed work. First read list_work_reviews to avoid repeating pending, declined or completed work without new evidence. Use a short action title, explain what happened and why it matters, and state exactly what will change, the expected result and any relevant risk. Finish the review after submitting. Existing Grants and delivery restrictions still apply after approval.",
+      "Request human authorization for consequential work outside proactive preparation. Routine recordkeeping, investigation, filing and reply preparation need no work review. Only available in proactive review turns; only an owner or admin can approve. Read list_work_reviews first and reuse existing work. Explain the stakes and exact plan, then finish the review. Submission performs no work; approval preserves Grants and delivery restrictions.",
     inputSchema: {
       type: "object",
       properties: {
+        humanDecisionReason: {
+          type: "string",
+          minLength: 20,
+          maxLength: 1500,
+          description:
+            "The specific material stakes and human choice or authority needed. Routine preparation is not a reason to ask.",
+        },
         title: {
           type: "string",
           maxLength: 200,
           description:
-            "Short, plain action title naming the customer or resource, e.g. Investigate Acme's failed invoice export.",
+            "Short, plain action title naming the customer or resource, e.g. Authorize Acme's contractual service credit.",
         },
         context: {
           type: "string",
-          maxLength: 4000,
+          maxLength: 2400,
           description:
             "What happened, why action is useful, source record IDs or links, and any real deadline. Explain unfamiliar terms. Never imply work already happened.",
         },
@@ -2157,7 +2164,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             "Specific steps, resources to change, expected result and relevant risks. Say whether you will investigate, edit a Repository, create a draft or publish/send. Keep the scope narrow and reviewable; do not request blanket authority.",
         },
       },
-      required: ["title", "context", "plan"],
+      required: ["title", "context", "plan", "humanDecisionReason"],
       additionalProperties: false,
     },
   },
@@ -2198,19 +2205,26 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "request_decision",
     description:
-      "Ask for a choice or missing information. Use request_work_review for approval to start proactive work. Check existing Decisions to avoid duplicates; explain the next step, then stop that work and finish your turn. An answer normally starts a fresh session. Preparation-only Decisions stay human-only and start none; read their saved answers with list_decisions.",
+      "Ask only for a major business choice requiring human judgment. Routine upkeep, investigation and reply preparation need no Decision. Check existing Decisions first; explain the next step, then stop that work and finish your turn. Answers normally start a fresh session. Preparation-only Decisions stay human-only and start none; read answers with list_decisions. Use request_work_review for consequential work authorization.",
     inputSchema: {
       type: "object",
       properties: {
+        humanDecisionReason: {
+          type: "string",
+          minLength: 20,
+          maxLength: 1500,
+          description:
+            "Material stakes and why existing instructions cannot settle this human choice.",
+        },
         title: {
           type: "string",
           description:
-            "Short action and subject, e.g. 'Confirm Acme's support deadline'. Plain language; max 200 chars.",
+            "Plain action and subject, e.g. 'Choose Acme's contract terms'. Max 200 chars.",
         },
         body: {
           type: "string",
           description:
-            "Start with what happened, why it matters and your recommendation. Then source links, evidence, scope, costs and exact missing details. Include any draft being reviewed. Distinguish facts from unknowns.",
+            "Context, recommendation, source links, scope, costs and exact missing details. Separate facts from unknowns.",
         },
         options: {
           type: "array",
@@ -2222,12 +2236,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             properties: {
               label: {
                 type: "string",
-                description: "Short action, e.g. 'Keep the current deadline'. Max 80 chars.",
+                description: "Short action. Max 80 chars.",
               },
               detail: {
                 type: "string",
                 description:
-                  "What you will do if chosen, and any exact information needed in the Member's note.",
+                  "Next step and exact information needed in the Member's note.",
               },
               tone: {
                 type: "string",
@@ -2250,7 +2264,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Optional Member handle or email. Omit so anyone can answer.",
         },
       },
-      required: ["title", "options"],
+      required: ["title", "options", "humanDecisionReason"],
       additionalProperties: false,
     },
   },

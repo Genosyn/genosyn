@@ -87,6 +87,8 @@ async function ask(mode: "draft" | "triage"): Promise<Decision> {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
         title: "Which verified price applies?",
+        humanDecisionReason:
+          "The signed agreements conflict about a material renewal commitment; a Member must settle the company's obligation.",
         options: [{ label: "Standard rate" }, { label: "Contract rate" }],
       }),
     });

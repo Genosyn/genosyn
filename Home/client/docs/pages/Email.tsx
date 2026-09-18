@@ -505,13 +505,15 @@ export function Email() {
         are checked again before it starts.
       </P>
       <P>
-        A handover created automatically by a rule begins differently: it can read the new email,
-        but it cannot change records, start Repository work, create a mailbox draft, or send. If the
-        email only needs an answer, it puts the exact reply in the{" "}
-        <DocLink to="/docs/decisions#reviewing-email">Decision stack</DocLink>. If the request needs
-        underlying work — a customer bug report, for example — it first creates a work review with
-        the evidence and plan. <Strong>Approve &amp; start</Strong> authorizes that work; after it
-        finishes, the proposed customer reply returns as a separate email review. Only{" "}
+        A handover created automatically by a rule can research the new email and complete bounded
+        preparation within existing Grants: factual Contact details, Deal descriptions and next
+        steps, Activity notes, ordinary Follow-ups, its own Workstream tracking, and routine email
+        filing. It puts the exact reply directly in the{" "}
+        <DocLink to="/docs/decisions#reviewing-email">Decision stack</DocLink>, without a separate
+        work review for that preparation. Consequential work, such as a Repository fix, first needs
+        a work review explaining the evidence, plan and need for human authority.{" "}
+        <Strong>Approve &amp; start</Strong> authorizes that work; after it finishes, the proposed
+        customer reply returns as a separate email review. Only{" "}
         <Strong>Send now</Strong> sends it, with no Gmail or IMAP draft created first.
       </P>
       <P>
@@ -521,9 +523,11 @@ export function Email() {
         and unwanted newsletters. Open <DocLink to="/docs/reactivity">Proactive</DocLink> to review
         or customize those assignments. Turning <Strong>Automatic setup</Strong> off only stops
         future automatic assignments; existing work keeps running until you pause it individually.
-        Historical mail is never replayed by setup. If preparation needs missing information, the
-        employee can raise a Decision for a Member. That answer records the missing information; it
-        does not approve the work or perform a send.
+        Historical mail is never replayed by setup. A consequential choice or missing information
+        that materially changes the outcome can become a Decision for a Member. For minor
+        uncertainty, the employee inspects sources and uses a conservative reversible default or
+        skips the update. A Decision answer records information; it does not approve the work or
+        perform a send.
       </P>
 
       <H2 id="access">Giving AI Employees mailbox access</H2>
@@ -597,12 +601,13 @@ export function Email() {
         tool creates this mailbox-local rule after filing confirmed spam; disable or delete it under{" "}
         <Strong>Email → Rules</Strong> to unblock. It does not create an outbound Suppression.
       </P>
-      <Callout kind="info" title="Automatic customer work is reviewed before action.">
-        A rule that hands mail to an AI Employee does not create a provider draft or start the
-        requested business work immediately. A reply-only request becomes an exact email review in
-        the <DocLink to="/docs/decisions">Decision stack</DocLink>. Work such as investigating a bug
-        becomes a work review first, then returns its final reply to the stack after approval and
-        completion.
+      <Callout kind="info" title="Major work and customer delivery still need review.">
+        A rule that hands mail to an AI Employee permits bounded internal preparation within its
+        Grants. Routine research, recordkeeping and reply wording do not need their own work
+        approval. The exact customer reply goes to the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink>. Consequential work, including a
+        Repository fix, needs a work review first and returns its final reply after approval and
+        completion. Automatic preparation creates no provider draft and sends no mail.
       </Callout>
       <Callout kind="warn" title="Safe unsubscribe never clicks a link in the email body.">
         The action only uses one HTTPS URL advertised by RFC unsubscribe headers that the receiving

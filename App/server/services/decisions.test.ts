@@ -120,6 +120,53 @@ describe("decision options", () => {
 });
 
 describe("raising a decision", () => {
+  test("stores the human judgment rationale first, with evidence and credentials redacted", async () => {
+    const { companyId, employeeId } = await scenario();
+    const { decision } = await createDecision({
+      companyId,
+      employeeId,
+      title: "Choose a binding three-year supplier contract",
+      humanDecisionReason:
+        "  The three-year commitment exceeds delegated authority; the supplier supplied token=secret123.  ",
+      body: "The verified offers are attached; Authorization: Bearer private123",
+      options: [{ label: "Choose supplier A" }, { label: "Keep the current supplier" }],
+    });
+    assert.match(decision.body, /^## Why this needs a human decision\nThe three-year commitment/);
+    assert.match(decision.body, /The verified offers are attached/);
+    assert.ok(!decision.body.includes("secret123"));
+    assert.ok(!decision.body.includes("private123"));
+  });
+
+  test("rejects a blank rationale before creating a Decision or notifying anybody", async () => {
+    const { companyId, employeeId } = await scenario();
+    await assert.rejects(
+      createDecision({
+        companyId,
+        employeeId,
+        title: "Update the Contact name?",
+        humanDecisionReason: "                    ",
+        options: [{ label: "Update it" }],
+      }),
+      /major stakes/,
+    );
+    assert.equal(await AppDataSource.getRepository(Decision).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(Notification).countBy({ companyId }), 0);
+  });
+
+  test("keeps the rationale visible within the existing body ceiling", async () => {
+    const { companyId, employeeId } = await scenario();
+    const { decision } = await createDecision({
+      companyId,
+      employeeId,
+      title: "Choose a strategic market",
+      humanDecisionReason: "Changing market focus would redirect the company's annual strategy.",
+      body: "Evidence. ".repeat(3_000),
+      options: [{ label: "Focus on enterprise" }, { label: "Keep the current strategy" }],
+    });
+    assert.match(decision.body, /^## Why this needs a human decision/);
+    assert.equal(decision.body.length, 20_000);
+  });
+
   test("scrubs the title and body, and pages the owners", async () => {
     const { companyId, companySlug, employeeId, ownerId, memberId } = await scenario();
     const { decision } = await createDecision({

@@ -241,9 +241,10 @@ export function Vocabulary() {
             term: "Decision",
             def: (
               <>
-                A question an AI Employee stopped to ask, with the options it will act on. The
-                employee raises it and a Member answers; unlike an Approval, nothing is executed on
-                your behalf. See <DocLink to="/docs/decisions">Decision stack</DocLink>.
+                A consequential choice an AI Employee needs a human to make, with the options it
+                will act on. Routine research and reversible housekeeping stay with the employee.
+                A Member answers; unlike an Approval, nothing is executed on your behalf. See{" "}
+                <DocLink to="/docs/decisions">Decision stack</DocLink>.
               </>
             ),
           },

@@ -265,7 +265,8 @@ function workReview(changes: Partial<Approval> = {}): Approval {
     review: {
       kind: "work",
       revision: revisionA,
-      context: "Acme reported a checkout error in their email.",
+      context:
+        "## Why this needs a human decision\nThe checkout change affects customer payments and requires a consequential production decision.\n\nAcme reported a checkout error in their email.",
       plan: "Investigate the checkout failure, prepare a fix in the Repository, and run the existing Checks. Nothing will be published or sent to the customer.",
       source: {
         routineId: "routine-1",
@@ -1403,6 +1404,13 @@ try {
             .getAttribute("href"),
           `${companyPath}/routines/alex/review-customer-reports`,
         );
+        await fixture.page.getByText("Why this needs a human decision", { exact: true }).waitFor();
+        await fixture.page
+          .getByText(
+            "The checkout change affects customer payments and requires a consequential production decision.",
+            { exact: true },
+          )
+          .waitFor();
         await fixture.page.getByText("What the AI Employee recommends", { exact: true }).waitFor();
         const actionLabel = action === "approve" ? "Approve & start" : "Don’t do this";
         assert.equal(await fixture.page.getByRole("button", { name: "Go back" }).count(), 0);

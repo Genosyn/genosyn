@@ -515,10 +515,11 @@ export function Repositories() {
       </Callout>
       <H2 id="proactive-work">Work that starts from email or a Routine</H2>
       <P>
-        A customer&apos;s bug report first becomes a work proposal in the{" "}
-        <DocLink to="/docs/decisions">Decision stack</DocLink>. The AI Employee reads the available
-        evidence and explains the suggested investigation or fix. It cannot start a Work session or
-        change the Repository until an owner or admin approves the proposal.
+        An AI Employee can read a customer&apos;s bug report and related evidence before asking
+        you to act. If it needs a Repository investigation or fix, it brings a concrete work
+        proposal to the <DocLink to="/docs/decisions">Decision stack</DocLink>, explaining why
+        human authority is needed. It cannot start a Work session or change the Repository until
+        an owner or admin approves the proposal.
       </P>
       <P>
         After approval, the employee needs a <Strong>write Grant</Strong> on the Repository to start

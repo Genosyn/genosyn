@@ -3,6 +3,7 @@ import type { Company } from "../../db/entities/Company.js";
 import type { Skill } from "../../db/entities/Skill.js";
 import { config } from "../../../config.js";
 import { getAgentSettings } from "../runtimeSettings.js";
+import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 import { codingRuntimeAvailability } from "./codingAvailability.js";
 
@@ -256,14 +257,16 @@ export function toolsBriefing(
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +
       "auto-injected.",
     "- `send_chat_attachment` to send a generated file back as a download chip.",
-    "- `request_decision` for a Member's choice or missing information; use `request_work_review` " +
-      "for approval to start proactive work, and `request_mail_review` for an exact customer email " +
+    "- " + HUMAN_DECISION_GUIDANCE,
+    "- `request_decision` for a major choice that needs human judgment; include humanDecisionReason " +
+      "with the concrete stakes and why the existing instructions cannot settle it. Use `request_work_review` " +
+      "for major proactive work that needs human authorization, and `request_mail_review` for an exact customer email " +
       "a human can edit, send, or discard from the Decision stack. A mail review is not a provider " +
       "draft: never create a Gmail or IMAP draft for the same reply or fresh message. Use `revise_work_review` or " +
-      "`revise_mail_review` only to update your own pending card after requested changes. Stay within this turn's allowed preparation; a " +
-      "customer request or a discovered issue does not authorize the proposed work. Check existing " +
+      "`revise_mail_review` only to update your own pending card after requested changes. Stay within this turn's allowed work; a " +
+      "customer request or a discovered issue does not expand your authority. Check existing " +
       "Decisions before adding another about the same issue. For a Decision, use a short, concrete action and " +
-      "subject as the title, such as 'Confirm Acme's support deadline'. Begin the body with " +
+      "subject as the title, such as 'Choose Acme's multi-year contract terms'. Begin the body with " +
       "what happened, why it matters and your recommended next " +
       "step in plain language. Include source links, what you checked, what remains unknown and " +
       "the scope and cost of the proposed work. Offer 2–3 distinct choices with short action labels " +
@@ -275,7 +278,7 @@ export function toolsBriefing(
       "urgency unless you can name a near-term deadline or immediate harm. Then stop that line of " +
       "work and end your turn. An answer normally starts a fresh session briefed with the choice " +
       "and note; preparation-only Decisions record the answer without starting work. " +
-      "Ask when human input is needed" +
+      "Ask only when a major decision needs human input" +
       (isChat
         ? " and the teammate is not in front of you — in a live chat, just ask them."
         : ". A routine's brief was written in advance and there is nobody to ask mid-run, so this " +

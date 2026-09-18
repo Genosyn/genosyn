@@ -95,7 +95,7 @@ code, UI copy, commits, and docs.
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Vault source** (an external password manager a company mirrors into its Vault — `VaultSource`) | Integration, Connection, Provider, Backend |
-| **Decision** (a question an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
+| **Decision** (a consequential choice an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
 | **Standdown** (a revocable stop on all AI work at one scope — `Standdown`) | Pause, Hold, Suspend, Freeze, Kill switch |
@@ -204,17 +204,29 @@ a guarded tool call — and the server replays that exact action once a human
 ticks it. A proactive work Approval instead holds a concrete plan the employee
 proposed before acting. Both are binary, and because approving starts work or
 fires a privileged side effect they are admin-gated and their payload is redacted
-at every boundary. A **Decision** is the employee choosing to stop and ask:
-it writes the question and the options itself, answering one performs no side
-effect, and an ordinary Member can answer it. Never label a Decision "approve /
+at every boundary. A **Decision** is the employee choosing to stop for a
+consequential choice that exceeds its own judgement or authority: it writes
+the question and the options itself, answering one performs no side effect,
+and an ordinary Member can answer it. Research, routine wording, recordkeeping,
+deduplication, and reversible housekeeping do not belong in the stack. For
+low-stakes uncertainty, inspect the sources, choose a conservative reversible
+default, and record assumptions or skip quietly. Never label a Decision "approve /
 reject". The Decision stack also displays **Work awaiting approval**: distinct
 `Approval` rows of kind `proactive_work`, using the admin-gated Approval routes,
 never the Member-level Decision-answer route. Proactive starter Routines,
-event-triggered work, and automatic email handovers read evidence and submit a
-concrete plan before changing records or starting Repository work. Their
-server-owned review scope omits writes, coding, browser, external Connections
-and delegation. A human approves one plan; current Grants and delivery limits
-still apply. Neither an AI decision policy nor a Waiver can authorize it.
+event-triggered work, and automatic email handovers can do bounded, reversible
+preparation within current Grants: maintain their own Workstreams, factual
+Contact details and ordinary Follow-ups, update Deal descriptions and next
+steps, add Activity notes, and mark, star or archive email. Routine research,
+preparation and housekeeping do not need a work Approval. A major work proposal
+must explain the concrete need for human judgement or authority. The server-owned
+preparation scope still excludes protected business fields, spending, security
+changes, coding, browser, external
+Connections, delegation, and new automation. Repository work needs an approved
+plan. Exact email reviews remain required under the original delivery limits;
+preparation creates no provider draft and sends no mail. A human approves one
+major work plan; current Grants and delivery limits still apply. Neither an AI
+decision policy nor a Waiver can authorize that plan.
 
 **"Repository" is not a synonym for "codebase."** A Repository is any
 version-controlled workspace the company keeps: a service's source, a

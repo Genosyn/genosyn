@@ -599,7 +599,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <UL>
         <LI>
           <Strong>Status</Strong> starts at <Strong>Running</Strong> and ends at{" "}
-          <Strong>Completed</Strong>, <Strong>Reviewed</Strong> (proactive evidence review only),{" "}
+          <Strong>Completed</Strong>, <Strong>Reviewed</Strong> (proactive review and preparation),{" "}
           <Strong>Failed</Strong>, <Strong>Error</Strong>, or <Strong>Skipped</Strong> (no AI Model
           was connected). Completed means the work finished without a known failure; the separate{" "}
           <DocLink to="/docs/routines#checks">Checks</DocLink> and{" "}
@@ -735,8 +735,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
       </P>
       <P>
-        A proactive Run with status <Strong>Reviewed</Strong> has examined evidence; delivery
-        remains unverified and its delivery Checks have not run. Approving its proposal in the{" "}
+        A proactive Run with status <Strong>Reviewed</Strong> has examined evidence and may have
+        completed permitted preparation; delivery remains unverified and its delivery Checks have
+        not run. Approving a major work proposal in the{" "}
         <DocLink to="/docs/decisions">Decision stack</DocLink> starts a separate Run with the
         original Checks and outcome grading. A Check cannot authorize work beyond the approved plan.
       </P>

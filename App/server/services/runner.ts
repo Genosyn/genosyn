@@ -657,7 +657,7 @@ export async function startRoutineRun(
         if (proactiveReview) {
           saved.outcomeVerdict = "unverified";
           saved.outcomeNote =
-            "Evidence reviewed and any proposed work left for human approval. Delivery work was not performed or verified; its Checks have not run.";
+            "Evidence reviewed and permitted preparation recorded. Consequential work remains subject to human approval. The intended outcome is not independently verified; delivery Checks have not run.";
           log.line(`\n[reviewed] ${saved.outcomeNote}`);
         }
       }

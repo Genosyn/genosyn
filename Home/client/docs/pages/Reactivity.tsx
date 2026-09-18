@@ -8,11 +8,11 @@ export function Reactivity() {
         title="Proactive work"
         lead={
           <>
-            Proactive work is on by default. AI Employees notice what needs attention and bring you
-            a clear review before acting. A customer reply arrives as the exact email for you to
-            send, edit, discuss, or discard; underlying work arrives as a plan to approve first.
-            Genosyn assigns ready responsibilities as their AI Models, resources, and Grants become
-            available.
+            Proactive work is on by default. AI Employees notice what needs attention and handle
+            routine preparation within their Grants. Consequential choices and major work come to
+            you for review. A customer reply arrives as the exact email for you to send, edit,
+            discuss, or discard. Genosyn assigns ready responsibilities as their AI Models,
+            resources, and Grants become available.
             <Strong> Triggers</Strong> fire a <DocLink to="/docs/routines">Routine</DocLink> the
             moment something changes, <Strong>Wakeups</Strong> let an employee check back later,{" "}
             <Strong>Workstreams</Strong> carry working state across Runs, and{" "}
@@ -25,7 +25,7 @@ export function Reactivity() {
       <H2 id="start">Review your proactive work</H2>
       <P>
         Open <Strong>Proactive</Strong> from the company navigation.{" "}
-        <Strong>How proactive work moves</Strong> explains the review-before-action flow,{" "}
+        <Strong>How proactive work moves</Strong> explains preparation and human review,{" "}
         <Strong>Automatic setup</Strong>
         controls future automatic assignments, <Strong>Standing work</Strong> shows what is running
         or paused, and the <Strong>Starter library</Strong> holds ready-made responsibilities you
@@ -46,21 +46,27 @@ export function Reactivity() {
         and work waits until an AI Employee has a connected AI Model and the required resource
         access.
       </P>
-      <Callout kind="info" title="Review the next action before it happens">
+      <Callout kind="info" title="Routine preparation moves without another approval">
         Proactive Routines, automatic email handovers and Routines started by a Trigger or webhook
-        first read the available evidence. They bring an exact email reply or a proposed work plan
-        to the <DocLink to="/docs/decisions">Decision stack</DocLink> and wait for an owner or
-        admin. Until then, they cannot start a Repository Work session, create a Gmail or IMAP
-        draft, send mail or change business records. <Strong>Send now</Strong> authorizes only the
-        reviewed email; <Strong>Approve &amp; start</Strong> authorizes only the reviewed work.
-        Original Grants and delivery restrictions remain in force, and retrying keeps the review
-        requirement.
+        inspect the available evidence and can complete bounded, reversible preparation. Within
+        existing Grants, this includes factual Contact details, Deal descriptions and next steps,
+        Activity notes, ordinary Follow-ups, the employee&apos;s own Workstream tracking, and
+        marking, starring or archiving email. Research, duplicate checks and reply preparation do
+        not need a separate work review. Major work needs a concrete reason for human judgement or
+        authority before it reaches the <DocLink to="/docs/decisions">Decision stack</DocLink>.
+        Preparation cannot change ownership, Deal value or Deal Stage, consent or access, spend
+        money, start Repository work or create automation. It creates no Gmail or IMAP draft and
+        sends no mail.
+        <Strong> Send now</Strong> authorizes only the reviewed email;{" "}
+        <Strong>Approve &amp; start</Strong> authorizes only the reviewed work. Original Grants and
+        delivery restrictions remain in force, including on retry.
         <Strong> Improve my work</Strong> keeps its separate Revision proposal process below.
       </Callout>
       <P>
-        A proactive Run finishes as <Strong>Reviewed</Strong> after examining evidence. This leaves
-        delivery unverified. A reply-only email can now show its exact in-Genosyn review without
-        creating provider-side state. When you approve underlying work, a separate Routine Run or
+        A proactive Run finishes as <Strong>Reviewed</Strong> after examining evidence and any
+        permitted preparation. This leaves delivery unverified. A reply-only email can show its
+        exact in-Genosyn review without creating provider-side state. When you approve underlying
+        work, a separate Routine Run or
         approved email handover carries out the plan under the original Checks and outcome grading.
         Any final customer reply returns to the stack as a separate review after the work has real
         results. The outcome step in the stack summarizes the work; open the Run to inspect its
@@ -72,8 +78,8 @@ export function Reactivity() {
         weekdays at 08:00 in the server&apos;s timezone. Find it in <Strong>Standing work</Strong>
         and select <Strong>Open</Strong> to edit its schedule or brief. This daily Routine reads
         current assignments, deadlines and granted records, inspects the original evidence, and
-        proposes the useful next step for your review. It also checks due Workstreams, earlier
-        outcomes, and review feedback from previous Runs.
+        completes routine preparation or proposes consequential work for your review. It also
+        checks due Workstreams, earlier outcomes, and review feedback from previous Runs.
       </P>
       <KeyList
         rows={[
@@ -116,14 +122,15 @@ export function Reactivity() {
         work is coordinated with its existing owner.
       </P>
       <P>
-        The daily starter asks for approval before doing the proposed work. After approval, customer
-        communication remains limited to review: an exact reply must return to the Decision stack
-        for a Member to send or discard. It does not start new automation, spend money, launch
-        outreach, or send signature reminders. Missing business information becomes a Decision with
-        specific details for you to supply. Answering that question records information; it does not
-        approve work or perform a side effect. Creating this daily Routine alone does not add
-        half-hourly checks; existing immediate assignment handling and specialist Routines continue
-        their work.
+        The daily starter handles permitted preparation and asks for approval when consequential
+        work needs human authority. An exact customer reply must still return to the Decision stack
+        for an owner or admin to send or discard. It does not start new automation, spend money,
+        launch outreach, or send signature reminders. For low-stakes uncertainty, the employee
+        checks sources, chooses a conservative reversible default, records assumptions or skips the
+        update. A Decision is reserved for a consequential choice a human needs to make. Answering
+        it records information; it does not approve work or perform a side effect. Creating this
+        daily Routine alone does not add half-hourly checks; existing immediate assignment handling
+        and specialist Routines continue their work.
       </P>
       <H2 id="routine-ideas">Initiatives for new Routines and improvements to existing ones</H2>
       <P>
@@ -234,10 +241,11 @@ export function Reactivity() {
       <H2 id="delivery">Review customer delivery separately</H2>
       <P>
         Automatic email starters keep customer delivery separate from work approval. If a message
-        only needs a reply, the reply goes straight to an email review. If the employee must
-        investigate, change a record, or work in a Repository first, you approve that plan before
-        the work starts; completing it still does not send mail. The employee returns the exact
-        final message to the stack, where an owner or admin can <Strong>Send now</Strong>,{" "}
+        needs routine research, factual customer updates or a reply, the employee completes that
+        preparation and puts the reply straight into an email review. Consequential work, including
+        starting a Repository Work session, needs an approved plan first; completing it still does
+        not send mail. The employee returns the exact final message to the stack, where an owner or
+        admin can <Strong>Send now</Strong>,{" "}
         <Strong>Edit email</Strong>, <Strong>Ask employee to edit</Strong>, or{" "}
         <Strong>Discard</Strong>.
       </P>
@@ -281,7 +289,8 @@ export function Reactivity() {
         A <Strong>Trigger</Strong> is an event subscription attached to a Routine: when a resource
         family changes anywhere in the company — a deal moves, mail lands, a Run finishes, a{" "}
         <DocLink to="/docs/goals">Goal</DocLink> updates — the Routine fires without waiting for its
-        next cron slot. The resulting Run reads evidence and requests work approval before acting.
+        next cron slot. The resulting Run reads evidence, completes permitted preparation and
+        requests work approval when consequential work needs human authority.
         Triggers are managed by admins on the routine&apos;s <Strong>Settings → Triggers</Strong>{" "}
         card, and the list of subscribable kinds is served from the same registry the app&apos;s own
         live updates run on — anything that refreshes on your screen can fire a Routine.

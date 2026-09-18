@@ -313,8 +313,9 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       />
       {routingOpen && <RoutingModal company={company} onClose={() => setRoutingOpen(false)} />}
       <p className="mb-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-        See what happened, what your AI Employee recommends, and the one action that needs you.
-        Reviewed email replies stay in Genosyn until an owner or admin sends or discards them.
+        Major choices that need your judgment. Your AI Employees handle routine preparation within
+        their Grants. Reviewed email replies stay in Genosyn until an owner or admin sends or
+        discards them.
       </p>
       {resolutionNotice && (
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
@@ -380,7 +381,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         workReviews !== null ? (
         <EmptyState
           title="Decision stack is clear"
-          description="Email reviews, proposed work, and Decisions from your AI Employees appear here with context and a clear next step."
+          description="Consequential choices and required email reviews appear here with context and a clear next step. Routine preparation stays with your AI Employees."
         />
       ) : query && !filteredRows.length && !filteredWork.length ? (
         <EmptyState
