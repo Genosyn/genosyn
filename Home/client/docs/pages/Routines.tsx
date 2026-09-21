@@ -660,13 +660,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Click <Strong>Why did it fail?</Strong> or <Strong>Why did it error?</Strong> beside a Run
-        on Home, or inside its Run log modal. An AI Employee reads that specific Run&apos;s recorded
-        log, failure reason, and Check results, then explains the cause, the evidence, and what to
-        try next in the same modal. Missing or incomplete evidence is called out. Use{" "}
-        <Strong>Message AI Employee</Strong> to ask follow-up questions about the failure, evidence,
-        or possible fixes; replies keep the context of your conversation while the modal is open.
-        Choose another <Strong>AI Employee</Strong> if you want a second explanation or the original
-        employee&apos;s AI Model is unavailable. At least one employee needs a connected AI Model.
+        on Home, or inside its Run log modal. The AI Employee who ran the Routine automatically
+        reads that specific Run&apos;s recorded log, failure reason, and Check results, then explains
+        the cause, the evidence, and what to try next in the same modal. Missing or incomplete
+        evidence is called out. Use the message box labelled with the employee&apos;s name to ask
+        follow-up questions about the failure, evidence, or possible fixes; replies keep the context
+        of your conversation while the modal is open. The same employee answers every follow-up.
+        If their AI Model is unavailable, restore their connected AI Model and try again.
         Any Member can ask; the explanation does not retry the Routine, change records, or change
         the Run&apos;s status or verdicts. Switch to <Strong>Run log</Strong> to inspect the
         original evidence without losing the explanation.

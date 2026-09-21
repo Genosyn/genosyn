@@ -1,12 +1,11 @@
 import React from "react";
-import { Send, Sparkles } from "lucide-react";
+import { Send } from "lucide-react";
 import { api, streamPost, type RunStatus } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { isRunError } from "@/lib/runStatus";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
-import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 
 type ExplainingEmployee = { id: string; name: string; slug: string };
@@ -41,7 +40,6 @@ export function runExplanationLabel(status: RunStatus): string {
 /** Mounted once per opened Run, so switching to the log keeps the answer. */
 export function RunExplanation({ companyId, runId }: { companyId: string; runId: string }) {
   const [options, setOptions] = React.useState<ExplanationOptions | null>(null);
-  const [employeeId, setEmployeeId] = React.useState("");
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [draft, setDraft] = React.useState("");
   const [pendingMessage, setPendingMessage] = React.useState("");
@@ -51,13 +49,12 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
   const requestId = React.useRef(0);
   const activeRequest = React.useRef<AbortController | null>(null);
   const base = `/api/companies/${companyId}/runs/${runId}/explanation`;
-  const employee = options?.employees.find((entry) => entry.id === employeeId);
-  const selectId = React.useId();
+  const employee = options?.employees.find((entry) => entry.id === options.defaultEmployeeId);
   const composerId = React.useId();
   const replyEnd = React.useRef<HTMLDivElement>(null);
 
   const explain = React.useCallback(
-    async (selectedId: string, request: number, message = "", previous: ChatMessage[] = []) => {
+    async (request: number, message = "", previous: ChatMessage[] = []) => {
       setBusy(true);
       setError(null);
       setPendingMessage(message);
@@ -70,7 +67,6 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
         await streamPost(
           base,
           {
-            employeeId: selectedId,
             ...(message ? { message } : {}),
             ...(previous.length ? { history: recentHistory(previous) } : {}),
           },
@@ -117,9 +113,8 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
       const result = await api.get<ExplanationOptions>(base);
       if (request !== requestId.current) return;
       setOptions(result);
-      setEmployeeId(result.defaultEmployeeId ?? "");
       if (result.defaultEmployeeId) {
-        await explain(result.defaultEmployeeId, request);
+        await explain(request);
       } else {
         setBusy(false);
       }
@@ -146,49 +141,12 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
 
   function sendMessage(event: React.FormEvent) {
     event.preventDefault();
-    if (busy || !employeeId || !draft.trim()) return;
-    void explain(employeeId, ++requestId.current, draft.trim(), messages);
+    if (busy || !employee || !draft.trim()) return;
+    void explain(++requestId.current, draft.trim(), messages);
   }
 
   return (
     <section aria-label="Run explanation" className="min-w-0 space-y-4 py-1">
-      {options && options.employees.length > 0 && (
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-0 basis-full sm:max-w-xs sm:flex-1 sm:basis-auto">
-            <label
-              htmlFor={selectId}
-              className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
-            >
-              AI Employee
-            </label>
-            <Select
-              id={selectId}
-              aria-label="AI Employee"
-              value={employeeId}
-              disabled={busy}
-              onChange={(event) => setEmployeeId(event.target.value)}
-              searchPlaceholder="Search AI Employees…"
-            >
-              {options.employees.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          {!busy && (
-            <Button
-              variant="secondary"
-              onClick={() =>
-                void explain(employeeId, ++requestId.current, error ? retryMessage : "", messages)
-              }
-              disabled={!employeeId}
-            >
-              <Sparkles size={14} /> {error ? "Try again" : "Ask AI Employee"}
-            </Button>
-          )}
-        </div>
-      )}
       {messages.length > 0 && (
         <div className="min-w-0 space-y-5" aria-label="Conversation about this Run">
           {messages.map((message, index) => (
@@ -231,30 +189,32 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
             ? pendingMessage
               ? `${employee.name} is replying…`
               : `${employee.name} is reading this Run’s logs…`
-            : "Finding an AI Employee…"}
+            : "Loading this Run’s AI Employee…"}
         </div>
       )}
       {error && (
         <div className="space-y-3">
           <FormError message={error} />
-          {!options && (
-            <Button variant="secondary" onClick={() => void load()}>
-              Try again
-            </Button>
-          )}
-          {options && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              You can choose another AI Employee and try again.
-            </p>
-          )}
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() =>
+              employee
+                ? void explain(++requestId.current, retryMessage, messages)
+                : void load()
+            }
+          >
+            Try again
+          </Button>
         </div>
       )}
       {!busy && options?.employees.length === 0 && (
         <p className="py-4 text-sm text-slate-600 dark:text-slate-300">
-          Connect an AI Model to an AI Employee to explain this Run. You can still read the Run log.
+          The AI Employee who ran this Routine needs a connected AI Model to explain this Run.
+          You can still read the Run log.
         </p>
       )}
-      {options && options.employees.length > 0 && (
+      {employee && (
         <form
           onSubmit={sendMessage}
           className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-800"
@@ -263,7 +223,7 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
             htmlFor={composerId}
             className="block text-sm font-medium text-slate-700 dark:text-slate-200"
           >
-            Message AI Employee
+            Message {employee.name}
           </label>
           <textarea
             id={composerId}
@@ -280,7 +240,7 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
               Discuss this Run&apos;s recorded evidence and possible fixes. This chat does not retry
               the Routine or make changes.
             </p>
-            <Button type="submit" disabled={busy || !employeeId || !draft.trim()}>
+            <Button type="submit" disabled={busy || !draft.trim()}>
               <Send size={14} /> Send
             </Button>
           </div>

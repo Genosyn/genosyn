@@ -154,7 +154,7 @@ async function call(
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
-test("an ordinary Member can choose an AI Employee and get an explanation without changing the Run", async () => {
+test("an ordinary Member gets an explanation from the Routine's AI Employee without changing the Run", async () => {
   const original = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
   const bootstrap = await call();
   assert.equal(bootstrap.status, 200);
@@ -232,29 +232,48 @@ test("uses the selected historical Run and latest persisted Check round, with bo
   assert.match(input.system, /missing, truncated, or inconclusive/);
 });
 
-test("only offers connected same-company employees and supports a different employee when the owner cannot answer", async () => {
+test("always uses the Routine's employee, ignoring another employee supplied by an older client", async () => {
   const alternate = await seedEmployee("Alex", "alex");
-  const alternateModel = await seedModel(alternate.id);
+  await seedModel(alternate.id);
   const disconnected = await seedEmployee("Disco", "disco");
   await seedModel(disconnected.id, false);
   const foreign = await seedEmployee("Foreign", "foreign", "another-company");
   await seedModel(foreign.id);
-  assert.equal(
-    (await call()).body.defaultEmployeeId,
-    employee.id,
-    "owner wins over alphabetic order",
-  );
-  await AppDataSource.getRepository(AIModel).update(model.id, { configJson: "{}" });
-  const bootstrap = await call();
-  assert.deepEqual(bootstrap.body, {
-    employees: [{ id: alternate.id, name: "Alex", slug: "alex" }],
-    defaultEmployeeId: alternate.id,
+  assert.deepEqual((await call()).body, {
+    employees: [{ id: employee.id, name: "Jamie", slug: "jamie" }],
+    defaultEmployeeId: employee.id,
   });
-  assert.equal((await call("POST", { employeeId: alternate.id })).status, 200);
-  assert.equal(calls[0].model.id, alternateModel.id);
-  assert.equal((await call("POST", { employeeId: foreign.id })).status, 409);
-  assert.equal((await call("POST", { employeeId: disconnected.id })).status, 409);
-  assert.equal(calls.length, 1);
+  for (const employeeId of [undefined, alternate.id, disconnected.id, foreign.id]) {
+    const response = await call("POST", { employeeId });
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.employee, { id: employee.id, name: "Jamie", slug: "jamie" });
+    assert.equal(calls.at(-1)?.model.id, model.id);
+    assert.match(calls.at(-1)?.system ?? "", /You are Jamie, the AI Employee who ran this Routine/);
+  }
+  assert.equal(calls.length, 4);
+});
+
+test("does not fall back to another employee when the Routine's employee has no connected model", async () => {
+  const alternate = await seedEmployee("Alex", "alex");
+  await seedModel(alternate.id);
+  await AppDataSource.getRepository(AIModel).update(model.id, { configJson: "{}" });
+  assert.deepEqual((await call()).body, { employees: [], defaultEmployeeId: null });
+  for (const body of [{}, { employeeId: alternate.id }]) {
+    const response = await call("POST", body);
+    assert.equal(response.status, 409);
+    assert.match(String(response.body.error), /Connect an AI Model to Jamie/);
+    assert.doesNotMatch(String(response.body.error), /[Cc]hoose another/);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("does not substitute another employee when the Routine's employee has been deleted", async () => {
+  const alternate = await seedEmployee("Alex", "alex");
+  await seedModel(alternate.id);
+  await AppDataSource.getRepository(AIEmployee).delete(employee.id);
+  assert.equal((await call()).status, 404);
+  assert.equal((await call("POST", { employeeId: alternate.id })).status, 404);
+  assert.equal(calls.length, 0);
 });
 
 test("empty setup has no invented explanation and tells the Member to connect an AI Model", async () => {
@@ -385,6 +404,8 @@ test("checks authentication and company ownership again before releasing a gener
 });
 
 test("company and employee Standdowns block explanations while a Routine Standdown permits discussion", async () => {
+  const alternate = await seedEmployee("Alex", "alex");
+  await seedModel(alternate.id);
   const stop = await insert(Standdown, {
     companyId: company.id,
     scope: "routine",
@@ -402,6 +423,7 @@ test("company and employee Standdowns block explanations while a Routine Standdo
   });
   await refreshStanddowns();
   assert.equal((await call("POST", {})).status, 409);
+  assert.equal((await call("POST", { employeeId: alternate.id })).status, 409);
   await AppDataSource.getRepository(Standdown).update(stop.id, { scope: "company", scopeId: null });
   await refreshStanddowns();
   assert.equal((await call("POST", {})).status, 409);

@@ -461,11 +461,12 @@ async function open(options: FixtureOptions = {}) {
         if (explanationError)
           return route.fulfill({
             contentType: "text/event-stream",
-            body: `event: error\ndata: ${JSON.stringify({ error: "The AI Model is unavailable. Try another AI Employee." })}\n\n`,
+            body: `event: error\ndata: ${JSON.stringify({ error: "The AI Model is unavailable. Please try again." })}\n\n`,
           });
         const requested = request.postDataJSON() as { employeeId?: string; message?: string };
-        const employee = employees.find((item) => item.id === requested.employeeId) ?? employees[0];
-        assert.ok(employee, "an explanation requires an available AI Employee");
+        assert.equal(requested.employeeId, undefined, "the server chooses this Run's AI Employee");
+        const employee = employees.find((item) => item.id === explaining.employee?.id);
+        assert.ok(employee, "an explanation requires the AI Employee who ran this Routine");
         const response = {
           explanation: requested.message ? failureFollowup : failureExplanation,
           employee: { id: employee.id, name: employee.name, slug: employee.slug },
@@ -615,14 +616,17 @@ async function open(options: FixtureOptions = {}) {
       if (explanationOptionsError)
         return route.fulfill({
           status: 503,
-          json: { error: "Could not load AI Employees for this explanation." },
+          json: { error: "Could not load this Run's AI Employee." },
         });
+      const employee = options.noExplanationEmployees
+        ? undefined
+        : employees.find((item) => item.id === failure.employee?.id);
       return route.fulfill({
         json: {
-          employees: options.noExplanationEmployees
-            ? []
-            : employees.map(({ id, name, slug }) => ({ id, name, slug })),
-          defaultEmployeeId: options.noExplanationEmployees ? null : (employees[0]?.id ?? null),
+          employees: employee
+            ? [{ id: employee.id, name: employee.name, slug: employee.slug }]
+            : [],
+          defaultEmployeeId: employee?.id ?? null,
         },
       });
     }
@@ -747,6 +751,9 @@ async function open(options: FixtureOptions = {}) {
     },
     failHome: () => {
       homeError = true;
+    },
+    failExplanation: () => {
+      explanationError = true;
     },
     holdNextHome: () => {
       holdNextHome = true;
@@ -927,7 +934,7 @@ try {
           width,
           quiet: true,
           count: 2,
-          failedRuns: [failedRun()],
+          failedRuns: [failedRun({ employee: roster(2)[1] })],
           holdExplanation: true,
           longFailureTranscript: width === 1440,
         });
@@ -944,12 +951,20 @@ try {
           "opening the modal starts exactly one analysis in Strict Mode",
         );
         assert.equal(
-          await modal.getByRole("combobox", { name: "AI Employee", exact: true }).isDisabled(),
-          true,
+          await modal.getByRole("combobox").count(),
+          0,
+          "the Run's AI Employee is fixed and never shown in a dropdown",
+        );
+        await modal.getByText("Employee 2 is reading this Run’s logs…", { exact: true }).waitFor();
+        assert.equal(
+          await modal.getByRole("button", { name: "Ask AI Employee", exact: true }).count(),
+          0,
         );
         assert.equal(await modal.getByRole("button", { name: "Retry", exact: true }).count(), 0);
         fixture.releaseExplanation();
         await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
+        await modal.getByText("Explanation by Employee 2", { exact: true }).waitFor();
+        await modal.getByRole("textbox", { name: "Message Employee 2", exact: true }).waitFor();
         assert.equal(
           await modal.locator("strong").filter({ hasText: "the Connection expired" }).count(),
           1,
@@ -997,7 +1012,7 @@ try {
           [
             {
               path: "/api/companies/company/runs/failed-run/explanation",
-              body: { employeeId: "employee-1" },
+              body: {},
             },
           ],
           "returning from the log reuses the explanation and never retries or dismisses the Run",
@@ -1009,46 +1024,57 @@ try {
       },
     );
   }
-  await check("Run explanation supports inline errors, another AI Employee and retry", async () => {
-    const fixture = await open({
-      quiet: true,
-      count: 2,
-      failedRuns: [failedRun({ status: "error", errorKind: "runtime", failureReason: null })],
-      explanationError: true,
-    });
-    const { page, mutations } = fixture;
-    await card(page, "Routines needing attention")
-      .getByRole("button", { name: /^Why did it error\?/ })
-      .click();
-    const modal = page.getByRole("dialog");
-    await modal
-      .getByRole("alert")
-      .filter({ hasText: "The AI Model is unavailable. Try another AI Employee." })
-      .waitFor();
-    assert.equal(
-      await page.getByRole("dialog").count(),
-      1,
-      "request failures remain in the explanation modal",
-    );
-    fixture.recover();
-    await modal.getByRole("combobox", { name: "AI Employee", exact: true }).fill("Employee 2");
-    await page.getByRole("option", { name: "Employee 2", exact: true }).click();
-    await modal.getByRole("button", { name: "Try again", exact: true }).click();
-    await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-    assert.deepEqual(mutations, [
-      {
-        path: "/api/companies/company/runs/failed-run/explanation",
-        body: { employeeId: "employee-1" },
-      },
-      {
-        path: "/api/companies/company/runs/failed-run/explanation",
-        body: { employeeId: "employee-2" },
-      },
-    ]);
-    await page.keyboard.press("Escape");
-    await modal.waitFor({ state: "detached" });
-    await page.close();
-  });
+  await check(
+    "Run explanation supports inline errors and retries with its original AI Employee",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        count: 2,
+        failedRuns: [
+          failedRun({
+            status: "error",
+            errorKind: "runtime",
+            failureReason: null,
+            employee: roster(2)[1],
+          }),
+        ],
+        explanationError: true,
+      });
+      const { page, mutations } = fixture;
+      await card(page, "Routines needing attention")
+        .getByRole("button", { name: /^Why did it error\?/ })
+        .click();
+      const modal = page.getByRole("dialog");
+      await modal
+        .getByRole("alert")
+        .filter({ hasText: "The AI Model is unavailable. Please try again." })
+        .waitFor();
+      assert.equal(
+        await page.getByRole("dialog").count(),
+        1,
+        "request failures remain in the explanation modal",
+      );
+      assert.equal(await modal.getByRole("combobox").count(), 0);
+      assert.equal(await modal.getByRole("button", { name: "Try again", exact: true }).count(), 1);
+      fixture.recover();
+      await modal.getByRole("button", { name: "Try again", exact: true }).click();
+      await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
+      await modal.getByText("Explanation by Employee 2", { exact: true }).waitFor();
+      assert.deepEqual(mutations, [
+        {
+          path: "/api/companies/company/runs/failed-run/explanation",
+          body: {},
+        },
+        {
+          path: "/api/companies/company/runs/failed-run/explanation",
+          body: {},
+        },
+      ]);
+      await page.keyboard.press("Escape");
+      await modal.waitFor({ state: "detached" });
+      await page.close();
+    },
+  );
   await check(
     "Run explanation accepts follow-up chat and retains its conversation beside the log",
     async () => {
@@ -1058,7 +1084,7 @@ try {
         .click();
       const modal = page.getByRole("dialog");
       await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-      const message = modal.getByRole("textbox", { name: "Message AI Employee", exact: true });
+      const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
       await message.fill("Was any email sent?");
       await modal.getByRole("button", { name: "Send", exact: true }).click();
       await modal.getByText(failureFollowup, { exact: true }).waitFor();
@@ -1070,12 +1096,12 @@ try {
       assert.equal(await message.inputValue(), "", "sending a follow-up clears the composer");
       assert.equal(mutations.length, 2);
       const followup = mutations[1].body as {
-        employeeId: string;
+        employeeId?: string;
         message: string;
         history: Array<{ role: string; content: string }>;
       };
       assert.equal(mutations[1].path, "/api/companies/company/runs/failed-run/explanation");
-      assert.equal(followup.employeeId, "employee-1");
+      assert.equal(followup.employeeId, undefined);
       assert.equal(followup.message, "Was any email sent?");
       assert.ok(
         followup.history.some(
@@ -1095,7 +1121,44 @@ try {
       await page.close();
     },
   );
-  await check("Run explanation can recover when AI Employee choices fail to load", async () => {
+  await check(
+    "Run explanation retries a failed follow-up with the same employee and message",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        count: 2,
+        failedRuns: [failedRun({ employee: roster(2)[1] })],
+      });
+      const { page, mutations } = fixture;
+      await card(page, "Routines needing attention")
+        .getByRole("button", { name: /^Why did it fail\?/ })
+        .click();
+      const modal = page.getByRole("dialog");
+      await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
+      fixture.failExplanation();
+      const message = modal.getByRole("textbox", { name: "Message Employee 2", exact: true });
+      await message.fill("Was any email sent?");
+      await modal.getByRole("button", { name: "Send", exact: true }).click();
+      await modal.getByRole("alert").waitFor();
+      assert.equal(await message.inputValue(), "Was any email sent?");
+      assert.equal(await modal.getByRole("combobox").count(), 0);
+      fixture.recover();
+      await modal.getByRole("button", { name: "Try again", exact: true }).click();
+      await modal.getByText(failureFollowup, { exact: true }).waitFor();
+      assert.equal(mutations.length, 3);
+      assert.deepEqual(
+        mutations[2],
+        mutations[1],
+        "retry preserves the failed question and history",
+      );
+      assert.equal((mutations[2].body as { employeeId?: string }).employeeId, undefined);
+      assert.equal(await modal.getByText("Explanation by Employee 2", { exact: true }).count(), 2);
+      assert.equal(await modal.getByText("Was any email sent?", { exact: true }).count(), 1);
+      assert.equal(await message.inputValue(), "");
+      await page.close();
+    },
+  );
+  await check("Run explanation can recover when its AI Employee fails to load", async () => {
     const fixture = await open({
       quiet: true,
       failedRuns: [failedRun()],
@@ -1108,9 +1171,9 @@ try {
     const modal = page.getByRole("dialog");
     await modal
       .getByRole("alert")
-      .filter({ hasText: "Could not load AI Employees for this explanation." })
+      .filter({ hasText: "Could not load this Run's AI Employee." })
       .waitFor();
-    assert.deepEqual(mutations, [], "the model is not called without available AI Employees");
+    assert.deepEqual(mutations, [], "the model is not called before its AI Employee is known");
     fixture.recover();
     await modal.getByRole("button", { name: "Try again", exact: true }).click();
     await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
@@ -1138,9 +1201,10 @@ try {
     assert.equal(mutations.length, 1);
     await page.close();
   });
-  await check("Run explanation has an empty state when no AI Employee can analyze", async () => {
+  await check("Run explanation never falls back when its AI Employee cannot analyze", async () => {
     const { page, mutations } = await open({
       quiet: true,
+      count: 2,
       failedRuns: [failedRun()],
       noExplanationEmployees: true,
     });
@@ -1150,11 +1214,17 @@ try {
     const modal = page.getByRole("dialog");
     await modal
       .getByText(
-        "Connect an AI Model to an AI Employee to explain this Run. You can still read the Run log.",
+        "The AI Employee who ran this Routine needs a connected AI Model to explain this Run. You can still read the Run log.",
         { exact: true },
       )
       .waitFor();
     assert.deepEqual(mutations, []);
+    assert.equal(await modal.getByRole("combobox").count(), 0);
+    assert.equal(await modal.getByRole("textbox").count(), 0);
+    assert.equal(
+      await modal.getByRole("button", { name: "Ask AI Employee", exact: true }).count(),
+      0,
+    );
     await modal.getByRole("button", { name: "Run log", exact: true }).click();
     await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
     await page.close();

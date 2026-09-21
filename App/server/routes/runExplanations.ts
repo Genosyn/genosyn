@@ -11,6 +11,8 @@ import {
 const paramsSchema = z.object({ cid: z.string().uuid(), runId: z.string().uuid() }).strict();
 const bodySchema = z
   .object({
+    // Older clients sent the picker value. Accept it during upgrades, but
+    // resolve the employee from the Run's Routine on every request.
     employeeId: z.string().uuid().optional(),
     message: z.string().trim().min(1).max(4_000).optional(),
     history: z
@@ -89,7 +91,6 @@ runExplanationsRouter.post(
       const result = await explainRun({
         companyId: req.params.cid,
         runId: req.params.runId,
-        employeeId: body.employeeId,
         message: body.message,
         history: body.history,
         requesterUserId: req.userId!,
