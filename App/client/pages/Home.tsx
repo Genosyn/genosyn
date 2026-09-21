@@ -61,9 +61,16 @@ import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
 import { runExplanationLabel } from "@/components/routines/RunExplanation";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
-import { DecisionCard } from "@/components/decisions/DecisionCard";
-import { WorkReviewCard } from "@/components/decisions/WorkReviewCard";
-import { MailReviewCard } from "@/components/decisions/MailReviewCard";
+import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
+import {
+  compareStackItems,
+  decisionItem,
+  reviewItem,
+  stackItemPending,
+  stackItemWorking,
+  useDecisionFollowUps,
+  type DecisionFollowUps,
+} from "@/components/decisions/useDecisionFollowUps";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -125,6 +132,8 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
   const [readNotice, setReadNotice] = React.useState<string | null>(null);
   const background = useBackgroundAction();
+  const decisionFollowUps = useDecisionFollowUps(company, me.id);
+  const clearClosedFollowUps = decisionFollowUps.clearClosed;
   activeCompanyId.current = company.id;
 
   // The todo peek needs the company's people to fill its assignee and reviewer
@@ -145,13 +154,15 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
       if (request !== homeRequest.current) return;
       homeSuccessfulRequest.current = request;
       setData(d);
+      clearClosedFollowUps("decision");
+      clearClosedFollowUps("review");
       setLoadError(null);
     } catch (err) {
       if (request !== homeRequest.current) return;
       // Keep the last successful overview, but make a stale count explicit.
       setLoadError(errorMessage(err, "Could not refresh your home screen."));
     }
-  }, [company.id]);
+  }, [company.id, clearClosedFollowUps]);
 
   const reloadPendingDecisions = React.useCallback(
     async (announcement?: string) => {
@@ -429,11 +440,13 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           )
         ) : (
           <>
-            {hasAnythingToShow(data, company) ? (
+            {hasAnythingToShow(data, company) || decisionFollowUps.items.length > 0 ? (
               <>
                 <ActiveDecisions
+                  key={company.id}
                   company={company}
                   data={data}
+                  followUps={decisionFollowUps}
                   onResolved={reloadPendingDecisions}
                 />
                 <RepositoryWorkCard
@@ -722,14 +735,16 @@ function homeDecisionReviews(company: Company, data: HomeData): HomeApproval[] {
   );
 }
 
-/** A bounded, actionable preview of the pending Decision stack. */
+/** Pending choices and the outcomes this Member is still following. */
 function ActiveDecisions({
   company,
   data,
+  followUps,
   onResolved,
 }: {
   company: Company;
   data: HomeData;
+  followUps: DecisionFollowUps;
   onResolved: (announcement?: string) => Promise<void> | void;
 }) {
   const [editingReviewIds, setEditingReviewIds] = React.useState<string[]>([]);
@@ -745,39 +760,39 @@ function ActiveDecisions({
   const total =
     data.pendingDecisionCount +
     (canReview ? (data.pendingDecisionApprovalCount ?? reviews.length) : 0);
-  const items = [
-    ...data.decisions.map((decision) => ({
-      kind: "decision" as const,
-      key: `decision-${decision.id}`,
-      at: decision.createdAt,
-      urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
-      decision,
-    })),
-    ...reviews.map((approval) => ({
-      kind: "review" as const,
-      key: `review-${approval.id}`,
-      at: approval.requestedAt,
-      urgency: 1,
-      approval,
-    })),
-  ].sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at));
-  const itemsByKey = new Map(items.map((item) => [item.key, item] as const));
-  // Keep the visible cards mounted and ordered while an email editor owns
-  // unsaved text. Resolved rows still leave, and new items fill their places.
+  const pendingItems = [
+    ...data.decisions
+      .filter((row) => !followUps.hiddenKeys.has(`decision-${row.id}`))
+      .map(decisionItem),
+    ...reviews
+      .filter((row) => !followUps.hiddenKeys.has(`review-${row.id}`))
+      .map((approval) => reviewItem(approval)),
+  ];
+  const itemsByKey = new Map(pendingItems.map((item) => [item.key, item]));
+  for (const item of followUps.items) {
+    if (!stackItemPending(item) || !itemsByKey.has(item.key)) itemsByKey.set(item.key, item);
+  }
+  const items = [...itemsByKey.values()].sort(compareStackItems);
+  const followingKeys = new Set(followUps.items.map((item) => item.key));
+  // Keep both an open editor and an outcome in their original slot. A new
+  // urgent item must not push the result the Member is reading off Home.
   const retained = previewKeys.current.flatMap((key) => {
     const item = itemsByKey.get(key);
     return item ? [item] : [];
   });
   const retainedKeys = new Set(retained.map((item) => item.key));
-  const preview =
-    editingReviewIds.length > 0
-      ? [...retained, ...items.filter((item) => !retainedKeys.has(item.key))].slice(0, 3)
-      : items.slice(0, 3);
+  const ordered =
+    editingReviewIds.length > 0 || followingKeys.size > 0
+      ? [...retained, ...items.filter((item) => !retainedKeys.has(item.key))]
+      : items;
+  const preview = ordered.filter((item, index) => index < 3 || followingKeys.has(item.key));
   React.useEffect(() => {
     previewKeys.current = preview.map((item) => item.key);
   }, [preview]);
   if (preview.length === 0) return null;
-  const hidden = Math.max(0, total - preview.length);
+  const hidden = Math.max(0, total - preview.filter(stackItemPending).length);
+  const following = preview.filter((item) => !stackItemPending(item)).length;
+  const working = preview.filter(stackItemWorking).length;
   const href = `/c/${company.slug}/decisions`;
 
   return (
@@ -796,8 +811,14 @@ function ActiveDecisions({
           Active decisions
         </h2>
         <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {total}
+          {total} waiting
         </span>
+        {following > 0 && (
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {working > 0 ? `${working} in progress · ` : ""}
+            {following} following
+          </span>
+        )}
         <Link
           to={href}
           className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
@@ -805,37 +826,24 @@ function ActiveDecisions({
           All decisions <ChevronRight size={12} />
         </Link>
         <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          {canReview
-            ? "Answer your AI Employees and review the work waiting on you."
-            : "Answer the questions your AI Employees are waiting on."}
+          {following > 0
+            ? "Follow what happens here. Close each card when you are done reviewing it."
+            : canReview
+              ? "Answer your AI Employees and review work. Cards stay here until you close them."
+              : "Answer your AI Employees. Follow the outcome here until you close it."}
         </p>
       </div>
       <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-        {preview.map((item) =>
-          item.kind === "decision" ? (
-            <DecisionCard
-              key={item.key}
-              company={company}
-              decision={item.decision}
-              onResolved={onResolved}
-            />
-          ) : item.approval.kind === "mail_send" ? (
-            <MailReviewCard
-              key={item.key}
-              company={company}
-              approval={item.approval}
-              onResolved={onResolved}
-              onEditingChange={handleReviewEditingChange}
-            />
-          ) : (
-            <WorkReviewCard
-              key={item.key}
-              company={company}
-              approval={item.approval}
-              onResolved={onResolved}
-            />
-          ),
-        )}
+        {preview.map((item) => (
+          <DecisionStackCard
+            key={item.key}
+            company={company}
+            item={item}
+            followUps={followUps}
+            onResolved={onResolved}
+            onEditingChange={handleReviewEditingChange}
+          />
+        ))}
       </ul>
       {hidden > 0 && (
         <Link

@@ -10,6 +10,7 @@ import {
   Send,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, type Approval, type Company, type HomeApproval } from "@/lib/api";
@@ -258,11 +259,15 @@ export function MailReviewCard({
   company,
   approval,
   onResolved,
+  onActionStart,
+  onActionSettled,
   onEditingChange,
 }: {
   company: Company;
   approval: HomeApproval;
   onResolved: (announcement?: string) => Promise<void> | void;
+  onActionStart?: () => void;
+  onActionSettled?: (approval: Approval) => void;
   onEditingChange?: (approvalId: string, editing: boolean) => void;
 }) {
   const review = mailReview(approval);
@@ -308,10 +313,13 @@ export function MailReviewCard({
     setBusy(action === "approve" ? "send" : "discard");
     setError(null);
     try {
+      onActionStart?.();
       const result = await api.post<Approval & { executeError?: string }>(
         `/api/companies/${company.id}/approvals/${approval.id}/${action}`,
         { reviewRevision: review?.revision },
       );
+      // Action responses carry outcome fields; retain the hydrated source links.
+      onActionSettled?.({ ...approval, ...result });
       if (result.executeError || result.status === "execution_failed") {
         const message =
           result.errorMessage ||
@@ -319,8 +327,8 @@ export function MailReviewCard({
         if (result.status === "execution_failed") {
           await onResolved(
             result.mailDeliveryStatus === "not_sent"
-              ? `Email review “${approval.title ?? fallbackTitle}” was not sent and moved to history.`
-              : `Email review “${approval.title ?? fallbackTitle}” moved to history with an unverified send outcome.`,
+              ? `Email review “${approval.title ?? fallbackTitle}” was not sent. Its outcome is available.`
+              : `Email review “${approval.title ?? fallbackTitle}” has an unverified send outcome.`,
           );
         } else {
           setError(message);
@@ -557,7 +565,17 @@ export function MailReviewCard({
   );
 }
 
-export function MailReviewOutcome({ company, approval }: { company: Company; approval: Approval }) {
+export function MailReviewOutcome({
+  company,
+  approval,
+  onClose,
+  refreshNotice,
+}: {
+  company: Company;
+  approval: Approval;
+  onClose?: () => void;
+  refreshNotice?: React.ReactNode;
+}) {
   const sent = approval.status === "approved" && Boolean(approval.mailOutcome);
   const notSent =
     approval.status === "execution_failed" && approval.mailDeliveryStatus === "not_sent";
@@ -592,6 +610,12 @@ export function MailReviewOutcome({ company, approval }: { company: Company; app
       meta={formatRelative(approval.decidedAt ?? approval.requestedAt)}
       tone={sent ? "success" : unverified ? "warning" : notSent ? "danger" : "neutral"}
     >
+      {approval.status === "executing" && (
+        <p className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <Spinner size={14} /> The reviewed email is being sent. Its delivery result will appear
+          here.
+        </p>
+      )}
       {sent && (
         <p className="text-sm text-slate-600 dark:text-slate-300">
           The exact reviewed email was sent. No mailbox draft was created first.
@@ -624,7 +648,11 @@ export function MailReviewOutcome({ company, approval }: { company: Company; app
   return (
     <li
       id={`review-${approval.id}`}
-      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+      className={
+        onClose
+          ? "scroll-mt-4 bg-white px-4 py-5 sm:px-5 dark:bg-slate-900"
+          : "scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+      }
     >
       <article aria-labelledby={`review-${approval.id}-title`}>
         <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -635,8 +663,27 @@ export function MailReviewOutcome({ company, approval }: { company: Company; app
             {approval.title ?? "Email review"}
           </h3>
           <span>· {approval.employee?.name ?? "Deleted AI Employee"}</span>
+          {onClose && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label="Close review"
+              onClick={onClose}
+              className="ml-auto shrink-0"
+            >
+              <X size={14} /> Close
+            </Button>
+          )}
         </div>
         <Timeline company={company} approval={approval} outcome={outcome} />
+        {refreshNotice}
+        {onClose && (
+          <p className="mt-4 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            Close removes this card from the active stack. Its timeline stays in history
+            {approval.status === "executing" ? ", and sending continues." : "."}
+          </p>
+        )}
       </article>
     </li>
   );

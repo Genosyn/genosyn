@@ -12,9 +12,16 @@ import {
   Me,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import { DecisionCard } from "../components/decisions/DecisionCard";
-import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
-import { MailReviewCard, MailReviewOutcome } from "@/components/decisions/MailReviewCard";
+import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
+import {
+  compareStackItems,
+  decisionItem,
+  reviewItem,
+  stackItemPending,
+  useDecisionFollowUps,
+} from "@/components/decisions/useDecisionFollowUps";
+import { WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
+import { MailReviewOutcome } from "@/components/decisions/MailReviewCard";
 import { DecisionOutcome } from "../components/decisions/DecisionOutcome";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -81,6 +88,8 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const [resolutionNotice, setResolutionNotice] = React.useState<{ message: string } | null>(null);
   const canReview = company.role === "owner" || company.role === "admin";
   const workRequest = React.useRef(0);
+  const followUps = useDecisionFollowUps(company, me.id);
+  const clearClosedFollowUps = followUps.clearClosed;
 
   const reloadWork = React.useCallback(async () => {
     const version = ++workRequest.current;
@@ -114,6 +123,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           (approval) => approval.kind === "proactive_work" || approval.kind === "mail_send",
         ),
       );
+      clearClosedFollowUps("review");
       setWorkError(null);
       if (linkedReviewId) setLinkedError(targetError);
     } catch (err) {
@@ -121,7 +131,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       setWorkError(errorMessage(err, "Could not load email and work reviews"));
       setWorkReviews((current) => current ?? []);
     }
-  }, [company.id, canReview, linkedReviewId]);
+  }, [company.id, canReview, linkedReviewId, clearClosedFollowUps]);
 
   React.useEffect(() => {
     setWorkReviews(null);
@@ -165,14 +175,15 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       }
       if (version !== reloadVersion.current) return;
       setRows(listed);
+      clearClosedFollowUps("decision");
       if (linkedDecisionId) setLinkedError(targetError);
       setLoadError(null);
     } catch (err) {
       if (version !== reloadVersion.current) return;
       setLoadError(errorMessage(err, "Could not load the decisions"));
-      setRows([]);
+      // Retain the last good list while its inline refresh error is visible.
     }
-  }, [company.id, linkedDecisionId]);
+  }, [company.id, linkedDecisionId, clearClosedFollowUps]);
 
   const reloadDecisionsAfterAction = React.useCallback(
     async (announcement?: string) => {
@@ -238,13 +249,38 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const matches = (text: (string | null | undefined)[]) =>
     text.some((value) => value?.toLocaleLowerCase().includes(query));
   const now = Date.now();
-  const visibleRows = rows?.filter((row) => !isFutureSnooze(row, now)) ?? [];
+  const followingKeys = new Set(followUps.items.map((item) => item.key));
+  const decisionRows = new Map((rows ?? []).map((row) => [row.id, row]));
+  const reviewRows = new Map((canReview ? (workReviews ?? []) : []).map((row) => [row.id, row]));
+  for (const item of followUps.items) {
+    if (item.kind === "loading") {
+      if (item.reference.kind === "decision") decisionRows.delete(item.reference.id);
+      else reviewRows.delete(item.reference.id);
+    } else if (
+      item.kind === "decision" &&
+      (!stackItemPending(item) || !decisionRows.has(item.decision.id))
+    ) {
+      decisionRows.set(item.decision.id, item.decision);
+    } else if (
+      item.kind === "review" &&
+      item.outcome &&
+      (!stackItemPending(item) || !reviewRows.has(item.approval.id))
+    ) {
+      reviewRows.set(item.approval.id, item.outcome);
+    }
+  }
+  const visibleRows = [...decisionRows.values()].filter(
+    (row) =>
+      !isFutureSnooze(row, now) &&
+      !(row.status === "pending" && followUps.hiddenKeys.has(`decision-${row.id}`)),
+  );
   const filteredRows = visibleRows.filter(
     (row) =>
       !query ||
       matches([
         row.title,
         row.body,
+        row.pickupSummary,
         row.employee?.name,
         row.assignee?.name,
         row.source.mailThread?.subject,
@@ -252,49 +288,56 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         ...row.options.flatMap((option) => [option.label, option.detail]),
       ]),
   );
-  const pending = filteredRows.filter((r) => r.status === "pending");
+  const pending = filteredRows.filter(
+    (r) => r.status === "pending" || followingKeys.has(`decision-${r.id}`),
+  );
   const allPending = visibleRows.filter((r) => r.status === "pending").length;
   const filteredWork =
-    (canReview ? workReviews : [])?.filter(
+    [...reviewRows.values()].filter(
       (row) =>
-        !query ||
-        matches([
-          row.title,
-          row.summary,
-          row.outcomeSummary,
-          row.employee?.name,
-          row.review?.kind === "work" ? row.review.context : null,
-          row.review?.kind === "work" ? row.review.plan : null,
-          row.review?.kind === "mail" ? row.review.context : null,
-          row.review?.kind === "mail" ? row.review.workSummary : null,
-          row.review?.kind === "mail" ? row.review.draft.subject : null,
-          row.review?.kind === "mail" ? row.review.draft.bodyText : null,
-        ]),
+        !(row.status === "pending" && followUps.hiddenKeys.has(`review-${row.id}`)) &&
+        (!query ||
+          matches([
+            row.title,
+            row.summary,
+            row.outcomeSummary,
+            row.employee?.name,
+            row.review?.kind === "work" ? row.review.context : null,
+            row.review?.kind === "work" ? row.review.plan : null,
+            row.review?.kind === "mail" ? row.review.context : null,
+            row.review?.kind === "mail" ? row.review.workSummary : null,
+            row.review?.kind === "mail" ? row.review.draft.subject : null,
+            row.review?.kind === "mail" ? row.review.draft.bodyText : null,
+          ])),
     ) ?? [];
-  const shownWork = filteredWork.filter((approval) => approval.status === "pending");
-  const workHistory = filteredWork.filter((approval) => approval.status !== "pending");
-  const pendingWorkCount =
-    workReviews?.filter((approval) => approval.status === "pending").length ?? 0;
+  const shownWork = filteredWork.filter(
+    (approval) => approval.status === "pending" || followingKeys.has(`review-${approval.id}`),
+  );
+  const workHistory = filteredWork.filter(
+    (approval) => approval.status !== "pending" && !followingKeys.has(`review-${approval.id}`),
+  );
+  const pendingWorkCount = [...reviewRows.values()].filter(
+    (approval) => approval.status === "pending",
+  ).length;
   const mine = pending.filter((r) => r.assignee?.id === me.id);
   const anyone = pending.filter((r) => !r.assignee);
   const assignedElsewhere = pending.filter((r) => r.assignee && r.assignee.id !== me.id);
-  const history = filteredRows.filter((r) => r.status !== "pending");
+  const history = filteredRows.filter(
+    (r) => r.status !== "pending" && !followingKeys.has(`decision-${r.id}`),
+  );
   const shown = history.filter((r) => filter === "all" || r.status === filter);
   const working = history.filter((r) => r.pickupStatus === "running").length;
   const needsYou = [
-    ...shownWork.map((approval) => ({
-      kind: "review" as const,
-      at: approval.requestedAt,
-      urgency: 1,
-      approval,
-    })),
-    ...[...mine, ...anyone].map((decision) => ({
-      kind: "decision" as const,
-      at: decision.createdAt,
-      urgency: decision.urgency === "high" ? 0 : decision.urgency === "low" ? 2 : 1,
-      decision,
-    })),
-  ].sort((a, b) => a.urgency - b.urgency || Date.parse(a.at) - Date.parse(b.at));
+    ...shownWork.map((approval) => reviewItem(approval, approval)),
+    ...[...mine, ...anyone].map(decisionItem),
+    ...followUps.items.filter((item) => item.kind === "loading"),
+  ]
+    .sort(compareStackItems)
+    .map((item) => ({
+      ...item,
+      refreshError: followUps.items.find((followed) => followed.key === item.key)?.refreshError,
+    }));
+  const followingCount = needsYou.filter((item) => !stackItemPending(item)).length;
 
   return (
     <div className="page-shell p-4 sm:p-8">
@@ -315,7 +358,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       <p className="mb-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
         Major choices that need your judgment. Your AI Employees handle routine preparation within
         their Grants. Reviewed email replies stay in Genosyn until an owner or admin sends or
-        discards them.
+        discards them. After you act, follow the timeline here and close the card when you are done.
       </p>
       {resolutionNotice && (
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
@@ -376,6 +419,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       ) : rows !== null &&
         visibleRows.length === 0 &&
         !workReviews?.length &&
+        followUps.items.length === 0 &&
         !loadError &&
         !workError &&
         workReviews !== null ? (
@@ -391,32 +435,27 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       ) : (
         <div className="flex flex-col gap-6">
           {needsYou.length > 0 && (
-            <Section title={`Needs you (${needsYou.length})`}>
+            <Section
+              title={
+                followingCount > 0
+                  ? `Your stack · ${needsYou.filter(stackItemPending).length} waiting · ${followingCount} following`
+                  : `Needs you (${needsYou.length})`
+              }
+            >
               <Stack>
-                {needsYou.map((item) =>
-                  item.kind === "decision" ? (
-                    <DecisionCard
-                      key={item.decision.id}
-                      company={company}
-                      decision={item.decision}
-                      onResolved={reloadDecisionsAfterAction}
-                    />
-                  ) : item.approval.kind === "mail_send" ? (
-                    <MailReviewCard
-                      key={item.approval.id}
-                      company={company}
-                      approval={item.approval}
-                      onResolved={reloadReviewsAfterAction}
-                    />
-                  ) : (
-                    <WorkReviewCard
-                      key={item.approval.id}
-                      company={company}
-                      approval={item.approval}
-                      onResolved={reloadReviewsAfterAction}
-                    />
-                  ),
-                )}
+                {needsYou.map((item) => (
+                  <DecisionStackCard
+                    key={item.key}
+                    company={company}
+                    item={item}
+                    followUps={followUps}
+                    onResolved={
+                      item.kind === "decision"
+                        ? reloadDecisionsAfterAction
+                        : reloadReviewsAfterAction
+                    }
+                  />
+                ))}
               </Stack>
             </Section>
           )}
@@ -425,10 +464,11 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
             <Section title={`Assigned to other Members (${assignedElsewhere.length})`}>
               <Stack>
                 {assignedElsewhere.map((d) => (
-                  <DecisionCard
+                  <DecisionStackCard
                     key={d.id}
                     company={company}
-                    decision={d}
+                    item={decisionItem(d)}
+                    followUps={followUps}
                     onResolved={reloadDecisionsAfterAction}
                     canAnswer={company.role === "owner" || company.role === "admin"}
                   />

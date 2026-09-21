@@ -53,11 +53,15 @@ export function DecisionCard({
   company,
   decision,
   onResolved,
+  onActionStart,
+  onActionSettled,
   canAnswer = true,
 }: {
   company: Company;
   decision: Decision;
   onResolved: (announcement?: string) => Promise<void> | void;
+  onActionStart?: () => void;
+  onActionSettled?: (decision: Decision) => void;
   canAnswer?: boolean;
 }) {
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
@@ -76,7 +80,7 @@ export function DecisionCard({
 
   async function perform(
     action: PendingAction,
-    request: () => Promise<unknown>,
+    request: () => Promise<Decision>,
     announcement: string,
   ) {
     if (!canAnswer || submitting.current) return;
@@ -84,7 +88,9 @@ export function DecisionCard({
     setPendingAction(action);
     setError(null);
     try {
-      await request();
+      if (action !== "snooze") onActionStart?.();
+      const result = await request();
+      onActionSettled?.(result);
       // The refreshed row records pickup status; submitting cannot promise that
       // the employee has started or that any proposed action has succeeded.
       await onResolved(announcement);
@@ -102,7 +108,7 @@ export function DecisionCard({
     await perform(
       "answer",
       () =>
-        api.post(`${base}/decide`, {
+        api.post<Decision>(`${base}/decide`, {
           optionId: selected.id,
           ...(note.trim() ? { note: note.trim() } : {}),
         }),
@@ -113,7 +119,7 @@ export function DecisionCard({
   async function dismiss() {
     await perform(
       "dismiss",
-      () => api.post(`${base}/dismiss`, {}),
+      () => api.post<Decision>(`${base}/dismiss`, {}),
       `Decision “${decision.title}” dismissed.`,
     );
   }
@@ -121,7 +127,7 @@ export function DecisionCard({
   async function snooze(duration: SnoozeDuration, label: string) {
     await perform(
       "snooze",
-      () => api.post(`${base}/snooze`, { duration }),
+      () => api.post<Decision>(`${base}/snooze`, { duration }),
       `Decision “${decision.title}” snoozed for ${label}.`,
     );
   }

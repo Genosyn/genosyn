@@ -42,9 +42,11 @@ const STYLES = {
 export function DecisionPickup({
   decision,
   className,
+  keepExpanded = false,
 }: {
   decision: Decision;
   className?: string;
+  keepExpanded?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   if (decision.pickupStatus === "none") return null;
@@ -73,10 +75,11 @@ export function DecisionPickup({
         {took && decision.pickupStatus !== "running" && (
           <span className="font-normal opacity-70">· took {took}</span>
         )}
-        {summary && (
+        {summary && !keepExpanded && (
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
             className="ml-auto inline-flex items-center gap-0.5 font-medium hover:underline"
           >
             {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -89,7 +92,7 @@ export function DecisionPickup({
           They were started with your answer — no waiting for their next routine.
         </p>
       )}
-      {open && summary && (
+      {(keepExpanded || open) && summary && (
         <div className="mt-2 max-h-64 overflow-auto rounded-md bg-white/70 p-2 text-slate-700 dark:bg-slate-900/50 dark:text-slate-200">
           <ChatMarkdown content={summary} />
         </div>

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, type Locator, type Page, type WebSocketRoute } from "playwright-core";
 import type {
+  Approval,
   Decision,
   Employee,
   HomeApproval,
@@ -357,7 +358,14 @@ async function open(options: FixtureOptions = {}) {
     reducedMotion: "reduce",
   });
   await page.clock.setFixedTime(fixtureNow);
-  await page.addInitScript(() => localStorage.setItem("genosyn.pushPromptDismissed", "1"));
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("home-fixture-started")) {
+      for (const key of Object.keys(localStorage))
+        if (key.startsWith("genosyn.decisionFollowUps.v1:")) localStorage.removeItem(key);
+      sessionStorage.setItem("home-fixture-started", "1");
+    }
+    localStorage.setItem("genosyn.pushPromptDismissed", "1");
+  });
   let employees = roster(options.count ?? 1);
   if (options.longNames) employees[0].name = "Alexandria Rivera-Montgomery ".repeat(5).trim();
   if (options.brokenAvatar) employees[0].avatarKey = "missing";
@@ -369,6 +377,22 @@ async function open(options: FixtureOptions = {}) {
   const failedRuns = options.failedRuns ?? [];
   let decisions = options.decisions ?? (options.quiet ? [] : [decision()]);
   let decisionApprovals = options.decisionApprovals ?? [];
+  const decisionDetails = new Map(decisions.map((row) => [row.id, row]));
+  const reviewDetails = new Map(
+    decisionApprovals.map((row): [string, Approval] => [
+      row.id,
+      {
+        ...row,
+        companyId: "company",
+        routineId: row.routine?.id ?? "",
+        employeeId: row.employee?.id ?? "",
+        status: "pending",
+        errorMessage: null,
+        decidedAt: null,
+        decidedByUserId: null,
+      },
+    ]),
+  );
   let pendingDecisionCount = options.pendingDecisionCount ?? decisions.length;
   let pendingDecisionApprovalCount =
     options.pendingDecisionApprovalCount ?? decisionApprovals.length;
@@ -459,7 +483,20 @@ async function open(options: FixtureOptions = {}) {
           return route.fulfill({ status: 503, json: { error: "The answer could not be saved." } });
         decisions = decisions.filter((item) => item.id !== answering.id);
         pendingDecisionCount--;
-        return route.fulfill({ json: { ...answering, status: "decided" } });
+        const body = request.postDataJSON() as { optionId: string; note?: string };
+        const answered: Decision = {
+          ...answering,
+          status: "decided",
+          chosenOptionId: body.optionId,
+          chosenOptionLabel:
+            answering.options.find((option) => option.id === body.optionId)?.label ?? null,
+          note: body.note ?? null,
+          decidedAt: fixtureNow.toISOString(),
+          decidedByUserId: "member",
+          decidedBy: { id: "member", name: "Nawaz Dhandala" },
+        };
+        decisionDetails.set(answered.id, answered);
+        return route.fulfill({ json: answered });
       }
       const snoozing = decisions.find(
         (item) => url.pathname === `/api/companies/company/decisions/${item.id}/snooze`,
@@ -480,7 +517,24 @@ async function open(options: FixtureOptions = {}) {
         mutations.push({ path: url.pathname, body: request.postDataJSON() });
         decisionApprovals = decisionApprovals.filter((item) => item.id !== approving.id);
         pendingDecisionApprovalCount--;
-        return route.fulfill({ json: { ...approving, status: "approved" } });
+        const approved: Approval = {
+          ...reviewDetails.get(approving.id)!,
+          status: approving.kind === "proactive_work" ? "executing" : "approved",
+          decidedAt: fixtureNow.toISOString(),
+          decidedByUserId: "member",
+          ...(approving.kind === "mail_send"
+            ? {
+                mailDeliveryStatus: "sent" as const,
+                mailOutcome: {
+                  sentMessageId: "sent-message",
+                  providerMessageRef: "provider-ref",
+                  sentAt: fixtureNow.toISOString(),
+                },
+              }
+            : {}),
+        };
+        reviewDetails.set(approved.id, approved);
+        return route.fulfill({ json: approved });
       }
     }
     const markRead = url.pathname.match(
@@ -512,6 +566,18 @@ async function open(options: FixtureOptions = {}) {
       return route.abort();
     }
     reads.push(url.pathname + url.search);
+    const detailMatch = url.pathname.match(
+      /^\/api\/companies\/company\/(decisions|approvals)\/([^/]+)$/,
+    );
+    if (detailMatch) {
+      const row =
+        detailMatch[1] === "decisions"
+          ? decisionDetails.get(detailMatch[2])
+          : reviewDetails.get(detailMatch[2]);
+      return row
+        ? route.fulfill({ json: row })
+        : route.fulfill({ status: 404, json: { error: "Not found" } });
+    }
     if (url.pathname === "/api/companies/company/home") {
       if (holdNextHome) {
         holdNextHome = false;
@@ -688,10 +754,16 @@ async function open(options: FixtureOptions = {}) {
     setDecisions: (items: Decision[]) => {
       decisions = items;
       pendingDecisionCount = items.length;
+      for (const row of items) decisionDetails.set(row.id, row);
     },
     setReviews: (items: HomeApproval[]) => {
       decisionApprovals = items;
       pendingDecisionApprovalCount = items.length;
+    },
+    updateReview: (id: string, changes: Partial<Approval>) => {
+      const row = reviewDetails.get(id);
+      assert.ok(row);
+      reviewDetails.set(id, { ...row, ...changes });
     },
     emitResourceEvent: (kind: "decision" | "approval") => {
       for (const socket of sockets)
@@ -795,7 +867,9 @@ async function openDay(page: Page, index = 0, key?: string) {
   return dialog;
 }
 let checks = 0;
+const filters = process.argv.slice(2).map((value) => value.toLowerCase());
 async function check(name: string, run: () => Promise<void>) {
+  if (filters.length && !filters.some((filter) => name.toLowerCase().includes(filter))) return;
   if (process.env.GENOSYN_HOME_TEST_FILTER && !name.includes(process.env.GENOSYN_HOME_TEST_FILTER))
     return;
   console.log(`RUN ${name}`);
@@ -1169,10 +1243,29 @@ try {
       await activeDecisions(page)
         .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
         .click();
+      await activeDecisions(page).getByText("answered", { exact: true }).waitFor();
+      assert.equal(
+        await decisionRows(page).count(),
+        1,
+        "the final answer keeps its Home stack mounted",
+      );
+      assert.equal(
+        await page
+          .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+          .count(),
+        0,
+      );
+      await activeDecisions(page)
+        .getByRole("button", { name: "Close decision", exact: true })
+        .click();
       await page
         .getByRole("heading", { name: "Nothing needs you right now", exact: true })
         .waitFor();
-      assert.equal(await activeDecisions(page).count(), 0, "resolved Decisions leave Home");
+      assert.equal(
+        await activeDecisions(page).count(),
+        0,
+        "Close clears the followed Decision from Home",
+      );
       await page
         .getByRole("status")
         .getByText(`Decision “${decision().title}” answered.`, { exact: true })
@@ -1186,6 +1279,42 @@ try {
           path: "/api/companies/company/decisions/decision/decide",
           body: { optionId: "confirm", note: "Jamie owns the next update." },
         },
+      ]);
+      await page.close();
+    },
+  );
+  await check(
+    "a failed Home refresh preserves the saved answer and cannot reopen it after Close",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        decisions: [decision()],
+        allowDecisionAnswer: true,
+      });
+      const { page } = fixture;
+      fixture.failHome();
+      await activeDecisions(page).getByText("Confirm the owner", { exact: true }).click();
+      await activeDecisions(page)
+        .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
+        .click();
+      await activeDecisions(page).getByText("answered", { exact: true }).waitFor();
+      await page.getByText("Home is unavailable.", { exact: true }).waitFor();
+      await activeDecisions(page)
+        .getByRole("button", { name: "Close decision", exact: true })
+        .click();
+      await page.locator("#decision-decision").waitFor({ state: "detached" });
+      assert.equal(
+        await page.getByRole("button", { name: "Confirm: Confirm the owner", exact: true }).count(),
+        0,
+      );
+      fixture.recover();
+      await page.evaluate(() => dispatchEvent(new Event("focus")));
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await page.locator("#decision-decision").count(), 0);
+      assert.deepEqual(fixture.mutations, [
+        { path: "/api/companies/company/decisions/decision/decide", body: { optionId: "confirm" } },
       ]);
       await page.close();
     },
@@ -1255,7 +1384,10 @@ try {
             "Prepare the retention follow-up",
           ],
         );
-        assert.equal(await activeDecisions(page).getByText("16", { exact: true }).count(), 1);
+        assert.equal(
+          await activeDecisions(page).getByText("16 waiting", { exact: true }).count(),
+          1,
+        );
         assert.equal(
           await activeDecisions(page)
             .getByText("A lower priority question", { exact: true })
@@ -1293,7 +1425,7 @@ try {
         allowDecisionAnswer: true,
       });
       assert.equal(await decisionRows(page).count(), 1);
-      assert.equal(await activeDecisions(page).getByText("1", { exact: true }).count(), 1);
+      assert.equal(await activeDecisions(page).getByText("1 waiting", { exact: true }).count(), 1);
       assert.equal(
         await page.getByText("Prepare the retention follow-up", { exact: true }).count(),
         0,
@@ -1308,6 +1440,9 @@ try {
       await activeDecisions(page).getByText("Confirm the owner", { exact: true }).click();
       await activeDecisions(page)
         .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
+        .click();
+      await activeDecisions(page)
+        .getByRole("button", { name: "Close decision", exact: true })
         .click();
       await page
         .getByRole("heading", { name: "Nothing needs you right now", exact: true })
@@ -1330,7 +1465,7 @@ try {
         dark: role === "admin",
       });
       assert.equal(await decisionRows(page).count(), 2);
-      assert.equal(await activeDecisions(page).getByText("2", { exact: true }).count(), 1);
+      assert.equal(await activeDecisions(page).getByText("2 waiting", { exact: true }).count(), 1);
       assert.equal(
         await page.getByRole("heading", { name: "Nothing needs you right now" }).count(),
         0,
@@ -1346,23 +1481,41 @@ try {
       await activeDecisions(page)
         .getByRole("button", { name: "Approve & start", exact: true })
         .click();
-      await activeDecisions(page)
-        .getByText("Prepare the retention follow-up", { exact: true })
-        .waitFor({ state: "detached" });
-      assert.equal(await decisionRows(page).count(), 1);
+      await activeDecisions(page).getByText("Work in progress", { exact: true }).waitFor();
+      assert.equal(await decisionRows(page).count(), 2);
+      assert.deepEqual(
+        await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
+        ["Prepare the retention follow-up", "Review the customer reply"],
+      );
       await page
         .getByRole("status")
         .getByText("Work review “Prepare the retention follow-up” approved.", { exact: true })
         .waitFor();
       await activeDecisions(page).getByRole("button", { name: "Send now", exact: true }).click();
-      await page
-        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
-        .waitFor();
-      assert.equal(await activeDecisions(page).count(), 0);
+      await activeDecisions(page).getByText("Sent", { exact: true }).waitFor();
+      assert.equal(
+        await decisionRows(page).count(),
+        2,
+        "both outcomes stay in their original slots",
+      );
+      await fits(page);
       await page
         .getByRole("status")
         .getByText("Email review “Review the customer reply” sent.", { exact: true })
         .waitFor();
+      await page
+        .locator("#review-work-review")
+        .getByRole("button", { name: "Close review", exact: true })
+        .click();
+      assert.equal(await decisionRows(page).count(), 1);
+      await page
+        .locator("#review-mail-review")
+        .getByRole("button", { name: "Close review", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.equal(await activeDecisions(page).count(), 0);
       assert.deepEqual(mutations, [
         {
           path: "/api/companies/company/approvals/work-review/approve",
@@ -1376,6 +1529,60 @@ try {
       await page.close();
     });
   }
+  await check(
+    "a followed work review receives a live failed outcome and survives mobile reload",
+    async () => {
+      const fixture = await open({
+        quiet: true,
+        live: true,
+        role: "admin",
+        width: 320,
+        decisionApprovals: [review("proactive_work")],
+        allowReview: true,
+      });
+      const { page } = fixture;
+      await activeDecisions(page)
+        .getByRole("button", { name: "Approve & start", exact: true })
+        .click();
+      await activeDecisions(page).getByText("Work in progress", { exact: true }).waitFor();
+      fixture.updateReview("work-review", {
+        status: "execution_failed",
+        errorMessage: "The checkout service was unavailable; no fix was published.",
+        outcomeSummary: "Investigation stopped when the service became unavailable.",
+      });
+      fixture.emitResourceEvent("approval");
+      await activeDecisions(page).getByText("Work failed", { exact: true }).waitFor();
+      await activeDecisions(page)
+        .getByText("The checkout service was unavailable; no fix was published.", { exact: true })
+        .waitFor();
+      await page.reload({ waitUntil: "commit" });
+      await activeDecisions(page).getByText("Work failed", { exact: true }).waitFor();
+      await fits(page);
+      await page.screenshot({
+        path: path.join(output, "home-followed-work-failed-mobile.png"),
+        fullPage: true,
+      });
+      assert.equal(
+        await activeDecisions(page)
+          .getByRole("button", { name: "Approve & start", exact: true })
+          .count(),
+        0,
+      );
+      await activeDecisions(page)
+        .getByRole("button", { name: "Close review", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Nothing needs you right now", exact: true })
+        .waitFor();
+      assert.deepEqual(fixture.mutations, [
+        {
+          path: "/api/companies/company/approvals/work-review/approve",
+          body: { reviewRevision: "work-revision" },
+        },
+      ]);
+      await page.close();
+    },
+  );
   await check(
     "Decision and Approval events refresh active work without reloading Home",
     async () => {
@@ -1454,7 +1661,7 @@ try {
       await activeDecisions(page)
         .getByRole("link", { name: "View all decisions · 1 more waiting", exact: true })
         .waitFor();
-      assert.equal(await activeDecisions(page).getByText("4", { exact: true }).count(), 1);
+      assert.equal(await activeDecisions(page).getByText("4 waiting", { exact: true }).count(), 1);
       assert.deepEqual(
         await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
         originalOrder,
@@ -1572,7 +1779,7 @@ try {
       await activeDecisions(page)
         .getByRole("link", { name: "View all decisions · 3 more waiting", exact: true })
         .waitFor();
-      assert.equal(await activeDecisions(page).getByText("6", { exact: true }).count(), 1);
+      assert.equal(await activeDecisions(page).getByText("6 waiting", { exact: true }).count(), 1);
       assert.deepEqual(
         await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
         originalOrder,

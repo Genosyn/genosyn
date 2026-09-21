@@ -47,8 +47,16 @@ export function Decisions() {
         Cards are timelines rather than blocks of instructions. <Strong>What happened</Strong>
         summarizes the source and links to the original email, Run, or conversation. The next step
         shows what the AI Employee recommends, what it already did, or the exact question it needs
-        answered. The final controls are the actions available now. History keeps the same timeline
-        and adds what happened after you acted.
+        answered. The final controls are the actions available now. After you answer, approve,
+        decline, send, or discard, the card stays in your active stack. Its timeline records your
+        choice and updates as the AI Employee continues, finishes, or encounters a problem.
+      </P>
+      <P>
+        Select <Strong>Close</Strong> when you have finished following the outcome. Closing removes
+        the card from your active view; it does not cancel work or delete its history. Cards you
+        are following stay open across refreshes in this browser, separately for each Member and
+        company. <Strong>Decision history</Strong> and <Strong>Review history</Strong> remain
+        available after you close them.
       </P>
       <P>
         <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
@@ -59,8 +67,8 @@ export function Decisions() {
         Home shows <Strong>Active decisions</Strong> near the top: up to three pending items,
         ordered by urgency and then oldest first, with the total waiting. Answer a Decision directly
         on Home; owners and admins can also review proposed work and email replies there. The
-        section updates as items arrive or are resolved and disappears when nothing is waiting. An
-        email you are editing stays visible while new items arrive. Select{" "}
+        section also keeps cards you have acted on visible until you close them, so you can follow
+        what happens next. An email you are editing stays visible while new items arrive. Select{" "}
         <Strong>All decisions</Strong>
         to open the full stack and history.
       </P>
@@ -84,7 +92,8 @@ export function Decisions() {
         </LI>
         <LI>
           Select <Strong>Send now</Strong> to send the exact reviewed version, or{" "}
-          <Strong>Discard</Strong> to close it without sending.
+          <Strong>Discard</Strong> to record that it should not be sent. Read the outcome in the
+          card&apos;s timeline, then select <Strong>Close</Strong> when you are done.
         </LI>
       </UL>
       <Callout kind="info" title="This is not a mailbox draft.">
@@ -100,7 +109,7 @@ export function Decisions() {
         <Strong>What the AI Employee recommends</Strong>. An owner or admin selects{" "}
         <Strong>Approve &amp; start</Strong> to authorize exactly that plan. Select{" "}
         <Strong>Request changes</Strong> to open a linked conversation with the employee, or{" "}
-        <Strong>Don&apos;t do this</Strong> to close it. Future work that needs human authority
+        <Strong>Don&apos;t do this</Strong> to decline it. Future work that needs human authority
         still needs its own review.
       </P>
       <P>
@@ -121,10 +130,12 @@ export function Decisions() {
         Gmail or IMAP Drafts along the way.
       </P>
       <P>
-        <Strong>Review history</Strong> shows whether the work is in progress, finished, failed or
-        declined. Read its outcome step for what the employee says it did and compare that with the
-        original plan. Email history records the exact reply as sent, discarded, not sent, or with a
-        send outcome Genosyn could not verify.
+        The card stays open and shows whether the work is in progress, finished, failed or declined.
+        Read its outcome step for what the employee says it did and compare that with the original
+        plan. An approval records permission to start; the later outcome shows what actually
+        happened. Email timelines record the exact reply as sent, discarded, not sent, or with a
+        send outcome Genosyn could not verify. These timelines also remain in{" "}
+        <Strong>Review history</Strong>.
       </P>
 
       <H2 id="answering">Answering a decision</H2>
@@ -152,10 +163,11 @@ export function Decisions() {
           returns when that time is up. Snoozing does not answer or dismiss it, or start any work.
         </LI>
         <LI>
-          Nothing to decide? Select <Strong>Dismiss</Strong>. It closes immediately without choosing
-          an answer and moves to <Strong>Decision history</Strong>. A Decision a Member dismissed
-          has an <Strong>Undismiss</Strong> action there to return it to the stack; a question the
-          AI Employee retracted does not.
+          Nothing to decide? Select <Strong>Dismiss</Strong>. It records that outcome without
+          choosing an answer; select <Strong>Close</Strong> when you are done reading it. A Decision
+          a Member dismissed has an <Strong>Undismiss</Strong> action in{" "}
+          <Strong>Decision history</Strong> to return it to the stack; a question the AI Employee
+          retracted does not.
         </LI>
       </UL>
       <P>
@@ -198,8 +210,9 @@ export function Decisions() {
         Answering an ordinary Decision records your choice and guidance. It does not send mail,
         change a record, or authorize proposed work. Genosyn may then start a pickup session briefed
         with your answer and the original context; that session still runs under the employee&apos;s
-        existing authority and meets every normal Approval. The history timeline shows the answer
-        first, then <Strong>What happened next</Strong>. A recommendation is the employee&apos;s
+        existing authority and meets every normal Approval. The card&apos;s timeline shows the
+        answer first, then <Strong>What happened next</Strong>, and stays visible until you close
+        it. A recommendation is the employee&apos;s
         suggestion; nothing is selected for you.
       </P>
       <P>
@@ -286,8 +299,9 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        <Strong>Active decisions</Strong> disappears from Home when nothing is waiting. The full
-        queue and answered items remain available on the <Strong>Decision stack</Strong> page.
+        <Strong>Active decisions</Strong> disappears from Home once nothing is waiting and you have
+        closed the cards you were following. The full queue and history remain available on the{" "}
+        <Strong>Decision stack</Strong> page.
       </Callout>
     </>
   );

@@ -111,10 +111,14 @@ export function WorkReviewCard({
   company,
   approval,
   onResolved,
+  onActionStart,
+  onActionSettled,
 }: {
   company: Company;
   approval: HomeApproval;
   onResolved: (announcement?: string) => Promise<void> | void;
+  onActionStart?: () => void;
+  onActionSettled?: (approval: Approval) => void;
 }) {
   const [busy, setBusy] = React.useState<"approve" | "reject" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -126,17 +130,20 @@ export function WorkReviewCard({
     setBusy(action);
     setError(null);
     try {
+      onActionStart?.();
       const result = await api.post<Approval & { executeError?: string }>(
         `/api/companies/${company.id}/approvals/${approval.id}/${action}`,
         { reviewRevision: workReview(approval)?.revision },
       );
+      // Action responses carry outcome fields; retain the hydrated source links.
+      onActionSettled?.({ ...approval, ...result });
       if (result.executeError || result.status === "execution_failed") {
         const message =
           result.errorMessage ||
           "The approved work could not start. Inspect its outcome before trying again.";
         if (result.status === "execution_failed") {
           await onResolved(
-            `Work review “${approval.title ?? "Proposed work"}” moved to history after it failed.`,
+            `Work review “${approval.title ?? "Proposed work"}” could not finish. Its outcome is available.`,
           );
         } else {
           setError(message);
@@ -200,8 +207,18 @@ export function WorkReviewCard({
   );
 }
 
-/** Keep source, approved plan, and actual result together in history. */
-export function WorkReviewOutcome({ company, approval }: { company: Company; approval: Approval }) {
+/** Keep source, approved plan, and actual result together until explicitly closed. */
+export function WorkReviewOutcome({
+  company,
+  approval,
+  onClose,
+  refreshNotice,
+}: {
+  company: Company;
+  approval: Approval;
+  onClose?: () => void;
+  refreshNotice?: React.ReactNode;
+}) {
   const routine = routineHref(company, approval);
   const runHref =
     routine && approval.outcomeRunId
@@ -214,71 +231,93 @@ export function WorkReviewOutcome({ company, approval }: { company: Company; app
     executing: "Work in progress",
     approved: outcomeUnverified ? "Work outcome unverified" : "Work finished",
     execution_failed: "Work failed",
-    rejected: "Not approved",
+    rejected: "Work did not start",
     expired: "Expired",
   }[approval.status];
   const outcome = (
-    <ReviewTimelineItem
-      icon={
-        outcomeUnverified
-          ? AlertTriangle
-          : approval.status === "approved"
-            ? Check
-            : approval.status === "rejected"
-              ? X
-              : Repeat
-      }
-      title={status}
-      meta={formatRelative(approval.decidedAt ?? approval.requestedAt)}
-      tone={
-        outcomeUnverified
-          ? "warning"
-          : approval.status === "approved"
-            ? "success"
-            : approval.status === "execution_failed"
-              ? "danger"
-              : "neutral"
-      }
-    >
-      {approval.status === "executing" && (
-        <p className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <Spinner size={14} /> The AI Employee is doing the approved work.
-        </p>
-      )}
-      {approval.outcomeSummary && (
-        <div className="break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-          <ChatMarkdown content={approval.outcomeSummary} />
-        </div>
-      )}
-      {outcomeUnverified && (
-        <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-          The Approval completed, but no Run or outcome report was recorded. Inspect the source
-          before treating the work as finished.
-        </p>
-      )}
-      {runHref && (
-        <Link
-          to={runHref}
-          className="mt-2 inline-flex text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+    <>
+      {["executing", "approved", "execution_failed", "rejected"].includes(approval.status) && (
+        <ReviewTimelineItem
+          icon={approval.status === "rejected" ? X : ShieldCheck}
+          title={approval.status === "rejected" ? "Not approved" : "Approved"}
+          meta={approval.decidedAt ? formatRelative(approval.decidedAt) : undefined}
+          tone={approval.status === "rejected" ? "neutral" : "accent"}
         >
-          Open AI work, Effects, and Checks
-        </Link>
+          <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+            {approval.status === "rejected"
+              ? "The proposed plan was declined."
+              : "The proposed plan was approved. Its progress and reported outcome appear below."}
+          </p>
+        </ReviewTimelineItem>
       )}
-      {approval.status === "rejected" && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          The proposed work did not start.
-        </p>
-      )}
-      {approval.status === "execution_failed" && (
-        <FormError message={approval.errorMessage ?? "The approved work could not finish."} />
-      )}
-    </ReviewTimelineItem>
+      <ReviewTimelineItem
+        icon={
+          outcomeUnverified
+            ? AlertTriangle
+            : approval.status === "approved"
+              ? Check
+              : approval.status === "rejected"
+                ? X
+                : Repeat
+        }
+        title={status}
+        tone={
+          outcomeUnverified
+            ? "warning"
+            : approval.status === "approved"
+              ? "success"
+              : approval.status === "execution_failed"
+                ? "danger"
+                : "neutral"
+        }
+      >
+        {approval.status === "executing" && (
+          <p className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <Spinner size={14} /> The AI Employee is doing the approved work.
+          </p>
+        )}
+        {approval.outcomeSummary && (
+          <div className="break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+            <p className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+              Reported outcome
+            </p>
+            <ChatMarkdown content={approval.outcomeSummary} />
+          </div>
+        )}
+        {outcomeUnverified && (
+          <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+            The Approval completed, but no Run or outcome report was recorded. Inspect the source
+            before treating the work as finished.
+          </p>
+        )}
+        {runHref && (
+          <Link
+            to={runHref}
+            className="mt-2 inline-flex text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Open AI work, Effects, and Checks
+          </Link>
+        )}
+        {approval.status === "rejected" && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            The proposed work did not start.
+          </p>
+        )}
+        {approval.status === "execution_failed" && (
+          <FormError message={approval.errorMessage ?? "The approved work could not finish."} />
+        )}
+      </ReviewTimelineItem>
+    </>
   );
 
   return (
     <li
       id={`review-${approval.id}`}
-      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+      className={
+        onClose
+          ? "scroll-mt-4 bg-white px-4 py-5 sm:px-5 dark:bg-slate-900"
+          : "scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+      }
     >
       <article aria-labelledby={`review-${approval.id}-title`}>
         <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -289,8 +328,27 @@ export function WorkReviewOutcome({ company, approval }: { company: Company; app
             {approval.title ?? "Proposed work"}
           </h3>
           <span>· {approval.employee?.name ?? "Deleted AI Employee"}</span>
+          {onClose && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label="Close review"
+              onClick={onClose}
+              className="ml-auto shrink-0"
+            >
+              <X size={14} /> Close
+            </Button>
+          )}
         </div>
         <WorkTimeline company={company} approval={approval} outcome={outcome} />
+        {refreshNotice}
+        {onClose && (
+          <p className="mt-4 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            Close removes this card from the active stack. Its timeline stays in history
+            {approval.status === "executing" ? ", and work continues." : "."}
+          </p>
+        )}
       </article>
     </li>
   );

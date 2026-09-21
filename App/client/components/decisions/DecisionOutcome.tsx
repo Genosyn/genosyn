@@ -10,6 +10,7 @@ import {
   Clock3,
   Info,
   RotateCcw,
+  X,
 } from "lucide-react";
 import { api, Company, Decision, DecisionStatus } from "../../lib/api";
 import { errorMessage } from "../../lib/errors";
@@ -59,11 +60,17 @@ export function DecisionOutcome({
   decision,
   onRestored,
   canRestore,
+  onClose,
+  refreshNotice,
+  keepExpanded = false,
 }: {
   company: Company;
   decision: Decision;
   onRestored: (announcement?: string) => Promise<void> | void;
   canRestore: boolean;
+  onClose?: () => void;
+  refreshNotice?: React.ReactNode;
+  keepExpanded?: boolean;
 }) {
   const [contextOpen, setContextOpen] = React.useState(false);
   const [restoring, setRestoring] = React.useState(false);
@@ -106,7 +113,12 @@ export function DecisionOutcome({
     <li id={`decision-${decision.id}`} className="scroll-mt-4">
       <article
         aria-labelledby={`${fieldId}-title`}
-        className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+        className={clsx(
+          "min-w-0 bg-white dark:bg-slate-900",
+          onClose
+            ? "px-4 py-5 sm:px-5"
+            : "rounded-xl border border-slate-200 p-4 shadow-sm dark:border-slate-800",
+        )}
       >
         <header className="flex min-w-0 items-start gap-2.5">
           {decision.employee && (
@@ -141,6 +153,18 @@ export function DecisionOutcome({
               Asked by {employeeName}
             </p>
           </div>
+          {onClose && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label="Close decision"
+              onClick={onClose}
+              className="shrink-0"
+            >
+              <X size={14} /> Close
+            </Button>
+          )}
         </header>
 
         <ReviewTimeline className="mt-4">
@@ -214,14 +238,38 @@ export function DecisionOutcome({
           </ReviewTimelineItem>
 
           {pickup && (
-            <ReviewTimelineItem icon={pickup.icon} title="What happened next" tone={pickup.tone}>
-              <DecisionPickup decision={decision} />
+            <ReviewTimelineItem
+              icon={pickup.icon}
+              title="What happened next"
+              tone={pickup.tone}
+              meta={
+                decision.pickupFinishedAt || decision.pickupStartedAt
+                  ? formatRelative(decision.pickupFinishedAt ?? decision.pickupStartedAt!)
+                  : undefined
+              }
+            >
+              <DecisionPickup decision={decision} keepExpanded={keepExpanded} />
+            </ReviewTimelineItem>
+          )}
+          {status === "decided" && !pickup && (
+            <ReviewTimelineItem icon={Clock3} title="What happens next">
+              <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Your answer is recorded. Follow-up progress will appear here when the AI Employee
+                picks it up.
+              </p>
             </ReviewTimelineItem>
           )}
         </ReviewTimeline>
 
+        {refreshNotice}
         <FormError message={restoreError} className="mt-3" />
         <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end dark:border-slate-800">
+          {onClose && (
+            <p className="text-xs leading-relaxed text-slate-500 sm:mr-auto dark:text-slate-400">
+              Close removes this card from the active stack. Its timeline stays in history
+              {decision.pickupStatus === "running" ? ", and work continues." : "."}
+            </p>
+          )}
           {mayRestore && (
             <Button
               type="button"
