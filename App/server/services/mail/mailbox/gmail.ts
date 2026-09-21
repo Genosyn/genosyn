@@ -8,6 +8,7 @@ import {
   extractBodies,
   getAttachment,
   getMessage,
+  getMessageWithInlineBodies,
   getThread,
   listDrafts,
   listLabels,
@@ -90,7 +91,12 @@ export class GmailMailbox implements Mailbox {
   }
 
   async spam(thread: ThreadRef): Promise<void> {
-    await modifyThread(await this.token(), thread, [CANONICAL_LABELS.spam], [CANONICAL_LABELS.inbox]);
+    await modifyThread(
+      await this.token(),
+      thread,
+      [CANONICAL_LABELS.spam],
+      [CANONICAL_LABELS.inbox],
+    );
   }
 
   async moveToInbox(thread: ThreadRef): Promise<void> {
@@ -119,7 +125,7 @@ export class GmailMailbox implements Mailbox {
   }
 
   async getMessage(ref: MessageRef): Promise<MailboxMessage> {
-    return toMailboxMessage(await getMessage(await this.token(), ref, "full"));
+    return toMailboxMessage(await getMessageWithInlineBodies(await this.token(), ref));
   }
 
   async getMessageHeaders(ref: MessageRef): Promise<GmailHeader[]> {

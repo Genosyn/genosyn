@@ -354,8 +354,11 @@ export async function resolveBrowserSessionToken(token: string): Promise<string 
   if (cached) return cached;
   const row = await AppDataSource.getRepository(BrowserSession).findOneBy({ mcpToken: token });
   if (!row) return null;
-  if (row.status === "closed" || row.status === "expired") return null;
-  tokenToSessionId.set(row.mcpToken, row.id);
+  // Resolve identity even after teardown so RPC can distinguish a closed
+  // session from an unknown credential. Authorization still checks status,
+  // expiry and live Browser policy on every request.
+  if (row.status !== "closed" && row.status !== "expired")
+    tokenToSessionId.set(row.mcpToken, row.id);
   return row.id;
 }
 

@@ -5,6 +5,7 @@ import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import { collapseStaticTools } from "./genosynFamilies.js";
 import { createFindToolsTool, createCallTool } from "./discovery.js";
 import { RESIDENT_GENOSYN_TOOLS } from "./index.js";
+import { TOOL_DOMAINS } from "./toolIndex.js";
 import type { AgentTool } from "../types.js";
 
 /**
@@ -87,6 +88,9 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "reply to that email", expect: "send_mail" },
   { query: "draft an email", expect: "create_mail_draft" },
   { query: "search my inbox", expect: "search_mail" },
+  { query: "read the next chunk of an email body", expect: "get_mail_message" },
+  { query: "check suppression for an email address", expect: "lookup_suppression" },
+  { query: "recover a workstream state document", expect: "get_workstream" },
   { query: "which mailboxes do i have", expect: "list_mail_accounts" },
   { query: "archive this email", expect: "update_mail_thread" },
   { query: "block spam from this sender", expect: "mail_block_sender" },
@@ -262,6 +266,24 @@ describe("find_tools recall", () => {
     assert.ok(out.content.includes("catalogue names"));
   });
 
+  test("compact footer expands to every exact tool name without inventing names", async () => {
+    const catalogue = deferredCatalogue();
+    const present = new Set(catalogue.map((entry) => entry.name));
+    const out = await tool.run({ query: "zzzz nonsense qqqq" });
+    const footer = out.content.split("catalogue names:\n")[1];
+    assert.ok(footer);
+    for (const line of footer.split("\n")) {
+      const separator = line.indexOf(": ");
+      const domain = line.slice(0, separator);
+      const expected = TOOL_DOMAINS[domain].tools.filter((name) => present.has(name));
+      assert.deepEqual(
+        expandBraceNames(line.slice(separator + 2)).sort(),
+        expected.sort(),
+        `${domain} lost or invented a tool name`,
+      );
+    }
+  });
+
   test("recurring invoice discovery includes the required template-line contract", async () => {
     const out = await tool.run({ query: "set up automatic annual invoice renewal" });
     assert.ok(out.content.includes("### create_recurring_invoice"));
@@ -320,6 +342,30 @@ describe("find_tools recall", () => {
     }
   });
 });
+
+/** Standard comma alternatives and brace expansion, independently of the formatter. */
+function expandBraceNames(expression: string): string[] {
+  let cursor = 0;
+  const alternatives = (): string[] => {
+    const result: string[] = [];
+    let current = [""];
+    while (cursor < expression.length) {
+      const char = expression[cursor++];
+      if (char === "," || char === "}") {
+        result.push(...current);
+        current = [""];
+        if (char === "}") return result;
+      } else if (char === "{") {
+        const choices = alternatives();
+        current = current.flatMap((prefix) => choices.map((choice) => prefix + choice));
+      } else {
+        current = current.map((prefix) => prefix + char);
+      }
+    }
+    return [...result, ...current];
+  };
+  return alternatives();
+}
 
 describe("call_tool dispatch", () => {
   const searchable = deferredCatalogue();

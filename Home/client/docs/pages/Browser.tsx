@@ -95,6 +95,13 @@ export function Browser() {
 
       <H2 id="tools">The tools</H2>
       <P>
+        If an unattended browser closes after inactivity, or the employee closes its page and
+        later needs it again in the same Run, <Code>browser_open</Code> starts a fresh session and
+        rechecks current access. Closed sessions keep their own recordings. This recovery only
+        repeats the requested navigation; it never repeats a click, form submission or Approval.
+        A browser you close manually, revoked access or a finished Run remains closed.
+      </P>
+      <P>
         When enabled, the employee&apos;s tool list grows by the <Code>browser</Code> set. Every
         action returns a fresh snapshot of the page, so the employee always acts on current state:
       </P>

@@ -1,3 +1,4 @@
+import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { AppDataSource } from "../db/datasource.js";
 
 import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
@@ -139,6 +140,7 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     }
 
     // ── 1. Account-scoped rows — delete ────────────────────────────────
+    await m.delete(ParallelWorkerResult, { requesterUserId: userId });
     const memberships = (await m.delete(Membership, { userId })).affected ?? 0;
     const apiKeys = (await m.delete(ApiKey, { userId })).affected ?? 0;
     const notifications = (await m.delete(Notification, { userId })).affected ?? 0;

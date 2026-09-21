@@ -545,3 +545,106 @@ describe("bounded employee Workstream reads", () => {
     );
   });
 });
+
+describe("active capacity and archive recovery", () => {
+  test("archiving preserves state, exposes capacity, and resuming requires an available slot", async () => {
+    const workstreams = [];
+    for (let index = 0; index < 20; index++) {
+      workstreams.push(
+        await createWorkstream({
+          companyId,
+          employeeId: employee.id,
+          title: `Work ${index}`,
+          objective: "Keep the evidence",
+          stateDoc: `Position ${index}`,
+        }),
+      );
+    }
+    const args = { companyId, employeeId: employee.id, workstreamId: workstreams[0].id };
+    await assert.rejects(
+      createWorkstream({ companyId, employeeId: employee.id, title: "Overflow" }),
+      /Archive one/,
+    );
+    await assert.rejects(
+      updateWorkstream({ ...args, status: "archived" }),
+      /Archiving needs a reason/,
+    );
+    const archived = await updateWorkstream({
+      ...args,
+      status: "archived",
+      closeReason: "Wait for next quarter",
+    });
+    assert.equal(archived.stateDoc, "Position 0");
+    assert.equal(archived.objective, "Keep the evidence");
+    const page = await listEmployeeWorkstreams({ companyId, employeeId: employee.id });
+    assert.deepEqual(page.capacity, { active: 19, limit: 20, available: 1 });
+    await createWorkstream({ companyId, employeeId: employee.id, title: "Current priority" });
+    await assert.rejects(updateWorkstream({ ...args, status: "active" }), /Archive one/);
+    await updateWorkstream({
+      companyId,
+      employeeId: employee.id,
+      workstreamId: workstreams[1].id,
+      status: "archived",
+      closeReason: "Waiting for input",
+    });
+    const resumed = await updateWorkstream({ ...args, status: "active" });
+    assert.equal(resumed.stateDoc, "Position 0");
+    assert.equal(resumed.closeReason, "");
+  });
+
+  test("concurrent creations cannot overfill the last active slot", async () => {
+    for (let index = 0; index < 19; index++) {
+      await createWorkstream({ companyId, employeeId: employee.id, title: `Existing ${index}` });
+    }
+    const outcomes = await Promise.allSettled(
+      ["A", "B"].map((title) => createWorkstream({ companyId, employeeId: employee.id, title })),
+    );
+    assert.equal(outcomes.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(
+      await AppDataSource.getRepository(Workstream).countBy({
+        employeeId: employee.id,
+        status: "active",
+      }),
+      20,
+    );
+  });
+
+  test("resuming cannot create two active Workstreams on the same Routine", async () => {
+    const first = await createWorkstream({
+      companyId,
+      employeeId: employee.id,
+      title: "Earlier",
+      routineId: routine.id,
+    });
+    await updateWorkstream({
+      companyId,
+      employeeId: employee.id,
+      workstreamId: first.id,
+      status: "archived",
+      closeReason: "Wait",
+    });
+    await createWorkstream({
+      companyId,
+      employeeId: employee.id,
+      title: "Current",
+      routineId: routine.id,
+    });
+    await assert.rejects(
+      updateWorkstream({
+        companyId,
+        employeeId: employee.id,
+        workstreamId: first.id,
+        status: "active",
+      }),
+      /already carries an active workstream/,
+    );
+    const unbound = await updateWorkstream({
+      companyId,
+      employeeId: employee.id,
+      workstreamId: first.id,
+      status: "active",
+      routineId: null,
+    });
+    assert.equal(unbound.routineId, null);
+  });
+});

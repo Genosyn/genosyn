@@ -220,7 +220,7 @@ export const githubProvider: IntegrationProvider = {
 
   async invokeTool(name, args, ctx) {
     if (name === githubActivityTool.name) {
-      return listGithubRepositoryActivity(args, await ensureGithubAccessToken(ctx));
+      return listGithubRepositoryActivity(args, await ensureGithubAccessToken(ctx), ctx.connectionId);
     }
     return invokeForgeTool(name, args as Record<string, unknown> | undefined, {
       endpoint: GITHUB_ENDPOINT,

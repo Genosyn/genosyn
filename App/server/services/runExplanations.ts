@@ -12,6 +12,7 @@ import { redactSensitiveText } from "./approvalRedaction.js";
 import { effectiveActiveId } from "./models.js";
 import { isModelConnected } from "./providers.js";
 import { workBlocked } from "./standdowns.js";
+import { readRunDiagnostics } from "./runDiagnostics.js";
 import { runContinuationView } from "./runContinuationView.js";
 
 const EXPLAINABLE_STATUSES = new Set<Run["status"]>(["failed", "error", "timeout", "interrupted"]);
@@ -112,6 +113,7 @@ async function evidenceForRun(companyId: string, run: Run, routine: Routine, own
       id: run.id,
       status: run.status,
       errorKind: run.errorKind,
+      diagnostics: readRunDiagnostics(run),
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
       exitCode: run.exitCode,
@@ -250,10 +252,7 @@ export async function explainRun(
     // Ownership or deletion can change while the model is answering too.
     await loadRun(input.companyId, input.runId);
     if (controller.signal.aborted) {
-      throw new RunExplanationError(
-        504,
-        "The explanation took too long. Try again.",
-      );
+      throw new RunExplanationError(504, "The explanation took too long. Try again.");
     }
     if (result.status === "error") {
       throw new RunExplanationError(
@@ -269,18 +268,12 @@ export async function explainRun(
     }
     const explanation = boundedText(result.finalText.trim(), EXPLANATION_CHARS);
     if (!explanation) {
-      throw new RunExplanationError(
-        502,
-        "The AI Employee returned no explanation. Try again.",
-      );
+      throw new RunExplanationError(502, "The AI Employee returned no explanation. Try again.");
     }
     return { explanation, employee: employeeSummary(owner) };
   } catch (error) {
     if (error instanceof RunExplanationError) throw error;
-    throw new RunExplanationError(
-      502,
-      "The AI Employee could not explain this Run. Try again.",
-    );
+    throw new RunExplanationError(502, "The AI Employee could not explain this Run. Try again.");
   } finally {
     clearTimeout(timer);
     input.signal?.removeEventListener("abort", abort);

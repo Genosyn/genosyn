@@ -1,3 +1,4 @@
+import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { Router } from "express";
 import { z } from "zod";
 import cron from "node-cron";
@@ -29,6 +30,7 @@ import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
+import { readRunDiagnostics } from "../services/runDiagnostics.js";
 import { publicRun, runContinuationView } from "../services/runContinuationView.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
@@ -555,6 +557,11 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
   // and nothing else, so leaving it behind leaves rows nobody can ever reach.
   await AppDataSource.getRepository(RoutineChatMessage).delete({ routineId: found.routine.id });
   await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
+  if (runs.length) {
+    await AppDataSource.getRepository(ParallelWorkerResult).delete({
+      parentRunId: In(runs.map((run) => run.id)),
+    });
+  }
   await AppDataSource.getRepository(Run).delete({ routineId: found.routine.id });
   await deleteTagAssignments("routine", found.routine.id);
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });
@@ -701,6 +708,8 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.missedSlots",
       "run.outcomeVerdict",
       "run.outcomeNote",
+      "run.checksVerdict",
+      "run.checkRemediations",
       "run.tokensIn",
       "run.tokensOut",
     ])
@@ -907,6 +916,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     status: run.status,
     errorKind: run.errorKind,
     failureReason: run.failureReason,
+    diagnostics: readRunDiagnostics(run),
     exitCode: run.exitCode,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
@@ -918,6 +928,8 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     // this endpoint picks the verdict up without a second request.
     outcomeVerdict: run.outcomeVerdict,
     outcomeNote: run.outcomeNote,
+    checksVerdict: run.checksVerdict,
+    checkRemediations: run.checkRemediations,
     // True while a verdict is still owed — the routine declares acceptance
     // criteria and this completed run has not been graded yet. The live-log
     // modal polls on this rather than guessing how long a check takes.

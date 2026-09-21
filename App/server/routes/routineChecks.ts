@@ -20,6 +20,7 @@ import {
   MIN_CHECK_TIMEOUT_SEC,
   RoutineCheckError,
   commandChecksAvailable,
+  checkConfigurationSummary,
   createCheck,
   deleteCheck,
   getCheck,
@@ -302,7 +303,11 @@ routineChecksRouter.get(
       where: { runId: run.id, companyId: req.params.cid },
       order: { attempt: "ASC", createdAt: "ASC" },
     });
-    res.json({ results: results.map(serializeCheckResult) });
+    res.json({
+      results: results.map(serializeCheckResult),
+      runStatus: run.status,
+      currentConfiguration: await checkConfigurationSummary(req.params.cid, run.routineId),
+    });
   },
 );
 

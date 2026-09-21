@@ -5,7 +5,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
  * deliberate: multi-week work must end as "done" or "abandoned with a
  * reason", never by evaporating.
  */
-export type WorkstreamStatus = "active" | "done" | "abandoned";
+export type WorkstreamStatus = "active" | "archived" | "done" | "abandoned";
 
 /**
  * A **Workstream** — a persistent state document for work that spans many

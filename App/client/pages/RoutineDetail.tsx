@@ -862,7 +862,8 @@ function CloseWorkstreamModal({
   onClose: () => void;
   onClosed: () => void;
 }) {
-  const [status, setStatus] = React.useState<Exclude<WorkstreamStatus, "active">>("done");
+  const [status, setStatus] =
+    React.useState<Exclude<WorkstreamStatus, "active" | "archived">>("done");
   const [reason, setReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

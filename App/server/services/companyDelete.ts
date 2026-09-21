@@ -1,3 +1,4 @@
+import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import fs from "node:fs";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -424,6 +425,7 @@ export async function deleteCompanyCascade(args: {
     }
 
     // ── 3. Direct companyId rows (order is mostly free now) ────────────
+    await m.delete(ParallelWorkerResult, { companyId });
     await m.delete(TldrQuestionAction, { companyId });
     await m.delete(TldrQuestionMessage, { companyId });
     await m.delete(TldrQuestion, { companyId });

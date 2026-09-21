@@ -655,14 +655,21 @@ export function Email() {
         Quoted history is omitted heuristically and marked as omitted. The employee can page
         through older messages, use <Code>get_mail_message</Code> to continue a body, or explicitly
         include quoted history. Each read reports its coverage, including when only a snippet is
-        available; the original stored email stays unchanged. Google Connection reads through{" "}
+        available; the original stored email stays unchanged. If a synced body was shortened during
+        import, <Code>get_mail_message</Code> can read directly from the mailbox with{" "}
+        <Code>source: mailbox</Code>, returning bounded chunks and a body version so the employee can
+        detect changes between pages. This requires the original message to remain available and
+        does not mark it read or change its labels. Google Connection reads through{" "}
         <Code>gmail_get_message</Code> use the same compact body view by default, with explicit
         native Gmail formats still available.
       </P>
       <P>
         An employee with Revenue Read access can use <Code>lookup_suppression</Code> to check an
-        email address directly, even when there is no Contact. The result reports a matching
-        Suppression and any Contact do-not-contact flag. A clear result does not authorize a send:
+        email address directly, even when there is no Contact. The result explicitly reports
+        suppressed, clear or unknown, with a matching Suppression (including unsubscribes and
+        bounces) and any Contact do-not-contact flag. An unavailable source means unknown unless
+        another source already proves the address is suppressed. Unknown never counts as clearance.
+        A clear result does not authorize a send:
         mailbox Grants, company Policies and delivery reviews still apply.
       </P>
       <P>

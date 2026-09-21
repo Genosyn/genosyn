@@ -22,6 +22,7 @@ import {
   awaitAdoption,
 } from "../services/browserChromium.js";
 import { recordAudit } from "../services/audit.js";
+import { BrowserSessionRecoveryError, recoverBrowserSession } from "../services/browserSessionRecovery.js";
 import {
   beginVaultPasskeyRegistrationForEmployee,
   createVaultLoginForEmployee,
@@ -144,7 +145,11 @@ async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: Ne
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.status === "closed" || row.status === "expired") {
     vaultTotpCaptureBindings.delete(sessionId);
-    return res.status(410).json({ error: "Session is closed" });
+    return res.status(410).json({
+      error: "Browser session is closed. Use browser_open to start a fresh page when the session was closed by inactivity or browser_close.",
+      code: "browser_session_closed",
+      recoverable: row.status === "closed" && (row.closeReason === "idle" || row.closeReason === "shutdown"),
+    });
   }
   if (row.mcpTokenExpiresAt.getTime() < Date.now()) {
     return res.status(401).json({ error: "Token expired" });
@@ -186,6 +191,23 @@ async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: Ne
     throw error;
   }
 }
+
+// Recovery deliberately precedes ordinary session authorization: the old row
+// is closed. The service requires BOTH its bearer and a live matching turn.
+browserRpcRouter.post("/recover", validateBody(z.object({}).strict()), async (req, res, next) => {
+  const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+  if (!params.success) return res.status(400).json({ error: "Invalid browser session id" });
+  const sessionToken = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1]?.trim() ?? "";
+  const turnToken = req.header("x-genosyn-turn-token") ?? "";
+  try {
+    const session = await recoverBrowserSession({ sessionId: params.data.id, sessionToken, turnToken });
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ sessionId: session.id, sessionToken: session.mcpToken });
+  } catch (error) {
+    if (!(error instanceof BrowserSessionRecoveryError)) return next(error);
+    res.status(error.status).json({ error: error.message });
+  }
+});
 
 browserRpcRouter.use(requireBrowserSession);
 

@@ -26,6 +26,8 @@ export function publicRun(run: Run) {
     continuationTokensUsed: _continuationTokensUsed,
     continuationOriginTriggerKind: _continuationOriginTriggerKind,
     continuationReviewOnly: _continuationReviewOnly,
+    diagnosticsJson: _diagnosticsJson,
+    requiredToolsJson: _requiredToolsJson,
     ...visible
   } = run;
   return { ...visible, ...runContinuationView(run) };

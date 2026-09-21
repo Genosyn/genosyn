@@ -413,6 +413,13 @@ export function Integrations() {
         is not an account-wide revenue total. These reads use the existing Connection Grant and
         require no new write access.
       </P>
+      <P>
+        Stripe commercial-value reconciliation follows every subscription and paid-invoice page
+        before proposing a value, with a fixed creation-time boundary and page/row counts in the
+        evidence. If it reaches its 100-page safety bound, loses cursor progress, or finds a
+        subscription whose item list is incomplete, it reports the gap and makes no proposal from
+        that partial scan.
+      </P>
 
       <H3 id="github-engineering">Git hosts &amp; engineering grants</H3>
       <P>
@@ -429,12 +436,24 @@ export function Integrations() {
       <P>
         GitHub also exposes <Code>list_repository_activity</Code>: compact, structured events for
         pushes, issues, pull requests, comments, reviews and releases, with source links and
-        explicit coverage. Follow <Code>nextPage</Code> with unchanged filters. Optional ISO
-        timestamp bounds (<Code>since</Code> inclusive, <Code>until</Code> exclusive) filter each
-        page locally, so an empty page can still have a continuation. GitHub retains at most 300
-        events from 30 days and can delay them by six hours. Coverage therefore stays partial even
-        at the end: use the commit, issue and pull-request reads to verify specific work, and never
-        treat an empty event feed as proof of inactivity or as a complete CI history.
+        explicit coverage. A scan captures stable event IDs; follow <Code>nextCursor</Code> as{" "}
+        <Code>cursor</Code> with unchanged repository, page size and timestamp bounds
+        (<Code>since</Code> inclusive, <Code>until</Code> exclusive). Newly arriving events cannot
+        shift that saved sequence. Save <Code>resumeCursor</Code> before processing and record
+        each successfully processed event ID in a Workstream. After an interruption, pass that
+        saved value as <Code>cursor</Code> and the last processed ID as <Code>afterEventId</Code>.
+        Save <Code>nextCursor</Code> after the whole batch succeeds. Replaying an unacknowledged
+        cursor intentionally returns the same batch; a read receipt cannot prove that its effects
+        were applied exactly once.
+      </P>
+      <P>
+        At scan end, save <Code>checkpoint</Code> and pass it to the next scan. It excludes the
+        processed IDs while finding new and delayed arrivals. A missing saved event, an evicted
+        anchor, or an expired checkpoint reports a <Code>coverage.gap</Code> without advancing
+        progress; reconcile against commit, issue or pull-request reads before starting afresh.
+        GitHub retains at most 300 events from 30 days, can delay them by six hours, and provides no
+        atomic event snapshot. Coverage stays partial even when <Code>snapshotComplete</Code> is
+        true: an empty feed does not prove inactivity or provide a complete CI history.
       </P>
 
       <H3 id="forgejo-gitea">Forgejo / Gitea</H3>

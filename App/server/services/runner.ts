@@ -34,6 +34,7 @@ import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import { DurableRunLog, RUN_LOG_MAX_BYTES, formatToolResultLine } from "./runLog.js";
+import { RunDiagnosticRecorder, readRunDiagnostics } from "./runDiagnostics.js";
 import { workSummaryLogLine } from "./runWorkSummary.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
 import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
@@ -299,6 +300,7 @@ export async function startRoutineRun(
     saved.continuationDeadlineAt?.getTime() ?? Infinity,
   );
 
+  const diagnostics = new RunDiagnosticRecorder();
   const checkpointState: { headerDurable: boolean; initialFailure?: unknown } = {
     headerDurable: false,
   };
@@ -306,8 +308,11 @@ export async function startRoutineRun(
     cap: RUN_LOG_MAX_BYTES,
     persist: async (content) => {
       // Never let a late checkpoint overwrite a terminal row recovered or
-      // finalized elsewhere. Only the transcript column changes.
-      await runRepo.update({ id: saved.id, status: "running" }, { logContent: content });
+      // finalized elsewhere. Diagnostics share the transcript checkpoint boundary.
+      await runRepo.update(
+        { id: saved.id, status: "running" },
+        { logContent: content, diagnosticsJson: diagnostics.json() },
+      );
     },
     onCheckpointError: (error) => {
       if (!checkpointState.headerDurable) checkpointState.initialFailure = error;
@@ -359,6 +364,14 @@ export async function startRoutineRun(
     checkpointState.headerDurable = true;
   } catch (err) {
     const setupTimedOut = Date.now() >= deadlineAtMs;
+    diagnostics.fail(
+      setupTimedOut
+        ? new Error(
+            `Run setup exceeded its ${routine.timeoutSec}s time budget: ${errorMessage(err)}`,
+          )
+        : err,
+      setupTimedOut ? "timeout" : "application",
+    );
     log.line(
       setupTimedOut
         ? `\n[timeout] Stopped after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`
@@ -369,7 +382,7 @@ export async function startRoutineRun(
     saved.errorKind = setupTimedOut ? "timeout" : "runtime";
     saved.exitCode = null;
     try {
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine, diagnostics);
       saved = finalization.run;
       if (finalization.persisted) {
         await settleAfterRun(routine.id, saved.finishedAt);
@@ -394,8 +407,12 @@ export async function startRoutineRun(
       );
       saved.status = "error";
       saved.errorKind = "timeout";
+      diagnostics.fail(
+        `The Run exceeded its ${routine.timeoutSec}s time budget (deadline ${new Date(deadlineAtMs).toISOString()}).`,
+        "timeout",
+      );
       saved.exitCode = null;
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine, diagnostics);
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
@@ -458,7 +475,13 @@ export async function startRoutineRun(
           saved.continuationStopReason =
             "The AI Employee no longer has a connected AI Model. Unfinished work needs attention.";
         }
-        const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+        const finalization = await finalizeRunFromRunning(
+          runRepo,
+          saved,
+          log,
+          routine,
+          diagnostics,
+        );
         saved = finalization.run;
         if (!finalization.persisted) return saved;
         await settleAfterRun(routine.id, saved.finishedAt);
@@ -633,6 +656,7 @@ export async function startRoutineRun(
           timedOut = true;
           controller.abort();
         } else {
+          diagnostics.phase("work");
           result = await runEmployeeAgent({
             model,
             employeeId: emp.id,
@@ -665,12 +689,18 @@ export async function startRoutineRun(
                 streamedAny = true;
                 log.write(delta);
               },
-              onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
+              onToolUse: (name, input, callId) => {
+                diagnostics.toolStarted(name, callId);
+                log.line(`\n[tool] ${name} ${previewArgs(input)}`);
+              },
               // The result, not just its shape. The loop already hands over the
               // content and the transcript threw it away, which is why the
               // outcome checker was told to look for "supporting tool activity"
               // that had never been written down.
-              onToolResult: (name, r) => log.line(formatToolResultLine(name, r)),
+              onToolResult: (name, r, callId) => {
+                diagnostics.toolFinished(name, r, callId);
+                log.line(formatToolResultLine(name, r));
+              },
               onUsage: (u) => {
                 // Every turn's prompt is billed in full, so the Run's cost is
                 // the sum across turns — accumulated here, persisted with the
@@ -713,7 +743,13 @@ export async function startRoutineRun(
         saved.finishedAt = new Date();
         saved.continuationStopReason =
           "The shared token limit for automatic continuation was reached.";
-        const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+        const finalization = await finalizeRunFromRunning(
+          runRepo,
+          saved,
+          log,
+          routine,
+          diagnostics,
+        );
         saved = finalization.run;
         if (finalization.persisted) {
           await settleAfterRun(routine.id, saved.finishedAt);
@@ -729,8 +765,10 @@ export async function startRoutineRun(
         log.line("\n[interrupted] The Run was stopped before its work finished.");
         saved.status = "error";
         saved.errorKind = "interrupted";
+        diagnostics.fail("The Run was stopped before its work finished.", "interrupted");
         saved.exitCode = null;
       } else if (result.status === "error") {
+        diagnostics.fail(result.error, "model");
         log.line(`\n[error] ${result.error}`);
         saved.status = "error";
         saved.errorKind = "runtime";
@@ -745,6 +783,10 @@ export async function startRoutineRun(
           `\n[failed] Stopped after reaching the ${RUN_MAX_STEPS}-turn step limit without finishing.`,
         );
         saved.status = "failed";
+        diagnostics.fail(
+          `The ${RUN_MAX_STEPS}-turn step limit was reached before the work finished.`,
+          "work",
+        );
         saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
@@ -766,6 +808,7 @@ export async function startRoutineRun(
       if (!afterWork || afterWork.status !== "running") return afterWork ?? saved;
       saved.failureReason = afterWork.failureReason;
       saved.checkpointJson = afterWork.checkpointJson;
+      saved.requiredToolsJson = afterWork.requiredToolsJson;
       const checkpoint = readRunCheckpoint(saved);
       if (
         !checkpoint &&
@@ -805,6 +848,7 @@ export async function startRoutineRun(
       // A fresh brief carries the Check evidence across that boundary for both
       // OpenCode and the Codex subscription runtime.
       if (saved.status === "completed") {
+        diagnostics.phase("checks");
         const checkPhase = await runCheckPhase({
           run: saved,
           routine,
@@ -818,6 +862,7 @@ export async function startRoutineRun(
           log,
           deadlineAtMs,
           deadlineReached,
+          diagnostics,
           skills,
           unavailableSkillTools,
         });
@@ -833,11 +878,21 @@ export async function startRoutineRun(
           saved.exitCode = null;
         } else if (checkPhase.verdict === "failed" || checkPhase.incomplete) {
           saved.status = "failed";
+          const failedChecks = checkPhase.results
+            .filter((check) => check.required && !check.passed)
+            .map((check) => check.name);
+          diagnostics.fail(
+            checkPhase.verdict === "failed"
+              ? `Required Checks did not pass: ${failedChecks.join(", ") || "Check evidence is unavailable"}.`
+              : saved.continuationStopReason ||
+                  "Check remediation stopped before the work finished.",
+            checkPhase.verdict === "failed" ? "check" : "work",
+          );
         }
       }
 
       saved.finishedAt = new Date();
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine, diagnostics);
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       // Deliberately not inside the try that owns the status: a throw from
@@ -882,12 +937,13 @@ export async function startRoutineRun(
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
+      diagnostics.fail(err, interrupted ? "interrupted" : "application");
       log.line(`\n[error] ${err instanceof Error ? err.message : String(err)}`);
       saved.finishedAt = new Date();
       saved.status = "error";
       saved.errorKind = interrupted ? "interrupted" : "runtime";
       saved.exitCode = null;
-      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine, diagnostics);
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
@@ -920,6 +976,7 @@ async function finalizeRunFromRunning(
   run: Run,
   log: DurableRunLog,
   routine: Routine,
+  diagnostics: RunDiagnosticRecorder,
 ): Promise<{ run: Run; persisted: boolean }> {
   try {
     await finalizeBrowserRecordingsForRun(run.id);
@@ -950,6 +1007,7 @@ async function finalizeRunFromRunning(
     }
     run.failureReason = current.failureReason;
     run.checkpointJson = current.checkpointJson;
+    run.requiredToolsJson = current.requiredToolsJson;
     run.status = originalStatus;
     run.retryAt = null;
     run.continuationStopReason = originalStopReason;
@@ -1001,6 +1059,8 @@ async function finalizeRunFromRunning(
     )
       stampRetry(run, routine, log);
     run.logContent = log.value();
+    run.diagnosticsJson = diagnostics.json();
+    run.diagnosticsJson = JSON.stringify(readRunDiagnostics(run));
     const result = await runRepo.update(
       {
         id: run.id,
@@ -1014,6 +1074,7 @@ async function finalizeRunFromRunning(
         finishedAt: run.finishedAt,
         status: run.status,
         errorKind: run.errorKind,
+        diagnosticsJson: run.diagnosticsJson,
         // failureReason is tool-owned. The CAS protects it without replacing it.
         logContent: run.logContent,
         exitCode: run.exitCode,
@@ -1250,6 +1311,7 @@ async function runCheckPhase(args: {
   log: DurableRunLog;
   deadlineAtMs: number;
   deadlineReached: () => boolean;
+  diagnostics: RunDiagnosticRecorder;
   skills: Skill[];
   unavailableSkillTools: string[];
 }): Promise<{
@@ -1371,8 +1433,14 @@ async function runCheckPhase(args: {
         signal: controller.signal,
         callbacks: {
           onText: (delta) => log.write(delta),
-          onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
-          onToolResult: (name, r) => log.line(formatToolResultLine(name, r)),
+          onToolUse: (name, input, callId) => {
+            args.diagnostics.toolStarted(name, callId);
+            log.line(`\n[tool] ${name} ${previewArgs(input)}`);
+          },
+          onToolResult: (name, r, callId) => {
+            args.diagnostics.toolFinished(name, r, callId);
+            log.line(formatToolResultLine(name, r));
+          },
           onUsage: (u) => {
             tokensIn += u.inputTokens;
             tokensOut += u.outputTokens;
@@ -1390,10 +1458,12 @@ async function runCheckPhase(args: {
         (result.status === "ok" && result.stopReason === "aborted")
       ) {
         errorKind = args.deadlineReached() ? "timeout" : "interrupted";
+        args.diagnostics.fail("Check remediation stopped before finishing.", errorKind);
         log.line("\n[checks] remediation was interrupted before finishing.");
         log.line(workSummaryLogLine(""));
       } else if (result.status === "error") {
         errorKind = "runtime";
+        args.diagnostics.fail(result.error, "model");
         log.line(`\n[checks] remediation turn failed: ${result.error}`);
         log.line(workSummaryLogLine(""));
       } else if (result.stopReason !== "max_steps" && result.stopReason !== "aborted") {
@@ -1404,6 +1474,14 @@ async function runCheckPhase(args: {
       }
     } catch (err) {
       errorKind ??= args.deadlineReached() ? "timeout" : "runtime";
+      args.diagnostics.fail(
+        err,
+        errorKind === "timeout"
+          ? "timeout"
+          : errorKind === "interrupted"
+            ? "interrupted"
+            : "application",
+      );
       // Preserve the prior Check evidence while recording the runtime error.
       log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
       log.line(workSummaryLogLine(""));

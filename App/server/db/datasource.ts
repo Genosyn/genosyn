@@ -25,6 +25,7 @@ import { CompanyPolicy } from "./entities/CompanyPolicy.js";
 import { RoutineTrigger } from "./entities/RoutineTrigger.js";
 import { EmployeeWakeup } from "./entities/EmployeeWakeup.js";
 import { Workstream } from "./entities/Workstream.js";
+import { ParallelWorkerResult } from "./entities/ParallelWorkerResult.js";
 import { Initiative } from "./entities/Initiative.js";
 import { RoutineCheck } from "./entities/RoutineCheck.js";
 import { RunCheckResult } from "./entities/RunCheckResult.js";
@@ -236,6 +237,7 @@ const entities = [
   RoutineTrigger,
   EmployeeWakeup,
   Workstream,
+  ParallelWorkerResult,
   Initiative,
   RoutineCheck,
   RunCheckResult,

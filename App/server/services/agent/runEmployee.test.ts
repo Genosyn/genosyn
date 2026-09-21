@@ -241,3 +241,59 @@ test("OpenCode failure is surfaced without retrying a second internal harness", 
   assert.equal(result.status, "error");
   if (result.status === "error") assert.match(result.error, /service failed/);
 });
+
+test("parallel workers retain partial step-exhausted evidence as failed, never completed", async (t) => {
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async (input: Parameters<typeof agentRuntime.run>[0]) => {
+    calls++;
+    if (calls === 1) {
+      const delegated = await input.registry.resolve("delegate_parallel_work")!.run({
+        tasks: [{ label: "Bounded worker", instruction: "Read a large source" }],
+      });
+      assert.equal(delegated.isError, true);
+      assert.match(delegated.content, /step limit|step budget/i);
+      assert.match(delegated.content, /partial source evidence/);
+      const listed = JSON.parse(
+        (await input.registry.resolve("get_parallel_work_result")!.run({})).content,
+      );
+      assert.equal(listed.results[0].status, "failed");
+      return { finalText: "Parent reports incomplete work", steps: 1, stopReason: "end_turn" };
+    }
+    return { finalText: "partial source evidence", steps: 30, stopReason: "max_steps" };
+  });
+  const result = await runEmployeeAgent(params);
+  assert.equal(result.status, "ok");
+  assert.equal(calls, 2);
+});
+
+test("worker callback IDs stay distinct when providers reuse IDs and labels across sessions", async (t) => {
+  const used: string[] = [];
+  const returned: string[] = [];
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async (input: Parameters<typeof agentRuntime.run>[0]) => {
+    calls++;
+    if (calls === 1) {
+      await input.registry.resolve("delegate_parallel_work")!.run({
+        tasks: [
+          { label: "Same label", instruction: "Read source A" },
+          { label: "Same label", instruction: "Read source B" },
+        ],
+      });
+    } else {
+      input.callbacks?.onToolUse?.("read_evidence", {}, "call-1");
+      input.callbacks?.onToolResult?.("read_evidence", { content: "evidence" }, "call-1");
+    }
+    return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+  });
+  await runEmployeeAgent({
+    ...params,
+    callbacks: {
+      onToolUse: (_name, _input, id) => used.push(id!),
+      onToolResult: (_name, _result, id) => returned.push(id!),
+    },
+  });
+  assert.equal(used.length, 2);
+  assert.equal(new Set(used).size, 2);
+  assert.deepEqual(used, returned);
+  assert.ok(used.every((id) => id.endsWith(":call-1") && !id.includes(params.genosynToken)));
+});

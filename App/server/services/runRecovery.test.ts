@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Company } from "../db/entities/Company.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -14,6 +15,7 @@ import { INTERRUPTED_RECOVERY_DELAY_MS } from "./cronMath.js";
 import { dispatchDueRetries, tickRoutine } from "./cron.js";
 import { registerResourceChangeSink } from "./resourceEvents.js";
 import { startRoutineRun } from "./runner.js";
+import { readRunDiagnostics, RunDiagnosticRecorder } from "./runDiagnostics.js";
 import { liftStanddown, placeStanddown } from "./standdowns.js";
 import {
   ORPHAN_LOG_MARKER,
@@ -105,10 +107,83 @@ async function interruptedRun(routineId: string, values: Partial<Run> = {}): Pro
 }
 
 describe("Routine Run crash recovery", () => {
+  test("preserves a newer diagnostic and log checkpoint written during recording finalization", async (t) => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "checkpoint-during-shutdown");
+    const run = await runningRun(scheduled.id);
+    const runs = AppDataSource.getRepository(Run);
+    const old = new RunDiagnosticRecorder();
+    old.toolStarted("old_step", "old");
+    await runs.update(run.id, { diagnosticsJson: old.json() });
+    const newer = new RunDiagnosticRecorder();
+    newer.phase("work");
+    newer.toolStarted("stripe_list_customers", "latest");
+    const browserSessions = AppDataSource.getRepository(BrowserSession);
+    const findSessions = browserSessions.find.bind(browserSessions);
+    let checkpointLanded = false;
+    // The production recording finalizer queries this repository after the
+    // recovery sweep has already loaded its initial Run snapshot.
+    t.mock.method(browserSessions, "find", async (...args: Parameters<typeof browserSessions.find>) => {
+      if (!checkpointLanded) {
+        checkpointLanded = true;
+        await runs.update({ id: run.id, status: "running" }, {
+          logContent: "newer durable tool boundary\n", diagnosticsJson: newer.json(),
+        });
+      }
+      return findSessions(...args);
+    });
+
+    const result = await reconcileOrphanedRuns({ boot: true, now: NOW });
+    assert.equal(checkpointLanded, true);
+    assert.equal(result.interrupted, 1);
+    const recovered = await runs.findOneByOrFail({ id: run.id });
+    assert.equal(recovered.logContent, `newer durable tool boundary\n${ORPHAN_LOG_MARKER}`);
+    assert.equal(readRunDiagnostics(recovered).failure?.step?.tool, "stripe_list_customers");
+    assert.equal(readRunDiagnostics(recovered).failure?.step?.callId, "latest");
+  });
+
+  test("a diagnostic checkpoint racing the recovery CAS wins and is recovered on the next sweep", async (t) => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "checkpoint-cas-race");
+    const run = await runningRun(scheduled.id);
+    const runs = AppDataSource.getRepository(Run);
+    const update = runs.update.bind(runs);
+    const newer = new RunDiagnosticRecorder();
+    newer.phase("checks");
+    newer.toolStarted("get_run_report", "cas-winner");
+    let checkpointLanded = false;
+    t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+      if (!checkpointLanded && args[1].status === "error") {
+        checkpointLanded = true;
+        await update({ id: run.id, status: "running" }, {
+          logContent: "CAS winner checkpoint\n", diagnosticsJson: newer.json(),
+        });
+      }
+      return update(...args);
+    });
+
+    const first = await reconcileOrphanedRuns({ boot: true, now: NOW });
+    assert.equal(checkpointLanded, true);
+    assert.equal(first.interrupted, 0);
+    const waiting = await runs.findOneByOrFail({ id: run.id });
+    assert.equal(waiting.status, "running");
+    assert.equal(waiting.logContent, "CAS winner checkpoint\n");
+    assert.equal(waiting.diagnosticsJson, newer.json());
+    const second = await reconcileOrphanedRuns({ boot: true, now: NOW });
+    assert.equal(second.interrupted, 1);
+    const recovered = await runs.findOneByOrFail({ id: run.id });
+    assert.equal(recovered.logContent, `CAS winner checkpoint\n${ORPHAN_LOG_MARKER}`);
+    assert.equal(readRunDiagnostics(recovered).failure?.step?.callId, "cas-winner");
+  });
+
   test("schedules the default recovery exactly one hour after interruption detection", async () => {
     const { company, employee } = await fixture();
     const scheduled = await routine(employee.id, "hourly");
     const run = await runningRun(scheduled.id);
+    const diagnostics = new RunDiagnosticRecorder();
+    diagnostics.phase("work");
+    diagnostics.toolStarted("browser_open", "before-crash");
+    await AppDataSource.getRepository(Run).update(run.id, { diagnosticsJson: diagnostics.json() });
     await insert(WorkloadLease, {
       companyId: company.id,
       employeeId: employee.id,
@@ -123,6 +198,8 @@ describe("Routine Run crash recovery", () => {
     const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
     assert.equal(recovered.status, "error");
     assert.equal(recovered.errorKind, "interrupted");
+    assert.equal(readRunDiagnostics(recovered).failure?.category, "interrupted");
+    assert.equal(readRunDiagnostics(recovered).failure?.step?.tool, "browser_open");
     assert.equal(recovered.finishedAt?.getTime(), NOW.getTime());
     assert.equal(recovered.retryAt?.getTime(), NOW.getTime() + INTERRUPTED_RECOVERY_DELAY_MS);
     assert.equal(recovered.logContent, `durable line\n${ORPHAN_LOG_MARKER}`);

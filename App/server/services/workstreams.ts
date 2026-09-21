@@ -4,6 +4,8 @@ import { Workstream, type WorkstreamStatus } from "../db/entities/Workstream.js"
 // The shared uuid-PK guard — see routineFolders.ts for the Postgres 22P02 story.
 import { UUID_RE } from "./bases.js";
 import { recordAudit } from "./audit.js";
+import { Not, type EntityManager } from "typeorm";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 
 /**
  * Workstreams — the employee as its own project state-holder (M54). The
@@ -18,6 +20,48 @@ const ACTIVE_PER_EMPLOYEE_MAX = 20;
 
 export class WorkstreamError extends Error {}
 
+const writeQueues = new Map<string, Promise<unknown>>();
+async function withWorkstreamWrite<T>(
+  companyId: string,
+  employeeId: string,
+  write: (manager: EntityManager) => Promise<T>,
+): Promise<T> {
+  const key =
+    AppDataSource.options.type === "better-sqlite3" ? "sqlite" : `${companyId}:${employeeId}`;
+  const prior = writeQueues.get(key) ?? Promise.resolve();
+  const pending = prior
+    .catch(() => undefined)
+    .then(() =>
+      AppDataSource.transaction(async (manager) => {
+        // Serialize one employee across Postgres replicas as well as this process.
+        const employee = await manager.getRepository(AIEmployee).findOne({
+          where: { id: employeeId, companyId },
+          ...(AppDataSource.options.type === "postgres"
+            ? { lock: { mode: "pessimistic_write" as const } }
+            : {}),
+        });
+        if (!employee) throw new WorkstreamError("AI Employee not found");
+        return write(manager);
+      }),
+    );
+  writeQueues.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (writeQueues.get(key) === pending) writeQueues.delete(key);
+  }
+}
+
+async function assertActiveCapacity(manager: EntityManager, companyId: string, employeeId: string) {
+  const active = await manager
+    .getRepository(Workstream)
+    .countBy({ companyId, employeeId, status: "active" });
+  if (active >= ACTIVE_PER_EMPLOYEE_MAX)
+    throw new WorkstreamError(
+      `You already carry ${active} active Workstreams. Archive one with update_workstream (status: archived, closeReason: why it can wait), or finish it, before creating or resuming another. Archived state remains readable and can be resumed explicitly.`,
+    );
+}
+
 export async function createWorkstream(args: {
   companyId: string;
   employeeId: string;
@@ -28,37 +72,41 @@ export async function createWorkstream(args: {
   /** Internal: business Runs cannot bind suggestion-only review Routines. */
   excludeSelfReviews?: boolean;
 }): Promise<Workstream> {
-  const title = args.title.trim();
-  if (!title) throw new WorkstreamError("A workstream needs a title");
-  const repo = AppDataSource.getRepository(Workstream);
-  const active = await repo.countBy({ employeeId: args.employeeId, status: "active" });
-  if (active >= ACTIVE_PER_EMPLOYEE_MAX) {
-    throw new WorkstreamError(
-      `You already carry ${active} active workstreams — finish or abandon one first`,
+  return withWorkstreamWrite(args.companyId, args.employeeId, async (manager) => {
+    const title = args.title.trim();
+    if (!title) throw new WorkstreamError("A workstream needs a title");
+    const repo = manager.getRepository(Workstream);
+    await assertActiveCapacity(manager, args.companyId, args.employeeId);
+    if (args.routineId) {
+      await assertBindableRoutine(
+        args.employeeId,
+        args.routineId,
+        args.excludeSelfReviews,
+        manager,
+      );
+    }
+    return repo.save(
+      repo.create({
+        companyId: args.companyId,
+        employeeId: args.employeeId,
+        title: title.slice(0, 140),
+        objective: (args.objective ?? "").trim().slice(0, 4_000),
+        stateDoc: (args.stateDoc ?? "").slice(0, STATE_DOC_MAX),
+        routineId: args.routineId ?? null,
+      }),
     );
-  }
-  if (args.routineId) {
-    await assertBindableRoutine(args.employeeId, args.routineId, args.excludeSelfReviews);
-  }
-  return repo.save(
-    repo.create({
-      companyId: args.companyId,
-      employeeId: args.employeeId,
-      title: title.slice(0, 140),
-      objective: (args.objective ?? "").trim().slice(0, 4_000),
-      stateDoc: (args.stateDoc ?? "").slice(0, STATE_DOC_MAX),
-      routineId: args.routineId ?? null,
-    }),
-  );
+  });
 }
 
 async function assertBindableRoutine(
   employeeId: string,
   routineId: string,
   excludeSelfReviews = false,
+  manager = AppDataSource.manager,
+  ignoreWorkstreamId?: string,
 ): Promise<void> {
   if (!UUID_RE.test(routineId)) throw new WorkstreamError("That routine is not yours to bind");
-  const routine = await AppDataSource.getRepository(Routine).findOneBy({
+  const routine = await manager.getRepository(Routine).findOneBy({
     id: routineId,
     employeeId,
   });
@@ -66,9 +114,10 @@ async function assertBindableRoutine(
   if (excludeSelfReviews && routine.selfReviewOnly) {
     throw new WorkstreamError("A self-review Routine cannot carry background business work");
   }
-  const bound = await AppDataSource.getRepository(Workstream).countBy({
+  const bound = await manager.getRepository(Workstream).countBy({
     routineId,
     status: "active",
+    ...(ignoreWorkstreamId ? { id: Not(ignoreWorkstreamId) } : {}),
   });
   if (bound > 0) {
     throw new WorkstreamError(
@@ -87,36 +136,52 @@ export async function updateWorkstream(args: {
   routineId?: string | null;
   lastRunId?: string | null;
 }): Promise<Workstream> {
-  if (!UUID_RE.test(args.workstreamId)) throw new WorkstreamError("Workstream not found");
-  const repo = AppDataSource.getRepository(Workstream);
-  const workstream = await repo.findOneBy({
-    id: args.workstreamId,
-    companyId: args.companyId,
-    employeeId: args.employeeId,
-  });
-  if (!workstream) throw new WorkstreamError("Workstream not found — only your own can change");
-  if (workstream.status !== "active" && args.status === undefined) {
-    throw new WorkstreamError(
-      `This workstream is ${workstream.status}; reopen it explicitly first`,
-    );
-  }
-  if (args.stateDoc !== undefined) {
-    workstream.stateDoc = args.stateDoc.slice(0, STATE_DOC_MAX);
-  }
-  if (args.routineId !== undefined) {
-    if (args.routineId) await assertBindableRoutine(args.employeeId, args.routineId);
-    workstream.routineId = args.routineId;
-  }
-  if (args.status !== undefined && args.status !== workstream.status) {
-    if (args.status === "abandoned" && !(args.closeReason ?? "").trim()) {
-      throw new WorkstreamError("Abandoning needs a reason — work never just evaporates");
+  return withWorkstreamWrite(args.companyId, args.employeeId, async (manager) => {
+    if (!UUID_RE.test(args.workstreamId)) throw new WorkstreamError("Workstream not found");
+    const repo = manager.getRepository(Workstream);
+    const workstream = await repo.findOneBy({
+      id: args.workstreamId,
+      companyId: args.companyId,
+      employeeId: args.employeeId,
+    });
+    if (!workstream) throw new WorkstreamError("Workstream not found — only your own can change");
+    if (workstream.status !== "active" && args.status === undefined) {
+      throw new WorkstreamError(
+        `This workstream is ${workstream.status}; reopen it explicitly first`,
+      );
     }
-    workstream.status = args.status;
-    workstream.closeReason =
-      args.status === "active" ? "" : (args.closeReason ?? "").trim().slice(0, 2_000);
-  }
-  if (args.lastRunId !== undefined) workstream.lastRunId = args.lastRunId;
-  return repo.save(workstream);
+    if (args.status === "active" && workstream.status !== "active") {
+      await assertActiveCapacity(manager, args.companyId, args.employeeId);
+      const binding = args.routineId === undefined ? workstream.routineId : args.routineId;
+      if (binding)
+        await assertBindableRoutine(args.employeeId, binding, false, manager, workstream.id);
+    }
+    if (args.stateDoc !== undefined) {
+      workstream.stateDoc = args.stateDoc.slice(0, STATE_DOC_MAX);
+    }
+    if (args.routineId !== undefined) {
+      if (args.routineId)
+        await assertBindableRoutine(args.employeeId, args.routineId, false, manager, workstream.id);
+      workstream.routineId = args.routineId;
+    }
+    if (args.status !== undefined && args.status !== workstream.status) {
+      if (
+        (args.status === "abandoned" || args.status === "archived") &&
+        !(args.closeReason ?? "").trim()
+      ) {
+        throw new WorkstreamError(
+          args.status === "archived"
+            ? "Archiving needs a reason; preserve the state needed to resume."
+            : "Abandoning needs a reason — work never just evaporates",
+        );
+      }
+      workstream.status = args.status;
+      workstream.closeReason =
+        args.status === "active" ? "" : (args.closeReason ?? "").trim().slice(0, 2_000);
+    }
+    if (args.lastRunId !== undefined) workstream.lastRunId = args.lastRunId;
+    return repo.save(workstream);
+  });
 }
 
 type WorkstreamReadFilter = {
@@ -205,7 +270,17 @@ export async function listEmployeeWorkstreams(args: {
     .take(limit)
     .getManyAndCount();
   const hasMore = offset + rows.length < total;
+  const activeCount = await AppDataSource.getRepository(Workstream).countBy({
+    companyId: args.companyId,
+    employeeId: args.employeeId,
+    status: "active",
+  });
   return {
+    capacity: {
+      active: activeCount,
+      limit: ACTIVE_PER_EMPLOYEE_MAX,
+      available: Math.max(0, ACTIVE_PER_EMPLOYEE_MAX - activeCount),
+    },
     coverage: {
       offset,
       limit,

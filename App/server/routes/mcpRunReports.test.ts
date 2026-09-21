@@ -404,6 +404,22 @@ describe("list_runs is the first way an employee can see what its schedule did",
 });
 
 describe("get_run_report is the first time an employee can read what a Run did", () => {
+  test("a failed legacy Run has explicit diagnostic and Check coverage limitations", async () => {
+    const run = await addRun({ startedAgoMinutes: 1, status: "error" });
+    const { status, body } = await tool<{
+      run: { diagnostics: { failure: { category: string; message: string } } };
+      checks: {
+        evidenceAvailable: boolean;
+        currentConfiguration: { enabled: number; appliesTo: string };
+      };
+    }>("get_run_report", { runId: run.id });
+    assert.equal(status, 200);
+    assert.equal(body.run.diagnostics.failure.category, "unknown");
+    assert.match(body.run.diagnostics.failure.message, /not recorded/);
+    assert.equal(body.checks.evidenceAvailable, false);
+    assert.equal(body.checks.currentConfiguration.enabled, 0);
+    assert.equal(body.checks.currentConfiguration.appliesTo, "current_routine");
+  });
   test("the check results and the effects come back for that Run", async () => {
     const run = await addRun({
       startedAgoMinutes: 10,

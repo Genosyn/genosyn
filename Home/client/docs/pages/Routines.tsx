@@ -755,6 +755,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
       </P>
       <P>
+        A company admin configures Checks in that panel, or through the authenticated company API
+        at <Code>/api/companies/:companyId/routines/:routineId/checks</Code>. AI Employees can read
+        the requirements but cannot change them. Run reports explicitly show when no Check evidence
+        exists, and show the current configuration separately from the evidence a past Run recorded.
+      </P>
+      <P>
         A proactive Run with status <Strong>Reviewed</Strong> has examined evidence and may have
         completed permitted preparation; delivery remains unverified and its delivery Checks have
         not run. Approving a major work proposal in the{" "}
@@ -781,8 +787,25 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         employee aims at the bar; no MCP tool can create, edit, or delete one. See{" "}
         <DocLink to="/docs/verification">what proves a Run worked</DocLink>.
       </P>
+      <P>
+        Choose assertions that prove the intended result. For a coverage report, a command Check
+        should compare source counts and completed cursors with the saved report and reject gaps or
+        duplicate IDs. For an artifact, verify that it exists, parses and contains the required
+        fields. For a read-only Routine, an effect Check with <Code>mail.send</Code> and a maximum
+        of zero verifies that the Run sent no email. Add separate bounds for each prohibited effect;
+        a single action count does not prove that every safety requirement held. A command that
+        merely exits successfully without checking evidence adds no assurance.
+      </P>
 
       <H2 id="recovery">Downtime and recovery</H2>
+      <P>
+        Failed and Error Run reports include saved failure details independently of the transcript:
+        the phase, observed tool step, exception message and timeout reason where available.
+        Authorization, tool, timeout, model and application problems stay distinct. Recent tool
+        errors remain evidence even if a later step recovered; they do not by themselves turn a
+        completed Run into a failure. Sensitive values are redacted. Older Runs without detailed
+        evidence say so instead of inventing a cause.
+      </P>
       <P>
         Servers restart, containers get rescheduled, laptops go to sleep. Two things can go wrong,
         and Genosyn handles them differently.

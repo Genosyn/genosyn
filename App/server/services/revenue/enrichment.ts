@@ -22,6 +22,7 @@ import { RevenueDuplicateCandidate } from "../../db/entities/RevenueDuplicateCan
 import { RevenueImportBatch } from "../../db/entities/RevenueImportBatch.js";
 import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
 import { getProvider } from "../../integrations/index.js";
+import { readAllStripePages } from "../../integrations/providers/stripe-scan.js";
 import { emailDomain } from "../../lib/emailAddress.js";
 import { safeFetchBuffer } from "../../lib/outboundUrl.js";
 import { decryptConnectionConfig } from "../integrations.js";
@@ -818,6 +819,7 @@ type StripeSubscription = {
   currency?: unknown;
   created?: unknown;
   items?: {
+    has_more?: boolean;
     data?: Array<{
       quantity?: unknown;
       price?: {
@@ -1005,15 +1007,29 @@ export async function proposeCommercialValuesFromStripe(
           connectionId: connection.id,
           companyId,
         };
-        const [subscriptionResult, invoiceResult] = (await Promise.all([
-          provider.invokeTool(
+        // New creations cannot shift this scan's upper boundary. Status and
+        // other fields are still live provider data, not an atomic snapshot.
+        const createdLt = Math.floor(Date.now() / 1000);
+        const [subscriptionResult, invoiceResult] = await Promise.all([
+          readAllStripePages<StripeSubscription>((startingAfter) => provider.invokeTool(
             "list_subscriptions",
-            { customerId, status: "all", limit: 100, compact: false },
+            { customerId, status: "all", limit: 100, compact: false, createdLt, ...(startingAfter ? { startingAfter } : {}) },
             runtime,
-          ),
-          provider.invokeTool("list_invoices", { customerId, status: "paid", limit: 100, compact: false }, runtime),
-        ])) as [{ data?: StripeSubscription[] }, { data?: StripeInvoice[] }];
-        const subscriptions = (subscriptionResult.data ?? [])
+          )),
+          readAllStripePages<StripeInvoice>((startingAfter) => provider.invokeTool(
+            "list_invoices", { customerId, status: "paid", limit: 100, compact: false, createdLt, ...(startingAfter ? { startingAfter } : {}) }, runtime,
+          )),
+        ]);
+        if (subscriptionResult.data.some((subscription) => subscription.items?.has_more)) {
+          throw new Error("Incomplete Stripe subscription-item coverage: a subscription has more items than Stripe returned. No commercial value was proposed from partial items.");
+        }
+        const stripeCoverage = {
+          createdBefore: createdLt,
+          subscriptions: subscriptionResult.coverage,
+          paidInvoices: invoiceResult.coverage,
+          atomicProviderSnapshot: false,
+        };
+        const subscriptions = subscriptionResult.data
           .flatMap((subscription) => {
             const commercial = stripeRecurringValue(subscription);
             return commercial && typeof subscription.id === "string"
@@ -1029,7 +1045,7 @@ export async function proposeCommercialValuesFromStripe(
               left.id.localeCompare(right.id)
             );
           });
-        const invoices = (invoiceResult.data ?? [])
+        const invoices = invoiceResult.data
           .flatMap((invoice) => {
             const amountCents = Number(invoice.amount_paid ?? invoice.total);
             return invoice.status === "paid" &&
@@ -1063,6 +1079,7 @@ export async function proposeCommercialValuesFromStripe(
               connectionId: connection.id,
               stripeCustomerId: customerId,
               financeSource: "stripe_subscription",
+              stripeCoverage,
               alternativeSubscriptions: Math.max(subscriptions.length - 1, 0),
               availablePaidInvoices: invoices.length,
             },
@@ -1090,6 +1107,7 @@ export async function proposeCommercialValuesFromStripe(
               connectionId: connection.id,
               stripeCustomerId: customerId,
               financeSource: "stripe_paid_invoice",
+              stripeCoverage,
               alternativePaidInvoices: Math.max(invoices.length - 1, 0),
             },
           });

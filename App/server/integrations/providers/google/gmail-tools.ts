@@ -8,6 +8,7 @@ import { clampInt, safeJson } from "./util.js";
 import { readMailBody } from "../../../services/mail/bodyRead.js";
 import {
   extractBodies,
+  getMessageWithInlineBodies,
   headerValue,
   type GmailMessage,
 } from "../../../services/mail/gmailClient.js";
@@ -149,7 +150,7 @@ export const gmailTools: IntegrationTool[] = [
         bodyOffset: {
           type: "integer",
           minimum: 0,
-          maximum: 10000000,
+          maximum: Number.MAX_SAFE_INTEGER,
           description:
             "For text format, character offset from bodyCoverage.nextOffset; keep includeQuoted unchanged.",
         },
@@ -216,10 +217,13 @@ export async function invokeGmailTool(
       const fmt = typeof a.format === "string" ? a.format : "text";
       if (!["text", "minimal", "metadata", "full"].includes(fmt))
         throw new Error("Unknown Gmail message format");
-      const message = await gmailFetch(
-        accessToken,
-        `/users/me/messages/${encodeURIComponent(a.messageId)}?format=${encodeURIComponent(fmt === "text" ? "full" : fmt)}`,
-      );
+      const message =
+        fmt === "text"
+          ? await getMessageWithInlineBodies(accessToken, a.messageId)
+          : await gmailFetch(
+              accessToken,
+              `/users/me/messages/${encodeURIComponent(a.messageId)}?format=${encodeURIComponent(fmt === "text" ? "full" : fmt)}`,
+            );
       if (fmt !== "text") return message;
       const gmailMessage = message as GmailMessage;
       const bodies = extractBodies(gmailMessage.payload);
@@ -236,7 +240,7 @@ export async function invokeGmailTool(
         bodySource: bodies.text ? "bodyText" : "snippet",
         ...readMailBody(bodies.text || gmailMessage.snippet || "", {
           includeQuoted: a.includeQuoted === true,
-          bodyOffset: clampInt(a.bodyOffset, 0, 10_000_000, 0),
+          bodyOffset: clampInt(a.bodyOffset, 0, Number.MAX_SAFE_INTEGER, 0),
           maxBodyChars: clampInt(a.maxBodyChars, 1, 20_000, 4_000),
           sourceComplete: !!bodies.text,
         }),

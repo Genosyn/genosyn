@@ -8,12 +8,7 @@
  * tools; this module is the sync/write-through engine's transport.
  */
 
-import {
-  buildMimeString,
-  toBase64Url,
-  type MimeAttachment,
-  type MimeFields,
-} from "./mime.js";
+import { buildMimeString, toBase64Url, type MimeAttachment, type MimeFields } from "./mime.js";
 
 // Re-exported so the many call sites that import these from the mail client
 // keep working; the definitions live in the transport-neutral `mime.ts`.
@@ -459,6 +454,30 @@ export async function getAttachment(
     {},
     { retry: "read" },
   )) as { data?: string; size?: number };
+}
+
+/** Gmail may keep a large inline text part behind an attachment handle. */
+export async function getMessageWithInlineBodies(
+  token: string,
+  messageId: string,
+): Promise<GmailMessage> {
+  const message = await getMessage(token, messageId, "full");
+  const hydrate = async (part: GmailPart): Promise<void> => {
+    if (
+      !part.filename &&
+      (part.mimeType === "text/plain" || part.mimeType === "text/html") &&
+      part.body?.attachmentId &&
+      !part.body.data
+    ) {
+      const body = await getAttachment(token, messageId, part.body.attachmentId);
+      if (typeof body.data !== "string")
+        throw new Error("Gmail did not return the original inline message body.");
+      part.body = { data: body.data, size: body.size };
+    }
+    for (const child of part.parts ?? []) await hydrate(child);
+  };
+  if (message.payload) await hydrate(message.payload);
+  return message;
 }
 
 // ---------- MIME building (outbound) ----------

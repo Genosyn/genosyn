@@ -1309,12 +1309,23 @@ describe("controlled enrichment", () => {
       status: "connected",
     });
     const originalInvoke = stripeProvider.invokeTool;
+    let incompleteSubscriptionItems = false;
     stripeProvider.invokeTool = async (toolName, args) => {
       // Commercial values require every item in the provider row, not the
       // bounded projection used for AI Employee reads.
       assert.equal((args as { compact?: boolean }).compact, false);
+      assert.equal(typeof (args as { createdLt?: number }).createdLt, "number");
       if (toolName === "list_subscriptions") {
+        if (!(args as { startingAfter?: string }).startingAfter) {
+          return {
+            data: Array.from({ length: 100 }, (_, i) => ({ id: `sub_canceled_${i}`, status: "canceled" })),
+            has_more: true,
+            nextStartingAfter: "sub_canceled_99",
+          };
+        }
+        assert.equal((args as { startingAfter?: string }).startingAfter, "sub_canceled_99");
         return {
+          has_more: false,
           data: [
             {
               id: "sub_past_due_newer",
@@ -1322,6 +1333,7 @@ describe("controlled enrichment", () => {
               created: 300,
               currency: "usd",
               items: {
+                has_more: incompleteSubscriptionItems,
                 data: [
                   {
                     quantity: 1,
@@ -1374,6 +1386,7 @@ describe("controlled enrichment", () => {
         };
       }
       return {
+        has_more: false,
         data: [
           {
             id: "in_paid_latest",
@@ -1405,6 +1418,8 @@ describe("controlled enrichment", () => {
       const metadata = JSON.parse(rows[0].metadataJson) as Record<string, unknown>;
       assert.equal(metadata.alternativeSubscriptions, 2);
       assert.equal(metadata.availablePaidInvoices, 1);
+      assert.deepEqual((metadata.stripeCoverage as { subscriptions: unknown }).subscriptions,
+        { complete: true, pages: 2, rows: 103 });
 
       const replay = await proposeCommercialValuesFromStripe(companyId, {
         connectionId: connection.id,
@@ -1425,6 +1440,13 @@ describe("controlled enrichment", () => {
         dealIds: [closedDeal.id],
       });
       assert.equal(closedOnly.proposed, 0);
+      incompleteSubscriptionItems = true;
+      const incomplete = await proposeCommercialValuesFromStripe(companyId, {
+        connectionId: connection.id,
+        dealIds: [openDeal.id],
+      });
+      assert.equal(incomplete.proposed, 0);
+      assert.match(incomplete.errors[0].error, /Incomplete Stripe subscription-item coverage/);
     } finally {
       stripeProvider.invokeTool = originalInvoke;
     }

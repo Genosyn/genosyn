@@ -1,3 +1,4 @@
+import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { In, IsNull, Not } from "typeorm";
@@ -411,6 +412,10 @@ employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => 
   if (!conv) return res.status(404).json({ error: "Not found" });
   await AppDataSource.getRepository(ConversationMessage).delete({
     conversationId: conv.id,
+  });
+  await AppDataSource.getRepository(ParallelWorkerResult).delete({
+    employeeId: eid,
+    scopeKey: `conversation:${conv.id}`,
   });
   await convRepo.delete({ id: conv.id });
   res.json({ ok: true });
@@ -852,6 +857,7 @@ employeeSurfaceRouter.delete("/:eid/memory/:itemId", async (req, res) => {
 // delete path lives in employees.ts; we expose a helper here so that file can
 // call into our storage without importing entities directly.
 export async function deleteEmployeeConversations(employeeId: string): Promise<void> {
+  await AppDataSource.getRepository(ParallelWorkerResult).delete({ employeeId });
   const convRepo = AppDataSource.getRepository(Conversation);
   const convs = await convRepo.find({ where: { employeeId } });
   if (convs.length === 0) return;

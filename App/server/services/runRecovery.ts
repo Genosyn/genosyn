@@ -1,4 +1,4 @@
-import { Between, In, LessThanOrEqual, Not } from "typeorm";
+import { Between, In, IsNull, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -21,6 +21,7 @@ import {
 } from "./browserRecordings.js";
 import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
 import { notifyRunFailure } from "./runAlerts.js";
+import { readRunDiagnostics } from "./runDiagnostics.js";
 import { readRunCheckpoint } from "./runContinuation.js";
 
 /**
@@ -241,11 +242,27 @@ export async function reconcileOrphanedRuns(opts?: {
       // One conditional write so a second crash cannot land the terminal
       // status without its retry, and a live sibling that finalized first can
       // never be overwritten back to `interrupted`.
+      // Recording shutdown can take time. Preserve any checkpoint that landed
+      // meanwhile; a still newer checkpoint wins this CAS and is revisited on
+      // the next sweep rather than being erased by this stale snapshot.
+      const latest = await runRepo.findOneBy({ id: run.id });
+      if (!latest || latest.status !== "running") {
+        releaseBrowserRecordingRunFinalizing(run.id);
+        continue;
+      }
+      run.logContent = (latest.logContent ?? "") + ORPHAN_LOG_MARKER;
+      run.diagnosticsJson = latest.diagnosticsJson;
       const recovered = await runRepo.update(
-        { id: run.id, status: "running" },
+        {
+          id: run.id,
+          status: "running",
+          logContent: latest.logContent,
+          diagnosticsJson: latest.diagnosticsJson ?? IsNull(),
+        },
         {
           status: run.status,
           errorKind: run.errorKind,
+          diagnosticsJson: JSON.stringify(readRunDiagnostics(run)),
           routineId: run.routineId,
           exitCode: run.exitCode,
           finishedAt: run.finishedAt,

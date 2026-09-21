@@ -1,9 +1,43 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
+import type { MailAccount } from "../../db/entities/MailAccount.js";
 import type { MailThread } from "../../db/entities/MailThread.js";
+import { createHash } from "node:crypto";
 import { summarizeMailAttachments } from "./attachments.js";
 import { readMailBody, type MailBodyReadOptions } from "./bodyRead.js";
 import { columnToLabelIds } from "./store.js";
+import { mailboxForAccount, type Mailbox } from "./mailbox/index.js";
+
+/** The caller checks the mailbox Read Grant before an upstream read. */
+export async function readMailMessageForAgent(
+  account: MailAccount,
+  message: MailMessage,
+  options: MailBodyReadOptions & { source?: "mirror" | "mailbox" } = {},
+  mailbox?: Pick<Mailbox, "getMessage">,
+) {
+  if (account.id !== message.accountId || account.companyId !== message.companyId) {
+    throw new Error("Message does not belong to this mailbox");
+  }
+  const local = serializeMailMessageForAgent(message, options);
+  if (options.source !== "mailbox") return local;
+  const upstream = await (mailbox ?? (await mailboxForAccount(account))).getMessage(
+    message.gmailMessageId,
+  );
+  if (upstream.ref !== message.gmailMessageId)
+    throw new Error("The mailbox returned a different message");
+  if (!upstream.hasBodies)
+    throw new Error(
+      "The mailbox did not return a full body. The local excerpt remains available with source: mirror.",
+    );
+  return {
+    bodyVersion: createHash("sha256").update(upstream.bodyText).digest("hex"),
+    ...local,
+    bodySource: "mailbox",
+    ...readMailBody(upstream.bodyText, { ...options, sourceComplete: true }),
+    sourceNote:
+      "Read directly from the mailbox without the local ingest cap. Keep source and includeQuoted unchanged when paging; restart at offset 0 if bodyVersion changes. No mail flags or stored bodies are changed.",
+  };
+}
 
 export function serializeMailMessageForAgent(m: MailMessage, options: MailBodyReadOptions = {}) {
   return {
@@ -21,6 +55,12 @@ export function serializeMailMessageForAgent(m: MailMessage, options: MailBodyRe
       sourceComplete: !!m.bodyText && !m.bodyText.endsWith("\n… [truncated]"),
     }),
     attachments: summarizeMailAttachments(m.attachmentsJson),
+    ...(!m.bodyText || m.bodyText.endsWith("\n… [truncated]")
+      ? {
+          sourceNote:
+            "For the original body, call get_mail_message with source: mailbox and includeQuoted: true. Upstream availability and current mailbox access still apply.",
+        }
+      : {}),
   };
 }
 

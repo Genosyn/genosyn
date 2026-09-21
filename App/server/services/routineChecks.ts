@@ -66,6 +66,17 @@ export const DEFAULT_CHECK_TIMEOUT_SEC = 120;
 /** Longest a check's name may be. Matches what the result strip can render. */
 export const MAX_CHECK_NAME_LENGTH = 80;
 
+/** Current configuration, explicitly separate from a past Run's evidence. */
+export async function checkConfigurationSummary(companyId: string, routineId: string) {
+  const checks = await listChecks(routineId, companyId);
+  return {
+    enabled: checks.filter((check) => check.enabled).length,
+    required: checks.filter((check) => check.enabled && check.required).length,
+    configurationPath: "Routine → Settings → Checks (company admin)",
+    appliesTo: "current_routine" as const,
+  };
+}
+
 /**
  * How much of a command's output survives into `detail`.
  *

@@ -383,6 +383,24 @@ describe("a Run's own evidence", () => {
     );
   });
 
+  test("empty Run evidence exposes current Check configuration without claiming a historical pass", async () => {
+    const run = await makeRun();
+    const response = await call<{
+      results: unknown[];
+      currentConfiguration: {
+        enabled: number;
+        required: number;
+        appliesTo: string;
+        configurationPath: string;
+      };
+    }>("GET", `/routines/runs/${run.id}/checks`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.results, []);
+    assert.equal(response.body.currentConfiguration.enabled, 0);
+    assert.equal(response.body.currentConfiguration.appliesTo, "current_routine");
+    assert.match(response.body.currentConfiguration.configurationPath, /Settings.*Checks/);
+  });
+
   test("effects return this Run's ledger rows and nobody else's", async () => {
     const run = await makeRun();
     const otherRun = await makeRun();

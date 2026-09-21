@@ -101,9 +101,17 @@ export class Run {
   @Column({ type: "text", nullable: true })
   failureReason!: string | null;
 
+  /** Server-observed, redacted diagnostics, independent of transcript truncation. */
+  @Column({ type: "text", nullable: true })
+  diagnosticsJson!: string | null;
+
   /** Tool-owned progress, never a Check or a success verdict. */
   @Column({ type: "text", nullable: true })
   checkpointJson!: string | null;
+
+  /** Server-recorded tool dependencies, revalidated before a retry starts its model. */
+  @Column({ type: "text", nullable: true })
+  requiredToolsJson!: string | null;
 
   /** Number of continuation Runs already started for this occurrence. */
   @Column({ type: "integer", default: 0 })

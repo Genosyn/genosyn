@@ -545,6 +545,7 @@ describe("parallel worker result recovery", () => {
       { maxChars: 8_001 },
       { maxChars: "100" },
       { resultId: 123 },
+      { resultId: "not-a-uuid" },
       { unknown: true },
     ]) {
       assert.equal((await reader.run(input)).isError, true);

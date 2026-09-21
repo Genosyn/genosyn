@@ -302,6 +302,23 @@ try {
     });
     assert.equal(briefSaved.status(), 200, await briefSaved.text());
     await go(`/c/${company.slug}/routines/${employee.slug}/${newRoutine.slug}`);
+    if (marker === "qa-routine-success") {
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Add a check", exact: true }).click();
+      const editor = page.getByRole("dialog");
+      await editor.getByLabel("Name", { exact: true }).fill("No email was sent");
+      await editor.getByLabel("Action", { exact: true }).fill("mail.send");
+      await editor.getByLabel("At least", { exact: true }).fill("0");
+      await editor.getByLabel("At most (optional)", { exact: true }).fill("0");
+      const createdCheck = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`${routineApi}/checks`) && response.request().method() === "POST",
+      );
+      await editor.getByRole("button", { name: "Add check", exact: true }).click();
+      assert.equal((await createdCheck).status(), 200);
+      await editor.waitFor({ state: "hidden" });
+      record("Company admin configured a required no-email Check through Routine Settings");
+    }
     const started: Promise<Response> = page.waitForResponse(
       (response) =>
         response.url().endsWith(`${routineApi}/run`) && response.request().method() === "POST",
@@ -319,8 +336,20 @@ try {
       content: string;
       attempt: number;
       retryAt: string | null;
+      diagnostics: { failure: { category: string; message: string } | null };
     }>(`/api/companies/${company.id}/runs/${run.id}/log`);
     assert.equal(persisted.status, expectedStatus);
+    if (expectedStatus === "completed") {
+      assert.equal(persisted.diagnostics.failure, null);
+      if (marker === "qa-routine-success") {
+        await dialog.getByText("No email was sent", { exact: true }).waitFor();
+        await dialog.getByText("checks passed", { exact: false }).first().waitFor();
+      }
+    } else {
+      assert.ok(persisted.diagnostics.failure?.message);
+      await dialog.getByText(/Failure details/).waitFor();
+      await dialog.getByText(/No Checks ran for this Run/).waitFor();
+    }
     if (marker === "qa-routine-timeout-recovered" || marker === "qa-routine-retry-terminal-error") {
       const recovered = marker === "qa-routine-timeout-recovered";
       const expectedRequests = 3;
@@ -371,7 +400,7 @@ try {
         "The required source document was unavailable, so the report could not be completed.";
       assert.equal(persisted.failureReason, reason);
       assert.equal(persisted.errorKind, null);
-      await dialog.getByText(reason, { exact: true }).waitFor();
+      await dialog.getByText(reason, { exact: true }).first().waitFor();
       assert.match(persisted.content, /mark_run_failed/);
     } else if (expectedStatus === "error") {
       assert.equal(persisted.errorKind, "runtime");

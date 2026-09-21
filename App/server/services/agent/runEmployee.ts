@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import type { ModelEffort } from "../../../shared/modelEffort.js";
 import { agentRuntime } from "./runtime.js";
@@ -21,9 +22,19 @@ import {
   supportsParallelDelegation,
   type DelegatedBrief,
   type DelegationBudget,
+  type ParallelResultStore,
 } from "./tools/parallelDelegation.js";
 import { createChatProgressTool } from "./tools/chatProgress.js";
 import { createRuntimeDiagnostics } from "./tools/runtimeDiagnostics.js";
+import { createDurableParallelResultStore } from "./tools/durableWorkerResults.js";
+import { resolveRecoveryScope } from "./workRecoveryScope.js";
+import {
+  NATIVE_CODING_CAPABILITY,
+  prepareRetryCapabilities,
+  recordRegistryCapabilities,
+  RetryPreflightError,
+  type RetryCapabilityRecorder,
+} from "./retryPreflight.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
@@ -73,6 +84,10 @@ export type EmployeeAgentParams = {
   delegationDepth?: number;
   /** Internal shared cap across every delegation call in this top-level turn. */
   delegationBudget?: DelegationBudget;
+  /** Server-owned retry dependencies; workers inherit the parent's recorder. */
+  recoveryRecorder?: RetryCapabilityRecorder;
+  recoveryGrantObserver?: (grants: string[]) => Promise<void>;
+  requiredTools?: string[];
   /** Model-facing tool names the employee's active Skills asked to keep loaded. */
   skillToolset?: string[];
   /** Surface-specific in-process tools, kept resident for this turn. */
@@ -168,6 +183,7 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
       runEmployeeTurn({ ...params, signal }),
     );
   } catch (error) {
+    if (error instanceof RetryPreflightError) throw error;
     if (error instanceof CompanyAgentCapacityError)
       return { status: "error", error: error.message };
     return { status: "error", error: formatModelError(params.model, error) };
@@ -224,7 +240,10 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     !params.toolScope?.surfaceOnly &&
     supportsParallelDelegation(params.model.authMode, delegationDepth)
   ) {
-    const resultStore = createParallelResultStore();
+    const recoveryScope = await resolveRecoveryScope(params.genosynToken);
+    const resultStore: ParallelResultStore = recoveryScope
+      ? createDurableParallelResultStore(params.genosynToken, recoveryScope)
+      : createParallelResultStore();
     deferredLocalTools.push(
       ...guardPrivilegedTools(
         [createParallelWorkResultTool(resultStore)],
@@ -238,7 +257,29 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
             budget: delegationBudget,
             resultStore,
             signal: params.signal,
-            runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
+            runBrief: (brief, resultId) =>
+              runDelegatedBrief(
+                {
+                  ...params,
+                  recoveryGrantObserver:
+                    resultId && resultStore.captureGrants
+                      ? (grants) => resultStore.captureGrants!(resultId, grants)
+                      : undefined,
+                },
+                brief,
+                delegationBudget,
+              ),
+            preflight: async (briefs) => {
+              try {
+                await params.recoveryRecorder?.check(
+                  briefs.flatMap((brief) => brief.requiredTools ?? []),
+                );
+                return null;
+              } catch (error) {
+                if (error instanceof RetryPreflightError) return error.message;
+                throw error;
+              }
+            },
           }),
         ],
         params.authorizePrivilegedToolCall,
@@ -295,6 +336,24 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   diagnostics.setRegistry(gathered.registry);
 
   try {
+    const recorder = await prepareRetryCapabilities({
+      token: params.genosynToken,
+      employeeId: params.employeeId,
+      registry: gathered.registry,
+      nativeCoding,
+      requiredTools: params.requiredTools,
+      inherited: params.recoveryRecorder,
+    });
+    params.recoveryRecorder = recorder;
+    recordRegistryCapabilities(gathered.registry, recorder, params.recoveryGrantObserver);
+    const nativeAuthorizer =
+      nativeCoding && (tokenInfo?.runId || params.recoveryGrantObserver)
+        ? async () => {
+            const grants = await recorder.record([NATIVE_CODING_CAPABILITY]);
+            await params.recoveryGrantObserver?.(grants);
+            return params.authorizePrivilegedToolCall?.() ?? null;
+          }
+        : params.authorizePrivilegedToolCall;
     const result = await agentRuntime.run({
       model: params.model,
       effort: params.effort,
@@ -306,7 +365,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       toolEnv: params.toolEnv,
       bashTimeoutMs: params.bashTimeoutMs,
       nativeCoding,
-      authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
+      authorizePrivilegedToolCall: nativeAuthorizer,
       signal: params.signal,
       callbacks: params.callbacks,
     });
@@ -317,6 +376,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       stopReason: result.stopReason,
     };
   } catch (err) {
+    if (err instanceof RetryPreflightError) throw err;
     reportAgentTurnFailure(
       "request failed",
       params.employeeId,
@@ -329,7 +389,11 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       error: formatModelError(params.model, err),
     };
   } finally {
-    await gathered.close();
+    try {
+      await params.recoveryRecorder?.flush();
+    } finally {
+      await gathered.close();
+    }
   }
 }
 
@@ -450,6 +514,17 @@ async function runSubscriptionEmployeeAgent(
     );
     diagnostics.setRegistry(gathered.registry);
 
+    const recorder = await prepareRetryCapabilities({
+      token: params.genosynToken,
+      employeeId: params.employeeId,
+      registry: gathered.registry,
+      nativeCoding: false,
+      requiredTools: params.requiredTools,
+      inherited: params.recoveryRecorder,
+    });
+    params.recoveryRecorder = recorder;
+    recordRegistryCapabilities(gathered.registry, recorder, params.recoveryGrantObserver);
+
     const result = await runCodexSubscriptionTurn({
       model: params.model,
       effort: params.effort,
@@ -462,6 +537,7 @@ async function runSubscriptionEmployeeAgent(
     });
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
+    if (err instanceof RetryPreflightError) throw err;
     reportAgentTurnFailure(
       "subscription request failed",
       params.employeeId,
@@ -474,7 +550,11 @@ async function runSubscriptionEmployeeAgent(
       error: formatModelError(params.model, err),
     };
   } finally {
-    await gathered?.close();
+    try {
+      await params.recoveryRecorder?.flush();
+    } finally {
+      await gathered?.close();
+    }
   }
 }
 
@@ -512,11 +592,18 @@ async function runDelegatedBrief(
   }
 
   const workerLabel = brief.label.replace(/\s+/g, " ").slice(0, 40);
+  const workerCallPrefix = randomUUID();
+  const scopedCallId = (callId?: string) =>
+    callId === undefined ? undefined : `${workerCallPrefix}:${callId}`;
   const callbacks: StreamCallbacks = {
     onToolUse: (name, input, callId) =>
-      parent.callbacks?.onToolUse?.(`[worker:${workerLabel}] ${name}`, input, callId),
+      parent.callbacks?.onToolUse?.(`[worker:${workerLabel}] ${name}`, input, scopedCallId(callId)),
     onToolResult: (name, result, callId) =>
-      parent.callbacks?.onToolResult?.(`[worker:${workerLabel}] ${name}`, result, callId),
+      parent.callbacks?.onToolResult?.(
+        `[worker:${workerLabel}] ${name}`,
+        result,
+        scopedCallId(callId),
+      ),
     onModelRetry: parent.callbacks?.onModelRetry,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
@@ -550,15 +637,25 @@ async function runDelegatedBrief(
       callbacks,
       delegationDepth: (parent.delegationDepth ?? 0) + 1,
       delegationBudget,
+      requiredTools: brief.requiredTools,
     });
   } finally {
     revokeMcpToken(workerToken);
   }
 
-  if (parent.signal?.aborted) {
-    return { status: "failed", error: "The parent turn was aborted." };
-  }
   if (result.status === "error") return { status: "failed", error: result.error };
+  if (result.stopReason === "aborted") {
+    return {
+      status: "failed",
+      error: `Worker interrupted. Partial evidence: ${result.finalText.trim() || "none"}`,
+    };
+  }
+  if (result.stopReason === "max_steps") {
+    return {
+      status: "failed",
+      error: `Worker reached its step limit before finishing. Partial evidence: ${result.finalText.trim() || "none"}`,
+    };
+  }
   return {
     status: "completed",
     output: result.finalText.trim() || "(worker completed without a text result)",

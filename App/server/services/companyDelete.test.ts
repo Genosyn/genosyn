@@ -39,6 +39,7 @@ import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.
 import { VendorCreditLine } from "../db/entities/VendorCreditLine.js";
 import { VendorRefund } from "../db/entities/VendorRefund.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
+import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
 import { BILLING_SETTING_KEY, invalidateBillingSettingsCache } from "./billing/billingSettings.js";
@@ -74,6 +75,7 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   VendorCreditApplication,
   VendorRefund,
   WorkloadLease,
+  ParallelWorkerResult,
 ];
 
 function requiredValue(type: unknown, companyId: string, property: string): unknown {

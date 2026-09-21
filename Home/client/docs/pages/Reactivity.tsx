@@ -372,22 +372,38 @@ export function Reactivity() {
         recent history or a long entry would fill one response.
       </P>
       <P>
-        Temporary parallel workers return short previews and stable result IDs. During the same
-        parent turn, <Code>get_parallel_work_result</Code> can list those IDs or recover output in
-        bounded pages without rerunning the work. Failed workers retain their error too. Recovery is
-        limited to that parent turn and expires when it ends; save lasting evidence to the
-        Workstream before finishing. Each turn retains at most 12 results, 256,000 characters per
-        result and 1,000,000 characters in total, and reports any text those limits prevented it
-        from retaining.
+        Temporary parallel workers return short previews and stable result IDs. Their evidence is
+        saved independently of the parent: after a timeout, a retry or continuation in the same Run
+        lineage can use <Code>get_parallel_work_result</Code> to recover it in bounded pages. Direct
+        chats retain results within that exact conversation and requester authority. Current access
+        is checked again on every read; removed or changed Grants withhold the saved output. Results
+        are deleted with their Routine, conversation, employee, company, or requesting Member.
+        Unscoped turns retain results only until that turn ends.
+      </P>
+      <P>
+        Repeating an identical brief reuses its saved result. Failed or interrupted work remains
+        visibly incomplete; inspect its evidence and Effects before revising the brief. Each parent
+        turn retains at most 12 results, 256,000 characters per result and 1,000,000 characters in
+        total, with explicit coverage for any text it could not retain. Result listings have their
+        own continuation offsets. Include exact <Code>requiredTools</Code> in a delegated brief:
+        unavailable tools fail preflight before workers start. Routine retries also verify the tools
+        and Grants recorded by earlier attempts before contacting the AI Model.
       </P>
       <UL>
         <LI>
           <Strong>One active workstream per Routine</Strong>, so the brief seam stays unambiguous —
-          and at most 20 active per employee.
+          and at most 20 active per employee. Listings show active capacity. To make space, the
+          employee can set <Code>status: archived</Code> with a reason through{" "}
+          <Code>update_workstream</Code>; this preserves the objective and state document.
         </LI>
         <LI>
           The terminal states are <Code>done</Code> or <Code>abandoned</Code> with a reason. An
           admin can close a stale workstream from the card on the Routine page.
+        </LI>
+        <LI>
+          Resume explicitly with <Code>status: active</Code>. Resuming needs a free active slot and
+          cannot take a Routine already bound to another active Workstream. Archived work stays
+          available through <Code>all: true</Code> or a direct ID read.
         </LI>
       </UL>
       <Callout kind="info" title="A Workstream is not a Project.">

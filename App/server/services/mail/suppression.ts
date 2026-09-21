@@ -101,16 +101,30 @@ export async function isSuppressed(companyId: string, email: string): Promise<bo
 export async function lookupSuppression(companyId: string, rawEmail: string) {
   const email = normalizeEmail(rawEmail);
   if (!email) throw new Error("That is not a usable email address");
-  const [suppression, contacts] = await Promise.all([
-    AppDataSource.getRepository(Suppression).findOneBy({ companyId, email }),
-    AppDataSource.getRepository(Contact).find({
-      where: { companyId, email, doNotContact: true },
-      select: { id: true },
-    }),
+  const [suppressionRead, contactsRead] = await Promise.allSettled([
+    Promise.resolve().then(() =>
+      AppDataSource.getRepository(Suppression).findOneBy({ companyId, email }),
+    ),
+    Promise.resolve().then(() =>
+      AppDataSource.getRepository(Contact).find({
+        where: { companyId, email, doNotContact: true },
+        select: { id: true },
+      }),
+    ),
   ]);
+  const suppression = suppressionRead.status === "fulfilled" ? suppressionRead.value : null;
+  const contacts = contactsRead.status === "fulfilled" ? contactsRead.value : [];
+  const complete = suppressionRead.status === "fulfilled" && contactsRead.status === "fulfilled";
+  const status = suppression || contacts.length > 0 ? "suppressed" : complete ? "clear" : "unknown";
   return {
     email,
-    suppressed: !!suppression || contacts.length > 0,
+    status,
+    suppressed: status === "unknown" ? null : status === "suppressed",
+    coverage: {
+      complete,
+      suppressions: suppressionRead.status === "fulfilled" ? "available" : "unavailable",
+      contactDoNotContact: contactsRead.status === "fulfilled" ? "available" : "unavailable",
+    },
     suppression: suppression
       ? {
           id: suppression.id,
@@ -120,9 +134,9 @@ export async function lookupSuppression(companyId: string, rawEmail: string) {
           createdAt: suppression.createdAt,
         }
       : null,
-    doNotContact: contacts.length > 0,
+    doNotContact: contactsRead.status === "fulfilled" ? contacts.length > 0 : null,
     doNotContactContactIds: contacts.map((contact) => contact.id),
-    note: "Checks this company's Suppressions and Contact do-not-contact flags. A clear result is not permission to send: current Grants, delivery reviews and company Policies still apply.",
+    note: "Checks this company's Suppressions (including unsubscribes and bounces) and Contact do-not-contact flags. Unknown is never clearance. A clear result is not permission to send: current Grants, delivery reviews and company Policies still apply.",
   };
 }
 

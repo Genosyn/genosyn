@@ -761,7 +761,13 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   add_deal_contact: ["buying committee", "stakeholder", "champion"],
   enroll_in_sequence: ["outbound", "campaign", "enroll", "cadence"],
   suppress_email: ["unsubscribe", "do not contact", "opt out", "suppression list"],
-  lookup_suppression: ["suppression lookup", "unsubscribe", "do not contact", "opt out", "email eligibility"],
+  lookup_suppression: [
+    "suppression lookup",
+    "unsubscribe",
+    "do not contact",
+    "opt out",
+    "email eligibility",
+  ],
   list_revenue_classifications: [
     "deal sources",
     "buying roles",
@@ -1344,7 +1350,16 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   // these tools existed the answer to both was that the employee could not
   // look at all.
   list_runs: ["run history", "did it work", "last run", "what happened"],
-  get_run_report: ["run evidence", "why did it fail", "check results", "what did it change"],
+  get_run_report: [
+    "run evidence",
+    "why did it fail",
+    "check results",
+    "what did it change",
+    "failed step",
+    "exception",
+    "timeout reason",
+    "run diagnostics",
+  ],
   mark_run_failed: ["mark failed", "report failure", "cannot complete", "work unfinished"],
   save_run_checkpoint: [
     "save progress",

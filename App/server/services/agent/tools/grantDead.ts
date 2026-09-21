@@ -2,10 +2,22 @@ import { In } from "typeorm";
 import { AppDataSource } from "../../../db/datasource.js";
 import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
-import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
+import {
+  EmployeeMailAccountGrant,
+  MAIL_ACCESS_RANK,
+  type MailAccessLevel,
+} from "../../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeCalendarGrant } from "../../../db/entities/EmployeeCalendarGrant.js";
-import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
-import { EmployeeRevenueGrant } from "../../../db/entities/EmployeeRevenueGrant.js";
+import {
+  EmployeeFinanceGrant,
+  FINANCE_ACCESS_RANK,
+  type FinanceAccessLevel,
+} from "../../../db/entities/EmployeeFinanceGrant.js";
+import {
+  EmployeeRevenueGrant,
+  REVENUE_ACCESS_RANK,
+  type RevenueAccessLevel,
+} from "../../../db/entities/EmployeeRevenueGrant.js";
 import {
   EmployeeSigningGrant,
   SIGNING_ACCESS_RANK,
@@ -86,24 +98,26 @@ const BASE_GATED_TOOLS = new Set([
  * even `list_mail_accounts` and `search_mail` can only answer "no grant" for an
  * employee with zero mailboxes.
  */
-const MAIL_GATED_TOOLS = new Set([
-  "list_mail_accounts",
-  "search_mail",
-  "get_mail_thread",
-  "get_mail_message",
-  "request_mail_review",
-  "revise_mail_review",
-  "create_mail_draft",
-  "edit_mail_draft",
-  "update_mail_thread",
-  "send_mail",
-  "mail_block_sender",
-  "mail_unsubscribe",
-  "suggest_mail_actions",
-  "scan_revenue_mail_documents",
-  "list_revenue_document_candidates",
-  "review_revenue_document_candidate",
-]);
+const MAIL_TOOL_ACCESS: Record<string, MailAccessLevel> = {
+  list_mail_accounts: "read",
+  search_mail: "read",
+  get_mail_thread: "read",
+  get_mail_message: "read",
+  read_mail_attachment: "read",
+  request_mail_review: "draft",
+  revise_mail_review: "draft",
+  create_mail_draft: "draft",
+  edit_mail_draft: "draft",
+  update_mail_thread: "draft",
+  send_mail: "send",
+  mail_block_sender: "draft",
+  mail_unsubscribe: "draft",
+  suggest_mail_actions: "read",
+  scan_revenue_mail_documents: "read",
+  list_revenue_document_candidates: "read",
+  review_revenue_document_candidate: "read",
+};
+const MAIL_GATED_TOOLS = new Set(Object.keys(MAIL_TOOL_ACCESS));
 
 /**
  * The meetings surface (M44): every tool answers to an
@@ -122,35 +136,36 @@ const MEETING_GATED_TOOLS = new Set([
  * The finance surface (Finance section, M19): every tool — reads included —
  * answers to an `EmployeeFinanceGrant`.
  */
-const FINANCE_GATED_TOOLS = new Set([
-  "list_finance_accounts",
-  "list_finance_transactions",
-  "get_finance_transaction",
-  "review_finance_transaction",
-  "get_finance_report",
-  "list_estimates",
-  "get_estimate",
-  "list_finance_products",
-  "list_invoices",
-  "get_invoice",
-  "list_recurring_invoices",
-  "get_recurring_invoice",
-  "list_customers",
-  "get_customer",
-  "create_customer",
-  "update_customer",
-  "create_estimate",
-  "issue_estimate",
-  "send_estimate",
-  "create_invoice",
-  "create_recurring_invoice",
-  "update_recurring_invoice",
-  "send_invoice",
-  "record_payment",
-  "void_invoice",
-  "list_commercial_value_backlog",
-  "propose_finance_commercial_values",
-]);
+const FINANCE_TOOL_ACCESS: Record<string, FinanceAccessLevel> = {
+  list_finance_accounts: "read",
+  list_finance_transactions: "read",
+  get_finance_transaction: "read",
+  review_finance_transaction: "full",
+  get_finance_report: "read",
+  list_invoices: "read",
+  get_invoice: "read",
+  list_customers: "read",
+  get_customer: "read",
+  create_customer: "invoice",
+  update_customer: "invoice",
+  list_recurring_invoices: "read",
+  get_recurring_invoice: "read",
+  create_recurring_invoice: "invoice",
+  update_recurring_invoice: "invoice",
+  list_estimates: "read",
+  get_estimate: "read",
+  list_finance_products: "read",
+  create_estimate: "invoice",
+  issue_estimate: "invoice",
+  send_estimate: "invoice",
+  create_invoice: "invoice",
+  send_invoice: "invoice",
+  record_payment: "invoice",
+  void_invoice: "invoice",
+  list_commercial_value_backlog: "read",
+  propose_finance_commercial_values: "full",
+};
+const FINANCE_GATED_TOOLS = new Set(Object.keys(FINANCE_TOOL_ACCESS));
 
 /**
  * Every signing action is company-wide and answers to one EmployeeSigningGrant.
@@ -182,80 +197,127 @@ const VAULT_GATED_TOOLS = new Set(Object.keys(VAULT_TOOL_ACCESS));
  * per employee over one company-wide subsystem, and no ungated create that
  * could bring the surface to life for an employee holding nothing.
  */
-const REVENUE_GATED_TOOLS = new Set([
-  "list_follow_ups",
-  "create_follow_up",
-  "update_follow_up",
-  "list_follow_up_views",
-  "create_follow_up_view",
-  "update_follow_up_view",
-  "delete_follow_up_view",
-  "list_revenue_accounts",
-  "create_revenue_account",
-  "get_revenue_account",
-  "update_revenue_account",
-  "archive_revenue_account",
-  "merge_revenue_accounts",
-  "list_contacts",
-  "search_contacts",
-  "get_contact",
-  "get_contact_timeline",
-  "list_deals",
-  "get_deal",
-  "get_deal_board",
-  "list_deal_stages",
-  "list_sequences",
-  "list_signals",
-  "get_revenue_report",
-  "create_contact",
-  "update_contact",
-  "create_deal",
-  "update_deal",
-  "move_deal_stage",
-  "log_activity",
-  "add_deal_contact",
-  "enroll_in_sequence",
-  "suppress_email",
-  "lookup_suppression",
-  "list_revenue_imports",
-  "get_revenue_import",
-  "preview_revenue_rows_import",
-  "run_revenue_rows_import",
-  "preview_linked_revenue_rows_import",
-  "run_linked_revenue_rows_import",
-  "list_revenue_import_rows",
-  "export_revenue_import_reconciliation",
-  "preview_revenue_record_merge",
-  "merge_revenue_records",
-  "resolve_revenue_record_redirect",
-  "list_revenue_operations",
-  "get_revenue_operation",
-  "undo_revenue_operation",
-  "preview_revenue_bulk_operation",
-  "start_revenue_bulk_job",
-  "get_revenue_bulk_job",
-  "export_revenue_bulk_reconciliation",
-  "preview_historical_deal_import",
-  "run_historical_deal_import",
-  "list_deal_history",
-  "list_deal_history_coverage",
-  "preview_deal_history_backfill",
-  "backfill_deal_history",
-  "export_revenue_snapshot",
-  "propose_revenue_account_domains",
-  "list_commercial_value_backlog",
-  "propose_finance_commercial_values",
-  "propose_stripe_commercial_values",
-  "create_commercial_value_proposal",
-  "list_revenue_field_evidence",
-  "review_revenue_field_evidence",
-  "scan_revenue_duplicates",
-  "list_revenue_duplicate_candidates",
-  "dismiss_revenue_duplicate_candidate",
-  "scan_revenue_mail_documents",
-  "list_revenue_document_candidates",
-  "review_revenue_document_candidate",
-]);
+const REVENUE_TOOL_ACCESS: Record<string, RevenueAccessLevel> = {
+  list_contacts: "read",
+  search_contacts: "read",
+  get_contact: "read",
+  get_contact_timeline: "read",
+  list_deals: "read",
+  get_deal: "read",
+  get_deal_board: "read",
+  list_deal_stages: "read",
+  create_deal_stage: "write",
+  update_deal_stage: "write",
+  reorder_deal_stages: "write",
+  archive_deal_stage: "write",
+  list_sequences: "read",
+  get_sequence: "read",
+  create_sequence: "write",
+  update_sequence: "write",
+  replace_sequence_steps: "write",
+  archive_sequence: "write",
+  list_signals: "read",
+  get_signal: "read",
+  create_signal: "write",
+  update_signal: "write",
+  list_signal_events: "read",
+  test_signal: "write",
+  archive_signal: "write",
+  restore_signal: "write",
+  get_revenue_report: "read",
+  create_contact: "write",
+  update_contact: "write",
+  create_deal: "write",
+  update_deal: "write",
+  move_deal_stage: "write",
+  list_activities: "read",
+  get_activity: "read",
+  update_activity: "write",
+  delete_activity: "write",
+  export_activities: "read",
+  log_activity: "write",
+  add_deal_contact: "write",
+  list_follow_ups: "read",
+  list_follow_up_views: "read",
+  create_follow_up_view: "write",
+  update_follow_up_view: "write",
+  delete_follow_up_view: "write",
+  create_follow_up: "write",
+  update_follow_up: "write",
+  list_revenue_accounts: "read",
+  get_revenue_account: "read",
+  create_revenue_account: "write",
+  update_revenue_account: "write",
+  archive_revenue_account: "write",
+  merge_revenue_accounts: "write",
+  list_revenue_classifications: "read",
+  create_revenue_classification: "write",
+  update_revenue_classification: "write",
+  list_revenue_custom_fields: "read",
+  create_revenue_custom_field: "write",
+  update_revenue_custom_field: "write",
+  install_base_migration_custom_fields: "write",
+  set_revenue_custom_fields: "write",
+  list_partnerships: "read",
+  get_partnership: "read",
+  create_partnership: "write",
+  update_partnership: "write",
+  add_partnership_contact: "write",
+  list_revenue_documents: "read",
+  link_revenue_document: "write",
+  get_revenue_document: "read",
+  update_revenue_document: "write",
+  delete_revenue_document: "write",
+  download_revenue_document: "read",
+  list_revenue_imports: "read",
+  get_revenue_import: "read",
+  list_revenue_import_rows: "read",
+  export_revenue_import_reconciliation: "read",
+  preview_base_revenue_import: "write",
+  run_base_revenue_import: "write",
+  preview_linked_base_revenue_import: "write",
+  run_linked_base_revenue_import: "write",
+  preview_revenue_rows_import: "write",
+  run_revenue_rows_import: "write",
+  preview_linked_revenue_rows_import: "write",
+  run_linked_revenue_rows_import: "write",
+  migrate_base_revenue_attachments: "write",
+  rollback_revenue_import: "write",
+  preview_revenue_record_merge: "read",
+  merge_revenue_records: "write",
+  resolve_revenue_record_redirect: "read",
+  list_revenue_operations: "read",
+  get_revenue_operation: "read",
+  undo_revenue_operation: "write",
+  preview_revenue_bulk_operation: "write",
+  start_revenue_bulk_job: "write",
+  get_revenue_bulk_job: "read",
+  export_revenue_bulk_reconciliation: "read",
+  preview_historical_deal_import: "write",
+  run_historical_deal_import: "write",
+  list_deal_history: "read",
+  list_deal_history_coverage: "read",
+  preview_deal_history_backfill: "write",
+  backfill_deal_history: "write",
+  export_revenue_snapshot: "read",
+  propose_revenue_account_domains: "write",
+  list_commercial_value_backlog: "read",
+  propose_finance_commercial_values: "write",
+  propose_stripe_commercial_values: "write",
+  create_commercial_value_proposal: "write",
+  list_revenue_field_evidence: "read",
+  review_revenue_field_evidence: "write",
+  scan_revenue_duplicates: "write",
+  list_revenue_duplicate_candidates: "read",
+  dismiss_revenue_duplicate_candidate: "write",
+  scan_revenue_mail_documents: "write",
+  list_revenue_document_candidates: "read",
+  review_revenue_document_candidate: "write",
+  enroll_in_sequence: "write",
+  lookup_suppression: "read",
+  suppress_email: "write",
+};
+const REVENUE_GATED_TOOLS = new Set(Object.keys(REVENUE_TOOL_ACCESS));
 
 /** Explore's ad-hoc database tools need at least one Connection Grant. */
 const EXPLORE_CONNECTION_GATED_TOOLS = new Set([
@@ -303,7 +365,7 @@ assertGrantSetsResolve();
  * live. Wrongly calling a tool dead could drop one the employee needs, whereas
  * wrongly calling a dead tool live only wastes a slot — so when in doubt, live.
  */
-export async function deadToolNames(employeeId: string): Promise<Set<string>> {
+export async function deadToolNames(employeeId: string, strict = false): Promise<Set<string>> {
   try {
     const dead = new Set<string>();
     const bases = await AppDataSource.getRepository(EmployeeBaseGrant).count({
@@ -374,7 +436,27 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       for (const tool of EXPLORE_CONNECTION_GATED_TOOLS) dead.add(tool);
     }
     return dead;
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return new Set();
   }
+}
+
+/** Minimum standing Grant levels; target-specific and input-dependent gates still run at dispatch. */
+export function toolGrantRequirements(name: string): Array<{
+  family: "mail" | "finance" | "revenue";
+  rank: number;
+}> {
+  const mail = MAIL_TOOL_ACCESS[name];
+  const finance = FINANCE_TOOL_ACCESS[name];
+  const revenue = REVENUE_TOOL_ACCESS[name];
+  return [
+    ...(mail !== undefined ? [{ family: "mail" as const, rank: MAIL_ACCESS_RANK[mail] }] : []),
+    ...(finance !== undefined
+      ? [{ family: "finance" as const, rank: FINANCE_ACCESS_RANK[finance] }]
+      : []),
+    ...(revenue !== undefined
+      ? [{ family: "revenue" as const, rank: REVENUE_ACCESS_RANK[revenue] }]
+      : []),
+  ];
 }

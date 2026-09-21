@@ -882,7 +882,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_run_report",
     description:
-      "Read the evidence behind one Run: every Check result (name, kind, whether it was required, whether it passed, and the detail explaining why), including the earlier remediation rounds, plus the effects the server itself recorded that Run causing — the writes, sends and changes, rather than the transcript's account of them. Use it when a Routine failed its Checks, was stood down, or when you need to know what a previous attempt already did before repeating it. Pass the `runId` from `list_runs`.",
+      "Read one Run's evidence: saved failure diagnostics (phase, observed step, exception and timeout reason), every Check result and remediation round, current Check configuration, and Effects recorded by the server. Missing historical evidence is explicit. Use it to diagnose a failure and establish what a previous attempt changed before repeating work. Pass the `runId` from `list_runs`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1188,8 +1188,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       properties: {
         workstreamId: { type: "string" },
         stateDoc: { type: "string", description: "Full replacement state document." },
-        status: { type: "string", enum: ["active", "done", "abandoned"] },
-        closeReason: { type: "string", description: "Required when abandoning." },
+        status: {
+          type: "string",
+          enum: ["active", "archived", "done", "abandoned"],
+          description:
+            "Archive idle work to free capacity without losing state; active resumes it subject to the 20-active limit and Routine binding.",
+        },
+        closeReason: { type: "string", description: "Required when archiving or abandoning." },
       },
       required: ["workstreamId"],
       additionalProperties: false,
@@ -1203,7 +1208,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
-        all: { type: "boolean", description: "Include finished workstreams." },
+        all: { type: "boolean", description: "Include archived and finished Workstreams." },
         offset: { type: "integer", minimum: 0, maximum: 1_000_000 },
         limit: { type: "integer", minimum: 1, maximum: 20 },
       },
@@ -4879,10 +4884,31 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: {
         threadId: { type: "string", description: "Local thread id." },
-        messageLimit: { type: "integer", minimum: 1, maximum: 20, description: "Messages per page; default 5." },
-        messageOffset: { type: "integer", minimum: 0, maximum: 1000000, description: "Offset from newest message; use coverage.nextMessageOffset for older pages." },
-        maxBodyChars: { type: "integer", minimum: 1, maximum: 20000, description: "Per-message character budget; default 4,000. The page shares a 40,000-character total body budget." },
-        includeQuoted: { type: "boolean", description: "Include quoted history in body excerpts. Default false; never changes stored mail." },
+        messageLimit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20,
+          description: "Messages per page; default 5.",
+        },
+        messageOffset: {
+          type: "integer",
+          minimum: 0,
+          maximum: 1000000,
+          description:
+            "Offset from newest message; use coverage.nextMessageOffset for older pages.",
+        },
+        maxBodyChars: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20000,
+          description:
+            "Per-message character budget; default 4,000. The page shares a 40,000-character total body budget.",
+        },
+        includeQuoted: {
+          type: "boolean",
+          description:
+            "Include quoted history in body excerpts. Default false; never changes stored mail.",
+        },
       },
       required: ["threadId"],
       additionalProperties: false,
@@ -4892,13 +4918,29 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "get_mail_message",
     readOnly: true,
     description:
-      "Read one synced email body in bounded character pages with recipients and attachment metadata. Use a local messageId from get_mail_thread. Defaults to 4,000 characters and heuristic quote omission; set includeQuoted:true to inspect the original body including quoted history. Continue with bodyCoverage.nextOffset as bodyOffset, preserving includeQuoted. Coverage is for the stored mailbox mirror, which may itself contain a provider snippet or ingest truncation. Requires the same mailbox Read Grant as get_mail_thread.",
+      "Read one email body in bounded character pages with recipients and attachment metadata. Use a local messageId from get_mail_thread. Defaults to source:mirror, 4,000 characters and heuristic quote omission. If sourceComplete is false (snippet or ingest truncation), request source:mailbox to read the original directly without the local cap. Set includeQuoted:true for quoted history. Continue with bodyCoverage.nextOffset as bodyOffset, preserving source and includeQuoted; restart if bodyVersion changes. Requires the same mailbox Read Grant as get_mail_thread and never changes mail flags.",
     inputSchema: {
       type: "object",
       properties: {
         messageId: { type: "string", description: "Local message id from get_mail_thread." },
-        bodyOffset: { type: "integer", minimum: 0, maximum: 10000000, description: "Character offset into the selected body view; default 0." },
-        maxBodyChars: { type: "integer", minimum: 1, maximum: 20000, description: "Character budget; default 4,000." },
+        source: {
+          type: "string",
+          enum: ["mirror", "mailbox"],
+          description:
+            "Default mirror. Mailbox reads the original upstream body, bypassing local snippet/ingest truncation, and requires the source to remain available.",
+        },
+        bodyOffset: {
+          type: "integer",
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: "Character offset into the selected body view; default 0.",
+        },
+        maxBodyChars: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20000,
+          description: "Character budget; default 4,000.",
+        },
         includeQuoted: { type: "boolean", description: "Include quoted history; default false." },
       },
       required: ["messageId"],
@@ -7751,10 +7793,17 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "lookup_suppression",
     readOnly: true,
     description:
-      "Look up whether this company must not email an exact address, even when no Contact exists. Reports the Suppression reason/source and any Contact do-not-contact flag without creating records. Normalizes casing/display names, preserving plus tags and dots. A clear result does not authorize sending or bypass company Policies, Grants or delivery review. Requires Revenue Read access.",
+      "Look up whether this company must not email an exact address, even when no Contact exists. Returns explicit suppressed/clear/unknown status, Suppression reason/source (including unsubscribes and bounces) and Contact do-not-contact flags without creating records. Unknown is never clearance. Normalizes casing/display names, preserving plus tags and dots. A clear result does not authorize sending or bypass company Policies, Grants or delivery review. Requires Revenue Read access.",
     inputSchema: {
       type: "object",
-      properties: { email: { type: "string", minLength: 3, maxLength: 320, description: "Email address to check." } },
+      properties: {
+        email: {
+          type: "string",
+          minLength: 3,
+          maxLength: 320,
+          description: "Email address to check.",
+        },
+      },
       required: ["email"],
       additionalProperties: false,
     },

@@ -894,7 +894,7 @@ export type EmployeeWakeup = {
  * `POST /workstreams/:wid/close` (admin). Live-sync rides the "workstream"
  * kind.
  */
-export type WorkstreamStatus = "active" | "done" | "abandoned";
+export type WorkstreamStatus = "active" | "archived" | "done" | "abandoned";
 export type Workstream = {
   id: string;
   employeeId: string;
@@ -1035,6 +1035,23 @@ export type RunBrowserRecording = {
   sizeBytes: number | null;
   filename: string | null;
 };
+export type RunDiagnosticFailure = {
+  category:
+    | "authorization"
+    | "timeout"
+    | "tool"
+    | "application"
+    | "model"
+    | "interrupted"
+    | "work"
+    | "check"
+    | "unknown";
+  phase: "setup" | "preflight" | "work" | "checks" | "finalize";
+  message: string;
+  exception: string | null;
+  at: string;
+  step: { tool: string; callId: string | null; startedAt: string } | null;
+};
 export type RunLog = {
   content: string;
   truncated?: boolean;
@@ -1043,6 +1060,11 @@ export type RunLog = {
   status?: RunStatus;
   errorKind?: RunErrorKind | null;
   failureReason?: string | null;
+  diagnostics?: {
+    version: 1;
+    failure: RunDiagnosticFailure | null;
+    toolErrors: RunDiagnosticFailure[];
+  };
   exitCode?: number | null;
   startedAt?: string;
   finishedAt?: string | null;
@@ -1518,7 +1540,16 @@ export type RunCheckResult = {
   createdAt: string | null;
 };
 
-export type RunCheckResultList = { results: RunCheckResult[] };
+export type RunCheckResultList = {
+  results: RunCheckResult[];
+  runStatus?: RunStatus;
+  currentConfiguration?: {
+    enabled: number;
+    required: number;
+    configurationPath: string;
+    appliesTo: "current_routine";
+  };
+};
 
 /**
  * `passed` / `failed` — the server ran this Run's Checks and they did or did

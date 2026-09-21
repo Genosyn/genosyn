@@ -64,6 +64,7 @@ function stripGeneratedDelegationReference(line: string): string | null {
 export type DelegatedBrief = {
   label: string;
   instruction: string;
+  requiredTools?: string[];
 };
 
 export type DelegatedBriefResult =
@@ -82,13 +83,14 @@ export function createParallelDelegationTool(params: {
   budget: DelegationBudget;
   resultStore?: ParallelResultStore;
   signal?: AbortSignal;
-  runBrief: (brief: DelegatedBrief) => Promise<DelegatedBriefResult>;
+  runBrief: (brief: DelegatedBrief, resultId?: string) => Promise<DelegatedBriefResult>;
+  preflight?: (briefs: DelegatedBrief[]) => Promise<string | null>;
 }): AgentTool {
-  const resultStore = params.resultStore ?? createParallelResultStore();
+  const resultStore: ParallelResultStore = params.resultStore ?? createParallelResultStore();
   return {
     name: "delegate_parallel_work",
     description:
-      "Delegate independent briefs to temporary copies of you with the same Soul, Skills, AI Model, Grants, secrets and working directory. Include all inputs; workers do not see your conversation. Verify and synthesize their results. For file writes, partition files explicitly because workers share a directory. At most 8 briefs per call, 12 per turn, 4 concurrent; workers cannot delegate. Results return compact previews and IDs: use get_parallel_work_result to recover longer output during this parent turn.",
+      "Delegate independent briefs to copies of you with the same Grants. Include all inputs and requiredTools; workers do not see your conversation. Partition file writes because workers share a directory. At most 8 briefs per call, 12 per turn, 4 concurrent. Results persist for this Run lineage or conversation and identical completed briefs are reused. Use get_parallel_work_result to recover evidence after a timeout. Required tools are checked before workers start. Verify results before acting.",
     inputSchema: {
       type: "object",
       properties: {
@@ -113,6 +115,13 @@ export function createParallelDelegationTool(params: {
                 maxLength: MAX_INSTRUCTION_LENGTH,
                 description: "Complete brief with scope, inputs, constraints, and expected output.",
               },
+              requiredTools: {
+                type: "array",
+                maxItems: 40,
+                items: { type: "string", maxLength: 128 },
+                description:
+                  "Exact tool names this brief requires; missing tools fail before any worker starts.",
+              },
             },
             required: ["label", "instruction"],
             additionalProperties: false,
@@ -134,6 +143,8 @@ export function createParallelDelegationTool(params: {
       if (params.signal?.aborted) {
         return { content: "Parallel delegation was aborted before it started.", isError: true };
       }
+      const preflightError = await params.preflight?.(parsed.tasks);
+      if (preflightError) return { content: preflightError, isError: true };
       if (parsed.tasks.length > params.budget.remaining) {
         return {
           content:
@@ -147,20 +158,27 @@ export function createParallelDelegationTool(params: {
       // Reserve the whole batch before starting it. A failed child still costs
       // a model call and must not give the parent an infinite retry budget.
       params.budget.remaining -= parsed.tasks.length;
-      const resultIds = parsed.tasks.map((task) => resultStore.reserve(task.label));
+      const resultIds: Array<string | null> = [];
+      for (const task of parsed.tasks) resultIds.push(await resultStore.reserve(task.label, task));
+      const shouldStore = parsed.tasks.map(() => false);
       const results = await runBounded(
         parsed.tasks,
         parsed.maxConcurrency,
-        params.runBrief,
-        params.signal,
-        (result, index) => {
+        async (brief, index) => {
           const resultId = resultIds[index];
-          if (resultId) resultStore.finish(resultId, result);
+          const reused = resultId ? await resultStore.reuse?.(resultId) : null;
+          if (!reused) shouldStore[index] = true;
+          return reused ?? params.runBrief(brief, resultId ?? undefined);
+        },
+        params.signal,
+        async (result, index) => {
+          const resultId = resultIds[index];
+          if (resultId && shouldStore[index]) await resultStore.finish(resultId, result);
         },
       );
       const failed = results.filter((result) => result.status === "failed").length;
       return {
-        content: formatResults(
+        content: await formatResults(
           parsed.tasks,
           results,
           parsed.maxConcurrency,
@@ -191,7 +209,7 @@ function parseInput(
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return { error: `tasks[${i}] must be an object with label and instruction.` };
     }
-    const { label, instruction } = value as Record<string, unknown>;
+    const { label, instruction, requiredTools } = value as Record<string, unknown>;
     if (typeof label !== "string" || !label.trim() || label.length > MAX_LABEL_LENGTH) {
       return {
         error: `tasks[${i}].label must be 1–${MAX_LABEL_LENGTH} characters.`,
@@ -206,7 +224,21 @@ function parseInput(
         error: `tasks[${i}].instruction must be 1–${MAX_INSTRUCTION_LENGTH} characters.`,
       };
     }
-    tasks.push({ label: label.trim(), instruction: instruction.trim() });
+    if (
+      requiredTools !== undefined &&
+      (!Array.isArray(requiredTools) ||
+        requiredTools.length > 40 ||
+        requiredTools.some((name) => typeof name !== "string" || !name.trim() || name.length > 128))
+    ) {
+      return { error: `tasks[${i}].requiredTools must contain at most 40 exact tool names.` };
+    }
+    tasks.push({
+      label: label.trim(),
+      instruction: instruction.trim(),
+      ...(Array.isArray(requiredTools)
+        ? { requiredTools: [...new Set(requiredTools.map((name: string) => name.trim()))] }
+        : {}),
+    });
   }
 
   const requested = input.maxConcurrency ?? MAX_PARALLEL_DELEGATIONS;
@@ -226,9 +258,9 @@ function parseInput(
 async function runBounded(
   tasks: DelegatedBrief[],
   maxConcurrency: number,
-  runBrief: (brief: DelegatedBrief) => Promise<DelegatedBriefResult>,
+  runBrief: (brief: DelegatedBrief, index: number) => Promise<DelegatedBriefResult>,
   signal?: AbortSignal,
-  onResult?: (result: DelegatedBriefResult, index: number) => void,
+  onResult?: (result: DelegatedBriefResult, index: number) => Promise<void>,
 ): Promise<DelegatedBriefResult[]> {
   const results = new Array<DelegatedBriefResult>(tasks.length);
   let next = 0;
@@ -239,18 +271,18 @@ async function runBounded(
       if (index >= tasks.length) return;
       if (signal?.aborted) {
         results[index] = { status: "failed", error: "Aborted before this brief started." };
-        onResult?.(results[index], index);
+        await onResult?.(results[index], index);
         continue;
       }
       try {
-        results[index] = await runBrief(tasks[index]);
+        results[index] = await runBrief(tasks[index], index);
       } catch (err) {
         results[index] = {
           status: "failed",
           error: err instanceof Error ? err.message : String(err),
         };
       }
-      onResult?.(results[index], index);
+      await onResult?.(results[index], index);
       // The bounded recovery store owns the retained text. Keep only a preview
       // in the batch while slower workers finish, rather than retaining every
       // original worker response until the whole batch has completed.
@@ -266,13 +298,13 @@ async function runBounded(
   return results;
 }
 
-function formatResults(
+async function formatResults(
   tasks: DelegatedBrief[],
   results: DelegatedBriefResult[],
   maxConcurrency: number,
   resultIds: Array<string | null>,
   resultStore: ParallelResultStore,
-): string {
+): Promise<string> {
   const completed = results.filter((result) => result.status === "completed").length;
   const sections = results.map((result, index) => {
     const heading = `## ${index + 1}. ${tasks[index].label} — ${result.status}`;
@@ -282,17 +314,22 @@ function formatResults(
   return [
     `Parallel delegation finished: ${completed}/${results.length} briefs completed (concurrency ${maxConcurrency}).`,
     "Verify and synthesize these worker results before answering or taking follow-up action.",
-    "Recovery: call get_parallel_work_result with resultId (or omit it to list results). Available only during this parent turn.",
+    `Recovery: call get_parallel_work_result with resultId (or omit it to list results). ${resultStore.scopeDescription ?? "Current parent turn only."}`,
     JSON.stringify({
-      results: resultIds.map((id, index) =>
-        id
-          ? resultStore.list().find((result) => result.resultId === id)
-          : {
+      results: await Promise.all(
+        resultIds.map(async (id, index) => {
+          if (!id)
+            return {
               label: tasks[index].label,
               resultId: null,
               stored: false,
               reason: "Result count limit reached",
-            },
+            };
+          const row = await resultStore.read(id, 0, 0);
+          if (!row) return { resultId: id, stored: true, available: false };
+          const { text: _text, coverage: _coverage, ...metadata } = row;
+          return metadata;
+        }),
       ),
     }),
     ...sections,

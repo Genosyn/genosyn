@@ -307,6 +307,18 @@ test("Run surfaces show the first pending continuation without exposing its save
   }
 });
 
+test("Run history and logs expose the persisted Check verdict", async () => {
+  const run = await seedRun({ checksVerdict: "passed", checkRemediations: 1 });
+  for (const path of [`routines/${routine.id}/runs`, `runs/${run.id}/log`]) {
+    const response = await fetch(`${baseUrl}/api/companies/${company.id}/${path}`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const metadata = Array.isArray(payload) ? payload[0] : payload;
+    assert.equal(metadata.checksVerdict, "passed");
+    assert.equal(metadata.checkRemediations, 1);
+  }
+});
+
 test("the API requires valid instants, a company UUID, and a bounded forward interval", async () => {
   const invalid: Record<string, string>[] = [
     {},

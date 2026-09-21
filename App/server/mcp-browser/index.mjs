@@ -45,9 +45,9 @@ import crypto from "node:crypto";
 
 const MCP_API_BASE = process.env.GENOSYN_MCP_API ?? "";
 const MCP_TOKEN = process.env.GENOSYN_MCP_TOKEN ?? "";
-const BROWSER_API_BASE = process.env.GENOSYN_BROWSER_API ?? "";
-const BROWSER_SESSION_ID = process.env.GENOSYN_BROWSER_SESSION_ID ?? "";
-const BROWSER_TOKEN = process.env.GENOSYN_BROWSER_SESSION_TOKEN ?? "";
+let BROWSER_API_BASE = process.env.GENOSYN_BROWSER_API ?? "";
+let BROWSER_SESSION_ID = process.env.GENOSYN_BROWSER_SESSION_ID ?? "";
+let BROWSER_TOKEN = process.env.GENOSYN_BROWSER_SESSION_TOKEN ?? "";
 const APPROVAL_REQUIRED = process.env.GENOSYN_BROWSER_APPROVAL_REQUIRED === "1";
 
 /** @type {Map<string,
@@ -92,7 +92,35 @@ function assertModelPressKeyAllowed(key) {
 
 // ---------- HTTP helpers ----------
 
-async function callBrowser(endpoint, body) {
+let browserRecovery = null;
+async function recoverBrowser() {
+  if (browserRecovery) return browserRecovery;
+  browserRecovery = (async () => {
+    const browserUrl = new URL(BROWSER_API_BASE);
+    const mcpUrl = new URL(MCP_API_BASE);
+    if (!MCP_TOKEN || browserUrl.origin !== mcpUrl.origin || !["127.0.0.1", "[::1]"].includes(browserUrl.hostname)) {
+      throw new Error("Browser recovery is available only through the trusted local App endpoint.");
+    }
+    const response = await fetch(`${BROWSER_API_BASE.replace(/\/+$/, "")}/recover`, {
+      method: "POST",
+      redirect: "error",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${BROWSER_TOKEN}`, "x-genosyn-turn-token": MCP_TOKEN },
+      body: "{}",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(`Browser recovery ${response.status}: ${result?.error ?? "not authorized"}`);
+    if (typeof result.sessionId !== "string" || !/^[0-9a-f-]{36}$/i.test(result.sessionId) || typeof result.sessionToken !== "string" || !/^[0-9a-f]{64}$/i.test(result.sessionToken)) {
+      throw new Error("Invalid browser recovery response");
+    }
+    BROWSER_API_BASE = BROWSER_API_BASE.replace(/\/[^/]+\/?$/, `/${encodeURIComponent(result.sessionId)}`);
+    BROWSER_SESSION_ID = result.sessionId;
+    BROWSER_TOKEN = result.sessionToken;
+    pendingActions.clear();
+  })();
+  try { await browserRecovery; } finally { browserRecovery = null; }
+}
+
+async function callBrowser(endpoint, body, mayRecover = true) {
   if (!BROWSER_API_BASE || !BROWSER_TOKEN) {
     throw new Error(
       "GENOSYN_BROWSER_API / GENOSYN_BROWSER_SESSION_TOKEN not set — the browser tool surface is disabled.",
@@ -112,8 +140,15 @@ async function callBrowser(endpoint, body) {
     let msg = text.slice(0, 300);
     try {
       const parsed = JSON.parse(text);
+      // Only explicit navigation is safe to restart on a new page. Never
+      // replay a click, submit, Vault action, or pending Approval.
+      if (mayRecover && endpoint === "/open" && parsed?.code === "browser_session_closed" && parsed?.recoverable === true) {
+        await recoverBrowser();
+        return callBrowser(endpoint, body, false);
+      }
       if (parsed?.error) msg = parsed.error;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       // text wasn't JSON — fall through
     }
     throw new Error(`Browser RPC ${r.status}: ${msg}`);

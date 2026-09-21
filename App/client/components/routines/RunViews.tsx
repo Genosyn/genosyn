@@ -665,6 +665,7 @@ export function RunChecksStrip({
   className?: string;
 }) {
   const [results, setResults] = React.useState<RunCheckResult[] | null>(null);
+  const [coverage, setCoverage] = React.useState<RunCheckResultList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -675,6 +676,7 @@ export function RunChecksStrip({
       .then((data) => {
         if (cancelled) return;
         setResults(data.results ?? []);
+        setCoverage(data);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -687,12 +689,25 @@ export function RunChecksStrip({
   }, [companyId, runId, reloadKey]);
 
   if (error) return <FormError message={error} className={className} />;
-  // Nothing at all until the read lands, rather than a loading box. This panel
-  // cannot know whether it has anything to show until then, and most Routines
-  // declare no Checks — a box that appears for a tenth of a second and then
-  // vanishes on every Run is worse than one that arrives a moment late. The
-  // Effects panel beside it is always present and carries the wait for both.
-  if (results === null || results.length === 0) return null;
+  if (results === null) return null;
+  if (results.length === 0)
+    return (
+      <EvidenceSection
+        title="Checks"
+        icon={<CheckCircle2 size={14} />}
+        meta="No Check evidence"
+        className={className}
+      >
+        <p className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+          {coverage?.runStatus === "running"
+            ? "No Check results have been recorded yet."
+            : "No Checks ran for this Run. Its status alone does not verify coverage, artifacts or safety requirements."}
+          {coverage?.currentConfiguration?.enabled === 0
+            ? " This Routine currently has no enabled Checks. A company admin can configure them at Routine → Settings → Checks."
+            : " Current Routine settings may differ from those used for this Run."}
+        </p>
+      </EvidenceSection>
+    );
 
   const rounds = new Set(results.map((r) => r.attempt)).size;
 
@@ -1137,6 +1152,35 @@ export function RunLiveModal({
           />
           {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
           <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />
+          {log?.diagnostics?.failure && (
+            <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs dark:border-orange-500/30 dark:bg-orange-500/10">
+              <p className="font-medium text-orange-900 dark:text-orange-200">
+                Failure details · {log.diagnostics.failure.category} ·{" "}
+                {log.diagnostics.failure.phase}
+              </p>
+              {log.diagnostics.failure.step && (
+                <p className="mt-1 break-words">Step: {log.diagnostics.failure.step.tool}</p>
+              )}
+              <p className="mt-1 whitespace-pre-wrap break-words">
+                {log.diagnostics.failure.message}
+              </p>
+              {log.diagnostics.failure.exception && (
+                <p className="mt-1">Exception: {log.diagnostics.failure.exception}</p>
+              )}
+              {log.diagnostics.toolErrors.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer">Recent tool errors</summary>
+                  <ul className="mt-1 space-y-1">
+                    {log.diagnostics.toolErrors.map((error, index) => (
+                      <li key={index} className="break-words">
+                        {error.step?.tool ?? "Tool"}: {error.message}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
           {log?.outcomeNote && (
             <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
           )}

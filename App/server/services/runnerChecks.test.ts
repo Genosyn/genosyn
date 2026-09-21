@@ -24,6 +24,7 @@ import { startRoutineRun } from "./runner.js";
 import { interruptCoveredRuns, stopStanddowns } from "./standdowns.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { runWorkSummary } from "./runWorkSummary.js";
+import { readRunDiagnostics } from "./runDiagnostics.js";
 
 /**
  * The check phase, from both ends.
@@ -437,6 +438,8 @@ describe("the check phase inside a Run", () => {
     assert.equal(run.errorKind, "runtime");
     assert.equal(run.checksVerdict, "failed");
     assert.match(run.logContent, /remediation turn failed/);
+    assert.equal(readRunDiagnostics(run).failure?.phase, "checks");
+    assert.ok(readRunDiagnostics(run).failure?.message);
     assert.equal(runWorkSummary(run), null);
   });
   test("a complete model response persists a concise work outcome without another model call", async () => {
@@ -613,6 +616,43 @@ describe("the check phase inside a Run", () => {
 });
 
 describe("Run completion states", () => {
+  test("server-observed failure details survive finalization independently of the transcript", async (t) => {
+    await connectModel();
+    for (const failure of ["authorization", "timeout"] as const) {
+      const routine = await makeRoutine({ timeoutSec: 180 });
+      t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+        params.callbacks?.onToolUse?.(
+          "browser_open",
+          { url: "https://example.test" },
+          "observed-step",
+        );
+        if (failure === "authorization") {
+          params.callbacks?.onToolResult?.(
+            "browser_open",
+            { isError: true, content: "Browser RPC 401: Invalid token" },
+            "observed-step",
+          );
+          throw new Error("Browser RPC 401: Invalid token");
+        }
+        await setRemainingRunBudget(t, routine, -100);
+        return { finalText: "", steps: 1, stopReason: "end_turn" };
+      });
+      const run = await (await startRoutineRun(routine)).completion;
+      const stored = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+      assert.equal(stored.status, "error");
+      const diagnostic = readRunDiagnostics(stored);
+      assert.equal(diagnostic.failure?.category, failure);
+      assert.equal(diagnostic.failure?.phase, "work");
+      assert.ok(diagnostic.failure?.message);
+      if (failure === "authorization")
+        assert.equal(diagnostic.toolErrors[0]?.step?.tool, "browser_open");
+      else assert.equal(diagnostic.failure?.step?.tool, "browser_open");
+      const withoutTranscript = { ...stored, logContent: "" };
+      assert.equal(readRunDiagnostics(withoutTranscript).failure?.category, failure);
+      t.mock.restoreAll();
+    }
+  });
+
   test("a model request error is Error, with no invented failure reason or outcome", async () => {
     await connectModel();
     rejectAll = true;
@@ -623,6 +663,10 @@ describe("Run completion states", () => {
     assert.equal(run.failureReason, null);
     assert.equal(run.outcomeVerdict, null);
     assert.equal(run.checksVerdict, null);
+    const stored = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+    assert.ok(stored.diagnosticsJson);
+    assert.equal(readRunDiagnostics(stored).failure?.category, "model");
+    assert.ok(readRunDiagnostics(stored).failure?.message);
   });
 
   test("an employee's durable failure report finalizes Failed and retains its reason", async () => {
@@ -807,6 +851,8 @@ test("runtime and timeout Errors revoke earned Waivers and leave a journal", asy
     ).completion;
     assert.equal(run.status, "error");
     assert.equal(run.errorKind, timedOut ? "timeout" : "runtime");
+    assert.equal(readRunDiagnostics(run).failure?.category, timedOut ? "timeout" : "application");
+    if (timedOut) assert.match(readRunDiagnostics(run).failure?.message ?? "", /time budget/);
     assert.equal(await AppDataSource.getRepository(JournalEntry).countBy({ runId: run.id }), 1);
     assert.ok(
       (await AppDataSource.getRepository(AutonomyWaiver).findOneByOrFail({ id: waiver.id }))

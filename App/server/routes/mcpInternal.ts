@@ -1,3 +1,4 @@
+import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { withRepositoryGuidance } from "../services/repositoryGuidance.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -54,7 +55,12 @@ import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run, type RunStatus } from "../db/entities/Run.js";
 import { RoutineCheck } from "../db/entities/RoutineCheck.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
-import { listChecks, serializeCheckResult } from "../services/routineChecks.js";
+import { readRunDiagnostics } from "../services/runDiagnostics.js";
+import {
+  checkConfigurationSummary,
+  listChecks,
+  serializeCheckResult,
+} from "../services/routineChecks.js";
 import { latestCheckResultsForRun } from "../services/runGrading.js";
 import { RUN_EFFECT_ROW_CAP, countEffects, runEffects } from "../services/runEffects.js";
 import {
@@ -284,11 +290,12 @@ import {
   sendMailMessage,
   updateMailDraft,
 } from "../services/mail/actions.js";
+import { MailAttachmentError, importMailAttachment } from "../services/mail/attachments.js";
 import {
-  MailAttachmentError,
-  importMailAttachment,
-} from "../services/mail/attachments.js";
-import { readMailThreadForAgent, serializeMailMessageForAgent } from "../services/mail/agentReads.js";
+  readMailThreadForAgent,
+  readMailMessageForAgent,
+  serializeMailMessageForAgent,
+} from "../services/mail/agentReads.js";
 import { columnToLabelIds } from "../services/mail/store.js";
 import type { MimeAttachment } from "../services/mail/gmailClient.js";
 import {
@@ -8627,6 +8634,11 @@ mcpInternalRouter.post(
     });
     await AppDataSource.getRepository(Approval).delete({ routineId: routine.id });
     await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
+    if (runs.length) {
+      await AppDataSource.getRepository(ParallelWorkerResult).delete({
+        parentRunId: In(runs.map((run) => run.id)),
+      });
+    }
     await AppDataSource.getRepository(Run).delete({ routineId: routine.id });
     // Same cleanup the human delete route does: the routine's Ask AI
     // conversation is about this routine and nothing else, so it cannot
@@ -8841,10 +8853,13 @@ mcpInternalRouter.post(
         exitCode: run.exitCode,
         parentRunId: run.parentRunId,
         checkRemediations: run.checkRemediations,
+        diagnostics: readRunDiagnostics(run),
       },
       checks: {
         verdict: run.checksVerdict,
         remediationRounds: run.checkRemediations,
+        currentConfiguration: await checkConfigurationSummary(co.id, run.routineId),
+        evidenceAvailable: rounds.length > 0,
         latest,
         rounds: rounds.map(serializeCheckResult),
       },
@@ -13215,7 +13230,7 @@ const updateWorkstreamSchema = z
   .object({
     workstreamId: z.string().uuid(),
     stateDoc: z.string().max(40_000).optional(),
-    status: z.enum(["active", "done", "abandoned"]).optional(),
+    status: z.enum(["active", "archived", "done", "abandoned"]).optional(),
     closeReason: z.string().max(2_000).optional(),
   })
   .strict();
@@ -13260,7 +13275,7 @@ mcpInternalRouter.post(
           ? "Updated my work review record"
           : workstream.status === "active"
             ? `Updated the workstream "${workstream.title}"`
-            : `Closed the workstream "${workstream.title}" as ${workstream.status}`,
+            : `${workstream.status === "archived" ? "Archived" : "Closed"} the workstream "${workstream.title}" as ${workstream.status}`,
         journalBody: req.mcpSelfReviewOnly
           ? "Review tracking changed. Only the Improve my work Routine continues this record; suggestions await Member review in Revisions."
           : workstream.closeReason || workstream.stateDoc,
@@ -13270,7 +13285,7 @@ mcpInternalRouter.post(
         note:
           workstream.status === "active"
             ? "State committed — your next Run on the bound routine opens with exactly this."
-            : `Closed as ${workstream.status}.`,
+            : workstream.status === "archived" ? "Archived with state preserved. Resume explicitly with status: active when capacity is available." : `Closed as ${workstream.status}.`,
       });
     } catch (err) {
       if (!(err instanceof WorkstreamError)) throw err;
@@ -13282,40 +13297,48 @@ mcpInternalRouter.post(
 mcpInternalRouter.post(
   "/tools/list_workstreams",
   validateBody(
-    z.object({
-      all: z.boolean().optional(),
-      offset: z.number().int().min(0).max(1_000_000).optional(),
-      limit: z.number().int().min(1).max(20).optional(),
-    }).strict(),
+    z
+      .object({
+        all: z.boolean().optional(),
+        offset: z.number().int().min(0).max(1_000_000).optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+      })
+      .strict(),
   ),
   async (req: McpRequest, res) => {
-    res.json(await listEmployeeWorkstreams({
-      ...req.body,
-      companyId: req.mcpCompany!.id,
-      employeeId: req.mcpEmployee!.id,
-      excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
-    }));
+    res.json(
+      await listEmployeeWorkstreams({
+        ...req.body,
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
+      }),
+    );
   },
 );
 
 mcpInternalRouter.post(
   "/tools/get_workstream",
   validateBody(
-    z.object({
-      workstreamId: z.string().uuid(),
-      field: z.enum(["stateDoc", "objective", "closeReason"]).optional(),
-      offset: z.number().int().min(0).max(40_000).optional(),
-      maxChars: z.number().int().min(1).max(8_000).optional(),
-    }).strict(),
+    z
+      .object({
+        workstreamId: z.string().uuid(),
+        field: z.enum(["stateDoc", "objective", "closeReason"]).optional(),
+        offset: z.number().int().min(0).max(40_000).optional(),
+        maxChars: z.number().int().min(1).max(8_000).optional(),
+      })
+      .strict(),
   ),
   async (req: McpRequest, res, next) => {
     try {
-      res.json(await readEmployeeWorkstream({
-        ...req.body,
-        companyId: req.mcpCompany!.id,
-        employeeId: req.mcpEmployee!.id,
-        excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
-      }));
+      res.json(
+        await readEmployeeWorkstream({
+          ...req.body,
+          companyId: req.mcpCompany!.id,
+          employeeId: req.mcpEmployee!.id,
+          excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
+        }),
+      );
     } catch (error) {
       if (!(error instanceof WorkstreamError)) return next(error);
       res.status(404).json({ error: error.message });
@@ -17973,16 +17996,18 @@ mcpInternalRouter.post(
 
 const mailBodyReadFields = {
   includeQuoted: z.boolean().optional(),
-  bodyOffset: z.number().int().min(0).max(10_000_000).optional(),
+  bodyOffset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   maxBodyChars: z.number().int().min(1).max(20_000).optional(),
 };
-const getMailThreadSchema = z.object({
-  threadId: z.string().uuid(),
-  messageLimit: z.number().int().min(1).max(20).optional(),
-  messageOffset: z.number().int().min(0).max(1_000_000).optional(),
-  includeQuoted: mailBodyReadFields.includeQuoted,
-  maxBodyChars: mailBodyReadFields.maxBodyChars,
-}).strict();
+const getMailThreadSchema = z
+  .object({
+    threadId: z.string().uuid(),
+    messageLimit: z.number().int().min(1).max(20).optional(),
+    messageOffset: z.number().int().min(0).max(1_000_000).optional(),
+    includeQuoted: mailBodyReadFields.includeQuoted,
+    maxBodyChars: mailBodyReadFields.maxBodyChars,
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/get_mail_thread",
@@ -17994,20 +18019,23 @@ mcpInternalRouter.post(
     res.json({
       thread: serializeMailThreadForAgent(found.thread),
       account: { accountId: found.account.id, address: found.account.address },
-      ...await readMailThreadForAgent(found.thread, body),
+      ...(await readMailThreadForAgent(found.thread, body)),
     });
   },
 );
 
-const getMailMessageSchema = z.object({
-  messageId: z.string().uuid(),
-  ...mailBodyReadFields,
-}).strict();
+const getMailMessageSchema = z
+  .object({
+    messageId: z.string().uuid(),
+    source: z.enum(["mirror", "mailbox"]).optional(),
+    ...mailBodyReadFields,
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/get_mail_message",
   validateBody(getMailMessageSchema),
-  async (req: McpRequest, res: Response) => {
+  async (req: McpRequest, res: Response, next) => {
     const body = req.body as z.infer<typeof getMailMessageSchema>;
     const message = await AppDataSource.getRepository(MailMessage).findOneBy({
       id: body.messageId,
@@ -18016,11 +18044,15 @@ mcpInternalRouter.post(
     if (!message) return res.status(404).json({ error: "Message not found" });
     const account = await loadGrantedMailAccount(req, res, message.accountId, "read");
     if (!account) return;
-    res.json({
-      account: { accountId: account.id, address: account.address },
-      threadId: message.threadId,
-      message: serializeMailMessageForAgent(message, body),
-    });
+    try {
+      res.json({
+        account: { accountId: account.id, address: account.address },
+        threadId: message.threadId,
+        message: await readMailMessageForAgent(account, message, body),
+      });
+    } catch (error) {
+      next(error);
+    }
   },
 );
 

@@ -157,8 +157,8 @@ function renderTool(tool: AgentTool, isGrantDead: boolean): string {
  * hostile corpus will sometimes return nothing useful; the difference between
  * that being a one-round-trip annoyance and a silent capability loss is whether
  * the model can see the shape of what it did not find. Repeated leading verbs
- * use brace notation (`list_{contacts,deals}` means `list_contacts` and
- * `list_deals`) so every exact name stays reconstructable within the budget.
+ * use brace notation (`{get,update}_contact` means `get_contact` and
+ * `update_contact`) so every exact name stays reconstructable within the budget.
  */
 function buildDomainFooter(searchable: AgentTool[]): string {
   const present = new Set(searchable.map((t) => t.name));
@@ -181,24 +181,55 @@ function buildDomainFooter(searchable: AgentTool[]): string {
 }
 
 function compactToolNames(names: string[]): string {
-  const byPrefix = new Map<string, string[]>();
-  for (const name of names) {
-    const separator = name.indexOf("_");
-    const prefix = separator === -1 ? name : name.slice(0, separator);
-    const suffix = separator === -1 ? "" : name.slice(separator + 1);
-    const group = byPrefix.get(prefix) ?? [];
-    group.push(suffix);
-    byPrefix.set(prefix, group);
-  }
-  return [...byPrefix.entries()]
-    .map(([prefix, suffixes]) =>
-      suffixes.length === 1
-        ? suffixes[0]
-          ? `${prefix}_${suffixes[0]}`
-          : prefix
-        : `${prefix}_{${compactToolNames(suffixes)}}`,
-    )
-    .join(",");
+  const memo = new Map<string, string>();
+  const compact = (values: string[]): string => {
+    if (values.length < 2) return values.join(",");
+    const cacheKey = JSON.stringify(values);
+    const cached = memo.get(cacheKey);
+    if (cached !== undefined) return cached;
+    let best = values.join(",");
+    for (const side of ["prefix", "suffix"] as const) {
+      const groups = new Map<string, string[]>();
+      for (const value of values) {
+        const words = value.split("_");
+        const key = side === "prefix" ? words[0] : words.at(-1)!;
+        const group = groups.get(key) ?? [];
+        group.push(value);
+        groups.set(key, group);
+      }
+      const candidate = [...groups.values()]
+        .map((group) => {
+          if (group.length === 1) return group[0];
+          const words = group.map((value) => {
+            const parts = value.split("_");
+            return side === "prefix" ? parts : parts.reverse();
+          });
+          let shared = 0;
+          while (
+            shared < words[0].length &&
+            words.every((parts) => parts[shared] === words[0][shared])
+          )
+            shared++;
+          const common = words[0].slice(0, shared);
+          // Only put the separator outside the braces when every name has it.
+          // get_meeting + get_meeting_transcript is get_meeting{,_transcript}.
+          if (words.every((parts) => parts.length > shared)) common.push("");
+          const affix = (side === "prefix" ? common : common.reverse()).join("_");
+          if (!affix) return group.join(",");
+          const rest = compact(
+            group.map((value) =>
+              side === "prefix" ? value.slice(affix.length) : value.slice(0, -affix.length),
+            ),
+          );
+          return side === "prefix" ? `${affix}{${rest}}` : `{${rest}}${affix}`;
+        })
+        .join(",");
+      if (candidate.length < best.length) best = candidate;
+    }
+    memo.set(cacheKey, best);
+    return best;
+  };
+  return compact(names);
 }
 
 // ---------- ranking ----------
