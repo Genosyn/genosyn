@@ -6,6 +6,7 @@ import { isRunError } from "@/lib/runStatus";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
+import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 
 type ExplainingEmployee = { id: string; name: string; slug: string };
@@ -160,19 +161,20 @@ export function RunExplanation({ companyId, runId }: { companyId: string; runId:
             >
               AI Employee
             </label>
-            <select
+            <Select
               id={selectId}
+              aria-label="AI Employee"
               value={employeeId}
               disabled={busy}
               onChange={(event) => setEmployeeId(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              searchPlaceholder="Search AI Employees…"
             >
               {options.employees.map((entry) => (
                 <option key={entry.id} value={entry.id}>
                   {entry.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           {!busy && (
             <Button

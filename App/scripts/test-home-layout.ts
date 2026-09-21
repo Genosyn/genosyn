@@ -1031,9 +1031,8 @@ try {
       "request failures remain in the explanation modal",
     );
     fixture.recover();
-    await modal
-      .getByRole("combobox", { name: "AI Employee", exact: true })
-      .selectOption("employee-2");
+    await modal.getByRole("combobox", { name: "AI Employee", exact: true }).fill("Employee 2");
+    await page.getByRole("option", { name: "Employee 2", exact: true }).click();
     await modal.getByRole("button", { name: "Try again", exact: true }).click();
     await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
     assert.deepEqual(mutations, [
