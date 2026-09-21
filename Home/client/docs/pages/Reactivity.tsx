@@ -349,11 +349,19 @@ export function Reactivity() {
       <P>
         A <Strong>Workstream</Strong> is a persistent state document for work that spans many Runs —
         a migration, a long negotiation, a multi-week cleanup. The employee maintains it with{" "}
-        <Code>create_workstream</Code>, <Code>update_workstream</Code>, and{" "}
-        <Code>list_workstreams</Code>; each update replaces the document in full, so the latest
-        version is always the whole truth. Binding a workstream to one of the employee&apos;s
-        Routines makes every future Run brief open with the latest state — the context seam that
-        used to be journal archaeology.
+        <Code>create_workstream</Code> and <Code>update_workstream</Code>; each update replaces the
+        document in full, so the latest version is always the whole truth. Binding a workstream to
+        one of the employee&apos;s Routines makes every future Run brief open with the latest state
+        — the context seam that used to be journal archaeology.
+      </P>
+      <P>
+        <Code>list_workstreams</Code> returns compact pages of five active Workstreams by default,
+        with a total count and the next offset; <Code>all: true</Code> includes finished work.{" "}
+        <Code>get_workstream</Code> reads one known ID directly, including finished work, and pages
+        through its state document, objective, or closing reason. Both reads report which text was
+        omitted. The employee can read only its own Workstreams, and background business work still
+        cannot read self-review tracking. These are live reads; a changed update time means the
+        document changed between pages.
       </P>
       <P>
         Shorter unfinished work can{" "}
@@ -362,6 +370,15 @@ export function Reactivity() {
         and unresolved items in the linked Workstream. Employees can also page through Journal
         summaries and retrieve a full entry in chunks, so an older audit remains reachable even when
         recent history or a long entry would fill one response.
+      </P>
+      <P>
+        Temporary parallel workers return short previews and stable result IDs. During the same
+        parent turn, <Code>get_parallel_work_result</Code> can list those IDs or recover output in
+        bounded pages without rerunning the work. Failed workers retain their error too. Recovery is
+        limited to that parent turn and expires when it ends; save lasting evidence to the
+        Workstream before finishing. Each turn retains at most 12 results, 256,000 characters per
+        result and 1,000,000 characters in total, and reports any text those limits prevented it
+        from retaining.
       </P>
       <UL>
         <LI>

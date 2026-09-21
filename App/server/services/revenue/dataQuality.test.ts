@@ -1309,7 +1309,10 @@ describe("controlled enrichment", () => {
       status: "connected",
     });
     const originalInvoke = stripeProvider.invokeTool;
-    stripeProvider.invokeTool = async (toolName) => {
+    stripeProvider.invokeTool = async (toolName, args) => {
+      // Commercial values require every item in the provider row, not the
+      // bounded projection used for AI Employee reads.
+      assert.equal((args as { compact?: boolean }).compact, false);
       if (toolName === "list_subscriptions") {
         return {
           data: [

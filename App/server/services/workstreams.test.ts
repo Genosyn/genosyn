@@ -19,7 +19,9 @@ import {
   closeWorkstream,
   composeWorkstreamBlock,
   createWorkstream,
+  listEmployeeWorkstreams,
   listWorkstreams,
+  readEmployeeWorkstream,
   updateWorkstream,
 } from "./workstreams.js";
 
@@ -377,5 +379,169 @@ describe("business Workstream isolation", () => {
       [unbound.id],
     );
     assert.equal((await listWorkstreams(companyId, { employeeId: employee.id })).length, 2);
+  });
+});
+
+describe("bounded employee Workstream reads", () => {
+  test("lists compact pages with deterministic ordering and exact coverage", async () => {
+    const updatedAt = new Date("2026-09-20T10:00:00Z");
+    const repo = AppDataSource.getRepository(Workstream);
+    const rows = await repo.save(
+      Array.from({ length: 7 }, (_, index) =>
+        repo.create({
+          companyId,
+          employeeId: employee.id,
+          title: `State ${index}`,
+          stateDoc: "x".repeat(40_000),
+          objective: "o".repeat(4_000),
+          closeReason: "r".repeat(2_000),
+          updatedAt,
+        }),
+      ),
+    );
+    const first = await listEmployeeWorkstreams({ companyId, employeeId: employee.id });
+    assert.equal(first.workstreams.length, 5);
+    assert.equal(first.coverage.total, 7);
+    assert.equal(first.coverage.nextOffset, 5);
+    assert.equal(first.coverage.hasMore, true);
+    for (const row of first.workstreams) {
+      assert.equal(row.stateDoc.length, 240);
+      assert.equal(row.objective.length, 160);
+      assert.equal(row.closeReason.length, 160);
+      assert.deepEqual(row.textCoverage.stateDoc, {
+        offset: 0,
+        returnedChars: 240,
+        totalChars: 40_000,
+        truncated: true,
+        nextOffset: 240,
+      });
+    }
+    assert.ok(JSON.stringify(first).length < 8_000);
+    const second = await listEmployeeWorkstreams({ companyId, employeeId: employee.id, offset: 5 });
+    assert.equal(second.coverage.hasMore, false);
+    assert.equal(second.coverage.nextOffset, null);
+    assert.deepEqual(
+      [...first.workstreams, ...second.workstreams].map((row) => row.id),
+      rows
+        .map((row) => row.id)
+        .sort()
+        .reverse(),
+    );
+    const empty = await listEmployeeWorkstreams({ companyId, employeeId: employee.id, offset: 20 });
+    assert.equal(empty.coverage.total, 7);
+    assert.equal(empty.workstreams.length, 0);
+    assert.equal(empty.coverage.nextOffset, null);
+  });
+
+  test("a known ID reads a complete state in bounded pages, including finished work", async () => {
+    const stateDoc = "begin\n" + "x".repeat(12_000) + "\nrecover this final evidence";
+    const row = await insert(Workstream, {
+      companyId,
+      employeeId: employee.id,
+      title: "Finished evidence",
+      stateDoc,
+      status: "done",
+      objective: "Long objective ".repeat(100),
+      closeReason: "Done.",
+    });
+    assert.equal(
+      (await listEmployeeWorkstreams({ companyId, employeeId: employee.id })).coverage.total,
+      0,
+    );
+    assert.equal(
+      (await listEmployeeWorkstreams({ companyId, employeeId: employee.id, all: true })).coverage
+        .total,
+      1,
+    );
+    let offset: number | null = 0;
+    let recovered = "";
+    do {
+      const page = await readEmployeeWorkstream({
+        companyId,
+        employeeId: employee.id,
+        workstreamId: row.id,
+        offset,
+        maxChars: 2_000,
+      });
+      assert.ok(page.text.length <= 2_000);
+      assert.equal(page.coverage.totalChars, stateDoc.length);
+      assert.equal(page.workstream.status, "done");
+      recovered += page.text;
+      offset = page.coverage.nextOffset;
+    } while (offset !== null);
+    assert.equal(recovered, stateDoc);
+    const objective = await readEmployeeWorkstream({
+      companyId,
+      employeeId: employee.id,
+      workstreamId: row.id,
+      field: "objective",
+    });
+    assert.equal(objective.text, row.objective);
+    assert.equal(objective.coverage.truncated, false);
+    const exhausted = await readEmployeeWorkstream({
+      companyId,
+      employeeId: employee.id,
+      workstreamId: row.id,
+      offset: 40_000,
+    });
+    assert.equal(exhausted.text, "");
+    assert.equal(exhausted.coverage.nextOffset, null);
+  });
+
+  test("direct reads and compact pages keep current ownership and review boundaries", async () => {
+    const row = await createWorkstream({
+      companyId,
+      employeeId: employee.id,
+      title: "Review tracking",
+      routineId: routine.id,
+      stateDoc: "Private review evidence",
+    });
+    for (const scope of [
+      { companyId: testId("elsewhere"), employeeId: employee.id },
+      { companyId, employeeId: testId("stranger") },
+    ]) {
+      assert.equal((await listEmployeeWorkstreams(scope)).coverage.total, 0);
+      await assert.rejects(readEmployeeWorkstream({ ...scope, workstreamId: row.id }), /not found/);
+    }
+    const scope = { companyId, employeeId: employee.id, excludeSelfReviews: true };
+    assert.equal(
+      (await readEmployeeWorkstream({ ...scope, workstreamId: row.id })).text,
+      row.stateDoc,
+    );
+    await AppDataSource.getRepository(Routine).update(routine.id, { selfReviewOnly: true });
+    assert.equal((await listEmployeeWorkstreams(scope)).coverage.total, 0);
+    await assert.rejects(readEmployeeWorkstream({ ...scope, workstreamId: row.id }), /not found/);
+    assert.equal(
+      (await readEmployeeWorkstream({ ...scope, excludeSelfReviews: false, workstreamId: row.id }))
+        .text,
+      row.stateDoc,
+    );
+    await AppDataSource.getRepository(Routine).delete(routine.id);
+    await assert.rejects(readEmployeeWorkstream({ ...scope, workstreamId: row.id }), /not found/);
+  });
+
+  test("rejects invalid ranges and malformed IDs at the service boundary", async () => {
+    const scope = { companyId, employeeId: employee.id };
+    const row = await createWorkstream({ ...scope, title: "State" });
+    for (const value of [-1, 0.5, Number.NaN, 1_000_001]) {
+      await assert.rejects(listEmployeeWorkstreams({ ...scope, offset: value }), WorkstreamError);
+    }
+    for (const value of [0, -1, 21, 1.5]) {
+      await assert.rejects(listEmployeeWorkstreams({ ...scope, limit: value }), WorkstreamError);
+    }
+    for (const value of [0, 8_001, 1.5]) {
+      await assert.rejects(
+        readEmployeeWorkstream({ ...scope, workstreamId: row.id, maxChars: value }),
+        WorkstreamError,
+      );
+    }
+    await assert.rejects(
+      readEmployeeWorkstream({ ...scope, workstreamId: "not-an-id" }),
+      WorkstreamError,
+    );
+    await assert.rejects(
+      readEmployeeWorkstream({ ...scope, workstreamId: testId("missing") }),
+      WorkstreamError,
+    );
   });
 });

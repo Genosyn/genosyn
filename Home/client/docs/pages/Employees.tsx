@@ -245,6 +245,15 @@ export function Employees() {
           context window the badge shows the token count alone and links to the model settings,
           because there is no ceiling to measure against — see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.
+          <br />
+          <br />
+          An employee can inspect its current turn with <Code>get_runtime_diagnostics</Code>:
+          the active runtime, latest measured context usage, configured step and command limits,
+          observed retries and compactions, and whether a named tool is registered or deferred.
+          Missing measurements stay unknown. Diagnostics expose no credentials or prompt content,
+          and a registered tool still checks current Grants when called. They are available through
+          tool discovery in ordinary conversations and Runs; confined work surfaces retain their
+          own tool sets.
         </LI>
         <LI>
           <Strong>Settings → Soul.</Strong> The employee&apos;s constitution. Markdown, ⌘S to save.

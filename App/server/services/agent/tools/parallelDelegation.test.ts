@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 import { toolsBriefing } from "../systemPrompt.js";
 import {
   createParallelDelegationTool,
+  createParallelResultStore,
+  createParallelWorkResultTool,
   delegatedSystemPrompt,
   MAX_DELEGATIONS_PER_CALL,
   MAX_DELEGATIONS_PER_TURN,
@@ -11,6 +13,11 @@ import {
   type DelegatedBrief,
   type DelegatedBriefResult,
 } from "./parallelDelegation.js";
+import {
+  MAX_SINGLE_WORKER_CHARS,
+  MAX_STORED_WORKER_CHARS,
+  MAX_STORED_WORKER_RESULTS,
+} from "./parallelWorkerResults.js";
 
 function brief(index: number): { label: string; instruction: string } {
   return { label: `Issue ${index}`, instruction: `Investigate issue ${index}.` };
@@ -358,18 +365,33 @@ describe("delegate_parallel_work results and cancellation", () => {
     assert.match(result.content, /failed Issue 2/);
   });
 
-  test("clips an individual worker result before returning it to the parent", async () => {
-    const visible = "x".repeat(12_000);
+  test("previews a worker result while retaining its omitted suffix for recovery", async () => {
+    const visible = "x".repeat(600);
+    const store = createParallelResultStore();
     const tool = createParallelDelegationTool({
       budget: { remaining: MAX_DELEGATIONS_PER_TURN },
-      runBrief: async () => completed(visible + "NEVER_EXPOSE_THIS_SUFFIX"),
+      resultStore: store,
+      runBrief: async () => completed(visible + "RECOVER_THIS_SUFFIX"),
     });
 
     const result = await tool.run({ tasks: [brief(1)] });
 
-    assert.match(result.content, /\[truncated after 12000 characters\]/);
-    assert.doesNotMatch(result.content, /NEVER_EXPOSE_THIS_SUFFIX/);
+    assert.match(result.content, /\[truncated after 600 characters\]/);
+    assert.doesNotMatch(result.content, /RECOVER_THIS_SUFFIX/);
     assert.ok(result.content.includes(visible));
+    const [saved] = store.list();
+    assert.equal(saved.storageTruncated, false);
+    assert.ok(result.content.indexOf(saved.resultId) < result.content.indexOf(visible));
+    const recovered = JSON.parse(
+      (
+        await createParallelWorkResultTool(store).run({
+          resultId: saved.resultId,
+          offset: 600,
+        })
+      ).content,
+    );
+    assert.equal(recovered.text, "RECOVER_THIS_SUFFIX");
+    assert.equal(recovered.coverage.nextOffset, null);
   });
 
   test("an already-aborted turn neither spends budget nor starts workers", async () => {
@@ -424,5 +446,123 @@ describe("delegate_parallel_work results and cancellation", () => {
     assert.match(result.content, /2\/4 briefs completed/);
     assert.match(result.content, /## 3\. Issue 3 — failed\nAborted before this brief started\./);
     assert.match(result.content, /## 4\. Issue 4 — failed\nAborted before this brief started\./);
+  });
+});
+
+describe("parallel worker result recovery", () => {
+  test("recovers every page without rerunning work and isolates parent turns", async () => {
+    const store = createParallelResultStore();
+    const reader = createParallelWorkResultTool(store);
+    const output = "evidence ".repeat(1_400);
+    let calls = 0;
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      runBrief: async () => {
+        calls++;
+        return completed(output);
+      },
+    });
+    await delegate.run({ tasks: [brief(1)] });
+    const listing = JSON.parse((await reader.run({})).content);
+    assert.equal(listing.results.length, 1);
+    const [{ resultId }] = listing.results;
+    let offset: number | null = 0;
+    let recovered = "";
+    do {
+      const page = JSON.parse((await reader.run({ resultId, offset, maxChars: 3_000 })).content);
+      assert.ok(page.text.length <= 3_000);
+      assert.equal(page.totalChars, output.length);
+      assert.equal(page.storageTruncated, false);
+      recovered += page.text;
+      offset = page.coverage.nextOffset;
+    } while (offset !== null);
+    assert.equal(recovered, output);
+    assert.equal(calls, 1);
+    const otherParent = createParallelWorkResultTool(createParallelResultStore());
+    const denied = await otherParent.run({ resultId });
+    assert.equal(denied.isError, true);
+    assert.doesNotMatch(denied.content, /evidence/);
+    assert.equal(JSON.parse((await otherParent.run({})).content).results.length, 0);
+  });
+
+  test("retains completed results while other workers remain pending and preserves failed output", async () => {
+    const store = createParallelResultStore();
+    const pending = deferred<DelegatedBriefResult>();
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      runBrief: async (value) =>
+        value.label === "Issue 1" ? completed("early evidence") : pending.promise,
+    });
+    const running = delegate.run({ tasks: [brief(1), brief(2)] });
+    await waitFor(() => store.list()[0]?.status === "completed");
+    const [done, waiting] = store.list();
+    assert.equal(done.status, "completed");
+    assert.equal(waiting.status, "pending");
+    assert.equal(store.read(done.resultId, 0, 100)?.text, "early evidence");
+    assert.equal(store.read(waiting.resultId, 0, 100)?.coverage.complete, false);
+    pending.resolve({ status: "failed", error: "Upstream could not complete" });
+    await running;
+    const error = store.read(waiting.resultId, 0, 100);
+    assert.equal(error?.status, "failed");
+    assert.equal(error?.text, "Upstream could not complete");
+  });
+
+  test("bounds retained memory and count without claiming omitted text was recovered", async () => {
+    const store = createParallelResultStore();
+    for (let index = 0; index < MAX_STORED_WORKER_RESULTS; index++) {
+      const id = store.reserve(`Result ${index}`);
+      assert.ok(id);
+      store.finish(id, completed("x".repeat(MAX_SINGLE_WORKER_CHARS + 20)));
+    }
+    assert.equal(store.reserve("Too many"), null);
+    const results = store.list();
+    assert.equal(
+      results.reduce((sum, row) => sum + row.retainedChars, 0),
+      MAX_STORED_WORKER_CHARS,
+    );
+    assert.equal(results[0].retainedChars, MAX_SINGLE_WORKER_CHARS);
+    assert.ok(results.every((row) => row.storageTruncated));
+    assert.equal(results.at(-1)?.retainedChars, 0);
+    const end = store.read(results[0].resultId, MAX_SINGLE_WORKER_CHARS - 5, 100);
+    assert.equal(end?.text.length, 5);
+    assert.equal(end?.coverage.nextOffset, null);
+    assert.equal(end?.coverage.truncated, true);
+    assert.equal(end?.coverage.complete, false);
+    store.finish(results[0].resultId, completed("overwrite"));
+    assert.equal(store.read(results[0].resultId, 0, 1)?.text, "x");
+  });
+
+  test("rejects invalid page ranges without exposing another result", async () => {
+    const reader = createParallelWorkResultTool(createParallelResultStore());
+    for (const input of [
+      { offset: -1 },
+      { offset: 1.5 },
+      { offset: Number.NaN },
+      { offset: MAX_SINGLE_WORKER_CHARS + 1 },
+      { maxChars: 0 },
+      { maxChars: 8_001 },
+      { maxChars: "100" },
+      { resultId: 123 },
+      { unknown: true },
+    ]) {
+      assert.equal((await reader.run(input)).isError, true);
+    }
+  });
+
+  test("keeps a maximum batch preview compact while making all results discoverable", async () => {
+    const store = createParallelResultStore();
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      runBrief: async () => completed("x".repeat(20_000)),
+    });
+    const result = await delegate.run({
+      tasks: Array.from({ length: MAX_DELEGATIONS_PER_CALL }, (_, index) => brief(index)),
+    });
+    assert.ok(result.content.length < 8_000);
+    assert.equal(store.list().length, MAX_DELEGATIONS_PER_CALL);
+    assert.ok(store.list().every((row) => result.content.includes(row.resultId)));
   });
 });

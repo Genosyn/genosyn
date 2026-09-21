@@ -197,7 +197,8 @@ import {
   WorkstreamError,
   assertBusinessWorkstream,
   createWorkstream,
-  listWorkstreams,
+  listEmployeeWorkstreams,
+  readEmployeeWorkstream,
   serializeWorkstream,
   updateWorkstream,
 } from "../services/workstreams.js";
@@ -286,8 +287,8 @@ import {
 import {
   MailAttachmentError,
   importMailAttachment,
-  summarizeMailAttachments,
 } from "../services/mail/attachments.js";
+import { readMailThreadForAgent, serializeMailMessageForAgent } from "../services/mail/agentReads.js";
 import { columnToLabelIds } from "../services/mail/store.js";
 import type { MimeAttachment } from "../services/mail/gmailClient.js";
 import {
@@ -497,7 +498,7 @@ import {
   updateMarketingCreative,
   updateMarketingExperiment,
 } from "../services/marketing.js";
-import { addSuppression, isSuppressed } from "../services/mail/suppression.js";
+import { addSuppression, isSuppressed, lookupSuppression } from "../services/mail/suppression.js";
 import {
   deleteManualActivity,
   exportActivitiesCsv,
@@ -7955,6 +7956,17 @@ mcpInternalRouter.post(
   },
 );
 
+mcpInternalRouter.post(
+  "/tools/lookup_suppression",
+  validateBody(z.object({ email: z.string().min(3).max(320) }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const email = normalizeEmail(req.body.email as string);
+    if (!email) return res.status(400).json({ error: "That is not a usable email address" });
+    res.json(await lookupSuppression(req.mcpCompany!.id, email));
+  },
+);
+
 const suppressEmailSchema = z
   .object({
     email: z.string().min(3).max(320),
@@ -13269,15 +13281,45 @@ mcpInternalRouter.post(
 
 mcpInternalRouter.post(
   "/tools/list_workstreams",
-  validateBody(z.object({ all: z.boolean().optional() }).strict()),
+  validateBody(
+    z.object({
+      all: z.boolean().optional(),
+      offset: z.number().int().min(0).max(1_000_000).optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    }).strict(),
+  ),
   async (req: McpRequest, res) => {
-    const body = req.body as { all?: boolean };
-    const rows = await listWorkstreams(req.mcpCompany!.id, {
+    res.json(await listEmployeeWorkstreams({
+      ...req.body,
+      companyId: req.mcpCompany!.id,
       employeeId: req.mcpEmployee!.id,
       excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
-      ...(body.all ? {} : { status: "active" as const }),
-    });
-    res.json({ workstreams: rows.map(serializeWorkstream) });
+    }));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_workstream",
+  validateBody(
+    z.object({
+      workstreamId: z.string().uuid(),
+      field: z.enum(["stateDoc", "objective", "closeReason"]).optional(),
+      offset: z.number().int().min(0).max(40_000).optional(),
+      maxChars: z.number().int().min(1).max(8_000).optional(),
+    }).strict(),
+  ),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(await readEmployeeWorkstream({
+        ...req.body,
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
+      }));
+    } catch (error) {
+      if (!(error instanceof WorkstreamError)) return next(error);
+      res.status(404).json({ error: error.message });
+    }
   },
 );
 
@@ -17809,30 +17851,6 @@ function serializeMailThreadForAgent(t: MailThread) {
   };
 }
 
-/** Agent view of one message: text body only, capped — HTML stays server-side. */
-const AGENT_MAIL_BODY_CAP = 20_000;
-function serializeMailMessageForAgent(m: MailMessage) {
-  // `index` is the handle `read_mail_attachment` takes. Without it the agent
-  // can see that a form arrived and still have no way to open it.
-  const attachments = summarizeMailAttachments(m.attachmentsJson);
-  const body = m.bodyText || m.snippet;
-  return {
-    messageId: m.id,
-    isDraft: m.gmailDraftId !== "",
-    from: m.fromName ? `${m.fromName} <${m.fromEmail}>` : m.fromEmail,
-    to: m.toEmails,
-    cc: m.ccEmails,
-    subject: m.subject,
-    sentAt: m.sentAt ? m.sentAt.toISOString() : null,
-    labels: columnToLabelIds(m.labelIds),
-    bodyText:
-      body.length > AGENT_MAIL_BODY_CAP
-        ? `${body.slice(0, AGENT_MAIL_BODY_CAP)}\n… [truncated]`
-        : body,
-    attachments,
-  };
-}
-
 mcpInternalRouter.post("/tools/list_mail_accounts", async (req: McpRequest, res: Response) => {
   const self = req.mcpEmployee!;
   const co = req.mcpCompany!;
@@ -17953,7 +17971,18 @@ mcpInternalRouter.post(
   },
 );
 
-const getMailThreadSchema = z.object({ threadId: z.string().uuid() }).strict();
+const mailBodyReadFields = {
+  includeQuoted: z.boolean().optional(),
+  bodyOffset: z.number().int().min(0).max(10_000_000).optional(),
+  maxBodyChars: z.number().int().min(1).max(20_000).optional(),
+};
+const getMailThreadSchema = z.object({
+  threadId: z.string().uuid(),
+  messageLimit: z.number().int().min(1).max(20).optional(),
+  messageOffset: z.number().int().min(0).max(1_000_000).optional(),
+  includeQuoted: mailBodyReadFields.includeQuoted,
+  maxBodyChars: mailBodyReadFields.maxBodyChars,
+}).strict();
 
 mcpInternalRouter.post(
   "/tools/get_mail_thread",
@@ -17962,14 +17991,35 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof getMailThreadSchema>;
     const found = await loadGrantedMailThread(req, res, body.threadId, "read");
     if (!found) return;
-    const messages = await AppDataSource.getRepository(MailMessage).find({
-      where: { threadId: found.thread.id },
-      order: { sentAt: "ASC" },
-    });
     res.json({
       thread: serializeMailThreadForAgent(found.thread),
       account: { accountId: found.account.id, address: found.account.address },
-      messages: messages.map(serializeMailMessageForAgent),
+      ...await readMailThreadForAgent(found.thread, body),
+    });
+  },
+);
+
+const getMailMessageSchema = z.object({
+  messageId: z.string().uuid(),
+  ...mailBodyReadFields,
+}).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_mail_message",
+  validateBody(getMailMessageSchema),
+  async (req: McpRequest, res: Response) => {
+    const body = req.body as z.infer<typeof getMailMessageSchema>;
+    const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+      id: body.messageId,
+      companyId: req.mcpCompany!.id,
+    });
+    if (!message) return res.status(404).json({ error: "Message not found" });
+    const account = await loadGrantedMailAccount(req, res, message.accountId, "read");
+    if (!account) return;
+    res.json({
+      account: { accountId: account.id, address: account.address },
+      threadId: message.threadId,
+      message: serializeMailMessageForAgent(message, body),
     });
   },
 );

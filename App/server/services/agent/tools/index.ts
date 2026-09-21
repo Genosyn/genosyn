@@ -112,6 +112,8 @@ export async function gatherEmployeeTools(params: {
   cwd: string;
   /** Runtime-local tools (for example bounded parallel delegation). */
   localTools?: AgentTool[];
+  /** Read/recovery tools discoverable without enlarging the resident working set. */
+  deferredLocalTools?: AgentTool[];
   /** Explicit env for the coding runtime (for example Environment secrets). */
   toolEnv: Record<string, string>;
   bashTimeoutMs: number;
@@ -193,6 +195,7 @@ export async function gatherEmployeeTools(params: {
 
   const tools: AgentTool[] = [
     ...(reviewScope ? [] : (params.localTools ?? [])),
+    ...(scope?.surfaceOnly ? [] : (params.deferredLocalTools ?? [])),
     ...guardedCoding,
     ...genosyn.tools,
   ];

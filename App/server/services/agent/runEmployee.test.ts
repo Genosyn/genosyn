@@ -98,6 +98,14 @@ test("ordinary host turns use OpenCode native coding without the retired file wr
     assert.equal(seen[0].registry.resolve(name), undefined, name);
   }
   assert.ok(seen[0].registry.resolve("get_self"));
+  assert.equal(seen[0].registry.visibility("get_runtime_diagnostics"), "deferred");
+  assert.equal(seen[0].registry.visibility("get_parallel_work_result"), "deferred");
+  const diagnostics = JSON.parse(
+    (await seen[0].registry.resolve("get_runtime_diagnostics")!.run({})).content,
+  );
+  assert.equal(diagnostics.runtime, "opencode");
+  assert.equal(diagnostics.coding.nativeToolsEnabled, true);
+  assert.equal(diagnostics.tools.workerRecoveryAvailable, true);
 });
 
 test("ordinary Members do not gain native coding when the default engine changes", async (t) => {
@@ -106,6 +114,8 @@ test("ordinary Members do not gain native coding when the default engine changes
   assert.equal(result.status, "ok");
   assert.equal(seen[0].nativeCoding, false);
   assert.equal(seen[0].registry.resolve("delegate_parallel_work"), undefined);
+  assert.equal(seen[0].registry.resolve("get_parallel_work_result"), undefined);
+  assert.ok(seen[0].registry.resolve("get_runtime_diagnostics"));
 });
 
 test("Repository work sessions retain their exact domain tool surface", async (t) => {
@@ -120,6 +130,8 @@ test("Repository work sessions retain their exact domain tool surface", async (t
     "repository_read_file",
   ]);
   assert.equal(seen[0].registry.resolve("find_tools"), undefined);
+  assert.equal(seen[0].registry.resolve("get_runtime_diagnostics"), undefined);
+  assert.equal(seen[0].registry.resolve("get_parallel_work_result"), undefined);
   assert.equal(seen[0].registry.resolve("delegate_parallel_work"), undefined);
 });
 
@@ -145,6 +157,32 @@ test("the live Member authorizer is forwarded to OpenCode native tool permission
   const authorize = async () => "Membership revoked";
   await runEmployeeAgent({ ...params, authorizePrivilegedToolCall: authorize });
   assert.equal(seen[0].authorizePrivilegedToolCall, authorize);
+});
+
+test("runtime diagnostics observe the active model and worker recovery keeps the live authority gate", async (t) => {
+  let observed = false;
+  const forwarded: number[] = [];
+  t.mock.method(agentRuntime, "run", async (input: Parameters<typeof agentRuntime.run>[0]) => {
+    input.callbacks?.onContextUsage?.({ promptTokens: 8000, contextWindow: 32000, percent: 25 });
+    const result = await input.registry
+      .resolve("get_runtime_diagnostics")!
+      .run({ toolName: "get_parallel_work_result" });
+    const body = JSON.parse(result.content);
+    assert.equal(body.context.percent, 25);
+    assert.equal(body.tool.visibility, "deferred");
+    const denied = await input.registry.resolve("get_parallel_work_result")!.run({});
+    assert.equal(denied.isError, true);
+    assert.match(denied.content, /Membership revoked/);
+    observed = true;
+    return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+  });
+  await runEmployeeAgent({
+    ...params,
+    authorizePrivilegedToolCall: async () => "Membership revoked",
+    callbacks: { onContextUsage: (usage) => forwarded.push(usage.promptTokens) },
+  });
+  assert.equal(observed, true);
+  assert.deepEqual(forwarded, [8000]);
 });
 
 test("restricted model decisions cannot inherit a cwd, environment or native tools", async (t) => {

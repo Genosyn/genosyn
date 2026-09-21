@@ -1,5 +1,6 @@
 import type { IntegrationProvider } from "../types.js";
 import { maskSecret } from "../../lib/secret.js";
+import { STRIPE_LIST_PROPERTIES, stripeListOptions, stripeReadPage } from "./stripe-read.js";
 
 /**
  * Stripe — API-key integration. Users paste a restricted API key (read-only
@@ -7,8 +8,8 @@ import { maskSecret } from "../../lib/secret.js";
  * create to validate the key and capture the account id/name for the hint.
  *
  * No SDK dependency — Stripe's REST API is form-encoded and trivial to hit
- * with `fetch`. If we later need more exotic endpoints (e.g. async-iterable
- * lists), dropping `stripe` in becomes a local change.
+ * with `fetch`. Lists expose the provider cursor with compact rows and
+ * explicit coverage so a page cannot be mistaken for a complete account.
  */
 
 const STRIPE_API = "https://api.stripe.com/v1";
@@ -80,16 +81,11 @@ export const stripeProvider: IntegrationProvider = {
     {
       name: "list_customers",
       description:
-        "List customers, most recent first. Returns up to `limit` rows (default 20).",
+        "List customers, most recent first, with compact rows and explicit coverage. Follow nextStartingAfter with identical filters until coverage.reachedEnd. Default 20 rows; compact=false returns full rows.",
       inputSchema: {
         type: "object",
         properties: {
-          limit: {
-            type: "integer",
-            minimum: 1,
-            maximum: 100,
-            description: "Max rows to return (1-100).",
-          },
+          ...STRIPE_LIST_PROPERTIES,
           email: {
             type: "string",
             description: "Filter to customers with this exact email.",
@@ -116,15 +112,15 @@ export const stripeProvider: IntegrationProvider = {
     {
       name: "list_subscriptions",
       description:
-        "List active subscriptions, most recent first. Pass `customerId` to scope to one customer.",
+        "List non-canceled subscriptions by default, most recent first. Set status=all for every status, or customerId for one customer. Compact rows include up to five price/quantity items with their own has_more. Follow nextStartingAfter with unchanged filters until coverage.reachedEnd.",
       inputSchema: {
         type: "object",
         properties: {
-          limit: { type: "integer", minimum: 1, maximum: 100 },
+          ...STRIPE_LIST_PROPERTIES,
           customerId: { type: "string" },
           status: {
             type: "string",
-            enum: ["all", "active", "past_due", "canceled", "trialing", "unpaid"],
+            enum: ["all", "active", "past_due", "canceled", "trialing", "unpaid", "incomplete", "incomplete_expired", "paused", "ended"],
           },
         },
         additionalProperties: false,
@@ -133,11 +129,11 @@ export const stripeProvider: IntegrationProvider = {
     {
       name: "list_invoices",
       description:
-        "List Stripe invoices, most recent first. Pass `customerId` or a status to narrow the result.",
+        "List Stripe invoices, most recent first, with compact financial rows and coverage. Filter by customerId, status or creation time. Follow nextStartingAfter with unchanged filters until coverage.reachedEnd; compact=false includes full invoice details.",
       inputSchema: {
         type: "object",
         properties: {
-          limit: { type: "integer", minimum: 1, maximum: 100 },
+          ...STRIPE_LIST_PROPERTIES,
           customerId: { type: "string" },
           status: {
             type: "string",
@@ -149,11 +145,11 @@ export const stripeProvider: IntegrationProvider = {
     },
     {
       name: "list_charges",
-      description: "List charges, most recent first. Useful for revenue spot-checks.",
+      description: "List charges, most recent first, with compact financial rows and coverage. Follow nextStartingAfter with unchanged filters until coverage.reachedEnd. A page is not an account-wide revenue total.",
       inputSchema: {
         type: "object",
         properties: {
-          limit: { type: "integer", minimum: 1, maximum: 100 },
+          ...STRIPE_LIST_PROPERTIES,
           customerId: { type: "string" },
         },
         additionalProperties: false,
@@ -214,12 +210,14 @@ export const stripeProvider: IntegrationProvider = {
 
     switch (name) {
       case "list_customers": {
+        const options = stripeListOptions(a);
         const params: Record<string, string | number> = {
           limit: clampInt(a.limit, 1, 100, 20),
+          ...options.params,
         };
         if (typeof a.email === "string" && a.email.trim())
           params["email"] = a.email.trim();
-        return stripeGet(cfg.apiKey, "/customers", params);
+        return stripeReadPage(await stripeGet(cfg.apiKey, "/customers", params), "customers", params, options.compact);
       }
       case "retrieve_customer": {
         if (typeof a.customerId !== "string" || !a.customerId.trim())
@@ -227,18 +225,22 @@ export const stripeProvider: IntegrationProvider = {
         return stripeGet(cfg.apiKey, `/customers/${encodeURIComponent(a.customerId)}`);
       }
       case "list_subscriptions": {
+        const options = stripeListOptions(a);
         const params: Record<string, string | number> = {
           limit: clampInt(a.limit, 1, 100, 20),
+          ...options.params,
         };
         if (typeof a.customerId === "string" && a.customerId.trim())
           params["customer"] = a.customerId.trim();
         if (typeof a.status === "string" && a.status.trim())
           params["status"] = a.status.trim();
-        return stripeGet(cfg.apiKey, "/subscriptions", params);
+        return stripeReadPage(await stripeGet(cfg.apiKey, "/subscriptions", params), "subscriptions", params, options.compact);
       }
       case "list_invoices": {
+        const options = stripeListOptions(a);
         const params: Record<string, string | number> = {
           limit: clampInt(a.limit, 1, 100, 20),
+          ...options.params,
         };
         if (typeof a.customerId === "string" && a.customerId.trim()) {
           params["customer"] = a.customerId.trim();
@@ -246,15 +248,17 @@ export const stripeProvider: IntegrationProvider = {
         if (typeof a.status === "string" && a.status.trim()) {
           params["status"] = a.status.trim();
         }
-        return stripeGet(cfg.apiKey, "/invoices", params);
+        return stripeReadPage(await stripeGet(cfg.apiKey, "/invoices", params), "invoices", params, options.compact);
       }
       case "list_charges": {
+        const options = stripeListOptions(a);
         const params: Record<string, string | number> = {
           limit: clampInt(a.limit, 1, 100, 20),
+          ...options.params,
         };
         if (typeof a.customerId === "string" && a.customerId.trim())
           params["customer"] = a.customerId.trim();
-        return stripeGet(cfg.apiKey, "/charges", params);
+        return stripeReadPage(await stripeGet(cfg.apiKey, "/charges", params), "charges", params, options.compact);
       }
       case "get_balance":
         return stripeGet(cfg.apiKey, "/balance");

@@ -2,10 +2,7 @@ import { In } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { Contact } from "../../db/entities/Contact.js";
-import {
-  Suppression,
-  type SuppressionReason,
-} from "../../db/entities/Suppression.js";
+import { Suppression, type SuppressionReason } from "../../db/entities/Suppression.js";
 import { normalizeEmail, parseAddressList } from "../../lib/emailAddress.js";
 import { assertRecipientsPolicyAllowed } from "../companyPolicies.js";
 
@@ -67,10 +64,7 @@ export function collectRecipients(fields: {
  * recipients in two round-trips. Returns normalized addresses, so callers
  * should normalize before comparing.
  */
-export async function suppressedAmong(
-  companyId: string,
-  emails: string[],
-): Promise<Set<string>> {
+export async function suppressedAmong(companyId: string, emails: string[]): Promise<Set<string>> {
   const normalized = [
     ...new Set(emails.map((e) => normalizeEmail(e)).filter((e): e is string => !!e)),
   ];
@@ -101,6 +95,35 @@ export async function isSuppressed(companyId: string, email: string): Promise<bo
   const normalized = normalizeEmail(email);
   if (!normalized) return false;
   return (await suppressedAmong(companyId, [normalized])).has(normalized);
+}
+
+/** Read the exact send-gate evidence without requiring or creating a Contact. */
+export async function lookupSuppression(companyId: string, rawEmail: string) {
+  const email = normalizeEmail(rawEmail);
+  if (!email) throw new Error("That is not a usable email address");
+  const [suppression, contacts] = await Promise.all([
+    AppDataSource.getRepository(Suppression).findOneBy({ companyId, email }),
+    AppDataSource.getRepository(Contact).find({
+      where: { companyId, email, doNotContact: true },
+      select: { id: true },
+    }),
+  ]);
+  return {
+    email,
+    suppressed: !!suppression || contacts.length > 0,
+    suppression: suppression
+      ? {
+          id: suppression.id,
+          reason: suppression.reason,
+          source: suppression.source.slice(0, 500),
+          contactId: suppression.contactId,
+          createdAt: suppression.createdAt,
+        }
+      : null,
+    doNotContact: contacts.length > 0,
+    doNotContactContactIds: contacts.map((contact) => contact.id),
+    note: "Checks this company's Suppressions and Contact do-not-contact flags. A clear result is not permission to send: current Grants, delivery reviews and company Policies still apply.",
+  };
 }
 
 /**
@@ -198,10 +221,7 @@ export async function addSuppression(input: {
  * the cheapest way to get a sending domain blocklisted is to mail somebody who
  * already said no.
  */
-export async function removeSuppression(
-  companyId: string,
-  email: string,
-): Promise<boolean> {
+export async function removeSuppression(companyId: string, email: string): Promise<boolean> {
   const normalized = normalizeEmail(email);
   if (!normalized) return false;
   const result = await AppDataSource.getRepository(Suppression).delete({

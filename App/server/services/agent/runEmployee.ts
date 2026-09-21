@@ -14,6 +14,8 @@ import type { PrivilegedToolCallAuthorizer } from "../memberTurnAuthority.js";
 import { formatModelError } from "./modelError.js";
 import {
   createParallelDelegationTool,
+  createParallelResultStore,
+  createParallelWorkResultTool,
   delegatedSystemPrompt,
   MAX_DELEGATIONS_PER_TURN,
   supportsParallelDelegation,
@@ -21,6 +23,7 @@ import {
   type DelegationBudget,
 } from "./tools/parallelDelegation.js";
 import { createChatProgressTool } from "./tools/chatProgress.js";
+import { createRuntimeDiagnostics } from "./tools/runtimeDiagnostics.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
@@ -190,6 +193,24 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const allowPrivileged = params.allowPrivilegedToolSources ?? true;
+  const diagnostics = createRuntimeDiagnostics({
+    runtime: params.model.authMode === "subscription" ? "codex_subscription" : "opencode",
+    contextWindow: params.model.contextWindow,
+    maxSteps: params.maxSteps,
+    bashTimeoutMs: params.bashTimeoutMs,
+    codingMode: config.agent.codingTools.executionMode,
+    nativeCoding:
+      params.model.authMode !== "subscription" &&
+      allowPrivileged &&
+      !params.toolScope?.surfaceOnly &&
+      config.agent.codingTools.executionMode === "host" &&
+      codingRuntimeAvailability().available,
+    callbacks: params.callbacks,
+    signal: params.signal,
+  });
+  // Workers forward cost/retry observations, but never replace the parent's context reading.
+  params = { ...params, callbacks: diagnostics.callbacks };
+  const deferredLocalTools: AgentTool[] = params.toolScope?.surfaceOnly ? [] : [diagnostics.tool];
   const localTools: AgentTool[] = selectSurfaceTools(params.extraTools ?? [], {
     authority: params.extraToolsAuthority,
     allowPrivileged,
@@ -203,11 +224,19 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     !params.toolScope?.surfaceOnly &&
     supportsParallelDelegation(params.model.authMode, delegationDepth)
   ) {
+    const resultStore = createParallelResultStore();
+    deferredLocalTools.push(
+      ...guardPrivilegedTools(
+        [createParallelWorkResultTool(resultStore)],
+        params.authorizePrivilegedToolCall,
+      ),
+    );
     localTools.push(
       ...guardPrivilegedTools(
         [
           createParallelDelegationTool({
             budget: delegationBudget,
+            resultStore,
             signal: params.signal,
             runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
           }),
@@ -218,7 +247,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   }
 
   if (params.model.authMode === "subscription") {
-    return runSubscriptionEmployeeAgent(params, localTools);
+    return runSubscriptionEmployeeAgent(params, localTools, deferredLocalTools, diagnostics);
   }
 
   const gathered = await gatherEmployeeTools({
@@ -226,6 +255,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     genosynToken: params.genosynToken,
     cwd: params.cwd,
     localTools,
+    deferredLocalTools,
     toolEnv: params.toolEnv,
     bashTimeoutMs: params.bashTimeoutMs,
     skillToolset: params.skillToolset,
@@ -262,6 +292,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     params.model.provider === "openai" ? (nativeCoding ? 112 : 128) : null,
     params.callbacks,
   );
+  diagnostics.setRegistry(gathered.registry);
 
   try {
     const result = await agentRuntime.run({
@@ -379,6 +410,8 @@ async function runRestrictedEmployeeTurn(
 async function runSubscriptionEmployeeAgent(
   params: EmployeeAgentParams,
   localTools: AgentTool[],
+  deferredLocalTools: AgentTool[],
+  diagnostics: ReturnType<typeof createRuntimeDiagnostics>,
 ): Promise<EmployeeAgentResult> {
   let gathered: Awaited<ReturnType<typeof gatherEmployeeTools>> | null = null;
   try {
@@ -387,6 +420,7 @@ async function runSubscriptionEmployeeAgent(
       genosynToken: params.genosynToken,
       cwd: params.cwd,
       localTools,
+      deferredLocalTools,
       toolEnv: params.toolEnv,
       bashTimeoutMs: params.bashTimeoutMs,
       skillToolset: params.skillToolset,
@@ -414,6 +448,7 @@ async function runSubscriptionEmployeeAgent(
       128,
       params.callbacks,
     );
+    diagnostics.setRegistry(gathered.registry);
 
     const result = await runCodexSubscriptionTurn({
       model: params.model,

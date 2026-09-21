@@ -6,6 +6,7 @@ import type {
 import { maskSecret } from "../../lib/secret.js";
 import { GITHUB_ENDPOINT, forgeFetch } from "./forge/client.js";
 import { forgeToolDefinitions, invokeForgeTool } from "./forge/tools.js";
+import { githubActivityTool, listGithubRepositoryActivity } from "./github-activity.js";
 import {
   GITHUB_SCOPE_GROUPS,
   refreshGithubToken,
@@ -142,7 +143,7 @@ export const githubProvider: IntegrationProvider = {
     enabled: true,
   },
 
-  tools: forgeToolDefinitions("github"),
+  tools: [...forgeToolDefinitions("github"), githubActivityTool],
 
   async validateApiKey(input) {
     const apiKey = (input.apiKey ?? "").trim();
@@ -218,6 +219,9 @@ export const githubProvider: IntegrationProvider = {
   },
 
   async invokeTool(name, args, ctx) {
+    if (name === githubActivityTool.name) {
+      return listGithubRepositoryActivity(args, await ensureGithubAccessToken(ctx));
+    }
     return invokeForgeTool(name, args as Record<string, unknown> | undefined, {
       endpoint: GITHUB_ENDPOINT,
       token: await ensureGithubAccessToken(ctx),

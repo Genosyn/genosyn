@@ -391,10 +391,11 @@ const EXPECTED_GITHUB_TOOL_NAMES = [
   "create_pull_request",
   "list_commits",
   "search_code",
+  "list_repository_activity",
 ];
 
 describe("GitHub Integration tool surface", () => {
-  test("exposes exactly the tools it exposed before the shared forge refactor", () => {
+  test("exposes the shared forge tools and GitHub activity reader without duplicates", () => {
     const names = githubProvider.tools.map((tool) => tool.name);
     assert.deepEqual([...names].sort(), [...EXPECTED_GITHUB_TOOL_NAMES].sort());
     assert.equal(new Set(names).size, names.length);

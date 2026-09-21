@@ -80,6 +80,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "create_workstream",
       "update_workstream",
       "list_workstreams",
+      "get_workstream",
     ],
   },
   pipelines: {
@@ -274,6 +275,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "list_mail_accounts",
       "search_mail",
       "get_mail_thread",
+      "get_mail_message",
       "read_mail_attachment",
       "create_mail_draft",
       "edit_mail_draft",
@@ -375,6 +377,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "add_deal_contact",
       "enroll_in_sequence",
       "suppress_email",
+      "lookup_suppression",
       "list_revenue_classifications",
       "create_revenue_classification",
       "update_revenue_classification",
@@ -603,6 +606,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   list_mail_accounts: ["inbox", "mailbox", "gmail", "email account"],
   search_mail: ["inbox", "email", "gmail", "find message", "search inbox"],
   get_mail_thread: ["inbox", "email", "read email", "conversation"],
+  get_mail_message: ["email body", "quoted history", "read message", "body continuation"],
   read_mail_attachment: [
     "attachment",
     "email attachment",
@@ -757,6 +761,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   add_deal_contact: ["buying committee", "stakeholder", "champion"],
   enroll_in_sequence: ["outbound", "campaign", "enroll", "cadence"],
   suppress_email: ["unsubscribe", "do not contact", "opt out", "suppression list"],
+  lookup_suppression: ["suppression lookup", "unsubscribe", "do not contact", "opt out", "email eligibility"],
   list_revenue_classifications: [
     "deal sources",
     "buying roles",
@@ -1358,6 +1363,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   create_workstream: ["long running", "multi-day", "track progress", "state", "wip"],
   update_workstream: ["save progress", "checkpoint", "state", "where i left off"],
   list_workstreams: ["in progress", "wip", "where i left off"],
+  get_workstream: ["state document", "checkpoint", "read progress", "recover", "workstream id"],
   propose_initiative: ["new routine idea", "should exist", "suggest work", "noticed a gap"],
   list_initiatives: [
     "previous suggestions",

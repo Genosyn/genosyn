@@ -5,6 +5,12 @@ import type {
   ResolvedAttachment,
 } from "../../types.js";
 import { clampInt, safeJson } from "./util.js";
+import { readMailBody } from "../../../services/mail/bodyRead.js";
+import {
+  extractBodies,
+  headerValue,
+  type GmailMessage,
+} from "../../../services/mail/gmailClient.js";
 
 /**
  * Gmail tool definitions + handlers, hosted under the umbrella `google`
@@ -25,10 +31,7 @@ import { clampInt, safeJson } from "./util.js";
  * We never learn which Resource the bytes came from or which account the grant
  * was on, and we can't widen either.
  */
-type GmailHostCtx = Pick<
-  IntegrationRuntimeContext,
-  "resolveAttachments" | "assertCapability"
->;
+type GmailHostCtx = Pick<IntegrationRuntimeContext, "resolveAttachments" | "assertCapability">;
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
@@ -102,14 +105,13 @@ export const gmailTools: IntegrationTool[] = [
   {
     name: "gmail_search_messages",
     description:
-      "Search the connected inbox with a Gmail search query (same syntax as the Gmail search bar). Returns message metadata; call `gmail_get_message` for full bodies. When the response includes `nextPageToken`, pass it back as `pageToken` with the same filters to continue through every result page.",
+      "Search the connected inbox with a Gmail search query (same syntax as the Gmail search bar). Returns message metadata; call `gmail_get_message` for bounded body reads. When the response includes `nextPageToken`, pass it back as `pageToken` with the same filters to continue through every result page.",
     inputSchema: {
       type: "object",
       properties: {
         q: {
           type: "string",
-          description:
-            'Gmail search expression, e.g. "from:acme.com newer_than:7d".',
+          description: 'Gmail search expression, e.g. "from:acme.com newer_than:7d".',
         },
         maxResults: {
           type: "integer",
@@ -134,12 +136,29 @@ export const gmailTools: IntegrationTool[] = [
   {
     name: "gmail_get_message",
     description:
-      "Fetch one message by id, including headers and body text. Use the `format` argument to control verbosity (default 'full').",
+      "Read one Gmail message. Default format 'text' returns compact headers and up to 4,000 decoded plain-text characters, omitting quoted history heuristically. Check bodyCoverage and continue with bodyOffset; includeQuoted:true reads the original text. Explicit minimal/metadata/full retain Gmail's native response; full can be very large base64 MIME, so prefer text for reading.",
     inputSchema: {
       type: "object",
       properties: {
         messageId: { type: "string" },
-        format: { type: "string", enum: ["minimal", "metadata", "full"] },
+        format: { type: "string", enum: ["text", "minimal", "metadata", "full"] },
+        includeQuoted: {
+          type: "boolean",
+          description: "For text format, include quoted history; default false.",
+        },
+        bodyOffset: {
+          type: "integer",
+          minimum: 0,
+          maximum: 10000000,
+          description:
+            "For text format, character offset from bodyCoverage.nextOffset; keep includeQuoted unchanged.",
+        },
+        maxBodyChars: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20000,
+          description: "For text format, character budget; default 4,000.",
+        },
       },
       required: ["messageId"],
       additionalProperties: false,
@@ -159,8 +178,7 @@ export const gmailTools: IntegrationTool[] = [
   },
   {
     name: "gmail_list_labels",
-    description:
-      "List the labels configured on the inbox — useful before filtering or labelling.",
+    description: "List the labels configured on the inbox — useful before filtering or labelling.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -194,13 +212,36 @@ export async function invokeGmailTool(
     }
     case "gmail_get_message": {
       await assertCapability("mail.read", ctx);
-      if (typeof a.messageId !== "string" || !a.messageId)
-        throw new Error("messageId is required");
-      const fmt = typeof a.format === "string" ? a.format : "full";
-      return gmailFetch(
+      if (typeof a.messageId !== "string" || !a.messageId) throw new Error("messageId is required");
+      const fmt = typeof a.format === "string" ? a.format : "text";
+      if (!["text", "minimal", "metadata", "full"].includes(fmt))
+        throw new Error("Unknown Gmail message format");
+      const message = await gmailFetch(
         accessToken,
-        `/users/me/messages/${encodeURIComponent(a.messageId)}?format=${encodeURIComponent(fmt)}`,
+        `/users/me/messages/${encodeURIComponent(a.messageId)}?format=${encodeURIComponent(fmt === "text" ? "full" : fmt)}`,
       );
+      if (fmt !== "text") return message;
+      const gmailMessage = message as GmailMessage;
+      const bodies = extractBodies(gmailMessage.payload);
+      const headers = gmailMessage.payload?.headers;
+      return {
+        id: gmailMessage.id,
+        threadId: gmailMessage.threadId,
+        labelIds: gmailMessage.labelIds ?? [],
+        from: headerValue(headers, "From"),
+        to: headerValue(headers, "To"),
+        cc: headerValue(headers, "Cc"),
+        subject: headerValue(headers, "Subject"),
+        date: headerValue(headers, "Date"),
+        bodySource: bodies.text ? "bodyText" : "snippet",
+        ...readMailBody(bodies.text || gmailMessage.snippet || "", {
+          includeQuoted: a.includeQuoted === true,
+          bodyOffset: clampInt(a.bodyOffset, 0, 10_000_000, 0),
+          maxBodyChars: clampInt(a.maxBodyChars, 1, 20_000, 4_000),
+          sourceComplete: !!bodies.text,
+        }),
+        attachments: bodies.attachments,
+      };
     }
     case "gmail_send_message": {
       const raw = await composeRaw(a, "mail.send", ctx);
@@ -261,10 +302,7 @@ async function composeRaw(
  * how to authorize this — and guessing "allow" there is how the mail grant
  * levels got bypassed in the first place.
  */
-async function assertCapability(
-  capability: string,
-  ctx?: GmailHostCtx,
-): Promise<void> {
+async function assertCapability(capability: string, ctx?: GmailHostCtx): Promise<void> {
   if (!ctx?.assertCapability) {
     throw new Error(
       "Gmail tools are not available on this call path — they need a caller the mailbox grants can be checked against.",
@@ -325,11 +363,7 @@ function encodeRfc822(m: {
     .replace(/=+$/, "");
 }
 
-function bodyOnlyMessage(
-  headers: string[],
-  body: string,
-  html?: string,
-): string {
+function bodyOnlyMessage(headers: string[], body: string, html?: string): string {
   if (!html) {
     return [...headers, ...textPart("text/plain", body)].join("\r\n");
   }
@@ -381,11 +415,7 @@ function mixedMessage(
   return lines.join("\r\n");
 }
 
-function alternativeParts(
-  boundary: string,
-  body: string,
-  html: string,
-): string[] {
+function alternativeParts(boundary: string, body: string, html: string): string[] {
   return [
     `--${boundary}`,
     ...textPart("text/plain", body),
@@ -431,11 +461,7 @@ function needsTransferEncoding(text: string): boolean {
 
 /** RFC 2045 §6.7. Encodes per source line, then soft-wraps to 76 columns. */
 function encodeQuotedPrintable(text: string): string {
-  return text
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map(encodeQpLine)
-    .join("\r\n");
+  return text.replace(/\r\n/g, "\n").split("\n").map(encodeQpLine).join("\r\n");
 }
 
 function encodeQpLine(line: string): string {
@@ -528,9 +554,7 @@ async function gmailFetch(
 }
 
 function encodeHeader(s: string): string {
-  return /[^\x20-\x7e]/.test(s)
-    ? `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`
-    : s;
+  return /[^\x20-\x7e]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=` : s;
 }
 
 function str(v: unknown, field: string): string {

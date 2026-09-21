@@ -1,4 +1,11 @@
 import type { AgentTool } from "../types.js";
+import { createParallelResultStore, type ParallelResultStore } from "./parallelWorkerResults.js";
+
+export {
+  createParallelResultStore,
+  createParallelWorkResultTool,
+} from "./parallelWorkerResults.js";
+export type { ParallelResultStore } from "./parallelWorkerResults.js";
 
 /** Hard limits keep one model turn from multiplying into unbounded API spend. */
 export const MAX_PARALLEL_DELEGATIONS = 4;
@@ -7,7 +14,7 @@ export const MAX_DELEGATIONS_PER_TURN = 12;
 
 const MAX_LABEL_LENGTH = 80;
 const MAX_INSTRUCTION_LENGTH = 20_000;
-const MAX_RESULT_LENGTH = 12_000;
+const MAX_RESULT_LENGTH = 600;
 
 export type DelegationBudget = { remaining: number };
 
@@ -73,13 +80,15 @@ export type DelegatedBriefResult =
  */
 export function createParallelDelegationTool(params: {
   budget: DelegationBudget;
+  resultStore?: ParallelResultStore;
   signal?: AbortSignal;
   runBrief: (brief: DelegatedBrief) => Promise<DelegatedBriefResult>;
 }): AgentTool {
+  const resultStore = params.resultStore ?? createParallelResultStore();
   return {
     name: "delegate_parallel_work",
     description:
-      "Delegate independent parts of the current objective to temporary parallel workers that are copies of you. Each worker gets your Soul, Skills, AI Model, Grants, secrets, working directory, and a self-contained brief, then its result is returned here for you to verify and synthesize. Use this for independent research, analysis, or API calls. For file-writing work, partition files explicitly: workers share one working directory, so overlapping edits or git operations can conflict. This is immediate bounded work, not a Handoff to another AI Employee. You can delegate at most 8 briefs per call, 12 in the whole turn, with up to 4 running at once; workers cannot delegate again.",
+      "Delegate independent briefs to temporary copies of you with the same Soul, Skills, AI Model, Grants, secrets and working directory. Include all inputs; workers do not see your conversation. Verify and synthesize their results. For file writes, partition files explicitly because workers share a directory. At most 8 briefs per call, 12 per turn, 4 concurrent; workers cannot delegate. Results return compact previews and IDs: use get_parallel_work_result to recover longer output during this parent turn.",
     inputSchema: {
       type: "object",
       properties: {
@@ -138,15 +147,26 @@ export function createParallelDelegationTool(params: {
       // Reserve the whole batch before starting it. A failed child still costs
       // a model call and must not give the parent an infinite retry budget.
       params.budget.remaining -= parsed.tasks.length;
+      const resultIds = parsed.tasks.map((task) => resultStore.reserve(task.label));
       const results = await runBounded(
         parsed.tasks,
         parsed.maxConcurrency,
         params.runBrief,
         params.signal,
+        (result, index) => {
+          const resultId = resultIds[index];
+          if (resultId) resultStore.finish(resultId, result);
+        },
       );
       const failed = results.filter((result) => result.status === "failed").length;
       return {
-        content: formatResults(parsed.tasks, results, parsed.maxConcurrency),
+        content: formatResults(
+          parsed.tasks,
+          results,
+          parsed.maxConcurrency,
+          resultIds,
+          resultStore,
+        ),
         ...(failed === results.length ? { isError: true } : {}),
       };
     },
@@ -208,6 +228,7 @@ async function runBounded(
   maxConcurrency: number,
   runBrief: (brief: DelegatedBrief) => Promise<DelegatedBriefResult>,
   signal?: AbortSignal,
+  onResult?: (result: DelegatedBriefResult, index: number) => void,
 ): Promise<DelegatedBriefResult[]> {
   const results = new Array<DelegatedBriefResult>(tasks.length);
   let next = 0;
@@ -218,6 +239,7 @@ async function runBounded(
       if (index >= tasks.length) return;
       if (signal?.aborted) {
         results[index] = { status: "failed", error: "Aborted before this brief started." };
+        onResult?.(results[index], index);
         continue;
       }
       try {
@@ -228,6 +250,15 @@ async function runBounded(
           error: err instanceof Error ? err.message : String(err),
         };
       }
+      onResult?.(results[index], index);
+      // The bounded recovery store owns the retained text. Keep only a preview
+      // in the batch while slower workers finish, rather than retaining every
+      // original worker response until the whole batch has completed.
+      const result = results[index];
+      results[index] =
+        result.status === "completed"
+          ? { status: "completed", output: clip(result.output, MAX_RESULT_LENGTH) }
+          : { status: "failed", error: clip(result.error, MAX_RESULT_LENGTH) };
     }
   };
 
@@ -239,21 +270,39 @@ function formatResults(
   tasks: DelegatedBrief[],
   results: DelegatedBriefResult[],
   maxConcurrency: number,
+  resultIds: Array<string | null>,
+  resultStore: ParallelResultStore,
 ): string {
   const completed = results.filter((result) => result.status === "completed").length;
   const sections = results.map((result, index) => {
     const heading = `## ${index + 1}. ${tasks[index].label} — ${result.status}`;
     const body = result.status === "completed" ? result.output : result.error;
-    return `${heading}\n${clip(body || "(no output)", MAX_RESULT_LENGTH)}`;
+    return `${heading}\n${body || "(no output)"}`;
   });
   return [
     `Parallel delegation finished: ${completed}/${results.length} briefs completed (concurrency ${maxConcurrency}).`,
     "Verify and synthesize these worker results before answering or taking follow-up action.",
+    "Recovery: call get_parallel_work_result with resultId (or omit it to list results). Available only during this parent turn.",
+    JSON.stringify({
+      results: resultIds.map((id, index) =>
+        id
+          ? resultStore.list().find((result) => result.resultId === id)
+          : {
+              label: tasks[index].label,
+              resultId: null,
+              stored: false,
+              reason: "Result count limit reached",
+            },
+      ),
+    }),
     ...sections,
   ].join("\n\n");
 }
 
 function clip(value: string, max: number): string {
   if (value.length <= max) return value;
-  return value.slice(0, max) + `\n[truncated after ${max} characters]`;
+  return (
+    Buffer.from(value.slice(0, max), "utf16le").toString("utf16le") +
+    `\n[truncated after ${max} characters]`
+  );
 }

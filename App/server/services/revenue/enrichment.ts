@@ -1008,10 +1008,10 @@ export async function proposeCommercialValuesFromStripe(
         const [subscriptionResult, invoiceResult] = (await Promise.all([
           provider.invokeTool(
             "list_subscriptions",
-            { customerId, status: "all", limit: 100 },
+            { customerId, status: "all", limit: 100, compact: false },
             runtime,
           ),
-          provider.invokeTool("list_invoices", { customerId, status: "paid", limit: 100 }, runtime),
+          provider.invokeTool("list_invoices", { customerId, status: "paid", limit: 100, compact: false }, runtime),
         ])) as [{ data?: StripeSubscription[] }, { data?: StripeInvoice[] }];
         const subscriptions = (subscriptionResult.data ?? [])
           .flatMap((subscription) => {

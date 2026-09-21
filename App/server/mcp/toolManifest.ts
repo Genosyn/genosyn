@@ -1197,13 +1197,33 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "list_workstreams",
+    readOnly: true,
     description:
-      "List your Workstreams with their current state documents. Pass `all: true` to include done and abandoned ones.",
+      "List your Workstreams as compact summaries with text truncation and page coverage. Defaults to 5 active Workstreams; all includes done and abandoned ones. Follow nextOffset for later pages; use get_workstream to read a state document by ID. Live ordering can change when a Workstream changes.",
     inputSchema: {
       type: "object",
       properties: {
         all: { type: "boolean", description: "Include finished workstreams." },
+        offset: { type: "integer", minimum: 0, maximum: 1_000_000 },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_workstream",
+    readOnly: true,
+    description:
+      "Read one of your Workstreams directly by ID, including finished ones. Returns compact metadata and a bounded text page (stateDoc by default). Coverage reports total/returned characters and nextOffset. Reuse nextOffset to recover the complete document; updatedAt identifies its current version. The same company, ownership and review restrictions apply as list_workstreams.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workstreamId: { type: "string" },
+        field: { type: "string", enum: ["stateDoc", "objective", "closeReason"] },
+        offset: { type: "integer", minimum: 0, maximum: 40_000 },
+        maxChars: { type: "integer", minimum: 1, maximum: 8_000, description: "Default 4000." },
+      },
+      required: ["workstreamId"],
       additionalProperties: false,
     },
   },
@@ -4822,7 +4842,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "search_mail",
     description:
-      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and the familiar operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — fetch full bodies with `get_mail_thread`.",
+      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and the familiar operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — read bounded message pages with `get_mail_thread` and continue individual bodies with `get_mail_message`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4852,14 +4872,36 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "get_mail_thread",
+    readOnly: true,
     description:
-      "Fetch one email thread with every message body (plain text), recipients, labels, drafts, and attachment metadata. `threadId` is the local thread id from `search_mail` or a handover briefing. Each attachment carries an `index` — pass it with the message id to `read_mail_attachment` to actually open the file.",
+      "Read a bounded page of a synced email thread: defaults to the newest 5 messages with up to 4,000 plain-text characters each and quoted histories omitted heuristically. Messages within each page are returned oldest-first. Check `coverage` for missing messages and pass `nextMessageOffset` as `messageOffset` to read older pages. Check each `bodyCoverage`; use `get_mail_message` to continue a body or inspect quoted history. `threadId` is the local id from search_mail or a handover. Attachment indices work with read_mail_attachment. Requires the mailbox Read Grant.",
     inputSchema: {
       type: "object",
       properties: {
         threadId: { type: "string", description: "Local thread id." },
+        messageLimit: { type: "integer", minimum: 1, maximum: 20, description: "Messages per page; default 5." },
+        messageOffset: { type: "integer", minimum: 0, maximum: 1000000, description: "Offset from newest message; use coverage.nextMessageOffset for older pages." },
+        maxBodyChars: { type: "integer", minimum: 1, maximum: 20000, description: "Per-message character budget; default 4,000. The page shares a 40,000-character total body budget." },
+        includeQuoted: { type: "boolean", description: "Include quoted history in body excerpts. Default false; never changes stored mail." },
       },
       required: ["threadId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_mail_message",
+    readOnly: true,
+    description:
+      "Read one synced email body in bounded character pages with recipients and attachment metadata. Use a local messageId from get_mail_thread. Defaults to 4,000 characters and heuristic quote omission; set includeQuoted:true to inspect the original body including quoted history. Continue with bodyCoverage.nextOffset as bodyOffset, preserving includeQuoted. Coverage is for the stored mailbox mirror, which may itself contain a provider snippet or ingest truncation. Requires the same mailbox Read Grant as get_mail_thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        messageId: { type: "string", description: "Local message id from get_mail_thread." },
+        bodyOffset: { type: "integer", minimum: 0, maximum: 10000000, description: "Character offset into the selected body view; default 0." },
+        maxBodyChars: { type: "integer", minimum: 1, maximum: 20000, description: "Character budget; default 4,000." },
+        includeQuoted: { type: "boolean", description: "Include quoted history; default false." },
+      },
+      required: ["messageId"],
       additionalProperties: false,
     },
   },
@@ -7702,6 +7744,18 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["sequenceId", "contactIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "lookup_suppression",
+    readOnly: true,
+    description:
+      "Look up whether this company must not email an exact address, even when no Contact exists. Reports the Suppression reason/source and any Contact do-not-contact flag without creating records. Normalizes casing/display names, preserving plus tags and dots. A clear result does not authorize sending or bypass company Policies, Grants or delivery review. Requires Revenue Read access.",
+    inputSchema: {
+      type: "object",
+      properties: { email: { type: "string", minLength: 3, maxLength: 320, description: "Email address to check." } },
+      required: ["email"],
       additionalProperties: false,
     },
   },

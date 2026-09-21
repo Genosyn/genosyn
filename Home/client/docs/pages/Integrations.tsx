@@ -395,6 +395,25 @@ export function Integrations() {
         settles.
       </P>
 
+      <H3 id="stripe-reads">Stripe reads and coverage</H3>
+      <P>
+        A granted Stripe Connection returns compact customer, subscription, invoice and charge
+        pages. Every page reports its filters, row count and whether it reached the end. An AI
+        Employee follows <Code>nextStartingAfter</Code> as <Code>startingAfter</Code>, keeping the
+        filters unchanged, until <Code>coverage.reachedEnd</Code> is true. A final page does not
+        include earlier pages; <Code>completeFromStart</Code> is true only when one call covered the
+        whole filtered list. Creation-time bounds use Unix seconds: <Code>createdGte</Code> includes
+        its boundary and <Code>createdLt</Code> excludes it.
+      </P>
+      <P>
+        Subscriptions default to non-canceled statuses; use <Code>status=all</Code> for all statuses.
+        Compact rows omit large metadata and invoice line items, and show up to five subscription
+        price items with their own <Code>has_more</Code> marker. Use <Code>compact=false</Code> for
+        full provider rows when needed. Amounts keep Stripe&apos;s currency units; a page of charges
+        is not an account-wide revenue total. These reads use the existing Connection Grant and
+        require no new write access.
+      </P>
+
       <H3 id="github-engineering">Git hosts &amp; engineering grants</H3>
       <P>
         GitHub and Forgejo Connections are special: a Connection holds a list of repositories the
@@ -406,6 +425,16 @@ export function Integrations() {
         same server-held credential when the Connection is granted to that employee. Genosyn prefers
         an exact owner/repository allowlist match and can use the employee&apos;s sole Connection
         for that server when no disambiguation is needed.
+      </P>
+      <P>
+        GitHub also exposes <Code>list_repository_activity</Code>: compact, structured events for
+        pushes, issues, pull requests, comments, reviews and releases, with source links and
+        explicit coverage. Follow <Code>nextPage</Code> with unchanged filters. Optional ISO
+        timestamp bounds (<Code>since</Code> inclusive, <Code>until</Code> exclusive) filter each
+        page locally, so an empty page can still have a continuation. GitHub retains at most 300
+        events from 30 days and can delay them by six hours. Coverage therefore stays partial even
+        at the end: use the commit, issue and pull-request reads to verify specific work, and never
+        treat an empty event feed as proof of inactivity or as a complete CI history.
       </P>
 
       <H3 id="forgejo-gitea">Forgejo / Gitea</H3>
@@ -431,10 +460,10 @@ export function Integrations() {
         whose pushes quietly fail.
       </P>
       <P>
-        An AI Employee granted a Forgejo Connection gets the same tools it gets on GitHub, with one
-        exception: there is no <Code>search_code</Code>. Forgejo has no code-search endpoint, so the
-        tool is absent from the Connection rather than emulated by something that would answer less
-        well than the employee grepping its own checkout.
+        An AI Employee granted a Forgejo Connection gets the shared repository, issue and
+        pull-request tools. GitHub&apos;s <Code>search_code</Code> and{" "}
+        <Code>list_repository_activity</Code> are absent: Forgejo has no equivalent code-search
+        endpoint, and the activity reader depends on GitHub&apos;s event-feed contract.
       </P>
       <P>
         The server URL is also what makes a Repository on that host reviewable. Genosyn will only

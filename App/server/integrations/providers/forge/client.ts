@@ -262,6 +262,16 @@ export async function forgeFetch(
   path: string,
   init: ForgeRequestInit = {},
 ): Promise<unknown> {
+  return (await forgeFetchWithHeaders(endpoint, token, path, init)).data;
+}
+
+/** Same request boundary, retaining pagination and coverage headers for bounded reads. */
+export async function forgeFetchWithHeaders(
+  endpoint: ForgeEndpoint,
+  token: string,
+  path: string,
+  init: ForgeRequestInit = {},
+): Promise<{ data: unknown; headers: Headers }> {
   const qs = init.query
     ? Object.entries(init.query)
         .filter(([, value]) => value !== undefined && value !== "")
@@ -289,7 +299,7 @@ export async function forgeFetch(
       endpoint.flavor,
     );
   }
-  return parsed;
+  return { data: parsed, headers: response.headers };
 }
 
 /** The forge's own wording, or the status when it did not offer any. */

@@ -119,15 +119,14 @@ export async function updateWorkstream(args: {
   return repo.save(workstream);
 }
 
-export async function listWorkstreams(
-  companyId: string,
-  filter: {
-    employeeId?: string;
-    status?: WorkstreamStatus;
-    /** Internal: business Runs must not consume suggestion-only review tracking. */
-    excludeSelfReviews?: boolean;
-  } = {},
-): Promise<Workstream[]> {
+type WorkstreamReadFilter = {
+  employeeId?: string;
+  status?: WorkstreamStatus;
+  /** Internal: business Runs must not consume suggestion-only review tracking. */
+  excludeSelfReviews?: boolean;
+};
+
+function workstreamReadQuery(companyId: string, filter: WorkstreamReadFilter) {
   const query = AppDataSource.getRepository(Workstream)
     .createQueryBuilder("workstream")
     .where("workstream.companyId = :companyId", { companyId });
@@ -150,7 +149,115 @@ export async function listWorkstreams(
       return `(workstream.routineId IS NULL OR EXISTS ${businessRoutine})`;
     });
   }
-  return query.orderBy("workstream.updatedAt", "DESC").take(200).getMany();
+  return query.orderBy("workstream.updatedAt", "DESC").addOrderBy("workstream.id", "DESC");
+}
+
+export async function listWorkstreams(
+  companyId: string,
+  filter: WorkstreamReadFilter = {},
+): Promise<Workstream[]> {
+  return workstreamReadQuery(companyId, filter).take(200).getMany();
+}
+
+function textCoverage(value: string, offset: number, limit: number) {
+  const returnedChars = value.slice(offset, offset + limit).length;
+  const end = Math.min(value.length, offset + returnedChars);
+  return {
+    offset,
+    returnedChars,
+    totalChars: value.length,
+    truncated: offset > 0 || end < value.length,
+    nextOffset: end < value.length ? end : null,
+  };
+}
+
+function workstreamSummary(workstream: Workstream) {
+  return {
+    textCoverage: {
+      objective: textCoverage(workstream.objective, 0, 160),
+      stateDoc: textCoverage(workstream.stateDoc, 0, 240),
+      closeReason: textCoverage(workstream.closeReason, 0, 160),
+    },
+    ...serializeWorkstream(workstream),
+    objective: workstream.objective.slice(0, 160),
+    stateDoc: workstream.stateDoc.slice(0, 240),
+    closeReason: workstream.closeReason.slice(0, 160),
+  };
+}
+
+/** Compact, explicitly paged employee reads keep large state documents out of listings. */
+export async function listEmployeeWorkstreams(args: {
+  companyId: string;
+  employeeId: string;
+  all?: boolean;
+  offset?: number;
+  limit?: number;
+  excludeSelfReviews?: boolean;
+}) {
+  const offset = boundedReadInteger(args.offset, 0, 0, 1_000_000);
+  const limit = boundedReadInteger(args.limit, 5, 1, 20);
+  const [rows, total] = await workstreamReadQuery(args.companyId, {
+    employeeId: args.employeeId,
+    ...(args.all ? {} : { status: "active" as const }),
+    excludeSelfReviews: args.excludeSelfReviews,
+  })
+    .skip(offset)
+    .take(limit)
+    .getManyAndCount();
+  const hasMore = offset + rows.length < total;
+  return {
+    coverage: {
+      offset,
+      limit,
+      returned: rows.length,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + rows.length : null,
+      scope: args.all ? "all statuses" : "active only",
+      order: "updatedAt descending, id descending",
+      snapshot: false,
+    },
+    workstreams: rows.map(workstreamSummary),
+  };
+}
+
+export type WorkstreamTextField = "stateDoc" | "objective" | "closeReason";
+
+/** An ID never bypasses the same company, employee and review scope as a listing. */
+export async function readEmployeeWorkstream(args: {
+  companyId: string;
+  employeeId: string;
+  workstreamId: string;
+  field?: WorkstreamTextField;
+  offset?: number;
+  maxChars?: number;
+  excludeSelfReviews?: boolean;
+}) {
+  if (!UUID_RE.test(args.workstreamId)) throw new WorkstreamError("Workstream not found");
+  const row = await workstreamReadQuery(args.companyId, {
+    employeeId: args.employeeId,
+    excludeSelfReviews: args.excludeSelfReviews,
+  })
+    .andWhere("workstream.id = :id", { id: args.workstreamId })
+    .getOne();
+  if (!row) throw new WorkstreamError("Workstream not found");
+  const field = args.field ?? "stateDoc";
+  const offset = boundedReadInteger(args.offset, 0, 0, STATE_DOC_MAX);
+  const maxChars = boundedReadInteger(args.maxChars, 4_000, 1, 8_000);
+  return {
+    field,
+    coverage: textCoverage(row[field], offset, maxChars),
+    workstream: workstreamSummary(row),
+    text: row[field].slice(offset, offset + maxChars),
+  };
+}
+
+function boundedReadInteger(value: number | undefined, fallback: number, min: number, max: number) {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new WorkstreamError(`Read range must be an integer from ${min} to ${max}`);
+  }
+  return value;
 }
 
 /** Apply the same boundary when a background employee already knows a tracking ID. */

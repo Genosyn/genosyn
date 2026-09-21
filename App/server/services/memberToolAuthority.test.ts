@@ -75,6 +75,17 @@ describe("interactive Member tool policy", () => {
     assert.equal(memberInternalCallbackPolicy("finish_browser_approval"), "admin");
   });
 
+  test("bounded reads retain the Member policy of the corresponding existing resource reads", () => {
+    for (const [added, existing] of [
+      ["get_workstream", "list_workstreams"],
+      ["get_mail_message", "get_mail_thread"],
+      ["lookup_suppression", "get_contact"],
+    ]) {
+      assert.equal(memberToolPolicy(added), "member", added);
+      assert.equal(memberToolPolicy(added), memberToolPolicy(existing));
+    }
+  });
+
   test("Excel tools use attachment visibility checks for an interactive Member", () => {
     for (const tool of ["read_xlsx", "edit_xlsx"]) {
       assert.equal(memberToolPolicy(tool), "attachment", tool);

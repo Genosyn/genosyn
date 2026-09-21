@@ -638,8 +638,8 @@ export function Email() {
 
       <H2 id="ai-tools">What employees can do with mail</H2>
       <P>
-        Granted employees get a <Code>mail</Code> tool on the built-in <Code>genosyn</Code> MCP
-        surface, with operations to list accounts, search and read threads, write drafts, triage
+        Granted employees get mail tools on the built-in <Code>genosyn</Code> MCP
+        surface to list accounts, search and read threads, write drafts, triage
         (label / archive / mark read), edit existing drafts, propose the email chat&apos;s{" "}
         <DocLink to="/docs/email#assistant">action buttons</DocLink>, and — with{" "}
         <Strong>send</Strong> access — send. Search runs over the same full-text index humans use
@@ -648,6 +648,22 @@ export function Email() {
         without a human forwarding anything. Every action an employee takes is checked against its
         grant level and recorded in the audit log and the employee&apos;s journal, so you can always
         see what it did after the fact.
+      </P>
+      <P>
+        Email reads start small: <Code>get_mail_thread</Code> returns the newest five messages,
+        with up to 4,000 characters per body, and identifies older pages and shortened bodies.
+        Quoted history is omitted heuristically and marked as omitted. The employee can page
+        through older messages, use <Code>get_mail_message</Code> to continue a body, or explicitly
+        include quoted history. Each read reports its coverage, including when only a snippet is
+        available; the original stored email stays unchanged. Google Connection reads through{" "}
+        <Code>gmail_get_message</Code> use the same compact body view by default, with explicit
+        native Gmail formats still available.
+      </P>
+      <P>
+        An employee with Revenue Read access can use <Code>lookup_suppression</Code> to check an
+        email address directly, even when there is no Contact. The result reports a matching
+        Suppression and any Contact do-not-contact flag. A clear result does not authorize a send:
+        mailbox Grants, company Policies and delivery reviews still apply.
       </P>
       <P>
         Proactive email work has a stricter, server-owned boundary regardless of those general
