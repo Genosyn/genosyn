@@ -7,7 +7,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { DataSource, type Table } from "typeorm";
 
-import { Run } from "./entities/Run.js";
 import { RunFailureStates1789639730612 } from "./migrations/1789639730612-RunFailureStates.js";
 
 type StoredRun = Record<string, string | number | null>;
@@ -135,12 +134,12 @@ test("RunFailureStates preserves SQLite Run history, retry metadata and indexes 
   ]);
   await source.destroy();
 
-  // Re-open the same disposable file as an installation booting the new Run
-  // entity. synchronize stays off so only the generated migration changes it.
+  // Re-open at this migration's historical schema, independent of columns
+  // added to today's Run entity. Only the generated migration changes it.
   source = new DataSource({
     type: "better-sqlite3",
     database,
-    entities: [Run],
+    entities: [],
     migrations: [RunFailureStates1789639730612],
     synchronize: false,
     logging: false,
@@ -166,30 +165,43 @@ test("RunFailureStates preserves SQLite Run history, retry metadata and indexes 
     assert.equal(afterSchema.columns.find((column) => column.name === name)?.nullable, true);
   }
 
-  const runs = source.getRepository(Run);
-  const failed = await runs.save(
-    runs.create({
-      routineId: "routine-0",
-      startedAt: new Date("2026-09-17T10:00:00.000Z"),
-      finishedAt: new Date("2026-09-17T10:02:00.000Z"),
-      status: "failed",
-      failureReason: "The source report is missing; the intended digest remains unfinished.",
-      logContent: "[failed] Missing source report.\n",
-    }),
+  // Write only columns belonging to this version. A modern entity would
+  // silently add later columns to INSERT/SELECT and invalidate this fixture.
+  const failed = {
+    ...history[5],
+    id: "new-failed",
+    routineId: "routine-0",
+    startedAt: "2026-09-17 10:00:00.000",
+    finishedAt: "2026-09-17 10:02:00.000",
+    status: "failed",
+    errorKind: null,
+    failureReason: "The source report is missing; the intended digest remains unfinished.",
+    logContent: "[failed] Missing source report.\n",
+  };
+  const error = {
+    ...failed,
+    id: "new-error",
+    routineId: "routine-1",
+    finishedAt: "2026-09-17 10:03:00.000",
+    status: "error",
+    errorKind: "timeout",
+    failureReason: "A reported incomplete result survives a later timeout.",
+    logContent: "[timeout] The AI Model request timed out.\n",
+  };
+  await source
+    .createQueryBuilder()
+    .insert()
+    .into("runs", Object.keys(failed))
+    .values([failed, error])
+    .execute();
+  const savedRows = await readRuns(source);
+  assert.deepEqual(
+    savedRows.find((row) => row.id === failed.id),
+    failed,
   );
-  const error = await runs.save(
-    runs.create({
-      routineId: "routine-1",
-      startedAt: new Date("2026-09-17T10:00:00.000Z"),
-      finishedAt: new Date("2026-09-17T10:03:00.000Z"),
-      status: "error",
-      errorKind: "timeout",
-      failureReason: "A reported incomplete result survives a later timeout.",
-      logContent: "[timeout] The AI Model request timed out.\n",
-    }),
-  );
-  assert.equal((await runs.findOneByOrFail({ id: failed.id })).failureReason, failed.failureReason);
-  const savedError = await runs.findOneByOrFail({ id: error.id });
+  const savedError = savedRows.find((row) => row.id === error.id);
+  assert.ok(savedError);
+  assert.deepEqual(savedError, error);
   assert.equal(savedError.status, "error");
   assert.equal(savedError.errorKind, "timeout");
   assert.equal(savedError.failureReason, error.failureReason);
