@@ -661,16 +661,22 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Click <Strong>Why did it fail?</Strong> or <Strong>Why did it error?</Strong> beside a Run
-        on Home, or inside its Run log modal. The AI Employee who ran the Routine automatically
+        on Home, or inside its Run modal. A compact summary groups the Run&apos;s status, duration,
+        and token usage above the <Strong>Run log</Strong> and explanation tabs. The AI Employee
+        who ran the Routine automatically
         reads that specific Run&apos;s recorded log, failure reason, and Check results, then explains
         the cause, the evidence, and what to try next in the same modal. Missing or incomplete
-        evidence is called out. Use the message box labelled with the employee&apos;s name to ask
-        follow-up questions about the failure, evidence, or possible fixes; replies keep the context
-        of your conversation while the modal is open. The same employee answers every follow-up.
+        evidence is called out.
+      </P>
+      <P>
+        Use <Strong>Message</Strong>, labelled with the employee&apos;s name, to ask about the
+        failure, evidence, or possible fixes. The message box stays below the conversation while you
+        scroll through replies. Click <Strong>Send</Strong> or press <Code>Cmd/Ctrl + Enter</Code>;
+        the same employee answers every follow-up with your conversation&apos;s context. Switching
+        to <Strong>Run log</Strong> keeps your conversation and draft while the modal is open.
         If their AI Model is unavailable, restore their connected AI Model and try again.
         Any Member can ask; the explanation does not retry the Routine, change records, or change
-        the Run&apos;s status or verdicts. Switch to <Strong>Run log</Strong> to inspect the
-        original evidence without losing the explanation.
+        the Run&apos;s status or verdicts.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer

@@ -350,6 +350,7 @@ type FixtureOptions = {
   explanationOptionsError?: boolean;
   noExplanationEmployees?: boolean;
   longFailureTranscript?: boolean;
+  longRunExplanation?: boolean;
   live?: boolean;
 };
 async function open(options: FixtureOptions = {}) {
@@ -468,7 +469,16 @@ async function open(options: FixtureOptions = {}) {
         const employee = employees.find((item) => item.id === explaining.employee?.id);
         assert.ok(employee, "an explanation requires the AI Employee who ran this Routine");
         const response = {
-          explanation: requested.message ? failureFollowup : failureExplanation,
+          explanation: requested.message
+            ? failureFollowup
+            : failureExplanation +
+              (options.longRunExplanation
+                ? Array.from(
+                    { length: 16 },
+                    (_, index) =>
+                      `\n\n### Evidence ${index + 1}\n\nThe recorded mailbox request was rejected. Check the Connection and the Sent folder before retrying this Run.`,
+                  ).join("")
+                : ""),
           employee: { id: employee.id, name: employee.name, slug: employee.slug },
         };
         return route.fulfill({
@@ -955,7 +965,19 @@ try {
           0,
           "the Run's AI Employee is fixed and never shown in a dropdown",
         );
-        await modal.getByText("Employee 2 is reading this Run’s logs…", { exact: true }).waitFor();
+        await modal
+          .getByRole("status")
+          .filter({ hasText: /Reviewing this Run/ })
+          .waitFor();
+        const message = modal.getByRole("textbox", { name: "Message Employee 2", exact: true });
+        await message.fill("Which Connection needs attention?");
+        assert.equal(
+          await modal.getByRole("button", { name: "Send", exact: true }).isDisabled(),
+          true,
+          "a question can be drafted while the initial analysis runs, but cannot be sent yet",
+        );
+        await message.press("Control+Enter");
+        assert.equal(mutations.length, 1, "the shortcut cannot send while analysis is in progress");
         assert.equal(
           await modal.getByRole("button", { name: "Ask AI Employee", exact: true }).count(),
           0,
@@ -963,8 +985,11 @@ try {
         assert.equal(await modal.getByRole("button", { name: "Retry", exact: true }).count(), 0);
         fixture.releaseExplanation();
         await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-        await modal.getByText("Explanation by Employee 2", { exact: true }).waitFor();
-        await modal.getByRole("textbox", { name: "Message Employee 2", exact: true }).waitFor();
+        await modal
+          .getByLabel("Conversation about this Run", { exact: true })
+          .getByText("Employee 2", { exact: true })
+          .waitFor();
+        assert.equal(await message.inputValue(), "Which Connection needs attention?");
         assert.equal(
           await modal.locator("strong").filter({ hasText: "the Connection expired" }).count(),
           1,
@@ -993,7 +1018,11 @@ try {
           path: path.join(output, `home-run-explanation-${width}.png`),
           fullPage: true,
         });
-        await modal.getByRole("button", { name: "Run log", exact: true }).click();
+        const logTab = modal.getByRole("tab", { name: "Run log", exact: true });
+        const explanationTab = modal.getByRole("tab", { name: "Why did it fail?", exact: true });
+        assert.equal(await explanationTab.getAttribute("aria-selected"), "true");
+        await logTab.click();
+        assert.equal(await logTab.getAttribute("aria-selected"), "true");
         await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
         if (width === 1440) {
           await page.waitForFunction(() => {
@@ -1005,8 +1034,13 @@ try {
             );
           });
         }
-        await modal.getByRole("button", { name: "Why did it fail?", exact: true }).click();
+        await explanationTab.click();
         await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
+        assert.equal(
+          await message.inputValue(),
+          "Which Connection needs attention?",
+          "switching tabs preserves the unsent draft",
+        );
         assert.deepEqual(
           mutations,
           [
@@ -1017,13 +1051,170 @@ try {
           ],
           "returning from the log reuses the explanation and never retries or dismisses the Run",
         );
-        await modal.getByRole("button", { name: "Close", exact: true }).last().click();
+        assert.equal(await modal.getByRole("button", { name: "Close", exact: true }).count(), 1);
+        await modal.getByRole("button", { name: "Close", exact: true }).click();
         await modal.waitFor({ state: "detached" });
         assert.equal(await panel.getByText("Daily customer update", { exact: true }).count(), 1);
         await page.close();
       },
     );
   }
+  for (const width of [1440, 390, 320]) {
+    await check(
+      `Run explanation keeps its composer visible with long replies at ${width}px`,
+      async () => {
+        const { page } = await open({
+          width,
+          height: 740,
+          quiet: true,
+          failedRuns: [failedRun()],
+          longRunExplanation: true,
+        });
+        await card(page, "Routines needing attention")
+          .getByRole("button", { name: /^Why did it fail\?/ })
+          .click();
+        const modal = page.getByRole("dialog");
+        await modal.getByRole("heading", { name: "Evidence 16", exact: true }).waitFor();
+        const conversation = modal.getByLabel("Conversation about this Run", { exact: true });
+        const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
+        const send = modal.getByRole("button", { name: "Send", exact: true });
+        assert.equal(
+          await conversation.evaluate((element) => element.scrollHeight > element.clientHeight),
+          true,
+          "long explanations scroll within the conversation",
+        );
+        const modalBounds = await box(modal);
+        const messageBounds = await box(message);
+        const sendBounds = await box(send);
+        assert.ok(messageBounds.y > modalBounds.y);
+        assert.ok(
+          sendBounds.y + sendBounds.height <= Math.min(modalBounds.y + modalBounds.height, 740),
+          "the Send button stays inside the modal and viewport",
+        );
+        await conversation.evaluate((element) => {
+          element.scrollTop = element.scrollHeight;
+        });
+        assert.ok(
+          Math.abs((await box(message)).y - messageBounds.y) < 1,
+          "scrolling the reply does not move the composer",
+        );
+        assert.ok(
+          Math.abs((await box(send)).y - sendBounds.y) < 1,
+          "scrolling the reply does not move Send",
+        );
+        await fits(page);
+        await page.screenshot({
+          path: path.join(output, `home-run-explanation-long-${width}.png`),
+          fullPage: true,
+        });
+        await page.close();
+      },
+    );
+  }
+  await check(
+    "Run explanation preserves its reading position when returning from the log",
+    async () => {
+      const { page, mutations } = await open({
+        quiet: true,
+        failedRuns: [failedRun()],
+        longRunExplanation: true,
+      });
+      await card(page, "Routines needing attention")
+        .getByRole("button", { name: /^Why did it fail\?/ })
+        .click();
+      const modal = page.getByRole("dialog");
+      await modal.getByRole("heading", { name: "Evidence 16", exact: true }).waitFor();
+      const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
+      await message.fill("Was any email sent?");
+      await modal.getByRole("button", { name: "Send", exact: true }).click();
+      await modal.getByText(failureFollowup, { exact: true }).waitFor();
+      const conversation = modal.getByLabel("Conversation about this Run", { exact: true });
+      const readingPosition = await conversation.evaluate((element) => {
+        element.scrollTop = 160;
+        return element.scrollTop;
+      });
+      assert.ok(readingPosition > 0, "the reader is partway through an earlier explanation");
+      await modal.getByRole("tab", { name: "Run log", exact: true }).click();
+      await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+      await modal.getByRole("tab", { name: "Why did it fail?", exact: true }).click();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      assert.equal(
+        await conversation.evaluate((element) => element.scrollTop),
+        readingPosition,
+        "checking the log and returning keeps the reader's place when no reply arrived",
+      );
+      assert.equal(mutations.length, 2, "changing tabs does not request another explanation");
+      await page.close();
+    },
+  );
+  await check(
+    "Run explanation keeps its composer reachable in a short landscape viewport",
+    async () => {
+      const { page, mutations } = await open({
+        width: 740,
+        height: 360,
+        quiet: true,
+        failedRuns: [failedRun()],
+        longRunExplanation: true,
+      });
+      await card(page, "Routines needing attention")
+        .getByRole("button", { name: /^Why did it fail\?/ })
+        .click();
+      const modal = page.getByRole("dialog");
+      await modal.getByRole("heading", { name: "Evidence 16", exact: true }).waitFor();
+      const explanationPanel = modal.getByRole("tabpanel", {
+        name: "Why did it fail?",
+        exact: true,
+      });
+      const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
+      const send = modal.getByRole("button", { name: "Send", exact: true });
+      await send.scrollIntoViewIfNeeded();
+      assert.ok(
+        await explanationPanel.evaluate((element) => (element.parentElement?.scrollTop ?? 0) > 0),
+        "the modal body can scroll to reveal the composer on a short screen",
+      );
+      const modalBounds = await box(modal);
+      const messageBounds = await box(message);
+      const sendBounds = await box(send);
+      assert.ok(
+        messageBounds.y >= modalBounds.y &&
+          messageBounds.y + messageBounds.height <= modalBounds.y + modalBounds.height,
+        "the complete message field is reachable inside the modal",
+      );
+      assert.ok(
+        sendBounds.y >= modalBounds.y &&
+          sendBounds.y + sendBounds.height <= Math.min(modalBounds.y + modalBounds.height, 360),
+        "Send is reachable inside the modal and viewport",
+      );
+      assert.equal(
+        await send.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            bounds.x + bounds.width / 2,
+            bounds.y + bounds.height / 2,
+          );
+          return hit === element || element.contains(hit);
+        }),
+        true,
+        "the Send button is not hidden behind clipped chrome",
+      );
+      await message.fill("Was any email sent?");
+      await send.click();
+      await modal.getByText(failureFollowup, { exact: true }).waitFor();
+      assert.equal(mutations.length, 2);
+      await fits(page);
+      await page.screenshot({
+        path: path.join(output, "home-run-explanation-landscape.png"),
+        fullPage: true,
+      });
+      await page.close();
+    },
+  );
   await check(
     "Run explanation supports inline errors and retries with its original AI Employee",
     async () => {
@@ -1059,7 +1250,10 @@ try {
       fixture.recover();
       await modal.getByRole("button", { name: "Try again", exact: true }).click();
       await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-      await modal.getByText("Explanation by Employee 2", { exact: true }).waitFor();
+      await modal
+        .getByLabel("Conversation about this Run", { exact: true })
+        .getByText("Employee 2", { exact: true })
+        .waitFor();
       assert.deepEqual(mutations, [
         {
           path: "/api/companies/company/runs/failed-run/explanation",
@@ -1075,52 +1269,54 @@ try {
       await page.close();
     },
   );
-  await check(
-    "Run explanation accepts follow-up chat and retains its conversation beside the log",
-    async () => {
-      const { page, mutations } = await open({ quiet: true, failedRuns: [failedRun()] });
-      await card(page, "Routines needing attention")
-        .getByRole("button", { name: /^Why did it fail\?/ })
-        .click();
-      const modal = page.getByRole("dialog");
-      await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-      const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
-      await message.fill("Was any email sent?");
-      await modal.getByRole("button", { name: "Send", exact: true }).click();
-      await modal.getByText(failureFollowup, { exact: true }).waitFor();
-      await modal.getByText("Was any email sent?", { exact: true }).waitFor();
-      assert.equal(
-        await modal.getByRole("heading", { name: "What happened", exact: true }).count(),
-        1,
-      );
-      assert.equal(await message.inputValue(), "", "sending a follow-up clears the composer");
-      assert.equal(mutations.length, 2);
-      const followup = mutations[1].body as {
-        employeeId?: string;
-        message: string;
-        history: Array<{ role: string; content: string }>;
-      };
-      assert.equal(mutations[1].path, "/api/companies/company/runs/failed-run/explanation");
-      assert.equal(followup.employeeId, undefined);
-      assert.equal(followup.message, "Was any email sent?");
-      assert.ok(
-        followup.history.some(
-          (item) => item.role === "assistant" && item.content === failureExplanation,
-        ),
-        "the follow-up includes the initial explanation for context",
-      );
-      await modal.getByRole("button", { name: "Run log", exact: true }).click();
-      await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
-      await modal.getByRole("button", { name: "Why did it fail?", exact: true }).click();
-      await modal.getByText(failureFollowup, { exact: true }).waitFor();
-      assert.equal(
-        mutations.length,
-        2,
-        "switching panels preserves the conversation without resending",
-      );
-      await page.close();
-    },
-  );
+  for (const shortcut of ["Control+Enter", "Meta+Enter"]) {
+    await check(
+      `Run explanation accepts ${shortcut} follow-up chat and retains its conversation beside the log`,
+      async () => {
+        const { page, mutations } = await open({ quiet: true, failedRuns: [failedRun()] });
+        await card(page, "Routines needing attention")
+          .getByRole("button", { name: /^Why did it fail\?/ })
+          .click();
+        const modal = page.getByRole("dialog");
+        await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
+        const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
+        await message.fill("Was any email sent?");
+        await message.press(shortcut);
+        await modal.getByText(failureFollowup, { exact: true }).waitFor();
+        await modal.getByText("Was any email sent?", { exact: true }).waitFor();
+        assert.equal(
+          await modal.getByRole("heading", { name: "What happened", exact: true }).count(),
+          1,
+        );
+        assert.equal(await message.inputValue(), "", "sending a follow-up clears the composer");
+        assert.equal(mutations.length, 2);
+        const followup = mutations[1].body as {
+          employeeId?: string;
+          message: string;
+          history: Array<{ role: string; content: string }>;
+        };
+        assert.equal(mutations[1].path, "/api/companies/company/runs/failed-run/explanation");
+        assert.equal(followup.employeeId, undefined);
+        assert.equal(followup.message, "Was any email sent?");
+        assert.ok(
+          followup.history.some(
+            (item) => item.role === "assistant" && item.content === failureExplanation,
+          ),
+          "the follow-up includes the initial explanation for context",
+        );
+        await modal.getByRole("tab", { name: "Run log", exact: true }).click();
+        await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+        await modal.getByRole("tab", { name: "Why did it fail?", exact: true }).click();
+        await modal.getByText(failureFollowup, { exact: true }).waitFor();
+        assert.equal(
+          mutations.length,
+          2,
+          "switching panels preserves the conversation without resending",
+        );
+        await page.close();
+      },
+    );
+  }
   await check(
     "Run explanation retries a failed follow-up with the same employee and message",
     async () => {
@@ -1152,7 +1348,13 @@ try {
         "retry preserves the failed question and history",
       );
       assert.equal((mutations[2].body as { employeeId?: string }).employeeId, undefined);
-      assert.equal(await modal.getByText("Explanation by Employee 2", { exact: true }).count(), 2);
+      assert.equal(
+        await modal
+          .getByLabel("Conversation about this Run", { exact: true })
+          .getByText("Employee 2", { exact: true })
+          .count(),
+        2,
+      );
       assert.equal(await modal.getByText("Was any email sent?", { exact: true }).count(), 1);
       assert.equal(await message.inputValue(), "");
       await page.close();
@@ -1225,7 +1427,7 @@ try {
       await modal.getByRole("button", { name: "Ask AI Employee", exact: true }).count(),
       0,
     );
-    await modal.getByRole("button", { name: "Run log", exact: true }).click();
+    await modal.getByRole("tab", { name: "Run log", exact: true }).click();
     await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
     await page.close();
   });

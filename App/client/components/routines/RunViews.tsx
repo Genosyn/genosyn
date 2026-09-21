@@ -5,6 +5,7 @@ import {
   Ban,
   CheckCircle2,
   Download,
+  FileText,
   Loader2,
   Receipt,
   RotateCcw,
@@ -27,11 +28,11 @@ import {
   RunLog,
   RunOutcomeVerdict,
   RunStatus,
-} from "../../lib/api";
-import { Button } from "../ui/Button";
-import { FormError } from "../ui/FormError";
-import { Modal } from "../ui/Modal";
-import { errorMessage } from "../../lib/errors";
+} from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { FormError } from "@/components/ui/FormError";
+import { Modal } from "@/components/ui/Modal";
+import { errorMessage } from "@/lib/errors";
 import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
 import { RunExplanation, runExplanationLabel } from "@/components/routines/RunExplanation";
 import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
@@ -888,6 +889,7 @@ export function RunLiveModal({
   const [view, setView] = React.useState(initialView);
   const [explanationOpened, setExplanationOpened] = React.useState(initialView === "explanation");
 
+  const tabsId = React.useId();
   const status: RunStatus = log?.status ?? initialRun.status;
   const isTerminal = status !== "running";
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
@@ -952,94 +954,187 @@ export function RunLiveModal({
     }
   }
 
+  const tokens =
+    (log?.tokensIn ?? initialRun.tokensIn ?? 0) + (log?.tokensOut ?? initialRun.tokensOut ?? 0);
+  const startedAt = log?.startedAt ?? initialRun.startedAt;
+  const finishedAt = log ? log.finishedAt : initialRun.finishedAt;
+  const exitCode = log ? log.exitCode : initialRun.exitCode;
+  const needsAttention = runNeedsAttention(status);
+  const metrics = [
+    {
+      label: "Duration",
+      value: isTerminal ? formatDuration(startedAt, finishedAt ?? null) : "In progress",
+    },
+    { label: "Tokens", value: tokens > 0 ? formatTokens(tokens) : "—" },
+    { label: "Attempt", value: String(log?.attempt ?? initialRun.attempt ?? 1) },
+    {
+      label: "Exit code",
+      value: exitCode === null || exitCode === undefined ? "—" : String(exitCode),
+    },
+  ];
+
+  function selectView(next: "log" | "explanation") {
+    if (next === "explanation") setExplanationOpened(true);
+    setView(next);
+  }
+
+  function navigateTabs(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = Array.from(
+      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    );
+    const current = tabs.indexOf(event.currentTarget);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? tabs.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next]?.focus();
+  }
+
   return (
-    <Modal open onClose={onClose} title={`Run: ${routine.name}`} size="xl">
-      <div className="flex min-h-[420px] flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <RunStatusChip status={status} errorKind={log?.errorKind ?? initialRun.errorKind} />
-          {status !== "reviewed" && log?.outcomeVerdict && (
-            <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
-          )}
-          {status !== "reviewed" && log?.checksVerdict && (
-            <RunChecksChip verdict={log.checksVerdict} />
-          )}
-          {(log?.checkRemediations ?? 0) > 0 && (
-            <span
-              className="text-slate-500 dark:text-slate-400"
-              title="Rounds the runner spent trying to turn a failed Check green before finalizing"
-            >
-              {log?.checkRemediations} remediation
-              {log?.checkRemediations === 1 ? "" : "s"}
-            </span>
-          )}
-          {log?.exitCode !== null && log?.exitCode !== undefined && (
-            <span className="text-slate-500 dark:text-slate-400">exit {log.exitCode}</span>
-          )}
-          {(log?.tokensIn ?? 0) + (log?.tokensOut ?? 0) > 0 && (
-            <span className="text-slate-400 dark:text-slate-500">
-              {formatTokens((log?.tokensIn ?? 0) + (log?.tokensOut ?? 0))} tokens
-            </span>
-          )}
-          {log?.startedAt && (
-            <span className="text-slate-400 dark:text-slate-500">
-              {formatDuration(
-                log.startedAt,
-                log.finishedAt ?? (isTerminal ? new Date().toISOString() : null),
+    <Modal
+      open
+      onClose={onClose}
+      title={`Run: ${routine.name}`}
+      size="xl"
+      padded={false}
+      bodyMode="fill"
+      panelClassName="h-[min(720px,calc(100dvh-2rem))] sm:max-w-4xl"
+    >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col [@media(max-height:500px)]:overflow-y-auto">
+        <div className="shrink-0 border-b border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:px-5 dark:border-slate-800 dark:bg-slate-950/30">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <RunStatusChip status={status} errorKind={log?.errorKind ?? initialRun.errorKind} />
+              {status !== "reviewed" && log?.outcomeVerdict && (
+                <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
               )}
-            </span>
+              {status !== "reviewed" && log?.checksVerdict && (
+                <RunChecksChip verdict={log.checksVerdict} />
+              )}
+              {log?.live && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-sky-500" /> Live
+                </span>
+              )}
+              {!isTerminal && (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Continues if you close this window
+                </span>
+              )}
+            </div>
+            {log?.retryAt ? (
+              <Button variant="secondary" size="sm" onClick={cancelRetry}>
+                <Ban size={13} /> {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
+              </Button>
+            ) : onRetry && isTerminal && needsAttention ? (
+              <Button variant="secondary" size="sm" onClick={onRetry}>
+                <RotateCcw size={13} /> Retry
+              </Button>
+            ) : null}
+          </div>
+          <dl className="mt-3 grid grid-cols-4 divide-x divide-slate-200 dark:divide-slate-700">
+            {metrics.map(({ label, value }) => (
+              <div key={label} className="min-w-0 px-2 first:pl-0 last:pr-0 sm:px-5">
+                <dt className="whitespace-nowrap text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {label}
+                </dt>
+                <dd className="mt-1 text-xs font-medium tabular-nums text-slate-800 sm:text-sm dark:text-slate-100">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {((log?.checkRemediations ?? 0) > 0 ||
+            (log?.continuationCount ?? initialRun.continuationCount ?? 0) > 0 ||
+            log?.retryAt) && (
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+              {(log?.checkRemediations ?? 0) > 0 && (
+                <span>
+                  {log?.checkRemediations} Check remediation
+                  {log?.checkRemediations === 1 ? "" : "s"}
+                </span>
+              )}
+              {(log?.continuationCount ?? initialRun.continuationCount ?? 0) > 0 && (
+                <span>Continuation {log?.continuationCount ?? initialRun.continuationCount}</span>
+              )}
+              {log?.retryAt && (
+                <span>
+                  {log.continuationPending ? "Continuation scheduled" : "Retry scheduled"}{" "}
+                  {timeUntil(log.retryAt)}
+                </span>
+              )}
+            </div>
           )}
-          {log?.live && <span className="text-slate-400 dark:text-slate-500">live</span>}
-          {log?.attempt !== undefined && log.attempt > 1 && (
-            <span className="text-slate-500 dark:text-slate-400">attempt {log.attempt}</span>
-          )}
-          {(log?.continuationCount ?? initialRun.continuationCount ?? 0) > 0 && (
-            <span className="text-slate-500 dark:text-slate-400">
-              continuation {log?.continuationCount ?? initialRun.continuationCount}
-            </span>
-          )}
-          {log?.retryAt && (
-            <span className="text-slate-500 dark:text-slate-400">
-              {log.continuationPending ? "Continuation scheduled" : "retry"}{" "}
-              {timeUntil(log.retryAt)}
-            </span>
-          )}
-          {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
-        <RunContinuationNotice
-          continuationPending={log?.continuationPending ?? initialRun.continuationPending}
-          continuationStopReason={log?.continuationStopReason ?? initialRun.continuationStopReason}
-        />
-        {runNeedsAttention(status) && (
-          <div className="flex flex-wrap gap-2" aria-label="Run details">
-            <Button
-              variant={view === "log" ? "primary" : "secondary"}
-              onClick={() => setView("log")}
-              aria-pressed={view === "log"}
-            >
-              Run log
-            </Button>
-            <Button
-              variant={view === "explanation" ? "primary" : "secondary"}
-              aria-pressed={view === "explanation"}
-              onClick={() => {
-                setExplanationOpened(true);
-                setView("explanation");
-              }}
-            >
-              <Sparkles size={14} /> {runExplanationLabel(status)}
-            </Button>
+        {needsAttention && (
+          <div
+            role="tablist"
+            aria-label="Run details"
+            className="flex shrink-0 gap-5 border-b border-slate-200 px-4 sm:px-5 dark:border-slate-800"
+          >
+            {(
+              [
+                { id: "log", label: "Run log", icon: FileText },
+                { id: "explanation", label: runExplanationLabel(status), icon: Sparkles },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                id={`${tabsId}-${tab.id}`}
+                aria-controls={`${tabsId}-${tab.id}-panel`}
+                aria-selected={view === tab.id}
+                tabIndex={view === tab.id ? 0 : -1}
+                onClick={() => selectView(tab.id)}
+                onKeyDown={navigateTabs}
+                className={
+                  "-mb-px inline-flex items-center gap-2 border-b-2 py-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:text-sm " +
+                  (view === tab.id
+                    ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-300"
+                    : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200")
+                }
+              >
+                <tab.icon size={14} aria-hidden="true" /> {tab.label}
+              </button>
+            ))}
           </div>
         )}
+        {error && <FormError message={error} className="mx-4 mt-3 sm:mx-5" />}
         {explanationOpened && (
-          <div hidden={view !== "explanation"}>
+          <div
+            hidden={view !== "explanation"}
+            role="tabpanel"
+            id={`${tabsId}-explanation-panel`}
+            aria-labelledby={`${tabsId}-explanation`}
+            className="min-h-0 flex-1 [@media(max-height:500px)]:min-h-[380px] [@media(max-height:500px)]:shrink-0"
+          >
             <RunExplanation
               key={`${company.id}:${initialRun.id}`}
               companyId={company.id}
               runId={initialRun.id}
+              active={view === "explanation"}
             />
           </div>
         )}
-        <div hidden={view !== "log"} className="space-y-3">
+        <div
+          hidden={view !== "log"}
+          role={needsAttention ? "tabpanel" : undefined}
+          id={`${tabsId}-log-panel`}
+          aria-labelledby={needsAttention ? `${tabsId}-log` : undefined}
+          tabIndex={view === "log" ? 0 : -1}
+          className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5 [@media(max-height:500px)]:min-h-[300px] [@media(max-height:500px)]:shrink-0"
+        >
+          <RunContinuationNotice
+            continuationPending={log?.continuationPending ?? initialRun.continuationPending}
+            continuationStopReason={
+              log?.continuationStopReason ?? initialRun.continuationStopReason
+            }
+          />
           {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
           <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />
           {log?.outcomeNote && (
@@ -1047,29 +1142,27 @@ export function RunLiveModal({
           )}
           <div
             className={
-              "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")
+              "grid min-h-[240px] min-w-0 gap-3 " + (recordings.length > 0 ? "md:grid-cols-2" : "")
             }
           >
             <RunLogPane
               log={log}
+              loading={log === null && !error}
               preRef={preRef}
               onScroll={handleScroll}
               placeholder={log === null ? "Starting…" : "Waiting for output…"}
-              className="max-h-[60vh] min-h-[360px]"
+              className="max-h-[45vh] min-h-[240px]"
             />
             {recordings.length > 0 && (
               <RunBrowserRecordingsPane
                 companyId={company.id}
                 runId={initialRun.id}
                 recordings={recordings}
+                className="min-h-[240px] max-h-[45vh]"
               />
             )}
           </div>
-          {/* Evidence sits under the transcript, not beside it: it is what you
-            read once the transcript has told you what to doubt. Both panels
-            re-read when the run reaches a terminal status, because Checks run
-            after the loop returns and the ledger is only complete then. */}
-          <div className="grid min-w-0 gap-3 xl:grid-cols-2">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
             <RunChecksStrip
               companyId={company.id}
               runId={initialRun.id}
@@ -1083,21 +1176,6 @@ export function RunLiveModal({
               className="max-h-64"
             />
           </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          {log?.retryAt && (
-            <Button variant="secondary" onClick={cancelRetry}>
-              <Ban size={14} /> {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
-            </Button>
-          )}
-          {onRetry && !log?.retryAt && isTerminal && runNeedsAttention(status) && (
-            <Button variant="secondary" onClick={onRetry}>
-              <RotateCcw size={14} /> Retry
-            </Button>
-          )}
-          <Button variant={isTerminal ? "primary" : "secondary"} onClick={onClose}>
-            {isTerminal ? "Close" : "Close (run continues)"}
-          </Button>
         </div>
       </div>
     </Modal>
