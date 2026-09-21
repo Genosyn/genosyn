@@ -54,7 +54,14 @@ export type RunChecksVerdict = "passed" | "failed" | "not_run";
  * retried automatically — the other three had a caller present who saw the
  * outcome and can decide for themselves.
  */
-export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry" | "event";
+export type RunTrigger =
+  | "schedule"
+  | "manual"
+  | "webhook"
+  | "approval"
+  | "retry"
+  | "event"
+  | "continuation";
 
 // Run history, the Home failed-routines roll-up, and System Health all filter
 // by routineId and a startedAt window; without this the queries full-scan the
@@ -93,6 +100,34 @@ export class Run {
    */
   @Column({ type: "text", nullable: true })
   failureReason!: string | null;
+
+  /** Tool-owned progress, never a Check or a success verdict. */
+  @Column({ type: "text", nullable: true })
+  checkpointJson!: string | null;
+
+  /** Number of continuation Runs already started for this occurrence. */
+  @Column({ type: "integer", default: 0 })
+  continuationCount!: number;
+
+  /** Preserve event/retry review scope when a continuation starts. */
+  @Column({ type: "varchar", nullable: true })
+  continuationOriginTriggerKind!: RunTrigger | null;
+
+  /** A preparation-only origin can never become unrestricted mid-chain. */
+  @Column({ type: "boolean", default: false })
+  continuationReviewOnly!: boolean;
+
+  /** Original occurrence's deadline: fresh context never buys extra time. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  continuationDeadlineAt!: Date | null;
+
+  /** Tokens spent by preceding Runs in this continuation chain. */
+  @Column({ type: "integer", default: 0 })
+  continuationTokensUsed!: number;
+
+  /** Server-owned explanation when automatic continuation cannot proceed. */
+  @Column({ type: "text", nullable: true })
+  continuationStopReason!: string | null;
 
   /**
    * Captured model text and tool activity, plus runner framing lines (headers,

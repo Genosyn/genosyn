@@ -224,6 +224,17 @@ export function Verification() {
         write Check results or an outcome verdict; a later runtime problem still makes the Run{" "}
         <Strong>Error</Strong>. See <DocLink to="/docs/routines#runs">Run statuses</DocLink>.
       </P>
+      <P>
+        Resumable work uses <Code>save_run_checkpoint</Code>: what finished, what remains, stable
+        source anchors, and the next step. Employees mark it <Code>continue</Code>,{" "}
+        <Code>blocked</Code>, or
+        <Code>complete</Code>. Genosyn can automatically continue actionable work within the
+        original time and token limits. The unfinished Run remains <Strong>Failed</Strong>; a
+        checkpoint marked complete is still the employee&apos;s report, and never replaces Checks or
+        outcome grading. Employees must verify prior Effects and current records before repeating a
+        write or send. See
+        <DocLink to="/docs/routines#continuations"> automatic continuation</DocLink>.
+      </P>
       <Callout kind="warn" title="No tool writes a Check or lifts a Standdown">
         <P>
           An employee reads its Routine&apos;s Checks in its Run brief and can read any Run&apos;s

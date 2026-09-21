@@ -21,6 +21,8 @@ import {
   RunFailureReportError,
   RUN_FAILURE_REASON_MAX_LENGTH,
 } from "../services/runFailureReport.js";
+import { runCheckpointSchema, saveRunCheckpoint } from "../services/runContinuation.js";
+import { runContinuationView } from "../services/runContinuationView.js";
 import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
 import { performMailSenderAction } from "../services/mail/blockedSenders.js";
 import {
@@ -63,6 +65,12 @@ import { Skill } from "../db/entities/Skill.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import {
+  getJournalEvidence,
+  JOURNAL_BODY_CHUNK_MAX,
+  JournalEvidenceError,
+  listJournalEvidence,
+} from "../services/journalEvidence.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   MAX_SESSION_WRITE_BYTES,
@@ -870,7 +878,10 @@ function requireDelegatedToolAuthority(
   // An approved proactive delivery Run carries its approving Member. It can
   // report its own unfinished work, while ordinary Member chat cannot choose
   // any Run. The handler still verifies live Run and Routine ownership.
-  if (toolName === "mark_run_failed" && canReportRunFailure(resolveMcpToken(req.mcpToken!))) {
+  if (
+    ["mark_run_failed", "save_run_checkpoint"].includes(toolName) &&
+    canReportRunFailure(resolveMcpToken(req.mcpToken!))
+  ) {
     return next();
   }
   const policy = memberToolPolicy(toolName) ?? memberInternalCallbackPolicy(toolName);
@@ -8657,6 +8668,7 @@ const DEFAULT_RUN_ROWS = 20;
 
 function serializeRunRow(run: Run, routineName: string | null) {
   return {
+    ...runContinuationView(run),
     id: run.id,
     routineId: run.routineId,
     routineName,
@@ -8734,6 +8746,25 @@ mcpInternalRouter.post(
 );
 
 const getRunReportSchema = z.object({ runId: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/save_run_checkpoint",
+  validateBody(runCheckpointSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const checkpoint = await saveRunCheckpoint(req.mcpToken!, req.body);
+      res.json({
+        ok: true,
+        state: checkpoint.state,
+        note: "Progress saved. Finish this batch and your report. Actionable remaining work is continued automatically within the original limits; Checks and human review requirements still apply.",
+      });
+    } catch (error) {
+      if (error instanceof RunFailureReportError)
+        return res.status(error.status).json({ error: error.message });
+      throw error;
+    }
+  },
+);
 
 const markRunFailedSchema = z
   .object({ reason: z.string().trim().min(1).max(RUN_FAILURE_REASON_MAX_LENGTH) })
@@ -10297,6 +10328,9 @@ const listJournalSchema = z
   .object({
     employeeSlug: z.string().min(1).max(120).optional(),
     limit: z.number().int().min(1).max(200).optional(),
+    since: z.string().datetime({ offset: true }).optional(),
+    before: z.string().datetime({ offset: true }).optional(),
+    cursor: z.string().min(1).max(500).optional(),
   })
   .strict();
 
@@ -10307,21 +10341,49 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listJournalSchema>;
     const target = await resolveEmployee(req.mcpCompany!, req.mcpEmployee!, body.employeeSlug);
     if (!target) return res.status(404).json({ error: "Employee not found" });
-    const entries = await AppDataSource.getRepository(JournalEntry).find({
-      where: { employeeId: target.id },
-      order: { createdAt: "DESC" },
-      take: body.limit ?? 20,
-    });
-    res.json({
-      employee: serializeEmployee(target),
-      entries: entries.map((e) => ({
-        id: e.id,
-        kind: e.kind,
-        title: e.title,
-        body: e.body,
-        createdAt: e.createdAt,
-      })),
-    });
+    try {
+      const result = await listJournalEvidence({
+        ...body,
+        companyId: req.mcpCompany!.id,
+        employeeId: target.id,
+      });
+      if (!result) return res.status(404).json({ error: "Employee not found" });
+      res.json(result);
+    } catch (err) {
+      if (!(err instanceof JournalEvidenceError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+const getJournalEntrySchema = z
+  .object({
+    employeeSlug: z.string().min(1).max(120).optional(),
+    entryId: z.string().uuid(),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).max(JOURNAL_BODY_CHUNK_MAX).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_journal_entry",
+  validateBody(getJournalEntrySchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getJournalEntrySchema>;
+    const target = await resolveEmployee(req.mcpCompany!, req.mcpEmployee!, body.employeeSlug);
+    if (!target) return res.status(404).json({ error: "Journal entry not found" });
+    try {
+      const result = await getJournalEvidence({
+        ...body,
+        companyId: req.mcpCompany!.id,
+        employeeId: target.id,
+      });
+      if (!result) return res.status(404).json({ error: "Journal entry not found" });
+      res.json(result);
+    } catch (err) {
+      if (!(err instanceof JournalEvidenceError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
   },
 );
 

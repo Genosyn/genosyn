@@ -62,6 +62,7 @@ export const PROACTIVE_REVIEW_TOOLS = [
   "list_runs",
   "get_run_report",
   "mark_run_failed",
+  "save_run_checkpoint",
   "list_goals",
   "get_goal",
   "get_proactive_work",

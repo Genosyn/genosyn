@@ -960,8 +960,15 @@ export type RunStatus =
    */
   | "interrupted";
 export type RunErrorKind = "runtime" | "timeout" | "interrupted";
-/** Manual, webhook, approval, and event Runs never receive automatic retries. */
-export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry" | "event";
+/** A continuation resumes saved progress independently of whole-Routine retries. */
+export type RunTrigger =
+  | "schedule"
+  | "manual"
+  | "webhook"
+  | "approval"
+  | "retry"
+  | "event"
+  | "continuation";
 export type Run = {
   id: string;
   routineId: string;
@@ -977,12 +984,18 @@ export type Run = {
   /** 1-based attempt within a retry chain. */
   attempt?: number;
   /**
-   * Durable due time for the next attempt. At the default attempt limit, an
+   * Durable due time for a retry or saved-work continuation. At the default attempt limit, an
    * eligible interrupted initial scheduled Run receives exactly one due an
    * hour later. Null when no attempt is owed or the chain has spent its attempt
    * budget.
    */
   retryAt?: string | null;
+  /** Unfinished work has a saved checkpoint and a continuation is queued. */
+  continuationPending?: boolean;
+  /** Continuation Runs already started for this occurrence. */
+  continuationCount?: number;
+  /** Why automatic continuation stopped, when intervention may be needed. */
+  continuationStopReason?: string | null;
   /** Occurrences missed during downtime that this run stands in for. */
   missedSlots?: number;
   /** How the run measured against its Routine's acceptance criteria. */
@@ -1034,6 +1047,9 @@ export type RunLog = {
   startedAt?: string;
   finishedAt?: string | null;
   retryAt?: string | null;
+  continuationPending?: boolean;
+  continuationCount?: number;
+  continuationStopReason?: string | null;
   attempt?: number;
   outcomeVerdict?: RunOutcomeVerdict | null;
   outcomeNote?: string | null;

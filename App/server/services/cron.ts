@@ -1,5 +1,5 @@
 import parser from "cron-parser";
-import { IsNull, LessThanOrEqual, MoreThan } from "typeorm";
+import { IsNull, LessThanOrEqual, MoreThan, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -43,6 +43,8 @@ import { sweepAutonomyPromotions } from "./autonomy.js";
 import { workBlockedForRoutine } from "./standdowns.js";
 import { sweepUngradedRuns } from "./runGrading.js";
 import { dispatchDueWakeups } from "./wakeups.js";
+import { continuationEligibility, readRunCheckpoint } from "./runContinuation.js";
+import { notifyRunFailure } from "./runAlerts.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -140,7 +142,8 @@ async function findInFlightRun(routine: Routine, now: Date = new Date()): Promis
   });
 }
 
-async function tickRoutine(
+/** Internal dispatch seam, exported for scheduler safety tests. */
+export async function tickRoutine(
   routineId: string,
   meta: { missedSlots: number },
   assertLeaseHeld: () => void,
@@ -150,6 +153,10 @@ async function tickRoutine(
   const repo = AppDataSource.getRepository(Routine);
   const fresh = await repo.findOneBy({ id: routineId });
   if (!fresh || !fresh.enabled) return;
+  // A continuation owns the unfinished occurrence even between its chunks.
+  // Natural schedule ticks must not restart the same work while its durable
+  // dispatch claim is waiting, including while another scheduler prepares it.
+  if (await hasPendingContinuation(fresh.id)) return;
   if (fresh.requiresApproval) {
     const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
       id: fresh.employeeId,
@@ -197,7 +204,26 @@ async function tickRoutine(
   const { completion } = await startRoutineRun(fresh, {
     triggerKind: "schedule",
     missedSlots: meta.missedSlots,
-    beforeRunPersist: async () => assertLeaseHeld(),
+    beforeRunPersist: async () => {
+      assertLeaseHeld();
+      const current = await repo.findOneBy({ id: fresh.id });
+      if (
+        !current?.enabled ||
+        current.requiresApproval ||
+        current.employeeId !== fresh.employeeId
+      ) {
+        throw new RetryDispatchIneligibleError("This Routine changed before its Run could start.");
+      }
+      if ((await workBlockedForRoutine(current)).blocked) {
+        throw new RetryDispatchIneligibleError(
+          "This Routine was stood down before its Run could start.",
+        );
+      }
+      if ((await hasPendingContinuation(fresh.id)) || (await findInFlightRun(fresh))) {
+        throw new RetryDispatchIneligibleError("This Routine already has unfinished work.");
+      }
+      Object.assign(fresh, current);
+    },
   });
   // The heartbeat only waits until the durable Run row exists. The agent work
   // continues independently, just as it did when this whole function was
@@ -268,7 +294,28 @@ export type RetryDispatchResult = {
 /** A retry became ineligible while its start prerequisites were resolving. */
 class RetryDispatchIneligibleError extends Error {}
 
-function isRetryDispatchEligible(parent: Run, routine: Routine): boolean {
+function isContinuationRequest(run: Run): boolean {
+  const checkpoint = readRunCheckpoint(run);
+  return (
+    checkpoint?.state === "continue" ||
+    checkpoint?.state === "blocked" ||
+    run.triggerKind === "continuation" ||
+    run.continuationCount > 0 ||
+    Boolean(run.continuationStopReason)
+  );
+}
+
+async function hasPendingContinuation(routineId: string): Promise<boolean> {
+  const queued = await AppDataSource.getRepository(Run).find({
+    where: { routineId, retryAt: Not(IsNull()) },
+  });
+  return queued.some(isContinuationRequest);
+}
+
+function isRetryDispatchEligible(parent: Run, routine: Routine, now: Date): boolean {
+  if (isContinuationRequest(parent)) {
+    return continuationEligibility(parent, routine, now).eligible;
+  }
   return (
     routine.enabled &&
     !routine.requiresApproval &&
@@ -281,6 +328,25 @@ function isRetryDispatchEligible(parent: Run, routine: Routine): boolean {
       retryOnTimeout: routine.retryOnTimeout,
     })
   );
+}
+
+async function stopQueuedContinuation(parent: Run, claim: Date, reason: string): Promise<void> {
+  const stopped = await AppDataSource.getRepository(Run).update(
+    { id: parent.id, retryAt: claim },
+    {
+      routineId: parent.routineId,
+      retryAt: null,
+      continuationStopReason: reason,
+    },
+  );
+  if (stopped.affected !== 1) return;
+  parent.retryAt = null;
+  parent.continuationStopReason = reason;
+  await notifyRunFailure(parent).catch((err) => {
+    // A notification outage cannot resurrect an ineligible continuation.
+    // eslint-disable-next-line no-console
+    console.error(`[cron] continuation of run ${parent.id} needs attention:`, err);
+  });
 }
 
 /**
@@ -320,9 +386,41 @@ export async function dispatchDueRetries(
     if (!initialClaim) continue;
     let claim = initialClaim;
 
-    const routine = await routineRepo.findOneBy({ id: parent.routineId });
-    if (!routine || !isRetryDispatchEligible(parent, routine)) {
+    // A child is authoritative even if policy changed since its creation.
+    // Recovering an old dispatch stamp must not page about its parent again.
+    const existingChild = await runRepo.findOneBy({ parentRunId: parent.id });
+    if (existingChild) {
       await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+      continue;
+    }
+
+    const continuation = isContinuationRequest(parent);
+    const routine = await routineRepo.findOneBy({ id: parent.routineId });
+    // Preserve a stood-down continuation even if its absolute budget expires
+    // during the stop. On lifting, the eligibility check reports that reason;
+    // the Standdown itself must never discard queued work.
+    if (continuation && routine?.enabled && (await workBlockedForRoutine(routine)).blocked) {
+      await settleRetryDispatchClaim(
+        parent.id,
+        parent.routineId,
+        claim,
+        new Date(now.getTime() + BUSY_RETRY_MS),
+      );
+      continue;
+    }
+    if (!routine || !isRetryDispatchEligible(parent, routine, now)) {
+      if (continuation) {
+        await stopQueuedContinuation(
+          parent,
+          claim,
+          routine
+            ? (continuationEligibility(parent, routine, now).reason ??
+                "This Run is no longer eligible to continue.")
+            : "The source Routine was removed.",
+        );
+      } else {
+        await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+      }
       continue;
     }
 
@@ -340,14 +438,6 @@ export async function dispatchDueRetries(
       continue;
     }
 
-    // A child row proves this retry was already dispatched. This closes the
-    // crash window between creating the child and clearing retryAt.
-    const existingChild = await runRepo.findOneBy({ parentRunId: parent.id });
-    if (existingChild) {
-      await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
-      continue;
-    }
-
     // A one-hour recovery commonly lands near the routine's next natural
     // hourly slot. Let the current Run finish before starting another copy.
     if (await findInFlightRun(routine, now)) {
@@ -362,13 +452,21 @@ export async function dispatchDueRetries(
 
     let completion: Promise<Run>;
     try {
-      const startOptions: StartRunOptions = {
-        triggerKind: "retry",
-        attempt: parent.attempt + 1,
-        attemptLimit: automaticRetryLimit(parent.status, routine.maxAttempts, parent.errorKind),
-        parentRunId: parent.id,
-        missedSlots: 0,
-      };
+      const startOptions: StartRunOptions = continuation
+        ? {
+            triggerKind: "continuation",
+            continuationFromRunId: parent.id,
+            attempt: parent.attempt,
+            parentRunId: parent.id,
+            missedSlots: 0,
+          }
+        : {
+            triggerKind: "retry",
+            attempt: parent.attempt + 1,
+            attemptLimit: automaticRetryLimit(parent.status, routine.maxAttempts, parent.errorKind),
+            parentRunId: parent.id,
+            missedSlots: 0,
+          };
       startOptions.beforeRunPersist = async () => {
         assertLeaseHeld();
         // Renew and verify ownership after setup, so a scheduler that
@@ -385,23 +483,40 @@ export async function dispatchDueRetries(
         // dispatch started with.
         const currentRoutine = await routineRepo.findOneBy({ id: routine.id });
         assertLeaseHeld();
-        if (!currentRoutine || !isRetryDispatchEligible(parent, currentRoutine)) {
+        const currentParent = await runRepo.findOneBy({ id: parent.id });
+        if (
+          !currentRoutine ||
+          !currentParent ||
+          currentRoutine.employeeId !== routine.employeeId ||
+          !isRetryDispatchEligible(currentParent, currentRoutine, new Date())
+        ) {
           throw new RetryDispatchIneligibleError(
-            "Routine became ineligible before retry child creation",
+            continuation && currentRoutine && currentParent
+              ? (continuationEligibility(currentParent, currentRoutine).reason ??
+                  "This Run became ineligible to continue.")
+              : "Routine became ineligible before retry child creation",
           );
+        }
+        if ((await workBlockedForRoutine(currentRoutine)).blocked) {
+          throw new Error("This Routine was stood down before follow-up work could start.");
+        }
+        if (await findInFlightRun(currentRoutine)) {
+          throw new Error("This Routine already has a Run in flight.");
         }
 
         // The child owns the current reliability policy from this point on.
         // Keep both its transcript ceiling and any later retry stamp aligned
         // with settings changed while preparation was in progress.
-        routine.maxAttempts = currentRoutine.maxAttempts;
-        routine.retryBackoffSec = currentRoutine.retryBackoffSec;
-        routine.retryOnTimeout = currentRoutine.retryOnTimeout;
-        startOptions.attemptLimit = automaticRetryLimit(
-          parent.status,
-          currentRoutine.maxAttempts,
-          parent.errorKind,
-        );
+        // The runner composes its authority after this seam. Carry every
+        // current delivery/review restriction forward, not just retry knobs.
+        Object.assign(routine, currentRoutine);
+        if (!continuation) {
+          startOptions.attemptLimit = automaticRetryLimit(
+            parent.status,
+            currentRoutine.maxAttempts,
+            parent.errorKind,
+          );
+        }
       };
       ({ completion } = await startRoutineRun(routine, startOptions));
     } catch (err) {
@@ -413,7 +528,8 @@ export async function dispatchDueRetries(
       if (durableChild) {
         await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
       } else if (err instanceof RetryDispatchIneligibleError) {
-        await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+        if (continuation) await stopQueuedContinuation(parent, claim, err.message);
+        else await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
       } else {
         await onRetryError(parent.id, parent.routineId, claim)(err);
       }

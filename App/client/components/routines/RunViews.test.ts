@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { RunFailureNotice, RunStatusChip } from "@/components/routines/RunViews";
+import {
+  RunContinuationNotice,
+  RunFailureNotice,
+  RunStatusChip,
+  runLogNeedsPolling,
+} from "@/components/routines/RunViews";
 import { runNeedsAttention } from "@/lib/runStatus";
 import type { RunStatus } from "@/lib/api";
 
@@ -63,5 +68,40 @@ describe("Routine Run failure and error presentation", () => {
   test("older Runs without a reason do not show an empty failure notice", () => {
     for (const reason of [null, undefined, "", " \n "])
       assert.equal(renderToStaticMarkup(React.createElement(RunFailureNotice, { reason })), "");
+  });
+
+  test("unfinished work explains automatic continuation without claiming completion", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RunContinuationNotice, { continuationPending: true }),
+    );
+    assert.match(html, /Continuation scheduled/);
+    assert.match(html, /continue unfinished work from its saved progress/);
+    assert.match(html, /No setup is needed/);
+    assert.doesNotMatch(html, /completed|success/);
+    assert.equal(renderToStaticMarkup(React.createElement(RunContinuationNotice, {})), "");
+  });
+
+  test("a stopped continuation shows its escaped reason without a scheduled promise", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RunContinuationNotice, {
+        continuationPending: false,
+        continuationStopReason: "No new progress after <previous> continuation.",
+      }),
+    );
+    assert.match(html, /Automatic continuation stopped/);
+    assert.match(html, /&lt;previous&gt;/);
+    assert.doesNotMatch(html, /Continuation scheduled|No setup is needed/);
+  });
+
+  test("a queued continuation keeps polling until its cancel control is no longer current", () => {
+    const log = { content: "", status: "failed", browserRecordings: [] } as const;
+    assert.equal(
+      runLogNeedsPolling({ ...log, browserRecordings: [], continuationPending: true }),
+      true,
+    );
+    assert.equal(
+      runLogNeedsPolling({ ...log, browserRecordings: [], continuationPending: false }),
+      false,
+    );
   });
 });

@@ -4,10 +4,19 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Run } from "../db/entities/Run.js";
 import { AppDataSource } from "../db/datasource.js";
-import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId, testId } from "../test/dbHarness.js";
+import {
+  closeTestDb,
+  initTestDb,
+  insert,
+  resetTestDb,
+  testCompanyId,
+  testId,
+} from "../test/dbHarness.js";
 import { recordAudit, withAuditContext } from "./audit.js";
 import {
   RUN_EFFECT_ROW_CAP,
+  continuationEffects,
+  countContinuationEffects,
   countEffects,
   priorAttemptEffects,
   renderEffectDigest,
@@ -112,10 +121,7 @@ describe("countEffects", () => {
 
     assert.equal(await countEffects(runId), 4, "no filter counts the whole ledger");
     assert.equal(await countEffects(runId, { action: "mail.send" }), 3);
-    assert.equal(
-      await countEffects(runId, { action: "mail.send", targetType: "mail_thread" }),
-      2,
-    );
+    assert.equal(await countEffects(runId, { action: "mail.send", targetType: "mail_thread" }), 2);
     assert.equal(await countEffects(runId, { action: "nothing.happened" }), 0);
     assert.equal(await countEffects(""), 0);
   });
@@ -161,12 +167,85 @@ describe("priorAttemptEffects", () => {
     const reloaded = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
     await effect(run.id, "invoice.create");
     const rows = await priorAttemptEffects(reloaded);
-    assert.deepEqual(rows.map((r) => r.action), ["invoice.create"]);
+    assert.deepEqual(
+      rows.map((r) => r.action),
+      ["invoice.create"],
+    );
   });
 
   test("a dangling parent id yields nothing rather than throwing", async () => {
     const orphan = await attempt(testId("run"));
     assert.deepEqual(await priorAttemptEffects(orphan), []);
+  });
+});
+
+describe("continuation occurrence Effects", () => {
+  async function occurrenceRun(values: Partial<Run> = {}): Promise<Run> {
+    return insert(Run, {
+      routineId: "continued-routine",
+      status: "failed",
+      startedAt: new Date(),
+      triggerKind: "schedule",
+      ...values,
+    });
+  }
+
+  test("combines every chunk and prior retry once without including another occurrence", async () => {
+    const first = await occurrenceRun();
+    const retry = await occurrenceRun({ triggerKind: "retry", parentRunId: first.id });
+    const second = await occurrenceRun({ triggerKind: "continuation", parentRunId: retry.id });
+    const last = await occurrenceRun({ triggerKind: "continuation", parentRunId: second.id });
+    const unrelated = await occurrenceRun();
+    for (const row of [first, retry, second, last]) await effect(row.id, "mail.send");
+    await effect(unrelated.id, "invoice.void");
+    await effect(first.id, "foreign.send", { companyId: testCompanyId() });
+
+    assert.equal(await countContinuationEffects(last, { companyId, action: "mail.send" }), 4);
+    const rows = await continuationEffects(last, { companyId });
+    assert.deepEqual(
+      rows.map((row) => row.action),
+      ["mail.send", "mail.send", "mail.send", "mail.send"],
+    );
+    assert.equal(
+      (await continuationEffects(retry, { companyId })).length,
+      1,
+      "ordinary retries keep their existing single-Run grading scope",
+    );
+  });
+
+  test("prompt limits never truncate the Check count", async () => {
+    const first = await occurrenceRun();
+    const last = await occurrenceRun({ triggerKind: "continuation", parentRunId: first.id });
+    for (let n = 0; n < 6; n += 1) await effect(n < 3 ? first.id : last.id, "mail.send");
+    assert.equal((await continuationEffects(last, { companyId, limit: 2 })).length, 2);
+    assert.equal(
+      await countContinuationEffects(last, {
+        companyId,
+        action: "mail.send",
+        targetType: "invoice",
+      }),
+      6,
+    );
+  });
+
+  test("cross-Routine and missing parents make evidence unknown, not empty", async () => {
+    const foreign = await occurrenceRun({ routineId: "other-routine" });
+    const crossed = await occurrenceRun({ triggerKind: "continuation", parentRunId: foreign.id });
+    await effect(foreign.id, "mail.send");
+    await assert.rejects(continuationEffects(crossed, { companyId }), /could not be verified/);
+    const missing = await occurrenceRun({
+      triggerKind: "continuation",
+      parentRunId: testId("missing"),
+    });
+    await assert.rejects(countContinuationEffects(missing, { companyId }), /could not be verified/);
+  });
+
+  test("cycles fail closed instead of counting duplicated source rows", async () => {
+    const first = await occurrenceRun({ triggerKind: "continuation" });
+    const second = await occurrenceRun({ triggerKind: "continuation", parentRunId: first.id });
+    await AppDataSource.getRepository(Run).update({ id: first.id }, { parentRunId: second.id });
+    await effect(first.id, "mail.send");
+    await assert.rejects(countContinuationEffects(second, { companyId }), /could not be verified/);
   });
 });
 
@@ -236,7 +315,10 @@ describe("ambient provenance", () => {
       });
     });
     const rows = await runEffects(runId);
-    assert.deepEqual(rows.map((r) => r.action), ["invoice.create"]);
+    assert.deepEqual(
+      rows.map((r) => r.action),
+      ["invoice.create"],
+    );
   });
 
   test("an explicit null wins over the ambient value", async () => {
@@ -281,7 +363,10 @@ describe("ambient provenance", () => {
       }
     });
     const rows = await runEffects(runId);
-    assert.deepEqual(rows.map((r) => r.action), actions);
+    assert.deepEqual(
+      rows.map((r) => r.action),
+      actions,
+    );
     assert.equal(
       new Set(rows.map((r) => r.at.getTime())).size,
       3,

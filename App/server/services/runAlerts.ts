@@ -98,12 +98,15 @@ export async function notifyRunFailure(run: Run): Promise<void> {
       ? "ended with an Error"
       : "failed";
   const attempts = run.attempt > 1 ? ` after ${run.attempt} attempts` : "";
+  const continuationReason = run.continuationStopReason
+    ? ` ${redactSensitiveText(run.continuationStopReason).slice(0, 500)}`
+    : "";
   await createNotifications(
     notificationInputs(
       ctx,
       "run_failed",
       `Routine "${ctx.routine.name}" ${verb}`,
-      `${ctx.employee.name}'s scheduled run ${verb}${attempts}. Open the Run log to see what happened.`,
+      `${ctx.employee.name}'s scheduled run ${verb}${attempts}.${continuationReason} Open the Run log to see what happened.`,
     ),
   );
 }

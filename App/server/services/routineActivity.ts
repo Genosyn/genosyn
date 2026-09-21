@@ -3,6 +3,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import { runContinuationView } from "./runContinuationView.js";
 
 export const ROUTINE_ACTIVITY_MAX_WINDOW_MS = 26 * 60 * 60 * 1000;
 
@@ -16,12 +17,16 @@ const runSummaryFields = [
   "exitCode",
   "attempt",
   "retryAt",
+  "continuationCount",
+  "continuationStopReason",
   "missedSlots",
   "outcomeVerdict",
   "checksVerdict",
 ] as const satisfies readonly (keyof Run)[];
 
-export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]>;
+export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]> & {
+  continuationPending: boolean;
+};
 
 export type RoutineActivity = {
   running: RoutineActivityRun[];
@@ -63,6 +68,7 @@ function summary(run: Run): RoutineActivityRun {
     exitCode: run.exitCode,
     attempt: run.attempt,
     retryAt: run.retryAt,
+    ...runContinuationView(run),
     missedSlots: run.missedSlots,
     outcomeVerdict: run.outcomeVerdict,
     checksVerdict: run.checksVerdict,
@@ -84,7 +90,7 @@ export async function getRoutineActivity({
   from: Date;
   to: Date;
 }): Promise<RoutineActivity> {
-  const selectedFields = runSummaryFields.map((field) => `run.${field}`);
+  const selectedFields = [...runSummaryFields, "checkpointJson"].map((field) => `run.${field}`);
   const dayParameters = { from, to, excludedStatuses: ["running", "skipped"] };
   const [running, daily] = await Promise.all([
     companyRuns(companyId)

@@ -24,11 +24,13 @@ export type LiveRunFailureQuery = {
  * Failed Runs and Errors in the window that are still worth a
  * member's attention, newest first, with the unpaginated total.
  *
- * Three things take a failure off the list:
+ * Four things take a failure off the list:
  *
  * - a member dismissed it, so the company has already noticed;
  * - an automatic retry is still owed (`retryAt`), so the last attempt has not
  *   been spent yet;
+ * - a continuation has taken over the unfinished work. Its eventual failure
+ *   is the one a Member should see; a skipped child leaves its parent visible;
  * - **the routine has completed a run since**, which is the interesting one.
  *   A failure the next tick fixed by itself is history, not an alert: leaving
  *   it up teaches people that the red panel is usually stale, which is exactly
@@ -52,6 +54,18 @@ export async function findLiveRunFailures({
     .andWhere("run.dismissedAt IS NULL")
     .andWhere("run.retryAt IS NULL")
     .andWhere((sub) => {
+      const continuation = sub
+        .subQuery()
+        .select("1")
+        .from(Run, "continuation")
+        .where("continuation.parentRunId = run.id")
+        .andWhere("continuation.routineId = run.routineId")
+        .andWhere("continuation.triggerKind = :continuationTrigger")
+        .andWhere("continuation.status IN (:...continuationStatuses)")
+        .getQuery();
+      return `NOT EXISTS ${continuation}`;
+    })
+    .andWhere((sub) => {
       const later = sub
         .subQuery()
         .select("1")
@@ -63,6 +77,8 @@ export async function findLiveRunFailures({
       return `NOT EXISTS ${later}`;
     })
     .setParameter("completedStatus", "completed" satisfies RunStatus)
+    .setParameter("continuationTrigger", "continuation")
+    .setParameter("continuationStatuses", ["running", "completed", ...FAILED_RUN_STATUSES])
     .orderBy("run.startedAt", "DESC");
 
   if (take <= 0) return { rows: [], count: await qb.getCount() };

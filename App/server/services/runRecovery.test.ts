@@ -11,9 +11,10 @@ import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { ResourceChangeSubscriber } from "../db/subscribers/resourceChangeSubscriber.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { INTERRUPTED_RECOVERY_DELAY_MS } from "./cronMath.js";
-import { dispatchDueRetries } from "./cron.js";
+import { dispatchDueRetries, tickRoutine } from "./cron.js";
 import { registerResourceChangeSink } from "./resourceEvents.js";
 import { startRoutineRun } from "./runner.js";
+import { liftStanddown, placeStanddown } from "./standdowns.js";
 import {
   ORPHAN_LOG_MARKER,
   RETRY_DISPATCH_CLAIM_TTL_MS,
@@ -29,6 +30,7 @@ before(async () => {
   await initTestDb();
   AppDataSource.subscribers.push(new ResourceChangeSubscriber());
 });
+
 beforeEach(resetTestDb);
 after(closeTestDb);
 
@@ -545,5 +547,225 @@ describe("Routine Run crash recovery", () => {
     const deferred = await AppDataSource.getRepository(Run).findOneByOrFail({ id: parent.id });
     assert.equal(deferred.retryAt?.getTime(), NOW.getTime() + 60 * 1000);
     assert.equal(await AppDataSource.getRepository(Run).countBy({ parentRunId: parent.id }), 0);
+  });
+});
+
+async function continuationRun(routineId: string, values: Partial<Run> = {}): Promise<Run> {
+  const now = new Date();
+  return interruptedRun(routineId, {
+    startedAt: new Date(now.getTime() - 60_000),
+    finishedAt: now,
+    status: "failed",
+    errorKind: null,
+    exitCode: 0,
+    retryAt: now,
+    checkpointJson: JSON.stringify({
+      state: "continue",
+      completed: "Reviewed events through event-71.",
+      remaining: "Review the remaining events and one incomplete release.",
+      resume: "Fetch event-72 by ID and continue from cursor next-events.",
+      progressKey: "event-71",
+    }),
+    continuationCount: 0,
+    continuationDeadlineAt: new Date(now.getTime() + 30 * 60_000),
+    continuationTokensUsed: 0,
+    continuationStopReason: null,
+    tokensIn: 100,
+    tokensOut: 20,
+    ...values,
+  });
+}
+
+describe("Routine checkpoint continuation dispatch", () => {
+  test("continues at the default retry setting once under concurrent dispatch", async () => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-default");
+    assert.equal(scheduled.maxAttempts, 1);
+    const parent = await continuationRun(scheduled.id);
+    const now = new Date();
+
+    const results = await Promise.all([dispatchDueRetries(now), dispatchDueRetries(now)]);
+    assert.equal(
+      results.reduce((sum, result) => sum + result.started, 0),
+      1,
+    );
+    await Promise.all(results.flatMap((result) => result.completions));
+    const repo = AppDataSource.getRepository(Run);
+    const children = await repo.findBy({ parentRunId: parent.id });
+    assert.equal(children.length, 1);
+    assert.equal(children[0].triggerKind, "continuation");
+    assert.equal(
+      children[0].attempt,
+      parent.attempt,
+      "continuing does not consume a retry attempt",
+    );
+    assert.equal(children[0].continuationCount, 1);
+    assert.equal(children[0].continuationTokensUsed, 120);
+    assert.equal(
+      children[0].continuationDeadlineAt?.getTime(),
+      parent.continuationDeadlineAt?.getTime(),
+    );
+    assert.equal((await repo.findOneByOrFail({ id: parent.id })).retryAt, null);
+
+    // A crash after the durable child insert must repair the old stamp, even
+    // if the continuation budget or policy has since become ineligible.
+    await repo.update({ id: parent.id }, { retryAt: now, continuationStopReason: "Budget spent." });
+    const again = await dispatchDueRetries(new Date());
+    assert.equal(again.started, 0);
+    assert.equal(await repo.countBy({ parentRunId: parent.id }), 1);
+    assert.equal((await repo.findOneByOrFail({ id: parent.id })).retryAt, null);
+  });
+
+  test("natural schedule does not overtake queued or claimed continuation work", async () => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-before-slot");
+    const parent = await continuationRun(scheduled.id, { retryAt: new Date(Date.now() + 60_000) });
+    const repo = AppDataSource.getRepository(Run);
+    await tickRoutine(scheduled.id, { missedSlots: 0 }, () => undefined);
+    assert.equal(await repo.countBy({ routineId: scheduled.id }), 1);
+
+    const claim = await claimRetryDispatch(parent.id, parent.retryAt as Date);
+    assert.ok(claim);
+    await tickRoutine(scheduled.id, { missedSlots: 0 }, () => undefined);
+    assert.equal(await repo.countBy({ routineId: scheduled.id }), 1);
+  });
+
+  test("cancellation prevents a queued continuation from restarting", async () => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-cancelled");
+    const parent = await continuationRun(scheduled.id);
+    assert.equal(await cancelPendingRetry(parent.id), "cancelled");
+    assert.equal((await dispatchDueRetries(new Date())).started, 0);
+    assert.equal(await AppDataSource.getRepository(Run).countBy({ parentRunId: parent.id }), 0);
+  });
+
+  test("stops unsafe or spent continuations without using the ordinary retry budget", async () => {
+    const { employee } = await fixture();
+    const cases: Array<{
+      name: string;
+      routine?: Partial<Routine>;
+      run?: Partial<Run>;
+      reason: RegExp;
+    }> = [
+      { name: "disabled", routine: { enabled: false }, reason: /disabled/i },
+      { name: "approval", routine: { requiresApproval: true }, reason: /review/i },
+      { name: "self-review", routine: { selfReviewOnly: true }, reason: /review/i },
+      { name: "approved-run", run: { triggerKind: "approval" }, reason: /review/i },
+      {
+        name: "expired",
+        run: { continuationDeadlineAt: new Date(Date.now() - 1) },
+        reason: /time limit/i,
+      },
+      { name: "spent", run: { continuationCount: 3 }, reason: /continuation limit/i },
+      { name: "tokens", run: { continuationTokensUsed: 10_000_000 }, reason: /token limit/i },
+      {
+        name: "no-progress",
+        run: { continuationStopReason: "No progress since the previous checkpoint." },
+        reason: /no progress/i,
+      },
+    ];
+    const parents: Array<{ parent: Run; reason: RegExp }> = [];
+    for (const item of cases) {
+      const scheduled = await routine(employee.id, `continue-${item.name}`, {
+        maxAttempts: 5,
+        ...item.routine,
+      });
+      parents.push({ parent: await continuationRun(scheduled.id, item.run), reason: item.reason });
+    }
+    // The scheduler processes at most five queue rows per pass.
+    assert.equal((await dispatchDueRetries(new Date())).started, 0);
+    assert.equal((await dispatchDueRetries(new Date())).started, 0);
+    const repo = AppDataSource.getRepository(Run);
+    for (const { parent, reason } of parents) {
+      const stopped = await repo.findOneByOrFail({ id: parent.id });
+      assert.equal(stopped.retryAt, null);
+      assert.match(stopped.continuationStopReason ?? "", reason);
+      assert.equal(await repo.countBy({ parentRunId: parent.id }), 0);
+    }
+  });
+
+  test("a Standdown defers a continuation until lifted", async () => {
+    const { company, employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-stood-down");
+    const parent = await continuationRun(scheduled.id);
+    const standdown = await placeStanddown({
+      companyId: company.id,
+      scope: "routine",
+      scopeId: scheduled.id,
+      source: "human",
+      reason: "Inspect the remaining source coverage.",
+      placedByUserId: null,
+    });
+    try {
+      const now = new Date();
+      assert.equal((await dispatchDueRetries(now)).started, 0);
+      const queued = await AppDataSource.getRepository(Run).findOneByOrFail({ id: parent.id });
+      assert.equal(queued.retryAt?.getTime(), now.getTime() + 60_000);
+      assert.equal(queued.continuationStopReason, null);
+    } finally {
+      await liftStanddown({ standdown });
+    }
+    const result = await dispatchDueRetries(new Date(Date.now() + 61_000));
+    assert.equal(result.started, 1);
+    await Promise.all(result.completions);
+  });
+
+  test("rechecks an approval gate added while continuation setup runs", async (t) => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-new-gate");
+    const parent = await continuationRun(scheduled.id);
+    const repo = AppDataSource.getRepository(Routine);
+    const original = repo.findOneBy.bind(repo);
+    let reads = 0;
+    t.mock.method(repo, "findOneBy", async (where: Parameters<typeof repo.findOneBy>[0]) => {
+      if (!Array.isArray(where) && where.id === scheduled.id) {
+        reads += 1;
+        if (reads === 2) await repo.update({ id: scheduled.id }, { requiresApproval: true });
+      }
+      return original(where);
+    });
+
+    const result = await dispatchDueRetries(new Date());
+    assert.equal(result.started, 0);
+    const runRepo = AppDataSource.getRepository(Run);
+    assert.equal(await runRepo.countBy({ parentRunId: parent.id }), 0);
+    const stopped = await runRepo.findOneByOrFail({ id: parent.id });
+    assert.equal(stopped.retryAt, null);
+    assert.match(stopped.continuationStopReason ?? "", /review/i);
+  });
+
+  test("a running sibling defers continuation rather than starting duplicate work", async () => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-overlap");
+    const parent = await continuationRun(scheduled.id);
+    await insert(Run, {
+      routineId: scheduled.id,
+      startedAt: new Date(),
+      status: "running",
+      logContent: "",
+    });
+    const now = new Date();
+    assert.equal((await dispatchDueRetries(now)).started, 0);
+    const deferred = await AppDataSource.getRepository(Run).findOneByOrFail({ id: parent.id });
+    assert.equal(deferred.retryAt?.getTime(), now.getTime() + 60_000);
+  });
+
+  test("crash recovery cannot reset a continuation's budget through ordinary retries", async () => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-interrupted", { maxAttempts: 5 });
+    const parent = await continuationRun(scheduled.id, {
+      status: "running",
+      finishedAt: null,
+      retryAt: null,
+      triggerKind: "continuation",
+      continuationCount: 2,
+    });
+    const result = await reconcileOrphanedRuns({ boot: true, now: new Date() });
+    assert.equal(result.retriesScheduled, 0);
+    const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id: parent.id });
+    assert.equal(recovered.status, "error");
+    assert.equal(recovered.retryAt, null);
+    assert.match(recovered.continuationStopReason ?? "", /interrupted/i);
+    assert.equal(recovered.checkpointJson, parent.checkpointJson);
   });
 });

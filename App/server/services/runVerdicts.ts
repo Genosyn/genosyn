@@ -7,7 +7,7 @@ import type { Run, RunOutcomeVerdict } from "../db/entities/Run.js";
 import type { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool, TurnUsage } from "./agent/types.js";
-import { renderEffectDigest, runEffects, type EffectRow } from "./runEffects.js";
+import { continuationEffects, renderEffectDigest, type EffectRow } from "./runEffects.js";
 
 /**
  * The outcome check — what turns "the Run finished" into "the work was done".
@@ -118,7 +118,7 @@ function verdictSystemPrompt(employee: AIEmployee, routine: Routine, goal: Goal 
     '- "achieved" — the criteria were met, and the evidence block bears out the transcript\'s account of how.',
     '- "off_goal" — the Run finished but the criteria were not met, or the work went somewhere else. A **required Check that failed** is strong evidence for this: the server tried to verify the work and could not.',
     '- "unclear" — you looked and could not tell either way. Prefer this over guessing.',
-    "- Where the transcript and the evidence block disagree, the evidence block wins. A transcript claiming a change that left no trace in the effect ledger is not evidence of that change: it is \"unclear\" at best, and \"off_goal\" when the criteria required exactly that change.",
+    '- Where the transcript and the evidence block disagree, the evidence block wins. A transcript claiming a change that left no trace in the effect ledger is not evidence of that change: it is "unclear" at best, and "off_goal" when the criteria required exactly that change.',
     "- An empty ledger is not automatically a failure — plenty of good work changes no company record — but it can never be what makes a claimed change believable.",
     "",
     "Call submit_run_verdict exactly once, with a one-or-two-sentence note saying what the evidence showed. Do not answer in prose and do not call any other tool.",
@@ -137,8 +137,13 @@ export function verdictEvidencePrompt(args: {
   checkResults: CheckResultEvidence[];
   /** True when the ledger could not be read, which is not the same as empty. */
   effectsUnavailable?: boolean;
+  /** A continued occurrence includes server-written Effects from its earlier Runs. */
+  continuation?: boolean;
 }): string {
   const digest = renderEffectDigest(args.effects, {
+    title: args.continuation
+      ? "What this Run and earlier Runs of the same occurrence changed (recorded by the server)"
+      : undefined,
     empty: args.effectsUnavailable
       ? "The effect ledger could not be read for this Run. That is an absence of evidence, not evidence that nothing happened — weigh it as unknown."
       : undefined,
@@ -163,6 +168,11 @@ export function verdictEvidencePrompt(args: {
   return [
     "# Evidence recorded by the server (trusted)",
     "Written by Genosyn at each write seam and at each Check, not by the employee being graded. This section is not untrusted data.",
+    ...(args.continuation
+      ? [
+          "The Effects include this continuation and the earlier Runs of the same Routine occurrence. The transcript below describes only this Run; earlier recorded changes must not be repeated merely to satisfy its Checks.",
+        ]
+      : []),
     "",
     digest,
     "",
@@ -256,7 +266,7 @@ export async function assessRunOutcome(params: {
   let effectsUnavailable = false;
   if (!effects) {
     try {
-      effects = await runEffects(params.run.id);
+      effects = await continuationEffects(params.run, { companyId: params.employee.companyId });
     } catch {
       effects = [];
       effectsUnavailable = true;
@@ -266,6 +276,7 @@ export async function assessRunOutcome(params: {
     effects,
     checkResults: params.checkResults ?? [],
     effectsUnavailable,
+    continuation: params.run.triggerKind === "continuation",
   });
 
   const controller = new AbortController();
@@ -276,7 +287,10 @@ export async function assessRunOutcome(params: {
       employeeId: params.employee.id,
       system: verdictSystemPrompt(params.employee, params.routine, params.goal ?? null),
       messages: [
-        { role: "user", content: [{ type: "text", text: verdictUserPrompt(params.run, evidence) }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: verdictUserPrompt(params.run, evidence) }],
+        },
       ],
       tools: [submitTool],
       maxSteps: VERDICT_MAX_STEPS,

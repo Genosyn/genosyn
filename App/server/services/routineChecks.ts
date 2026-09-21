@@ -14,7 +14,7 @@ import {
 } from "./agent/sandboxCommandRun.js";
 import { buildSandboxShellInvocation } from "./agent/sandboxShell.js";
 import { MAX_SESSION_COMMAND_LENGTH, parseCommandSegments } from "./repositoryCommandPolicy.js";
-import { countEffects } from "./runEffects.js";
+import { countContinuationEffects } from "./runEffects.js";
 
 /**
  * **Checks** — the assertions a Run has to pass before it may finalize green.
@@ -434,7 +434,7 @@ export function composeRemediationMessage(results: RunCheckResult[]): string {
 /* ------------------------------------------------------------- the runner */
 
 export type CheckRunParams = {
-  run: Pick<Run, "id">;
+  run: Pick<Run, "id" | "routineId" | "triggerKind" | "parentRunId">;
   routine: Pick<Routine, "id">;
   employee: Pick<AIEmployee, "id">;
   companyId: string;
@@ -571,7 +571,8 @@ async function runEffectCheck(check: RoutineCheck, params: CheckRunParams): Prom
     // A spec nobody can read is an assertion nobody can claim was satisfied.
     return { passed: false, exitCode: null, detail: messageOf(error) };
   }
-  const count = await countEffects(params.run.id, {
+  const count = await countContinuationEffects(params.run, {
+    companyId: params.companyId,
     action: spec.action,
     targetType: spec.targetType,
   });
@@ -584,7 +585,7 @@ async function runEffectCheck(check: RoutineCheck, params: CheckRunParams): Prom
   return {
     passed,
     exitCode: null,
-    detail: `${expectation}, the ledger has ${count}.`,
+    detail: `${expectation}, the ledger has ${count}.${params.run.triggerKind === "continuation" ? " Includes earlier Runs of this same occurrence." : ""}`,
   };
 }
 

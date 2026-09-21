@@ -195,7 +195,10 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // Explicit Run failure reporting adds one deferred name (17 characters with
 // its separator). Naming the escape hatch makes unfinished work reportable;
 // resident schemas stay unchanged, with 2,540 characters left for results.
-const DOMAIN_FOOTER_CHARS_MAX = 5_460;
+// Recoverable Journal reads and Run checkpoints add two deferred names. They
+// let an unfinished Run reach older evidence and persist its next exact step;
+// neither adds a resident schema. At least 2,500 chars remain at the minimum cap.
+const DOMAIN_FOOTER_CHARS_MAX = 5_500;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

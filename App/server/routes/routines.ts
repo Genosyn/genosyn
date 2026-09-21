@@ -29,6 +29,7 @@ import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
+import { publicRun, runContinuationView } from "../services/runContinuationView.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { memberManagesEmployee } from "../services/reportingLine.js";
@@ -141,7 +142,9 @@ function employeeSummary(emp: AIEmployee): EmployeeSummary {
  * this access pattern. Two runs of one routine sharing a startedAt timestamp
  * would both come back; the Map below keeps the first and drops the tie.
  */
-async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>> {
+async function lastRunByRoutine(
+  routineIds: string[],
+): Promise<Map<string, ReturnType<typeof publicRun>>> {
   if (routineIds.length === 0) return new Map();
   const runs = await AppDataSource.getRepository(Run)
     .createQueryBuilder("run")
@@ -156,6 +159,9 @@ async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>>
       "run.exitCode",
       "run.attempt",
       "run.retryAt",
+      "run.checkpointJson",
+      "run.continuationCount",
+      "run.continuationStopReason",
       "run.missedSlots",
       "run.outcomeVerdict",
     ])
@@ -164,8 +170,9 @@ async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>>
       "run.startedAt = (SELECT MAX(r2.startedAt) FROM runs r2 WHERE r2.routineId = run.routineId)",
     )
     .getMany();
-  const byRoutine = new Map<string, Run>();
-  for (const run of runs) if (!byRoutine.has(run.routineId)) byRoutine.set(run.routineId, run);
+  const byRoutine = new Map<string, ReturnType<typeof publicRun>>();
+  for (const run of runs)
+    if (!byRoutine.has(run.routineId)) byRoutine.set(run.routineId, publicRun(run));
   return byRoutine;
 }
 
@@ -662,7 +669,7 @@ routinesRouter.post("/routines/:rid/run", async (req, res) => {
   completion.catch((err) => {
     console.error("[run]", err);
   });
-  res.json(run);
+  res.json(publicRun(run));
 });
 
 /**
@@ -688,6 +695,9 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.triggerKind",
       "run.attempt",
       "run.retryAt",
+      "run.checkpointJson",
+      "run.continuationCount",
+      "run.continuationStopReason",
       "run.missedSlots",
       "run.outcomeVerdict",
       "run.outcomeNote",
@@ -698,7 +708,7 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
     .orderBy("run.startedAt", "DESC")
     .take(50)
     .getMany();
-  res.json(runs);
+  res.json(runs.map(publicRun));
 });
 
 const runRecordingParamsSchema = z
@@ -902,6 +912,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     finishedAt: run.finishedAt,
     // So the live-log modal can say "retrying in 2m" without a second request.
     retryAt: run.retryAt,
+    ...runContinuationView(run),
     attempt: run.attempt,
     // The outcome check lands shortly after a completed run finalizes; polling
     // this endpoint picks the verdict up without a second request.
@@ -951,7 +962,7 @@ routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
       metadata: { routineId: found.routine.id, status: run.status },
     });
   }
-  res.json(run);
+  res.json(publicRun(run));
 });
 
 const cancelRetrySchema = z.object({}).strict();
@@ -990,6 +1001,6 @@ routinesRouter.post(
       targetLabel: found.routine.name,
       metadata: { routineId: found.routine.id, attempt: run.attempt },
     });
-    res.json({ ...run, retryAt: null });
+    res.json(publicRun({ ...run, retryAt: null }));
   },
 );

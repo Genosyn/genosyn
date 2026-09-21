@@ -115,6 +115,21 @@ const model = http.createServer(async (req, res) => {
       routineWork &&
       routineBrief.includes("qa-routine-failure") &&
       !request.messages.some((message: { role: string }) => message.role === "tool");
+    const continuationWork =
+      !probe && routineWork && routineBrief.includes("qa-routine-continuation");
+    const continuing = continuationWork && routineBrief.includes("## Continue unfinished work");
+    const saveCheckpoint = continuationWork && !hasToolResult;
+    const checkpoint = {
+      state: continuing ? "complete" : "continue",
+      completed: continuing ? "Reviewed both source pages." : "Reviewed source page one.",
+      remaining: continuing ? "" : "Review source page two.",
+      resume: continuing ? "" : "Resume from source-event-2 in the original review window.",
+      progressKey: continuing ? "source-event-2" : "source-event-1",
+    };
+    if (saveCheckpoint) {
+      console.log(`[fullstack-continuation] ${JSON.stringify(checkpoint)}`);
+      assert(offeredTool("call_tool"), "Routine progress needs the real scoped tool dispatcher");
+    }
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     const delta = invokeProbe
       ? {
@@ -127,29 +142,46 @@ const model = http.createServer(async (req, res) => {
             },
           ],
         }
-      : reportFailure
+      : saveCheckpoint
         ? {
             tool_calls: [
               {
                 index: 0,
-                id: "qa-report-failure",
+                id: continuing ? "qa-checkpoint-complete" : "qa-checkpoint-continue",
                 type: "function",
                 function: {
                   name: offeredTool("call_tool"),
                   arguments: JSON.stringify({
-                    name: "mark_run_failed",
-                    args_json: JSON.stringify({
-                      reason:
-                        "The required source document was unavailable, so the report could not be completed.",
-                    }),
+                    name: "save_run_checkpoint",
+                    args_json: JSON.stringify(checkpoint),
                   }),
                 },
               },
             ],
           }
-        : { content: "No external work performed in this browser regression." };
+        : reportFailure
+          ? {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "qa-report-failure",
+                  type: "function",
+                  function: {
+                    name: offeredTool("call_tool"),
+                    arguments: JSON.stringify({
+                      name: "mark_run_failed",
+                      args_json: JSON.stringify({
+                        reason:
+                          "The required source document was unavailable, so the report could not be completed.",
+                      }),
+                    }),
+                  },
+                },
+              ],
+            }
+          : { content: "No external work performed in this browser regression." };
     res.end(
-      `data: ${JSON.stringify({ id: "qa-completion", object: "chat.completion.chunk", created: 1, model: "qa-local-model", choices: [{ index: 0, delta, finish_reason: invokeProbe || reportFailure ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "qa-completion", object: "chat.completion.chunk", created: 1, model: "qa-local-model", choices: [{ index: 0, delta, finish_reason: invokeProbe || reportFailure || saveCheckpoint ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
     console.log(`[fullstack-model-probe] ${probe ? "verified" : "reply"}`);
     return;

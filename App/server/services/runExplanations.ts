@@ -12,6 +12,7 @@ import { redactSensitiveText } from "./approvalRedaction.js";
 import { effectiveActiveId } from "./models.js";
 import { isModelConnected } from "./providers.js";
 import { workBlocked } from "./standdowns.js";
+import { runContinuationView } from "./runContinuationView.js";
 
 const EXPLAINABLE_STATUSES = new Set<Run["status"]>(["failed", "error", "timeout", "interrupted"]);
 const TRANSCRIPT_CHARS = 28_000;
@@ -117,6 +118,7 @@ async function evidenceForRun(companyId: string, run: Run, routine: Routine, own
       triggerKind: run.triggerKind,
       attempt: run.attempt,
       retryAt: run.retryAt,
+      ...runContinuationView(run),
       failureReason: boundedText(run.failureReason, 4_000),
       outcomeVerdict: run.outcomeVerdict,
       outcomeNote: boundedText(run.outcomeNote, 2_000),

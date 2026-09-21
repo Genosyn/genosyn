@@ -103,6 +103,25 @@ export function RunFailureNotice({ reason }: { reason?: string | null }) {
   );
 }
 
+export function RunContinuationNotice({
+  continuationPending,
+  continuationStopReason,
+}: Pick<Run, "continuationPending" | "continuationStopReason">) {
+  if (!continuationPending && !continuationStopReason?.trim()) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+      <p className="font-medium text-slate-800 dark:text-slate-200">
+        {continuationPending ? "Continuation scheduled" : "Automatic continuation stopped"}
+      </p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-slate-600 dark:text-slate-300">
+        {continuationPending
+          ? "The AI Employee will continue unfinished work from its saved progress. No setup is needed."
+          : continuationStopReason}
+      </p>
+    </div>
+  );
+}
+
 export function RunReviewNotice({ companySlug }: { companySlug: string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
@@ -345,10 +364,11 @@ export function RunLogPane({
   );
 }
 
-/** True while another log poll can reveal a terminal Run or a playable video. */
+/** Keep queued continuation controls current as well as Run and video state. */
 export function runLogNeedsPolling(log: RunLog): boolean {
   return (
     log.status === "running" ||
+    log.continuationPending === true ||
     // The outcome check runs after the transcript is final, so a completed run
     // on a routine with acceptance criteria lands its verdict a moment after
     // the status does. Keep polling until it arrives, or the chip would only
@@ -926,7 +946,7 @@ export function RunLiveModal({
   async function cancelRetry() {
     try {
       await api.post(`/api/companies/${company.id}/runs/${initialRun.id}/cancel-retry`, {});
-      setLog((cur) => (cur ? { ...cur, retryAt: null } : cur));
+      setLog((cur) => (cur ? { ...cur, retryAt: null, continuationPending: false } : cur));
     } catch (err) {
       setError((err as Error).message);
     }
@@ -972,13 +992,23 @@ export function RunLiveModal({
           {log?.attempt !== undefined && log.attempt > 1 && (
             <span className="text-slate-500 dark:text-slate-400">attempt {log.attempt}</span>
           )}
+          {(log?.continuationCount ?? initialRun.continuationCount ?? 0) > 0 && (
+            <span className="text-slate-500 dark:text-slate-400">
+              continuation {log?.continuationCount ?? initialRun.continuationCount}
+            </span>
+          )}
           {log?.retryAt && (
             <span className="text-slate-500 dark:text-slate-400">
-              retry {timeUntil(log.retryAt)}
+              {log.continuationPending ? "Continuation scheduled" : "retry"}{" "}
+              {timeUntil(log.retryAt)}
             </span>
           )}
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
+        <RunContinuationNotice
+          continuationPending={log?.continuationPending ?? initialRun.continuationPending}
+          continuationStopReason={log?.continuationStopReason ?? initialRun.continuationStopReason}
+        />
         {runNeedsAttention(status) && (
           <div className="flex flex-wrap gap-2" aria-label="Run details">
             <Button
@@ -1057,7 +1087,7 @@ export function RunLiveModal({
         <div className="flex justify-end gap-2">
           {log?.retryAt && (
             <Button variant="secondary" onClick={cancelRetry}>
-              <Ban size={14} /> Cancel retry
+              <Ban size={14} /> {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
             </Button>
           )}
           {onRetry && !log?.retryAt && isTerminal && runNeedsAttention(status) && (

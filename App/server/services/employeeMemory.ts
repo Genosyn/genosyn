@@ -91,7 +91,7 @@ export function renderRecentJournalBlock(entries: JournalEntry[]): string {
     const rendered = renderJournalLine(entry);
     if (bytes + rendered.length > RECENT_JOURNAL_MAX_BYTES) {
       lines.push(
-        `\n_…${entries.length - used} older entries omitted to keep the prompt bounded. Use \`list_journal\` to read more._`,
+        `\n_…${entries.length - used} older entries omitted to keep the prompt bounded. Use \`list_journal\` with date filters and pagination to find older entries, then \`get_journal_entry\` to read their full text._`,
       );
       break;
     }

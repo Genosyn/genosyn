@@ -251,7 +251,8 @@ export function Routines() {
             def: (
               <>
                 Total attempts per scheduled occurrence, counting the first. <Strong>1</Strong> by
-                default — Failed Runs and runtime or timeout Errors do not retry, while a newly
+                default — ordinary failure and runtime or timeout retries are off. Saved unfinished
+                work can still continue automatically within the original time limit. A newly
                 interrupted initial scheduled Run on an enabled routine without an approval gate
                 still receives one recovery attempt an hour after Genosyn marks it. Higher limits
                 also bound interrupted retries later in the same chain. Paired with{" "}
@@ -825,6 +826,32 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         deliberately one catch-up run per routine.
       </Callout>
 
+      <H3 id="continuations">Unfinished work continues automatically</H3>
+      <P>
+        When an AI Employee saves completed work, the remaining items, and an actionable next step,
+        Genosyn starts a fresh <Strong>Run</Strong> to continue from that progress. This works for
+        existing and new Routines without changing <Strong>Attempts</Strong> or configuring a
+        Workstream. Open the Run log to see <Strong>Continuation scheduled</Strong>; use
+        <Strong> Cancel continuation</Strong> to stop the follow-up without disabling the Routine.
+        The unfinished Run retains its Failed status, and later Runs show their continuation number.
+      </P>
+      <P>
+        Each occurrence permits up to three continuation Runs after the initial Run. They share the
+        original Routine time limit and a ceiling of ten million model tokens. Automatic
+        continuation stops when progress does not advance, the employee reports a blocker, or a
+        limit is reached; the Run shows the reason. Current Grants, delivery limits, and Standdowns
+        still apply, and approval-gated work is never replayed automatically.
+      </P>
+      <P>
+        Employees are briefed to save progress after small batches, retain stable source IDs and the
+        original review window, and verify earlier changes before repeating a write or send. A saved
+        checkpoint reports progress; it does not prove completion or guarantee that an external
+        action happens only once. Coverage must be complete before advancing a verified checkpoint,
+        and existing <DocLink to="/docs/verification">Checks and outcome grading</DocLink> retain
+        their own meaning. A fully reviewed source with no matching Contacts can still be completed
+        work.
+      </P>
+
       <H3 id="retries">Retries</H3>
       <P>
         OpenCode manages temporary model-request retries for API-key and custom AI Models; the Codex
@@ -836,15 +863,15 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Retrying the <Strong>whole Routine</Strong> creates a new Run. These retries after{" "}
-        <Strong>Failed</Strong> Runs and runtime <Strong>Errors</Strong> are{" "}
-        <Strong>off by default.</Strong> Raise <Strong>Attempts</Strong> above 1 in the
-        routine&apos;s Settings to retry them automatically, up to 5 attempts, waiting a randomized,
-        doubling interval between each (from <Strong>Retry backoff</Strong>, capped at six hours).
-        Retrying after the Run&apos;s own deadline is opted in separately, because retrying one
-        re-burns the routine&apos;s whole time budget. An interrupted initial scheduled Run on an
-        enabled routine without an approval gate is the safety exception: even at 1 attempt, it
-        receives one recovery attempt after an hour. Above 1, interrupted retries use the configured
-        bounded backoff until the chain reaches its cap.
+        <Strong>Failed</Strong> Runs without a saved continuation and runtime{" "}
+        <Strong>Errors</Strong> are <Strong>off by default.</Strong> Raise <Strong>Attempts</Strong>{" "}
+        above 1 in the routine&apos;s Settings to retry them automatically, up to 5 attempts,
+        waiting a randomized, doubling interval between each (from <Strong>Retry backoff</Strong>,
+        capped at six hours). Retrying after the Run&apos;s own deadline is opted in separately,
+        because retrying one re-burns the routine&apos;s whole time budget. An interrupted initial
+        scheduled Run on an enabled routine without an approval gate is the safety exception: even
+        at 1 attempt, it receives one recovery attempt after an hour. Above 1, interrupted retries
+        use the configured bounded backoff until the chain reaches its cap.
       </P>
       <Callout kind="warn" title="Retries are at-least-once.">
         An interrupted Run may already have sent the email, posted the update, or moved the money

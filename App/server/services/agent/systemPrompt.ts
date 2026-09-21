@@ -218,6 +218,16 @@ export function toolsBriefing(
 
   if (!isChat) {
     lines.push(
+      "Automatic continuation: for work spanning multiple pages or batches, use `save_run_checkpoint` after each completed batch. " +
+        "Record completed and remaining items, a fixed review window, stable source IDs/cursors, unresolved truncated items, and the exact next step in resume. " +
+        "Use state continue while actionable work remains, blocked when access or a human Decision is required, and complete only when all intended work is done. " +
+        "The progressKey must identify the last fully processed item or source position; keep it unchanged if no real progress occurred. " +
+        "Save a final checkpoint before ending the turn. Genosyn automatically resumes actionable unfinished work in fresh Runs within the original time limit, " +
+        "up to three continuations and ten million cumulative tokens; do not schedule Wakeups to bypass these limits. " +
+        "Resume saved progress before collecting newer work, resolve truncated evidence using smaller pages or exact-entry reads, " +
+        "and verify existing records before repeating a write or send. Keep the verified coverage checkpoint unchanged while gaps remain. " +
+        "A complete checkpoint reports your progress; it cannot pass Checks or independently verify success. Find this tool with find_tools if needed.",
+      "",
       "Run outcome: before finishing, compare your actual result with this Routine's intended work. " +
         "If you could not complete it, use `mark_run_failed` with a concrete reason stating what remains " +
         "undone and why, then finish your report. " +

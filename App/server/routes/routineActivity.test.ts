@@ -257,6 +257,9 @@ test("summaries contain only safe metadata and preserve independent outcome and 
     "exitCode",
     "attempt",
     "retryAt",
+    "continuationPending",
+    "continuationCount",
+    "continuationStopReason",
     "missedSlots",
     "outcomeVerdict",
     "checksVerdict",
@@ -269,6 +272,39 @@ test("summaries contain only safe metadata and preserve independent outcome and 
     JSON.stringify(body),
     /private|logContent|failureReason|outcomeNote|soulBody|body/,
   );
+});
+
+test("Run surfaces show the first pending continuation without exposing its saved checkpoint", async () => {
+  const run = await seedRun({
+    status: "failed",
+    retryAt: at(10),
+    continuationCount: 0,
+    checkpointJson: JSON.stringify({
+      state: "continue",
+      completed: "Reviewed first page",
+      remaining: "Review remaining pages",
+      resume: "private-source-anchor-123",
+      progressKey: "page-1",
+    }),
+  });
+  const { body } = await call();
+  assert.equal(body.today[0].latestRun.continuationPending, true);
+  assert.equal(body.today[0].latestRun.continuationCount, 0);
+  assert.doesNotMatch(JSON.stringify(body), /checkpointJson|private-source-anchor-123/);
+
+  for (const path of [`routines/${routine.id}/runs`, `runs/${run.id}/log`]) {
+    const response = await fetch(`${baseUrl}/api/companies/${company.id}/${path}`);
+    assert.equal(response.status, 200);
+    const payload = (await response.json()) as
+      | { continuationPending: boolean }
+      | { continuationPending: boolean }[];
+    const metadata = Array.isArray(payload) ? payload[0] : payload;
+    assert.equal(metadata.continuationPending, true);
+    assert.doesNotMatch(
+      JSON.stringify(payload),
+      /checkpointJson|private-source-anchor-123|continuationDeadlineAt|continuationTokensUsed|continuationOriginTriggerKind/,
+    );
+  }
 });
 
 test("the API requires valid instants, a company UUID, and a bounded forward interval", async () => {

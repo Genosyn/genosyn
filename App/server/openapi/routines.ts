@@ -92,19 +92,31 @@ const Run = z
     startedAt: z.string().datetime(),
     finishedAt: z.string().datetime().nullable(),
     triggerKind: z
-      .enum(["schedule", "manual", "webhook", "approval", "retry"])
+      .enum(["schedule", "manual", "webhook", "approval", "retry", "event", "continuation"])
       .describe(
         "What started this Run. Only `schedule` and `retry` Runs receive automatic retries; " +
-          "manual, webhook, and approval Runs are excluded.",
+          "checkpoint continuations are separate bounded follow-ups, enabled by default.",
       ),
     attempt: z.number().int().describe("1-based attempt number within a retry chain."),
-    parentRunId: z.string().uuid().nullable().describe("The run this one is a retry of."),
+    parentRunId: z.string().uuid().nullable().describe("The Run this one retries or continues."),
+    continuationPending: z
+      .boolean()
+      .describe("An automatic continuation is queued or being started."),
+    continuationCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe("Continuation number; zero for the original Run."),
+    continuationStopReason: z
+      .string()
+      .nullable()
+      .describe("Why unfinished work could not continue automatically."),
     retryAt: z
       .string()
       .datetime()
       .nullable()
       .describe(
-        "Durable due time for the next attempt. With the default attempt limit, an eligible " +
+        "Durable due time for the next retry or checkpoint continuation. With the default attempt limit, an eligible " +
           "newly interrupted initial scheduled Run receives exactly one recovery attempt an " +
           "hour after Genosyn marks it interrupted. Null when none is owed or the attempt " +
           "budget is spent.",
@@ -332,6 +344,9 @@ const RoutineActivityRun = Run.pick({
   exitCode: true,
   attempt: true,
   retryAt: true,
+  continuationPending: true,
+  continuationCount: true,
+  continuationStopReason: true,
   missedSlots: true,
 })
   .extend({

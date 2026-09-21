@@ -70,6 +70,7 @@ import {
   RunBrowserRecordingsPane,
   RunChecksChip,
   RunChecksStrip,
+  RunContinuationNotice,
   RunEffectsPane,
   RunFailureNotice,
   RunLogPane,
@@ -1171,18 +1172,29 @@ function RunsTab({
       await api.post(`/api/companies/${company.id}/runs/${activeRun.id}/cancel-retry`, {});
       setRuns(
         (current) =>
-          current?.map((run) => (run.id === activeRun.id ? { ...run, retryAt: null } : run)) ??
-          null,
+          current?.map((run) =>
+            run.id === activeRun.id ? { ...run, retryAt: null, continuationPending: false } : run,
+          ) ?? null,
       );
-      setLog((current) => (current ? { ...current, retryAt: null } : current));
+      setLog((current) =>
+        current ? { ...current, retryAt: null, continuationPending: false } : current,
+      );
     } catch (err) {
-      void dialog.error(err, { title: "Couldn’t cancel the retry" });
+      void dialog.error(err, {
+        title: activeRun.continuationPending
+          ? "Couldn’t cancel the continuation"
+          : "Couldn’t cancel the retry",
+      });
       await loadRuns();
     }
   }
 
   return (
     <div className="flex flex-col gap-3">
+      <RunContinuationNotice
+        continuationPending={activeRun?.continuationPending}
+        continuationStopReason={activeRun?.continuationStopReason}
+      />
       <RunFailureNotice reason={log?.failureReason ?? activeRun?.failureReason} />
       <div
         className={clsx("flex flex-col gap-3", !compact && "md:flex-row")}
@@ -1206,7 +1218,7 @@ function RunsTab({
                       : "hover:bg-slate-50 dark:hover:bg-slate-900")
                   }
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
                     {r.status !== "reviewed" && r.outcomeVerdict && (
                       <RunOutcomeChip verdict={r.outcomeVerdict} note={r.outcomeNote} size="xs" />
@@ -1224,9 +1236,15 @@ function RunsTab({
                         attempt {r.attempt}
                       </span>
                     )}
+                    {(r.continuationCount ?? 0) > 0 && (
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        continuation {r.continuationCount}
+                      </span>
+                    )}
                     {r.retryAt && (
                       <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                        retry {timeUntil(r.retryAt)}
+                        {r.continuationPending ? "Continuation scheduled" : "retry"}{" "}
+                        {timeUntil(r.retryAt)}
                       </span>
                     )}
                     {(r.missedSlots ?? 0) > 0 && (
@@ -1297,7 +1315,9 @@ function RunsTab({
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
         <div className="text-xs text-slate-500 dark:text-slate-400">
           {pendingRetryAt
-            ? `Automatic recovery is scheduled ${timeUntil(pendingRetryAt)}. Cancel it before running manually to avoid two Runs.`
+            ? activeRun?.continuationPending
+              ? `Unfinished work will continue from saved progress ${timeUntil(pendingRetryAt)}.`
+              : `Automatic recovery is scheduled ${timeUntil(pendingRetryAt)}. Cancel it before running manually to avoid two Runs.`
             : activeRun?.status === "interrupted" || activeRun?.errorKind === "interrupted"
               ? "The log above shows activity captured before the server stopped; anything after its final line is unknown. Run it again only if repeating the work is safe."
               : activeRun?.status === "failed"
@@ -1309,7 +1329,8 @@ function RunsTab({
         <div className="flex shrink-0 gap-2">
           {pendingRetryAt ? (
             <Button variant="secondary" onClick={cancelActiveRetry}>
-              <Ban size={14} /> Cancel retry
+              <Ban size={14} />
+              {activeRun?.continuationPending ? "Cancel continuation" : "Cancel retry"}
             </Button>
           ) : (
             <Button variant="secondary" onClick={onRetry}>
@@ -1772,11 +1793,12 @@ function SettingsTab({
               }
             />
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Counting the first. At 1, Failed Runs and runtime or timeout Errors do not retry,
-              but an initial scheduled Run on an enabled routine without an approval gate still receives one
-              recovery attempt after an hour if a restart interrupts it. Retries re-run the whole
-              brief and are at-least-once — an interrupted Run may already have sent the email. Use
-              Cancel retry on the Run if repeating its actions would be unsafe.
+              Counting the first. At 1, ordinary failure and Error retries are off. Saved unfinished
+              work still continues automatically within the original time limit. An initial
+              scheduled Run on an enabled routine without an approval gate receives one recovery
+              attempt after an hour if a restart interrupts it. Retries re-run the whole brief and
+              may repeat actions. Use Cancel retry on the Run if repeating its actions would be
+              unsafe.
             </div>
           </div>
 

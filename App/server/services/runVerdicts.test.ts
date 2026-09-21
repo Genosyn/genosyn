@@ -5,7 +5,7 @@ import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import type { Routine } from "../db/entities/Routine.js";
-import type { Run } from "../db/entities/Run.js";
+import { Run } from "../db/entities/Run.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import type { AgentTool } from "./agent/types.js";
 import type { EmployeeAgentResult } from "./agent/runEmployee.js";
@@ -102,7 +102,10 @@ describe("run outcome check", () => {
   test("`unclear` regains its meaning: the checker looked and could not tell", async () => {
     const assessment = await assess(
       stubRestricted(async (submit) => {
-        await submit.run({ verdict: "unclear", note: "The transcript never says where it posted." });
+        await submit.run({
+          verdict: "unclear",
+          note: "The transcript never says where it posted.",
+        });
         return { status: "ok", finalText: "", steps: 2, stopReason: "end_turn" };
       }),
     );
@@ -283,7 +286,13 @@ describe("the evidence the checker is shown", () => {
       targetLabel: "Acme renewal",
     });
     const sink = { system: "", user: "" };
-    await assessRunOutcome({ run, routine, employee, model, runRestricted: capturing(sink) });
+    await assessRunOutcome({
+      run,
+      routine,
+      employee: { ...employee, companyId },
+      model,
+      runRestricted: capturing(sink),
+    });
     assert.match(sink.user, /deal\.update/);
     assert.match(sink.user, /Acme renewal/);
   });
@@ -301,5 +310,41 @@ describe("the evidence the checker is shown", () => {
     const sink = { system: "", user: "" };
     await assessRunOutcome({ run, routine, employee, model, runRestricted: capturing(sink) });
     assert.doesNotMatch(sink.user, /invoice\.void/);
+  });
+
+  test("a continuation grader sees the same earlier-chunk evidence as its Checks", async () => {
+    const companyId = testCompanyId();
+    const first = await insert(Run, {
+      routineId: routine.id,
+      status: "failed",
+      startedAt: new Date(),
+      triggerKind: "schedule",
+    });
+    const last = await insert(Run, {
+      routineId: routine.id,
+      status: "completed",
+      startedAt: new Date(),
+      triggerKind: "continuation",
+      parentRunId: first.id,
+      logContent: "Finished the remaining review.",
+    });
+    await insert(AuditEvent, {
+      companyId,
+      runId: first.id,
+      action: "deal.update",
+      targetType: "deal",
+      targetLabel: "Previously completed renewal",
+    });
+    const sink = { system: "", user: "" };
+    await assessRunOutcome({
+      run: last,
+      routine,
+      employee: { ...employee, companyId },
+      model,
+      runRestricted: capturing(sink),
+    });
+    assert.match(sink.user, /Previously completed renewal/);
+    assert.match(sink.user, /earlier Runs of the same Routine occurrence/);
+    assert.match(sink.user, /must not be repeated/);
   });
 });

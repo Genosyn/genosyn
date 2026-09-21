@@ -66,11 +66,10 @@ export function Reactivity() {
         A proactive Run finishes as <Strong>Reviewed</Strong> after examining evidence and any
         permitted preparation. This leaves delivery unverified. A reply-only email can show its
         exact in-Genosyn review without creating provider-side state. When you approve underlying
-        work, a separate Routine Run or
-        approved email handover carries out the plan under the original Checks and outcome grading.
-        Any final customer reply returns to the stack as a separate review after the work has real
-        results. The outcome step in the stack summarizes the work; open the Run to inspect its
-        independent verification.
+        work, a separate Routine Run or approved email handover carries out the plan under the
+        original Checks and outcome grading. Any final customer reply returns to the stack as a
+        separate review after the work has real results. The outcome step in the stack summarizes
+        the work; open the Run to inspect its independent verification.
       </P>
       <H2 id="daily-ownership">A useful next step across the app</H2>
       <P>
@@ -78,8 +77,8 @@ export function Reactivity() {
         weekdays at 08:00 in the server&apos;s timezone. Find it in <Strong>Standing work</Strong>
         and select <Strong>Open</Strong> to edit its schedule or brief. This daily Routine reads
         current assignments, deadlines and granted records, inspects the original evidence, and
-        completes routine preparation or proposes consequential work for your review. It also
-        checks due Workstreams, earlier outcomes, and review feedback from previous Runs.
+        completes routine preparation or proposes consequential work for your review. It also checks
+        due Workstreams, earlier outcomes, and review feedback from previous Runs.
       </P>
       <KeyList
         rows={[
@@ -245,9 +244,8 @@ export function Reactivity() {
         preparation and puts the reply straight into an email review. Consequential work, including
         starting a Repository Work session, needs an approved plan first; completing it still does
         not send mail. The employee returns the exact final message to the stack, where an owner or
-        admin can <Strong>Send now</Strong>,{" "}
-        <Strong>Edit email</Strong>, <Strong>Ask employee to edit</Strong>, or{" "}
-        <Strong>Discard</Strong>.
+        admin can <Strong>Send now</Strong>, <Strong>Edit email</Strong>,{" "}
+        <Strong>Ask employee to edit</Strong>, or <Strong>Discard</Strong>.
       </P>
       <P>
         Those review messages live only in Genosyn. They never appear in Gmail Drafts or an IMAP
@@ -290,10 +288,10 @@ export function Reactivity() {
         family changes anywhere in the company — a deal moves, mail lands, a Run finishes, a{" "}
         <DocLink to="/docs/goals">Goal</DocLink> updates — the Routine fires without waiting for its
         next cron slot. The resulting Run reads evidence, completes permitted preparation and
-        requests work approval when consequential work needs human authority.
-        Triggers are managed by admins on the routine&apos;s <Strong>Settings → Triggers</Strong>{" "}
-        card, and the list of subscribable kinds is served from the same registry the app&apos;s own
-        live updates run on — anything that refreshes on your screen can fire a Routine.
+        requests work approval when consequential work needs human authority. Triggers are managed
+        by admins on the routine&apos;s <Strong>Settings → Triggers</Strong> card, and the list of
+        subscribable kinds is served from the same registry the app&apos;s own live updates run on —
+        anything that refreshes on your screen can fire a Routine.
       </P>
       <Callout kind="info" title="An event routes work. It never carries content.">
         Event frames are coarse and <Strong>id-only</Strong>: a fire tells the Routine only that its
@@ -356,6 +354,14 @@ export function Reactivity() {
         version is always the whole truth. Binding a workstream to one of the employee&apos;s
         Routines makes every future Run brief open with the latest state — the context seam that
         used to be journal archaeology.
+      </P>
+      <P>
+        Shorter unfinished work can{" "}
+        <DocLink to="/docs/routines#continuations">continue automatically</DocLink> from a saved Run
+        checkpoint without creating a Workstream. For longer work, keep the latest source positions
+        and unresolved items in the linked Workstream. Employees can also page through Journal
+        summaries and retrieve a full entry in chunks, so an older audit remains reachable even when
+        recent history or a long entry would fill one response.
       </P>
       <UL>
         <LI>

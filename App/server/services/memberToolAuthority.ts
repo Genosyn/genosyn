@@ -328,6 +328,7 @@ const ADMIN_TOOLS = [
   // Until entries carry resource provenance, regular delegated Members do not
   // receive them through an AI Employee.
   "list_journal",
+  "get_journal_entry",
   "add_journal_entry",
   "list_memory",
   "add_memory",
@@ -378,6 +379,7 @@ export const INTERACTIVE_MEMBER_DENIED_TOOLS = new Set([
   "revise_mail_review",
   // Failure reporting belongs only to the server-bound current Routine Run.
   "mark_run_failed",
+  "save_run_checkpoint",
 ] as const);
 
 const FINANCE_READ_TOOLS = [

@@ -366,6 +366,41 @@ describe("runChecksForRun — the effect kind", () => {
     assert.equal((await runChecks()).verdict, "failed");
   });
 
+  test("a continuation verifies earlier chunk Effects without asking to repeat them", async () => {
+    await effectCheck({ action: "mail.send", min: 3, max: 3 });
+    await ledger("mail.send");
+    await ledger("mail.send");
+    const earlier = run;
+    run = await insert(Run, {
+      routineId: routine.id,
+      startedAt: new Date(),
+      status: "completed",
+      triggerKind: "continuation",
+      parentRunId: earlier.id,
+    });
+    await ledger("mail.send");
+    const completed = await runChecks();
+    assert.equal(completed.verdict, "passed");
+    assert.match(completed.results[0].detail, /ledger has 3/);
+    assert.match(completed.results[0].detail, /earlier Runs of this same occurrence/);
+
+    await ledger("mail.send");
+    assert.equal(
+      (await runChecks({ attempt: 1 })).verdict,
+      "failed",
+      "duplicating an earlier send must exceed the original maximum",
+    );
+  });
+
+  test("a broken continuation chain cannot pass an absence Check", async () => {
+    await effectCheck({ action: "mail.send", min: 0, max: 0 });
+    run.triggerKind = "continuation";
+    run.parentRunId = testId("missing-run");
+    const outcome = await runChecks();
+    assert.equal(outcome.verdict, "failed");
+    assert.match(outcome.results[0].detail, /earlier Run evidence could not be verified/);
+  });
+
   test("a spec that no longer parses fails loudly rather than passing", async () => {
     const check = await effectCheck({ action: "mail.send" });
     // Straight to the column, the way a bad migration or a hand-edit would.
@@ -465,7 +500,7 @@ describe("runChecksForRun — the command kind", () => {
     t.after(() => fs.rm(cwd, { recursive: true, force: true }));
     await fs.writeFile(
       path.join(cwd, "check.sh"),
-      'printf \'%s\\n\' "$CHECK_VALUE"\nexec sleep 30\n',
+      "printf '%s\\n' \"$CHECK_VALUE\"\nexec sleep 30\n",
     );
     await commandCheck("sh check.sh", 300);
     const outcome = await runChecks({

@@ -85,7 +85,8 @@ export async function loadGenosynTools(
 
   const mayReportRunFailure = canReportRunFailure(resolveMcpToken(token));
   const staticTools: AgentTool[] = [...familyTools, ...passthroughTools].filter(
-    (tool) => tool.name !== "mark_run_failed" || mayReportRunFailure,
+    (tool) =>
+      !["mark_run_failed", "save_run_checkpoint"].includes(tool.name) || mayReportRunFailure,
   );
 
   // The retired family names, resolvable but never advertised. They dispatch
@@ -232,7 +233,10 @@ function flattenMcpResult(parsed: unknown): string {
     if (Array.isArray(content)) {
       const text = content
         .map((c) =>
-          c && typeof c === "object" && "text" in c && typeof (c as { text: unknown }).text === "string"
+          c &&
+          typeof c === "object" &&
+          "text" in c &&
+          typeof (c as { text: unknown }).text === "string"
             ? (c as { text: string }).text
             : "",
         )

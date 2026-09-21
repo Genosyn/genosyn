@@ -50,7 +50,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     label: "runs",
     blurb:
       "The record of scheduled work: what each Run did, how it was graded, and the evidence behind the verdict.",
-    tools: ["list_runs", "get_run_report", "mark_run_failed"],
+    tools: ["list_runs", "get_run_report", "mark_run_failed", "save_run_checkpoint"],
   },
   goals: {
     label: "goals",
@@ -135,7 +135,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   journal: {
     label: "journal",
     blurb: "Your own diary. The last week is auto-injected into every prompt.",
-    tools: ["list_journal", "add_journal_entry"],
+    tools: ["list_journal", "get_journal_entry", "add_journal_entry"],
   },
   memory: {
     label: "memory",
@@ -1341,6 +1341,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   list_runs: ["run history", "did it work", "last run", "what happened"],
   get_run_report: ["run evidence", "why did it fail", "check results", "what did it change"],
   mark_run_failed: ["mark failed", "report failure", "cannot complete", "work unfinished"],
+  save_run_checkpoint: [
+    "save progress",
+    "continue unfinished work",
+    "resume",
+    "checkpoint",
+    "partial",
+    "pagination",
+  ],
   list_goals: ["kpi", "okr", "objective", "target", "metric", "mission"],
   get_goal: ["kpi", "okr", "objective", "target"],
   update_goal_progress: ["kpi", "okr", "report progress", "metric update", "number"],
@@ -1395,6 +1403,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   get_todo: ["task details", "ticket discussion", "review evidence", "todo comments"],
   add_journal_entry: ["log", "diary", "record what i did", "decision log"],
   list_journal: ["log", "diary", "history"],
+  get_journal_entry: ["journal", "diary", "full entry", "audit note", "older evidence"],
   send_workspace_message: ["slack", "chat", "post", "channel", "message the team"],
   list_workspace_channels: ["slack", "chat", "channel"],
   create_workspace_channel: ["slack", "chat", "channel"],

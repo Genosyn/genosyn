@@ -11,6 +11,7 @@ import {
   automaticRetryDelayMs,
   automaticRetryLimit,
   isRunOrphaned,
+  ORPHAN_GRACE_MS,
   shouldRetry,
 } from "./cronMath.js";
 import { config } from "../../config.js";
@@ -20,6 +21,7 @@ import {
 } from "./browserRecordings.js";
 import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
 import { notifyRunFailure } from "./runAlerts.js";
+import { readRunCheckpoint } from "./runContinuation.js";
 
 /**
  * Crash recovery for Runs.
@@ -169,7 +171,16 @@ export async function reconcileOrphanedRuns(opts?: {
       // A routine deleted out from under a live run leaves no timeout to reason
       // about; fall back to the column default rather than stranding the row.
       const timeoutSec = routine?.timeoutSec ?? 3600;
-      if (!singleProcessBoot && !isRunOrphaned(run.startedAt, timeoutSec, now)) continue;
+      const continuationExpired =
+        run.continuationDeadlineAt !== null &&
+        run.continuationDeadlineAt.getTime() + ORPHAN_GRACE_MS < now.getTime();
+      if (
+        !singleProcessBoot &&
+        !continuationExpired &&
+        !isRunOrphaned(run.startedAt, timeoutSec, now)
+      ) {
+        continue;
+      }
 
       run.status = "error";
       run.errorKind = "interrupted";
@@ -178,7 +189,22 @@ export async function reconcileOrphanedRuns(opts?: {
       run.logContent = (run.logContent ?? "") + ORPHAN_LOG_MARKER;
 
       let retryDelayMs: number | null = null;
+      const checkpoint = readRunCheckpoint(run);
+      const continuationInterrupted =
+        run.triggerKind === "continuation" ||
+        run.continuationCount > 0 ||
+        checkpoint?.state === "continue" ||
+        checkpoint?.state === "blocked";
+      if (continuationInterrupted) {
+        // A partial occurrence cannot escape its shared budget through the
+        // ordinary crash-retry policy. Its last durable checkpoint survives
+        // for inspection, but an interrupted chunk needs attention.
+        run.retryAt = null;
+        run.continuationStopReason =
+          "The Run was interrupted before its next checkpoint could be safely continued.";
+      }
       if (
+        !continuationInterrupted &&
         routine?.enabled &&
         !routine.requiresApproval &&
         shouldRetry({
@@ -225,6 +251,7 @@ export async function reconcileOrphanedRuns(opts?: {
           finishedAt: run.finishedAt,
           logContent: run.logContent,
           retryAt: run.retryAt,
+          continuationStopReason: run.continuationStopReason,
         },
       );
       if (recovered.affected !== 1) {

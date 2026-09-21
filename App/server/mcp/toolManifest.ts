@@ -912,6 +912,43 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "save_run_checkpoint",
+    description:
+      "Save progress for your current Routine Run after each batch. Genosyn automatically continues remaining actionable work when this Run ends, with no retry configuration. Use continue for resumable work, blocked for missing access or a human Decision, complete only when nothing remains. Include the fixed review window and stable source anchors in resume. progressKey identifies the last fully processed source item; never change it merely to request another attempt. Three continuations, the original time limit, and a shared token ceiling apply. Only the top-level AI Employee running this Routine may call this. This does not mark the Run successful or change its Checks. Discover get_journal_entry for full older Journal evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        state: { type: "string", enum: ["continue", "blocked", "complete"] },
+        completed: {
+          type: "string",
+          minLength: 1,
+          maxLength: 2000,
+          description: "Items actually completed, with stable source IDs or coverage ranges.",
+        },
+        remaining: {
+          type: "string",
+          maxLength: 2000,
+          description: "Unfinished items or exact blocker. Empty only when complete.",
+        },
+        resume: {
+          type: "string",
+          maxLength: 3000,
+          description:
+            "Exact next step, fixed work window, cursor/source IDs and unresolved evidence. Do not rely on page number alone.",
+        },
+        progressKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 300,
+          description:
+            "Stable last fully processed item or cursor; unchanged when no progress occurs.",
+        },
+      },
+      required: ["state", "completed", "remaining", "resume", "progressKey"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_goals",
     description:
       "List the company's Goals — the measurable objectives the company is steering toward. Each row carries the goal's `id`, `slug`, target, current value, direction, deadline, owner, and computed progress. Goals you own are your accountability; a Routine may declare the goal it serves.",
@@ -1483,13 +1520,47 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_journal",
     description:
-      "List recent Journal entries for an AI employee (runs, system events, and notes). Omit `employeeSlug` to list your own.",
+      "List Journal entries newest first with compact body previews. Omit employeeSlug for your own. Follow nextCursor with the same filters to read older history; a bounded page may contain fewer rows than limit. Use get_journal_entry to read the complete evidence for an entry.",
+    readOnly: true,
     inputSchema: {
       type: "object",
       properties: {
         employeeSlug: { type: "string" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
+        since: { type: "string", description: "Inclusive earliest ISO 8601 datetime." },
+        before: { type: "string", description: "Exclusive latest ISO 8601 datetime." },
+        cursor: {
+          type: "string",
+          description: "The previous response's nextCursor, for older entries.",
+        },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_journal_entry",
+    description:
+      "Read one exact Journal entry, including old evidence omitted from recent context. Omit employeeSlug for your own. Bodies are returned in bounded chunks: follow nextOffset with the same entryId until hasMore is false before treating the evidence as complete.",
+    readOnly: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        employeeSlug: { type: "string" },
+        entryId: { type: "string", description: "Journal entry UUID returned by list_journal." },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Start at 0, then use nextOffset exactly.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 6000,
+          description:
+            "Maximum body characters (default 4000); the response may be shorter to fit.",
+        },
+      },
+      required: ["entryId"],
       additionalProperties: false,
     },
   },
@@ -2240,8 +2311,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
               },
               detail: {
                 type: "string",
-                description:
-                  "Next step and exact information needed in the Member's note.",
+                description: "Next step and exact information needed in the Member's note.",
               },
               tone: {
                 type: "string",

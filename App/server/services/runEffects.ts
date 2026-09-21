@@ -1,3 +1,4 @@
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Run } from "../db/entities/Run.js";
@@ -91,6 +92,81 @@ export async function countEffects(
   return AppDataSource.getRepository(AuditEvent).countBy(where);
 }
 
+type OccurrenceRun = Pick<Run, "id" | "routineId" | "triggerKind" | "parentRunId">;
+
+/**
+ * Only a continuation widens its evidence to earlier chunks of the same
+ * occurrence. A retry root can itself have earlier attempts; those Effects
+ * are part of the same work too. A new scheduled/manual occurrence ends the
+ * walk even if a malformed row happens to name another parent.
+ *
+ * Missing, cross-Routine, or cyclic lineage is unknown evidence, never an
+ * empty ledger: throwing makes a Check fail closed and a grader say unknown.
+ */
+async function continuationRunIds(run: OccurrenceRun): Promise<string[]> {
+  if (!run.id) return [];
+  const ids = [run.id];
+  if (run.triggerKind !== "continuation") return ids;
+  const seen = new Set(ids);
+  const repo = AppDataSource.getRepository(Run);
+  let current = run;
+  while (current.triggerKind === "continuation" || current.triggerKind === "retry") {
+    if (
+      !current.parentRunId ||
+      seen.has(current.parentRunId) ||
+      ids.length >= RETRY_CHAIN_DEPTH_CAP
+    ) {
+      throw new Error("The continuation's earlier Run evidence could not be verified.");
+    }
+    const parent = await repo.findOneBy({ id: current.parentRunId, routineId: run.routineId });
+    if (!parent) throw new Error("The continuation's earlier Run evidence could not be verified.");
+    ids.push(parent.id);
+    seen.add(parent.id);
+    current = parent;
+  }
+  return ids;
+}
+
+/** Server-written Effects for a Run, including its occurrence when it continues one. */
+export async function continuationEffects(
+  run: OccurrenceRun,
+  opts: { companyId: string; limit?: number },
+): Promise<EffectRow[]> {
+  if (!opts.companyId)
+    throw new Error("The Run's company is required to read continuation evidence.");
+  const ids = await continuationRunIds(run);
+  if (ids.length === 0) return [];
+  const rows = await AppDataSource.getRepository(AuditEvent).find({
+    where: { companyId: opts.companyId, runId: In(ids) },
+    order: { createdAt: "ASC", id: "ASC" },
+    take: Math.max(1, opts.limit ?? RUN_EFFECT_ROW_CAP),
+  });
+  return rows.map((row) => ({
+    action: row.action,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    targetLabel: row.targetLabel,
+    at: row.createdAt,
+  }));
+}
+
+/** Counts are uncapped: a prompt's display bound must not change a Check's arithmetic. */
+export async function countContinuationEffects(
+  run: OccurrenceRun,
+  filter: { companyId: string; action?: string; targetType?: string },
+): Promise<number> {
+  if (!filter.companyId)
+    throw new Error("The Run's company is required to count continuation evidence.");
+  const ids = await continuationRunIds(run);
+  if (ids.length === 0) return 0;
+  return AppDataSource.getRepository(AuditEvent).countBy({
+    companyId: filter.companyId,
+    runId: In(ids),
+    ...(filter.action ? { action: filter.action } : {}),
+    ...(filter.targetType ? { targetType: filter.targetType } : {}),
+  });
+}
+
 /**
  * The effects of every earlier attempt in this Run's retry chain, oldest
  * attempt first.
@@ -143,8 +219,7 @@ export function renderEffectDigest(
   if (rows.length === 0) {
     return [
       `## ${title}`,
-      opts.empty ??
-        "Nothing. The server recorded no change to any company record during this Run.",
+      opts.empty ?? "Nothing. The server recorded no change to any company record during this Run.",
     ].join("\n");
   }
   const lines = rows.map((r) => {

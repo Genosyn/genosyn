@@ -1,5 +1,6 @@
 /** Real browser + real Express/services/SQLite account and onboarding regressions.
  * Run with Node 22: node --import tsx scripts/test-onboarding-fullstack.ts
+ * Append --continuation to focus model Runs on saved work while retaining account flows.
  * Uses an isolated in-memory DB, temporary files, console email and a loopback fake model.
  */
 import assert from "node:assert/strict";
@@ -24,6 +25,7 @@ const testRoot = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-onboarding-ful
 const port = 18487;
 const uiPort = 18489;
 const origin = `http://127.0.0.1:${uiPort}`;
+const continuationOnly = process.argv.includes("--continuation");
 await fs.mkdir(output, { recursive: true });
 const serverLogPath = path.join(output, "onboarding-fullstack-server.log");
 const browserLogPath = path.join(output, "onboarding-fullstack-browser.log");
@@ -68,9 +70,13 @@ const nextPassword = "Onboarding-QA-recovered-84";
 const companyName = "Onboarding QA Company";
 const mission = "Help independent schools keep reliable learning tools.";
 const vision = "Every classroom can trust the software it uses.";
-async function until(check: () => boolean, description: string, timeout = 180_000) {
+async function until(
+  check: () => boolean | Promise<boolean>,
+  description: string,
+  timeout = 180_000,
+) {
   const deadline = Date.now() + timeout;
-  while (!check()) {
+  while (!(await check())) {
     if (child.exitCode !== null)
       throw new Error(
         `App exited (${child.exitCode}) while ${description}: ${serverLog.slice(-6000)}`,
@@ -277,13 +283,14 @@ try {
 
   // Exercise actual OpenCode, the scoped failure-report tool, persistence, and
   // browser Run log together. Only the loopback model replies are deterministic.
-  for (const [marker, expectedStatus, label] of [
+  const runtimeCases = [
     ["qa-routine-success", "completed", "Completed"],
     ["qa-routine-failure", "failed", "Failed"],
     ["qa-routine-error", "error", "Error"],
     ["qa-routine-timeout-recovered", "completed", "Completed after model timeouts"],
     ["qa-routine-retry-terminal-error", "error", "Error after a retried request becomes terminal"],
-  ] as const) {
+  ] as const;
+  for (const [marker, expectedStatus, label] of continuationOnly ? [] : runtimeCases) {
     const created = await page.request.post(`${origin}${employeeBase}/routines`, {
       data: { name: marker, cronExpr: "0 0 1 1 *" },
     });
@@ -380,6 +387,108 @@ try {
     });
     await page.keyboard.press("Escape");
     record(`Routine Run persisted and displayed ${label} through the pinned OpenCode runtime`);
+  }
+
+  // The production scheduler, runner, and MCP tools own the chain. Only model
+  // replies are fixtures; no Run rows or queue timestamps are inserted here.
+  let cancelledContinuationApi = "";
+  for (const cancel of [true, false]) {
+    const marker = cancel ? "qa-routine-continuation-cancel" : "qa-routine-continuation";
+    const created = await page.request.post(`${origin}${employeeBase}/routines`, {
+      data: { name: marker, cronExpr: "0 0 1 1 *" },
+    });
+    assert.equal(created.status(), 200, await created.text());
+    const routine = (await created.json()) as { id: string; slug: string; maxAttempts: number };
+    assert.equal(routine.maxAttempts, 1, "continuation must work with unchanged retry defaults");
+    const routineApi = `/api/companies/${company.id}/routines/${routine.id}`;
+    const briefSaved = await page.request.put(`${origin}${routineApi}/readme`, {
+      data: { content: `Review both source pages for ${marker}, saving progress after each page.` },
+    });
+    assert.equal(briefSaved.status(), 200, await briefSaved.text());
+    const routinePath = `/c/${company.slug}/routines/${employee.slug}/${routine.slug}`;
+    await go(routinePath);
+    const started: Promise<Response> = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`${routineApi}/run`) && response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Run now", exact: true }).first().click();
+    const startResponse: Response = await started;
+    assert.equal(startResponse.status(), 200, await startResponse.text());
+    const parent = (await startResponse.json()) as { id: string };
+    const dialog = page.getByRole("dialog");
+    await dialog.getByText("Continuation scheduled", { exact: true }).waitFor({ timeout: 180_000 });
+    await dialog.getByRole("button", { name: "Cancel continuation", exact: true }).waitFor();
+    const parentLog = await read<{
+      status: string;
+      continuationPending: boolean;
+      continuationCount: number;
+      retryAt: string | null;
+      content: string;
+    }>(`/api/companies/${company.id}/runs/${parent.id}/log`);
+    assert.equal(parentLog.status, "failed");
+    assert.equal(parentLog.continuationPending, true);
+    assert.equal(parentLog.continuationCount, 0);
+    assert(parentLog.retryAt);
+    assert.match(parentLog.content, /save_run_checkpoint/);
+    if (cancel) {
+      const cancelled = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/runs/${parent.id}/cancel-retry`) &&
+          response.request().method() === "POST",
+      );
+      await dialog.getByRole("button", { name: "Cancel continuation", exact: true }).click();
+      assert.equal((await cancelled).status(), 200);
+      await dialog
+        .getByRole("button", { name: "Cancel continuation", exact: true })
+        .waitFor({ state: "hidden" });
+      const afterCancel = await read<{ continuationPending: boolean; retryAt: string | null }>(
+        `/api/companies/${company.id}/runs/${parent.id}/log`,
+      );
+      assert.equal(afterCancel.continuationPending, false);
+      assert.equal(afterCancel.retryAt, null);
+      cancelledContinuationApi = routineApi;
+      record("Cancelled saved-work continuation through the real Run log control");
+    } else {
+      await page.screenshot({ path: path.join(output, `${marker}-scheduled.png`) });
+      await until(async () => {
+        const runs = await read<
+          Array<{
+            status: string;
+            continuationCount: number;
+          }>
+        >(`${routineApi}/runs`);
+        return runs.some((run) => run.continuationCount === 1 && run.status === "completed");
+      }, "waiting for the scheduler to continue and complete unfinished work");
+      const history = await read<
+        Array<{
+          id: string;
+          status: string;
+          continuationCount: number;
+          continuationPending: boolean;
+          triggerKind: string;
+        }>
+      >(`${routineApi}/runs`);
+      assert.equal(history.length, 2, "one initial Run and one real scheduled continuation");
+      const childRun = history.find((run) => run.continuationCount === 1)!;
+      assert.equal(childRun.status, "completed");
+      assert.equal(childRun.triggerKind, "continuation");
+      assert.equal(childRun.continuationPending, false);
+      assert.equal(history.find((run) => run.id === parent.id)?.continuationPending, false);
+      const childLog = await read<{ content: string }>(
+        `/api/companies/${company.id}/runs/${childRun.id}/log`,
+      );
+      assert.match(childLog.content, /save_run_checkpoint/);
+      assert.match(childLog.content, /source-event-2/);
+      await page.keyboard.press("Escape");
+      await go(`${routinePath}?tab=runs&run=${childRun.id}`);
+      await page.getByText("continuation 1", { exact: true }).first().waitFor();
+      await page.screenshot({ path: path.join(output, "routine-continuation-completed.png") });
+      assert.equal((await read<unknown[]>(`${cancelledContinuationApi}/runs`)).length, 1);
+      record(
+        "Default Routine resumed a saved checkpoint in a real scheduled Run and completed; cancelled continuation stayed cancelled",
+      );
+    }
+    await page.keyboard.press("Escape");
   }
 
   const customersApi = `/api/companies/${company.id}/customers`;

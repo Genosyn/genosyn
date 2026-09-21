@@ -28,6 +28,8 @@ describe("interactive Member tool policy", () => {
       "create_skill",
       "create_routine",
       "list_memory",
+      "list_journal",
+      "get_journal_entry",
       "list_repositories",
       "send_chat_attachment",
       "run_explore_query",

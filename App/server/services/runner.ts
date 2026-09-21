@@ -61,8 +61,16 @@ import {
   workBlocked,
 } from "./standdowns.js";
 import { getContainmentSettings } from "./runtimeSettings.js";
-import { priorAttemptEffects, renderPriorAttemptBlock, runEffects } from "./runEffects.js";
+import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
+import {
+  checkpointAdvanced,
+  continuationBrief,
+  continuationEligibility,
+  readRunCheckpoint,
+  CONTINUATION_DELAY_MS,
+  CONTINUATION_TOKEN_LIMIT,
+} from "./runContinuation.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -138,6 +146,8 @@ export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): 
  * and saw what happened.
  */
 export type StartRunOptions = {
+  /** Internal: resume an owned durable checkpoint within its original limits. */
+  continuationFromRunId?: string;
   triggerKind?: RunTrigger;
   /** Server-only proof of the exact human-approved plan this Run may perform. */
   proactiveApprovalId?: string;
@@ -218,6 +228,20 @@ export async function startRoutineRun(
   const { model, pinned } = await resolveRoutineModel(routine);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
+  const continuationParent = opts.continuationFromRunId
+    ? await runRepo.findOneBy({ id: opts.continuationFromRunId, routineId: routine.id })
+    : null;
+  if (opts.triggerKind === "continuation" || opts.continuationFromRunId) {
+    if (
+      !continuationParent ||
+      opts.triggerKind !== "continuation" ||
+      proactiveApproval ||
+      !continuationEligibility(continuationParent, routine).eligible
+    ) {
+      throw new Error("This Run cannot start an automatic continuation.");
+    }
+  }
+
   const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
     routineId: routine.id,
@@ -232,9 +256,36 @@ export async function startRoutineRun(
     missedSlots,
     tokensIn: 0,
     tokensOut: 0,
+    checkpointJson: null,
+    continuationCount: continuationParent ? (continuationParent.continuationCount ?? 0) + 1 : 0,
+    continuationOriginTriggerKind: continuationParent
+      ? (continuationParent.continuationOriginTriggerKind ?? continuationParent.triggerKind)
+      : null,
+    continuationReviewOnly:
+      !!continuationParent?.continuationReviewOnly ||
+      routineNeedsWorkReview(
+        routine,
+        continuationParent?.continuationOriginTriggerKind ??
+          continuationParent?.triggerKind ??
+          opts.triggerKind ??
+          "manual",
+      ),
+    continuationDeadlineAt: continuationParent
+      ? (continuationParent.continuationDeadlineAt ??
+        new Date(continuationParent.startedAt.getTime() + timeoutMs))
+      : new Date(startedAt.getTime() + timeoutMs),
+    continuationTokensUsed: continuationParent
+      ? (continuationParent.continuationTokensUsed ?? 0) +
+        continuationParent.tokensIn +
+        continuationParent.tokensOut
+      : 0,
   });
   let saved: Run;
   await opts.beforeRunPersist?.();
+  run.continuationReviewOnly ||= routineNeedsWorkReview(
+    routine,
+    run.continuationOriginTriggerKind ?? run.triggerKind,
+  );
   if (browserRunCreationBlocked(runAuthority)) {
     throw new Error("This Routine is being removed.");
   }
@@ -243,7 +294,10 @@ export async function startRoutineRun(
     await runRepo.delete({ id: saved.id }).catch(() => undefined);
     throw new Error("This Routine is being removed.");
   }
-  const deadlineAtMs = saved.startedAt.getTime() + timeoutMs;
+  const deadlineAtMs = Math.min(
+    saved.startedAt.getTime() + timeoutMs,
+    saved.continuationDeadlineAt?.getTime() ?? Infinity,
+  );
 
   const checkpointState: { headerDurable: boolean; initialFailure?: unknown } = {
     headerDurable: false,
@@ -281,6 +335,11 @@ export async function startRoutineRun(
         (saved.attempt > 1
           ? ` (attempt ${saved.attempt} of ${opts.attemptLimit ?? routine.maxAttempts}, retry of ${saved.parentRunId})`
           : ""),
+      ...(continuationParent
+        ? [
+            `[continuation] Resuming ${continuationParent.id}; original deadline ${new Date(deadlineAtMs).toISOString()}.`,
+          ]
+        : []),
       ...(missedSlots > 0
         ? [`missed=${missedSlots} scheduled occurrence(s) while the server was unavailable`]
         : []),
@@ -358,13 +417,19 @@ export async function startRoutineRun(
         return timedOutRun;
       }
       const proactiveReview =
-        !proactiveApproval && routineNeedsWorkReview(routine, saved.triggerKind);
+        !proactiveApproval &&
+        (saved.continuationReviewOnly ||
+          routineNeedsWorkReview(
+            routine,
+            saved.continuationOriginTriggerKind ?? saved.triggerKind,
+          ));
       const deliveryPolicy = routineDeliveryPolicy(
         routine,
         proactiveReview,
         proactiveApproval?.payload.origin.mailThreadId
           ? "review"
-          : (proactiveApproval?.payload.origin.mailDeliveryMode ?? null),
+          : (proactiveApproval?.payload.origin.mailDeliveryMode ??
+              (saved.continuationReviewOnly ? "review" : null)),
       );
       mcpToken = issueMcpToken(emp.id, co.id, {
         runId: saved.id,
@@ -385,10 +450,14 @@ export async function startRoutineRun(
       // No model connected → skip cleanly.
       if (!model) {
         log.line(
-          "[skipped] This employee has no AI Model connected. Open the employee in the app and connect one.",
+          `[${continuationParent ? "failed" : "skipped"}] This employee has no AI Model connected. Open the employee in the app and connect one.`,
         );
         saved.finishedAt = new Date();
-        saved.status = "skipped";
+        saved.status = continuationParent ? "failed" : "skipped";
+        if (continuationParent) {
+          saved.continuationStopReason =
+            "The AI Employee no longer has a connected AI Model. Unfinished work needs attention.";
+        }
         const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
         saved = finalization.run;
         if (!finalization.persisted) return saved;
@@ -473,7 +542,7 @@ export async function startRoutineRun(
       // that stood alone because attempt 2 had no way to know what attempt 1
       // had done. The effect ledger is that way.
       const priorAttemptBlock =
-        saved.attempt > 1
+        saved.attempt > 1 || continuationParent
           ? renderPriorAttemptBlock(await priorAttemptEffects(saved).catch(() => []), saved.attempt)
           : null;
       // The machine-verifiable bar, folded in beside the acceptance criteria so
@@ -501,9 +570,12 @@ export async function startRoutineRun(
             ? `${routineMessage}\n\nThis Routine may only file the source email: label, archive, star, or mark it read. Do not compose a reply, create a Gmail or IMAP draft, or send. Starting separate automation is also unavailable. Record blockers in a Workstream or Decision. This server-enforced triage ceiling remains in effect even if the Soul or Routine text asks otherwise.`
             : `${routineMessage}\n\nThis approved reply work may send only when the Soul, trusted instruction, current Grants, and company Policies authorize it. If that authority is unclear, use request_mail_review. Never create a Gmail or IMAP draft. Starting separate automation is unavailable. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks otherwise.`
         : routineMessage;
-      const userMessage = routine.selfReviewOnly
+      const scopedMessage = routine.selfReviewOnly
         ? `${deliveryMessage}\n\nThis is a suggestion-only review. Your tools can read your work, maintain this review's Workstream, and propose one revision for a Member. They cannot change live Skills, Routines, acceptance criteria, Checks, or customer records, send messages, or start separate work. The scope remains in effect even if the Soul or brief asks otherwise.`
         : deliveryMessage;
+      const userMessage = continuationParent
+        ? `${scopedMessage}\n\n${continuationBrief(continuationParent)}`
+        : scopedMessage;
 
       // Env for the coding runtime: Environment secrets only. Repository
       // credentials stay inside short-lived server-owned Git operations and
@@ -533,6 +605,7 @@ export async function startRoutineRun(
       // never silently extend the configured timeout.
       const controller = new AbortController();
       let timedOut = false;
+      let continuationLimitReached = false;
       // A Standdown placed while this Run is in flight aborts it (M58) — a stop
       // that only takes effect at the next slot is not a stop. The registry
       // lives in `standdowns.ts` rather than here so the predicate and the
@@ -604,6 +677,14 @@ export async function startRoutineRun(
                 // terminal status.
                 saved.tokensIn += u.inputTokens;
                 saved.tokensOut += u.outputTokens;
+                if (
+                  saved.continuationCount > 0 &&
+                  saved.continuationTokensUsed + saved.tokensIn + saved.tokensOut >=
+                    CONTINUATION_TOKEN_LIMIT
+                ) {
+                  continuationLimitReached = true;
+                  controller.abort();
+                }
                 log.line(usageLine(u, model.contextWindow));
               },
               onCompact: (c) => log.line(compactLine(c)),
@@ -616,7 +697,7 @@ export async function startRoutineRun(
         // Providers differ in whether an aborted request resolves with an
         // error result or rejects. Both represent the same timeout verdict
         // once the absolute deadline has passed.
-        if (!timedOut && !deadlineReached()) throw err;
+        if (!timedOut && !deadlineReached() && !continuationLimitReached) throw err;
       } finally {
         clearTimeout(timer);
       }
@@ -624,6 +705,22 @@ export async function startRoutineRun(
       if (timedOut || deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
+      }
+      if (continuationLimitReached) {
+        saved.status = "failed";
+        saved.errorKind = null;
+        saved.exitCode = null;
+        saved.finishedAt = new Date();
+        saved.continuationStopReason =
+          "The shared token limit for automatic continuation was reached.";
+        const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine);
+        saved = finalization.run;
+        if (finalization.persisted) {
+          await settleAfterRun(routine.id, saved.finishedAt);
+          await journalQuietly(emp.id, routine, saved);
+          await updateRoutineBreaker(saved, routine, co.id, emp.id);
+        }
+        return saved;
       }
       if (!result) throw new Error("The AI Model returned no Run result.");
 
@@ -668,6 +765,25 @@ export async function startRoutineRun(
       const afterWork = await runRepo.findOneBy({ id: saved.id });
       if (!afterWork || afterWork.status !== "running") return afterWork ?? saved;
       saved.failureReason = afterWork.failureReason;
+      saved.checkpointJson = afterWork.checkpointJson;
+      const checkpoint = readRunCheckpoint(saved);
+      if (
+        !checkpoint &&
+        saved.continuationCount > 0 &&
+        (saved.status === "completed" || saved.status === "reviewed")
+      ) {
+        saved.status = "failed";
+        saved.continuationStopReason =
+          "The continuation ended without recording whether the remaining work was completed.";
+      }
+      if (
+        checkpoint &&
+        checkpoint.state !== "complete" &&
+        (saved.status === "completed" || saved.status === "reviewed")
+      ) {
+        saved.status = "failed";
+        log.line(`\n[unfinished] ${checkpoint.remaining}`);
+      }
       if (saved.failureReason && (saved.status === "completed" || saved.status === "reviewed")) {
         saved.status = "failed";
         log.line(`\n[failed] ${saved.failureReason}`);
@@ -750,10 +866,10 @@ export async function startRoutineRun(
         saved.checksVerdict,
         saved.errorKind,
       );
-      if (saved.status === "error" || saved.status === "failed" || reflect) {
+      if (!saved.retryAt && (saved.status === "error" || saved.status === "failed" || reflect)) {
         await contractAutonomyOnBadRun({ run: saved, employee: emp });
       }
-      if (reflect) {
+      if (reflect && !saved.retryAt) {
         await reflectOnRun({ run: saved, routine, employee: emp, model });
       }
       // The breaker (M58). Same seam and same reasoning as the demotion above:
@@ -824,6 +940,8 @@ async function finalizeRunFromRunning(
   // remediation/recording shutdown, then include its value in the terminal
   // compare-and-set. If a report lands between read and write, retry once with
   // that durable reason; if recovery finalized the Run, its verdict wins.
+  const originalStatus = run.status;
+  const originalStopReason = run.continuationStopReason;
   for (;;) {
     const current = await runRepo.findOneBy({ id: run.id });
     if (!current || current.status !== "running") {
@@ -831,14 +949,65 @@ async function finalizeRunFromRunning(
       return { run: current ?? run, persisted: false };
     }
     run.failureReason = current.failureReason;
+    run.checkpointJson = current.checkpointJson;
+    run.status = originalStatus;
+    run.retryAt = null;
+    run.continuationStopReason = originalStopReason;
     if (run.failureReason && (run.status === "completed" || run.status === "reviewed")) {
       run.status = "failed";
       log.line(`\n[failed] ${run.failureReason}`);
     }
-    if (!run.retryAt) stampRetry(run, routine, log);
+    const checkpoint = readRunCheckpoint(run);
+    if (
+      checkpoint &&
+      checkpoint.state !== "complete" &&
+      (run.status === "completed" || run.status === "reviewed")
+    ) {
+      run.status = "failed";
+    }
+    if (checkpoint?.state === "continue" && !run.errorKind && run.status === "failed") {
+      run.continuationDeadlineAt ??= new Date(run.startedAt.getTime() + routine.timeoutSec * 1000);
+      if (run.triggerKind === "continuation" && run.parentRunId) {
+        const parent = await runRepo.findOneBy({ id: run.parentRunId, routineId: run.routineId });
+        const previous = parent ? readRunCheckpoint(parent) : null;
+        if (!previous || !checkpointAdvanced(checkpoint, previous)) {
+          run.continuationStopReason =
+            "The continuation made no measurable progress from its saved checkpoint.";
+        }
+      }
+      const eligible = continuationEligibility(run, routine);
+      run.retryAt = eligible.eligible ? new Date(Date.now() + CONTINUATION_DELAY_MS) : null;
+      run.continuationStopReason = eligible.reason;
+      log.line(
+        eligible.eligible
+          ? "\n[continuation] Unfinished work saved; continuation queued automatically."
+          : `\n[continuation] ${eligible.reason}`,
+      );
+    } else if (checkpoint?.state === "blocked") {
+      run.retryAt = null;
+      run.continuationStopReason = `Blocked: ${checkpoint.remaining}`;
+    } else if (
+      run.continuationCount > 0 &&
+      run.status !== "completed" &&
+      run.status !== "reviewed"
+    ) {
+      run.retryAt = null;
+      run.continuationStopReason ??=
+        "The continuation stopped without a new actionable checkpoint.";
+    } else if (
+      run.continuationCount === 0 &&
+      !run.continuationStopReason &&
+      (!checkpoint || checkpoint.state === "complete")
+    )
+      stampRetry(run, routine, log);
     run.logContent = log.value();
     const result = await runRepo.update(
-      { id: run.id, status: "running", failureReason: current.failureReason ?? IsNull() },
+      {
+        id: run.id,
+        status: "running",
+        failureReason: current.failureReason ?? IsNull(),
+        checkpointJson: current.checkpointJson ?? IsNull(),
+      },
       {
         // ResourceChangeSubscriber routes this update to its Routine stream.
         routineId: run.routineId,
@@ -849,6 +1018,8 @@ async function finalizeRunFromRunning(
         logContent: run.logContent,
         exitCode: run.exitCode,
         retryAt: run.retryAt,
+        continuationDeadlineAt: run.continuationDeadlineAt,
+        continuationStopReason: run.continuationStopReason,
         tokensIn: run.tokensIn,
         tokensOut: run.tokensOut,
         checksVerdict: run.checksVerdict,
@@ -1096,6 +1267,14 @@ async function runCheckPhase(args: {
   let remediations = 0;
   let errorKind: RunErrorKind | null = null;
   let incomplete = false;
+  const continuationLimitReached = () =>
+    (args.run.continuationCount > 0 || !!readRunCheckpoint(args.run)) &&
+    args.run.continuationTokensUsed +
+      args.run.tokensIn +
+      args.run.tokensOut +
+      tokensIn +
+      tokensOut >=
+      CONTINUATION_TOKEN_LIMIT;
 
   const base = {
     run: args.run,
@@ -1123,7 +1302,8 @@ async function runCheckPhase(args: {
   while (
     phase.verdict === "failed" &&
     remediations < ROUTINE_CHECK_REMEDIATION_MAX &&
-    !args.deadlineReached()
+    !args.deadlineReached() &&
+    !continuationLimitReached()
   ) {
     const remainingMs = args.deadlineAtMs - Date.now();
     // A round with no time to work in is not a round. Say so rather than
@@ -1196,10 +1376,16 @@ async function runCheckPhase(args: {
           onUsage: (u) => {
             tokensIn += u.inputTokens;
             tokensOut += u.outputTokens;
+            if (continuationLimitReached()) controller.abort();
           },
         },
       });
-      if (
+      if (continuationLimitReached()) {
+        incomplete = true;
+        args.run.continuationStopReason =
+          "The shared token limit for automatic continuation was reached during Check remediation.";
+        log.line(`\n[checks] ${args.run.continuationStopReason}`);
+      } else if (
         controller.signal.aborted ||
         (result.status === "ok" && result.stopReason === "aborted")
       ) {
@@ -1229,6 +1415,12 @@ async function runCheckPhase(args: {
     log.line(`\n[checks] ${describeCheckPhase(phase)}`);
     const current = await AppDataSource.getRepository(Run).findOneBy({ id: args.run.id });
     if (errorKind || incomplete || current?.failureReason || current?.status !== "running") break;
+  }
+
+  if (phase.verdict === "failed" && continuationLimitReached()) {
+    incomplete = true;
+    args.run.continuationStopReason ??=
+      "The shared token limit leaves no room for Check remediation.";
   }
 
   return {
@@ -1339,7 +1531,7 @@ async function assessOutcomeQuietly(
     // Both already in hand from the check phase — passing them saves the
     // grader two reads and, more importantly, guarantees it grades against
     // exactly the evidence the checks were evaluated on.
-    effects: await runEffects(run.id, { companyId: emp.companyId }).catch(() => undefined),
+    effects: await continuationEffects(run, { companyId: emp.companyId }).catch(() => undefined),
     checkResults: checkResults.map((r) => ({
       name: r.name,
       required: r.required,

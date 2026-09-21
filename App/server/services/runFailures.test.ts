@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
+import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run, RunStatus } from "../db/entities/Run.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
@@ -130,6 +131,42 @@ describe("findLiveRunFailures", () => {
     const { rows, count } = await live();
     assert.equal(count, 0);
     assert.deepEqual(rows, []);
+  });
+
+  test("shows only the continuation leaf after it takes over unfinished work", async () => {
+    const parent = await run(routine, "failed", 3);
+    const child = await run(routine, "running", 2, {
+      triggerKind: "continuation",
+      parentRunId: parent.id,
+    });
+    assert.equal((await live()).count, 0);
+
+    const repo = AppDataSource.getRepository(Run);
+    await repo.update({ id: child.id }, { status: "failed" });
+    assert.deepEqual(
+      (await live()).rows.map((row) => row.id),
+      [child.id],
+    );
+    assert.equal((await live(0)).count, 1);
+  });
+
+  test("a skipped continuation leaves its unfinished parent needing attention", async () => {
+    const parent = await run(routine, "failed", 3);
+    await run(routine, "skipped", 2, { triggerKind: "continuation", parentRunId: parent.id });
+    assert.deepEqual(
+      (await live()).rows.map((row) => row.id),
+      [parent.id],
+    );
+  });
+
+  test("review-only or unrelated continuation rows cannot hide an unfinished Run", async () => {
+    const parent = await run(routine, "failed", 3);
+    await run(routine, "reviewed", 2, { triggerKind: "continuation", parentRunId: parent.id });
+    await run(other, "running", 1, { triggerKind: "continuation", parentRunId: parent.id });
+    assert.deepEqual(
+      (await live()).rows.map((row) => row.id),
+      [parent.id],
+    );
   });
 
   test("counts past the page it returns, and counts without fetching when asked", async () => {

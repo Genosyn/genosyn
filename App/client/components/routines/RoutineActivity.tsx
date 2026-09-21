@@ -25,6 +25,9 @@ export type RoutineActivityRun = Pick<
   | "exitCode"
   | "attempt"
   | "retryAt"
+  | "continuationPending"
+  | "continuationCount"
+  | "continuationStopReason"
   | "missedSlots"
   | "outcomeVerdict"
   | "checksVerdict"
@@ -250,6 +253,16 @@ function ActivityRow({
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <RunStatusChip status={run.status} errorKind={run.errorKind} size="xs" />
+          {run.continuationPending && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Continuation scheduled
+            </span>
+          )}
+          {!run.continuationPending && (run.continuationCount ?? 0) > 0 && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              continuation {run.continuationCount}
+            </span>
+          )}
           {!running && run.status !== "reviewed" && run.outcomeVerdict && (
             <RunOutcomeChip verdict={run.outcomeVerdict} size="xs" />
           )}
@@ -270,7 +283,8 @@ function ActivityRow({
               {new Date(endedAt).toLocaleTimeString([], {
                 hour: "numeric",
                 minute: "2-digit",
-              })} · {formatDuration(run.startedAt, run.finishedAt)}
+              })}{" "}
+              · {formatDuration(run.startedAt, run.finishedAt)}
             </span>
           )}
         </div>
