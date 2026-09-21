@@ -1016,12 +1016,12 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
   ].filter((s) => s.value > 0);
   if (stats.length === 0) return null;
   return (
-    <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="mt-6 flex flex-wrap gap-3">
       {stats.map((s) => (
         <Link
           key={s.label}
           to={s.to}
-          className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+          className="flex min-w-0 flex-1 basis-[calc(50%-0.375rem)] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 lg:basis-0"
         >
           <span
             className={clsx(
@@ -1368,7 +1368,7 @@ function HomeCard({
           </Link>
         </div>
       </div>
-      <div className="min-h-[8rem] flex-1">{children}</div>
+      <div>{children}</div>
     </section>
   );
 }

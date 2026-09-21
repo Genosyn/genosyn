@@ -333,6 +333,8 @@ type FixtureOptions = {
   touch?: boolean;
   channels?: HomeChannel[];
   notifications?: Notification[];
+  unreadNotificationCount?: number;
+  statCounts?: Partial<Pick<HomeData, "myTodoCount" | "reviewTodoCount" | "pendingApprovalCount">>;
   decisions?: Decision[];
   decisionApprovals?: HomeApproval[];
   pendingDecisionCount?: number;
@@ -593,6 +595,10 @@ async function open(options: FixtureOptions = {}) {
             unreadChannels,
             notifications,
           }),
+          ...options.statCounts,
+          unreadNotificationCount: notifications.length
+            ? (options.unreadNotificationCount ?? notifications.length)
+            : 0,
           decisions,
           pendingDecisionCount,
           decisionApprovals,
@@ -779,6 +785,12 @@ const card = (page: Page, title: string) =>
   page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
 const activeDecisions = (page: Page) =>
   page.getByRole("region", { name: "Active decisions", exact: true });
+const statTiles = (page: Page) =>
+  page.getByRole("link").filter({
+    has: page.getByText(
+      /^(Unread notifications|Todos assigned to you|Reviews waiting on you|Pending approvals)$/,
+    ),
+  });
 const decisionRows = (page: Page) => activeDecisions(page).locator(":scope > ul > li");
 async function editMailReply(page: Page, id: string, body: string) {
   const row = page.locator(`#review-${id}`);
@@ -855,6 +867,25 @@ async function fillsContent(page: Page, title?: string) {
     content.y >= header.y + header.height,
     "cards must start below the greeting and employee bubbles",
   );
+}
+async function statRowsFillContent(page: Page, count: number) {
+  assert.equal(await statTiles(page).count(), count, "only nonzero counters occupy space");
+  const header = await box(greeting(page));
+  const tiles = await Promise.all((await statTiles(page).all()).map(box));
+  const rows = new Map<number, typeof tiles>();
+  for (const tile of tiles) rows.set(tile.y, [...(rows.get(tile.y) ?? []), tile]);
+  assert.equal(rows.size, page.viewportSize()!.width >= 1024 ? 1 : Math.ceil(count / 2));
+  for (const row of rows.values()) {
+    const first = row[0];
+    const last = row[row.length - 1];
+    assert.ok(Math.abs(first.x - header.x) < 1, "counter row starts at the content's left edge");
+    assert.ok(
+      Math.abs(last.x + last.width - header.x - header.width) < 1,
+      "counter row fills the content's right edge without empty slots",
+    );
+    for (const tile of row)
+      assert.ok(Math.abs(tile.width - first.width) < 1, "counter tiles share their row equally");
+  }
 }
 async function openDay(page: Page, index = 0, key?: string) {
   const bubble = bubbles(page).nth(index);
@@ -1143,6 +1174,49 @@ try {
     assert.deepEqual(mutations, [], "analysis remains an explicit action");
     await page.close();
   });
+  for (const count of [1, 2, 3, 4]) {
+    await check(`${count} Home counters fill every responsive row`, async () => {
+      const { page } = await open({
+        quiet: count === 1,
+        notifications: [notification("review-one", "The customer reply is waiting for review")],
+        unreadNotificationCount: 69,
+        statCounts: {
+          reviewTodoCount: count >= 3 ? 2 : 0,
+          pendingApprovalCount: count >= 4 ? 1 : 0,
+        },
+      });
+      await statTiles(page).filter({ hasText: "Unread notifications" }).getByText("69").waitFor();
+      for (const width of [320, 390, 768, 1440, 2560]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await statRowsFillContent(page, count);
+        await fits(page);
+        if (count === 1 && width === 2560) {
+          const body = card(page, "Needs your attention").locator(":scope > div").last();
+          const bodyBox = await box(body);
+          const rowsBox = await box(body.locator(":scope > ul"));
+          assert.ok(
+            Math.abs(bodyBox.height - rowsBox.height) < 1,
+            "a single short queue has no forced empty body space",
+          );
+        }
+        if (count === 1 && (width === 390 || width === 1440 || width === 2560)) {
+          await page.screenshot({
+            path: path.join(output, `home-single-notification-counter-${width}.png`),
+            fullPage: true,
+          });
+        }
+      }
+      if (count === 2) {
+        await page.getByRole("button", { name: "Mark all as read", exact: true }).click();
+        await page
+          .getByText("Unread notifications", { exact: true })
+          .waitFor({ state: "detached" });
+        await statRowsFillContent(page, 1);
+        await fits(page);
+      }
+      await page.close();
+    });
+  }
   for (const width of [1440, 768, 390, 320]) {
     await check(
       `greeting contains compact employee bubble on the right at ${width}px`,
@@ -1893,6 +1967,7 @@ try {
         .getByText("All notifications marked as read.")
         .waitFor();
       assert.equal(await attention.count(), 0);
+      assert.equal(await statTiles(fixture.page).count(), 0, "zero counters leave no empty tiles");
       assert.deepEqual(fixture.writes, ["POST /api/companies/company/notifications/mark-all-read"]);
       assert.equal(await fixture.page.getByRole("dialog").count(), 0);
       assert.equal(await fixture.page.getByLabel("Opened route").count(), 0);

@@ -150,6 +150,9 @@ export function Introduction() {
         of what they did. The details stay in the popup until you ask for them. When something needs
         you — or a fresh recap is ready — it&apos;s the first thing you see. On wider screens, the
         smaller queue cards share rows in pairs; an unpaired last card expands to fill its row.
+        Summary counters also share the available width: a lone unread-notification counter fills
+        the row, and the remaining counters expand as others clear. A queue shown on its own stays
+        compact when it has only a few items.
       </P>
       <P>
         Home only shows you what it actually has. Every queue — failed{" "}
