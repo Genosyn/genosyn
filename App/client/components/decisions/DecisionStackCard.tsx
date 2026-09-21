@@ -4,16 +4,16 @@ import type { Company } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Spinner } from "@/components/ui/Spinner";
-import { DecisionCard } from "./DecisionCard";
-import { DecisionOutcome } from "./DecisionOutcome";
-import { MailReviewCard, MailReviewOutcome } from "./MailReviewCard";
-import { WorkReviewCard, WorkReviewOutcome } from "./WorkReviewCard";
+import { DecisionCard } from "@/components/decisions/DecisionCard";
+import { DecisionOutcome } from "@/components/decisions/DecisionOutcome";
+import { MailReviewCard, MailReviewOutcome } from "@/components/decisions/MailReviewCard";
+import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
 import {
   decisionItem,
   reviewItem,
   type DecisionFollowUps,
   type DecisionStackItem,
-} from "./useDecisionFollowUps";
+} from "@/components/decisions/useDecisionFollowUps";
 
 /** The same slot tells the whole story, from the choice through its outcome. */
 export function DecisionStackCard({
