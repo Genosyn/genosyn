@@ -58,6 +58,7 @@ import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
 import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
+import { runExplanationLabel } from "@/components/routines/RunExplanation";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
 import { DecisionCard } from "@/components/decisions/DecisionCard";
@@ -108,7 +109,7 @@ type HomeOverlay =
    * modal offers the same dismissal the row does.
    */
   | { kind: "health"; checkId: string; title: string; onDismiss: () => void }
-  | { kind: "run"; run: HomeFailedRun }
+  | { kind: "run"; run: HomeFailedRun; initialView?: "log" | "explanation" }
   /** A run opened from the work timeline, where the row is an entry not a
    *  failure — same viewer, different source row. */
   | { kind: "workRun"; entry: WorkEntry };
@@ -582,6 +583,7 @@ function HomeOverlayHost({
       return (
         <RunLiveModal
           key={overlay.run.runId}
+          initialView={overlay.initialView}
           company={company}
           routine={{ id: overlay.run.routineId, name: overlay.run.routineName }}
           run={{
@@ -1142,11 +1144,11 @@ function FailedRoutinesAlert({
       </div>
       <ul className="divide-y divide-rose-100 dark:divide-rose-500/15">
         {data.failedRuns.map((r) => (
-          <li key={r.runId} className="flex items-stretch">
+          <li key={r.runId} className="flex flex-wrap items-stretch sm:flex-nowrap">
             <HomeRow
               to={failedRunLink(company, r)}
               onOpen={() => onOpen({ kind: "run", run: r })}
-              className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 hover:bg-rose-100/50 dark:hover:bg-rose-500/10"
+              className="flex min-w-0 basis-full items-center gap-3 px-4 py-2.5 hover:bg-rose-100/50 sm:flex-1 sm:basis-auto dark:hover:bg-rose-500/10"
             >
               <Avatar
                 name={r.employee.name}
@@ -1164,8 +1166,14 @@ function FailedRoutinesAlert({
               </span>
               <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
             </HomeRow>
-            {/* Whatever went wrong, the next thing a person wants is another
-                attempt — so offer it right where the failure is. */}
+            <button
+              type="button"
+              onClick={() => onOpen({ kind: "run", run: r, initialView: "explanation" })}
+              aria-label={`${runExplanationLabel(r.status)} ${r.routineName}`}
+              className="flex shrink-0 items-center gap-1 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              <Sparkles size={14} /> {runExplanationLabel(r.status)}
+            </button>
             <button
               type="button"
               onClick={() => retry(r)}

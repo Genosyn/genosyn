@@ -659,6 +659,19 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         account of what happened that day.
       </P>
       <P>
+        Click <Strong>Why did it fail?</Strong> or <Strong>Why did it error?</Strong> beside a Run
+        on Home, or inside its Run log modal. An AI Employee reads that specific Run&apos;s recorded
+        log, failure reason, and Check results, then explains the cause, the evidence, and what to
+        try next in the same modal. Missing or incomplete evidence is called out. Use{" "}
+        <Strong>Message AI Employee</Strong> to ask follow-up questions about the failure, evidence,
+        or possible fixes; replies keep the context of your conversation while the modal is open.
+        Choose another <Strong>AI Employee</Strong> if you want a second explanation or the original
+        employee&apos;s AI Model is unavailable. At least one employee needs a connected AI Model.
+        Any Member can ask; the explanation does not retry the Routine, change records, or change
+        the Run&apos;s status or verdicts. Switch to <Strong>Run log</Strong> to inspect the
+        original evidence without losing the explanation.
+      </P>
+      <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer
         to a broken Run doesn&apos;t cost a trip into the routine. It runs the routine again
         immediately, outside the schedule, and dismisses the Run it came from — which keeps the

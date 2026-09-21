@@ -41,6 +41,7 @@ import { routinesRouter } from "./routes/routines.js";
 import { proactiveRouter } from "./routes/proactive.js";
 import { bootProactiveDefaults } from "./services/proactive/defaults.js";
 import { routineAssistantRouter } from "./routes/routineAssistant.js";
+import { runExplanationsRouter } from "./routes/runExplanations.js";
 import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { goalsRouter } from "./routes/goals.js";
 import { improvementRouter } from "./routes/improvement.js";
@@ -408,6 +409,7 @@ async function main() {
   // asking a question about a routine is not an admin action. See the header
   // of `routes/routineAssistant.ts`.
   app.use("/api/companies/:cid", routineAssistantRouter);
+  app.use("/api/companies/:cid", runExplanationsRouter);
   app.use("/api/companies/:cid", proactiveRouter);
   app.use("/api/companies/:cid", routinesRouter);
   app.use("/api/companies/:cid", routineFoldersRouter);

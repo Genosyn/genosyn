@@ -8,6 +8,7 @@ import {
   Loader2,
   Receipt,
   RotateCcw,
+  Sparkles,
   Video,
   XCircle,
 } from "lucide-react";
@@ -32,6 +33,7 @@ import { FormError } from "../ui/FormError";
 import { Modal } from "../ui/Modal";
 import { errorMessage } from "../../lib/errors";
 import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
+import { RunExplanation, runExplanationLabel } from "@/components/routines/RunExplanation";
 import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
 
 /**
@@ -94,7 +96,9 @@ export function RunFailureNotice({ reason }: { reason?: string | null }) {
   return (
     <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm dark:border-rose-500/30 dark:bg-rose-500/10">
       <p className="font-medium text-rose-800 dark:text-rose-200">Why this Run failed</p>
-      <p className="mt-1 whitespace-pre-wrap break-words text-rose-700 dark:text-rose-300">{reason}</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-rose-700 dark:text-rose-300">
+        {reason}
+      </p>
     </div>
   );
 }
@@ -531,10 +535,7 @@ export function RunBrowserRecordingsPane({
             Your browser cannot play this recording. Use Download instead.
           </video>
         ) : selected.status === "recording" ? (
-          <LiveBrowserRecording
-            key={recordingUrl}
-            url={`${recordingUrl}/live`}
-          />
+          <LiveBrowserRecording key={recordingUrl} url={`${recordingUrl}/live`} />
         ) : selected.status === "finalizing" ? (
           <RecordingState
             icon={<Loader2 size={24} className="animate-spin" />}
@@ -851,17 +852,21 @@ export function RunLiveModal({
   run: initialRun,
   onClose,
   onRetry,
+  initialView = "log",
 }: {
   company: Company;
   routine: Pick<Routine, "id" | "name">;
   run: Run;
   onClose: () => void;
   onRetry?: () => void;
+  initialView?: "log" | "explanation";
 }) {
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const preRef = React.useRef<HTMLPreElement>(null);
   const userScrolledRef = React.useRef(false);
+  const [view, setView] = React.useState(initialView);
+  const [explanationOpened, setExplanationOpened] = React.useState(initialView === "explanation");
 
   const status: RunStatus = log?.status ?? initialRun.status;
   const isTerminal = status !== "running";
@@ -905,9 +910,9 @@ export function RunLiveModal({
   // — reading mid-log shouldn't get yanked out from under them.
   React.useEffect(() => {
     const el = preRef.current;
-    if (!el || userScrolledRef.current) return;
+    if (!el || view !== "log" || userScrolledRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [log?.content]);
+  }, [log?.content, view]);
 
   function handleScroll() {
     const el = preRef.current;
@@ -929,7 +934,7 @@ export function RunLiveModal({
 
   return (
     <Modal open onClose={onClose} title={`Run: ${routine.name}`} size="xl">
-      <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
+      <div className="flex min-h-[420px] flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <RunStatusChip status={status} errorKind={log?.errorKind ?? initialRun.errorKind} />
           {status !== "reviewed" && log?.outcomeVerdict && (
@@ -974,46 +979,80 @@ export function RunLiveModal({
           )}
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
-        {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
-        <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />
-        {log?.outcomeNote && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
+        {runNeedsAttention(status) && (
+          <div className="flex flex-wrap gap-2" aria-label="Run details">
+            <Button
+              variant={view === "log" ? "primary" : "secondary"}
+              onClick={() => setView("log")}
+              aria-pressed={view === "log"}
+            >
+              Run log
+            </Button>
+            <Button
+              variant={view === "explanation" ? "primary" : "secondary"}
+              aria-pressed={view === "explanation"}
+              onClick={() => {
+                setExplanationOpened(true);
+                setView("explanation");
+              }}
+            >
+              <Sparkles size={14} /> {runExplanationLabel(status)}
+            </Button>
+          </div>
         )}
-        <div
-          className={"grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")}
-        >
-          <RunLogPane
-            log={log}
-            preRef={preRef}
-            onScroll={handleScroll}
-            placeholder={log === null ? "Starting…" : "Waiting for output…"}
-            className="max-h-[60vh] min-h-[360px]"
-          />
-          {recordings.length > 0 && (
-            <RunBrowserRecordingsPane
+        {explanationOpened && (
+          <div hidden={view !== "explanation"}>
+            <RunExplanation
+              key={`${company.id}:${initialRun.id}`}
               companyId={company.id}
               runId={initialRun.id}
-              recordings={recordings}
             />
+          </div>
+        )}
+        <div hidden={view !== "log"} className="space-y-3">
+          {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
+          <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />
+          {log?.outcomeNote && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
           )}
-        </div>
-        {/* Evidence sits under the transcript, not beside it: it is what you
+          <div
+            className={
+              "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")
+            }
+          >
+            <RunLogPane
+              log={log}
+              preRef={preRef}
+              onScroll={handleScroll}
+              placeholder={log === null ? "Starting…" : "Waiting for output…"}
+              className="max-h-[60vh] min-h-[360px]"
+            />
+            {recordings.length > 0 && (
+              <RunBrowserRecordingsPane
+                companyId={company.id}
+                runId={initialRun.id}
+                recordings={recordings}
+              />
+            )}
+          </div>
+          {/* Evidence sits under the transcript, not beside it: it is what you
             read once the transcript has told you what to doubt. Both panels
             re-read when the run reaches a terminal status, because Checks run
             after the loop returns and the ledger is only complete then. */}
-        <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-          <RunChecksStrip
-            companyId={company.id}
-            runId={initialRun.id}
-            reloadKey={evidenceKey}
-            className="max-h-64"
-          />
-          <RunEffectsPane
-            companyId={company.id}
-            runId={initialRun.id}
-            reloadKey={evidenceKey}
-            className="max-h-64"
-          />
+          <div className="grid min-w-0 gap-3 xl:grid-cols-2">
+            <RunChecksStrip
+              companyId={company.id}
+              runId={initialRun.id}
+              reloadKey={evidenceKey}
+              className="max-h-64"
+            />
+            <RunEffectsPane
+              companyId={company.id}
+              runId={initialRun.id}
+              reloadKey={evidenceKey}
+              className="max-h-64"
+            />
+          </div>
         </div>
         <div className="flex justify-end gap-2">
           {log?.retryAt && (
@@ -1021,14 +1060,11 @@ export function RunLiveModal({
               <Ban size={14} /> Cancel retry
             </Button>
           )}
-          {onRetry &&
-            !log?.retryAt &&
-            isTerminal &&
-            runNeedsAttention(status) && (
-              <Button variant="secondary" onClick={onRetry}>
-                <RotateCcw size={14} /> Retry
-              </Button>
-            )}
+          {onRetry && !log?.retryAt && isTerminal && runNeedsAttention(status) && (
+            <Button variant="secondary" onClick={onRetry}>
+              <RotateCcw size={14} /> Retry
+            </Button>
+          )}
           <Button variant={isTerminal ? "primary" : "secondary"} onClick={onClose}>
             {isTerminal ? "Close" : "Close (run continues)"}
           </Button>
