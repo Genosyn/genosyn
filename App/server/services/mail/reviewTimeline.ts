@@ -102,6 +102,13 @@ function jsonObject(value: string | null): Record<string, unknown> | null {
   }
 }
 
+function isCurrentAnalysisStart(audit: AuditEvent, analysis: MailInboundAnalysis): boolean {
+  const startedAt = jsonObject(audit.metadataJson)?.attemptStartedAt;
+  return typeof startedAt === "string"
+    ? startedAt === analysis.updatedAt.toISOString()
+    : audit.createdAt >= analysis.updatedAt;
+}
+
 /** Bounded, company-scoped evidence. No model narration is converted to an action. */
 export async function mailReviewTimeline(args: {
   account: MailAccount;
@@ -319,7 +326,11 @@ export async function mailReviewTimeline(args: {
         ),
     );
     const started = attempts.find((audit) => audit.action === "mail.analysis.started");
-    if (!started || (analysis.status === "running" && started.createdAt < analysis.updatedAt))
+    const currentStart = attempts.some(
+      (audit) =>
+        audit.action === "mail.analysis.started" && isCurrentAnalysisStart(audit, analysis),
+    );
+    if (!started || (analysis.status === "running" && !currentStart))
       add(
         `analysis:${analysis.id}:started`,
         "review_started",
@@ -530,18 +541,30 @@ export async function mailReviewTimeline(args: {
     }
     if (["review_started", "review_completed", "review_failed"].includes(spec.kind)) {
       const analysis = analyses.find((row) => row.id === audit.targetId);
-      add(`action:${audit.id}`, spec.kind, audit.createdAt, spec.title, {
-        employeeId: audit.actorEmployeeId,
-        status:
-          spec.kind === "review_failed"
-            ? "failed"
-            : spec.kind === "review_started" &&
-                analysis?.status === "running" &&
-                audit.createdAt >= analysis.updatedAt
-              ? "running"
-              : "complete",
-        description: spec.kind === "review_failed" ? "Review this email again to retry." : null,
-      });
+      const interrupted =
+        spec.kind === "review_failed" && jsonObject(audit.metadataJson)?.interrupted === true;
+      add(
+        `action:${audit.id}`,
+        spec.kind,
+        audit.createdAt,
+        interrupted ? "Interrupted review detected" : spec.title,
+        {
+          employeeId: audit.actorEmployeeId,
+          status:
+            spec.kind === "review_failed"
+              ? "failed"
+              : spec.kind === "review_started" &&
+                  analysis?.status === "running" &&
+                  isCurrentAnalysisStart(audit, analysis)
+                ? "running"
+                : "complete",
+          description: interrupted
+            ? "An earlier review did not finish before its time limit. Review this email again to retry."
+            : spec.kind === "review_failed"
+              ? "Review this email again to retry."
+              : null,
+        },
+      );
       continue;
     }
     const estimate = audit.targetId ? estimateById.get(audit.targetId) : null;

@@ -792,7 +792,7 @@ describe("stamping a spent button", () => {
   test("audits the press against the analysis row, under the Member who made it", async () => {
     const { account, thread, analysis } = await scene([invoiceAction()]);
 
-    await executeAnalysisAction(account, analysis, "0", ACTOR);
+    const outcome = await executeAnalysisAction(account, analysis, "0", ACTOR);
 
     const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
       companyId: COMPANY_ID,
@@ -803,7 +803,12 @@ describe("stamping a spent button", () => {
     assert.equal(audit.targetType, "mail_inbound_analysis");
     assert.equal(audit.targetId, analysis.id);
     assert.equal(audit.targetLabel, thread.subject);
-    assert.deepEqual(JSON.parse(audit.metadataJson), { actionId: "0", kind: "create_invoice" });
+    assert.deepEqual(JSON.parse(audit.metadataJson), {
+      actionId: "0",
+      kind: "create_invoice",
+      mailThreadId: thread.id,
+      resultPath: outcome.navigateTo,
+    });
   });
 });
 
