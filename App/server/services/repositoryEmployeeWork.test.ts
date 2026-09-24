@@ -59,7 +59,7 @@ beforeEach(async () => {
     label: "Engineering",
     authMode: "apikey",
     status: "connected",
-    encryptedConfig: encryptConnectionConfig({ token: "test-token" }),
+    encryptedConfig: encryptConnectionConfig({ apiKey: "test-token" }),
   });
   repository = await insert(Repository, {
     companyId: company.id,
@@ -352,7 +352,7 @@ describe("bounded employee pull-request delivery", () => {
     const resolve = deps.resolveForge!;
     deps.resolveForge = async (repo) => {
       await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
-        encryptedConfig: encryptConnectionConfig({ token: "refreshed-token" }),
+        encryptedConfig: encryptConnectionConfig({ apiKey: "refreshed-token" }),
       });
       return resolve(repo);
     };
@@ -573,6 +573,7 @@ describe("bounded employee branch delivery", () => {
       scope: "employee",
       scopeId: employee.id,
       reason: "Review the incident",
+      placedAt: new Date(),
     });
     await refreshStanddowns();
     await refusePush(/stood down.*Review the incident/);
@@ -647,7 +648,7 @@ describe("bounded employee branch delivery", () => {
   test("accepts a refreshed credential on the same live granted Connection", async () => {
     deps.push = async (_repo, branch, options) => {
       await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
-        encryptedConfig: encryptConnectionConfig({ token: "replacement-token" }),
+        encryptedConfig: encryptConnectionConfig({ apiKey: "replacement-token" }),
       });
       await options?.authorize?.();
       calls.push(`push:${branch}`);
