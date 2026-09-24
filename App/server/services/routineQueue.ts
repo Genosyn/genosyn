@@ -19,6 +19,26 @@ const waiters = new Map<
 >();
 const workers = new Map<string, Promise<void>>();
 const requested = new Set<string>();
+let dispatchEnabled = true;
+let dispatchGeneration = 0;
+
+function canDispatch(): boolean {
+  return dispatchEnabled && AppDataSource.isInitialized;
+}
+
+/** Stop new claims before restore closes the database; active Runs keep their existing lifecycle. */
+export function stopRoutineQueue(): void {
+  dispatchEnabled = false;
+  dispatchGeneration++;
+  requested.clear();
+}
+
+/** Resume only after startup/restore has finished reconciling the initialized database. */
+export async function resumeRoutineQueue(): Promise<void> {
+  if (!AppDataSource.isInitialized) return;
+  dispatchEnabled = true;
+  await dispatchQueuedRoutineRuns();
+}
 
 export function registerQueuedRun(run: Run): Promise<Run> {
   const completion = new Promise<Run>((resolve, reject) => {
@@ -31,22 +51,27 @@ export function registerQueuedRun(run: Run): Promise<Run> {
 }
 
 function requestEmployeeDrain(employeeId: string): void {
+  if (!canDispatch()) return;
   requested.add(employeeId);
   if (workers.has(employeeId)) return;
+  const generation = dispatchGeneration;
+  const canClaim = (): boolean => canDispatch() && generation === dispatchGeneration;
   const work = Promise.resolve()
     .then(async () => {
       do {
+        if (!canClaim()) return;
         requested.delete(employeeId);
         await withSchedulerLease(`routine-queue:${employeeId}`, 90_000, async (lease) => {
           for (;;) {
+            if (!canClaim()) return;
             lease.assertHeld();
-            const next = await claimNextRun(employeeId, lease.assertHeld);
+            const next = await claimNextRun(employeeId, lease.assertHeld, canClaim);
             if (!next) return;
             // Keep the employee slot until assessment, reflection and cleanup also finish.
             await processRun(next.run, next.routine);
           }
         });
-      } while (requested.has(employeeId));
+      } while (canClaim() && requested.has(employeeId));
     })
     .catch((error) => {
       // The next heartbeat resumes durable queued work after transient database failures.
@@ -55,7 +80,7 @@ function requestEmployeeDrain(employeeId: string): void {
     })
     .finally(() => {
       workers.delete(employeeId);
-      if (requested.has(employeeId)) requestEmployeeDrain(employeeId);
+      if (canDispatch() && requested.has(employeeId)) requestEmployeeDrain(employeeId);
     });
   workers.set(employeeId, work);
 }
@@ -63,9 +88,12 @@ function requestEmployeeDrain(employeeId: string): void {
 async function claimNextRun(
   employeeId: string,
   assertHeld: () => void,
+  canClaim: () => boolean,
 ): Promise<{ run: Run; routine: Routine } | null> {
+  if (!canClaim()) return null;
   const repo = AppDataSource.getRepository(Run);
   if (await repo.existsBy({ queueActiveEmployeeId: employeeId })) return null;
+  if (!canClaim()) return null;
   // A Run created before this feature was installed may lack its employee snapshot.
   if (
     await repo
@@ -76,6 +104,7 @@ async function claimNextRun(
       .getExists()
   )
     return null;
+  if (!canClaim()) return null;
   const pending = await repo
     .createQueryBuilder("run")
     .addSelect("run.queueOptionsJson")
@@ -87,15 +116,19 @@ async function claimNextRun(
     .addOrderBy("run.id", "ASC")
     .getMany();
   for (const run of pending) {
+    if (!canClaim()) return null;
     assertHeld();
     const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: run.routineId });
+    if (!canClaim()) return null;
     const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
+    if (!canClaim()) return null;
     if (!routine || !employee || routine.employeeId !== employeeId) {
       await skipQueuedRun(run, "The Routine or its AI Employee was removed or reassigned.");
       continue;
     }
     if (browserRunCreationBlocked({ employeeId, routineId: routine.id })) continue;
     if ((await workBlockedForRoutine(routine)).blocked) continue;
+    if (!canClaim()) return null;
     const automatic = ["schedule", "retry", "event", "webhook", "continuation"].includes(
       run.triggerKind,
     );
@@ -120,6 +153,22 @@ async function claimNextRun(
         },
       );
       if (claimed.affected !== 1) continue;
+      if (!canClaim()) {
+        // A stop may arrive during the claim's database round trip. Restore
+        // its pending state before returning whenever the connection remains open.
+        if (AppDataSource.isInitialized) {
+          await repo.update(
+            { id: run.id, status: "running", queueActiveEmployeeId: employeeId },
+            {
+              routineId: run.routineId,
+              status: "queued",
+              queueActiveEmployeeId: null,
+              startedAt: run.startedAt,
+            },
+          );
+        }
+        return null;
+      }
     } catch (error) {
       // The unique slot also fences two replicas whose scheduler leases overlapped.
       const code = (error as { code?: string }).code;
@@ -237,7 +286,12 @@ async function settleWaiter(runId: string): Promise<void> {
 
 /** Called after crash reconciliation on every heartbeat, including the first after restart. */
 export async function dispatchQueuedRoutineRuns(): Promise<void> {
-  for (const runId of waiters.keys()) await settleWaiter(runId);
+  if (!canDispatch()) return;
+  for (const runId of waiters.keys()) {
+    if (!canDispatch()) return;
+    await settleWaiter(runId);
+  }
+  if (!canDispatch()) return;
   const rows = await AppDataSource.getRepository(Run).find({
     where: { status: "queued", employeeId: Not(IsNull()) },
     select: { employeeId: true },

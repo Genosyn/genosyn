@@ -14,8 +14,10 @@ import { startRoutineRun } from "./runner.js";
 import {
   dispatchQueuedRoutineRuns,
   releaseOrphanedQueueSlots,
+  resumeRoutineQueue,
   waitForRoutineQueueIdle,
 } from "./routineQueue.js";
+import { stopCron } from "./cron.js";
 import { reconcileOrphanedRuns } from "./runRecovery.js";
 import { liftStanddown, placeStanddown, stopStanddowns } from "./standdowns.js";
 
@@ -24,6 +26,7 @@ beforeEach(async () => {
   await waitForRoutineQueueIdle();
   stopStanddowns();
   await resetTestDb();
+  await resumeRoutineQueue();
 });
 after(async () => {
   await waitForRoutineQueueIdle();
@@ -317,4 +320,94 @@ test("queued preparation retains its restricted scope when the Routine is edited
   const completed = await pending.completion;
   assert.equal(completed.status, "reviewed", completed.logContent);
   assert.equal(completed.continuationReviewOnly, true);
+});
+
+test("stopping cron lets the active Run finish but holds queued work until resume", async (t) => {
+  const { routine } = await fixture();
+  const firstRoutine = await routine("First");
+  const secondRoutine = await routine("Second");
+  const thirdRoutine = await routine("Third");
+  const started = barrier();
+  const release = barrier();
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async () => {
+    if (++calls === 1) {
+      started.resolve();
+      await release.promise;
+    }
+    return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+  });
+  const first = await startRoutineRun(firstRoutine);
+  await started.promise;
+  const second = await startRoutineRun(secondRoutine);
+  stopCron();
+  const third = await startRoutineRun(thirdRoutine);
+  release.resolve();
+  assert.equal((await first.completion).status, "completed");
+  await waitForRoutineQueueIdle();
+  await dispatchQueuedRoutineRuns();
+  assert.equal(calls, 1);
+  for (const pending of [second, third]) {
+    const row = await AppDataSource.getRepository(Run).findOneByOrFail({ id: pending.run.id });
+    assert.equal(row.status, "queued");
+    assert.equal(row.queueActiveEmployeeId, null);
+  }
+  await resumeRoutineQueue();
+  await Promise.all([second.completion, third.completion]);
+  assert.equal(calls, 3);
+});
+
+test("a stop during claim persistence returns the occurrence to the durable queue", async (t) => {
+  const { routine } = await fixture();
+  const source = await routine("Claiming");
+  const repo = AppDataSource.getRepository(Run);
+  const update = repo.update.bind(repo);
+  let stopped = false;
+  t.mock.method(repo, "update", async (...args: Parameters<typeof repo.update>) => {
+    const result = await update(...args);
+    if (!stopped && args[1].status === "running" && args[1].queueActiveEmployeeId) {
+      stopped = true;
+      stopCron();
+    }
+    return result;
+  });
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async () => {
+    calls++;
+    return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+  });
+  const pending = await startRoutineRun(source);
+  await waitForRoutineQueueIdle();
+  const restored = await repo.findOneByOrFail({ id: pending.run.id });
+  assert.equal(stopped, true);
+  assert.equal(restored.status, "queued");
+  assert.equal(restored.queueActiveEmployeeId, null);
+  assert.equal(calls, 0);
+  await resumeRoutineQueue();
+  assert.equal((await pending.completion).status, "completed");
+  assert.equal(calls, 1);
+});
+
+test("resume before database initialization cannot restart queued work", async (t) => {
+  stopCron();
+  await closeTestDb();
+  await resumeRoutineQueue();
+  await dispatchQueuedRoutineRuns();
+  await initTestDb();
+  const { routine } = await fixture();
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async () => {
+    calls++;
+    return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+  });
+  const pending = await startRoutineRun(await routine("AfterRestore"));
+  await waitForRoutineQueueIdle();
+  assert.equal(calls, 0);
+  assert.equal(
+    (await AppDataSource.getRepository(Run).findOneByOrFail({ id: pending.run.id })).status,
+    "queued",
+  );
+  await resumeRoutineQueue();
+  assert.equal((await pending.completion).status, "completed");
+  assert.equal(calls, 1);
 });

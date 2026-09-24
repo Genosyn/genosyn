@@ -9,7 +9,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { startRoutineRun, type StartRunOptions } from "./runner.js";
 import { notifyApprovalPending } from "./notifications.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
-import { dispatchQueuedRoutineRuns } from "./routineQueue.js";
+import { dispatchQueuedRoutineRuns, resumeRoutineQueue, stopRoutineQueue } from "./routineQueue.js";
 import {
   claimRetryDispatch,
   findDueRetries,
@@ -69,7 +69,11 @@ import { notifyRunFailure } from "./runAlerts.js";
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 let heartbeat: NodeJS.Timeout | null = null;
-let ticking = false;
+let ticking: Promise<void> | null = null;
+let cronGeneration = 0;
+let pendingQueueResume = false;
+
+class RoutineSchedulerStoppedError extends Error {}
 /**
  * Set by {@link bootCron} so the first pass of a fresh process (and the pass
  * after a backup restore) knows it may treat every `running` row as debris on
@@ -556,23 +560,36 @@ export async function dispatchDueRetries(
  * boot-only recovery guarded by a long lease is skipped precisely when it is
  * needed most, because the process that crashed is still holding the lease.
  */
-async function tick(): Promise<void> {
-  if (ticking) return;
-  ticking = true;
+/** One serialized heartbeat; exported for lifecycle recovery checks. */
+export function tickCron(): Promise<void> {
+  if (ticking) return ticking;
+  const pass = runHeartbeat(cronGeneration).finally(() => {
+    if (ticking === pass) ticking = null;
+  });
+  ticking = pass;
+  return pass;
+}
+
+async function runHeartbeat(generation: number): Promise<void> {
   try {
     await withSchedulerLease("routines", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
+      const assertHeld = (): void => {
+        lease.assertHeld();
+        if (generation !== cronGeneration || !AppDataSource.isInitialized)
+          throw new RoutineSchedulerStoppedError("The Routine scheduler was stopped.");
+      };
+      assertHeld();
       const repo = AppDataSource.getRepository(Routine);
       const now = new Date();
 
       // Phase 1 — reconcile. Never starts work; only writes terminal statuses,
       // the retry stamps that go with them, and lease deletes.
       const boot = pendingBootReconcile;
-      pendingBootReconcile = false;
-      await reconcileOrphanedRuns({ boot, now }).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error("[cron] run recovery failed:", err);
-      });
-      lease.assertHeld();
+      // A failed pass or an unavailable scheduler lease must retain the boot
+      // marker and leave the work queue stopped for a later successful pass.
+      await reconcileOrphanedRuns({ boot, now });
+      assertHeld();
+      if (boot) pendingBootReconcile = false;
       await reconcileStaleTldrs(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR recovery failed:", err);
@@ -587,7 +604,7 @@ async function tick(): Promise<void> {
         take: MAX_DISPATCH_PER_TICK,
       });
       for (const r of due) {
-        lease.assertHeld();
+        assertHeld();
         const slot = r.nextRunAt as Date; // non-null by the query predicate
         const { count, capped } = countMissedSlots(r.cronExpr, slot, now, MISSED_SLOT_CAP);
         const stale = isSlotStale(slot, now, STALE_SLOT_MS);
@@ -609,26 +626,31 @@ async function tick(): Promise<void> {
         try {
           // Wait only until the Run row is durable (not for the agent to
           // finish) so phase 3 can see it and defer a colliding retry.
-          lease.assertHeld();
-          await tickRoutine(r.id, { missedSlots: count }, lease.assertHeld);
+          assertHeld();
+          await tickRoutine(r.id, { missedSlots: count }, assertHeld);
         } catch (err) {
           onDispatchError(r.id)(err);
         }
       }
 
       // Phase 3 — retries owed by earlier failures.
-      lease.assertHeld();
-      await dispatchDueRetries(now, lease.assertHeld);
+      assertHeld();
+      await dispatchDueRetries(now, assertHeld);
       // Resume queued occurrences after restart or after a Standdown is lifted.
       // Workers hold one employee slot and execute in the background.
-      lease.assertHeld();
-      await dispatchQueuedRoutineRuns();
+      assertHeld();
+      if (pendingQueueResume) {
+        pendingQueueResume = false;
+        await resumeRoutineQueue();
+      } else {
+        await dispatchQueuedRoutineRuns();
+      }
 
       // Phase 4 — durable Revenue reminders. The notification entity key
       // makes this idempotent across heartbeats; the scheduler lease prevents
       // two app instances racing the same reminder.
-      lease.assertHeld();
-      await dispatchDueFollowUpReminders(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await dispatchDueFollowUpReminders(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] revenue follow-up reminders failed:", err);
       });
@@ -636,8 +658,8 @@ async function tick(): Promise<void> {
       // Phase 5 — claim due TLDR windows. The claim and schedule advance are
       // durable before the restricted model turn continues in the background,
       // so this heartbeat never waits for prose generation.
-      lease.assertHeld();
-      await dispatchDueTldrs(now, {}, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await dispatchDueTldrs(now, {}, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR dispatch failed:", err);
       });
@@ -653,17 +675,17 @@ async function tick(): Promise<void> {
       // UPDATE. Same reason a button left mid-press is released from here —
       // one guarded UPDATE, so a replica that died without a peer restarting
       // does not leave its buttons stuck until one does.
-      lease.assertHeld();
-      await sweepPendingStandingQuestions(now, {}, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await sweepPendingStandingQuestions(now, {}, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR standing question sweep failed:", err);
       });
-      lease.assertHeld();
+      assertHeld();
       await retireStaleStandingClaims(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR standing question retirement failed:", err);
       });
-      lease.assertHeld();
+      assertHeld();
       await releaseInterruptedTldrQuestionActions(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR suggested action release failed:", err);
@@ -672,16 +694,16 @@ async function tick(): Promise<void> {
       // Phase 7 — return snoozed Decisions to their human audience, then end
       // the other silences. Each wake is a conditional claim, so restarts,
       // concurrent extensions and multiple schedulers cannot page twice.
-      lease.assertHeld();
-      await releaseDueDecisionSnoozes(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await releaseDueDecisionSnoozes(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] Decision snooze wake failed:", err);
       });
 
       // Re-page humans about Approvals, Decisions, and Handoffs that have sat
       // unanswered past their stall threshold. Idempotent per row.
-      lease.assertHeld();
-      await sweepStalledWork(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await sweepStalledWork(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] stall sweep failed:", err);
       });
@@ -689,8 +711,8 @@ async function tick(): Promise<void> {
       // Phase 8 — keep the Goals honest. Refresh chart-bound values (bounded
       // per pass) and settle achieved / missed transitions, each claimed with
       // a conditional UPDATE so a settle notifies exactly once.
-      lease.assertHeld();
-      await sweepGoals(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await sweepGoals(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] goal sweep failed:", err);
       });
@@ -698,8 +720,8 @@ async function tick(): Promise<void> {
       // Phase 9 — the routed-Decision fuse. A question an AI decider has held
       // unanswered past the fuse drops back to the human flow with the bell
       // the routing skipped; un-routing is the exactly-once claim.
-      lease.assertHeld();
-      await sweepRoutedDecisions(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await sweepRoutedDecisions(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] routed decision sweep failed:", err);
       });
@@ -707,8 +729,8 @@ async function tick(): Promise<void> {
       // Phase 10 — earned-autonomy eligibility (hourly behind its own gate).
       // Drafts evidence-attached promotion Approvals; demotion needs no sweep
       // because the runner revokes at the moment a Run goes bad.
-      lease.assertHeld();
-      await sweepAutonomyPromotions(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await sweepAutonomyPromotions(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] autonomy sweep failed:", err);
       });
@@ -716,8 +738,8 @@ async function tick(): Promise<void> {
       // Phase 11 — fire due Wakeups (M54). Each is claimed with a conditional
       // UPDATE, then briefed into a fresh employee-authority session — or the
       // journal, when the employee has no model.
-      lease.assertHeld();
-      await dispatchDueWakeups(now, undefined, lease).catch((err) => {
+      assertHeld();
+      await dispatchDueWakeups(now, undefined, { ...lease, assertHeld }).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] wakeup dispatch failed:", err);
       });
@@ -728,14 +750,15 @@ async function tick(): Promise<void> {
       // ungraded Run counted as a clean one toward earning autonomy. Claimed
       // with a conditional UPDATE on `outcomeCheckedAt IS NULL`, so the sweep
       // and a slow in-line check cannot both spend a model turn on one Run.
-      lease.assertHeld();
-      await sweepUngradedRuns(now, lease.assertHeld).catch((err) => {
+      assertHeld();
+      await sweepUngradedRuns(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] ungraded run sweep failed:", err);
       });
     });
-  } finally {
-    ticking = false;
+  } catch (error) {
+    // Stopping cron fences a prior pass at its next dispatch boundary.
+    if (!(error instanceof RoutineSchedulerStoppedError)) throw error;
   }
 }
 
@@ -778,6 +801,9 @@ async function initialSweep(): Promise<void> {
  * across the wipe and can start runs against a half-restored database.
  */
 export function stopCron(): void {
+  cronGeneration++;
+  pendingQueueResume = false;
+  stopRoutineQueue();
   if (heartbeat) clearInterval(heartbeat);
   heartbeat = null;
 }
@@ -801,14 +827,22 @@ export async function resetSchedulesAfterRestore(): Promise<void> {
 }
 
 export async function bootCron(): Promise<void> {
+  stopCron();
+  const generation = cronGeneration;
   // The immediate tick below performs the boot reconciliation pass. This also
   // covers the post-restore re-boot, where every restored `running` row is
   // debris by definition.
   pendingBootReconcile = true;
+  pendingQueueResume = true;
+  // A restore may have stopped the timer while its previous heartbeat was
+  // still grading. Join that fenced pass before reconciling restored rows.
+  if (ticking) await ticking.catch(() => undefined);
+  if (generation !== cronGeneration) return;
   await initialSweep();
+  if (generation !== cronGeneration) return;
   if (heartbeat) clearInterval(heartbeat);
   heartbeat = setInterval(() => {
-    tick().catch((err) => {
+    tickCron().catch((err) => {
       // eslint-disable-next-line no-console
       console.error("[cron] heartbeat failed:", err);
     });
@@ -816,7 +850,7 @@ export async function bootCron(): Promise<void> {
   // Complete the initial reconciliation before startup launches any durable
   // chat recoveries. Otherwise the asynchronous boot pass could clear the
   // workload lease a recovered turn just acquired.
-  await tick().catch((err) => {
+  await tickCron().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[cron] initial tick failed:", err);
   });
