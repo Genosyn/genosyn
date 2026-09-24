@@ -92,6 +92,9 @@ export async function runCodexSubscriptionTurn(params: {
               "REQUEST_DENIED",
             );
           }
+          // Graceful shutdown can still deliver queued stdout requests. Once
+          // a checkpoint ends this turn, none may start another side effect.
+          if (params.signal?.aborted) return toolFailure(abortError().message);
           const call = parseDynamicToolCall(requestParams);
           if (threadId && call.threadId !== threadId) {
             throw new Error("Codex sent a tool call for the wrong thread.");
