@@ -325,14 +325,22 @@ export function Employees() {
         day. Work details stay hidden until you choose an employee.
       </P>
       <P>
-        Choose a bubble to open the employee&apos;s <Strong>work timeline</Strong> in a popup. It
-        opens on today, with the clock down the left and work arranged through the day, like a
-        calendar&apos;s day view. Each entry says what happened and shows its result, and work
-        happening in the same hour stays readable as separate entries. Use{" "}
+        Choose a bubble to open the employee&apos;s <Strong>Work queue</Strong> and{" "}
+        <Strong>work timeline</Strong> in a popup. The queue shows the Routine working now and
+        pending Routines in order, including when a retry or continuation is waiting until later or
+        a Standdown is stopping the work. Each AI Employee runs one Routine at a time, and the queue
+        updates as work starts and finishes. It always shows current work, even while you browse an
+        earlier day below. A long queue starts with five Routines; expand it to see more pending work.
+      </P>
+      <P>
+        The calendar opens on today, with the clock down the left and recorded work arranged through
+        the day, like a calendar&apos;s day view. Each entry says what happened and shows its
+        result, and work happening in the same hour stays readable as separate entries. Use{" "}
         <Strong>Previous day</Strong> and <Strong>Next day</Strong>, or choose a date with{" "}
         <Strong>Work day</Strong>, to browse today and the previous six days. Choose{" "}
         <Strong>Today</Strong> to return to the current day. Dates and times follow your
-        browser&apos;s local time, with the timezone shown above the calendar.
+        browser&apos;s local time, with the timezone shown above the calendar. Choose{" "}
+        <Strong>Go to first work</Strong> to skip the empty hours before the day&apos;s first entry.
       </P>
       <P>Everything you need to follow up stays close to the work:</P>
       <UL>

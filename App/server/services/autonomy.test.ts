@@ -10,7 +10,14 @@ import { Routine } from "../db/entities/Routine.js";
 import { RoutineCheck } from "../db/entities/RoutineCheck.js";
 import { Run } from "../db/entities/Run.js";
 import { AppDataSource } from "../db/datasource.js";
-import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId, testId } from "../test/dbHarness.js";
+import {
+  closeTestDb,
+  initTestDb,
+  insert,
+  resetTestDb,
+  testCompanyId,
+  testId,
+} from "../test/dbHarness.js";
 import {
   computeAutonomyPromotions,
   contractAutonomyOnBadRun,
@@ -349,6 +356,19 @@ describe("promotion eligibility", () => {
 });
 
 describe("routineAutonomyEvidence", () => {
+  test("queued and running Runs provide no evidence for earned autonomy", () => {
+    const evidence = routineAutonomyEvidence({
+      runs: ["queued", "running"].map((status) => ({
+        status: status as Run["status"],
+        outcomeVerdict: null,
+        checksVerdict: null,
+      })),
+      hasCriteria: true,
+      hasChecks: true,
+    });
+    assert.equal(evidence.terminalRuns, 0);
+    assert.equal(evidence.promotable, false);
+  });
   const run = (over: Partial<Run>): Pick<Run, "status" | "outcomeVerdict" | "checksVerdict"> =>
     ({ status: "completed", outcomeVerdict: "achieved", checksVerdict: "passed", ...over }) as Run;
 
@@ -513,8 +533,7 @@ describe("demotion", () => {
     });
     assert.equal(fresh.browserApprovalRequired, true);
     assert.equal(
-      (await AppDataSource.getRepository(Notification).findBy({ kind: "autonomy_revoked" }))
-        .length,
+      (await AppDataSource.getRepository(Notification).findBy({ kind: "autonomy_revoked" })).length,
       0,
     );
   });

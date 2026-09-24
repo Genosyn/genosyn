@@ -84,7 +84,12 @@ export async function findLiveRunFailures({
     })
     .setParameter("completedStatus", "completed" satisfies RunStatus)
     .setParameter("continuationTrigger", "continuation")
-    .setParameter("continuationStatuses", ["running", "completed", ...FAILED_RUN_STATUSES])
+    .setParameter("continuationStatuses", [
+      "queued",
+      "running",
+      "completed",
+      ...FAILED_RUN_STATUSES,
+    ])
     .setParameter("reviewedContinuationStatus", "reviewed" satisfies RunStatus)
     .setParameter("reviewedContinuationScope", true)
     .orderBy("run.startedAt", "DESC");

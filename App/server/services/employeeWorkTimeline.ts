@@ -1,4 +1,4 @@
-import { And, In, LessThan, MoreThanOrEqual } from "typeorm";
+import { And, In, LessThan, MoreThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -388,7 +388,11 @@ export async function getEmployeeWorkTimeline(params: {
   ] = await Promise.all([
     routines.length
       ? AppDataSource.getRepository(Run).find({
-          where: { routineId: In([...routineById.keys()]), startedAt: inWindow },
+          where: {
+            routineId: In([...routineById.keys()]),
+            startedAt: inWindow,
+            status: Not("queued"),
+          },
           order: { startedAt: "DESC" },
           take,
         })

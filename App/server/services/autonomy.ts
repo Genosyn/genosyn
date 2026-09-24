@@ -142,7 +142,7 @@ async function employeeRecord(employeeId: string, since: Date): Promise<Employee
     where: { routineId: In(routines.map((r) => r.id)), startedAt: MoreThan(since) },
     select: { routineId: true, status: true, outcomeVerdict: true, checksVerdict: true },
   });
-  const terminal = runs.filter((r) => r.status !== "running" && r.status !== "reviewed");
+  const terminal = runs.filter((r) => !["queued", "running", "reviewed"].includes(r.status));
   return {
     terminalRuns: terminal.length,
     failed: terminal.filter((r) => ["failed", "error", "timeout", "interrupted"].includes(r.status))
@@ -185,7 +185,7 @@ export function routineAutonomyEvidence(args: {
   hasCriteria: boolean;
   hasChecks: boolean;
 }): RoutineAutonomyEvidence {
-  const terminal = args.runs.filter((r) => r.status !== "running" && r.status !== "reviewed");
+  const terminal = args.runs.filter((r) => !["queued", "running", "reviewed"].includes(r.status));
   const verified = terminal.filter(
     (r) =>
       r.status === "completed" && r.outcomeVerdict === "achieved" && r.checksVerdict !== "failed",
@@ -435,9 +435,9 @@ export async function computeAutonomyPromotions(
       );
       if (tally.approved < APPROVALS_MIN || tally.rejected > 0) continue;
       const recent = await AppDataSource.getRepository(Run).find({
-        // Evidence reviews must not push actual delivery failures out of this
-        // bounded window. Exclude them before the database applies `take`.
-        where: { routineId: routine.id, status: Not("reviewed") },
+        // Unfinished work and evidence reviews must not push delivery failures
+        // out of this bounded window. Filter before the database applies `take`.
+        where: { routineId: routine.id, status: Not(In(["queued", "running", "reviewed"])) },
         order: { startedAt: "DESC" },
         take: ROUTINE_RUNS_LOOKBACK,
         select: { status: true, outcomeVerdict: true, checksVerdict: true },

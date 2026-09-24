@@ -752,12 +752,135 @@ export async function reconcileProactiveWorkApprovals(companyId: string): Promis
     // A Routine may still be grading its outcome after its six-hour work budget.
     decidedAt: LessThan(new Date(Date.now() - CHAT_HARD_TIMEOUT_MS - 10 * 60_000)),
   };
-  if (!(await repo.existsBy(stale))) return;
-  await repo.update(stale, {
-    status: "execution_failed",
+  const executing = await repo.findBy({ companyId, kind: "proactive_work", status: "executing" });
+  if (!executing.length) return;
+  // Queue waiting consumes no work budget. Keep the exact approved plan alive
+  // while its durable Run waits, runs, or finishes assessment and cleanup.
+  const routineIds = [...new Set(executing.map((row) => row.routineId).filter(Boolean))];
+  const associatedRuns = routineIds.length
+    ? await AppDataSource.getRepository(Run)
+        .createQueryBuilder("run")
+        .select([
+          "run.id",
+          "run.routineId",
+          "run.employeeId",
+          "run.status",
+          "run.queueActiveEmployeeId",
+          "run.queueOptionsJson",
+        ])
+        .where("run.routineId IN (:...routineIds)", { routineIds })
+        .andWhere("run.queueOptionsJson LIKE :approvalKey", {
+          approvalKey: '%"proactiveApprovalId"%',
+        })
+        .getMany()
+    : [];
+  const liveApprovals = new Set<string>();
+  for (const run of associatedRuns) {
+    const approvalId = queuedProactiveApprovalId(run);
+    if (
+      approvalId &&
+      executing.some(
+        (row) =>
+          row.id === approvalId &&
+          row.routineId === run.routineId &&
+          row.employeeId === run.employeeId,
+      )
+    ) {
+      if (run.status === "queued" || run.status === "running" || run.queueActiveEmployeeId)
+        liveApprovals.add(approvalId);
+      else await settleQueuedProactiveRoutineRun(run.id);
+    }
+  }
+  const staleRows = await repo.findBy(stale);
+  const expiredIds = staleRows.filter((row) => !liveApprovals.has(row.id)).map((row) => row.id);
+  if (!expiredIds.length) return;
+  await repo.update(
+    { ...stale, id: In(expiredIds) },
+    {
+      status: "execution_failed",
+      errorMessage:
+        "The approved work stopped reporting before it finished. Inspect its results before proposing any further action; it will not restart automatically.",
+    },
+  );
+}
+
+function queuedProactiveApprovalId(run: Pick<Run, "queueOptionsJson">): string | null {
+  try {
+    const options = JSON.parse(run.queueOptionsJson ?? "null") as {
+      proactiveApprovalId?: unknown;
+    } | null;
+    return typeof options?.proactiveApprovalId === "string" ? options.proactiveApprovalId : null;
+  } catch {
+    return null;
+  }
+}
+
+function proactiveRoutineOutcome(run: Run, hasAcceptanceCriteria: boolean) {
+  const summary = [
+    `Run ${run.id}: ${run.status}.`,
+    runWorkSummary(run),
+    run.checksVerdict ? `Checks: ${run.checksVerdict}.` : "Checks were not verified.",
+    run.outcomeNote || "No independent outcome assessment is available.",
+  ].join(" ");
+  const checksSucceeded = run.checksVerdict === "passed" || run.checksVerdict === "not_run";
+  const outcomeSucceeded =
+    run.outcomeVerdict === "achieved" || (!hasAcceptanceCriteria && run.outcomeVerdict === null);
+  return {
+    resultJson: JSON.stringify({ summary: redactApprovalSummary(summary), runId: run.id }),
     errorMessage:
-      "The approved work stopped reporting before it finished. Inspect its results before proposing any further action; it will not restart automatically.",
+      run.status === "completed" && checksSucceeded && outcomeSucceeded
+        ? null
+        : "The approved Run did not finish with its required Checks and outcome satisfied. Inspect the Run before requesting more work.",
+  };
+}
+
+/** The durable queue owns completion even when the original approving process has restarted. */
+export async function settleQueuedProactiveRoutineRun(runId: string): Promise<void> {
+  const run = await AppDataSource.getRepository(Run)
+    .createQueryBuilder("run")
+    .addSelect("run.queueOptionsJson")
+    .where("run.id = :runId", { runId })
+    .getOne();
+  if (!run || run.status === "queued" || run.status === "running" || run.queueActiveEmployeeId)
+    return;
+  const approvalId = queuedProactiveApprovalId(run);
+  if (!approvalId || !run.employeeId) return;
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({
+    id: approvalId,
+    employeeId: run.employeeId,
+    routineId: run.routineId,
+    kind: "proactive_work",
+    status: "executing",
   });
+  if (!approval) return;
+  const [employee, routine] = await Promise.all([
+    AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: run.employeeId,
+      companyId: approval.companyId,
+    }),
+    AppDataSource.getRepository(Routine).findOneBy({
+      id: run.routineId,
+      employeeId: run.employeeId,
+    }),
+  ]);
+  if (!employee || !routine) return;
+  const result = proactiveRoutineOutcome(run, routine.acceptanceCriteria.trim().length > 0);
+  const updated = await repo.update(
+    { id: approval.id, companyId: approval.companyId, status: "executing" },
+    { ...result, status: result.errorMessage ? "execution_failed" : "approved" },
+  );
+  if (updated.affected === 1 && result.errorMessage) {
+    await recordAudit({
+      companyId: approval.companyId,
+      actorUserId: approval.decidedByUserId,
+      action: "approval.execute_failed",
+      targetType: "approval",
+      targetId: approval.id,
+      targetLabel: redactApprovalSummary(approval.title) ?? "",
+      metadata: { kind: approval.kind },
+    });
+  }
 }
 
 function approvedWorkBrief(payload: ProactiveWorkPayload): string {
@@ -856,26 +979,14 @@ export async function executeProactiveWorkApproval(
       triggerKind: "approval",
       proactiveApprovalId: approval.id,
     });
-    const summary = [
-      `Run ${run.id}: ${run.status}.`,
-      runWorkSummary(run),
-      run.checksVerdict ? `Checks: ${run.checksVerdict}.` : "Checks were not verified.",
-      run.outcomeNote || "No independent outcome assessment is available.",
-    ].join(" ");
+    const result = proactiveRoutineOutcome(run, routine.acceptanceCriteria.trim().length > 0);
     await AppDataSource.getRepository(Approval).update(
       { id: approval.id, status: "executing" },
       {
-        resultJson: JSON.stringify({ summary: redactApprovalSummary(summary), runId: run.id }),
+        resultJson: result.resultJson,
       },
     );
-    const checksSucceeded = run.checksVerdict === "passed" || run.checksVerdict === "not_run";
-    const hasAcceptanceCriteria = routine.acceptanceCriteria.trim().length > 0;
-    const outcomeSucceeded =
-      run.outcomeVerdict === "achieved" || (!hasAcceptanceCriteria && run.outcomeVerdict === null);
-    if (run.status !== "completed" || !checksSucceeded || !outcomeSucceeded)
-      throw new Error(
-        "The approved Run did not finish with its required Checks and outcome satisfied. Inspect the Run before requesting more work.",
-      );
+    if (result.errorMessage) throw new Error(result.errorMessage);
     return;
   }
   const result = await runChat(

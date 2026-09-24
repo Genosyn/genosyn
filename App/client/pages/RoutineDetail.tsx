@@ -1262,7 +1262,9 @@ function RunsTab({
                     {new Date(r.startedAt).toLocaleString()}
                   </div>
                   <div className="text-slate-400 dark:text-slate-500">
-                    {formatDuration(r.startedAt, r.finishedAt)}
+                    {r.status === "queued"
+                      ? "Waiting in work queue"
+                      : formatDuration(r.startedAt, r.finishedAt)}
                   </div>
                 </button>
               </li>
@@ -1278,7 +1280,12 @@ function RunsTab({
           <RunLogPane
             log={log}
             loading={loadingLog}
-            placeholder={logLoadError ?? "(empty log)"}
+            placeholder={
+              logLoadError ??
+              ((log?.status ?? activeRun?.status) === "queued"
+                ? "Waiting in this AI Employee’s work queue. This Run starts when earlier work finishes."
+                : "(empty log)")
+            }
             className="h-full max-h-[60vh] min-h-[400px]"
           />
           {recordings.length > 0 && activeId && (

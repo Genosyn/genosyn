@@ -16,6 +16,7 @@ import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { createCheck } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { placeStanddown, StanddownError, stopStanddowns } from "./standdowns.js";
 import {
   RUNTIME_SETTING_KEYS,
@@ -66,6 +67,7 @@ before(async () => {
 });
 
 after(async () => {
+  await waitForRoutineQueueIdle();
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...previousAllowlist);
   stopStanddowns();
   upstream.closeAllConnections();
@@ -96,6 +98,7 @@ function sendCompletion(response: ServerResponse, text: string): void {
 }
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   upstreamMode = "ok";
@@ -322,15 +325,19 @@ describe("continued work after failures", () => {
 });
 
 describe("timeout failure accounting", () => {
-  test("a timed-out Run increments the counter", async () => {
+  test("a timed-out Run increments the counter", async (t) => {
     await connectModel();
     const routine = await makeRoutine({ timeoutSec: 1, retryOnTimeout: false, consecutiveFailures: 4 });
 
     const fresh = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
-    const started = await startRoutineRun(fresh, {
-      triggerKind: "schedule",
-      beforeRunPersist: () => new Promise((resolve) => setTimeout(resolve, 1_050)),
+    const runs = AppDataSource.getRepository(Run);
+    const update = runs.update.bind(runs);
+    t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+      if (args[1].status === "running" && args[1].queueOptionsJson)
+        await new Promise((resolve) => setTimeout(resolve, 1_050));
+      return update(...args);
     });
+    const started = await startRoutineRun(fresh, { triggerKind: "schedule" });
     const run = await started.completion;
 
     assert.equal(run.status, "error");

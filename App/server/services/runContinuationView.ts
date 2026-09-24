@@ -29,7 +29,9 @@ export function publicRun(run: Run) {
     continuationReviewOnly: _continuationReviewOnly,
     diagnosticsJson: _diagnosticsJson,
     requiredToolsJson: _requiredToolsJson,
+    queueOptionsJson: _queueOptionsJson,
+    queueActiveEmployeeId: _queueActiveEmployeeId,
     ...visible
   } = run;
-  return { ...visible, ...runContinuationView(run) };
+  return { ...visible, queuedAt: run.createdAt, ...runContinuationView(run) };
 }

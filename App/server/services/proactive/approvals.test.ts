@@ -4,6 +4,7 @@ import { after, before, beforeEach, test } from "node:test";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Approval } from "../../db/entities/Approval.js";
+import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
@@ -27,6 +28,7 @@ import {
   proactiveWorkOutcomeSummary,
   proactiveWorkReviewDetails,
   reconcileProactiveWorkApprovals,
+  settleQueuedProactiveRoutineRun,
   reviseProactiveWorkApproval,
   validateProactiveRoutineApproval,
   type ProactiveWorkOrigin,
@@ -1005,6 +1007,178 @@ test("reconciliation expires a pending work review after its source changes", as
   assert.equal(expired.status, "expired");
   assert.equal(expired.decidedAt, null);
   assert.equal(expired.resultJson, null);
+});
+
+test("approved work retains its authority while its exact Run waits in the queue", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  await AppDataSource.getRepository(Approval).update(
+    { id: approval.id },
+    {
+      status: "executing",
+      decidedAt: new Date(Date.now() - CHAT_HARD_TIMEOUT_MS - 11 * 60_000),
+      decidedByUserId: f.member.id,
+    },
+  );
+  const queued = await insert(Run, {
+    employeeId: f.employee.id,
+    routineId: f.routine.id,
+    status: "queued",
+    triggerKind: "approval",
+    startedAt: new Date(),
+    queueOptionsJson: JSON.stringify({ proactiveApprovalId: approval.id }),
+  });
+  await reconcileProactiveWorkApprovals(f.companyId);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).status,
+    "executing",
+  );
+  await AppDataSource.getRepository(Run).update(queued.id, {
+    status: "completed",
+    queueActiveEmployeeId: f.employee.id,
+  });
+  await reconcileProactiveWorkApprovals(f.companyId);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).status,
+    "executing",
+  );
+  await AppDataSource.getRepository(Run).update(queued.id, { queueActiveEmployeeId: null });
+  await reconcileProactiveWorkApprovals(f.companyId);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).status,
+    "execution_failed",
+  );
+});
+
+test("a restarted approval immediately records its durable completed Run without replay", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  await AppDataSource.getRepository(Approval).update(approval.id, {
+    status: "executing",
+    decidedAt: new Date(),
+    decidedByUserId: f.member.id,
+  });
+  const run = await insert(Run, {
+    employeeId: f.employee.id,
+    routineId: f.routine.id,
+    status: "completed",
+    triggerKind: "approval",
+    checksVerdict: "not_run",
+    startedAt: new Date(),
+    finishedAt: new Date(),
+    queueOptionsJson: JSON.stringify({ proactiveApprovalId: approval.id }),
+  });
+  await reconcileProactiveWorkApprovals(f.companyId);
+  const settled = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
+  assert.equal(settled.status, "approved");
+  assert.equal(JSON.parse(settled.resultJson!).runId, run.id);
+  await settleQueuedProactiveRoutineRun(run.id);
+  await reconcileProactiveWorkApprovals(f.companyId);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).resultJson,
+    settled.resultJson,
+  );
+});
+
+test("durable failed work finalizes once and leaves another executing approval alone", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  await AppDataSource.getRepository(Approval).update(approval.id, {
+    status: "executing",
+    decidedAt: new Date(),
+    decidedByUserId: f.member.id,
+  });
+  const unrelated = await insert(Approval, {
+    companyId: f.companyId,
+    employeeId: f.employee.id,
+    routineId: f.routine.id,
+    kind: "proactive_work",
+    status: "executing",
+    title: "Other approved work",
+    payloadJson: approval.payloadJson,
+    decidedAt: new Date(),
+    decidedByUserId: f.member.id,
+  });
+  const run = await insert(Run, {
+    employeeId: f.employee.id,
+    routineId: f.routine.id,
+    status: "error",
+    errorKind: "runtime",
+    triggerKind: "approval",
+    startedAt: new Date(),
+    finishedAt: new Date(),
+    queueOptionsJson: JSON.stringify({ proactiveApprovalId: approval.id }),
+  });
+  await settleQueuedProactiveRoutineRun(run.id);
+  await reconcileProactiveWorkApprovals(f.companyId);
+  await reconcileProactiveWorkApprovals(f.companyId);
+  const failed = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
+  assert.equal(failed.status, "execution_failed");
+  assert.equal(JSON.parse(failed.resultJson!).runId, run.id);
+  assert.match(failed.errorMessage!, /approved Run did not finish/);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: unrelated.id })).status,
+    "executing",
+  );
+  assert.equal(
+    await AppDataSource.getRepository(AuditEvent).countBy({
+      companyId: f.companyId,
+      action: "approval.execute_failed",
+      targetId: approval.id,
+    }),
+    1,
+  );
+});
+
+test("the original approval caller accepts a queue worker that already finalized its exact work", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  const result = await approvePendingApproval({
+    companyId: f.companyId,
+    approvalId: approval.id,
+    userId: f.member.id,
+    execute: async () => {
+      const run = await insert(Run, {
+        employeeId: f.employee.id,
+        routineId: f.routine.id,
+        status: "completed",
+        triggerKind: "approval",
+        checksVerdict: "not_run",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        queueOptionsJson: JSON.stringify({ proactiveApprovalId: approval.id }),
+      });
+      await settleQueuedProactiveRoutineRun(run.id);
+    },
+  });
+  assert.equal(result.outcome, "decided");
+  if (result.outcome === "decided") assert.equal(result.approval.status, "approved");
+});
+
+test("another employee's terminal Run cannot finalize an executing work approval", async () => {
+  const f = await fixture();
+  const approval = await createProactiveWorkApproval(f.request);
+  await AppDataSource.getRepository(Approval).update(approval.id, {
+    status: "executing",
+    decidedAt: new Date(),
+    decidedByUserId: f.member.id,
+  });
+  const run = await insert(Run, {
+    employeeId: "other-employee",
+    routineId: f.routine.id,
+    status: "completed",
+    triggerKind: "approval",
+    checksVerdict: "not_run",
+    startedAt: new Date(),
+    finishedAt: new Date(),
+    queueOptionsJson: JSON.stringify({ proactiveApprovalId: approval.id }),
+  });
+  await settleQueuedProactiveRoutineRun(run.id);
+  await reconcileProactiveWorkApprovals(f.companyId);
+  assert.equal(
+    (await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id })).status,
+    "executing",
+  );
 });
 
 test("reconciliation preserves pending work when source lookup infrastructure fails", async () => {

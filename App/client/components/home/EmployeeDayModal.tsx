@@ -34,6 +34,7 @@ import {
 } from "@/lib/workTimeline";
 
 import { WorkEntryBlock } from "./WorkEntryViews";
+import { EmployeeWorkQueue } from "./EmployeeWorkQueue";
 
 /** One local calendar day, fetched independently so other employees cannot crowd it out. */
 export function EmployeeDayModal({
@@ -58,7 +59,6 @@ export function EmployeeDayModal({
   const day = selectedDay < earliestDay ? earliestDay : selectedDay;
   const { since, until } = workCalendarWindow(day);
   const calendarRef = React.useRef<HTMLDivElement>(null);
-  const scrolledDay = React.useRef<string | null>(null);
 
   const load = React.useCallback(async () => {
     const ticket = ++request.current;
@@ -101,13 +101,11 @@ export function EmployeeDayModal({
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone.replaceAll("_", " ");
   const firstWorkHour = hours.find((hour) => hour.entries.length > 0)?.key;
 
-  React.useEffect(() => {
-    if (!currentData || scrolledDay.current === day) return;
-    scrolledDay.current = day;
+  const scrollToFirstWork = () => {
     calendarRef.current
       ?.querySelector('[data-first-work="true"]')
       ?.scrollIntoView({ block: "start" });
-  }, [currentData, day]);
+  };
 
   const base = `/c/${company.slug}/employees/${employee.slug}`;
 
@@ -118,7 +116,7 @@ export function EmployeeDayModal({
       size="lg"
       padded={false}
       title={`${employee.name}'s day`}
-      description={`${employee.role} · Daily work timeline`}
+      description={`${employee.role} · Work queue and daily timeline`}
       footer={
         <>
           <Link
@@ -134,6 +132,7 @@ export function EmployeeDayModal({
         </>
       }
     >
+      <EmployeeWorkQueue company={company} employee={employee} nowIso={nowIso} onClose={onClose} />
       <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-4 sm:px-5 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-3">
           <span aria-hidden="true">
@@ -207,15 +206,22 @@ export function EmployeeDayModal({
             Today
           </Button>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400" aria-live="polite">
-          {error
-            ? "Work is unavailable for this day."
-            : !currentData
-              ? "Loading the day’s work…"
-              : counts
-                ? `${overflow ? "Showing" : "Recorded"} ${counts}.`
-                : "No work recorded on this day."}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400" aria-live="polite">
+            {error
+              ? "Work is unavailable for this day."
+              : !currentData
+                ? "Loading the day’s work…"
+                : counts
+                  ? `${overflow ? "Showing" : "Recorded"} ${counts}.`
+                  : "No work recorded on this day."}
+          </p>
+          {firstWorkHour && !error && (
+            <Button type="button" variant="ghost" size="sm" onClick={scrollToFirstWork}>
+              Go to first work
+            </Button>
+          )}
+        </div>
         {overflow && (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {overflow}. Showing the most recent work.

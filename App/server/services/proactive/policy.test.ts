@@ -23,6 +23,7 @@ import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js"
 import { gatherEmployeeTools } from "../agent/tools/index.js";
 import { createCheck } from "../routineChecks.js";
 import { startRoutineRun } from "../runner.js";
+import { waitForRoutineQueueIdle } from "../routineQueue.js";
 import { resetRuntimeSettingsCacheForTests } from "../runtimeSettings.js";
 import { stopStanddowns } from "../standdowns.js";
 import { routineDeliveryPolicy } from "./policy.js";
@@ -137,6 +138,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   await resetTestDb();
@@ -205,6 +207,7 @@ beforeEach(async () => {
 });
 
 after(async () => {
+  await waitForRoutineQueueIdle();
   testConfig.port = originalPort;
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...originalAllowlist);
   stopStanddowns();

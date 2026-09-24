@@ -8,6 +8,8 @@ import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import {
   closeTestDb,
@@ -27,6 +29,7 @@ import {
   rejectPendingApproval,
 } from "./approvals.js";
 import { notifyApprovalPending } from "./notifications.js";
+import { dispatchQueuedRoutineRuns, waitForRoutineQueueIdle } from "./routineQueue.js";
 
 before(initTestDb);
 after(closeTestDb);
@@ -78,6 +81,62 @@ async function auditRows(companyId: string): Promise<AuditEvent[]> {
 }
 
 describe("approval decision claims", () => {
+  test("a Routine approval is acknowledged only after its occurrence is durably queued", async () => {
+    const company = await insert(Company, {
+      name: "Queue",
+      slug: "queue",
+      ownerId: testId("owner"),
+    });
+    const employee = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Morgan",
+      slug: "morgan",
+      role: "Operations",
+    });
+    const routine = await insert(Routine, {
+      employeeId: employee.id,
+      name: "Review",
+      slug: "review",
+      cronExpr: "0 9 * * *",
+      body: "Review the records.",
+      requiresApproval: true,
+    });
+    const blocker = await insert(Run, {
+      employeeId: employee.id,
+      routineId: routine.id,
+      status: "running",
+      startedAt: new Date(),
+      queueActiveEmployeeId: employee.id,
+    });
+    const approval = await insert(Approval, {
+      companyId: company.id,
+      employeeId: employee.id,
+      routineId: routine.id,
+      kind: "routine",
+      status: "pending",
+    });
+    try {
+      const result = await approvePendingApproval({
+        companyId: company.id,
+        approvalId: approval.id,
+        userId: company.ownerId,
+      });
+      assert.equal(result.outcome, "decided");
+      if (result.outcome === "decided") assert.equal(result.approval.status, "approved");
+      assert.equal(
+        await AppDataSource.getRepository(Run).countBy({
+          employeeId: employee.id,
+          triggerKind: "approval",
+          status: "queued",
+        }),
+        1,
+      );
+    } finally {
+      await AppDataSource.getRepository(Run).delete(blocker.id);
+      await dispatchQueuedRoutineRuns();
+      await waitForRoutineQueueIdle();
+    }
+  });
   test("MCP argument previews redact nested and inline credentials", () => {
     const preview = approvalArgsPreview({
       apiKey: "top-secret-api-key",

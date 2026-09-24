@@ -116,6 +116,7 @@ usageRouter.get("/usage", async (req, res) => {
   const runs = await AppDataSource.getRepository(Run)
     .createQueryBuilder("run")
     .where("run.routineId IN (:...ids)", { ids: routines.map((r) => r.id) })
+    .andWhere("run.status != :queued", { queued: "queued" })
     .andWhere("run.startedAt >= :since", { since })
     .getMany();
 

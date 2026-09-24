@@ -2,6 +2,7 @@ import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type RunStatus =
+  | "queued"
   | "running"
   | "completed"
   | "reviewed"
@@ -73,12 +74,26 @@ export type RunTrigger =
 @Index(["status", "startedAt"])
 // The heartbeat's retry scan: terminal rows carrying a due `retryAt`.
 @Index(["retryAt"])
+@Index(["employeeId", "status", "createdAt"])
 export class Run {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
   @Column({ type: "varchar" })
   routineId!: string;
+
+  /** Snapshot of the employee who owns this occurrence; older Runs have none. */
+  @Column({ type: "varchar", nullable: true })
+  employeeId!: string | null;
+
+  /** One database-enforced execution slot per employee, including final assessment. */
+  @Index({ unique: true })
+  @Column({ type: "varchar", nullable: true })
+  queueActiveEmployeeId!: string | null;
+
+  /** Server-only dispatch provenance. Never included in public Run responses. */
+  @Column({ type: "text", nullable: true, select: false })
+  queueOptionsJson!: string | null;
 
   @Column({ type: dateTimeColumnType })
   startedAt!: Date;

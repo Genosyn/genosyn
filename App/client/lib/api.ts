@@ -945,6 +945,7 @@ export type Initiative = {
 };
 
 export type RunStatus =
+  | "queued"
   | "running"
   /** Proactive review finished; proposed work requires a separate Approval. */
   | "reviewed"
@@ -974,6 +975,8 @@ export type RunTrigger =
 export type Run = {
   id: string;
   routineId: string;
+  /** When this Run joined its AI Employee's work queue. */
+  queuedAt?: string | null;
   startedAt: string;
   finishedAt: string | null;
   status: RunStatus;
@@ -1057,6 +1060,7 @@ export type RunDiagnosticFailure = {
   step: { tool: string; callId: string | null; startedAt: string } | null;
 };
 export type RunLog = {
+  queuedAt?: string | null;
   content: string;
   truncated?: boolean;
   size?: number;
@@ -3496,6 +3500,26 @@ export type WorkTimeline = {
   entryCount: number;
   /** Pre-response-limit rollups, so the 40 visible rows cannot crowd a bubble out. */
   employeeSummaries: WorkEmployeeSummary[];
+};
+
+/** Live Routine work, independent of the day selected in the work timeline. */
+export type EmployeeQueueItem = {
+  id: string;
+  runId: string | null;
+  routine: { id: string; name: string; slug: string };
+  triggerKind: RunTrigger;
+  queuedAt: string;
+  availableAt: string | null;
+  /** One-based waiting order; the active Run has no position. */
+  position: number | null;
+  blockedReason: string | null;
+};
+
+export type EmployeeWorkQueue = {
+  employeeId: string;
+  current: EmployeeQueueItem | null;
+  pending: EmployeeQueueItem[];
+  pendingCount: number;
 };
 
 // ───────────────────────── System Health ────────────────────────────────

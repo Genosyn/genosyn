@@ -15,16 +15,19 @@ import { RUN_BATCH_TOKEN_TARGET } from "./runBatchBudget.js";
 import { saveRunCheckpoint, type RunCheckpoint } from "./runContinuation.js";
 import { continuationEffects } from "./runEffects.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { stopStanddowns } from "./standdowns.js";
 
 before(initTestDb);
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   await resetTestDb();
 });
 after(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   await closeTestDb();
 });
