@@ -23,11 +23,12 @@ import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
 import { notifyRunFailure } from "./runAlerts.js";
 import { readRunDiagnostics } from "./runDiagnostics.js";
 import { readRunCheckpoint } from "./runContinuation.js";
+import { releaseOrphanedQueueSlots } from "./routineQueue.js";
 
 /**
  * Crash recovery for Runs.
  *
- * `startRoutineRun` commits `status: "running"` before it does any work, and
+ * The employee queue claims `status: "running"` before it does any work, and
  * the writes that move the row off that status live in a detached async block
  * that a `kill -9` or a power cut never reaches. Nothing used to reconcile the
  * leftovers: the Run stayed `running` forever and System Health flagged it as
@@ -264,6 +265,7 @@ export async function reconcileOrphanedRuns(opts?: {
           errorKind: run.errorKind,
           diagnosticsJson: JSON.stringify(readRunDiagnostics(run)),
           routineId: run.routineId,
+          queueActiveEmployeeId: null,
           exitCode: run.exitCode,
           finishedAt: run.finishedAt,
           logContent: run.logContent,
@@ -330,6 +332,7 @@ export async function reconcileOrphanedRuns(opts?: {
     );
   }
 
+  await releaseOrphanedQueueSlots(singleProcessBoot, now);
   result.leasesCleared = await clearLeases(singleProcessBoot, now);
 
   if (result.interrupted || result.retriesScheduled || result.leasesCleared) {

@@ -73,6 +73,7 @@ import {
   readRunCheckpoint,
   CONTINUATION_DELAY_MS,
 } from "./runContinuation.js";
+import { QueuedRoutineIneligibleError, registerQueuedRun } from "./routineQueue.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -140,6 +141,8 @@ export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): 
  * and saw what happened.
  */
 export type StartRunOptions = {
+  /** Server-only: an accepted occurrence retains its original restricted work surface. */
+  queuePolicy?: Pick<Routine, "selfReviewOnly" | "mailDeliveryMode">;
   /** Server-only: an admin grants a fresh time window to this saved unfinished work. */
   resumeFromRunId?: string;
   /** Internal: resume an owned durable checkpoint within its original limits. */
@@ -166,7 +169,7 @@ export type StartRunOptions = {
 };
 
 /**
- * Begin a run and return the saved Run row immediately (status `running`),
+ * Enqueue a Run and return its durable row immediately (status `queued`),
  * along with a `completion` promise that resolves once the agent finishes and
  * the row has been finalized. The durable log is registered in
  * {@link liveBuffers} for the lifetime of the run so polling clients can tail
@@ -177,6 +180,28 @@ export async function startRoutineRun(
   routine: Routine,
   opts: StartRunOptions = {},
 ): Promise<{ run: Run; completion: Promise<Run> }> {
+  return prepareRoutineRun(routine, opts);
+}
+
+/** Queue-only execution seam: the caller must own the employee's durable slot. */
+export async function executeQueuedRoutineRun(
+  routine: Routine,
+  queued: Run,
+  opts: StartRunOptions,
+): Promise<Run> {
+  return (await prepareRoutineRun(routine, opts, queued)).completion;
+}
+
+async function prepareRoutineRun(
+  routine: Routine,
+  opts: StartRunOptions,
+  queued?: Run,
+): Promise<{ run: Run; completion: Promise<Run> }> {
+  const retainQueuePolicy = (): void => {
+    routine.selfReviewOnly ||= !!opts.queuePolicy?.selfReviewOnly;
+    routine.mailDeliveryMode ||= opts.queuePolicy?.mailDeliveryMode ?? null;
+  };
+  retainQueuePolicy();
   if (browserRunCreationBlocked({ employeeId: routine.employeeId, routineId: routine.id })) {
     throw new Error("This Routine is being removed.");
   }
@@ -252,9 +277,13 @@ export async function startRoutineRun(
 
   const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
+    ...(queued ? { id: queued.id, createdAt: queued.createdAt } : { createdAt: startedAt }),
     routineId: routine.id,
+    employeeId: emp.id,
+    queueActiveEmployeeId: queued ? emp.id : null,
+    queueOptionsJson: JSON.stringify({ ...opts, beforeRunPersist: undefined }),
     startedAt,
-    status: "running",
+    status: queued ? "running" : "queued",
     errorKind: null,
     failureReason: null,
     logContent: "",
@@ -271,6 +300,7 @@ export async function startRoutineRun(
       ? (continuationParent.continuationOriginTriggerKind ?? continuationParent.triggerKind)
       : null,
     continuationReviewOnly:
+      !!queued?.continuationReviewOnly ||
       !!continuationParent?.continuationReviewOnly ||
       routineNeedsWorkReview(
         routine,
@@ -292,7 +322,28 @@ export async function startRoutineRun(
         : 0,
   });
   let saved: Run;
-  await opts.beforeRunPersist?.();
+  if (!queued) await opts.beforeRunPersist?.();
+  if (queued) {
+    const current = await AppDataSource.getRepository(Routine).findOneBy({ id: routine.id });
+    if (!current || current.employeeId !== emp.id) {
+      throw new QueuedRoutineIneligibleError(
+        "The Routine was removed or reassigned before its queued work could start.",
+      );
+    }
+    if (
+      ["schedule", "retry", "event", "webhook", "continuation"].includes(run.triggerKind) &&
+      (!current.enabled || current.requiresApproval)
+    ) {
+      throw new QueuedRoutineIneligibleError(
+        "The Routine's enabled state or approval requirement changed before starting.",
+      );
+    }
+    Object.assign(routine, current);
+    retainQueuePolicy();
+    const latestStop = workBlocked(co.id, { employeeId: emp.id, routineId: routine.id });
+    if (latestStop.blocked)
+      throw new StanddownError("This Routine was stood down before starting.");
+  }
   if (manualResume) {
     const currentParent = await runRepo.findOneBy({ id: parentId!, routineId: routine.id });
     if (
@@ -306,14 +357,33 @@ export async function startRoutineRun(
     routine,
     run.continuationOriginTriggerKind ?? run.triggerKind,
   );
+  run.queueOptionsJson = JSON.stringify({
+    ...opts,
+    beforeRunPersist: undefined,
+    queuePolicy: {
+      selfReviewOnly: routine.selfReviewOnly,
+      mailDeliveryMode: routine.mailDeliveryMode,
+    },
+  });
   if (browserRunCreationBlocked(runAuthority)) {
     throw new Error("This Routine is being removed.");
   }
-  saved = await runRepo.save(run);
+  if (queued) {
+    // A removed Routine/employee must not be resurrected by a slow setup save.
+    const updated = await runRepo.update(
+      { id: queued.id, status: "running", queueActiveEmployeeId: emp.id },
+      run,
+    );
+    if (updated.affected !== 1) throw new Error("The queued Run was removed before starting.");
+    saved = run;
+  } else {
+    saved = await runRepo.save(run);
+  }
   if (browserRunCreationBlocked(runAuthority)) {
     await runRepo.delete({ id: saved.id }).catch(() => undefined);
     throw new Error("This Routine is being removed.");
   }
+  if (!queued) return { run: saved, completion: registerQueuedRun(saved) };
   const deadlineAtMs = Math.min(
     saved.startedAt.getTime() + timeoutMs,
     saved.continuationDeadlineAt?.getTime() ?? Infinity,

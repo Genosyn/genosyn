@@ -92,7 +92,7 @@ export async function getRoutineActivity({
   to: Date;
 }): Promise<RoutineActivity> {
   const selectedFields = [...runSummaryFields, "checkpointJson"].map((field) => `run.${field}`);
-  const dayParameters = { from, to, excludedStatuses: ["running", "skipped"] };
+  const dayParameters = { from, to, excludedStatuses: ["queued", "running", "skipped"] };
   const [running, daily] = await Promise.all([
     companyRuns(companyId)
       .select(selectedFields)

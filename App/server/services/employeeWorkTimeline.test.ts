@@ -1234,6 +1234,13 @@ describe("work timeline visibility", () => {
 // ─────────────────── a record, not a queue; verdicts ─────────────────────
 
 describe("work timeline is a record, not a queue", () => {
+  test("queued Runs stay out of recorded work and employee activity summaries", async () => {
+    await run({ status: "queued" });
+    const result = await timeline();
+    assert.equal(result.entries.length, 0);
+    assert.equal(result.entryCount, 0);
+    assert.ok(result.employeeSummaries.every((summary) => summary.current === null));
+  });
   test("still shows a failure a Member has already dismissed", async () => {
     // Home's failed-routines panel drops these on purpose. This one must not:
     // acknowledging a failure does not un-happen it.

@@ -15,6 +15,7 @@ import { INTERRUPTED_RECOVERY_DELAY_MS } from "./cronMath.js";
 import { dispatchDueRetries, tickRoutine } from "./cron.js";
 import { registerResourceChangeSink } from "./resourceEvents.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { readRunDiagnostics, RunDiagnosticRecorder } from "./runDiagnostics.js";
 import { liftStanddown, placeStanddown } from "./standdowns.js";
 import {
@@ -33,8 +34,14 @@ before(async () => {
   AppDataSource.subscribers.push(new ResourceChangeSubscriber());
 });
 
-beforeEach(resetTestDb);
-after(closeTestDb);
+beforeEach(async () => {
+  await waitForRoutineQueueIdle();
+  await resetTestDb();
+});
+after(async () => {
+  await waitForRoutineQueueIdle();
+  await closeTestDb();
+});
 
 const NOW = new Date("2026-08-11T12:00:00.000Z");
 
@@ -123,15 +130,23 @@ describe("Routine Run crash recovery", () => {
     let checkpointLanded = false;
     // The production recording finalizer queries this repository after the
     // recovery sweep has already loaded its initial Run snapshot.
-    t.mock.method(browserSessions, "find", async (...args: Parameters<typeof browserSessions.find>) => {
-      if (!checkpointLanded) {
-        checkpointLanded = true;
-        await runs.update({ id: run.id, status: "running" }, {
-          logContent: "newer durable tool boundary\n", diagnosticsJson: newer.json(),
-        });
-      }
-      return findSessions(...args);
-    });
+    t.mock.method(
+      browserSessions,
+      "find",
+      async (...args: Parameters<typeof browserSessions.find>) => {
+        if (!checkpointLanded) {
+          checkpointLanded = true;
+          await runs.update(
+            { id: run.id, status: "running" },
+            {
+              logContent: "newer durable tool boundary\n",
+              diagnosticsJson: newer.json(),
+            },
+          );
+        }
+        return findSessions(...args);
+      },
+    );
 
     const result = await reconcileOrphanedRuns({ boot: true, now: NOW });
     assert.equal(checkpointLanded, true);
@@ -155,9 +170,13 @@ describe("Routine Run crash recovery", () => {
     t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
       if (!checkpointLanded && args[1].status === "error") {
         checkpointLanded = true;
-        await update({ id: run.id, status: "running" }, {
-          logContent: "CAS winner checkpoint\n", diagnosticsJson: newer.json(),
-        });
+        await update(
+          { id: run.id, status: "running" },
+          {
+            logContent: "CAS winner checkpoint\n",
+            diagnosticsJson: newer.json(),
+          },
+        );
       }
       return update(...args);
     });
@@ -239,17 +258,21 @@ describe("Routine Run crash recovery", () => {
     );
   });
 
-  test("counts start prerequisites against the Run's absolute timeout", async () => {
+  test("counts dispatch prerequisites against the Run's absolute timeout", async (t) => {
     const { employee } = await fixture();
     const scheduled = await routine(employee.id, "absolute-timeout", {
       timeoutSec: 1,
       retryOnTimeout: false,
     });
 
-    const started = await startRoutineRun(scheduled, {
-      triggerKind: "schedule",
-      beforeRunPersist: () => new Promise((resolve) => setTimeout(resolve, 1_050)),
+    const runs = AppDataSource.getRepository(Run);
+    const update = runs.update.bind(runs);
+    t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+      if (args[1].status === "running" && args[1].queueOptionsJson)
+        await new Promise((resolve) => setTimeout(resolve, 1_050));
+      return update(...args);
     });
+    const started = await startRoutineRun(scheduled, { triggerKind: "schedule" });
     const finished = await started.completion;
 
     assert.equal(finished.status, "error");

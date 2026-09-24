@@ -17,6 +17,8 @@ export function runStatusHint(
   status: RunStatus,
   errorKind?: RunErrorKind | null,
 ): string | undefined {
+  if (status === "queued")
+    return "Waiting in the AI Employee’s work queue. Routines run one at a time.";
   if (status === "reviewed")
     return "The proactive review finished. This Run did not carry out the proposed work.";
   if (status === "failed")

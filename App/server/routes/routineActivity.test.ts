@@ -221,6 +221,7 @@ test("today counts every terminal Run except skipped ticks and retains the lates
   }
   const latest = await seedRun({ startedAt: at(-1), finishedAt: at(7), status: "failed" });
   await seedRun({ status: "skipped", startedAt: at(9), finishedAt: at(10) });
+  await seedRun({ status: "queued", startedAt: at(12), finishedAt: null });
   await seedRun({ status: "running", startedAt: at(11), finishedAt: null });
   const { body } = await call();
   assert.equal(body.today.length, 1);

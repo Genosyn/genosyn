@@ -213,6 +213,13 @@ async function open(
         return route.fulfill({ status: 503, json: { error: "Work is temporarily unavailable." } });
       return route.fulfill({ json: timeline(entries, url.searchParams) });
     }
+    const queueMatch = /^\/api\/companies\/company\/employees\/([^/]+)\/work-queue$/.exec(
+      url.pathname,
+    );
+    if (queueMatch)
+      return route.fulfill({
+        json: { employeeId: queueMatch[1], current: null, pending: [], pendingCount: 0 },
+      });
     const entry = entries.find((row) => row.run && url.pathname.includes(`/${row.run.id}/`));
     if (!entry) {
       unexpectedRequests.push(`${request.method()} ${url.pathname}`);
@@ -290,7 +297,9 @@ async function fitsViewport(page: Page) {
   );
 }
 let checks = 0;
+const filters = process.argv.slice(2).map((value) => value.toLowerCase());
 async function check(name: string, run: () => Promise<void>) {
+  if (filters.length && !filters.some((filter) => name.toLowerCase().includes(filter))) return;
   console.log(`RUN ${name}`);
   await run();
   checks++;
@@ -328,6 +337,11 @@ try {
       });
       const dialog = await openDay(page);
       await dialog.getByText(summary, { exact: true }).waitFor();
+      await dialog
+        .getByRole("region", { name: "Work queue", exact: true })
+        .getByText("No Routines waiting.", { exact: true })
+        .waitFor();
+      await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
       assert.equal(await dialog.getByText(summary, { exact: true }).count(), 1);
       assert.equal(
         await dialog
@@ -356,6 +370,7 @@ try {
     async () => {
       const { page, reads } = await open();
       const dialog = await openDay(page);
+      await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
       assert.equal(
         reads.some((url) => url.endsWith("/log") || url.endsWith("/effects")),
         false,
@@ -388,6 +403,7 @@ try {
   await check("an Email handover names and links the thread it came from", async () => {
     const { page } = await open(mailHandoverEntry());
     const dialog = await openDay(page);
+    await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
     await dialog
       .getByText(/Jamie Mallers completed an Email handover for “Your shortcut to savings”/)
       .waitFor();
@@ -417,6 +433,7 @@ try {
       const { page, reads } = await open();
       const day = await openDay(page);
       await day.getByText(summary, { exact: true }).waitFor();
+      await day.getByRole("button", { name: "Go to first work", exact: true }).click();
       assert.equal(await page.getByRole("dialog").count(), 1);
       const dayQueries = reads
         .map((url) => new URL(url, origin).searchParams)
@@ -607,6 +624,7 @@ try {
     );
     const dialog = await openDay(page);
     await dialog.getByText(summary, { exact: true }).waitFor();
+    await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
     await fitsViewport(page);
     await cleanOverview(dialog);
     await page.screenshot({
@@ -659,6 +677,7 @@ try {
     await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
     const dialog = await openDay(page);
     await dialog.getByText(summary, { exact: true }).waitFor();
+    await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
     await cleanOverview(dialog);
     await fitsViewport(page);
     await page.screenshot({ path: path.join(output, "routine-outcome-dark.png"), fullPage: true });

@@ -15,6 +15,8 @@ import type {
   Approval,
   Decision,
   Employee,
+  EmployeeQueueItem,
+  EmployeeWorkQueue,
   HomeApproval,
   HomeChannel,
   HomeData,
@@ -315,6 +317,19 @@ function timeline(employees: Employee[], query: URLSearchParams, working = false
       : [],
   };
 }
+function queueItem(changes: Partial<EmployeeQueueItem> = {}): EmployeeQueueItem {
+  return {
+    id: "queued-1",
+    runId: "queued-1",
+    routine: { id: "routine-1", name: "Review customer requests", slug: "review-customers" },
+    triggerKind: "schedule",
+    queuedAt: "2026-09-09T08:55:00.000Z",
+    availableAt: null,
+    position: 1,
+    blockedReason: null,
+    ...changes,
+  };
+}
 type FixtureOptions = {
   count?: number;
   width?: number;
@@ -325,6 +340,9 @@ type FixtureOptions = {
   rosterError?: boolean;
   workError?: boolean;
   holdWork?: boolean;
+  workQueue?: EmployeeWorkQueue;
+  queueError?: boolean;
+  holdQueue?: boolean;
   holdMarkRead?: boolean;
   markReadError?: boolean;
   holdNotificationMarkAll?: boolean;
@@ -377,6 +395,8 @@ async function open(options: FixtureOptions = {}) {
   if (options.brokenAvatar) employees[0].avatarKey = "missing";
   let rosterError = options.rosterError ?? false;
   let workError = options.workError ?? false;
+  let workQueue = options.workQueue;
+  let queueError = options.queueError ?? false;
   let decisionAnswerError = options.decisionAnswerError ?? false;
   let explanationError = options.explanationError ?? false;
   let explanationOptionsError = options.explanationOptionsError ?? false;
@@ -413,6 +433,10 @@ async function open(options: FixtureOptions = {}) {
   let releaseWork: () => void = () => {};
   const workGate = new Promise<void>((resolve) => {
     releaseWork = resolve;
+  });
+  let releaseQueue: () => void = () => {};
+  const queueGate = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
   });
   let releaseMarkRead: () => void = () => {};
   const markReadGate = new Promise<void>((resolve) => {
@@ -742,6 +766,23 @@ async function open(options: FixtureOptions = {}) {
         });
       return route.fulfill({ json: timeline(employees, url.searchParams, options.working) });
     }
+    const queueMatch = /^\/api\/companies\/company\/employees\/([^/]+)\/work-queue$/.exec(
+      url.pathname,
+    );
+    if (queueMatch) {
+      if (options.holdQueue) await queueGate;
+      if (queueError)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Work queue is temporarily unavailable." },
+        });
+      return route.fulfill({
+        json:
+          workQueue?.employeeId === queueMatch[1]
+            ? workQueue
+            : { employeeId: queueMatch[1], current: null, pending: [], pendingCount: 0 },
+      });
+    }
     if (
       options.brokenAvatar &&
       url.pathname === "/api/companies/company/employees/employee-1/avatar"
@@ -793,6 +834,7 @@ async function open(options: FixtureOptions = {}) {
     writes,
     mutations,
     releaseWork,
+    releaseQueue,
     releaseMarkRead,
     releaseNotificationMarkAll,
     releaseHome,
@@ -801,6 +843,7 @@ async function open(options: FixtureOptions = {}) {
     recover: () => {
       rosterError = false;
       workError = false;
+      queueError = false;
       homeError = false;
       markReadError = false;
       decisionAnswerError = false;
@@ -836,7 +879,12 @@ async function open(options: FixtureOptions = {}) {
       assert.ok(row);
       reviewDetails.set(id, { ...row, ...changes });
     },
-    emitResourceEvent: (kind: "decision" | "approval") => {
+    setQueue: (value: EmployeeWorkQueue) => {
+      workQueue = value;
+    },
+    emitResourceEvent: (
+      kind: "decision" | "approval" | "run" | "routine" | "employee" | "standdown",
+    ) => {
       for (const socket of sockets)
         socket.send(JSON.stringify({ type: "resource.changed", kind, scopeIds: [] }));
     },
@@ -3019,6 +3067,228 @@ try {
     assert.equal(await greeting(fixture.page).getByRole("alert").count(), 0);
     await fixture.page.close();
   });
+  for (const width of [1440, 390, 320]) {
+    await check(
+      `employee work queue stays above the calendar and shows waiting order at ${width}px`,
+      async () => {
+        const fixture = await open({
+          width,
+          dark: width === 320,
+          workQueue: {
+            employeeId: "employee-1",
+            current: queueItem({
+              id: "active",
+              runId: "active",
+              position: null,
+              routine: {
+                id: "active-routine",
+                name: "Morning customer briefing",
+                slug: "morning-briefing",
+              },
+            }),
+            pending: [
+              queueItem(),
+              queueItem({
+                id: "queued-2",
+                position: 2,
+                triggerKind: "retry",
+                routine: { id: "routine-2", name: "Refresh customer notes", slug: "refresh-notes" },
+                availableAt: "2026-09-09T10:30:00.000Z",
+              }),
+              queueItem({
+                id: "queued-3",
+                position: 3,
+                triggerKind: "continuation",
+                routine: { id: "routine-3", name: "Finish weekly report", slug: "weekly-report" },
+                blockedReason: "Waiting for the employee Standdown to be lifted.",
+              }),
+            ],
+            pendingCount: 3,
+          },
+        });
+        try {
+          const day = await openDay(fixture.page);
+          const queue = day.getByRole("region", { name: "Work queue", exact: true });
+          await queue.getByText("3 pending", { exact: true }).waitFor();
+          await queue.getByText("Working now", { exact: true }).waitFor();
+          assert.equal(
+            await queue
+              .getByRole("link", { name: "Morning customer briefing", exact: true })
+              .getAttribute("href"),
+            "/c/company/routines/employee-1/morning-briefing?run=active",
+          );
+          const pending = queue.getByRole("list", { name: "Pending Routines", exact: true });
+          assert.deepEqual(await pending.getByRole("link").allTextContents(), [
+            "Review customer requests",
+            "Refresh customer notes",
+            "Finish weekly report",
+          ]);
+          assert.deepEqual(
+            await pending.locator("[aria-label^='Queue position']").allTextContents(),
+            ["1", "2", "3"],
+          );
+          await pending.getByText(/Waiting until/).waitFor();
+          await pending
+            .getByText("Waiting for the employee Standdown to be lifted.", { exact: true })
+            .waitFor();
+          await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
+          const queueHeading = await box(
+            queue.getByRole("heading", { name: "Work queue", exact: true }),
+          );
+          const bounds = await box(day);
+          assert.ok(
+            queueHeading.y > bounds.y && queueHeading.y < bounds.y + bounds.height / 2,
+            "opening the calendar never scrolls the queue away",
+          );
+          assert.equal(
+            await day.evaluate((element) => element.scrollWidth > element.clientWidth),
+            false,
+            "modal has no horizontal overflow",
+          );
+          await fixture.page.screenshot({
+            path: path.join(output, `employee-work-queue-${width}.png`),
+            fullPage: true,
+          });
+          const before = fixture.reads.filter((url) => url.includes("/work-queue")).length;
+          await day.getByRole("button", { name: "Previous day", exact: true }).click();
+          await day.getByRole("heading", { name: /Tuesday/ }).waitFor();
+          assert.equal(
+            fixture.reads.filter((url) => url.includes("/work-queue")).length,
+            before,
+            "changing calendar date does not reload or replace the queue",
+          );
+          await queue.getByText("3 pending", { exact: true }).waitFor();
+          assert.deepEqual(fixture.writes, []);
+        } finally {
+          await fixture.page.close();
+        }
+      },
+    );
+  }
+  await check(
+    "employee work queue refreshes after a Run finishes while an earlier day stays selected",
+    async () => {
+      const first = queueItem();
+      const second = queueItem({
+        id: "queued-2",
+        runId: "queued-2",
+        position: 2,
+        routine: { id: "routine-2", name: "Refresh customer notes", slug: "refresh-notes" },
+      });
+      const fixture = await open({
+        live: true,
+        workQueue: { employeeId: "employee-1", current: first, pending: [second], pendingCount: 1 },
+      });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Work queue", exact: true });
+        await queue.getByText("1 pending", { exact: true }).waitFor();
+        await day.getByRole("button", { name: "Previous day", exact: true }).click();
+        fixture.setQueue({
+          employeeId: "employee-1",
+          current: { ...second, position: null },
+          pending: [],
+          pendingCount: 0,
+        });
+        fixture.emitResourceEvent("run");
+        await queue.getByText("0 pending", { exact: true }).waitFor();
+        await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
+        assert.equal(
+          await queue.getByRole("link", { name: "Review customer requests", exact: true }).count(),
+          0,
+        );
+        assert.equal(
+          await queue
+            .getByRole("link", { name: "Refresh customer notes", exact: true })
+            .getAttribute("href"),
+          "/c/company/routines/employee-1/refresh-notes?run=queued-2",
+        );
+        assert.equal(await day.getByLabel("Work day", { exact: true }).inputValue(), "2026-09-08");
+      } finally {
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "employee work queue loading and empty states leave recorded work usable",
+    async () => {
+      const fixture = await open({ holdQueue: true });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Work queue", exact: true });
+        await queue.getByRole("status").getByText("Loading work queue…", { exact: true }).waitFor();
+        await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
+        fixture.releaseQueue();
+        await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
+        assert.equal(await queue.getByText("Working now", { exact: true }).count(), 0);
+      } finally {
+        fixture.releaseQueue();
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "employee work queue expands a long preview without hiding its full pending count",
+    async () => {
+      const fixture = await open({
+        width: 390,
+        workQueue: {
+          employeeId: "employee-1",
+          current: null,
+          pending: Array.from({ length: 7 }, (_, index) =>
+            queueItem({ id: `queued-${index + 1}`, position: index + 1 }),
+          ),
+          pendingCount: 120,
+        },
+      });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Work queue", exact: true });
+        await queue.getByText("120 pending", { exact: true }).waitFor();
+        assert.equal(await queue.getByRole("listitem").count(), 5);
+        await queue
+          .getByText("Showing the first 5 of 120 pending Routines.", { exact: true })
+          .waitFor();
+        await queue.getByRole("button", { name: "Show 2 more", exact: true }).click();
+        assert.equal(await queue.getByRole("listitem").count(), 7);
+        await queue
+          .getByText("Showing the first 7 of 120 pending Routines.", { exact: true })
+          .waitFor();
+        await queue.getByRole("button", { name: "Show fewer", exact: true }).click();
+        assert.equal(await queue.getByRole("listitem").count(), 5);
+        await day.getByRole("button", { name: "Go to first work", exact: true }).click();
+        const firstWork = await box(day.getByText(/Jamie Mallers replied in/));
+        const bounds = await box(day);
+        assert.ok(
+          firstWork.y > bounds.y && firstWork.y < bounds.y + bounds.height,
+          "recorded work is reachable beside a long queue",
+        );
+      } finally {
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "employee work queue failure is inline and retries independently of the calendar",
+    async () => {
+      const fixture = await open({ queueError: true, width: 320 });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Work queue", exact: true });
+        await queue
+          .getByRole("alert")
+          .getByText("Work queue is temporarily unavailable.", { exact: true })
+          .waitFor();
+        await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
+        fixture.recover();
+        await queue.getByRole("button", { name: "Try again", exact: true }).click();
+        await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
+        assert.equal(await queue.getByRole("alert").count(), 0);
+      } finally {
+        await fixture.page.close();
+      }
+    },
+  );
   await check("empty roster leaves the greeting and full-width all-clear card", async () => {
     const { page } = await open({ count: 0, quiet: true });
     assert.equal(await work(page).count(), 0);

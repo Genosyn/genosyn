@@ -113,6 +113,7 @@ import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
 import { workTimelineRouter } from "./routes/workTimeline.js";
+import { employeeWorkQueueRouter } from "./routes/employeeWorkQueue.js";
 import { tldrsRouter } from "./routes/tldrs.js";
 import { searchRouter } from "./routes/search.js";
 import { systemHealthRouter } from "./routes/systemHealth.js";
@@ -438,6 +439,7 @@ async function main() {
   // The AI Employee work timeline behind Home's "What your AI employees did"
   // panel. Its own router because it refetches per employee, on its own clock.
   app.use("/api/companies/:cid", workTimelineRouter);
+  app.use("/api/companies/:cid", employeeWorkQueueRouter);
   // Scheduled company briefs: configuration, history, and per-Member dismissal.
   app.use("/api/companies/:cid", tldrsRouter);
   // Company-wide quick search — entity results for the ⌘K palette.

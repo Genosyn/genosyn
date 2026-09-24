@@ -64,6 +64,11 @@ async function live(take = 10) {
 }
 
 describe("findLiveRunFailures", () => {
+  test("a queued continuation owns its parent's unfinished work without reporting it failed", async () => {
+    const parent = await run(routine, "failed", 3);
+    await run(routine, "queued", 2, { triggerKind: "continuation", parentRunId: parent.id });
+    assert.equal((await live()).count, 0);
+  });
   test("returns failures in the window, newest first, with the true total", async () => {
     await run(routine, "failed", 3);
     await run(routine, "timeout", 2);

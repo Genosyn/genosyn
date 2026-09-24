@@ -9,6 +9,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { startRoutineRun, type StartRunOptions } from "./runner.js";
 import { notifyApprovalPending } from "./notifications.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
+import { dispatchQueuedRoutineRuns } from "./routineQueue.js";
 import {
   claimRetryDispatch,
   findDueRetries,
@@ -188,19 +189,8 @@ export async function tickRoutine(
     );
     return;
   }
-  // Overlap guard: don't stack a second scheduled run on top of one that's
-  // still executing — each spawn holds an AI license / API quota. Bounded by
-  // the routine's own timeout (plus grace) so a run orphaned by a crash can't
-  // block the schedule forever. Manual "Run now" / webhooks bypass this on
-  // purpose: a human (or external caller) explicitly asked for that run.
-  const inFlight = await findInFlightRun(fresh);
-  if (inFlight) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[cron] routine "${fresh.name}" (${fresh.id}) skipped — run ${inFlight.id} still in flight`,
-    );
-    return;
-  }
+  // Each occurrence joins the employee's durable queue, even while a previous
+  // Routine is still running. The queue owns overlap prevention for all origins.
   const { completion } = await startRoutineRun(fresh, {
     triggerKind: "schedule",
     missedSlots: meta.missedSlots,
@@ -219,7 +209,7 @@ export async function tickRoutine(
           "This Routine was stood down before its Run could start.",
         );
       }
-      if ((await hasPendingContinuation(fresh.id)) || (await findInFlightRun(fresh))) {
+      if (await hasPendingContinuation(fresh.id)) {
         throw new RetryDispatchIneligibleError("This Routine already has unfinished work.");
       }
       Object.assign(fresh, current);
@@ -307,7 +297,11 @@ function isContinuationRequest(run: Run): boolean {
 
 async function hasPendingContinuation(routineId: string): Promise<boolean> {
   const queued = await AppDataSource.getRepository(Run).find({
-    where: { routineId, retryAt: Not(IsNull()) },
+    where: [
+      { routineId, retryAt: Not(IsNull()) },
+      { routineId, status: "queued", triggerKind: "continuation" },
+      { routineId, status: "running", triggerKind: "continuation" },
+    ],
   });
   return queued.some(isContinuationRequest);
 }
@@ -625,6 +619,10 @@ async function tick(): Promise<void> {
       // Phase 3 — retries owed by earlier failures.
       lease.assertHeld();
       await dispatchDueRetries(now, lease.assertHeld);
+      // Resume queued occurrences after restart or after a Standdown is lifted.
+      // Workers hold one employee slot and execute in the background.
+      lease.assertHeld();
+      await dispatchQueuedRoutineRuns();
 
       // Phase 4 — durable Revenue reminders. The notification entity key
       // makes this idempotent across heartbeats; the scheduler lease prevents

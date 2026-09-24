@@ -42,12 +42,25 @@ describe("Routine Run failure and error presentation", () => {
   test("both unsuccessful states and legacy errors remain eligible for attention and manual retry", () => {
     for (const status of ["failed", "error", "timeout", "interrupted"] as const)
       assert.equal(runNeedsAttention(status), true, status);
-    for (const status of ["running", "completed", "reviewed", "skipped", undefined] as const)
+    for (const status of [
+      "queued",
+      "running",
+      "completed",
+      "reviewed",
+      "skipped",
+      undefined,
+    ] as const)
       assert.equal(runNeedsAttention(status), false, status);
   });
 
   test("other status labels are preserved", () => {
-    for (const status of ["running", "completed", "reviewed", "skipped"] satisfies RunStatus[]) {
+    for (const status of [
+      "queued",
+      "running",
+      "completed",
+      "reviewed",
+      "skipped",
+    ] satisfies RunStatus[]) {
       const html = renderToStaticMarkup(React.createElement(RunStatusChip, { status }));
       assert.match(html, new RegExp(`>${status}</`));
     }
@@ -103,5 +116,15 @@ describe("Routine Run failure and error presentation", () => {
       runLogNeedsPolling({ ...log, browserRecordings: [], continuationPending: false }),
       false,
     );
+  });
+
+  test("a queued Run keeps polling until the employee starts and finishes it", () => {
+    const log = { content: "", browserRecordings: [] };
+    assert.equal(runLogNeedsPolling({ ...log, status: "queued" }), true);
+    assert.equal(runLogNeedsPolling({ ...log, status: "running" }), true);
+    assert.equal(runLogNeedsPolling({ ...log, status: "completed" }), false);
+    const html = renderToStaticMarkup(React.createElement(RunStatusChip, { status: "queued" }));
+    assert.match(html, /Waiting in the AI Employee/);
+    assert.doesNotMatch(html, /animate-spin/);
   });
 });

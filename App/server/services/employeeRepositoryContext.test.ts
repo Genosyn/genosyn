@@ -27,6 +27,7 @@ import {
 } from "./repositories.js";
 import type { RepoSyncResult, SyncedRepo } from "./repoSync.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { stopStanddowns } from "./standdowns.js";
 
@@ -103,6 +104,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   await resetTestDb();
@@ -136,6 +138,7 @@ afterEach(() => {
 });
 
 after(async () => {
+  await waitForRoutineQueueIdle();
   dataConfig.dataDir = originalConfig.dataDir;
   securityConfig.multiTenant = originalConfig.multiTenant;
   Object.assign(config.agent.codingTools, originalConfig.codingTools);

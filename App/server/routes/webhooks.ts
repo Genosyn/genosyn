@@ -5,7 +5,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import { runRoutine } from "../services/runner.js";
+import { startRoutineRun } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
 import { findPipelineByWebhook } from "../services/pipelines/index.js";
 import { runPipeline } from "../services/pipelines/executor.js";
@@ -18,7 +18,7 @@ import {
   type RenderedSlackIncomingWebhook,
 } from "../services/slackIncomingWebhook.js";
 import { postIncomingWebhookMessage } from "../services/workspaceChat.js";
-import { workBlocked } from "../services/standdowns.js";
+import { StanddownError, workBlocked } from "../services/standdowns.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -102,12 +102,23 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
     return res.status(409).json({ status: "stood_down", reason: stopped.reason });
   }
 
-  // Fire and forget. The Run row is persisted by the runner regardless.
-  runRoutine(routine, { triggerKind: "webhook" }).catch((err) => {
+  // Acknowledge only after this occurrence is durable in the employee's queue.
+  try {
+    const { completion } = await startRoutineRun(routine, { triggerKind: "webhook" });
+    void completion.catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[webhook] routine ${routine.id} failed:`, err);
+    });
+    res.json({ status: "accepted" });
+  } catch (err) {
+    if (err instanceof StanddownError) {
+      return res.status(409).json({ status: "stood_down", reason: err.message });
+    }
+    // Express 4 does not forward a rejected async handler to its error middleware.
     // eslint-disable-next-line no-console
-    console.error(`[webhook] routine ${routine.id} failed:`, err);
-  });
-  res.json({ status: "accepted" });
+    console.error(`[webhook] could not queue routine ${routine.id}:`, err);
+    return res.status(500).json({ error: "Could not queue the Routine." });
+  }
 });
 
 function normalizeSlackWebhookBody(body: unknown): unknown {
@@ -139,10 +150,7 @@ webhooksRouter.post("/channels/:channelId/:token", async (req, res) => {
     })
     .safeParse(req.params);
   if (!params.success) return res.status(404).type("text").send("no_service");
-  const channel = await findChannelByWebhookCredential(
-    params.data.channelId,
-    params.data.token,
-  );
+  const channel = await findChannelByWebhookCredential(params.data.channelId, params.data.token);
   if (!channel) return res.status(404).type("text").send("no_service");
 
   const parsed = slackIncomingWebhookSchema.safeParse(normalizeSlackWebhookBody(req.body));

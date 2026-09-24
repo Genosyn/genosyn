@@ -416,14 +416,25 @@ Post it to the #morning channel.`}</Pre>
         under the composer, and the conversation stays on whichever model answered last.
       </P>
 
-      <H2 id="concurrent-runs">Chat and Runs continue in parallel</H2>
+      <H2 id="concurrent-runs">The employee work queue</H2>
       <P>
-        Starting a Routine does not make its AI Employee unavailable. You can keep chatting with
-        that employee and start other independent Routines while the first Run continues. Genosyn
-        places no per-company ceiling on overlapping top-level AI work. Chat threads are independent
-        too: one AI Employee answers several conversations at once, and only a second message in the{" "}
-        <em>same</em> thread waits for the reply ahead of it. Your deployment operator and AI Model
-        provider still determine real capacity, cost, and rate limits.
+        Each AI Employee runs <Strong>one Routine at a time</Strong>. Scheduled, manually started,
+        and triggered work joins that employee&apos;s work queue and waits its turn. Queued work
+        survives a server restart. Retries and continuations wait until their due time, and a
+        Standdown keeps affected work waiting until it is lifted. Other AI Employees can keep
+        running their own Routines.
+      </P>
+      <P>
+        On <Strong>Home</Strong>, choose an AI Employee&apos;s bubble to see the{" "}
+        <Strong>Work queue</Strong> above their daily calendar: the current Routine, pending
+        positions, and any waiting reason. Both update automatically. Changing the calendar date
+        does not change the current queue.
+      </P>
+      <P>
+        Starting a Routine does not make its AI Employee unavailable for Chat. Conversations are
+        independent too: one AI Employee answers several conversations at once, and only a second
+        message in the <em>same</em> thread waits for the reply ahead of it. Your deployment
+        operator and AI Model provider still determine real capacity, cost, and rate limits.
       </P>
       <Callout kind="warn" title="Parallel work shares the employee workspace.">
         Reads are safe. For writes, use distinct output files and avoid simultaneous git operations

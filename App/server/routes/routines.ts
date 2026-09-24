@@ -28,11 +28,7 @@ import { routineTemplate } from "../services/files.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
-import {
-  activeStanddownFor,
-  serializeStanddown,
-  StanddownError,
-} from "../services/standdowns.js";
+import { activeStanddownFor, serializeStanddown, StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { resumeRoutineRun, RunManualResumeError } from "../services/runManualResume.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
@@ -935,6 +931,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     failureReason: run.failureReason,
     diagnostics: readRunDiagnostics(run),
     exitCode: run.exitCode,
+    queuedAt: run.createdAt,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     // So the live-log modal can say "retrying in 2m" without a second request.

@@ -21,6 +21,7 @@ import type { SandboxCommandResult } from "./agent/sandboxCommandRun.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { createCheck, runChecksForRun } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { interruptCoveredRuns, stopStanddowns } from "./standdowns.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { runWorkSummary } from "./runWorkSummary.js";
@@ -86,6 +87,7 @@ before(async () => {
 });
 
 after(async () => {
+  await waitForRoutineQueueIdle();
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...previousAllowlist);
   stopStanddowns();
   upstream.closeAllConnections();
@@ -116,6 +118,7 @@ function sendCompletion(response: ServerResponse, text: string): void {
 }
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   upstreamTurns = 0;
@@ -842,13 +845,16 @@ test("runtime and timeout Errors revoke earned Waivers and leave a journal", asy
         });
       };
     }
-    const run = await (
-      await startRoutineRun(routine, {
-        beforeRunPersist: timedOut
-          ? () => new Promise((resolve) => setTimeout(resolve, 1_100))
-          : undefined,
-      })
-    ).completion;
+    if (timedOut) {
+      const runs = AppDataSource.getRepository(Run);
+      const update = runs.update.bind(runs);
+      t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+        if (args[1].status === "running" && args[1].queueOptionsJson)
+          await new Promise((resolve) => setTimeout(resolve, 1_100));
+        return update(...args);
+      });
+    }
+    const run = await (await startRoutineRun(routine)).completion;
     assert.equal(run.status, "error");
     assert.equal(run.errorKind, timedOut ? "timeout" : "runtime");
     assert.equal(readRunDiagnostics(run).failure?.category, timedOut ? "timeout" : "application");

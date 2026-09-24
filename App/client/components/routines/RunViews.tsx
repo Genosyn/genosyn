@@ -46,6 +46,8 @@ import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatu
  */
 
 const RUN_STATUS_STYLE: Record<RunStatus, string> = {
+  queued:
+    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
   reviewed:
     "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
   running:
@@ -369,6 +371,7 @@ export function RunLogPane({
 /** Keep queued continuation controls current as well as Run and video state. */
 export function runLogNeedsPolling(log: RunLog): boolean {
   return (
+    log.status === "queued" ||
     log.status === "running" ||
     log.continuationPending === true ||
     // The outcome check runs after the transcript is final, so a completed run
@@ -928,7 +931,8 @@ function RunLiveModalContent({
 
   const tabsId = React.useId();
   const status: RunStatus = log?.status ?? initialRun.status;
-  const isTerminal = status !== "running";
+  const isQueued = status === "queued";
+  const isTerminal = !isQueued && status !== "running";
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
   // Both evidence panels are one-shot reads, so they need a reason to look
   // again. Checks land as the loop returns and the ledger keeps growing until
@@ -1000,7 +1004,11 @@ function RunLiveModalContent({
   const metrics = [
     {
       label: "Duration",
-      value: isTerminal ? formatDuration(startedAt, finishedAt ?? null) : "In progress",
+      value: isQueued
+        ? "Waiting"
+        : isTerminal
+          ? formatDuration(startedAt, finishedAt ?? null)
+          : "In progress",
     },
     { label: "Tokens", value: tokens > 0 ? formatTokens(tokens) : "—" },
     { label: "Attempt", value: String(log?.attempt ?? initialRun.attempt ?? 1) },
@@ -1059,7 +1067,9 @@ function RunLiveModalContent({
               )}
               {!isTerminal && (
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Continues if you close this window
+                  {isQueued
+                    ? "Stays queued if you close this window"
+                    : "Continues if you close this window"}
                 </span>
               )}
             </div>
@@ -1232,7 +1242,13 @@ function RunLiveModalContent({
               loading={log === null && !error}
               preRef={preRef}
               onScroll={handleScroll}
-              placeholder={log === null ? "Starting…" : "Waiting for output…"}
+              placeholder={
+                isQueued
+                  ? "Waiting in this AI Employee’s work queue. This Run starts when earlier work finishes."
+                  : log === null
+                    ? "Starting…"
+                    : "Waiting for output…"
+              }
               className="max-h-[45vh] min-h-[240px]"
             />
             {recordings.length > 0 && (

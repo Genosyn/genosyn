@@ -14,6 +14,7 @@ import { streamChatWithEmployee, type ChatResult } from "./chat.js";
 import { bootCron, dispatchDueRetries, stopCron } from "./cron.js";
 import { dispatchTriggerEvent } from "./routineTriggers.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { StanddownError, liftStanddown, placeStanddown, stopStanddowns } from "./standdowns.js";
 import { dispatchDueWakeups } from "./wakeups.js";
 
@@ -38,11 +39,13 @@ let otherRoutine: Routine;
 before(initTestDb);
 after(async () => {
   stopCron();
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   await closeTestDb();
 });
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   await resetTestDb();
   company = await insert(Company, {

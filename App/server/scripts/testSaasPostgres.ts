@@ -104,6 +104,31 @@ async function childMain(mode: string): Promise<void> {
         await release;
         signal?.throwIfAborted();
       });
+    } else if (mode === "drain-routine-queue") {
+      const { Run } = await import("../db/entities/Run.js");
+      const { agentRuntime } = await import("../services/agent/runtime.js");
+      const { dispatchQueuedRoutineRuns, waitForRoutineQueueIdle } =
+        await import("../services/routineQueue.js");
+      const employeeId = process.env.GENOSYN_TEST_EMPLOYEE_ID;
+      assert.ok(employeeId);
+      // The real queue and runner coordinate through Postgres; only the model
+      // turn is deterministic and held so the parent can inspect ownership.
+      agentRuntime.run = async () => {
+        const active = await AppDataSource.getRepository(Run).findBy({
+          employeeId,
+          status: "running",
+        });
+        assert.equal(active.length, 1, "Two Routines ran for the same employee");
+        const finish = parentMessage("finish-run");
+        process.send!({ kind: "routine-started", runId: active[0].id });
+        await finish;
+        return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+      };
+      const start = parentMessage("start");
+      process.send("ready");
+      await start;
+      await dispatchQueuedRoutineRuns();
+      await waitForRoutineQueueIdle();
     } else {
       throw new Error("Unknown smoke child mode");
     }
@@ -487,6 +512,125 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     );
     console.log(
       "PASS cross-process capacity: rejection, release, company isolation and cancellation",
+    );
+
+    const { AIModel } = await import("../db/entities/AIModel.js");
+    const { Routine } = await import("../db/entities/Routine.js");
+    const { Run } = await import("../db/entities/Run.js");
+    const { encryptSecret } = await import("../lib/secret.js");
+    const queueEmployee = await employees.save(
+      employees.create({
+        companyId: formsCompany.id,
+        name: "Routine Queue",
+        slug: "routine-queue",
+        role: "Operations",
+      }),
+    );
+    const models = AppDataSource.getRepository(AIModel);
+    await models.save(
+      models.create({
+        employeeId: queueEmployee.id,
+        provider: "custom",
+        model: "postgres-queue-test",
+        authMode: "customEndpoint",
+        isActive: true,
+        connectedAt: new Date(),
+        configJson: JSON.stringify({
+          baseURLEncrypted: encryptSecret("http://127.0.0.1:19999/v1"),
+          modelId: "postgres-queue-test",
+        }),
+      }),
+    );
+    const routines = AppDataSource.getRepository(Routine);
+    const runs = AppDataSource.getRepository(Run);
+    const queued: InstanceType<typeof Run>[] = [];
+    for (let index = 0; index < 3; index++) {
+      const routine = await routines.save(
+        routines.create({
+          employeeId: queueEmployee.id,
+          name: `Queued Routine ${index + 1}`,
+          slug: `queued-routine-${index + 1}`,
+          cronExpr: "0 9 * * *",
+          timeoutSec: 60,
+          body: "Complete this Routine.",
+        }),
+      );
+      queued.push(
+        await runs.save(
+          runs.create({
+            employeeId: queueEmployee.id,
+            routineId: routine.id,
+            status: "queued",
+            triggerKind: "manual",
+            queueOptionsJson: JSON.stringify({ triggerKind: "manual" }),
+            startedAt: new Date(Date.now() - 60_000 + index),
+            createdAt: new Date(Date.now() - 60_000 + index),
+          }),
+        ),
+      );
+    }
+    const queuePeers = [
+      spawnChild("drain-routine-queue", url, dataDir, queueEmployee.id),
+      spawnChild("drain-routine-queue", url, dataDir, queueEmployee.id),
+    ];
+    const starts: { runId: string; child: ChildProcess }[] = [];
+    let wake: (() => void) | undefined;
+    for (const peer of queuePeers) {
+      peer.child.on("message", (message: unknown) => {
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "kind" in message &&
+          message.kind === "routine-started" &&
+          "runId" in message &&
+          typeof message.runId === "string"
+        ) {
+          starts.push({ runId: message.runId, child: peer.child });
+          wake?.();
+        }
+      });
+    }
+    await Promise.all(queuePeers.map((peer) => peer.ready));
+    for (const peer of queuePeers) peer.child.send("start");
+    for (let index = 0; index < queued.length; index++) {
+      while (starts.length <= index) {
+        await deadline(
+          new Promise<void>((resolve) => {
+            wake = resolve;
+          }),
+          "Queued Run start",
+        );
+        wake = undefined;
+      }
+      assert.equal(
+        starts.length,
+        index + 1,
+        "A later Routine started before the active one finished",
+      );
+      assert.equal(starts[index].runId, queued[index].id, "Queued work must start in FIFO order");
+      assert.equal(await runs.countBy({ employeeId: queueEmployee.id, status: "running" }), 1);
+      assert.equal(
+        await runs.countBy({ employeeId: queueEmployee.id, status: "queued" }),
+        2 - index,
+      );
+      if (index === 0) {
+        await assert.rejects(
+          () => runs.update(queued[1].id, { queueActiveEmployeeId: queueEmployee.id }),
+          (error: unknown) => {
+            assert.equal((error as { code?: string }).code, "23505");
+            return true;
+          },
+          "Postgres must reject a second process claiming the occupied employee slot",
+        );
+      }
+      starts[index].child.send("finish-run");
+    }
+    await Promise.all(queuePeers.map((peer) => peer.exited()));
+    assert.equal(starts.length, queued.length);
+    assert.equal(await runs.countBy({ employeeId: queueEmployee.id, status: "completed" }), 3);
+    assert.equal(await runs.countBy({ queueActiveEmployeeId: queueEmployee.id }), 0);
+    console.log(
+      "PASS cross-process Routine queue: durable recovery, FIFO and exclusive employee ownership",
     );
 
     const { createUserSession, resolveUserSession, revokeCurrentUserSession } =
