@@ -28,7 +28,11 @@ import { routineTemplate } from "../services/files.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
-import { StanddownError } from "../services/standdowns.js";
+import {
+  activeStanddownFor,
+  serializeStanddown,
+  StanddownError,
+} from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { resumeRoutineRun, RunManualResumeError } from "../services/runManualResume.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
@@ -208,10 +212,17 @@ routinesRouter.get("/routines", async (req, res) => {
   // than insertion order.
   const rows = routines.map(({ body: _body, ...routine }) => {
     const emp = byId.get(routine.employeeId);
+    // Use the same cached scope resolution as dispatch, including company
+    // and employee stops, without adding a database query for every row.
+    const standdown = activeStanddownFor(cid, {
+      employeeId: routine.employeeId,
+      routineId: routine.id,
+    });
     return {
       ...routine,
       employee: emp ? employeeSummary(emp) : null,
       lastRun: lastRuns.get(routine.id) ?? null,
+      standdown: standdown ? serializeStanddown(standdown) : null,
       tags: tags.get(routine.id) ?? [],
     };
   });
@@ -589,10 +600,15 @@ routinesRouter.get("/routines/:rid", async (req, res) => {
   if (!found) return res.status(404).json({ error: "Not found" });
   const lastRuns = await lastRunByRoutine([found.routine.id]);
   const tags = await tagsForResource(found.co.id, "routine", found.routine.id);
+  const standdown = activeStanddownFor(found.co.id, {
+    employeeId: found.emp.id,
+    routineId: found.routine.id,
+  });
   res.json({
     ...found.routine,
     employee: employeeSummary(found.emp),
     lastRun: lastRuns.get(found.routine.id) ?? null,
+    standdown: standdown ? serializeStanddown(standdown) : null,
     tags,
   });
 });

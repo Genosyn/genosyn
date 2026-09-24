@@ -17,6 +17,16 @@ export function Standdowns() {
         }
       />
 
+      <H2 id="routines-list">Spot stood-down Routines</H2>
+      <P>
+        Open <Strong>Routines</Strong> to see a red <Strong>Stood down</Strong> badge on every
+        affected Routine, including those covered by an AI Employee or company Standdown.
+        Select the <Strong>Stood down</Strong> filter to see them together. Hover over a badge
+        for the scope and reason, or open the Routine for the full banner. These Routines are
+        excluded from <Strong>Active</Strong>, and their <Strong>Run</Strong> button is disabled
+        until the Standdown is lifted. Their ordinary enabled switch stays unchanged.
+      </P>
+
       <Callout kind="info" title='"Standdown" is the word.'>
         Genosyn never says &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or
         &quot;freeze&quot; for this — <Strong>hold</Strong> already means a tainted-turn call

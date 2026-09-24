@@ -33,14 +33,14 @@ import { clsx } from "./ui/clsx";
  * cheap enough for an instrument nobody presses twice a day.
  */
 
-const CHANGED_EVENT = "genosyn:standdowns-changed";
+export const STANDDOWNS_CHANGED_EVENT = "genosyn:standdowns-changed";
 
 /** A stop nobody explained is a stop nobody can safely lift. Mirrors the route. */
 const REASON_MAX = 2_000;
 
 function announceChange(): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(CHANGED_EVENT));
+  window.dispatchEvent(new Event(STANDDOWNS_CHANGED_EVENT));
 }
 
 /**
@@ -89,8 +89,8 @@ export function useActiveStanddown(
   }, [companyId, employeeId, routineId, nonce]);
 
   React.useEffect(() => {
-    window.addEventListener(CHANGED_EVENT, reload);
-    return () => window.removeEventListener(CHANGED_EVENT, reload);
+    window.addEventListener(STANDDOWNS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(STANDDOWNS_CHANGED_EVENT, reload);
   }, [reload]);
 
   return { standdown, loading, reload };
