@@ -265,12 +265,13 @@ export function Reactivity() {
         <DocLink to="/docs/finance">Finance</DocLink> for its lifecycle.
       </P>
       <P>
-        Repository publication needs the employee&apos;s Write Grant plus an explicitly granted,
-        pinned GitHub or Forgejo Connection. The employee can open a PR only from its own completed
-        session branch; it cannot merge or publish the default branch. Repositories using a private
-        token or SSH credential still need Member publication.{" "}
-        <Strong>Follow through on open work</Strong> lets the same employee revisit saved sessions
-        and propose the next step for your review; check its assignment under
+        A Repository Write Grant lets an employee push its own completed Work session branch using
+        the repository&apos;s stored SSH key or HTTPS token. Opening a pull request also needs a
+        GitHub or Forgejo Connection selected under <Strong>Pull request Connection</Strong> in
+        Repository Settings and separately granted to that employee. The employee cannot merge or
+        publish the default branch. <Strong>Follow through on open work</Strong> lets the same
+        employee revisit saved sessions and propose the next step for your review; check its
+        assignment under
         <Strong> Standing work</Strong>. See
         <DocLink to="/docs/repositories"> Repositories</DocLink>.
       </P>

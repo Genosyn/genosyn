@@ -399,9 +399,19 @@ Employee's working tree. A recording from Genosyn's browser is admin-only; a
 recording from a Member browser is visible only to that browser's exact owner.
 Recordings contain the unfiltered viewport; their authorization boundary, not
 pixel redaction, controls who can see them. Repository tokens and SSH private
-keys are decrypted only for short-lived, server-owned clone/fetch operations;
+keys are decrypted only for short-lived, server-owned clone/fetch/push operations;
 they are never written into an employee working tree or injected into model
 coding tools.
+
+An authorized employee can publish its completed Work session branch through
+`push_repository_work_session`, using the Repository's stored SSH key or HTTPS
+token only in the server-owned push. Connection-backed Git requires a Grant
+to the Repository's exact pinned Connection. Opening a PR also requires that
+exact granted GitHub or Forgejo Connection for the forge API, independently
+of SSH authentication. Both paths recheck live Grants and permit only the
+session's generated branch, never merging or publishing the default branch.
+General employee checkouts remain credential-free; start publishable changes
+in a Work session instead of leaving them stranded as local commits.
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
   (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`), for captured Run

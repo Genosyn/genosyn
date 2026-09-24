@@ -1,12 +1,18 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { GitFork, Settings, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
+import { Select } from "../components/ui/Select";
 import { ConnectForgeModal } from "../components/repositories/ConnectForgeModal";
-import { api, Repository } from "../lib/api";
+import {
+  api,
+  Repository,
+  RepositoryForgeConnection,
+  RepositoryForgeConnectionsResponse,
+} from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
   RepoCommandFields,
@@ -31,11 +37,41 @@ export default function RepositorySettings() {
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [connectOpen, setConnectOpen] = React.useState(false);
+  const [connections, setConnections] = React.useState<RepositoryForgeConnection[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = React.useState(false);
+  const [connectionsError, setConnectionsError] = React.useState<string | null>(null);
+  const [connectionsRetry, setConnectionsRetry] = React.useState(0);
+  const repositorySlug = repo?.slug;
+  const repositoryOrigin = repo?.origin;
 
   React.useEffect(() => {
     setForm(repo ? repoToForm(repo) : null);
     setBaseline(repo ? repoToForm(repo) : null);
   }, [repo]);
+
+  React.useEffect(() => {
+    if (!repositorySlug || repositoryOrigin !== "remote") return;
+    let cancelled = false;
+    setConnections([]);
+    setConnectionsLoading(true);
+    setConnectionsError(null);
+    api
+      .get<RepositoryForgeConnectionsResponse>(
+        `/api/companies/${company.id}/repositories/${repositorySlug}/forge-connections`,
+      )
+      .then((response) => {
+        if (!cancelled) setConnections(response.connections);
+      })
+      .catch((err) => {
+        if (!cancelled) setConnectionsError(errorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setConnectionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, repositorySlug, repositoryOrigin, connectionsRetry]);
 
   const changed =
     form !== null && baseline !== null && JSON.stringify(form) !== JSON.stringify(baseline);
@@ -156,6 +192,55 @@ export default function RepositorySettings() {
           hasToken={repo.hasToken}
           hasSshKey={repo.hasSshKey}
         />
+        {!isLocal && (
+          <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
+            <Select
+              label="Pull request Connection"
+              value={form.githubConnectionId}
+              disabled={connectionsLoading || !canConnect}
+              onChange={(event) => setForm({ ...form, githubConnectionId: event.target.value })}
+            >
+              <option value="">No Connection selected</option>
+              {form.githubConnectionId &&
+                !connections.some((connection) => connection.id === form.githubConnectionId) && (
+                  <option value={form.githubConnectionId}>Saved Connection unavailable</option>
+                )}
+              {connections.map((connection) => (
+                <option key={connection.id} value={connection.id}>
+                  {connection.label}
+                  {connection.accountLogin ? ` — @${connection.accountLogin}` : ""}
+                  {` · ${connection.host}`}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Choose the GitHub or Forgejo Connection for this repository, then grant it to AI
+              employees who should open pull requests. The repository&apos;s stored SSH key or token
+              still handles cloning and pushing; this Connection opens the pull request. Add a
+              Connection in{" "}
+              <Link
+                className="text-accent-600 hover:underline dark:text-accent-400"
+                to={`/c/${company.slug}/settings/integrations`}
+              >
+                Settings → Integrations
+              </Link>
+              .
+            </p>
+            {connectionsLoading && (
+              <p className="mt-2 text-xs text-slate-500">Loading Connections…</p>
+            )}
+            <FormError message={connectionsError} className="mt-3" />
+            {connectionsError && (
+              <Button
+                variant="secondary"
+                className="mt-2"
+                onClick={() => setConnectionsRetry((value) => value + 1)}
+              >
+                Try again
+              </Button>
+            )}
+          </div>
+        )}
         <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
           <RepoCommandFields form={form} setForm={setForm} />
         </div>

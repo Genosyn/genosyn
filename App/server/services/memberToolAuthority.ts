@@ -294,6 +294,7 @@ const ADMIN_TOOLS = [
   "list_work_reviews",
   // External delivery requires the same Member authority as a forge Connection.
   "open_repository_work_session_pull_request",
+  "push_repository_work_session",
   "create_skill",
   "update_skill",
   "delete_skill",

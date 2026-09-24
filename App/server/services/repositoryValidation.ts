@@ -138,6 +138,7 @@ export const repositoryCreateSchema = z
     defaultBranch: branchNameSchema.optional(),
     description: z.string().max(2000).optional(),
     authMode: z.enum(["none", "https", "ssh"]),
+    githubConnectionId: z.string().uuid().nullable().optional(),
     httpsUsername: httpsUsernameSchema.optional(),
     token: tokenSchema.optional(),
     sshKey: z.string().max(50000).optional(),
@@ -153,6 +154,10 @@ export const repositoryCreateSchema = z
   .refine((body) => (body.origin ?? "remote") !== "local" || body.authMode === "none", {
     message: "A local repository has no remote to authenticate to.",
     path: ["authMode"],
+  })
+  .refine((body) => (body.origin ?? "remote") !== "local" || !body.githubConnectionId, {
+    message: "A local repository has no remote for a pull request Connection.",
+    path: ["githubConnectionId"],
   })
   .refine((body) => body.authMode !== "https" || !!body.token, {
     message: "HTTPS auth needs a token / password.",
@@ -179,6 +184,7 @@ export const repositoryPatchSchema = z.object({
   defaultBranch: branchNameSchema.optional(),
   description: z.string().max(2000).optional(),
   authMode: z.enum(["none", "https", "ssh"]).optional(),
+  githubConnectionId: z.string().uuid().nullable().optional(),
   httpsUsername: httpsUsernameSchema.optional(),
   /** New token/key. Empty string is ignored (leave existing in place). */
   token: tokenSchema.optional(),

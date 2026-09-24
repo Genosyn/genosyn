@@ -10,8 +10,11 @@ import { hasRepositoryAccess } from "./repositories.js";
 import { resolveForgeRemote } from "./repositoryForge.js";
 import {
   openRepositoryWorkSessionPullRequest,
+  pushRepositoryWorkSession,
+  resolveRepositoryForge,
   sessionBranchName,
   type WorkSessionPullRequestDeps,
+  type WorkSessionPushDeps,
 } from "./repositoryWorkSessions.js";
 import { workBlocked } from "./standdowns.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
@@ -58,88 +61,156 @@ export async function employeeRepositoryWorkSession(args: {
 
 const publishingSessions = new Set<string>();
 
-/**
- * Deliver one employee's completed branch through the forge Connection the
- * company explicitly chose for this Repository. A Repository write Grant only
- * permits local work; the separate Connection Grant authorizes remote delivery.
- * Repository-specific PATs and SSH keys never become employee credentials.
- */
-export async function openEmployeeRepositoryWorkSessionPullRequest(args: {
+type EmployeeDeliveryArgs = {
   companyId: string;
   employeeId: string;
   sessionId: string;
-  title?: string;
-  body?: string;
   requester?: { userId: string; sessionVersion: number };
-  deps?: Partial<WorkSessionPullRequestDeps>;
-}): Promise<RepositoryWorkSession> {
+};
+
+/** Credentials remain server-owned; a write Grant authorizes only this completed branch. */
+export async function pushEmployeeRepositoryWorkSession(
+  args: EmployeeDeliveryArgs & { deps?: Partial<WorkSessionPushDeps> },
+): Promise<RepositoryWorkSession> {
+  return withEmployeeDelivery(args, "push_repository_work_session", async (authorize) =>
+    pushRepositoryWorkSession({ sessionId: args.sessionId, deps: args.deps, authorize }),
+  );
+}
+
+/** SSH pushes use the Repository key; the PR API needs its separately granted forge Connection. */
+export async function openEmployeeRepositoryWorkSessionPullRequest(
+  args: EmployeeDeliveryArgs & {
+    title?: string;
+    body?: string;
+    deps?: Partial<WorkSessionPullRequestDeps>;
+  },
+): Promise<RepositoryWorkSession> {
+  return withEmployeeDelivery(
+    args,
+    "open_repository_work_session_pull_request",
+    async (authorize) =>
+      openRepositoryWorkSessionPullRequest({
+        sessionId: args.sessionId,
+        title: args.title,
+        body: args.body,
+        deps: {
+          ...args.deps,
+          // Repository credentials authorize Git transport only. The API uses
+          // the exact pinned, granted Connection for SSH and HTTPS alike.
+          resolveForge: (repo) =>
+            (args.deps?.resolveForge ?? resolveRepositoryForge)(repo, { preferConnection: true }),
+        },
+        authorize,
+      }),
+  );
+}
+
+type DeliveryTool = "push_repository_work_session" | "open_repository_work_session_pull_request";
+type DeliveryAuthorizer = (session?: RepositoryWorkSession, repo?: Repository) => Promise<void>;
+
+async function withEmployeeDelivery(
+  args: EmployeeDeliveryArgs,
+  tool: DeliveryTool,
+  deliver: (authorize: DeliveryAuthorizer) => Promise<RepositoryWorkSession>,
+): Promise<RepositoryWorkSession> {
   const key = `${args.companyId}:${args.employeeId}:${args.sessionId}`;
   if (publishingSessions.has(key)) {
-    throw new Error(
-      "This work session is already opening a pull request. Check its status shortly.",
-    );
+    throw new Error("This work session is already delivering work. Check its status shortly.");
   }
   publishingSessions.add(key);
+  try {
+    const authorize = employeeDeliveryAuthorizer(args, tool);
+    await authorize();
+    return await deliver(authorize);
+  } finally {
+    publishingSessions.delete(key);
+  }
+}
+
+function employeeDeliveryAuthorizer(
+  args: EmployeeDeliveryArgs,
+  tool: DeliveryTool,
+): DeliveryAuthorizer {
   const authorizeMember = args.requester
     ? createPrivilegedMemberToolAuthorizer({ companyId: args.companyId, ...args.requester })
     : undefined;
-  try {
-    const authorize = async (
-      expectedSession?: RepositoryWorkSession,
-      expectedRepo?: Repository,
-    ) => {
-      const memberDenial = await authorizeMember?.();
-      if (memberDenial) throw new Error(memberDenial);
-      const policy = await policyForbiddingTool(
-        args.companyId,
-        "open_repository_work_session_pull_request",
+  const pullRequest = tool === "open_repository_work_session_pull_request";
+  let initialWork: string | undefined;
+  let initialConnection: string | undefined;
+  return async (expectedSession, expectedRepo) => {
+    const memberDenial = await authorizeMember?.();
+    if (memberDenial) throw new Error(memberDenial);
+    const policy = await policyForbiddingTool(args.companyId, tool);
+    if (policy)
+      throw new Error(`The company policy "${policy.title}" forbids Repository delivery.`);
+    if (config.security.multiTenant) {
+      throw new Error("Repository delivery is unavailable in shared SaaS mode.");
+    }
+    const { session, repo, employee, latestTurn } = await employeeRepositoryWorkSession({
+      ...args,
+      access: "write",
+    });
+    if (session.status !== "ready" && session.status !== "proposed") {
+      throw new Error("This session has no completed, committed work to deliver.");
+    }
+    if (!latestTurn || latestTurn.status !== "ok" || latestTurn.error) {
+      throw new Error(
+        "This session's last turn needs review before delivery: it did not finish cleanly.",
       );
-      if (policy)
-        throw new Error(`The company policy "${policy.title}" forbids pull-request delivery.`);
-      if (config.security.multiTenant) {
-        throw new Error("Repository delivery is unavailable in shared SaaS mode.");
-      }
-      const blocked = workBlocked(args.companyId, { employeeId: args.employeeId });
-      if (blocked.blocked) throw new Error(`This AI Employee is stood down: ${blocked.reason}`);
-      const { session, repo, employee, latestTurn } = await employeeRepositoryWorkSession({
-        ...args,
-        access: "write",
-      });
-      if (session.status !== "ready" && session.status !== "proposed") {
-        throw new Error("This session has no completed, committed work to propose.");
-      }
-      if (!latestTurn || latestTurn.status !== "ok" || latestTurn.error) {
+    }
+    if (
+      session.branch !== sessionBranchName(employee.slug, session.id) ||
+      session.branch === repo.defaultBranch ||
+      !session.headCommit ||
+      !session.baseCommit ||
+      session.headCommit === session.baseCommit
+    ) {
+      throw new Error(
+        "Only this work session's generated branch with committed changes may be delivered.",
+      );
+    }
+    if (repo.origin !== "remote") {
+      throw new Error("This Repository has no remote. Connect it in Repository settings first.");
+    }
+    // Compare encrypted values, never decrypt or export them to employee tools.
+    // Capture the completed turn as well: a new revision must be delivered by a new call.
+    const work = JSON.stringify([
+      repo.id,
+      repo.origin,
+      repo.gitUrl,
+      repo.authMode,
+      repo.githubConnectionId,
+      repo.encryptedSshKey,
+      repo.encryptedToken,
+      repo.httpsUsername,
+      session.branch,
+      session.baseCommit,
+      session.headCommit,
+      latestTurn.id,
+    ]);
+    if (
+      (initialWork !== undefined && work !== initialWork) ||
+      (expectedSession &&
+        (session.repositoryId !== expectedSession.repositoryId ||
+          session.branch !== expectedSession.branch ||
+          session.baseCommit !== expectedSession.baseCommit ||
+          session.headCommit !== expectedSession.headCommit)) ||
+      (expectedRepo && repo.defaultBranch !== expectedRepo.defaultBranch)
+    ) {
+      throw new Error("The Repository or work session changed before delivery. Check it again.");
+    }
+    initialWork ??= work;
+
+    // Repository credentials authorize Git transport. An absent credential may
+    // borrow only the exact pinned and currently granted Connection. SSH needs
+    // that same Connection separately when opening a pull request through its API.
+    if (repo.authMode === "none" || pullRequest) {
+      if (!repo.githubConnectionId) {
         throw new Error(
-          "This session's last turn needs review before delivery: it did not finish cleanly.",
+          pullRequest
+            ? "Automatic pull requests need a Repository connected through a granted GitHub or Forgejo Connection. Repository SSH keys and HTTPS tokens can push the work-session branch without a Connection."
+            : "Repository delivery without a stored SSH key or HTTPS token needs a Repository connected through a granted GitHub or Forgejo Connection.",
         );
-      }
-      if (
-        session.branch !== sessionBranchName(employee.slug, session.id) ||
-        session.branch === repo.defaultBranch ||
-        !session.headCommit ||
-        !session.baseCommit ||
-        session.headCommit === session.baseCommit
-      ) {
-        throw new Error(
-          "Only this work session's generated branch with committed changes may be proposed.",
-        );
-      }
-      if (repo.origin !== "remote" || repo.authMode !== "none" || !repo.githubConnectionId) {
-        throw new Error(
-          "Automatic pull requests need a remote Repository connected through a granted GitHub or Forgejo Connection. A Member can publish repositories using their own token or SSH key.",
-        );
-      }
-      // Re-read before both external writes. A revoked Grant, changed remote,
-      // discarded session or replacement Connection stops the next effect.
-      if (
-        expectedSession &&
-        expectedRepo &&
-        (session.branch !== expectedSession.branch ||
-          session.headCommit !== expectedSession.headCommit ||
-          repo.gitUrl !== expectedRepo.gitUrl ||
-          repo.githubConnectionId !== expectedRepo.githubConnectionId)
-      ) {
-        throw new Error("The Repository or work session changed before delivery. Check it again.");
       }
       const pair = await getGrantWithConnection(employee.id, repo.githubConnectionId);
       if (
@@ -154,26 +225,37 @@ export async function openEmployeeRepositoryWorkSessionPullRequest(args: {
       assertIntegrationAllowed(pair.connection.provider);
       const provider = getProvider(pair.connection.provider);
       if (
-        !provider?.tools.some((tool) => tool.name === "create_pull_request") ||
+        !provider?.tools.some((candidate) => candidate.name === "create_pull_request") ||
         (provider.supportsTool &&
           !provider.supportsTool("create_pull_request", pair.connection.authMode))
       ) {
-        throw new Error("This Connection does not support opening pull requests.");
+        throw new Error("This Connection does not support Repository delivery.");
       }
       const forge = await resolveForgeRemote(repo);
       if (!forge || forge.connection?.id !== pair.connection.id) {
         throw new Error("The Repository's remote does not match its granted forge Connection.");
       }
-    };
-    await authorize();
-    return await openRepositoryWorkSessionPullRequest({
-      sessionId: args.sessionId,
-      title: args.title,
-      body: args.body,
-      deps: args.deps,
-      authorize,
-    });
-  } finally {
-    publishingSessions.delete(key);
-  }
+      // Grants bind the Connection resource, so rotation within this bounded
+      // call preserves its authority. Bind identity and trusted endpoint, not
+      // ciphertext OAuth legitimately refreshes; no token reaches the model.
+      const connection = JSON.stringify([
+        pair.connection.id,
+        pair.connection.provider,
+        pair.connection.authMode,
+        forge.endpoint,
+      ]);
+      if (
+        (initialConnection !== undefined && connection !== initialConnection) ||
+        forge.connection.encryptedConfig !== pair.connection.encryptedConfig ||
+        forge.connection.authMode !== pair.connection.authMode
+      ) {
+        throw new Error(
+          "The Repository's forge credential changed before delivery. Check it again.",
+        );
+      }
+      initialConnection ??= connection;
+    }
+    const blocked = workBlocked(args.companyId, { employeeId: args.employeeId });
+    if (blocked.blocked) throw new Error(`This AI Employee is stood down: ${blocked.reason}`);
+  };
 }

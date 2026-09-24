@@ -222,6 +222,10 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "fix this bug in the code", expect: "start_repository_work_session" },
   { query: "send me a pull request", expect: "start_repository_work_session" },
   { query: "make a change to the repo", expect: "start_repository_work_session" },
+  {
+    query: "push the completed work session branch using the repository SSH key",
+    expect: "push_repository_work_session",
+  },
   // Deliberately a deferred orientation tool: `list_employees` is resident, so
   // it is never a find_tools hit — asserting on it would test nothing.
   { query: "what departments are there", expect: "list_teams" },

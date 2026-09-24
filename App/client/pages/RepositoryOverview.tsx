@@ -403,10 +403,10 @@ export default function RepositoryOverview() {
                 // it sends the reader looking for a Connection that does not
                 // exist, on a step that will never turn green.
                 repo.forge
-                  ? `You read the diff and decide whether it lands. Grant the employee a ${repo.forge.name} Connection and it can open the pull request itself.`
+                  ? `Employees can push their completed Work session branches. Choose this repository's ${repo.forge.name} Connection in Settings and grant it to the employee to open pull requests. A Member decides whether to merge.`
                   : repo.origin === "remote"
-                    ? "You read the diff and decide whether it lands, then push it from here. Opening a pull request needs GitHub or a Forgejo / Gitea server Genosyn can reach."
-                    : "You read the diff and decide whether it lands. Connect this repository to a git host and the employee can open the pull request itself."
+                    ? "Employees with write access can push completed Work session branches using the stored SSH key or token. A Member decides whether to merge. Pull requests also need GitHub or a Forgejo / Gitea Connection."
+                    : "You read the diff and decide whether to merge. Connect this repository to a git host for branch pushes, and choose a granted GitHub or Forgejo Connection for employee pull requests."
               }
               status={
                 grants === null

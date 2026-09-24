@@ -400,7 +400,11 @@ describe("opening a pull request", () => {
       discardSettled = true;
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(discardSettled, false, "discard must not remove a branch while it is being pushed");
+    assert.equal(
+      discardSettled,
+      false,
+      "discard must not remove a branch while it is being pushed",
+    );
     assert.equal(discardClaimStarted, false, "discard must not claim the row during the push");
     assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), true);
 
@@ -1314,7 +1318,7 @@ describe("resolving a repository's forge", () => {
     );
   });
 
-  test("a repository that authenticates with an SSH key is told why that cannot work", async () => {
+  test("an SSH Repository without a Connection explains how to enable the PR API", async () => {
     // An https clone URL with `authMode: "ssh"` is the shape that reaches this
     // branch: the URL is what makes the host knowable, the auth mode is what
     // makes the credential unusable for an API call.
@@ -1329,11 +1333,11 @@ describe("resolving a repository's forge", () => {
       (err: unknown) => err as Error,
     );
     assert.ok(error);
-    assert.match(error.message, /SSH key, which cannot open a pull request/);
-    assert.match(error.message, /connect GitHub in Settings → Integrations/);
+    assert.match(error.message, /SSH key cannot open a pull request through the forge API/);
+    assert.match(error.message, /Connect GitHub in Settings → Integrations/);
   });
 
-  test("an scp-style SSH remote is a host no forge can be matched to", async () => {
+  test("an SSH URL without SSH authentication is not matched to a forge", async () => {
     await asRemote("git@github.com:acme/product.git");
     await assert.rejects(
       async () => resolveRepositoryForge(await reload()),

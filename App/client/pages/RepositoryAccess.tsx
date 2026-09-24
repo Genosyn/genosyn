@@ -137,8 +137,9 @@ export default function RepositoryAccess() {
             AI access
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Choose who may reference {repo.name} or prepare local branches and commits. Repository
-            credentials never enter AI tools.
+            Choose who may reference {repo.name} or edit and push completed Work session branches.
+            Merging and publishing the default branch stay with a Member. Repository credentials
+            never enter AI tools.
           </p>
         </div>
       </div>
@@ -152,9 +153,9 @@ export default function RepositoryAccess() {
         <ReadinessCard
           icon={<GitPullRequest size={17} />}
           title="Pull requests use a Connection"
-          detail="After a Member or governed delivery flow publishes the branch, a Connection to the git host — GitHub, or a Forgejo / Gitea server — can expose the create_pull_request tool."
-          to={`/c/${company.slug}/repositories/integrations`}
-          linkLabel="Manage integrations"
+          detail="To let an AI employee open pull requests, choose this repository's GitHub or Forgejo Connection in Settings and give the employee a Grant to that same Connection. Its completed session branch can push with the stored SSH key or token."
+          to={`/c/${company.slug}/repositories/${repo.slug}/settings`}
+          linkLabel="Choose a Connection"
         />
       </div>
 
@@ -180,14 +181,14 @@ export default function RepositoryAccess() {
                 ))}
               </Select>
             </div>
-            <div className="w-full sm:w-44">
+            <div className="w-full sm:w-64">
               <Select
                 label="Repository access"
                 value={pickLevel}
                 onChange={(event) => setPickLevel(event.target.value as RepositoryAccessLevel)}
                 disabled={ungranted.length === 0}
               >
-                <option value="write">Work locally</option>
+                <option value="write">Work and push session branches</option>
                 <option value="read">Reference only</option>
               </Select>
             </div>
@@ -212,8 +213,8 @@ export default function RepositoryAccess() {
               No AI employees have access
             </div>
             <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Add one above. Use Work locally when you want it to prepare a branch and commit for
-              governed publishing.
+              Add one above. Work and push session branches lets an employee edit, commit, and push
+              its completed Work session branch. A Member still decides whether to merge it.
             </p>
           </div>
         ) : (
@@ -253,10 +254,10 @@ export default function RepositoryAccess() {
                     onChange={(event) =>
                       changeLevel(grant, event.target.value as RepositoryAccessLevel)
                     }
-                    className="h-9 w-36"
+                    className="h-9 w-64 max-w-full"
                     aria-label="Repository access level"
                   >
-                    <option value="write">Work locally</option>
+                    <option value="write">Work and push session branches</option>
                     <option value="read">Reference only</option>
                   </Select>
                   {grant.employee && (

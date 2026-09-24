@@ -683,6 +683,35 @@ describe("a remote repository", () => {
     await assert.rejects(() => pushRepositoryBranch(repo, "main"), /token is missing/);
   });
 
+  test("refuses a changed branch before resolving push credentials", async () => {
+    const repo = makeRepository({ origin: "remote", gitUrl: `${baseUrl}/` });
+    await ensureRepositoryWorkspace(repo);
+    await assert.rejects(
+      () => pushRepositoryBranch(repo, "main", { expectedHeadCommit: "0".repeat(40) }),
+      /branch changed before delivery/,
+    );
+  });
+
+  test("rechecks authority immediately before the remote push", async () => {
+    const repo = makeRepository({ origin: "remote", gitUrl: `${baseUrl}/` });
+    await ensureRepositoryWorkspace(repo);
+    const head = (await repositoryLog(repo))[0].sha;
+    let checked = false;
+    await assert.rejects(
+      () =>
+        pushRepositoryBranch(repo, "main", {
+          expectedHeadCommit: head,
+          authorize: async () => {
+            checked = true;
+            throw new Error("Repository write Grant was revoked");
+          },
+        }),
+      /write Grant was revoked/,
+    );
+    assert.equal(checked, true);
+    assert.equal((await repositoryLog(repo))[0].sha, head);
+  });
+
   test("reports a branch the remote does not have when pulling", async () => {
     const repo = makeRepository({ origin: "remote", gitUrl: `${baseUrl}/` });
     await ensureRepositoryWorkspace(repo);
@@ -709,7 +738,10 @@ describe("safety", () => {
 
     const commits = await repositoryLog(repo, { limit: 3 });
     assert.deepEqual(
-      commits.slice(0, 2).map((c) => c.subject).sort(),
+      commits
+        .slice(0, 2)
+        .map((c) => c.subject)
+        .sort(),
       ["First", "Second"],
     );
   });

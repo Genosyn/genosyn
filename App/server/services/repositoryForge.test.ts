@@ -24,6 +24,7 @@ import {
   listForgeConnections,
   loadForgeCandidates,
   matchForgeRemote,
+  repositoryForgeConnectionError,
   resolveConnectionForRemote,
   resolveConnectionToken,
   resolveForgeRemote,
@@ -192,6 +193,65 @@ describe("matchForgeRemote — which remotes a forge will answer for", () => {
     ] as const) {
       const match = matchForgeRemote(await repository({ gitUrl }), candidates);
       assert.deepEqual(match?.remote, expected, gitUrl);
+    }
+  });
+
+  test("recognizes SSH repositories for the API without borrowing their Git credential", async () => {
+    const connection = await connect({ provider: "github", config: githubConfig() });
+    const candidates = await loadForgeCandidates(companyId);
+    for (const gitUrl of [
+      "git@github.com:Acme/Web.git",
+      "ssh://git@github.com/Acme/Web.git",
+      "ssh://git@github.com:22/Acme/Web.git",
+    ]) {
+      const repo = await repository({ authMode: "ssh", gitUrl, githubConnectionId: connection.id });
+      const match = matchForgeRemote(repo, candidates);
+      assert.equal(match?.connection?.id, connection.id);
+      assert.deepEqual(match?.remote, { owner: "Acme", repo: "Web" });
+      assert.deepEqual(match?.endpoint, GITHUB_ENDPOINT);
+      assert.deepEqual((await resolveForgeRemote(repo))?.remote, { owner: "Acme", repo: "Web" });
+      assert.equal(describeRepositoryForge(repo, candidates)?.credential, "pinned");
+      assert.equal(await findConnectionForRemote(repo), null);
+    }
+  });
+
+  test("SSH uses its own port and owner/repo path while API keeps the configured port and mount", async () => {
+    const connection = await connect({
+      provider: "forgejo",
+      config: forgejoConfig({ baseUrl: "https://git.acme.com:8443/forge" }),
+    });
+    const repo = await repository({
+      authMode: "ssh",
+      gitUrl: "ssh://git@git.acme.com:2222/team/web.git",
+      githubConnectionId: connection.id,
+    });
+    const match = matchForgeRemote(repo, await loadForgeCandidates(companyId));
+    assert.equal(match?.connection?.id, connection.id);
+    assert.equal(match?.endpoint.apiBase, "https://git.acme.com:8443/forge/api/v1");
+    assert.deepEqual(match?.remote, { owner: "team", repo: "web" });
+    assert.equal(await findConnectionForRemote(repo), null);
+  });
+
+  test("SSH API matching rejects different hosts, credentials, traversal and extra path segments", async () => {
+    const candidates = await loadForgeCandidates(companyId);
+    for (const gitUrl of [
+      "git@github.com.evil.test:acme/web.git",
+      "git@evil.test:github.com/web.git",
+      "ssh://git@evil.test/github.com/web.git",
+      "ssh://git:secret@github.com/acme/web.git",
+      "ssh://git@github.com:invalid/acme/web.git",
+      "ssh://git@github.com/acme/../other/web.git",
+      "ssh://git@github.com/acme/%2e%2e/web.git",
+      "git@github.com:acme/../web.git",
+      "git@github.com:acme/web.git/extra",
+      "git@github.com:../web.git",
+      "git@github.com:acme/.git",
+    ]) {
+      assert.equal(
+        matchForgeRemote(await repository({ authMode: "ssh", gitUrl }), candidates),
+        null,
+        gitUrl,
+      );
     }
   });
 
@@ -381,6 +441,39 @@ describe("matchForgeRemote — which remotes a forge will answer for", () => {
     // never heard of this repository, and its token must not go to github.com.
     assert.equal(match?.connection?.id, github.id);
     assert.equal(match?.ambiguous, false);
+  });
+});
+
+describe("repositoryForgeConnectionError — explicit repository Connection selection", () => {
+  test("accepts a matching SSH Connection and permits clearing the pin", async () => {
+    const connection = await connect({ provider: "github", config: githubConfig() });
+    const input = { companyId, gitUrl: "git@github.com:acme/web.git", authMode: "ssh" as const };
+    assert.equal(
+      await repositoryForgeConnectionError({ ...input, connectionId: connection.id }),
+      null,
+    );
+    assert.equal(await repositoryForgeConnectionError({ ...input, connectionId: null }), null);
+  });
+
+  test("rejects a Connection for another company, another host, or a disconnected account", async () => {
+    const foreignCompany = await insert(Company, {
+      name: "Other",
+      slug: "other",
+      ownerId: "other",
+    });
+    const foreign = await connect({ companyId: foreignCompany.id, config: githubConfig() });
+    const wrongHost = await connect({ provider: "forgejo", config: forgejoConfig() });
+    const expired = await connect({ status: "expired", config: githubConfig() });
+    for (const connectionId of [foreign.id, wrongHost.id, expired.id]) {
+      assert.ok(
+        await repositoryForgeConnectionError({
+          companyId,
+          gitUrl: "git@github.com:acme/web.git",
+          authMode: "ssh",
+          connectionId,
+        }),
+      );
+    }
   });
 });
 

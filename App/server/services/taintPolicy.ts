@@ -32,6 +32,7 @@ import { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.
  * forged payload cannot become an arbitrary-tool trampoline. */
 export const TAINT_SINK_TOOLS = new Set([
   "open_repository_work_session_pull_request",
+  "push_repository_work_session",
   "send_mail",
   "create_routine",
   "update_routine",

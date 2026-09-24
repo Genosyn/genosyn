@@ -1238,6 +1238,7 @@ export async function checkoutRepositoryBranch(repo: Repository, name: string): 
 export async function pushRepositoryBranch(
   repo: Repository,
   branch: string,
+  options: { authorize?: () => Promise<void>; expectedHeadCommit?: string } = {},
 ): Promise<{ branch: string }> {
   if (repo.origin === "local") {
     throw new Error("This repository has no remote. Add a git URL in settings to publish it.");
@@ -1246,21 +1247,29 @@ export async function pushRepositoryBranch(
   assertSafeGitRemoteUrl(repo.gitUrl);
 
   return withRepositoryLock(repo.id, async () => {
+    if (options.expectedHeadCommit) {
+      const head = (await git(repo, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
+      if (head !== options.expectedHeadCommit) {
+        throw new Error("The work session branch changed before delivery. Check its result again.");
+      }
+    }
     const credential = await remoteCredentialFor(repo);
+    const source = options.expectedHeadCommit ?? `refs/heads/${branch}`;
     await withPushSshMaterial(repo, credential, async (extraEnv) => {
+      // Credential resolution may refresh a Connection or wait on the network.
+      // Recheck live authority after that work, immediately before the effect.
+      await options.authorize?.();
       await runWorkspaceGit({
         workspaceRoot: workspaceRootFor(repo),
         cwd: checkoutPath(repo),
-        args: ["push", repo.gitUrl, `refs/heads/${branch}:refs/heads/${branch}`],
+        args: ["push", repo.gitUrl, `${source}:refs/heads/${branch}`],
         extraEnv,
         credentialHelper: credential.credentialHelper,
         serverOwned: true,
       });
     });
     // Reflect the push locally so status stops reporting the branch as ahead.
-    await git(repo, ["update-ref", `refs/remotes/origin/${branch}`, `refs/heads/${branch}`]).catch(
-      () => {},
-    );
+    await git(repo, ["update-ref", `refs/remotes/origin/${branch}`, source]).catch(() => {});
     return { branch };
   });
 }
@@ -1395,7 +1404,9 @@ export async function syncDefaultBranch(repo: Repository): Promise<DefaultBranch
     // the ordinary case and correctly reports nothing to fast-forward.
     if (branch && remote && (!local || (await isAncestorCommit(repo, local, remote)))) {
       const fastForwarded =
-        !!local && local !== remote ? await fastForwardDefaultBranch(repo, branch, local, remote) : false;
+        !!local && local !== remote
+          ? await fastForwardDefaultBranch(repo, branch, local, remote)
+          : false;
       return { branch, commit: remote, source: "origin", fastForwarded };
     }
     if (branch && local) return { branch, commit: local, source: "local", fastForwarded: false };
