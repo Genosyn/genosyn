@@ -1455,9 +1455,9 @@ export async function repositoryWorkSessionDiff(
  * Accept an employee's work: merge its branch into the Member checkout and,
  * for a repository with a remote, push the result.
  *
- * This is the governed publish step. It is the only path by which anything a
- * model produced can reach the remote, it requires an authenticated Member,
- * and the credential is used here — never anywhere the model can observe.
+ * This merge step requires an authenticated Member. Separately authorized
+ * employee delivery can push only its own completed session branch; neither
+ * flow exposes Repository credentials to a model.
  */
 export async function publishRepositoryWorkSession(
   sessionId: string,
@@ -1514,15 +1514,15 @@ async function publishRepositoryWorkSessionUnlocked(
  * Genosyn could only enter a team's normal process by a human re-doing the
  * push by hand.
  *
- * The credential still never leaves the server, and it is still a Member who
- * decides: the employee can commit onto its branch and nothing else. Calling
+ * The credential never leaves the server. A Member may request delivery, or
+ * an employee may deliver its own completed branch with current Grants. Calling
  * it again after a revision pushes the new commits — the forge attaches them
  * to the pull request that is already open, so the same button is both "open"
  * and "update" and the row records only the one pull request that exists.
  */
 export type WorkSessionPullRequestDeps = {
   push: typeof pushRepositoryBranch;
-  resolveForge: (repo: Repository) => Promise<ResolvedRepositoryForge>;
+  resolveForge: typeof resolveRepositoryForge;
   createPullRequest: typeof createForgePullRequest;
   findOpenPullRequest: typeof findOpenForgePullRequest;
   remoteDefaultBranch: typeof forgeDefaultBranch;
@@ -1595,6 +1595,42 @@ async function resolvePullRequestBase(
   return base;
 }
 
+export type WorkSessionPushDeps = Pick<WorkSessionPullRequestDeps, "push">;
+
+/** Push this completed branch without merging it or claiming a pull request exists. */
+export async function pushRepositoryWorkSession(args: {
+  sessionId: string;
+  authorize: (session: RepositoryWorkSession, repo: Repository) => Promise<void>;
+  deps?: Partial<WorkSessionPushDeps>;
+}): Promise<RepositoryWorkSession> {
+  return withSessionMutation(args.sessionId, async () => {
+    const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+    const session = await sessionRepo.findOneBy({ id: args.sessionId });
+    if (!session) throw new Error("Work session not found.");
+    if (session.status !== "ready" && session.status !== "proposed") {
+      throw new Error("This session has no committed work to deliver.");
+    }
+    if (!session.branch || !session.headCommit) {
+      throw new Error("This session has no committed branch.");
+    }
+    const repo = await AppDataSource.getRepository(Repository).findOneBy({
+      id: session.repositoryId,
+      companyId: session.companyId,
+    });
+    if (!repo) throw new Error("Repository not found.");
+    await args.authorize(session, repo);
+    await (args.deps?.push ?? pushRepositoryBranch)(repo, session.branch, {
+      authorize: () => args.authorize(session, repo),
+      expectedHeadCommit: session.headCommit,
+    });
+    // The remote effect has happened. Store that fact before doing anything
+    // else; a push alone is neither a merge nor a pull-request proposal.
+    session.publishedBranch = session.branch;
+    await sessionRepo.save(session);
+    return session;
+  });
+}
+
 type OpenRepositoryWorkSessionPullRequestArgs = {
   sessionId: string;
   title?: string;
@@ -1634,8 +1670,8 @@ async function openRepositoryWorkSessionPullRequestUnlocked(
       "This repository lives only in Genosyn, so there is nowhere to open a pull request. Connect it to a remote in settings first.",
     );
   }
-  // One resolution, used for both the API calls and the push, so the token and
-  // the endpoint cannot disagree about which Connection owns this remote.
+  // Resolve the forge API credential separately from Git transport: an SSH
+  // Repository pushes with its own key and opens the PR with its Connection.
   await args.authorize?.(session, repo);
   const forge = await deps.resolveForge(repo);
   const remote = forge.remote;
@@ -1644,7 +1680,10 @@ async function openRepositoryWorkSessionPullRequestUnlocked(
   // before the existing pull request can pick them up.
   try {
     await args.authorize?.(session, repo);
-    await deps.push(repo, session.branch);
+    await deps.push(repo, session.branch, {
+      authorize: args.authorize ? () => args.authorize!(session, repo) : undefined,
+      expectedHeadCommit: session.headCommit ?? undefined,
+    });
   } catch (error) {
     throw describePushFailure(error, {
       owner: remote.owner,
@@ -1903,15 +1942,19 @@ export type ResolvedRepositoryForge = {
  *
  *   • *Where* comes from the host. github.com is always known; any other host
  *     is known only because a Forgejo Connection carries its base URL.
- *   • *Which credential* is the existing rule, unchanged: a repository
- *     carrying its own HTTPS token uses that one, and a repository with none
- *     borrows the Connection's.
+ *   • *Which credential*: Member delivery can use the Repository's own HTTPS
+ *     token; SSH uses a Connection for the API. Employee delivery explicitly
+ *     requests the pinned Connection so its live Connection Grant governs
+ *     the API credential independently from Git transport.
  *
  * The halves used to be one check against `github.com`, which is why a
  * repository on a company's own Forgejo could be cloned, worked in, committed
  * to — and then told that pull requests are a GitHub feature.
  */
-export async function resolveRepositoryForge(repo: Repository): Promise<ResolvedRepositoryForge> {
+export async function resolveRepositoryForge(
+  repo: Repository,
+  options: { preferConnection?: boolean } = {},
+): Promise<ResolvedRepositoryForge> {
   const match = await resolveForgeRemote(repo);
   if (!match) {
     throw new Error(
@@ -1923,7 +1966,15 @@ export async function resolveRepositoryForge(repo: Repository): Promise<Resolved
   const name = forgeProviderName(match.provider);
   const forge = { endpoint: match.endpoint, remote: match.remote, name };
 
-  if (repo.authMode === "https") {
+  if (
+    options.preferConnection &&
+    (!repo.githubConnectionId || match.connection?.id !== repo.githubConnectionId)
+  ) {
+    throw new Error(
+      "Choose the Repository's connected forge Connection before opening its pull request.",
+    );
+  }
+  if (repo.authMode === "https" && !options.preferConnection) {
     const token = decryptRepositorySecret(repo.encryptedToken);
     if (token) return { ...forge, token };
     // Falling through to the Connection here used to report "no credential at
@@ -1950,7 +2001,7 @@ export async function resolveRepositoryForge(repo: Repository): Promise<Resolved
   }
   if (repo.authMode === "ssh") {
     throw new Error(
-      `This repository authenticates with an SSH key, which cannot open a pull request. Give it an HTTPS clone URL with a token, or connect ${name} in Settings → Integrations.`,
+      `This Repository's SSH key can push branches, but an SSH key cannot open a pull request through the forge API. Connect ${name} in Settings → Integrations and choose that Connection in Repository settings.`,
     );
   }
   throw new Error(

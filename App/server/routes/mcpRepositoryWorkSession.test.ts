@@ -12,14 +12,16 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
+import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
+import { issueMcpToken, markTokenTainted, revokeMcpToken } from "../services/mcpTokens.js";
 import { sessionWorktreePath } from "../services/repositoryWorkSessions.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
@@ -191,14 +193,17 @@ async function settle(sessionId: string): Promise<void> {
 }
 
 describe("starting a work session from a tool call", () => {
-  test("ordinary Members cannot delegate the forge delivery tool", async () => {
-    const row = await runningSession();
-    const result = await callWith(token, "open_repository_work_session_pull_request", {
-      sessionId: row.id,
+  for (const tool of [
+    "push_repository_work_session",
+    "open_repository_work_session_pull_request",
+  ]) {
+    test(`ordinary Members cannot delegate ${tool}`, async () => {
+      const row = await runningSession();
+      const result = await callWith(token, tool, { sessionId: row.id });
+      assert.equal(result.status, 403);
+      assert.match(result.body.error ?? "", /owner or admin/);
     });
-    assert.equal(result.status, 403);
-    assert.match(result.body.error ?? "", /owner or admin/);
-  });
+  }
 
   test("a result lookup cannot read another employee's session", async () => {
     await grantAccess();
@@ -225,11 +230,17 @@ describe("starting a work session from a tool call", () => {
       { userId: requester.id },
       { role: "admin" },
     );
-    const delivery = await callWith(token, "open_repository_work_session_pull_request", {
-      sessionId: "invalid",
-      branch: "main",
-    });
-    assert.equal(delivery.status, 400);
+    const row = await runningSession();
+    for (const tool of [
+      "push_repository_work_session",
+      "open_repository_work_session_pull_request",
+    ]) {
+      for (const body of [{ sessionId: "invalid" }, { sessionId: row.id, branch: "main" }]) {
+        const delivery = await callWith(token, tool, body);
+        assert.equal(delivery.status, 400);
+        assert.equal(delivery.body.error, "ValidationError");
+      }
+    }
   });
 
   test("refuses a repository the employee has no Grant for without confirming it exists", async () => {
@@ -290,6 +301,137 @@ describe("starting a work session from a tool call", () => {
   });
 });
 
+describe("pushing a work session from a tool call", () => {
+  beforeEach(async () => {
+    await AppDataSource.getRepository(Membership).update(
+      { userId: requester.id },
+      { role: "admin" },
+    );
+  });
+
+  test("reaches delivery with delegated admin authority but refuses incomplete work", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    const result = await callWith(token, "push_repository_work_session", { sessionId: row.id });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error ?? "", /completed, committed work/);
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: row.id }))
+        .publishedBranch,
+      null,
+    );
+  });
+
+  test("an ordinary employee turn can reach delivery for its owned work", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    const bearer = issueMcpToken(employee.id, company.id, { authority: "employee" });
+    try {
+      const result = await callWith(bearer, "push_repository_work_session", {
+        sessionId: row.id,
+      });
+      assert.equal(result.status, 400);
+      assert.match(result.body.error ?? "", /completed, committed work/);
+    } finally {
+      revokeMcpToken(bearer);
+    }
+  });
+
+  test("cannot redirect an otherwise completed session to the default branch", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    await AppDataSource.getRepository(RepositoryWorkSession).update(row.id, {
+      status: "ready",
+      branch: "main",
+      baseCommit: "b".repeat(40),
+      headCommit: "a".repeat(40),
+    });
+    await insert(RepositoryWorkSessionTurn, {
+      companyId: company.id,
+      sessionId: row.id,
+      instruction: row.instruction,
+      status: "ok",
+    });
+    const result = await callWith(token, "push_repository_work_session", { sessionId: row.id });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error ?? "", /generated branch/);
+  });
+
+  test("requires a live write Grant rather than the Grant held when work began", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).update(
+      { employeeId: employee.id },
+      { accessLevel: "read" },
+    );
+    const readOnly = await callWith(token, "push_repository_work_session", {
+      sessionId: row.id,
+    });
+    assert.equal(readOnly.status, 400);
+    assert.match(readOnly.body.error ?? "", /write Grant/);
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({ employeeId: employee.id });
+    const revoked = await callWith(token, "push_repository_work_session", {
+      sessionId: row.id,
+    });
+    assert.equal(revoked.status, 400);
+    assert.match(revoked.body.error ?? "", /write Grant/);
+  });
+
+  test("does not publish or reveal another employee's work session", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    await AppDataSource.getRepository(RepositoryWorkSession).update(row.id, {
+      employeeId: "another-employee",
+    });
+    const result = await callWith(token, "push_repository_work_session", { sessionId: row.id });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error ?? "", /not found/);
+  });
+
+  test("proactive preparation cannot publish before its plan is approved", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    const bearer = issueMcpToken(employee.id, company.id, {
+      authority: "member",
+      requesterUserId: requester.id,
+      requesterSessionVersion: requester.sessionVersion,
+      proactiveReview: true,
+    });
+    try {
+      const result = await callWith(bearer, "push_repository_work_session", {
+        sessionId: row.id,
+      });
+      assert.equal(result.status, 403);
+      assert.match(result.body.error ?? "", /approval/i);
+    } finally {
+      revokeMcpToken(bearer);
+    }
+  });
+
+  test("a tainted turn queues the exact push for review before delivery", async () => {
+    await grantAccess();
+    const row = await runningSession();
+    markTokenTainted(token);
+    const result = await callWith(token, "push_repository_work_session", { sessionId: row.id });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, "pending_approval");
+    const approval = await AppDataSource.getRepository(Approval).findOneByOrFail({
+      id: String(result.body.approvalId),
+    });
+    assert.equal(approval.kind, "tainted_tool");
+    assert.deepEqual(JSON.parse(approval.payloadJson ?? "{}"), {
+      tool: "push_repository_work_session",
+      args: { sessionId: row.id },
+      employeeId: employee.id,
+    });
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: row.id }))
+        .publishedBranch,
+      null,
+    );
+  });
+});
+
 describe("what a session's own turn may reach", () => {
   /** A token shaped like the one a running session's nested turn carries. */
   async function sessionToken(): Promise<string> {
@@ -318,6 +460,27 @@ describe("what a session's own turn may reach", () => {
         1,
         "no second session may be created",
       );
+    } finally {
+      revokeMcpToken(bearer);
+    }
+  });
+
+  test("a session cannot publish its own branch even with delegated admin authority", async () => {
+    await grantAccess();
+    await AppDataSource.getRepository(Membership).update(
+      { userId: requester.id },
+      { role: "admin" },
+    );
+    const bearer = await sessionToken();
+    try {
+      const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+        employeeId: employee.id,
+      });
+      const result = await callWith(bearer, "push_repository_work_session", {
+        sessionId: row.id,
+      });
+      assert.equal(result.status, 403);
+      assert.match(result.body.error ?? "", /only use the repository_\* tools/);
     } finally {
       revokeMcpToken(bearer);
     }

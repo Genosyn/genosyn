@@ -93,6 +93,7 @@ import {
 import {
   employeeRepositoryWorkSession,
   openEmployeeRepositoryWorkSessionPullRequest,
+  pushEmployeeRepositoryWorkSession,
 } from "../services/repositoryEmployeeWork.js";
 import {
   MAX_GREP_CONTEXT,
@@ -13285,7 +13286,9 @@ mcpInternalRouter.post(
         note:
           workstream.status === "active"
             ? "State committed — your next Run on the bound routine opens with exactly this."
-            : workstream.status === "archived" ? "Archived with state preserved. Resume explicitly with status: active when capacity is available." : `Closed as ${workstream.status}.`,
+            : workstream.status === "archived"
+              ? "Archived with state preserved. Resume explicitly with status: active when capacity is available."
+              : `Closed as ${workstream.status}.`,
       });
     } catch (err) {
       if (!(err instanceof WorkstreamError)) throw err;
@@ -14395,7 +14398,7 @@ mcpInternalRouter.post(
         note: [
           "Started. It runs in its own working copy, separately from this conversation.",
           `Say you have started it and link them to the work with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — it opens beside this conversation, where they review the diff, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
-          "Save the sessionId in a Workstream and schedule a Wakeup to check get_repository_work_session later. Only report completion after checking the result. If authorized to deliver a pull request, call open_repository_work_session_pull_request after the session is ready; it checks your Repository and forge Connection Grants. Never report the work as done, committed, merged, pushed, or opened as a pull request just because it started.",
+          "Save the sessionId in a Workstream and schedule a Wakeup to check get_repository_work_session later. Only report completion after checking the result. When authorized, push_repository_work_session delivers the ready branch using the Repository's stored SSH key or token server-side; open_repository_work_session_pull_request also opens a PR with the exact granted forge Connection. Never report the work as done, committed, merged, pushed, or opened as a pull request just because it started.",
         ].join(" "),
       });
     } catch (error) {
@@ -14443,6 +14446,45 @@ const openRepositoryWorkSessionPullRequestSchema = z
     body: z.string().max(20000).optional(),
   })
   .strict();
+
+mcpInternalRouter.post(
+  "/tools/push_repository_work_session",
+  validateBody(getRepositoryWorkSessionSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const session = await pushEmployeeRepositoryWorkSession({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        sessionId: req.body.sessionId,
+        requester:
+          req.mcpAuthority === "member"
+            ? {
+                userId: req.mcpRequesterUserId!,
+                sessionVersion: req.mcpRequesterSessionVersion!,
+              }
+            : undefined,
+      });
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorUserId: req.mcpRequesterUserId,
+        actorEmployeeId: req.mcpEmployee!.id,
+        action: "repository.work_session.push",
+        targetType: "repository",
+        targetId: session.repositoryId,
+        targetLabel: session.title,
+        metadata: { sessionId: session.id, branch: session.publishedBranch },
+      });
+      res.json({
+        sessionId: session.id,
+        status: session.status,
+        publishedBranch: session.publishedBranch,
+        pullRequestUrl: session.pullRequestUrl,
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
 
 mcpInternalRouter.post(
   "/tools/open_repository_work_session_pull_request",

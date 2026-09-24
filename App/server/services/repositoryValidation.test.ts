@@ -15,6 +15,24 @@ const AUTH_FIELDS = {
   ssh: { sshKey: "stored-separately" },
 } as const;
 
+test("SSH settings retain an explicit pull request Connection without replacing the key", () => {
+  const githubConnectionId = "8925cfdf-f492-4928-90bd-d92e5472c509";
+  const parsed = repositoryPatchSchema.parse({ authMode: "ssh", githubConnectionId });
+  assert.equal(parsed.githubConnectionId, githubConnectionId);
+  assert.equal(parsed.sshKey, undefined);
+  assert.equal(repositoryPatchSchema.parse({ githubConnectionId: null }).githubConnectionId, null);
+  assert.equal(repositoryPatchSchema.safeParse({ githubConnectionId: "invalid" }).success, false);
+  assert.equal(
+    repositoryCreateSchema.safeParse({
+      name: "Local",
+      origin: "local",
+      authMode: "none",
+      githubConnectionId,
+    }).success,
+    false,
+  );
+});
+
 test("create rejects credential-bearing clone URLs for every authentication mode", () => {
   for (const authMode of ["none", "https", "ssh"] as const) {
     for (const gitUrl of [

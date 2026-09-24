@@ -130,6 +130,10 @@ jobs:
         run: npm run test:work-session-models
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test SSH repository publishing setup
+        run: npm run test:repository-settings
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test proactive setup and delivery choices
         run: npm run test:proactive
         env:

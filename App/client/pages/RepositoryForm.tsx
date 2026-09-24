@@ -31,6 +31,7 @@ export type RepoFormState = {
   defaultBranch: string;
   description: string;
   authMode: RepositoryAuthMode;
+  githubConnectionId: string;
   httpsUsername: string;
   token: string;
   sshKey: string;
@@ -49,6 +50,7 @@ export function emptyRepoForm(): RepoFormState {
     defaultBranch: "main",
     description: "",
     authMode: "none",
+    githubConnectionId: "",
     httpsUsername: "",
     token: "",
     sshKey: "",
@@ -68,6 +70,7 @@ export function repoToForm(repo: Repository): RepoFormState {
     defaultBranch: repo.defaultBranch,
     description: repo.description,
     authMode: repo.authMode,
+    githubConnectionId: repo.githubConnectionId ?? "",
     httpsUsername: repo.httpsUsername ?? "",
     token: "",
     sshKey: "",
@@ -95,6 +98,7 @@ export function repoFormToPayload(form: RepoFormState): Record<string, unknown> 
     defaultBranch: form.defaultBranch.trim() || "main",
     description: form.description.trim(),
     authMode: local ? "none" : form.authMode,
+    githubConnectionId: local ? null : form.githubConnectionId || null,
     committerName: form.committerName.trim(),
     committerEmail: form.committerEmail.trim(),
     commandMode: form.commandMode,
@@ -247,9 +251,11 @@ export function RepoFormFields({
             className="font-mono text-xs"
           />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Add the matching public key as a deploy key on your git host. The private key is
-            encrypted at rest and materialized only in an App-private temporary directory during
-            clone or refresh.
+            Add the matching public key as a deploy key on your git host, with write access when
+            employees should push branches. The private key is encrypted at rest and materialized
+            only in an App-private temporary
+            directory during clone, refresh, or authorized branch pushes. Opening a pull request
+            also needs a GitHub or Forgejo Connection selected in this repository&apos;s Settings.
           </p>
         </div>
       )}

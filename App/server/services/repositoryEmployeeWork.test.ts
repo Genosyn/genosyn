@@ -12,6 +12,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
+import { Standdown } from "../db/entities/Standdown.js";
 import { User } from "../db/entities/User.js";
 import { GITHUB_ENDPOINT } from "../integrations/providers/forge/client.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -19,8 +20,16 @@ import { encryptConnectionConfig } from "./integrations.js";
 import {
   employeeRepositoryWorkSession,
   openEmployeeRepositoryWorkSessionPullRequest,
+  pushEmployeeRepositoryWorkSession,
 } from "./repositoryEmployeeWork.js";
-import { sessionBranchName, type WorkSessionPullRequestDeps } from "./repositoryWorkSessions.js";
+import {
+  discardRepositoryWorkSession,
+  resolveRepositoryForge,
+  sessionBranchName,
+  type WorkSessionPullRequestDeps,
+} from "./repositoryWorkSessions.js";
+import { encryptRepoSecret } from "./repositories.js";
+import { refreshStanddowns, stopStanddowns } from "./standdowns.js";
 
 let company: Company;
 let employee: AIEmployee;
@@ -35,6 +44,7 @@ before(initTestDb);
 after(closeTestDb);
 beforeEach(async () => {
   await resetTestDb();
+  stopStanddowns();
   calls = [];
   company = await insert(Company, { name: "Acme", slug: "acme", ownerId: "owner" });
   employee = await insert(AIEmployee, {
@@ -99,7 +109,9 @@ beforeEach(async () => {
       remote: { owner: "acme", repo: "product" },
       name: "GitHub",
     }),
-    push: async (_repo, branch) => {
+    push: async (_repo, branch, options) => {
+      assert.equal(options?.expectedHeadCommit, session.headCommit);
+      await options?.authorize?.();
       calls.push(`push:${branch}`);
       return { branch };
     },
@@ -295,12 +307,58 @@ describe("bounded employee pull-request delivery", () => {
     await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
     await refuse(/Grant.*Connection/);
   });
-  for (const authMode of ["https", "ssh"] as const) {
-    test(`cannot borrow a Repository's private ${authMode} credential`, async () => {
-      await AppDataSource.getRepository(Repository).update(repository.id, { authMode });
-      await refuse(/Member can publish/);
+  test("SSH pushes with the Repository key and opens its PR through the pinned granted Connection", async () => {
+    await asSsh();
+    deps.resolveForge = resolveRepositoryForge;
+    deps.push = async (repo, branch, options) => {
+      await options?.authorize?.();
+      assert.equal(repo.authMode, "ssh");
+      assert.equal(repo.gitUrl, "git@github.com:acme/product.git");
+      assert.ok(repo.encryptedSshKey);
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    const create = deps.createPullRequest!;
+    deps.createPullRequest = async (endpoint, token, input) => {
+      assert.equal(token, "test-token", "only the granted Connection supplies the API token");
+      return create(endpoint, token, input);
+    };
+    assert.equal((await publish()).status, "proposed");
+    assert.deepEqual(calls, [`push:${session.branch}`, "find", "create"]);
+  });
+  test("SSH without a pinned API Connection can push, but cannot open a PR", async () => {
+    await asSsh(false);
+    await refuse(/connected through a granted/);
+  });
+  test("an SSH Repository still needs its Connection Grant for the PR API", async () => {
+    await asSsh();
+    await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
+    await refuse(/Grant.*Connection/);
+  });
+  test("HTTPS keeps its transport token separate from the pinned Connection API token", async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      authMode: "https",
+      encryptedToken: encryptRepoSecret("transport-only", company.id),
     });
-  }
+    deps.resolveForge = resolveRepositoryForge;
+    const create = deps.createPullRequest!;
+    deps.createPullRequest = async (endpoint, token, input) => {
+      assert.equal(token, "test-token");
+      return create(endpoint, token, input);
+    };
+    assert.equal((await publish()).status, "proposed");
+  });
+  test("a legitimate Connection token refresh does not block delivery", async () => {
+    const resolve = deps.resolveForge!;
+    deps.resolveForge = async (repo) => {
+      await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+        encryptedConfig: encryptConnectionConfig({ token: "refreshed-token" }),
+      });
+      return resolve(repo);
+    };
+    assert.equal((await publish()).status, "proposed");
+    assert.deepEqual(calls, [`push:${session.branch}`, "find", "create"]);
+  });
   test("requires an explicitly pinned Connection instead of the company's first matching account", async () => {
     await AppDataSource.getRepository(Repository).update(repository.id, {
       githubConnectionId: null,
@@ -371,7 +429,7 @@ describe("bounded employee pull-request delivery", () => {
     };
     const first = publish();
     await ready;
-    await assert.rejects(publish, /already opening/);
+    await assert.rejects(publish, /already delivering/);
     await assert.rejects(
       () => openEmployeeRepositoryWorkSessionPullRequest({ ...args(), companyId: "other", deps }),
       /not found/,
@@ -389,5 +447,278 @@ describe("bounded employee pull-request delivery", () => {
     } finally {
       (config.security as { multiTenant: boolean }).multiTenant = previous;
     }
+  });
+});
+
+async function asSsh(pin = true) {
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    authMode: "ssh",
+    gitUrl: "git@github.com:acme/product.git",
+    encryptedSshKey: encryptRepoSecret("private test key", company.id),
+    githubConnectionId: pin ? connection.id : null,
+  });
+}
+function push() {
+  return pushEmployeeRepositoryWorkSession({ ...args(), deps });
+}
+async function refusePush(pattern: RegExp) {
+  await assert.rejects(push, pattern);
+  assert.deepEqual(calls, [], "authorization must fail before a push");
+}
+
+describe("bounded employee branch delivery", () => {
+  test("pushes an SSH branch without any Connection and records only the branch", async () => {
+    await asSsh(false);
+    await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
+    await AppDataSource.getRepository(IntegrationConnection).delete(connection.id);
+    const result = await push();
+    assert.deepEqual(calls, [`push:${session.branch}`]);
+    assert.equal(result.publishedBranch, session.branch);
+    assert.equal(result.status, "ready");
+    assert.equal(result.pullRequestUrl, null);
+    assert.equal(result.pullRequestNumber, null);
+  });
+  test("pushes with a Repository HTTPS token without borrowing a Connection", async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      authMode: "https",
+      encryptedToken: encryptRepoSecret("private test token", company.id),
+      githubConnectionId: null,
+    });
+    await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
+    assert.equal((await push()).publishedBranch, session.branch);
+    assert.deepEqual(calls, [`push:${session.branch}`]);
+  });
+  test("a failed push leaves no publication or PR evidence", async () => {
+    await asSsh(false);
+    deps.push = async () => {
+      throw new Error("SSH key cannot write");
+    };
+    await refusePush(/SSH key cannot write/);
+    const fresh = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(fresh.status, "ready");
+    assert.equal(fresh.publishedBranch, null);
+    assert.equal(fresh.pullRequestUrl, null);
+  });
+  for (const field of ["employeeId", "companyId"] as const) {
+    test(`cannot push another ${field === "employeeId" ? "employee" : "company"}'s session`, async () => {
+      await assert.rejects(
+        () => pushEmployeeRepositoryWorkSession({ ...args(), [field]: "other", deps }),
+        /not found/,
+      );
+      assert.deepEqual(calls, []);
+    });
+  }
+  for (const status of ["running", "empty", "failed", "published", "discarded"] as const) {
+    test(`refuses a ${status} session`, async () => {
+      await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, { status });
+      await refusePush(/no completed, committed work/);
+    });
+  }
+  test("requires the latest turn to finish cleanly", async () => {
+    await AppDataSource.getRepository(RepositoryWorkSessionTurn).update(turn.id, {
+      error: "Reached turn limit",
+    });
+    await refusePush(/did not finish cleanly/);
+  });
+  for (const branch of ["main", "release", "genosyn/another/session"]) {
+    test(`cannot redirect a push to ${branch}`, async () => {
+      await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, { branch });
+      await refusePush(/generated branch/);
+    });
+  }
+  test("cannot push its generated branch when configured as the default branch", async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      defaultBranch: session.branch!,
+    });
+    await refusePush(/generated branch/);
+  });
+  test("refuses a branch without new commits", async () => {
+    await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+      headCommit: session.baseCommit,
+    });
+    await refusePush(/generated branch/);
+  });
+  test("requires a Repository write Grant for SSH delivery", async () => {
+    await asSsh(false);
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).update(
+      { employeeId: employee.id },
+      { accessLevel: "read" },
+    );
+    await refusePush(/write Grant/);
+  });
+  test("does not borrow the sole company Connection without an explicit pin", async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      githubConnectionId: null,
+    });
+    await refusePush(/connected through a granted/);
+  });
+  test("requires the pinned Connection's live Grant when borrowing its credential", async () => {
+    await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
+    await refusePush(/Grant.*Connection/);
+  });
+  test("applies the branch-delivery company policy", async () => {
+    await asSsh(false);
+    await insert(CompanyPolicy, {
+      companyId: company.id,
+      title: "Manual pushes",
+      forbiddenTools: "push_repository_work_session",
+    });
+    await refusePush(/company policy.*Manual pushes/);
+  });
+  test("stands down branch delivery", async () => {
+    await insert(Standdown, {
+      companyId: company.id,
+      scope: "employee",
+      scopeId: employee.id,
+      reason: "Review the incident",
+    });
+    await refreshStanddowns();
+    await refusePush(/stood down.*Review the incident/);
+  });
+  for (const mutation of [
+    { name: "remote", update: { gitUrl: "git@github.com:acme/other.git" } },
+    { name: "SSH key", update: { encryptedSshKey: "replacement" } },
+    { name: "auth mode", update: { authMode: "none" as const } },
+    { name: "default branch", update: { defaultBranch: "release" } },
+    { name: "Connection pin", update: { githubConnectionId: "other" } },
+  ]) {
+    test(`rejects a changed ${mutation.name} immediately before credentialed push`, async () => {
+      await asSsh(false);
+      deps.push = async (_repo, branch, options) => {
+        await AppDataSource.getRepository(Repository).update(repository.id, mutation.update);
+        await options?.authorize?.();
+        calls.push(`push:${branch}`);
+        return { branch };
+      };
+      await refusePush(/changed before delivery/);
+    });
+  }
+  test("rechecks a Repository Grant inside the credentialed push", async () => {
+    await asSsh(false);
+    deps.push = async (_repo, branch, options) => {
+      await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({
+        employeeId: employee.id,
+      });
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    await refusePush(/write Grant/);
+  });
+  test("rejects a revision changed immediately before the push", async () => {
+    await asSsh(false);
+    deps.push = async (_repo, branch, options) => {
+      await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+        headCommit: "c".repeat(40),
+      });
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    await refusePush(/changed before delivery/);
+  });
+  test("a policy added while preparing credentials blocks the push", async () => {
+    await asSsh(false);
+    deps.push = async (_repo, branch, options) => {
+      await insert(CompanyPolicy, {
+        companyId: company.id,
+        title: "New policy",
+        forbiddenTools: "push_repository_work_session",
+      });
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    await refusePush(/company policy.*New policy/);
+  });
+  test("revoking the borrowed Connection Grant blocks the final push", async () => {
+    deps.push = async (_repo, branch, options) => {
+      await AppDataSource.getRepository(EmployeeConnectionGrant).delete({
+        employeeId: employee.id,
+      });
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    await refusePush(/Grant.*Connection/);
+  });
+  test("accepts a refreshed credential on the same live granted Connection", async () => {
+    deps.push = async (_repo, branch, options) => {
+      await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+        encryptedConfig: encryptConnectionConfig({ token: "replacement-token" }),
+      });
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    assert.equal((await push()).publishedBranch, session.branch);
+    assert.deepEqual(calls, [`push:${session.branch}`]);
+  });
+  test("rechecks delegated Member admin authority inside the push", async () => {
+    await asSsh(false);
+    const member = await insert(User, {
+      email: "push-admin@example.com",
+      name: "Admin",
+      passwordHash: "hash",
+      sessionVersion: 1,
+    });
+    const membership = await insert(Membership, {
+      companyId: company.id,
+      userId: member.id,
+      role: "admin",
+    });
+    deps.push = async (_repo, branch, options) => {
+      await AppDataSource.getRepository(Membership).update(membership.id, { role: "member" });
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    await assert.rejects(
+      () =>
+        pushEmployeeRepositoryWorkSession({
+          ...args(),
+          deps,
+          requester: { userId: member.id, sessionVersion: 1 },
+        }),
+      /no longer an owner or admin/,
+    );
+    assert.deepEqual(calls, []);
+  });
+  test("serializes discard with branch delivery and rejects simultaneous PR delivery", async () => {
+    await asSsh(false);
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    deps.push = async (_repo, branch, options) => {
+      entered();
+      await gate;
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      return { branch };
+    };
+    const pushing = push();
+    await ready;
+    await assert.rejects(publish, /already delivering/);
+    let claimed = false;
+    const discarding = discardRepositoryWorkSession(session.id, {
+      beforeClaim: async () => {
+        claimed = true;
+      },
+      removeWorktree: async () => {},
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(claimed, false, "discard must wait for the same session's push");
+    release();
+    assert.equal((await pushing).publishedBranch, session.branch);
+    const discarded = (await discarding).session;
+    assert.equal(discarded.status, "discarded");
+    assert.equal(discarded.publishedBranch, session.branch);
   });
 });

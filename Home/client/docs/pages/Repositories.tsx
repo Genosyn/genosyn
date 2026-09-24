@@ -278,7 +278,8 @@ export function Repositories() {
           Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}
           <Strong>default branch</Strong> as it stands there — see{" "}
           <Strong>Where a session starts</Strong> below — in a git <Strong>worktree</Strong> of its
-          own, on a fresh branch under <Code>genosyn/</Code>. Each session has a separate working copy.
+          own, on a fresh branch under <Code>genosyn/</Code>. Each session has a separate working
+          copy.
         </LI>
         <LI>
           Genosyn reads the root contributor guide into the employee&apos;s briefing and records
@@ -287,14 +288,14 @@ export function Repositories() {
           <DocLink to="#agents-md">Contributor guides</DocLink>.
         </LI>
         <LI>
-          The employee works through Genosyn&apos;s Repository tools. It can list the files and
-          find them by name pattern, search their contents,
-          read a file with line numbers, change one by exact replacement of text it copied from a
-          read, create or delete a file, check its working copy&apos;s status and diff, keep a
-          visible step list of its plan, and commit. When command execution is enabled,
-          it can also <Strong>run commands</Strong> in its working copy — your tests, your
-          linter, your build — so it verifies its own work before you read the diff. What it may run
-          is yours to decide; see <DocLink to="#commands">Commands</DocLink>.
+          The employee works through Genosyn&apos;s Repository tools. It can list the files and find
+          them by name pattern, search their contents, read a file with line numbers, change one by
+          exact replacement of text it copied from a read, create or delete a file, check its
+          working copy&apos;s status and diff, keep a visible step list of its plan, and commit.
+          When command execution is enabled, it can also <Strong>run commands</Strong> in its
+          working copy — your tests, your linter, your build — so it verifies its own work before
+          you read the diff. What it may run is yours to decide; see{" "}
+          <DocLink to="#commands">Commands</DocLink>.
         </LI>
         <LI>
           It commits its work and writes a short report of what it changed, what it left alone, and
@@ -515,11 +516,11 @@ export function Repositories() {
       </Callout>
       <H2 id="proactive-work">Work that starts from email or a Routine</H2>
       <P>
-        An AI Employee can read a customer&apos;s bug report and related evidence before asking
-        you to act. If it needs a Repository investigation or fix, it brings a concrete work
-        proposal to the <DocLink to="/docs/decisions">Decision stack</DocLink>, explaining why
-        human authority is needed. It cannot start a Work session or change the Repository until
-        an owner or admin approves the proposal.
+        An AI Employee can read a customer&apos;s bug report and related evidence before asking you
+        to act. If it needs a Repository investigation or fix, it brings a concrete work proposal to
+        the <DocLink to="/docs/decisions">Decision stack</DocLink>, explaining why human authority
+        is needed. It cannot start a Work session or change the Repository until an owner or admin
+        approves the proposal.
       </P>
       <P>
         After approval, the employee needs a <Strong>write Grant</Strong> on the Repository to start
@@ -535,14 +536,30 @@ export function Repositories() {
         and Changes from the Repository at any time.
       </P>
       <P>
-        For automatic pull requests, explicitly authorize delivery in the Soul or Routine, choose
-        the Repository through its GitHub or Forgejo Connection, and grant that same Connection to
-        the employee. It needs both Grants: Repository write access prepares the fix; the separate
-        Connection Grant permits the completed branch to be pushed and proposed. Personal tokens or
-        SSH keys stored directly on a Repository remain for Member delivery. Genosyn rechecks the
-        Grants before delivery and refuses unfinished, stopped, or failed work. Existing pull
-        requests receive the new branch commits; merging and publishing the default branch remain
-        Member actions.
+        Authorize delivery in the Soul or Routine and give the employee a{" "}
+        <Strong>write Grant</Strong> on the Repository. It starts a Work session, checks the final
+        report, then can push that session&apos;s completed branch with{" "}
+        <Code>push_repository_work_session</Code>. A stored SSH key or HTTPS token stays on the
+        server and can push without a forge Connection. The credential must have write access on the
+        remote. Repositories that use a Connection for Git also need that exact Connection selected
+        and granted to the employee.
+      </P>
+      <P>
+        To create a pull request, choose <Strong>Pull request Connection</Strong> in the
+        Repository&apos;s <Strong>Settings</Strong> and grant that same GitHub or Forgejo Connection
+        to the employee. <Code>open_repository_work_session_pull_request</Code> pushes the completed
+        branch and opens or updates its PR. SSH repositories keep their SSH key for Git; the
+        Connection supplies the separate API access needed to create a PR. An SSH key alone can push
+        a branch but cannot create a PR. Genosyn rechecks Grants before delivery and refuses
+        unfinished, stopped, or failed work. Merging and publishing the default branch remain Member
+        actions.
+      </P>
+      <P>
+        Changes intended for delivery should start in a Work session. An employee&apos;s general
+        checkout has no credentials. If earlier work stopped at a local commit there, preserve that
+        branch and give a new Work session the relevant diff or changed contents to reproduce and
+        verify. A successful push is recorded separately from a PR URL, so a pushed branch is never
+        reported as an opened pull request.
       </P>
       <P>
         Continue with <DocLink to="/docs/routines">Routines</DocLink> and{" "}

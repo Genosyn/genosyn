@@ -22,7 +22,7 @@ import {
   type ForgeProvider,
 } from "../integrations/providers/forge/connection.js";
 import { decryptConnectionConfig, persistConnectionConfigIfCurrent } from "./integrations.js";
-import { assertSafeCredentialToken } from "./gitCredentialHelper.js";
+import { assertSafeCredentialToken, assertSafeGitRemoteUrl } from "./gitCredentialHelper.js";
 
 /**
  * Speaking to the git forge a Repository lives on — GitHub, or a Forgejo /
@@ -229,6 +229,62 @@ export async function loadForgeCandidates(companyId: string): Promise<ForgeCandi
   return candidates;
 }
 
+/**
+ * Resolve the API identity of an SSH repository without lending it an HTTP
+ * credential. SSH and HTTPS have separate ports and paths: a Forgejo served
+ * at /git can still clone as git@host:owner/repo.git. Only the exact configured
+ * hostname may match; API requests keep the Connection's configured endpoint.
+ */
+function parseSshForgeRemote(
+  endpoint: ForgeEndpoint,
+  gitUrl: string,
+): { owner: string; repo: string } | null {
+  try {
+    assertSafeGitRemoteUrl(gitUrl);
+    const base = new URL(endpoint.webBase);
+    if (base.protocol !== "https:") return null;
+    let hostname: string;
+    let remotePath: string;
+    if (/^ssh:\/\//i.test(gitUrl)) {
+      const remote = new URL(gitUrl);
+      if (remote.protocol !== "ssh:") return null;
+      hostname = remote.hostname;
+      // Read the original path: URL normalizes ../ before exposing pathname.
+      remotePath = gitUrl.match(/^ssh:\/\/[^/]+\/(.+)$/i)?.[1] ?? "";
+    } else {
+      const remote = gitUrl.match(/^[A-Za-z0-9._-]+@([^:]+):(.+)$/);
+      if (!remote) return null;
+      hostname = remote[1];
+      remotePath = remote[2];
+    }
+    if (hostname.toLowerCase() !== base.hostname.toLowerCase()) return null;
+    const parts = remotePath.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+    if (!parts) return null;
+    const name = parts[2].replace(/\.git$/i, "");
+    if (!name || /^\.+$/.test(parts[1]) || /^\.+$/.test(name)) return null;
+    return { owner: parts[1], repo: name };
+  } catch {
+    return null;
+  }
+}
+
+/** Validate a Member's explicit pin without changing the repository's Git sign-in. */
+export async function repositoryForgeConnectionError(args: {
+  companyId: string;
+  gitUrl: string;
+  authMode: Repository["authMode"];
+  connectionId: string | null;
+}): Promise<string | null> {
+  if (!args.connectionId) return null;
+  const candidates = await loadForgeCandidates(args.companyId);
+  const selected = candidates.find(({ connection }) => connection.id === args.connectionId);
+  if (!selected) return "Choose a connected GitHub or Forgejo Connection from this company.";
+  const remote =
+    parseForgeRemote(selected.endpoint, args.gitUrl) ??
+    (args.authMode === "ssh" ? parseSshForgeRemote(selected.endpoint, args.gitUrl) : null);
+  return remote ? null : "That Connection does not match this repository's clone URL.";
+}
+
 export function matchForgeRemote(
   repo: Repository,
   available: readonly ForgeCandidate[],
@@ -239,7 +295,9 @@ export function matchForgeRemote(
     remote: { owner: string; repo: string };
   }> = [];
   for (const { connection, endpoint } of available) {
-    const remote = parseForgeRemote(endpoint, repo.gitUrl);
+    const remote =
+      parseForgeRemote(endpoint, repo.gitUrl) ??
+      (repo.authMode === "ssh" ? parseSshForgeRemote(endpoint, repo.gitUrl) : null);
     if (remote) candidates.push({ connection, endpoint, remote });
   }
 
@@ -266,7 +324,9 @@ export function matchForgeRemote(
   // rather than something an operator configured — a Repository carrying its
   // own HTTPS token has always been able to open pull requests with no
   // Connection at all, and that has to keep working.
-  const github = parseForgeRemote(GITHUB_ENDPOINT, repo.gitUrl);
+  const github =
+    parseForgeRemote(GITHUB_ENDPOINT, repo.gitUrl) ??
+    (repo.authMode === "ssh" ? parseSshForgeRemote(GITHUB_ENDPOINT, repo.gitUrl) : null);
   if (github) {
     return {
       endpoint: GITHUB_ENDPOINT,
@@ -284,23 +344,23 @@ export function matchForgeRemote(
  * Whether this remote could belong to any forge at all, without asking the
  * database.
  *
- * A token authenticates HTTPS and nothing else, so `parseForgeRemote` refuses
- * every other scheme — which makes an SSH remote, a `file://` path, or a plain
- * `http://` server a decided question before a query is worth running. The old
- * github.com hostname check answered the same question for free, and dropping
- * that short-circuit put a `SELECT` on the credential path of every repository
- * that can never match one.
+ * HTTPS may use a Connection for Git and API calls. SSH repositories can use
+ * one for API calls while retaining their own private key for Git. All other
+ * transports are decided before decrypting any company Connections.
  */
-function couldBeForgeRemote(gitUrl: string): boolean {
+function couldBeForgeRemote(repo: Repository): boolean {
   try {
-    return new URL(gitUrl).protocol === "https:";
+    assertSafeGitRemoteUrl(repo.gitUrl);
+    if (repo.authMode === "ssh" && !repo.gitUrl.includes("://")) return true;
+    const protocol = new URL(repo.gitUrl).protocol;
+    return protocol === "https:" || (repo.authMode === "ssh" && protocol === "ssh:");
   } catch {
     return false;
   }
 }
 
 export async function resolveForgeRemote(repo: Repository): Promise<ForgeRemoteMatch | null> {
-  if (!couldBeForgeRemote(repo.gitUrl)) return null;
+  if (!couldBeForgeRemote(repo)) return null;
   return matchForgeRemote(repo, await loadForgeCandidates(repo.companyId));
 }
 

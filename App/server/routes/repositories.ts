@@ -41,6 +41,7 @@ import {
   describeRepositoryForge,
   loadForgeCandidates,
   matchForgeRemote,
+  repositoryForgeConnectionError,
   type RepositoryForgeInfo,
 } from "../services/repositoryForge.js";
 import {
@@ -167,6 +168,13 @@ repositoriesRouter.post(
 
     const slug = await uniqueRepositorySlug(cid, body.name);
     const origin = body.origin ?? "remote";
+    const connectionError = await repositoryForgeConnectionError({
+      companyId: cid,
+      gitUrl: (body.gitUrl ?? "").trim(),
+      authMode: body.authMode,
+      connectionId: body.githubConnectionId ?? null,
+    });
+    if (connectionError) return res.status(400).json({ error: connectionError });
     const row = repo.create({
       companyId: cid,
       name: body.name.trim(),
@@ -177,6 +185,7 @@ repositoriesRouter.post(
       gitUrl: origin === "local" ? "" : (body.gitUrl ?? "").trim(),
       defaultBranch: (body.defaultBranch ?? "main").trim() || "main",
       authMode: body.authMode,
+      githubConnectionId: body.githubConnectionId ?? null,
       httpsUsername: body.authMode === "https" ? (body.httpsUsername ?? "").trim() || null : null,
       encryptedToken:
         body.authMode === "https" && body.token ? encryptRepoSecret(body.token, cid) : null,
@@ -266,11 +275,31 @@ repositoriesRouter.patch(
     if (credentialError) {
       return res.status(400).json({ error: credentialError });
     }
+    const nextConnectionId =
+      nextOrigin === "local"
+        ? null
+        : body.githubConnectionId !== undefined
+          ? body.githubConnectionId
+          : row.githubConnectionId;
+    if (
+      body.githubConnectionId !== undefined ||
+      body.gitUrl !== undefined ||
+      body.authMode !== undefined
+    ) {
+      const connectionError = await repositoryForgeConnectionError({
+        companyId: cid,
+        gitUrl: nextGitUrl,
+        authMode: nextAuthMode,
+        connectionId: nextConnectionId,
+      });
+      if (connectionError) return res.status(400).json({ error: connectionError });
+    }
 
     if (body.name !== undefined) row.name = body.name.trim();
     if (body.kind !== undefined) row.kind = body.kind;
     if (body.gitUrl !== undefined) row.gitUrl = body.gitUrl.trim();
     row.origin = nextOrigin;
+    row.githubConnectionId = nextConnectionId;
     if (body.defaultBranch !== undefined) row.defaultBranch = body.defaultBranch.trim() || "main";
     if (body.description !== undefined) row.description = body.description.trim();
     if (body.committerName !== undefined) row.committerName = body.committerName.trim() || null;

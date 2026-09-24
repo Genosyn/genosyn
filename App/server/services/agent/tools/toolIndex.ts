@@ -493,6 +493,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "list_repositories",
       "start_repository_work_session",
       "get_repository_work_session",
+      "push_repository_work_session",
       "open_repository_work_session_pull_request",
       "repository_list_files",
       "repository_read_file",
@@ -1508,6 +1509,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "work session",
   ],
   get_repository_work_session: ["work session", "status", "progress", "result", "fix"],
+  push_repository_work_session: [
+    "ssh",
+    "git push",
+    "push branch",
+    "publish branch",
+    "deliver",
+    "work session",
+  ],
   open_repository_work_session_pull_request: [
     "pull request",
     "pr",

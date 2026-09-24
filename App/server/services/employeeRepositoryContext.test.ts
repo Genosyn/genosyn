@@ -198,6 +198,47 @@ describe("materialized employee repository contributor context", () => {
     assert.doesNotMatch(result, new RegExp(tmp));
   });
 
+  for (const authMode of ["none", "https", "ssh"] as const) {
+    test(`directs write-granted ${authMode} Repository changes into a deliverable Work session`, async () => {
+      const { row, synced } = await grantedCheckout();
+      await AppDataSource.getRepository(Repository).update(row.id, { authMode });
+      const result = await context([synced]);
+      assert.match(result, /start_repository_work_session before editing/);
+      assert.match(result, /start_repository_work_session using repository "website"/);
+      assert.match(result, /push_repository_work_session.*server-held SSH or HTTPS credentials/);
+      assert.match(
+        result,
+        /open_repository_work_session_pull_request.*exact granted forge Connection/,
+      );
+      assert.match(result, /get_repository_work_session confirms completed work/);
+      assert.match(result, /claim a PR only when the tool returns its URL/);
+      assert.match(result, /credentials stay server-side/);
+      assert.doesNotMatch(result, /credentialed pushing is disabled|push if the remote accepts/);
+    });
+  }
+
+  test("recovers existing local changes by supplying their contents to a validated Work session", async () => {
+    const { synced } = await grantedCheckout();
+    const result = await context([synced]);
+    assert.match(result, /preserve its local branch and commit/);
+    assert.match(result, /bounded diff or the relevant changed file contents/);
+    assert.match(result, /new Work session instruction to reproduce and validate/);
+    assert.match(result, /isolated session cannot read this checkout/);
+    assert.match(result, /Do not claim those old local commits were pushed/);
+  });
+
+  test("does not promise publishing when a write Grant has been reduced to read-only", async () => {
+    const { row, synced } = await grantedCheckout();
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).update(
+      { repositoryId: row.id, employeeId: employee.id },
+      { accessLevel: "read" },
+    );
+    const result = await context([synced]);
+    assert.match(result, /Read-only Grant/);
+    assert.match(result, /changing or publishing Repository work requires a write Grant/);
+    assert.doesNotMatch(result, /push_repository_work_session pushes/);
+  });
+
   for (const name of ["agents.md", "AGENT.md", "agent.md", "AgEnTs.Md", "CLAUDE.md", "claude.md"]) {
     test(`automatically includes the ${name} alias`, async () => {
       const { synced } = await grantedCheckout("aliases", name, `Instruction from ${name}`);
@@ -239,6 +280,9 @@ describe("materialized employee repository contributor context", () => {
     );
     assert.match(result, /Forge instructions: run npm test/);
     assert.match(result, /repos\/git.example\/acme\/web\/agent.md/);
+    assert.match(result, /list_repositories to find a matching granted Repository/);
+    assert.match(result, /start_repository_work_session for changes that need delivery/);
+    assert.doesNotMatch(result, /credentialed pushing is disabled/);
     assert.doesNotMatch(result, new RegExp(tmp));
   });
 
@@ -460,6 +504,8 @@ describe("chat and Routine repository briefing integration", () => {
     );
     assert.equal(result.status, "ok");
     assert.match(systemReceived(), /Run npm run verify-repository before committing/);
+    assert.match(systemReceived(), /start_repository_work_session before editing/);
+    assert.match(systemReceived(), /push_repository_work_session/);
     assert.ok(gitRequests > 0);
   });
 
@@ -509,6 +555,8 @@ describe("chat and Routine repository briefing integration", () => {
     const run = await started.completion;
     assert.equal(run.status, "completed", run.logContent);
     assert.match(systemReceived(), /Routine contributor instruction: run npm run routine-check/);
+    assert.match(systemReceived(), /start_repository_work_session before editing/);
+    assert.match(systemReceived(), /push_repository_work_session/);
     assert.match(run.logContent, /\[repositories\] synced actual@main/);
   });
 
