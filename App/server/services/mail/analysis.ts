@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { LessThan } from "typeorm";
 
+import { recordAudit, withAuditContext } from "../audit.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
@@ -70,6 +72,10 @@ export const MAIL_ANALYSIS_REPLY_CHARS = 8_000;
 export const MAIL_ANALYSIS_EMAIL_JSON_CHARS = 41_000;
 export const MAIL_ANALYSIS_PROMPT_CHARS = 44_000;
 export const MAIL_ANALYSIS_TIMEOUT_MS = 90_000;
+/** Allow preparation as much time as the model, while bounding the whole read. */
+export const MAIL_ANALYSIS_LIFETIME_MS = MAIL_ANALYSIS_TIMEOUT_MS * 2;
+/** A replica may recover only after the deadline plus time to persist its result. */
+export const MAIL_ANALYSIS_INTERRUPTED_AFTER_MS = MAIL_ANALYSIS_LIFETIME_MS + 60_000;
 export const MAIL_ANALYSIS_MAX_ACTIONS = 4;
 export const MAIL_ANALYSIS_MAX_LINES = 20;
 
@@ -321,9 +327,10 @@ export type SerializedMailAnalysis = ReturnType<typeof serializeAnalysis>;
 export async function analysesForThread(
   companyId: string,
   threadId: string,
+  accountId?: string,
 ): Promise<MailInboundAnalysis[]> {
   return AppDataSource.getRepository(MailInboundAnalysis).find({
-    where: { companyId, threadId },
+    where: { companyId, threadId, ...(accountId ? { accountId } : {}) },
     order: { createdAt: "ASC" },
   });
 }
@@ -452,6 +459,88 @@ export async function analyzeInboundMessage(
   return started;
 }
 
+/** Immutable attempt evidence survives re-analysis replacing the current verdict. */
+async function recordAnalysisReview(
+  row: MailInboundAnalysis,
+  phase: "started" | "completed" | "failed",
+  interrupted = false,
+): Promise<void> {
+  await withAuditContext({ mailThreadId: row.threadId }, () =>
+    recordAudit({
+      companyId: row.companyId,
+      actorEmployeeId: row.employeeId,
+      action: `mail.analysis.${phase}`,
+      targetType: "mail_inbound_analysis",
+      targetId: row.id,
+      metadata: {
+        messageId: row.messageId,
+        ...(phase === "started" ? { attemptStartedAt: row.updatedAt.toISOString() } : {}),
+        ...(interrupted ? { interrupted: true } : {}),
+      },
+    }),
+  );
+}
+
+/** Compare the exact attempt, so a late worker cannot overwrite a retry or recovery. */
+async function finishAnalysisAttempt(row: MailInboundAnalysis, startedAt: Date): Promise<boolean> {
+  const updatedAt = new Date(Math.max(Date.now(), startedAt.getTime()));
+  const result = await AppDataSource.getRepository(MailInboundAnalysis).update(
+    {
+      id: row.id,
+      companyId: row.companyId,
+      accountId: row.accountId,
+      status: "running",
+      updatedAt: startedAt,
+    },
+    {
+      status: row.status,
+      category: row.category,
+      summary: row.summary,
+      actionsJson: row.actionsJson,
+      errorMessage: row.errorMessage,
+      finishedAt: row.finishedAt,
+      updatedAt,
+    },
+  );
+  if (result.affected !== 1) return false;
+  row.updatedAt = updatedAt;
+  return true;
+}
+
+/**
+ * The existing queue heartbeat also recovers manual reads after a stopped
+ * worker. The bound is enforced below, not inferred from this process's local
+ * promises: another replica's live review gets its full lifetime and grace.
+ */
+export async function recoverInterruptedMailAnalyses(now = new Date()): Promise<number> {
+  const repo = AppDataSource.getRepository(MailInboundAnalysis);
+  const stale = await repo.find({
+    where: {
+      status: "running",
+      updatedAt: LessThan(new Date(now.getTime() - MAIL_ANALYSIS_INTERRUPTED_AFTER_MS)),
+    },
+    order: { updatedAt: "ASC" },
+    take: 100,
+  });
+  let recovered = 0;
+  for (const row of stale) {
+    const startedAt = row.updatedAt;
+    row.status = "failed";
+    row.category = "";
+    row.summary = "";
+    row.actionsJson = "[]";
+    row.errorMessage = "This email review was interrupted before it finished. Try again.";
+    // Detection may happen long after the interruption. Do not date this old
+    // attempt after a later, successfully completed handover of the same email.
+    row.finishedAt = new Date(startedAt.getTime() + MAIL_ANALYSIS_LIFETIME_MS);
+    if (!(await finishAnalysisAttempt(row, startedAt))) continue;
+    await recordAnalysisReview(row, "failed", true);
+    broadcastToCompany(row.companyId, { type: "mail.updated", accountId: row.accountId });
+    recovered += 1;
+  }
+  return recovered;
+}
+
 async function runAnalysis(
   account: MailAccount,
   message: MailMessage,
@@ -481,13 +570,12 @@ async function runAnalysis(
       "One of this email's actions has already run, so its analysis is kept as the record of that.",
     );
   }
-  const row = repo.create({
-    ...(existing ?? {}),
+  const attempt = {
     companyId: account.companyId,
     accountId: account.id,
     threadId: message.threadId,
     messageId: message.id,
-    status: "running",
+    status: "running" as const,
     employeeId: reader.employee.id,
     modelId: reader.model.id,
     category: "",
@@ -495,15 +583,50 @@ async function runAnalysis(
     actionsJson: "[]",
     errorMessage: "",
     finishedAt: null,
-  });
-  await repo.save(row);
+    // SQLite's automatic timestamp has only seconds. Attempts need an exact
+    // identity so recovery cannot finish a newer retry in the same second.
+    updatedAt: new Date(Math.max(Date.now(), (existing?.updatedAt.getTime() ?? 0) + 1)),
+  };
+  const row = repo.create({ ...(existing ?? {}), ...attempt });
+  // save() may replace an unchanged updatedAt with the database's seconds-only
+  // default when a fast retry starts in the same millisecond as completion.
+  if (existing) await repo.update(existing.id, attempt);
+  else await repo.save(row);
+  const startedAt = row.updatedAt;
+  await recordAnalysisReview(row, "started");
+  broadcastToCompany(account.companyId, { type: "mail.updated", accountId: account.id });
 
+  const controller = new AbortController();
+  const deadlineAt = startedAt.getTime() + MAIL_ANALYSIS_LIFETIME_MS;
+  const timeoutError = () =>
+    new Error("This email review did not finish within its time limit. Try again.");
+  let timer: NodeJS.Timeout | undefined;
   try {
-    const facts = await (dependencies.gatherFacts ?? gatherAnalysisFacts)(account, message, reader);
-    const verdict = await runAnalysisTurn(
-      { account, message, reader, facts },
-      { runRestricted: dependencies.runRestricted },
-    );
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => {
+          controller.abort();
+          reject(timeoutError());
+        },
+        Math.max(0, deadlineAt - Date.now()),
+      );
+    });
+    const review = async () => {
+      const facts = await (dependencies.gatherFacts ?? gatherAnalysisFacts)(
+        account,
+        message,
+        reader,
+      );
+      // A slow metadata read must not start model work after the deadline.
+      controller.signal.throwIfAborted();
+      if (Date.now() >= deadlineAt) throw timeoutError();
+      return runAnalysisTurn(
+        { account, message, reader, facts },
+        { runRestricted: dependencies.runRestricted, signal: controller.signal },
+      );
+    };
+    const verdict = await Promise.race([review(), deadline]);
+    if (Date.now() >= deadlineAt) throw timeoutError();
     row.status = "succeeded";
     row.category = verdict.category;
     row.summary = verdict.summary;
@@ -515,9 +638,12 @@ async function runAnalysis(
     row.summary = "";
     row.actionsJson = "[]";
     row.errorMessage = (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   row.finishedAt = new Date();
-  await repo.save(row);
+  if (!(await finishAnalysisAttempt(row, startedAt))) return repo.findOneBy({ id: row.id });
+  await recordAnalysisReview(row, row.status === "succeeded" ? "completed" : "failed");
   // Analysis lands seconds to a minute after the email does, so a Member who
   // opened the thread first would otherwise sit on "Reading this email…"
   // until they navigated away. The mail pages already reload on this event.
@@ -584,7 +710,7 @@ export async function runAnalysisTurn(
     reader: MailAnalysisReader;
     facts: MailAnalysisFacts;
   },
-  dependencies: { runRestricted?: typeof runRestrictedEmployeeAgent } = {},
+  dependencies: { runRestricted?: typeof runRestrictedEmployeeAgent; signal?: AbortSignal } = {},
 ): Promise<MailAnalysisVerdict> {
   let submission: MailAnalysisSubmission | null = null;
   let duplicateSubmission = false;
@@ -648,7 +774,9 @@ export async function runAnalysisTurn(
       ],
       tools: [submitAnalysis],
       maxSteps: 3,
-      signal: controller.signal,
+      signal: dependencies.signal
+        ? AbortSignal.any([controller.signal, dependencies.signal])
+        : controller.signal,
     });
     if (result.status === "error") throw new Error(result.error);
     if (duplicateSubmission) throw new Error("The AI Employee submitted more than one analysis.");

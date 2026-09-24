@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
+import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import {
@@ -10,6 +11,7 @@ import {
   type MailAccessLevel,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
+import { MailHandover } from "../../db/entities/MailHandover.js";
 import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
@@ -17,22 +19,30 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarne
 import {
   MAIL_ANALYSIS_BODY_CHARS,
   MAIL_ANALYSIS_HEADER_CHARS,
+  MAIL_ANALYSIS_INTERRUPTED_AFTER_MS,
+  MAIL_ANALYSIS_LIFETIME_MS,
   MAIL_ANALYSIS_PROMPT_CHARS,
   MAIL_ANALYSIS_SOUL_CHARS,
+  MAIL_ANALYSIS_TIMEOUT_MS,
   MailAnalysisAlreadyActed,
   analysisSystemPrompt,
   analysisUserPrompt,
   analyzeInboundMessage,
   gatherAnalysisFacts,
   parseAnalysisActions,
+  recoverInterruptedMailAnalyses,
   resolveAnalysisReader,
   runAnalysisTurn,
+  serializeAnalysis,
   verifyActions,
   type MailAnalysisFacts,
   type MailAnalysisReader,
   type MailAnalysisSubmission,
 } from "./analysis.js";
 import { attachmentNames, jsonBoundedString } from "./promptBounds.js";
+import { runMailAutomationQueuePass } from "./automationQueue.js";
+import { summarizeMailReview } from "./reviewStatus.js";
+import { mailReviewTimeline } from "./reviewTimeline.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -689,6 +699,38 @@ describe("analysing one inbound message", () => {
     assert.equal(rows[0].errorMessage, "quota exhausted");
     assert.equal(rows[0].category, "");
     assert.deepEqual(parseAnalysisActions(rows[0].actionsJson), []);
+    const attempts = await AppDataSource.getRepository(AuditEvent).find({
+      where: {
+        companyId: account.companyId,
+        targetType: "mail_inbound_analysis",
+        targetId: failed!.id,
+      },
+    });
+    assert.equal(
+      attempts.filter((attempt) => attempt.action === "mail.analysis.started").length,
+      2,
+    );
+    assert.equal(
+      attempts.filter((attempt) => attempt.action === "mail.analysis.completed").length,
+      1,
+    );
+    assert.equal(attempts.filter((attempt) => attempt.action === "mail.analysis.failed").length, 1);
+    for (const attempt of attempts) {
+      const metadata = JSON.parse(attempt.metadataJson);
+      assert.deepEqual(metadata, {
+        messageId: message.id,
+        mailThreadId: message.threadId,
+        ...(attempt.action === "mail.analysis.started"
+          ? { attemptStartedAt: metadata.attemptStartedAt }
+          : {}),
+      });
+      if (attempt.action === "mail.analysis.started") {
+        assert.equal(typeof metadata.attemptStartedAt, "string");
+        assert.equal(Number.isNaN(new Date(metadata.attemptStartedAt).getTime()), false);
+      }
+      assert.equal(attempt.actorEmployeeId, failed!.employeeId);
+      assert.equal(attempt.metadataJson.includes("quota exhausted"), false);
+    }
   });
 
   test("skips silently, leaving no row, when nothing can read the mailbox", async () => {
@@ -711,6 +753,254 @@ describe("analysing one inbound message", () => {
 });
 
 // ───────────────────────────── server-verified facts ─────────────────────────────
+
+describe("interrupted email review recovery", () => {
+  test("recovers only expired attempts and keeps the badge, timeline and retry card consistent", async () => {
+    const account = await mailbox();
+    const { employee } = await reader(account);
+    const thread = await insert(MailThread, {
+      companyId: account.companyId,
+      accountId: account.id,
+      gmailThreadId: randomUUID(),
+    });
+    const now = new Date();
+    const startedAt = new Date(now.getTime() - MAIL_ANALYSIS_INTERRUPTED_AFTER_MS - 1);
+    const message = await inboundMessage(account, {
+      threadId: thread.id,
+      createdAt: new Date(startedAt.getTime() - 1_000),
+    });
+    const repo = AppDataSource.getRepository(MailInboundAnalysis);
+    const stale = await insert(MailInboundAnalysis, {
+      companyId: account.companyId,
+      accountId: account.id,
+      threadId: thread.id,
+      messageId: message.id,
+      employeeId: employee.id,
+      status: "running",
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    });
+    const boundary = await insert(MailInboundAnalysis, {
+      ...stale,
+      id: randomUUID(),
+      messageId: randomUUID(),
+      updatedAt: new Date(now.getTime() - MAIL_ANALYSIS_INTERRUPTED_AFTER_MS),
+    });
+    const live = await insert(MailInboundAnalysis, {
+      ...stale,
+      id: randomUUID(),
+      messageId: randomUUID(),
+      updatedAt: new Date(now.getTime() - MAIL_ANALYSIS_TIMEOUT_MS),
+    });
+    const completed = await insert(MailInboundAnalysis, {
+      ...stale,
+      id: randomUUID(),
+      messageId: randomUUID(),
+      status: "succeeded",
+      summary: "An earlier completed review.",
+      finishedAt: startedAt,
+    });
+
+    assert.equal(await recoverInterruptedMailAnalyses(now), 1);
+    const recovered = await repo.findOneByOrFail({ id: stale.id });
+    assert.equal(recovered.status, "failed");
+    assert.equal(recovered.finishedAt?.getTime(), startedAt.getTime() + MAIL_ANALYSIS_LIFETIME_MS);
+    assert.match(serializeAnalysis(recovered).errorMessage, /interrupted.*Try again/);
+    assert.equal(serializeAnalysis(recovered).status, "failed");
+    assert.equal((await repo.findOneByOrFail({ id: boundary.id })).status, "running");
+    assert.equal((await repo.findOneByOrFail({ id: live.id })).status, "running");
+    assert.equal((await repo.findOneByOrFail({ id: completed.id })).summary, completed.summary);
+    const summaryArgs = {
+      account,
+      message,
+      employees: new Map([[employee.id, employee]]),
+      analyses: [recovered],
+      handovers: [] as MailHandover[],
+    };
+    assert.equal(summarizeMailReview(summaryArgs).status, "needs_attention");
+    const timeline = await mailReviewTimeline({
+      account,
+      thread,
+      messages: [message],
+      analyses: [recovered],
+      handovers: [],
+      canReadFinance: true,
+      canReviewApprovals: true,
+    });
+    const failures = timeline.events.filter((event) => event.kind === "review_failed");
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].title, "Interrupted review detected");
+    assert.equal(
+      timeline.events.some((event) => event.status === "running"),
+      false,
+    );
+
+    const handover = Object.assign(new MailHandover(), {
+      companyId: account.companyId,
+      accountId: account.id,
+      threadId: thread.id,
+      employeeId: employee.id,
+      status: "completed",
+      createdAt: new Date(recovered.finishedAt!.getTime() + 1_000),
+      startedAt: new Date(recovered.finishedAt!.getTime() + 2_000),
+      finishedAt: new Date(recovered.finishedAt!.getTime() + 3_000),
+    });
+    assert.equal(summarizeMailReview({ ...summaryArgs, handovers: [handover] }).status, "reviewed");
+    assert.equal(await recoverInterruptedMailAnalyses(now), 0);
+    // The existing worker also runs recovery for manual reads, including when
+    // no inbound automation is queued; the exact grace boundary remains live.
+    await runMailAutomationQueuePass({ now: () => new Date(now.getTime() + 1) });
+    assert.equal((await repo.findOneByOrFail({ id: boundary.id })).status, "failed");
+  });
+
+  test("recovery cannot overwrite a completion or a same-second retry after its scan", async (t) => {
+    const account = await mailbox();
+    const { employee } = await reader(account);
+    const message = await inboundMessage(account);
+    const repo = AppDataSource.getRepository(MailInboundAnalysis);
+    const startedAt = new Date("2026-09-24T10:00:00.100Z");
+    const row = await insert(MailInboundAnalysis, {
+      companyId: account.companyId,
+      accountId: account.id,
+      threadId: message.threadId,
+      messageId: message.id,
+      employeeId: employee.id,
+      status: "running",
+      updatedAt: startedAt,
+    });
+    const now = new Date(startedAt.getTime() + MAIL_ANALYSIS_INTERRUPTED_AFTER_MS + 1);
+    for (const status of ["running", "succeeded"] as const) {
+      await repo.update(row.id, { status: "running", updatedAt: startedAt });
+      const retryAt = new Date(startedAt.getTime() + 1);
+      const originalFind = repo.find.bind(repo);
+      const find = t.mock.method(repo, "find", async (...args: Parameters<typeof repo.find>) => {
+        const rows = await originalFind(...args);
+        await repo.update(row.id, { status, updatedAt: retryAt, summary: "A newer attempt." });
+        return rows;
+      });
+      assert.equal(await recoverInterruptedMailAnalyses(now), 0);
+      find.mock.restore();
+      const preserved = await repo.findOneByOrFail({ id: row.id });
+      assert.equal(preserved.status, status);
+      assert.equal(preserved.updatedAt.getTime(), retryAt.getTime());
+      assert.equal(preserved.summary, "A newer attempt.");
+    }
+    assert.equal(
+      await AppDataSource.getRepository(AuditEvent).countBy({
+        targetId: row.id,
+        action: "mail.analysis.failed",
+      }),
+      0,
+    );
+  });
+
+  test("the review deadline stops an unresponsive model and its late result cannot replace a retry", async (t) => {
+    const account = await mailbox();
+    await reader(account);
+    const message = await inboundMessage(account);
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let finished!: () => void;
+    const lateResult = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    const running = analyzeInboundMessage(account, message, {
+      gatherFacts: async () => facts(),
+      runRestricted: async (params) => {
+        signal = params.signal;
+        entered();
+        await held; // Deliberately ignore cancellation, as a stuck transport could.
+        await params.tools[0].run({ category: "vendor", summary: "Old result.", actions: [] });
+        finished();
+        return { status: "ok", finalText: "", steps: 1 };
+      },
+    });
+    await started;
+    t.mock.timers.tick(MAIL_ANALYSIS_TIMEOUT_MS);
+    assert.equal(signal?.aborted, true, "the existing model timeout still applies");
+    assert.equal((await analysisRows())[0].status, "running");
+    t.mock.timers.tick(MAIL_ANALYSIS_LIFETIME_MS - MAIL_ANALYSIS_TIMEOUT_MS);
+    const expired = await running;
+    assert.equal(expired?.status, "failed");
+    assert.match(expired!.errorMessage, /time limit/);
+    const retried = await analyzeInboundMessage(account, message, {
+      gatherFacts: async () => facts(),
+      runRestricted: async (params) => {
+        const timeline = await mailReviewTimeline({
+          account,
+          thread: Object.assign(new MailThread(), {
+            id: message.threadId,
+            companyId: account.companyId,
+            accountId: account.id,
+          }),
+          messages: [message],
+          analyses: await analysisRows(),
+          handovers: [],
+          canReadFinance: true,
+          canReviewApprovals: true,
+        });
+        assert.equal(timeline.events.filter((event) => event.kind === "review_started").length, 2);
+        assert.equal(timeline.events.filter((event) => event.status === "running").length, 1);
+        await params.tools[0].run({ category: "vendor", summary: "New result.", actions: [] });
+        return { status: "ok", finalText: "", steps: 1 };
+      },
+    });
+    release();
+    await lateResult;
+    assert.equal(retried?.status, "succeeded");
+    assert.ok(
+      retried!.updatedAt > expired!.updatedAt,
+      "immediate retries have distinct attempt stamps",
+    );
+    assert.equal((await analysisRows())[0].summary, "New result.");
+    const audits = await AppDataSource.getRepository(AuditEvent).findBy({ targetId: retried!.id });
+    assert.equal(audits.filter((audit) => audit.action === "mail.analysis.completed").length, 1);
+    assert.equal(audits.filter((audit) => audit.action === "mail.analysis.failed").length, 1);
+  });
+
+  test("the review deadline bounds fact collection and prevents a late model start", async (t) => {
+    const account = await mailbox();
+    await reader(account);
+    const message = await inboundMessage(account);
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: (value: MailAnalysisFacts) => void;
+    const held = new Promise<MailAnalysisFacts>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const running = analyzeInboundMessage(account, message, {
+      gatherFacts: async () => {
+        entered();
+        return held;
+      },
+      runRestricted: async () => {
+        calls += 1;
+        return { status: "ok", finalText: "", steps: 1 };
+      },
+    });
+    await started;
+    t.mock.timers.tick(MAIL_ANALYSIS_LIFETIME_MS - 1);
+    assert.equal((await analysisRows())[0].status, "running");
+    t.mock.timers.tick(1);
+    assert.equal((await running)?.status, "failed");
+    release(facts());
+    await held;
+    assert.equal(calls, 0);
+    assert.equal((await analysisRows())[0].status, "failed");
+  });
+});
 
 describe("the facts handed to the model as ground truth", () => {
   test("reports what the mailbox actually allows rather than what the email claims", async () => {

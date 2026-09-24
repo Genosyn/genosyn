@@ -67,6 +67,8 @@ import {
   resolveAnalysisReader,
   serializeAnalysis,
 } from "../services/mail/analysis.js";
+import { mailReviewsForThreads, type MailReviewSummary } from "../services/mail/reviewStatus.js";
+import { mailReviewTimeline } from "../services/mail/reviewTimeline.js";
 import { executeAnalysisAction } from "../services/mail/analysisActions.js";
 import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
 import { decodeHtmlEntities } from "../services/mail/gmailClient.js";
@@ -147,10 +149,11 @@ async function loadThread(
   return { thread, account };
 }
 
-function serializeThread(t: MailThread) {
+function serializeThread(t: MailThread, aiReview?: MailReviewSummary) {
   return {
     id: t.id,
     gmailThreadId: t.gmailThreadId,
+    aiReview,
     accountId: t.accountId,
     subject: t.subject,
     snippet: decodeHtmlEntities(t.snippet),
@@ -217,10 +220,10 @@ function serializeHandover(
   };
 }
 
-async function employeesById(ids: string[]): Promise<Map<string, AIEmployee>> {
+async function employeesById(ids: string[], companyId?: string): Promise<Map<string, AIEmployee>> {
   if (ids.length === 0) return new Map();
   const rows = await AppDataSource.getRepository(AIEmployee).find({
-    where: { id: In(Array.from(new Set(ids))) },
+    where: { id: In(Array.from(new Set(ids))), ...(companyId ? { companyId } : {}) },
   });
   return new Map(rows.map((e) => [e.id, e]));
 }
@@ -583,7 +586,11 @@ mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
     rows.length > limit && page.length > 0
       ? (page[page.length - 1].lastMessageAt?.toISOString() ?? null)
       : null;
-  res.json({ threads: page.map(serializeThread), nextBefore });
+  const reviews = await mailReviewsForThreads(account, page);
+  res.json({
+    threads: page.map((thread) => serializeThread(thread, reviews.get(thread.id))),
+    nextBefore,
+  });
 });
 
 mailRouter.get("/mail/threads/:tid", async (req, res) => {
@@ -594,17 +601,33 @@ mailRouter.get("/mail/threads/:tid", async (req, res) => {
   if (!found) return res.status(404).json({ error: "Thread not found" });
   const { thread, account } = found;
   const messages = await AppDataSource.getRepository(MailMessage).find({
-    where: { threadId: thread.id },
+    where: { threadId: thread.id, accountId: account.id, companyId: account.companyId },
     order: { sentAt: "ASC" },
   });
   const handovers = await AppDataSource.getRepository(MailHandover).find({
-    where: { threadId: thread.id },
+    where: { threadId: thread.id, accountId: account.id, companyId: account.companyId },
     order: { createdAt: "DESC" },
   });
-  const employees = await employeesById(handovers.map((h) => h.employeeId));
-  const analyses = await analysesForThread(thread.companyId, thread.id);
+  const employees = await employeesById(
+    handovers.map((h) => h.employeeId),
+    account.companyId,
+  );
+  const analyses = await analysesForThread(thread.companyId, thread.id, account.id);
+  const [reviews, reviewTimeline] = await Promise.all([
+    mailReviewsForThreads(account, [thread]),
+    mailReviewTimeline({
+      account,
+      thread,
+      messages,
+      handovers,
+      analyses,
+      canReadFinance: effectiveFinanceAccess(req) !== "none",
+      canReviewApprovals: req.companyRole === "owner" || req.companyRole === "admin",
+    }),
+  ]);
   res.json({
-    thread: serializeThread(thread),
+    thread: serializeThread(thread, reviews.get(thread.id)),
+    reviewTimeline,
     account: { id: account.id, address: account.address },
     messages: messages.map(serializeMessage),
     handovers: handovers.map((h) => serializeHandover(h, employees)),

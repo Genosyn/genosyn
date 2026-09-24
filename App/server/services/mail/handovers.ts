@@ -20,7 +20,8 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { chatWithEmployee, type ChatOptions } from "../chat.js";
-import { recordAudit } from "../audit.js";
+import { recordAudit, withAuditContext } from "../audit.js";
+import { isInboundReviewMessage } from "./reviewStatus.js";
 import { createNotifications } from "../notifications.js";
 import { broadcastToCompany } from "../realtime.js";
 import { config } from "../../../config.js";
@@ -123,6 +124,7 @@ export async function createMailHandover(args: CreateMailHandoverArgs): Promise<
     status: args.precheckError ? "failed" : "pending",
     errorMessage: args.precheckError ?? "",
     finishedAt: args.precheckError ? new Date() : null,
+    createdAt: new Date(),
   });
   await repo.save(handover);
   await recordAudit({
@@ -163,6 +165,13 @@ export async function retryMailHandover(
   handover.requesterUserId = requester.userId;
   handover.requesterSessionVersion = requester.sessionVersion;
   await repo.save(handover);
+  await recordAudit({
+    companyId: handover.companyId,
+    actorUserId: requester.userId,
+    action: "mail.handover.retry",
+    targetType: "mail_handover",
+    targetId: handover.id,
+  });
   enqueue(handover.id);
 }
 
@@ -341,13 +350,37 @@ export async function runHandover(
       where: { threadId: thread.id, accountId: account.id, companyId: account.companyId },
       order: { sentAt: "ASC" },
     });
-    const prompt = composeHandoverPrompt(handover, account, thread, messages);
     const authority = resolveMailHandoverAuthority(handover);
     if (!authority) {
       throw new Error(
         "This manual handover predates secure Member delegation. Retry it from a logged-in browser to authorize a new attempt.",
       );
     }
+    const latestInbound = messages
+      .filter((message) => isInboundReviewMessage(message, account))
+      .sort(
+        (a, b) =>
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          (b.sentAt ?? b.createdAt).getTime() - (a.sentAt ?? a.createdAt).getTime() ||
+          b.id.localeCompare(a.id),
+      )[0];
+    // The bounded composer consumes the last message first. Reserve that slot
+    // for the inbound email the snapshot attests to, even if its sender supplied
+    // an old Date header; preserve the existing order of all other messages.
+    const promptMessages = latestInbound
+      ? [...messages.filter((message) => message.id !== latestInbound.id), latestInbound]
+      : messages;
+    const prompt = composeHandoverPrompt(handover, account, thread, promptMessages);
+    await withAuditContext({ mailThreadId: thread.id, mailHandoverId: handover.id }, () =>
+      recordAudit({
+        companyId: account.companyId,
+        actorEmployeeId: employee.id,
+        action: "mail.handover.started",
+        targetType: "mail_handover",
+        targetId: handover.id,
+        metadata: { latestInboundMessageId: latestInbound?.id ?? null },
+      }),
+    );
     const result = await runChat(account.companyId, employee.id, prompt, [], {
       ...authority,
       mailThreadId: handover.threadId,

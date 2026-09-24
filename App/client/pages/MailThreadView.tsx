@@ -25,6 +25,7 @@ import {
   MailHandover,
   MailHandoverMode,
   MailMessage,
+  MailReviewTimelineData,
   MailThread,
   ThreadActionName,
   mailApi,
@@ -47,6 +48,8 @@ import { allAttachmentIndexes, draftEditorIsDirty, withoutAttachment } from "../
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { clsx } from "../components/ui/clsx";
+import { MailReviewTimeline } from "@/pages/MailReviewTimeline";
+import { currentMailAnalysis, mergeMailThreadUpdate } from "@/lib/mailReview";
 
 /**
  * One conversation: messages (sanitized HTML, remote images blocked until
@@ -148,6 +151,16 @@ export default function MailThreadView() {
   const background = useBackgroundAction();
   const navigate = useNavigate();
   const scrolledToHandover = React.useRef<string | null>(null);
+  const loadSeq = React.useRef(0);
+  const requestScope = `${company.id}:${threadId ?? ""}`;
+  const activeRequestScope = React.useRef(requestScope);
+  React.useLayoutEffect(() => {
+    activeRequestScope.current = requestScope;
+    return () => {
+      activeRequestScope.current = "";
+      loadSeq.current += 1;
+    };
+  }, [requestScope]);
 
   const forward = React.useCallback(
     (m: MailMessage) => {
@@ -163,20 +176,26 @@ export default function MailThreadView() {
   const [messages, setMessages] = React.useState<MailMessage[]>([]);
   const [handovers, setHandovers] = React.useState<MailHandover[]>([]);
   const [analyses, setAnalyses] = React.useState<MailAnalysis[]>([]);
+  const [reviewTimeline, setReviewTimeline] = React.useState<MailReviewTimelineData | null>(null);
+  const [handoverDetailsOpen, setHandoverDetailsOpen] = React.useState(false);
   const [notFound, setNotFound] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [handOpen, setHandOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    if (!threadId) return;
+    if (!threadId || activeRequestScope.current !== requestScope) return;
+    const seq = ++loadSeq.current;
     try {
       const res = await mailApi.thread(company.id, threadId);
+      if (seq !== loadSeq.current || activeRequestScope.current !== requestScope) return;
       setThread(res.thread);
       setMessages(res.messages);
       setHandovers(res.handovers);
       setLoadError(null);
       setAnalyses(res.analyses ?? []);
+      setReviewTimeline(res.reviewTimeline ?? null);
+      setNotFound(false);
       setExpanded((prev) => {
         if (prev.size > 0) return prev;
         const next = new Set<string>();
@@ -189,19 +208,29 @@ export default function MailThreadView() {
         return next;
       });
     } catch (err) {
+      if (seq !== loadSeq.current || activeRequestScope.current !== requestScope) return;
       const message = errorMessage(err, "Could not load the thread");
       if (message.includes("not found")) setNotFound(true);
       else setLoadError(message);
     }
-  }, [company.id, threadId]);
+  }, [company.id, threadId, requestScope]);
 
   React.useEffect(() => {
     setThread(null);
     setNotFound(false);
     setLoadError(null);
+    setMessages([]);
+    setHandovers([]);
     setAnalyses([]);
+    setReviewTimeline(null);
+    setHandoverDetailsOpen(false);
+    setHandOpen(false);
+    scrolledToHandover.current = null;
     setExpanded(new Set());
     void load();
+    return () => {
+      loadSeq.current += 1;
+    };
   }, [load]);
 
   React.useEffect(() => {
@@ -210,10 +239,29 @@ export default function MailThreadView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changeTick]);
 
+  // Socket updates normally drive this surface. A visible, active review also
+  // checks periodically so reconnecting cannot leave a permanent working badge.
+  const workInProgress =
+    thread?.aiReview?.status === "reviewing" ||
+    thread?.aiReview?.status === "queued" ||
+    handovers.some((handover) => handover.status === "pending" || handover.status === "running");
+  React.useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("focus", onFocus);
+    const timer = workInProgress ? window.setInterval(onFocus, 5_000) : undefined;
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, [load, workInProgress]);
+
   React.useEffect(() => {
     const match = /^#handover-([0-9a-f-]+)$/i.exec(window.location.hash);
     if (!match || !handovers.some((handover) => handover.id === match[1])) return;
     if (scrolledToHandover.current === match[1]) return;
+    setHandoverDetailsOpen(true);
     const frame = window.requestAnimationFrame(() => {
       const target = document.getElementById(`handover-${match[1]}`);
       target?.scrollIntoView({ block: "center" });
@@ -245,7 +293,14 @@ export default function MailThreadView() {
   if (!thread) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        {loadError ? <FormError message={loadError} /> : <Spinner size={22} />}
+        {loadError ? (
+          <div className="space-y-3">
+            <FormError message={loadError} />
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              Try again
+            </Button>
+          </div>
+        ) : <Spinner size={22} />}
       </div>
     );
   }
@@ -265,13 +320,19 @@ export default function MailThreadView() {
       title: "Couldn’t update the email",
       error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: ({ thread: updated }) => {
-        if (updated) setThread(updated);
+        if (updated)
+          setThread((current) => (current ? mergeMailThreadUpdate(current, updated) : current));
       },
-      onError: () => setThread(snapshot),
+      onError: () =>
+        setThread((current) =>
+          current?.id === snapshot.id
+            ? { ...current, unread: snapshot.unread, labelIds: snapshot.labelIds }
+            : current,
+        ),
     });
   };
 
-  const latestAnalysis = analyses.length > 0 ? analyses[analyses.length - 1] : null;
+  const latestAnalysis = currentMailAnalysis(analyses, thread.aiReview);
 
   const focusedDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
 
@@ -280,7 +341,7 @@ export default function MailThreadView() {
       <main className="min-w-0 flex-1 xl:overflow-y-auto">
         <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
           {/* Header */}
-          <div className="mb-1 flex items-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
               onClick={() => navigate(-1)}
               className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
@@ -291,7 +352,7 @@ export default function MailThreadView() {
             <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
               {thread.subject || "(no subject)"}
             </h1>
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="ml-auto flex w-full shrink-0 items-center justify-end gap-0.5 sm:w-auto">
               <HeaderAction
                 title={starred ? "Unstar" : "Star"}
                 onClick={() => act(starred ? "unstar" : "star")}
@@ -380,7 +441,23 @@ export default function MailThreadView() {
           )}
 
           {/* A refresh that failed after the thread was already on screen */}
-          <FormError message={loadError} className="mb-3" />
+          {loadError && (
+            <div className="mb-3 space-y-2">
+              <FormError message={loadError} />
+              <Button variant="secondary" size="sm" onClick={() => void load()}>
+                Try again
+              </Button>
+            </div>
+          )}
+
+          <MailReviewTimeline
+            key={thread.id}
+            review={thread.aiReview}
+            timeline={reviewTimeline}
+            companySlug={company.slug}
+            error={reviewTimeline ? null : "The timeline is unavailable. Refresh to try again."}
+            onRetry={() => void load()}
+          />
 
           {/* What the AI made of the newest inbound message. Only the latest
               is shown: triage is about the email that just landed, and a
@@ -396,18 +473,45 @@ export default function MailThreadView() {
             />
           )}
 
-          {/* Handover timeline */}
+          {/* The timeline owns the chronology; this disclosure keeps detailed
+              reports and retry controls available without duplicating it. */}
           {handovers.length > 0 && (
-            <div className="mb-3 space-y-2">
-              {handovers.map((h) => (
-                <HandoverCard
-                  key={h.id}
-                  handover={h}
-                  companyId={company.id}
-                  companySlug={company.slug}
-                  onChanged={load}
+            <div className="mb-4">
+              <button
+                type="button"
+                aria-expanded={handoverDetailsOpen}
+                aria-controls="mail-handover-details"
+                onClick={() => setHandoverDetailsOpen((open) => !open)}
+                className="inline-flex items-center gap-1.5 rounded py-1 text-xs font-medium text-slate-500 outline-none hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-400 dark:hover:text-indigo-300"
+              >
+                <ChevronDown
+                  size={13}
+                  aria-hidden="true"
+                  className={handoverDetailsOpen ? "rotate-180" : undefined}
                 />
-              ))}
+                Handover details
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums dark:bg-slate-800">
+                  {handovers.length}
+                </span>
+                {handovers.some((handover) => handover.status === "failed") && (
+                  <span className="text-amber-700 dark:text-amber-400">Needs attention</span>
+                )}
+              </button>
+              <div
+                id="mail-handover-details"
+                hidden={!handoverDetailsOpen}
+                className="mt-2 space-y-2"
+              >
+                {handovers.map((h) => (
+                  <HandoverCard
+                    key={h.id}
+                    handover={h}
+                    companyId={company.id}
+                    companySlug={company.slug}
+                    onChanged={load}
+                  />
+                ))}
+              </div>
             </div>
           )}
 

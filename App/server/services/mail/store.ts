@@ -88,6 +88,8 @@ export async function upsertMailMessage(
       threadId: thread.id,
       gmailMessageId: message.ref,
       gmailThreadId: message.threadRef,
+      // Review freshness uses observed arrival, never the sender-controlled Date header.
+      createdAt: new Date(),
     });
   }
   row.threadId = thread.id;

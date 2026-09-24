@@ -38,6 +38,7 @@
     "test:proactive": "tsx scripts/test-proactive.ts",
     "test:onboarding": "tsx scripts/test-onboarding.ts",
     "test:mail-connect": "tsx scripts/test-mail-connect.ts",
+    "test:mail-review-timeline": "tsx scripts/test-mail-review-timeline.ts",
     "test:model-setup": "tsx scripts/test-model-setup.ts",
     "test:base-forms-browser": "tsx scripts/test-base-forms-browser.ts",
     "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts",

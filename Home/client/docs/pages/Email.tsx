@@ -314,6 +314,27 @@ export function Email() {
 
       <H2 id="analysis">Every email arrives already triaged</H2>
       <P>
+        A small AI review indicator beside each conversation tells you whether its latest incoming
+        email is <Strong>Not reviewed</Strong>, <Strong>AI queued</Strong>,{" "}
+        <Strong>AI reviewing</Strong>, <Strong>AI reviewed</Strong>, or <Strong>Needs attention</Strong>. A new reply gets
+        its own status: an older review never makes a new customer message look handled. Reading
+        the email yourself does not mark it as reviewed by an AI Employee.
+      </P>
+      <P>
+        Open a conversation to see its <Strong>AI work timeline</Strong>: when mail arrived, who
+        reviewed it, when a handover started or finished, and the recorded work that followed.
+        Decisions, estimates, invoices, prepared replies, and other supported actions link to the
+        resulting record when your access allows it. Pending delivery or work reviews stay distinct
+        from completed work. Suggested actions below the review are suggestions until someone
+        actually uses them.
+      </P>
+      <P>
+        The timeline updates as work progresses. It uses recorded reviews and actions, so an AI
+        Employee saying it created an estimate does not by itself add an estimate event. Earlier
+        conversations can show the reviews and handovers Genosyn retained; actions without a
+        recorded link to that email are not guessed from their timing.
+      </P>
+      <P>
         You do not have to ask. As each email lands, an AI Employee reads it once and puts a short
         summary and a row of <Strong>action buttons</Strong> at the top of the thread — the next
         steps that <em>this</em> email actually deserves. A customer asking to be billed gets{" "}

@@ -6,7 +6,7 @@ import { MailInboundAutomation } from "../../db/entities/MailInboundAutomation.j
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { dispatchEmailReceived } from "../pipelines/events.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
-import { analyzeInboundMessage } from "./analysis.js";
+import { analyzeInboundMessage, recoverInterruptedMailAnalyses } from "./analysis.js";
 import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
@@ -258,6 +258,7 @@ async function tick(options: MailAutomationRunOptions = {}): Promise<void> {
   ticking = true;
   try {
     const now = options.now?.() ?? new Date();
+    await recoverInterruptedMailAnalyses(now);
     const staleBefore = new Date(now.getTime() - INTERRUPTED_AFTER_MS);
     await AppDataSource.getRepository(MailInboundAutomation)
       .createQueryBuilder()
