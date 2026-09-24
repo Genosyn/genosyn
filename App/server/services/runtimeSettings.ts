@@ -123,20 +123,8 @@ export type RuntimeAgentSettings = {
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
 };
 
-/**
- * Containment (M58) — the knobs on the circuit breaker that stands a Routine
- * down after it has failed for long enough that the next slot is certain to
- * fail too. Operational rather than boot-critical: an operator raising the
- * threshold during an incident must not have to edit a file and restart a
- * container, which is exactly what AGENTS.md §5 exists to prevent.
- */
+/** Settings for the sweep that finishes grading Runs with missing verdicts. */
 export type RuntimeContainmentSettings = {
-  /**
-   * Consecutive bad Runs on one Routine before the runner places a
-   * `breaker`-sourced Standdown on it. 0 disables the breaker entirely, which
-   * restores the pre-M58 behaviour of a broken Routine firing forever.
-   */
-  routineBreakerThreshold: number;
   /**
    * How stale a completed Run's missing outcome verdict has to be before the
    * re-grade sweep picks it up, in minutes. Long enough that the normal
@@ -222,7 +210,6 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     toolDiscovery: { enabled: true, minCatalogueSize: 40 },
   },
   containment: {
-    routineBreakerThreshold: 5,
     regradeAfterMinutes: 10,
     regradePerPass: 10,
   },
@@ -530,14 +517,6 @@ export function parseContainmentSettings(raw: unknown): RuntimeContainmentSettin
   const o = asRecord(raw);
   const d = RUNTIME_SETTINGS_DEFAULTS.containment;
   return {
-    routineBreakerThreshold: intField(
-      o,
-      "containment",
-      "routineBreakerThreshold",
-      d.routineBreakerThreshold,
-      0,
-      1_000,
-    ),
     regradeAfterMinutes: intField(
       o,
       "containment",
@@ -634,7 +613,7 @@ export function getAgentSettings(): RuntimeAgentSettings {
   return effective("agent");
 }
 
-/** Containment. Read at every Run finalization and on every heartbeat pass. */
+/** Re-grading settings. Read on every heartbeat pass. */
 export function getContainmentSettings(): RuntimeContainmentSettings {
   return effective("containment");
 }

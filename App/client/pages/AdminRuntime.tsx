@@ -26,8 +26,8 @@ import { clsx } from "../components/ui/clsx";
  * Admin → Runtime. The operational knobs an operator used to change by editing
  * `config.ts` and restarting the container: the open-web tools, mail sync
  * pacing, meetings, the browser Genosyn drives itself, the agent's taint
- * policy / member browsers / tool discovery, containment — the circuit breaker
- * and the re-grade sweep — and the outbound network allowlist.
+ * policy / member browsers / tool discovery, the re-grade sweep, and the
+ * outbound network allowlist.
  *
  * Each section is one group, stored as a single JSON row in `app_settings` and
  * read through a 30s cache on the server, so a save reaches every replica
@@ -342,17 +342,8 @@ const GROUPS: GroupSpec[] = [
     title: "Containment",
     icon: <ShieldAlert size={16} className="text-indigo-500" />,
     blurb:
-      "When Genosyn stops a Routine by itself, and how it finishes grading Runs the runner never got to.",
+      "How Genosyn finishes grading Runs the runner never got to.",
     fields: [
-      {
-        kind: "int",
-        path: "routineBreakerThreshold",
-        label: "Routine breaker threshold",
-        min: 0,
-        max: 1_000,
-        unit: "consecutive bad Runs",
-        help: "After this many consecutive failed or off-goal Runs, the breaker stands the Routine down and an admin has to return it to work. 0 turns the breaker off, so a permanently broken Routine keeps firing on every slot.",
-      },
       {
         kind: "int",
         path: "regradeAfterMinutes",

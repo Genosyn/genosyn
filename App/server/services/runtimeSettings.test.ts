@@ -15,6 +15,7 @@ import {
   RUNTIME_SETTING_KEYS,
   getAgentSettings,
   getBrowserSettings,
+  getContainmentSettings,
   getMailSettings,
   getMeetingsSettings,
   getNetworkSettings,
@@ -157,6 +158,19 @@ describe("defaults", () => {
 });
 
 describe("tolerant parse", () => {
+  test("a legacy breaker threshold is ignored while re-grade settings survive", async () => {
+    await writeRow(
+      RUNTIME_SETTING_KEYS.containment,
+      JSON.stringify({ routineBreakerThreshold: 2, regradeAfterMinutes: 15, regradePerPass: 3 }),
+    );
+
+    await reloadRuntimeSettings();
+
+    const expected = { regradeAfterMinutes: 15, regradePerPass: 3 };
+    assert.deepEqual(getContainmentSettings(), expected);
+    assert.deepEqual((await getRuntimeSettingsSnapshot()).containment, expected);
+  });
+
   test("company capacity is bounded and older rows keep the safe default", () => {
     assert.equal(parseAgentSettings({}).maxConcurrentTurnsPerCompany, 8);
     for (const value of [0, -1, 101, 1.5, "8", null]) {

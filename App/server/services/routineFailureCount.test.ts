@@ -7,6 +7,7 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { AppSetting } from "../db/entities/AppSetting.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -15,26 +16,16 @@ import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { createCheck } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
-import { stopStanddowns } from "./standdowns.js";
+import { placeStanddown, StanddownError, stopStanddowns } from "./standdowns.js";
 import {
-  overrideRuntimeSettingsForTests,
+  RUNTIME_SETTING_KEYS,
+  reloadRuntimeSettings,
   resetRuntimeSettingsCacheForTests,
 } from "./runtimeSettings.js";
 
 /**
- * The Routine circuit breaker (M58).
- *
- * `updateRoutineBreaker` is private to `runner.ts` and has no injection seam,
- * so everything here is driven the only way it can be: a real Run, end to end,
- * against a local OpenAI-compatible endpoint standing in for the AI Model. The
- * pattern is `durableChatInterrupt.test.ts`'s, for the same reason — a breaker
- * that counts the wrong Runs compiles perfectly, and only the finished row on
- * the Routine says whether it counted the right ones.
- *
- * What the breaker is for is worth keeping in view while reading the cases: a
- * Routine whose integration was deleted fires on its cron forever, failing
- * identically and spending model budget every slot, until a human notices. The
- * counter is the noticing.
+ * Drive real Runs against a local AI Model to verify failure accounting and
+ * continued scheduling after repeated failures, including old saved settings.
  */
 
 /** How the scripted model answers the next turn. Set per test. */
@@ -155,7 +146,7 @@ async function makeRoutine(values: Partial<Routine> = {}): Promise<Routine> {
     cronExpr: "0 3 * * *",
     body: "Do the work.",
     // No acceptance criteria: outcome grading is a separate model turn with its
-    // own tests, and the breaker reads `outcomeVerdict` rather than producing it.
+    // own tests, and the failure counter reads `outcomeVerdict` rather than producing it.
     acceptanceCriteria: "",
     timeoutSec: 180,
     maxAttempts: 1,
@@ -174,7 +165,7 @@ async function failuresOn(routineId: string): Promise<number> {
   return row.consecutiveFailures;
 }
 
-async function breakerStanddowns(routineId: string): Promise<Standdown[]> {
+async function routineStanddowns(routineId: string): Promise<Standdown[]> {
   return AppDataSource.getRepository(Standdown).find({
     where: { companyId: company.id, scope: "routine", scopeId: routineId },
   });
@@ -213,6 +204,7 @@ describe("counting bad Runs", () => {
   test("a completed Run whose Checks failed still counts as bad", async () => {
     await connectModel();
     const routine = await makeRoutine();
+    await AppDataSource.getRepository(Routine).update({ id: routine.id }, { consecutiveFailures: 4 });
     // An effect Check nothing in this Run can satisfy: the ledger records what
     // the *server* did, and this Run writes no invoice.
     await createCheck({
@@ -230,9 +222,10 @@ describe("counting bad Runs", () => {
     assert.equal(run.checksVerdict, "failed");
     assert.equal(
       await failuresOn(routine.id),
-      1,
+      5,
       "a green status with a red Check is not a good Run",
     );
+    assert.deepEqual(await routineStanddowns(routine.id), []);
   });
 
   test("a Run with a retry still owed does not increment", async () => {
@@ -248,14 +241,14 @@ describe("counting bad Runs", () => {
     assert.equal(
       await failuresOn(routine.id),
       0,
-      "counting every attempt would trip the breaker inside one bad hour",
+      "only an exhausted retry chain counts as a failure",
     );
   });
 
   test("a skipped Run does not count", async () => {
     // Deliberately no model. Note this passes for a stronger reason than the
-    // `run.status === "skipped"` guard inside the breaker: the no-model branch
-    // in `startRoutineRun` returns before the breaker is reached at all, so
+    // `run.status === "skipped"` guard inside the counter: the no-model branch
+    // in `startRoutineRun` returns before the counter is reached at all, so
     // that guard is unreachable today. The observable contract still holds.
     const routine = await makeRoutine();
     await AppDataSource.getRepository(Routine).update(
@@ -270,49 +263,51 @@ describe("counting bad Runs", () => {
   });
 });
 
-describe("tripping the breaker", () => {
-  test("crossing the threshold places exactly one breaker-sourced Standdown", async () => {
-    overrideRuntimeSettingsForTests({ containment: { routineBreakerThreshold: 2 } });
+describe("continued work after failures", () => {
+  test("repeated failures keep running even with a saved legacy threshold", async () => {
+    await insert(AppSetting, {
+      key: RUNTIME_SETTING_KEYS.containment,
+      value: JSON.stringify({ routineBreakerThreshold: 2 }),
+    });
+    await reloadRuntimeSettings();
     await connectModel();
-    const routine = await makeRoutine();
+    // Already close to the old default threshold as well as above the saved one.
+    const routine = await makeRoutine({ consecutiveFailures: 4 });
     upstreamMode = "reject";
 
-    await runOnce(routine);
-    assert.deepEqual(await breakerStanddowns(routine.id), [], "one failure is not a pattern");
-
-    await runOnce(routine);
-
-    const placed = await breakerStanddowns(routine.id);
-    assert.equal(placed.length, 1);
-    assert.equal(placed[0].source, "breaker");
-    assert.equal(placed[0].placedByUserId, null);
-    assert.match(placed[0].reason, /2 consecutive failed Runs/);
-    assert.equal(await failuresOn(routine.id), 2);
-
-    // And the stop is live: the Routine's next slot is refused rather than
-    // spending another model turn on the same failure.
-    const turnsBefore = upstreamTurns;
-    await assert.rejects(() => runOnce(routine));
-    assert.equal(upstreamTurns, turnsBefore);
-    assert.equal((await breakerStanddowns(routine.id)).length, 1);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const turnsBefore = upstreamTurns;
+      const run = await runOnce(routine);
+      assert.equal(run.status, "error");
+      assert.ok(upstreamTurns > turnsBefore, "the next slot still reaches the AI Model");
+      assert.equal(await failuresOn(routine.id), 5 + attempt);
+      assert.deepEqual(await routineStanddowns(routine.id), []);
+      const current = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
+      assert.equal(current.enabled, true);
+      assert.ok(current.nextRunAt, "the Routine retains its next scheduled slot");
+    }
   });
 
-  test("a threshold of 0 disables the breaker without disabling the counter", async () => {
-    overrideRuntimeSettingsForTests({ containment: { routineBreakerThreshold: 0 } });
-    await connectModel();
-    const routine = await makeRoutine();
-    upstreamMode = "reject";
+  for (const source of ["human", "breaker"] as const) {
+    test(`an existing ${source} Standdown still blocks the next Run`, async () => {
+      await connectModel();
+      const routine = await makeRoutine({ consecutiveFailures: 8 });
+      await placeStanddown({
+        companyId: company.id,
+        scope: "routine",
+        scopeId: routine.id,
+        source,
+        reason: "Work has been stopped pending review.",
+      });
 
-    await runOnce(routine);
-    await runOnce(routine);
-    await runOnce(routine);
-
-    assert.equal(await failuresOn(routine.id), 3);
-    assert.deepEqual(await breakerStanddowns(routine.id), []);
-  });
+      const turnsBefore = upstreamTurns;
+      await assert.rejects(() => runOnce(routine), StanddownError);
+      assert.equal(upstreamTurns, turnsBefore);
+      assert.equal((await routineStanddowns(routine.id)).length, 1);
+    });
+  }
 
   test("the counter is per Routine, not per AI Employee", async () => {
-    overrideRuntimeSettingsForTests({ containment: { routineBreakerThreshold: 2 } });
     await connectModel();
     const broken = await makeRoutine();
     const healthy = await makeRoutine();
@@ -322,30 +317,14 @@ describe("tripping the breaker", () => {
     await runOnce(broken);
 
     assert.equal(await failuresOn(healthy.id), 0);
-    assert.deepEqual(await breakerStanddowns(healthy.id), []);
+    assert.deepEqual(await routineStanddowns(healthy.id), []);
   });
 });
 
-describe("Runs the breaker never sees", () => {
-  /**
-   * KNOWN FAILING — reported, not fixed.
-   *
-   * `finalizeTimedOutRun` (services/runner.ts:321-340) returns the Run
-   * directly, and every one of its call sites in the completion body is a
-   * bare `return timedOutRun;`. `updateRoutineBreaker` is the last statement
-   * of the happy path (services/runner.ts:671), so a Run that exhausts
-   * `Routine.timeoutSec` never reaches it. Neither does one that throws: the
-   * catch at services/runner.ts:673 returns without calling it either.
-   *
-   * That is precisely the population the breaker was written for. A Routine
-   * whose integration was deleted usually hangs and times out rather than
-   * returning a tidy provider error, and this one fires on its cron forever
-   * with `consecutiveFailures` pinned at 0. The counter also never *resets*
-   * on those paths, but that direction is safe; this one is not.
-   */
+describe("timeout failure accounting", () => {
   test("a timed-out Run increments the counter", async () => {
     await connectModel();
-    const routine = await makeRoutine({ timeoutSec: 1, retryOnTimeout: false });
+    const routine = await makeRoutine({ timeoutSec: 1, retryOnTimeout: false, consecutiveFailures: 4 });
 
     const fresh = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
     const started = await startRoutineRun(fresh, {
@@ -359,8 +338,9 @@ describe("Runs the breaker never sees", () => {
     assert.equal(run.retryAt, null, "no retry is owed, so nothing defers the count");
     assert.equal(
       await failuresOn(routine.id),
-      1,
-      "a Routine that times out every slot is exactly what the breaker exists to stop",
+      5,
+      "timeouts still contribute to the diagnostic failure count",
     );
+    assert.deepEqual(await routineStanddowns(routine.id), []);
   });
 });

@@ -904,6 +904,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H3 id="retries">Retries</H3>
       <P>
+        Repeated Failed or Error Runs do not automatically stand a Routine down. An enabled Routine
+        remains eligible for later scheduled Runs, and its Run history, failure alerts, and Check
+        results stay available. An owner or admin can place a{" "}
+        <DocLink to="/docs/standdowns">Standdown</DocLink> when work needs to stop.
+      </P>
+      <P>
         OpenCode manages temporary model-request retries for API-key and custom AI Models; the Codex
         app-server manages subscription retries. These attempts remain inside the current Run. If
         the runtime cannot complete the request, the same Run ends

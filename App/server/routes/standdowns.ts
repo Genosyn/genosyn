@@ -35,9 +35,8 @@ import {
  * the two directions fail differently:
  *
  *  - **Placing** — an employee that can stand itself down can take the company
- *    offline as a plausible-sounding response to almost anything, and the
- *    breaker already covers the case where an employee's own failures should
- *    stop it. There is no work an employee needs to do that requires stopping
+ *    offline as a plausible-sounding response to almost anything.
+ *    There is no work an employee needs to do that requires stopping
  *    the roster.
  *  - **Lifting** — this is the one that actually matters. A Standdown is the
  *    instrument a human reaches for when they no longer trust what the AI is
@@ -164,9 +163,8 @@ standdownsRouter.post(
         scope: body.scope,
         scopeId: body.scopeId ?? null,
         reason: body.reason,
-        // Always `human` from this router. The `breaker` source is written by
-        // the runner and by nothing else; letting a request claim it would put
-        // a human's stop on record as an automatic one.
+        // Always `human` from this router. `breaker` identifies historical
+        // automatic stops; a request must not claim that source.
         source: "human",
         placedByUserId: req.user!.id,
       });

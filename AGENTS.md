@@ -172,10 +172,11 @@ its Run brief.
 ordinary per-routine switch and is untouched. A Standdown is the emergency
 instrument: it names a scope (company / employee / routine), records who
 stopped the work and why, aborts Runs already in flight, defers rather than
-cancels what was queued, and can be placed by the circuit breaker as well as by
-a human. It is the exact inverse of a **Waiver** — a Waiver is earned, narrow,
-and widens what an AI may do without a human; a Standdown is imposed, broad, and
-stops it. Neither direction has an MCP tool: the roster must not be able to
+cancels what was queued, and is placed by a human. Repeated Run failures do not
+automatically place a Standdown. Existing Standdowns remain effective until a
+human lifts them. It is the exact inverse of a **Waiver** — a Waiver is earned,
+narrow, and widens what an AI may do without a human; a Standdown is imposed,
+broad, and stops it. Neither direction has an MCP tool: the roster must not be able to
 stand itself down and, far more importantly, must not be able to lift one.
 
 **"Unverified" is not "unclear".** `Run.outcomeVerdict` carries both and they

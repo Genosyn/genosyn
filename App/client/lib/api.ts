@@ -1587,7 +1587,7 @@ export type RunEffectList = {
 // stopped, and why — while placing and lifting are admin-only.
 
 export type StanddownScope = "company" | "employee" | "routine";
-/** `breaker` is the consecutive-failure circuit breaker in the runner. */
+/** `breaker` identifies Standdowns placed by the former failure breaker. */
 export type StanddownSource = "human" | "breaker";
 
 export type Standdown = {
@@ -3694,15 +3694,8 @@ export type RuntimeAgentSettings = {
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
 };
 
-/**
- * How hard the install leans on the two containment instruments M58 added: the
- * circuit breaker that stands a permanently broken Routine down, and the sweep
- * that finishes grading Runs the runner never got to.
- */
+/** Settings for the sweep that finishes grading Runs with missing verdicts. */
 export type RuntimeContainmentSettings = {
-  /** Consecutive bad Runs on one Routine before the breaker stands it down.
-   *  0 disables the breaker entirely. */
-  routineBreakerThreshold: number;
   /** How stale a Run's missing verdict must be before the sweep re-grades it. */
   regradeAfterMinutes: number;
   /** Runs re-graded per heartbeat pass. Each one is a model turn. */

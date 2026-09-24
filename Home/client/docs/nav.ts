@@ -268,7 +268,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/standdowns",
         title: "Standdowns",
         blurb:
-          "A revocable stop on all AI work at company, employee, or Routine scope — placed by a human, or tripped by the failure breaker.",
+          "A revocable stop on all AI work at company, employee, or Routine scope, placed and lifted by an owner or admin.",
       },
       {
         path: "/docs/policies",

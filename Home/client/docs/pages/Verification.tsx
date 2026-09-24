@@ -295,8 +295,9 @@ export function Verification() {
           <DocLink to="/docs/improvement">The improvement loop</DocLink>.
         </LI>
         <LI>
-          It counts toward the Routine&apos;s consecutive-failure streak, which is what trips the
-          circuit breaker into a <DocLink to="/docs/standdowns">Standdown</DocLink>.
+          It counts toward the Routine&apos;s consecutive-failure streak and remains visible in
+          its Run history. Repeated failures do not automatically place a{" "}
+          <DocLink to="/docs/standdowns">Standdown</DocLink>.
         </LI>
       </UL>
 
