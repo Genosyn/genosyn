@@ -25,6 +25,7 @@ const runSummaryFields = [
 ] as const satisfies readonly (keyof Run)[];
 
 export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]> & {
+  hasUnfinishedWork: boolean;
   continuationPending: boolean;
 };
 

@@ -257,6 +257,7 @@ test("summaries contain only safe metadata and preserve independent outcome and 
     "exitCode",
     "attempt",
     "retryAt",
+    "hasUnfinishedWork",
     "continuationPending",
     "continuationCount",
     "continuationStopReason",
@@ -266,6 +267,8 @@ test("summaries contain only safe metadata and preserve independent outcome and 
   ].sort();
   assert.deepEqual(Object.keys(body.running[0]).sort(), fields);
   assert.deepEqual(Object.keys(body.today[0].latestRun).sort(), fields);
+  assert.equal(body.running[0].hasUnfinishedWork, false);
+  assert.equal(body.today[0].latestRun.hasUnfinishedWork, false);
   assert.equal(body.today[0].latestRun.outcomeVerdict, "unverified");
   assert.equal(body.today[0].latestRun.checksVerdict, "failed");
   assert.doesNotMatch(
@@ -274,7 +277,7 @@ test("summaries contain only safe metadata and preserve independent outcome and 
   );
 });
 
-test("Run surfaces show the first pending continuation without exposing its saved checkpoint", async () => {
+test("Run surfaces expose unfinished-work flags without exposing saved checkpoints", async () => {
   const run = await seedRun({
     status: "failed",
     retryAt: at(10),
@@ -287,23 +290,40 @@ test("Run surfaces show the first pending continuation without exposing its save
       progressKey: "page-1",
     }),
   });
-  const { body } = await call();
-  assert.equal(body.today[0].latestRun.continuationPending, true);
-  assert.equal(body.today[0].latestRun.continuationCount, 0);
-  assert.doesNotMatch(JSON.stringify(body), /checkpointJson|private-source-anchor-123/);
+  for (const unfinished of [true, false]) {
+    if (!unfinished) {
+      await AppDataSource.getRepository(Run).update(run.id, {
+        status: "completed",
+        retryAt: null,
+        checkpointJson: JSON.stringify({
+          state: "complete",
+          completed: "Reviewed all pages from private-source-anchor-123",
+          remaining: "",
+          resume: "",
+          progressKey: "all-pages",
+        }),
+      });
+    }
+    const { body } = await call();
+    assert.equal(body.today[0].latestRun.hasUnfinishedWork, unfinished);
+    assert.equal(body.today[0].latestRun.continuationPending, unfinished);
+    assert.equal(body.today[0].latestRun.continuationCount, 0);
+    assert.doesNotMatch(JSON.stringify(body), /checkpointJson|private-source-anchor-123/);
 
-  for (const path of [`routines/${routine.id}/runs`, `runs/${run.id}/log`]) {
-    const response = await fetch(`${baseUrl}/api/companies/${company.id}/${path}`);
-    assert.equal(response.status, 200);
-    const payload = (await response.json()) as
-      | { continuationPending: boolean }
-      | { continuationPending: boolean }[];
-    const metadata = Array.isArray(payload) ? payload[0] : payload;
-    assert.equal(metadata.continuationPending, true);
-    assert.doesNotMatch(
-      JSON.stringify(payload),
-      /checkpointJson|private-source-anchor-123|continuationDeadlineAt|continuationTokensUsed|continuationOriginTriggerKind/,
-    );
+    for (const path of [`routines/${routine.id}/runs`, `runs/${run.id}/log`]) {
+      const response = await fetch(`${baseUrl}/api/companies/${company.id}/${path}`);
+      assert.equal(response.status, 200);
+      const payload = (await response.json()) as
+        | { continuationPending: boolean; hasUnfinishedWork: boolean }
+        | { continuationPending: boolean; hasUnfinishedWork: boolean }[];
+      const metadata = Array.isArray(payload) ? payload[0] : payload;
+      assert.equal(metadata.hasUnfinishedWork, unfinished);
+      assert.equal(metadata.continuationPending, unfinished);
+      assert.doesNotMatch(
+        JSON.stringify(payload),
+        /checkpointJson|private-source-anchor-123|continuationDeadlineAt|continuationTokensUsed|continuationOriginTriggerKind/,
+      );
+    }
   }
 });
 
