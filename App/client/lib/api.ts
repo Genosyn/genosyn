@@ -992,6 +992,8 @@ export type Run = {
   retryAt?: string | null;
   /** Unfinished work has a saved checkpoint and a continuation is queued. */
   continuationPending?: boolean;
+  /** A saved checkpoint records unfinished work that an admin can explicitly resume. */
+  hasUnfinishedWork?: boolean;
   /** Continuation Runs already started for this occurrence. */
   continuationCount?: number;
   /** Why automatic continuation stopped, when intervention may be needed. */
@@ -1070,6 +1072,7 @@ export type RunLog = {
   finishedAt?: string | null;
   retryAt?: string | null;
   continuationPending?: boolean;
+  hasUnfinishedWork?: boolean;
   continuationCount?: number;
   continuationStopReason?: string | null;
   attempt?: number;
@@ -3372,6 +3375,9 @@ export type HomeFailedRun = {
   status: RunStatus;
   errorKind?: RunErrorKind | null;
   failureReason?: string | null;
+  hasUnfinishedWork?: boolean;
+  retryAt?: string | null;
+  continuationPending?: boolean;
   exitCode: number | null;
   startedAt: string;
   employee: {

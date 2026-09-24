@@ -222,6 +222,7 @@ export function toolsBriefing(
         "Record completed and remaining items, a fixed review window, stable source IDs/cursors, unresolved truncated items, and the exact next step in resume. " +
         "Use state continue while actionable work remains, blocked when access or a human Decision is required, and complete only when all intended work is done. " +
         "The progressKey must identify the last fully processed item or source position; keep it unchanged if no real progress occurred. " +
+        "Work in batches of at most five source records or conversations. Save all progress in the checkpoint: after a long batch Genosyn may hand off immediately when the save succeeds, before you write a final report. " +
         "Save a final checkpoint before ending the turn. Genosyn automatically resumes actionable unfinished work in fresh Runs within the original time limit, " +
         "up to three continuations and ten million cumulative tokens; do not schedule Wakeups to bypass these limits. " +
         "Resume saved progress before collecting newer work, resolve truncated evidence using smaller pages or exact-entry reads, " +

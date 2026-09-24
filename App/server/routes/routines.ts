@@ -30,6 +30,7 @@ import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
+import { resumeRoutineRun, RunManualResumeError } from "../services/runManualResume.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
 import { publicRun, runContinuationView } from "../services/runContinuationView.js";
 import { recordAudit } from "../services/audit.js";
@@ -978,6 +979,33 @@ routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
 });
 
 const cancelRetrySchema = z.object({}).strict();
+
+const resumeRunParamsSchema = z.object({ cid: z.string().uuid(), runId: z.string().uuid() });
+const resumeRunSchema = z.object({ acknowledgeNewAllowance: z.literal(true) }).strict();
+
+/** Explicitly authorize a fresh, bounded allowance for saved unfinished work. */
+routinesRouter.post(
+  "/runs/:runId/resume",
+  requireBrowserSession,
+  validateParams(resumeRunParamsSchema),
+  validateBody(resumeRunSchema),
+  async (req, res, next) => {
+    try {
+      const run = await resumeRoutineRun({
+        companyId: req.params.cid,
+        sourceRunId: req.params.runId,
+        userId: req.userId!,
+        acknowledgeNewAllowance: true,
+      });
+      res.json(publicRun(run));
+    } catch (error) {
+      if (error instanceof RunManualResumeError)
+        return res.status(error.status).json({ error: error.message });
+      if (error instanceof StanddownError) return res.status(409).json({ error: error.message });
+      next(error);
+    }
+  },
+);
 
 /**
  * Cancel a pending automatic retry without disabling the whole routine —

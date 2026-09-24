@@ -35,6 +35,7 @@ import { Modal } from "@/components/ui/Modal";
 import { errorMessage } from "@/lib/errors";
 import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
 import { RunExplanation, runExplanationLabel } from "@/components/routines/RunExplanation";
+import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
 
 /**
@@ -882,21 +883,42 @@ function EffectRow({ effect }: { effect: RunEffect }) {
  * child is alive and the persisted log once it finalizes, so one poll drives
  * the whole modal — no separate status or recording probe.
  */
-export function RunLiveModal({
-  company,
-  routine,
-  run: initialRun,
-  onClose,
-  onRetry,
-  initialView = "log",
-}: {
+type RunLiveModalProps = {
   company: Company;
   routine: Pick<Routine, "id" | "name">;
   run: Run;
   onClose: () => void;
   onRetry?: () => void;
+  onResumed?: (run: Run) => void | Promise<void>;
   initialView?: "log" | "explanation";
-}) {
+};
+
+export function RunLiveModal(props: RunLiveModalProps) {
+  const [resumed, setResumed] = React.useState<{ sourceRunId: string; run: Run } | null>(null);
+  const run = resumed?.sourceRunId === props.run.id ? resumed.run : props.run;
+  return (
+    <RunLiveModalContent
+      {...props}
+      key={run.id}
+      run={run}
+      initialView={run.id === props.run.id ? props.initialView : "log"}
+      onResumed={async (next) => {
+        setResumed({ sourceRunId: props.run.id, run: next });
+        await props.onResumed?.(next);
+      }}
+    />
+  );
+}
+
+function RunLiveModalContent({
+  company,
+  routine,
+  run: initialRun,
+  onClose,
+  onRetry,
+  onResumed,
+  initialView = "log",
+}: RunLiveModalProps & { onResumed: (run: Run) => void | Promise<void> }) {
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const preRef = React.useRef<HTMLPreElement>(null);
@@ -1041,15 +1063,31 @@ export function RunLiveModal({
                 </span>
               )}
             </div>
-            {log?.retryAt ? (
-              <Button variant="secondary" size="sm" onClick={cancelRetry}>
-                <Ban size={13} /> {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
-              </Button>
-            ) : onRetry && isTerminal && needsAttention ? (
-              <Button variant="secondary" size="sm" onClick={onRetry}>
-                <RotateCcw size={13} /> Retry
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <RunResumeButton
+                company={company}
+                routineName={routine.name}
+                run={{
+                  id: initialRun.id,
+                  status,
+                  errorKind: log?.errorKind ?? initialRun.errorKind,
+                  hasUnfinishedWork: log?.hasUnfinishedWork ?? initialRun.hasUnfinishedWork,
+                  retryAt: log ? log.retryAt : initialRun.retryAt,
+                  continuationPending: log?.continuationPending ?? initialRun.continuationPending,
+                }}
+                onResumed={onResumed}
+              />
+              {log?.retryAt ? (
+                <Button variant="secondary" size="sm" onClick={cancelRetry}>
+                  <Ban size={13} />{" "}
+                  {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
+                </Button>
+              ) : onRetry && isTerminal && needsAttention ? (
+                <Button variant="secondary" size="sm" onClick={onRetry}>
+                  <RotateCcw size={13} /> Retry
+                </Button>
+              ) : null}
+            </div>
           </div>
           <dl className="mt-3 grid grid-cols-4 divide-x divide-slate-200 dark:divide-slate-700">
             {metrics.map(({ label, value }) => (

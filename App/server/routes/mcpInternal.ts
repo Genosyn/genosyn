@@ -8780,7 +8780,7 @@ mcpInternalRouter.post(
       res.json({
         ok: true,
         state: checkpoint.state,
-        note: "Progress saved. Finish this batch and your report. Actionable remaining work is continued automatically within the original limits; Checks and human review requirements still apply.",
+        note: "Progress saved. This checkpoint may hand unfinished work to a fresh Run immediately. Automatic continuation stays within the original limits; Checks and human review requirements still apply.",
       });
     } catch (error) {
       if (error instanceof RunFailureReportError)

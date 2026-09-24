@@ -20,6 +20,7 @@ import type {
   HomeData,
   HomeFailedRun,
   Notification,
+  Run,
   WorkEntry,
   WorkTimeline,
 } from "../client/lib/api";
@@ -345,6 +346,8 @@ type FixtureOptions = {
   allowReview?: boolean;
   decisionAnswerError?: boolean;
   failedRuns?: HomeFailedRun[];
+  allowRunResume?: boolean;
+  runResumeError?: boolean;
   holdExplanation?: boolean;
   explanationError?: boolean;
   explanationOptionsError?: boolean;
@@ -377,7 +380,8 @@ async function open(options: FixtureOptions = {}) {
   let decisionAnswerError = options.decisionAnswerError ?? false;
   let explanationError = options.explanationError ?? false;
   let explanationOptionsError = options.explanationOptionsError ?? false;
-  const failedRuns = options.failedRuns ?? [];
+  let failedRuns = options.failedRuns ?? [];
+  const runHistory = [...failedRuns];
   let decisions = options.decisions ?? (options.quiet ? [] : [decision()]);
   let decisionApprovals = options.decisionApprovals ?? [];
   const decisionDetails = new Map(decisions.map((row) => [row.id, row]));
@@ -451,6 +455,44 @@ async function open(options: FixtureOptions = {}) {
     if (request.method() === "POST") {
       if (options.live && url.pathname === "/api/companies/company/workspace/ws-token")
         return route.fulfill({ json: { token: "fixture-token" } });
+      const resuming = failedRuns.find(
+        (item) => url.pathname === `/api/companies/company/runs/${item.runId}/resume`,
+      );
+      if (options.allowRunResume && resuming) {
+        assert.ok(options.role === "admin" || options.role === "owner");
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: request.postDataJSON() });
+        assert.deepEqual(request.postDataJSON(), { acknowledgeNewAllowance: true });
+        if (options.runResumeError)
+          return route.fulfill({
+            status: 409,
+            json: { error: "A newer Run already continued this work." },
+          });
+        const resumed: Run = {
+          id: "resumed-run",
+          routineId: resuming.routineId,
+          startedAt: fixtureNow.toISOString(),
+          finishedAt: null,
+          createdAt: fixtureNow.toISOString(),
+          status: "running",
+          exitCode: null,
+          hasUnfinishedWork: false,
+          triggerKind: "continuation",
+          continuationCount: 0,
+          tokensIn: 0,
+          tokensOut: 0,
+        };
+        runHistory.push({
+          ...resuming,
+          ...resumed,
+          runId: resumed.id,
+          failureReason: null,
+          retryAt: null,
+          continuationPending: false,
+        });
+        failedRuns = failedRuns.filter((item) => item.runId !== resuming.runId);
+        return route.fulfill({ json: resumed });
+      }
       const explaining = failedRuns.find(
         (item) => url.pathname === `/api/companies/company/runs/${item.runId}/explanation`,
       );
@@ -619,7 +661,7 @@ async function open(options: FixtureOptions = {}) {
         },
       });
     }
-    const failure = failedRuns.find((item) =>
+    const failure = runHistory.find((item) =>
       url.pathname.startsWith(`/api/companies/company/runs/${item.runId}/`),
     );
     if (failure && url.pathname.endsWith("/explanation")) {
@@ -643,20 +685,26 @@ async function open(options: FixtureOptions = {}) {
     if (failure && url.pathname.endsWith("/log"))
       return route.fulfill({
         json: {
-          content: options.longFailureTranscript
-            ? `${"[07:59:00] Reviewing earlier customer updates.\n".repeat(200)}${failureTranscript}`
-            : failureTranscript,
+          content:
+            failure.runId === "resumed-run"
+              ? "Continuing from saved progress. Verifying earlier Effects before the next batch."
+              : options.longFailureTranscript
+                ? `${"[07:59:00] Reviewing earlier customer updates.\n".repeat(200)}${failureTranscript}`
+                : failureTranscript,
           live: false,
           status: failure.status,
           errorKind: failure.errorKind,
           failureReason: failure.failureReason,
+          hasUnfinishedWork: failure.hasUnfinishedWork,
+          retryAt: failure.retryAt,
+          continuationPending: failure.continuationPending,
           exitCode: failure.exitCode,
           startedAt: failure.startedAt,
-          finishedAt: "2026-09-09T08:00:06.000Z",
+          finishedAt: failure.status === "running" ? null : "2026-09-09T08:00:06.000Z",
           browserRecordings: [],
         },
       });
-    const evidenceRun = failedRuns.find((item) =>
+    const evidenceRun = runHistory.find((item) =>
       url.pathname.startsWith(`/api/companies/company/routines/runs/${item.runId}/`),
     );
     if (evidenceRun && url.pathname.endsWith("/checks"))
@@ -936,6 +984,140 @@ async function check(name: string, run: () => Promise<void>) {
 }
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const width of [1440, 390]) {
+    await check(
+      `Resume unfinished work confirms new allowance and follows the Run at ${width}px`,
+      async () => {
+        const { page, mutations } = await open({
+          width,
+          quiet: true,
+          role: "admin",
+          allowRunResume: true,
+          failedRuns: [failedRun({ hasUnfinishedWork: true })],
+        });
+        await card(page, "Routines needing attention")
+          .getByRole("link", { name: /Daily customer update/ })
+          .click();
+        const modal = page.getByRole("dialog", { name: "Run: Daily customer update", exact: true });
+        await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+        const resume = modal.getByRole("button", { name: "Resume unfinished work", exact: true });
+        await resume.click();
+        const confirmation = page.getByRole("dialog", {
+          name: "Resume Daily customer update?",
+          exact: true,
+        });
+        await confirmation.getByText(/new allowance of 10 million model tokens/).waitFor();
+        await confirmation.getByText(/verify earlier Effects/).waitFor();
+        assert.equal(mutations.length, 0, "opening the confirmation cannot start a Run");
+        await page.screenshot({
+          path: path.join(output, `home-run-resume-confirm-${width}.png`),
+          fullPage: true,
+        });
+        await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.equal(mutations.length, 0, "cancelling preserves the original Run without a write");
+        await resume.click();
+        await confirmation
+          .getByRole("button", { name: "Resume unfinished work", exact: true })
+          .click();
+        await modal.locator("pre").filter({ hasText: "Continuing from saved progress." }).waitFor();
+        assert.deepEqual(mutations, [
+          {
+            path: "/api/companies/company/runs/failed-run/resume",
+            body: { acknowledgeNewAllowance: true },
+          },
+        ]);
+        assert.equal(
+          await modal.getByRole("button", { name: "Resume unfinished work", exact: true }).count(),
+          0,
+        );
+        assert.equal(await modal.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+        await fits(page);
+        assert.equal(
+          await modal.evaluate((element) => element.scrollWidth <= element.clientWidth),
+          true,
+        );
+        await page.screenshot({
+          path: path.join(output, `home-run-resumed-${width}.png`),
+          fullPage: true,
+        });
+        await page.close();
+      },
+    );
+  }
+  await check(
+    "Resume unfinished work is unavailable to Members, Errors, missing progress, or pending recovery",
+    async () => {
+      for (const scenario of [
+        { role: "member" as const, run: failedRun({ hasUnfinishedWork: true }) },
+        { role: "admin" as const, run: failedRun({ hasUnfinishedWork: false }) },
+        {
+          role: "admin" as const,
+          run: failedRun({ status: "error", errorKind: "timeout", hasUnfinishedWork: true }),
+        },
+        {
+          role: "admin" as const,
+          run: failedRun({ errorKind: "runtime", hasUnfinishedWork: true }),
+        },
+        {
+          role: "admin" as const,
+          run: failedRun({
+            hasUnfinishedWork: true,
+            retryAt: "2026-09-09T10:00:00.000Z",
+            continuationPending: true,
+          }),
+        },
+      ]) {
+        const { page, mutations } = await open({
+          quiet: true,
+          role: scenario.role,
+          failedRuns: [scenario.run],
+        });
+        assert.equal(
+          await page.getByRole("button", { name: "Resume unfinished work", exact: true }).count(),
+          0,
+        );
+        await card(page, "Routines needing attention")
+          .getByRole("link", { name: /Daily customer update/ })
+          .click();
+        const modal = page.getByRole("dialog", { name: "Run: Daily customer update", exact: true });
+        await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+        assert.equal(
+          await modal.getByRole("button", { name: "Resume unfinished work", exact: true }).count(),
+          0,
+        );
+        assert.equal(mutations.length, 0);
+        await page.close();
+      }
+    },
+  );
+  await check(
+    "Resume unfinished work on Home keeps progress visible when the server refuses",
+    async () => {
+      const { page, mutations } = await open({
+        quiet: true,
+        role: "owner",
+        allowRunResume: true,
+        runResumeError: true,
+        failedRuns: [failedRun({ hasUnfinishedWork: true })],
+      });
+      const panel = card(page, "Routines needing attention");
+      await panel.getByRole("button", { name: "Resume unfinished work", exact: true }).click();
+      const confirmation = page.getByRole("dialog", {
+        name: "Resume Daily customer update?",
+        exact: true,
+      });
+      await confirmation
+        .getByRole("button", { name: "Resume unfinished work", exact: true })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Couldn’t resume unfinished work", exact: true })
+        .getByText("A newer Run already continued this work.", { exact: true })
+        .waitFor();
+      assert.equal(mutations.length, 1);
+      assert.equal(await panel.getByRole("link", { name: /Daily customer update/ }).count(), 1);
+      await page.close();
+    },
+  );
   for (const width of [1440, 390, 320]) {
     await check(
       `Run explanation opens once, renders markdown and preserves the log at ${width}px`,

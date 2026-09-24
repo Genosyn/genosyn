@@ -152,6 +152,92 @@ test("an initial complete checkpoint does not disable configured retries after a
   assert.equal(run.continuationStopReason, null);
 });
 
+for (const rejectsAfterAbort of [false, true]) {
+  test(`the initial Run enforces its token ceiling without a checkpoint (${rejectsAfterAbort ? "rejected" : "returned"} abort)`, async (t) => {
+    const { routine } = await fixture({ maxAttempts: 2 });
+    let aborted = false;
+    let workTurns = 0;
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      workTurns++;
+      params.callbacks?.onUsage?.({ inputTokens: CONTINUATION_TOKEN_LIMIT - 50, outputTokens: 75 });
+      aborted = !!params.signal?.aborted;
+      if (rejectsAfterAbort) throw new Error("The model request was aborted.");
+      return { finalText: "Work remains unfinished.", steps: 1, stopReason: "aborted" };
+    });
+
+    const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
+
+    assert.equal(workTurns, 1);
+    assert.equal(aborted, true);
+    assert.equal(run.continuationCount, 0);
+    assert.equal(run.checkpointJson, null);
+    assert.equal(run.status, "failed");
+    assert.equal(run.errorKind, null, "a token ceiling is unfinished work, not a runtime outage");
+    assert.equal(run.retryAt, null, "a configured retry must not silently reset the allowance");
+    assert.match(run.continuationStopReason ?? "", /token limit/i);
+    assert.equal(run.tokensIn + run.tokensOut, CONTINUATION_TOKEN_LIMIT + 25);
+    assert.notEqual(run.outcomeVerdict, "on_goal");
+  });
+}
+
+for (const rejectsAfterAbort of [false, true]) {
+  test(`initial Run Check remediation shares the token ceiling without a checkpoint (${rejectsAfterAbort ? "rejected" : "returned"} abort)`, async (t) => {
+    const { company, routine } = await fixture({ maxAttempts: 2 });
+    await createCheck({
+      companyId: company.id,
+      routineId: routine.id,
+      name: "Required saved output",
+      kind: "effect",
+      spec: JSON.stringify({ action: "note.create", min: 1 }),
+      createdById: null,
+    });
+    let workTurns = 0;
+    let remediationTurns = 0;
+    let remediationAborted = false;
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      const current = await AppDataSource.getRepository(Run).findOneBy({
+        routineId: routine.id,
+        status: "running",
+      });
+      if (!current) return { finalText: "", steps: 1, stopReason: "end_turn" };
+      if (JSON.stringify(params.messages).includes("Your work did not pass")) {
+        remediationTurns++;
+        params.callbacks?.onUsage?.({ inputTokens: 200, outputTokens: 100 });
+        remediationAborted = !!params.signal?.aborted;
+        if (rejectsAfterAbort) throw new Error("The remediation request was aborted.");
+        return {
+          finalText: "The required output is still missing.",
+          steps: 1,
+          stopReason: "aborted",
+        };
+      }
+      workTurns++;
+      params.callbacks?.onUsage?.({ inputTokens: CONTINUATION_TOKEN_LIMIT - 250, outputTokens: 0 });
+      return { finalText: "Finished the review.", steps: 1, stopReason: "end_turn" };
+    });
+
+    const run = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
+
+    assert.equal(workTurns, 1);
+    assert.equal(
+      remediationTurns,
+      1,
+      "no further remediation may run after consuming the allowance",
+    );
+    assert.equal(remediationAborted, true);
+    assert.equal(run.continuationCount, 0);
+    assert.equal(run.checkpointJson, null);
+    assert.equal(run.checkRemediations, 1);
+    assert.equal(run.checksVerdict, "failed");
+    assert.equal(run.status, "failed");
+    assert.equal(run.errorKind, null, "a token ceiling must not become a model/runtime Error");
+    assert.equal(run.retryAt, null);
+    assert.match(run.continuationStopReason ?? "", /token limit/i);
+    assert.equal(run.tokensIn + run.tokensOut, CONTINUATION_TOKEN_LIMIT + 50);
+    assert.notEqual(run.outcomeVerdict, "on_goal");
+  });
+}
+
 test("a continuation stops Check remediation at its cumulative token ceiling", async (t) => {
   const { company, routine, checkpoint } = await fixture();
   await createCheck({

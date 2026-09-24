@@ -64,6 +64,8 @@ import {
 import { getContainmentSettings } from "./runtimeSettings.js";
 import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
+import { runAllowanceBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
+import { manualResumeEligibility, RunManualResumeError } from "./runManualResume.js";
 import {
   checkpointAdvanced,
   continuationBrief,
@@ -147,6 +149,8 @@ export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): 
  * and saw what happened.
  */
 export type StartRunOptions = {
+  /** Server-only: an admin grants a fresh allowance to this saved unfinished work. */
+  resumeFromRunId?: string;
   /** Internal: resume an owned durable checkpoint within its original limits. */
   continuationFromRunId?: string;
   triggerKind?: RunTrigger;
@@ -229,10 +233,22 @@ export async function startRoutineRun(
   const { model, pinned } = await resolveRoutineModel(routine);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
-  const continuationParent = opts.continuationFromRunId
-    ? await runRepo.findOneBy({ id: opts.continuationFromRunId, routineId: routine.id })
+  const parentId = opts.resumeFromRunId ?? opts.continuationFromRunId;
+  const continuationParent = parentId
+    ? await runRepo.findOneBy({ id: parentId, routineId: routine.id })
     : null;
-  if (opts.triggerKind === "continuation" || opts.continuationFromRunId) {
+  const manualResume = !!opts.resumeFromRunId;
+  if (manualResume) {
+    if (!model?.connectedAt)
+      throw new RunManualResumeError("Connect an AI Model before resuming unfinished work.");
+    if (
+      !continuationParent ||
+      opts.continuationFromRunId ||
+      proactiveApproval ||
+      !manualResumeEligibility(continuationParent, routine).eligible
+    )
+      throw new RunManualResumeError("This Run cannot resume unfinished work.");
+  } else if (opts.triggerKind === "continuation" || opts.continuationFromRunId) {
     if (
       !continuationParent ||
       opts.triggerKind !== "continuation" ||
@@ -251,14 +267,15 @@ export async function startRoutineRun(
     errorKind: null,
     failureReason: null,
     logContent: "",
-    triggerKind: opts.triggerKind ?? "manual",
+    triggerKind: manualResume ? "continuation" : (opts.triggerKind ?? "manual"),
     attempt: opts.attempt ?? 1,
-    parentRunId: opts.parentRunId ?? null,
+    parentRunId: continuationParent?.id ?? opts.parentRunId ?? null,
     missedSlots,
     tokensIn: 0,
     tokensOut: 0,
     checkpointJson: null,
-    continuationCount: continuationParent ? (continuationParent.continuationCount ?? 0) + 1 : 0,
+    continuationCount:
+      continuationParent && !manualResume ? (continuationParent.continuationCount ?? 0) + 1 : 0,
     continuationOriginTriggerKind: continuationParent
       ? (continuationParent.continuationOriginTriggerKind ?? continuationParent.triggerKind)
       : null,
@@ -271,18 +288,29 @@ export async function startRoutineRun(
           opts.triggerKind ??
           "manual",
       ),
-    continuationDeadlineAt: continuationParent
-      ? (continuationParent.continuationDeadlineAt ??
-        new Date(continuationParent.startedAt.getTime() + timeoutMs))
-      : new Date(startedAt.getTime() + timeoutMs),
-    continuationTokensUsed: continuationParent
-      ? (continuationParent.continuationTokensUsed ?? 0) +
-        continuationParent.tokensIn +
-        continuationParent.tokensOut
-      : 0,
+    continuationDeadlineAt:
+      continuationParent && !manualResume
+        ? (continuationParent.continuationDeadlineAt ??
+          new Date(continuationParent.startedAt.getTime() + timeoutMs))
+        : new Date(startedAt.getTime() + timeoutMs),
+    continuationTokensUsed:
+      continuationParent && !manualResume
+        ? (continuationParent.continuationTokensUsed ?? 0) +
+          continuationParent.tokensIn +
+          continuationParent.tokensOut
+        : 0,
   });
   let saved: Run;
   await opts.beforeRunPersist?.();
+  if (manualResume) {
+    const currentParent = await runRepo.findOneBy({ id: parentId!, routineId: routine.id });
+    if (
+      !currentParent ||
+      !manualResumeEligibility(currentParent, routine).eligible ||
+      currentParent.checkpointJson !== continuationParent!.checkpointJson
+    )
+      throw new RunManualResumeError("The unfinished Run changed before it could be resumed.");
+  }
   run.continuationReviewOnly ||= routineNeedsWorkReview(
     routine,
     run.continuationOriginTriggerKind ?? run.triggerKind,
@@ -342,7 +370,9 @@ export async function startRoutineRun(
           : ""),
       ...(continuationParent
         ? [
-            `[continuation] Resuming ${continuationParent.id}; original deadline ${new Date(deadlineAtMs).toISOString()}.`,
+            manualResume
+              ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh ${CONTINUATION_TOKEN_LIMIT} token allowance; deadline ${new Date(deadlineAtMs).toISOString()}.`
+              : `[continuation] Resuming ${continuationParent.id}; original deadline ${new Date(deadlineAtMs).toISOString()}.`,
           ]
         : []),
       ...(missedSlots > 0
@@ -596,9 +626,13 @@ export async function startRoutineRun(
       const scopedMessage = routine.selfReviewOnly
         ? `${deliveryMessage}\n\nThis is a suggestion-only review. Your tools can read your work, maintain this review's Workstream, and propose one revision for a Member. They cannot change live Skills, Routines, acceptance criteria, Checks, or customer records, send messages, or start separate work. The scope remains in effect even if the Soul or brief asks otherwise.`
         : deliveryMessage;
-      const userMessage = continuationParent
-        ? `${scopedMessage}\n\n${continuationBrief(continuationParent)}`
-        : scopedMessage;
+      const userMessage = [
+        scopedMessage,
+        runAllowanceBrief(saved.continuationTokensUsed),
+        continuationParent ? continuationBrief(continuationParent, manualResume) : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
       // Env for the coding runtime: Environment secrets only. Repository
       // credentials stay inside short-lived server-owned Git operations and
@@ -629,6 +663,8 @@ export async function startRoutineRun(
       const controller = new AbortController();
       let timedOut = false;
       let continuationLimitReached = false;
+      let batchYielded = false;
+      const inFlightTools = new Map<string, number>();
       // A Standdown placed while this Run is in flight aborts it (M58) — a stop
       // that only takes effect at the next slot is not a stop. The registry
       // lives in `standdowns.ts` rather than here so the predicate and the
@@ -690,6 +726,8 @@ export async function startRoutineRun(
                 log.write(delta);
               },
               onToolUse: (name, input, callId) => {
+                const key = callId ?? name;
+                inFlightTools.set(key, (inFlightTools.get(key) ?? 0) + 1);
                 diagnostics.toolStarted(name, callId);
                 log.line(`\n[tool] ${name} ${previewArgs(input)}`);
               },
@@ -698,8 +736,35 @@ export async function startRoutineRun(
               // outcome checker was told to look for "supporting tool activity"
               // that had never been written down.
               onToolResult: (name, r, callId) => {
+                const key = callId ?? name;
+                const pending = inFlightTools.get(key) ?? 0;
+                if (pending > 1) inFlightTools.set(key, pending - 1);
+                else inFlightTools.delete(key);
                 diagnostics.toolFinished(name, r, callId);
                 log.line(formatToolResultLine(name, r));
+                if (
+                  !controller.signal.aborted &&
+                  inFlightTools.size === 0 &&
+                  shouldYieldRunBatch({
+                    toolName: name,
+                    result: r,
+                    tokensThisRun: saved.tokensIn + saved.tokensOut,
+                    previousTokens: saved.continuationTokensUsed,
+                    continuationCount: saved.continuationCount,
+                    deadlineAtMs,
+                    canContinue:
+                      routine.enabled &&
+                      !routine.requiresApproval &&
+                      !routine.selfReviewOnly &&
+                      !proactiveApproval,
+                  })
+                ) {
+                  batchYielded = true;
+                  log.line(
+                    "\n[continuation] Batch progress saved; handing unfinished work to a fresh Run within the remaining allowance.",
+                  );
+                  controller.abort();
+                }
               },
               onUsage: (u) => {
                 // Every turn's prompt is billed in full, so the Run's cost is
@@ -708,9 +773,8 @@ export async function startRoutineRun(
                 saved.tokensIn += u.inputTokens;
                 saved.tokensOut += u.outputTokens;
                 if (
-                  saved.continuationCount > 0 &&
                   saved.continuationTokensUsed + saved.tokensIn + saved.tokensOut >=
-                    CONTINUATION_TOKEN_LIMIT
+                  CONTINUATION_TOKEN_LIMIT
                 ) {
                   continuationLimitReached = true;
                   controller.abort();
@@ -727,7 +791,8 @@ export async function startRoutineRun(
         // Providers differ in whether an aborted request resolves with an
         // error result or rejects. Both represent the same timeout verdict
         // once the absolute deadline has passed.
-        if (!timedOut && !deadlineReached() && !continuationLimitReached) throw err;
+        if (!timedOut && !deadlineReached() && !continuationLimitReached && !batchYielded)
+          throw err;
       } finally {
         clearTimeout(timer);
       }
@@ -736,13 +801,14 @@ export async function startRoutineRun(
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
-      if (continuationLimitReached) {
+      if (continuationLimitReached || batchYielded) {
         saved.status = "failed";
         saved.errorKind = null;
         saved.exitCode = null;
         saved.finishedAt = new Date();
-        saved.continuationStopReason =
-          "The shared token limit for automatic continuation was reached.";
+        saved.continuationStopReason = continuationLimitReached
+          ? "The shared token limit for automatic continuation was reached."
+          : null;
         const finalization = await finalizeRunFromRunning(
           runRepo,
           saved,
@@ -812,7 +878,7 @@ export async function startRoutineRun(
       const checkpoint = readRunCheckpoint(saved);
       if (
         !checkpoint &&
-        saved.continuationCount > 0 &&
+        saved.triggerKind === "continuation" &&
         (saved.status === "completed" || saved.status === "reviewed")
       ) {
         saved.status = "failed";
@@ -1045,7 +1111,7 @@ async function finalizeRunFromRunning(
       run.retryAt = null;
       run.continuationStopReason = `Blocked: ${checkpoint.remaining}`;
     } else if (
-      run.continuationCount > 0 &&
+      run.triggerKind === "continuation" &&
       run.status !== "completed" &&
       run.status !== "reviewed"
     ) {
@@ -1053,7 +1119,7 @@ async function finalizeRunFromRunning(
       run.continuationStopReason ??=
         "The continuation stopped without a new actionable checkpoint.";
     } else if (
-      run.continuationCount === 0 &&
+      run.triggerKind !== "continuation" &&
       !run.continuationStopReason &&
       (!checkpoint || checkpoint.state === "complete")
     )
@@ -1330,13 +1396,12 @@ async function runCheckPhase(args: {
   let errorKind: RunErrorKind | null = null;
   let incomplete = false;
   const continuationLimitReached = () =>
-    (args.run.continuationCount > 0 || !!readRunCheckpoint(args.run)) &&
     args.run.continuationTokensUsed +
       args.run.tokensIn +
       args.run.tokensOut +
       tokensIn +
       tokensOut >=
-      CONTINUATION_TOKEN_LIMIT;
+    CONTINUATION_TOKEN_LIMIT;
 
   const base = {
     run: args.run,
@@ -1473,18 +1538,25 @@ async function runCheckPhase(args: {
         log.line(workSummaryLogLine(""));
       }
     } catch (err) {
-      errorKind ??= args.deadlineReached() ? "timeout" : "runtime";
-      args.diagnostics.fail(
-        err,
-        errorKind === "timeout"
-          ? "timeout"
-          : errorKind === "interrupted"
-            ? "interrupted"
-            : "application",
-      );
-      // Preserve the prior Check evidence while recording the runtime error.
-      log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
-      log.line(workSummaryLogLine(""));
+      if (continuationLimitReached()) {
+        incomplete = true;
+        args.run.continuationStopReason =
+          "The shared token limit for automatic continuation was reached during Check remediation.";
+        log.line(`\n[checks] ${args.run.continuationStopReason}`);
+      } else {
+        errorKind ??= args.deadlineReached() ? "timeout" : "runtime";
+        args.diagnostics.fail(
+          err,
+          errorKind === "timeout"
+            ? "timeout"
+            : errorKind === "interrupted"
+              ? "interrupted"
+              : "application",
+        );
+        // Preserve the prior Check evidence while recording the runtime error.
+        log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
+        log.line(workSummaryLogLine(""));
+      }
     } finally {
       clearTimeout(timer);
       unregisterRunInterrupter(args.run.id);

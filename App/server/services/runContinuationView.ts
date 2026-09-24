@@ -10,6 +10,7 @@ type ContinuationSource = Pick<
 /** Progress bodies stay private; Run views receive only scheduling metadata. */
 export function runContinuationView(run: ContinuationSource) {
   return {
+    hasUnfinishedWork: readRunCheckpoint(run)?.state === "continue",
     continuationPending: !!run.retryAt && readRunCheckpoint(run)?.state === "continue",
     continuationCount: run.continuationCount ?? 0,
     continuationStopReason: run.continuationStopReason

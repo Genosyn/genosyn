@@ -113,7 +113,7 @@ export class Run {
   @Column({ type: "text", nullable: true })
   requiredToolsJson!: string | null;
 
-  /** Number of continuation Runs already started for this occurrence. */
+  /** Automatic continuations in this allowance; an admin resumption starts at 0. */
   @Column({ type: "integer", default: 0 })
   continuationCount!: number;
 
@@ -125,11 +125,11 @@ export class Run {
   @Column({ type: "boolean", default: false })
   continuationReviewOnly!: boolean;
 
-  /** Original occurrence's deadline: fresh context never buys extra time. */
+  /** Shared deadline; only an explicit admin resumption grants a new allowance. */
   @Column({ type: dateTimeColumnType, nullable: true })
   continuationDeadlineAt!: Date | null;
 
-  /** Tokens spent by preceding Runs in this continuation chain. */
+  /** Tokens spent by preceding Runs in this allowance, retaining earlier Effects separately. */
   @Column({ type: "integer", default: 0 })
   continuationTokensUsed!: number;
 

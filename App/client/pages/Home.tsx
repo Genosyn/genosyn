@@ -58,6 +58,7 @@ import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
 import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
+import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { runExplanationLabel } from "@/components/routines/RunExplanation";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
@@ -607,10 +608,14 @@ function HomeOverlayHost({
             status: overlay.run.status,
             errorKind: overlay.run.errorKind,
             failureReason: overlay.run.failureReason,
+            hasUnfinishedWork: overlay.run.hasUnfinishedWork,
+            retryAt: overlay.run.retryAt,
+            continuationPending: overlay.run.continuationPending,
             exitCode: overlay.run.exitCode,
             createdAt: overlay.run.startedAt,
           }}
           onClose={onClose}
+          onResumed={onChanged}
         />
       );
     case "workRun": {
@@ -636,6 +641,7 @@ function HomeOverlayHost({
             createdAt: overlay.entry.at,
           }}
           onClose={onClose}
+          onResumed={onChanged}
         />
       );
     }
@@ -1182,6 +1188,12 @@ function FailedRoutinesAlert({
             >
               <Sparkles size={14} /> {runExplanationLabel(r.status)}
             </button>
+            <RunResumeButton
+              company={company}
+              routineName={r.routineName}
+              run={{ ...r, id: r.runId }}
+              onResumed={async () => onChanged()}
+            />
             <button
               type="button"
               onClick={() => retry(r)}

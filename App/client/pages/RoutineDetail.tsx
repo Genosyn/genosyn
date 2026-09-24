@@ -1,4 +1,5 @@
 import React from "react";
+import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { isRunError } from "@/lib/runStatus";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -1313,7 +1314,7 @@ function RunsTab({
           />
         </div>
       )}
-      <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
         <div className="text-xs text-slate-500 dark:text-slate-400">
           {pendingRetryAt
             ? activeRun?.continuationPending
@@ -1327,7 +1328,22 @@ function RunsTab({
                   ? "This Run encountered an error. Review the log before running it again."
                   : "Showing the 50 most recent runs."}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {activeRun && (
+            <RunResumeButton
+              company={company}
+              routineName={routine.name}
+              run={activeRun}
+              onResumed={async (next) => {
+                setRuns((current) => [
+                  next,
+                  ...(current ?? []).filter((run) => run.id !== next.id),
+                ]);
+                setActiveId(next.id);
+                await loadRuns();
+              }}
+            />
+          )}
           {pendingRetryAt ? (
             <Button variant="secondary" onClick={cancelActiveRetry}>
               <Ban size={14} />

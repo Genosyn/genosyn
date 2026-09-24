@@ -30,7 +30,9 @@ export type LiveRunFailureQuery = {
  * - an automatic retry is still owed (`retryAt`), so the last attempt has not
  *   been spent yet;
  * - a continuation has taken over the unfinished work. Its eventual failure
- *   is the one a Member should see; a skipped child leaves its parent visible;
+ *   is the one a Member should see; a skipped child leaves its parent visible.
+ *   A continuation retaining its server-owned review scope can finish reviewed:
+ *   that review owns the next step, without claiming verified delivery;
  * - **the routine has completed a run since**, which is the interesting one.
  *   A failure the next tick fixed by itself is history, not an alert: leaving
  *   it up teaches people that the red panel is usually stale, which is exactly
@@ -61,7 +63,11 @@ export async function findLiveRunFailures({
         .where("continuation.parentRunId = run.id")
         .andWhere("continuation.routineId = run.routineId")
         .andWhere("continuation.triggerKind = :continuationTrigger")
-        .andWhere("continuation.status IN (:...continuationStatuses)")
+        .andWhere(
+          "(continuation.status IN (:...continuationStatuses) OR " +
+            "(continuation.status = :reviewedContinuationStatus AND " +
+            "continuation.continuationReviewOnly = :reviewedContinuationScope))",
+        )
         .getQuery();
       return `NOT EXISTS ${continuation}`;
     })
@@ -79,6 +85,8 @@ export async function findLiveRunFailures({
     .setParameter("completedStatus", "completed" satisfies RunStatus)
     .setParameter("continuationTrigger", "continuation")
     .setParameter("continuationStatuses", ["running", "completed", ...FAILED_RUN_STATUSES])
+    .setParameter("reviewedContinuationStatus", "reviewed" satisfies RunStatus)
+    .setParameter("reviewedContinuationScope", true)
     .orderBy("run.startedAt", "DESC");
 
   if (take <= 0) return { rows: [], count: await qb.getCount() };

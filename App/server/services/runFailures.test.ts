@@ -159,13 +159,45 @@ describe("findLiveRunFailures", () => {
     );
   });
 
-  test("review-only or unrelated continuation rows cannot hide an unfinished Run", async () => {
+  test("unmarked reviewed or unrelated continuation rows cannot hide an unfinished Run", async () => {
     const parent = await run(routine, "failed", 3);
     await run(routine, "reviewed", 2, { triggerKind: "continuation", parentRunId: parent.id });
     await run(other, "running", 1, { triggerKind: "continuation", parentRunId: parent.id });
     assert.deepEqual(
       (await live()).rows.map((row) => row.id),
       [parent.id],
+    );
+  });
+
+  test("a continuation with preserved review scope replaces its source alert without claiming delivery", async () => {
+    const parent = await run(routine, "failed", 3);
+    const child = await run(routine, "reviewed", 2, {
+      triggerKind: "continuation",
+      parentRunId: parent.id,
+      continuationReviewOnly: true,
+      outcomeVerdict: "unverified",
+      checkpointJson: JSON.stringify({
+        state: "complete",
+        completed: "Completed the permitted preparation for the original review window.",
+        remaining: "",
+        resume: "",
+        progressKey: "review-window-complete",
+      }),
+    });
+    const unrelatedFailure = await run(other, "failed", 3);
+    await run(other, "reviewed", 1, { continuationReviewOnly: true });
+
+    assert.deepEqual(
+      (await live()).rows.map((row) => row.id),
+      [unrelatedFailure.id],
+    );
+    assert.equal((await live(0)).count, 1);
+    const persisted = await AppDataSource.getRepository(Run).findOneByOrFail({ id: child.id });
+    assert.equal(persisted.status, "reviewed");
+    assert.equal(persisted.outcomeVerdict, "unverified");
+    assert.equal(
+      (await AppDataSource.getRepository(Run).findOneByOrFail({ id: parent.id })).status,
+      "failed",
     );
   });
 
