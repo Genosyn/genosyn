@@ -1,10 +1,11 @@
-/** Real Repository Settings surface with deterministic API fixtures. */
+/** Real Repository Settings and access surfaces with deterministic API fixtures. */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { DialogProvider } from "../client/components/ui/Dialog";
 import { api, type Company, type Repository } from "../client/lib/api";
 import RepositorySettings from "../client/pages/RepositorySettings";
+import RepositoryAccess from "../client/pages/RepositoryAccess";
 import "../client/styles/index.css";
 
 function Harness() {
@@ -17,7 +18,9 @@ function Harness() {
     void reload();
   }, [reload]);
   return (
-    <MemoryRouter>
+    <MemoryRouter
+      initialEntries={[new URLSearchParams(location.search).has("access") ? "/access" : "/"]}
+    >
       <DialogProvider>
         <main className="mx-auto max-w-4xl p-4 sm:p-8">
           <Routes>
@@ -35,6 +38,7 @@ function Harness() {
               }
             >
               <Route path="/" element={<RepositorySettings />} />
+              <Route path="/access" element={<RepositoryAccess />} />
             </Route>
           </Routes>
         </main>

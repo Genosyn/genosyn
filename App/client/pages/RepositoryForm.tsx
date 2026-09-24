@@ -98,7 +98,9 @@ export function repoFormToPayload(form: RepoFormState): Record<string, unknown> 
     defaultBranch: form.defaultBranch.trim() || "main",
     description: form.description.trim(),
     authMode: local ? "none" : form.authMode,
-    githubConnectionId: local ? null : form.githubConnectionId || null,
+    // The stored HTTPS token supplies Git and API access itself. Clear a pin
+    // left by earlier setup so a deleted Connection cannot block token edits.
+    githubConnectionId: local || form.authMode === "https" ? null : form.githubConnectionId || null,
     committerName: form.committerName.trim(),
     committerEmail: form.committerEmail.trim(),
     commandMode: form.commandMode,
@@ -202,10 +204,9 @@ export function RepoFormFields({
 
       {form.origin === "remote" && form.authMode === "none" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Public repositories clone anonymously. When the URL belongs to GitHub or a Forgejo /
-          Gitea server the company has connected, Genosyn can reuse its pinned or sole Connection
-          for that host. Grant that Connection to an AI employee too when it should receive its own
-          checkout.
+          Public repositories clone anonymously. When the URL belongs to GitHub or a Forgejo / Gitea
+          server the company has connected, Genosyn can reuse its pinned or sole Connection for that
+          host. Grant that Connection to an AI employee too when it should receive its own checkout.
         </p>
       )}
 
@@ -229,9 +230,10 @@ export function RepoFormFields({
             placeholder="ghp_… / glpat-… / app password"
           />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Use the narrowest repository-scoped token available. It is encrypted at rest and
-            decrypted only inside a short-lived, server-owned git operation — never into AI tools or
-            the checkout.
+            Use the narrowest repository-scoped token available. On GitHub or a connected Forgejo /
+            Gitea server, the same personal access token can push branches and open pull requests.
+            It is encrypted at rest and used only by the server for Git and pull request operations;
+            AI tools and the checkout never receive it.
           </p>
         </div>
       )}
@@ -253,9 +255,9 @@ export function RepoFormFields({
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Add the matching public key as a deploy key on your git host, with write access when
             employees should push branches. The private key is encrypted at rest and materialized
-            only in an App-private temporary
-            directory during clone, refresh, or authorized branch pushes. Opening a pull request
-            also needs a GitHub or Forgejo Connection selected in this repository&apos;s Settings.
+            only in an App-private temporary directory during clone, refresh, or authorized branch
+            pushes. Opening a pull request also needs a GitHub or Forgejo Connection selected in
+            this repository&apos;s Settings.
           </p>
         </div>
       )}
@@ -400,8 +402,8 @@ export function RepoCommandFields({
           <p className="mt-1">
             An employee can run any command in a work session on this repository. Host execution
             uses the App process&apos;s filesystem and network access; optional bubblewrap applies
-            its configured isolation. Choose this when the repository&apos;s own tooling needs
-            more than a list can express.
+            its configured isolation. Choose this when the repository&apos;s own tooling needs more
+            than a list can express.
           </p>
         </div>
       )}

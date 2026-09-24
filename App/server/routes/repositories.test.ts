@@ -8,7 +8,10 @@ import { after, before, beforeEach, test } from "node:test";
 import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
+import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
@@ -168,4 +171,141 @@ test("a foreign or mismatched Connection is rejected without changing the stored
   });
   assert.equal(saved.githubConnectionId, null);
   assert.equal(saved.gitUrl, repository.gitUrl);
+});
+
+async function grantEmployee(accessLevel: "read" | "write", slug = "developer") {
+  const employee = await insert(AIEmployee, {
+    companyId: company.id,
+    name: slug,
+    slug,
+    role: "Developer",
+  });
+  await insert(EmployeeRepositoryGrant, {
+    employeeId: employee.id,
+    repositoryId: repository.id,
+    accessLevel,
+  });
+  return employee;
+}
+
+async function deliveryReadiness(): Promise<Map<string, boolean>> {
+  const response = await fetch(
+    `${baseUrl}/api/companies/${company.id}/repositories/${repository.slug}/grants`,
+  );
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as {
+    direct: Array<{ employeeId: string; employee: { pullRequestReady: boolean } }>;
+  };
+  assert.ok(!JSON.stringify(body).includes("repository-personal-token"));
+  return new Map(body.direct.map((grant) => [grant.employeeId, grant.employee.pullRequestReady]));
+}
+
+async function usePersonalToken(gitUrl = "https://github.com/acme/product.git") {
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    authMode: "https",
+    gitUrl,
+    encryptedToken: encryptRepoSecret("repository-personal-token", company.id),
+    encryptedSshKey: null,
+    githubConnectionId: null,
+  });
+}
+
+test("PAT Settings can clear an obsolete Connection without replacing the saved token", async () => {
+  await usePersonalToken();
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    githubConnectionId: connection.id,
+  });
+  await AppDataSource.getRepository(IntegrationConnection).delete(connection.id);
+  const before = await AppDataSource.getRepository(Repository).findOneByOrFail({ id: repository.id });
+  const result = await patch({
+    name: "Renamed product",
+    authMode: "https",
+    gitUrl: before.gitUrl,
+    githubConnectionId: null,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.hasToken, true);
+  assert.equal(result.body.encryptedToken, undefined);
+  const saved = await AppDataSource.getRepository(Repository).findOneByOrFail({ id: repository.id });
+  assert.equal(saved.githubConnectionId, null);
+  assert.equal(saved.encryptedToken, before.encryptedToken);
+  assert.equal(saved.gitUrl, before.gitUrl);
+});
+
+test("delivery readiness recognizes a GitHub Repository token without a Connection", async () => {
+  await usePersonalToken();
+  await AppDataSource.getRepository(IntegrationConnection).delete(connection.id);
+  const writer = await grantEmployee("write");
+  const reader = await grantEmployee("read", "reviewer");
+  const ready = await deliveryReadiness();
+  assert.equal(ready.get(writer.id), true);
+  assert.equal(ready.get(reader.id), false);
+});
+
+test("delivery readiness does not substitute a Connection for a missing Repository token", async () => {
+  await usePersonalToken();
+  const employee = await grantEmployee("write");
+  await insert(EmployeeConnectionGrant, { employeeId: employee.id, connectionId: connection.id });
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    encryptedToken: null,
+    githubConnectionId: connection.id,
+  });
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
+  await usePersonalToken("https://unknown.example/acme/product.git");
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
+});
+
+test("delivery readiness uses configured Forgejo metadata with the Repository token", async () => {
+  await usePersonalToken("https://forge.example/acme/product.git");
+  await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+    provider: "forgejo",
+    encryptedConfig: encryptConnectionConfig(
+      { baseUrl: "https://forge.example", apiKey: "unused-connection-token", login: "acme" },
+      company.id,
+    ),
+  });
+  const employee = await grantEmployee("write");
+  assert.equal((await deliveryReadiness()).get(employee.id), true);
+  await AppDataSource.getRepository(IntegrationConnection).delete(connection.id);
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
+});
+
+test("delivery readiness requires the exact selected Connection for SSH", async () => {
+  const employee = await grantEmployee("write");
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    githubConnectionId: connection.id,
+  });
+  const other = await insert(IntegrationConnection, {
+    companyId: company.id,
+    provider: "github",
+    label: "Other GitHub",
+    authMode: "apikey",
+    status: "connected",
+    encryptedConfig: encryptConnectionConfig({ apiKey: "other-token" }, company.id),
+  });
+  await insert(EmployeeConnectionGrant, { employeeId: employee.id, connectionId: other.id });
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
+  await insert(EmployeeConnectionGrant, { employeeId: employee.id, connectionId: connection.id });
+  assert.equal((await deliveryReadiness()).get(employee.id), true);
+  await AppDataSource.getRepository(Repository).update(repository.id, { githubConnectionId: null });
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    githubConnectionId: connection.id,
+    encryptedSshKey: null,
+  });
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
+});
+
+test("delivery readiness preserves a granted Connection used for Git and PRs", async () => {
+  const employee = await grantEmployee("write");
+  await AppDataSource.getRepository(Repository).update(repository.id, {
+    authMode: "none",
+    gitUrl: "https://github.com/acme/product.git",
+    githubConnectionId: connection.id,
+    encryptedSshKey: null,
+  });
+  await insert(EmployeeConnectionGrant, { employeeId: employee.id, connectionId: connection.id });
+  assert.equal((await deliveryReadiness()).get(employee.id), true);
+  await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
+  assert.equal((await deliveryReadiness()).get(employee.id), false);
 });

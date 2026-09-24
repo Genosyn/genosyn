@@ -778,13 +778,17 @@ export async function composeRepositoriesContext(
     const row = rowsById.get(synced.repositoryId);
     if (!row) continue;
     const level = accessById.get(row.id);
+    const pullRequestAccess =
+      row.authMode === "https"
+        ? "open_repository_work_session_pull_request uses this Repository's stored HTTPS personal access token for the PR API, without a separate forge Connection Grant."
+        : "open_repository_work_session_pull_request requires the Repository's exact granted forge Connection for the PR API.";
     checkouts.push({
       name: row.name,
       path: synced.path,
       defaultBranch: row.defaultBranch,
       access:
         level === "write"
-          ? `Write Grant. Start changes with start_repository_work_session using repository ${JSON.stringify(row.slug)}. When delivery is authorized, push_repository_work_session pushes the completed session branch with server-held SSH or HTTPS credentials; open_repository_work_session_pull_request also needs the Repository's exact granted forge Connection.`
+          ? `Write Grant. Start changes with start_repository_work_session using repository ${JSON.stringify(row.slug)}. When delivery is authorized, push_repository_work_session pushes the completed session branch with server-held SSH or HTTPS credentials; ${pullRequestAccess}`
           : "Read-only Grant. You may inspect this checkout; changing or publishing Repository work requires a write Grant.",
     });
   }

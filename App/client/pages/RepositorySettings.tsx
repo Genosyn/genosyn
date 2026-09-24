@@ -43,6 +43,7 @@ export default function RepositorySettings() {
   const [connectionsRetry, setConnectionsRetry] = React.useState(0);
   const repositorySlug = repo?.slug;
   const repositoryOrigin = repo?.origin;
+  const repositoryAuthMode = form?.authMode;
 
   React.useEffect(() => {
     setForm(repo ? repoToForm(repo) : null);
@@ -50,7 +51,17 @@ export default function RepositorySettings() {
   }, [repo]);
 
   React.useEffect(() => {
-    if (!repositorySlug || repositoryOrigin !== "remote") return;
+    if (
+      !repositorySlug ||
+      repositoryOrigin !== "remote" ||
+      !repositoryAuthMode ||
+      repositoryAuthMode === "https"
+    ) {
+      setConnections([]);
+      setConnectionsLoading(false);
+      setConnectionsError(null);
+      return;
+    }
     let cancelled = false;
     setConnections([]);
     setConnectionsLoading(true);
@@ -71,7 +82,7 @@ export default function RepositorySettings() {
     return () => {
       cancelled = true;
     };
-  }, [company.id, repositorySlug, repositoryOrigin, connectionsRetry]);
+  }, [company.id, repositorySlug, repositoryOrigin, repositoryAuthMode, connectionsRetry]);
 
   const changed =
     form !== null && baseline !== null && JSON.stringify(form) !== JSON.stringify(baseline);
@@ -192,7 +203,28 @@ export default function RepositorySettings() {
           hasToken={repo.hasToken}
           hasSshKey={repo.hasSshKey}
         />
-        {!isLocal && (
+        {!isLocal && form.authMode === "https" && (
+          <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
+            <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              Pull requests use this token
+            </h2>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              The stored personal access token can push completed Work session branches and open
+              pull requests on GitHub or a connected Forgejo / Gitea server. No Connection needs to
+              be selected or granted to the AI employee. Give it a write Grant to this repository,
+              and give the token access to write to the repository and open pull requests. GitHub
+              needs no Connection. For Forgejo / Gitea, keep the matching server connected in{" "}
+              <Link
+                className="text-accent-600 hover:underline dark:text-accent-400"
+                to={`/c/${company.slug}/settings/integrations`}
+              >
+                Settings → Integrations
+              </Link>
+              ; Genosyn uses its configured server address and this repository&apos;s token.
+            </p>
+          </div>
+        )}
+        {!isLocal && form.authMode !== "https" && (
           <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
             <Select
               label="Pull request Connection"
@@ -215,9 +247,8 @@ export default function RepositorySettings() {
             </Select>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Choose the GitHub or Forgejo Connection for this repository, then grant it to AI
-              employees who should open pull requests. The repository&apos;s stored SSH key or token
-              still handles cloning and pushing; this Connection opens the pull request. Add a
-              Connection in{" "}
+              employees who should open pull requests. An SSH repository keeps its stored key for
+              cloning and pushing; this Connection opens the pull request. Add a Connection in{" "}
               <Link
                 className="text-accent-600 hover:underline dark:text-accent-400"
                 to={`/c/${company.slug}/settings/integrations`}

@@ -266,12 +266,13 @@ export function Reactivity() {
       </P>
       <P>
         A Repository Write Grant lets an employee push its own completed Work session branch using
-        the repository&apos;s stored SSH key or HTTPS token. Opening a pull request also needs a
-        GitHub or Forgejo Connection selected under <Strong>Pull request Connection</Strong> in
-        Repository Settings and separately granted to that employee. The employee cannot merge or
-        publish the default branch. <Strong>Follow through on open work</Strong> lets the same
-        employee revisit saved sessions and propose the next step for your review; check its
-        assignment under
+        the repository&apos;s stored SSH key or HTTPS token. On GitHub or a connected Forgejo /
+        Gitea server, a stored HTTPS personal access token can also open pull requests without a
+        separate Connection Grant. SSH and Connection-backed repositories need the exact GitHub or
+        Forgejo Connection selected under <Strong>Pull request Connection</Strong> in Repository
+        Settings and separately granted to that employee. The employee cannot merge or publish the
+        default branch. <Strong>Follow through on open work</Strong> lets the same employee revisit
+        saved sessions and propose the next step for your review; check its assignment under
         <Strong> Standing work</Strong>. See
         <DocLink to="/docs/repositories"> Repositories</DocLink>.
       </P>

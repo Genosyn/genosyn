@@ -1,4 +1,4 @@
-/** Real Chrome coverage for SSH publishing setup; APIs are deterministic fixtures. */
+/** Real Chrome coverage for SSH and stored-token publishing; APIs are deterministic fixtures. */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -48,9 +48,42 @@ let repo = {
 const patches: Array<Record<string, unknown>> = [];
 let failSave = false;
 let failConnections = false;
+let connectionLookups = 0;
+let grant = {
+  id: "grant",
+  repositoryId: "repository",
+  employeeId: "employee",
+  accessLevel: "read",
+  createdAt: "2026-09-24T00:00:00.000Z",
+  employee: {
+    id: "employee",
+    name: "Alex",
+    slug: "alex",
+    role: "Engineer",
+    avatarKey: null,
+    pullRequestReady: false,
+  },
+};
+let grantReads = 0;
 await context.route("**/api/**", async (route) => {
   const request = route.request();
-  if (new URL(request.url()).pathname.endsWith("/forge-connections")) {
+  const pathname = new URL(request.url()).pathname;
+  if (pathname.endsWith("/grant-candidates")) return route.fulfill({ json: [] });
+  if (pathname.endsWith("/grants/grant") && request.method() === "PATCH") {
+    const patch = request.postDataJSON() as { accessLevel: string };
+    grant = {
+      ...grant,
+      accessLevel: patch.accessLevel,
+      employee: { ...grant.employee, pullRequestReady: patch.accessLevel === "write" },
+    };
+    return route.fulfill({ json: grant });
+  }
+  if (pathname.endsWith("/grants")) {
+    grantReads += 1;
+    return route.fulfill({ json: { direct: [grant] } });
+  }
+  if (pathname.endsWith("/forge-connections")) {
+    connectionLookups += 1;
     return failConnections
       ? route.fulfill({ status: 503, json: { error: "Connections temporarily unavailable" } })
       : route.fulfill({
@@ -133,9 +166,57 @@ try {
     path: path.join(output, "repository-ssh-publishing-settings-mobile.png"),
     fullPage: true,
   });
+
+  repo = {
+    ...repo,
+    gitUrl: "https://github.com/acme/product.git",
+    authMode: "https",
+    hasSshKey: false,
+    hasToken: true,
+    // Earlier versions asked PAT repositories to select a Connection. It may
+    // since have been deleted and must not prevent saving the stored token.
+    githubConnectionId: "2bcc9906-0e58-402d-8c6b-cd9479b3f77f",
+  };
+  // A stored PAT works even when no Connection can be listed. The page must
+  // not turn a separate Integration outage into a token setup requirement.
+  failConnections = true;
+  const previousLookups = connectionLookups;
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Pull requests use this token", exact: true }).waitFor();
+  assert.equal(await picker.count(), 0);
+  assert.equal(connectionLookups, previousLookups);
+  await page.getByLabel("Name", { exact: true }).fill("Product with token");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("button")].some(
+      (button) => button.textContent?.trim() === "Save changes" && button.disabled,
+    ),
+  );
+  const tokenPatch = patches.at(-1)!;
+  assert.equal(tokenPatch.authMode, "https");
+  assert.equal(tokenPatch.githubConnectionId, null);
+  assert.equal(tokenPatch.gitUrl, "https://github.com/acme/product.git");
+  assert.equal(tokenPatch.token, undefined, "unchanged stored token must not be submitted");
+  assert.equal(repo.hasToken, true);
+  assert.equal(repo.githubConnectionId, null, "a token save clears the obsolete Connection pin");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({
+    path: path.join(output, "repository-token-publishing-settings-mobile.png"),
+    fullPage: true,
+  });
+
+  await page.goto(`${fixture.origin}/?access`, { waitUntil: "networkidle" });
+  await page.getByText("Alex", { exact: true }).waitFor();
+  assert.equal(await page.getByText("PR access configured", { exact: true }).count(), 0);
+  const previousGrantReads = grantReads;
+  await page.getByRole("combobox", { name: "Repository access level", exact: true }).click();
+  await page.getByRole("option", { name: "Work and push session branches", exact: true }).click();
+  await page.getByText("PR access configured", { exact: true }).waitFor();
+  assert.ok(grantReads > previousGrantReads, "changing access reloads server delivery readiness");
+  assert.equal(connectionLookups, previousLookups);
   assert.deepEqual(errors, []);
   console.log(
-    "Repository Settings browser checks passed: SSH pin/save, preserved key, inline failure, retry, mobile layout.",
+    "Repository publishing browser checks passed: SSH pin/save, preserved key, inline failure, retry; stored PAT without Connection, preserved token, immediate write-Grant readiness; mobile layout.",
   );
 } finally {
   await context.close();

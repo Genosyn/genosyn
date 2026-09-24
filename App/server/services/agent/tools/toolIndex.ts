@@ -1511,6 +1511,9 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   get_repository_work_session: ["work session", "status", "progress", "result", "fix"],
   push_repository_work_session: [
     "ssh",
+    "personal access token",
+    "pat",
+    "https",
     "git push",
     "push branch",
     "publish branch",
@@ -1520,6 +1523,9 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   open_repository_work_session_pull_request: [
     "pull request",
     "pr",
+    "personal access token",
+    "pat",
+    "https",
     "deliver",
     "push",
     "work session",

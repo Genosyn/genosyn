@@ -226,6 +226,14 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
     query: "push the completed work session branch using the repository SSH key",
     expect: "push_repository_work_session",
   },
+  {
+    query: "push the completed branch using my personal access token",
+    expect: "push_repository_work_session",
+  },
+  {
+    query: "open a pull request using a stored personal access token",
+    expect: "open_repository_work_session_pull_request",
+  },
   // Deliberately a deferred orientation tool: `list_employees` is resident, so
   // it is never a find_tools hit — asserting on it would test nothing.
   { query: "what departments are there", expect: "list_teams" },
@@ -300,6 +308,27 @@ describe("find_tools recall", () => {
     const out = await tool.run({ query: "pause recurring billing" });
     assert.ok(out.content.includes("### update_recurring_invoice"));
     assert.ok(out.content.includes('"required": [\n    "recurringInvoiceSlug"'));
+  });
+
+  test("PAT pull-request discovery explains stored-token authority without asking for credentials", async () => {
+    const out = await tool.run({
+      query: "open a pull request using a stored personal access token",
+    });
+    const section = out.content
+      .split("### open_repository_work_session_pull_request\n")[1]
+      ?.split("\n### ")[0];
+    assert.ok(section, "stored-token pull-request delivery must be discoverable");
+    assert.match(section, /live Repository write Grant/);
+    assert.match(section, /personal access token.*without a separate Connection Grant/);
+    assert.match(section, /SSH and Connection-backed repositories require a Grant/);
+    const schemaJson = section.match(/arguments:\n({[\s\S]*?\n})/)?.[1];
+    assert.ok(schemaJson, "discovery must include the complete delivery argument schema");
+    const schema = JSON.parse(schemaJson) as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    assert.deepEqual(schema.required, ["sessionId"]);
+    assert.deepEqual(Object.keys(schema.properties).sort(), ["body", "sessionId", "title"]);
   });
 
   test("a grant-dead tool is annotated, never hidden", async () => {

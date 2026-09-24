@@ -14,7 +14,7 @@ import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { Standdown } from "../db/entities/Standdown.js";
 import { User } from "../db/entities/User.js";
-import { GITHUB_ENDPOINT } from "../integrations/providers/forge/client.js";
+import { GITHUB_ENDPOINT, forgejoEndpoint } from "../integrations/providers/forge/client.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { encryptConnectionConfig } from "./integrations.js";
 import {
@@ -335,15 +335,15 @@ describe("bounded employee pull-request delivery", () => {
     await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
     await refuse(/Grant.*Connection/);
   });
-  test("HTTPS keeps its transport token separate from the pinned Connection API token", async () => {
+  test("HTTPS uses its Repository token for the PR API even with a pinned Connection", async () => {
     await AppDataSource.getRepository(Repository).update(repository.id, {
       authMode: "https",
-      encryptedToken: encryptRepoSecret("transport-only", company.id),
+      encryptedToken: encryptRepoSecret("repository-pat", company.id),
     });
     deps.resolveForge = resolveRepositoryForge;
     const create = deps.createPullRequest!;
     deps.createPullRequest = async (endpoint, token, input) => {
-      assert.equal(token, "test-token");
+      assert.equal(token, "repository-pat");
       return create(endpoint, token, input);
     };
     assert.equal((await publish()).status, "proposed");
@@ -721,5 +721,235 @@ describe("bounded employee branch delivery", () => {
     const discarded = (await discarding).session;
     assert.equal(discarded.status, "discarded");
     assert.equal(discarded.publishedBranch, session.branch);
+  });
+});
+
+describe("Repository HTTPS token delivery", () => {
+  const token = "repository-pat";
+  const forgejoUrl = "https://git.acme.test";
+
+  beforeEach(async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      authMode: "https",
+      encryptedToken: encryptRepoSecret(token, company.id),
+      githubConnectionId: null,
+    });
+    await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
+    deps.resolveForge = resolveRepositoryForge;
+    const find = deps.findOpenPullRequest!;
+    deps.findOpenPullRequest = async (endpoint, credential, input) => {
+      assert.equal(credential, token, "the API must use only the Repository's token");
+      return find(endpoint, credential, input);
+    };
+    const create = deps.createPullRequest!;
+    deps.createPullRequest = async (endpoint, credential, input) => {
+      assert.equal(credential, token, "a Connection token must never replace the Repository token");
+      return create(endpoint, credential, input);
+    };
+  });
+
+  async function configureForgejo() {
+    await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+      provider: "forgejo",
+      // Only host metadata is needed; this Connection has no usable token or Grant.
+      encryptedConfig: encryptConnectionConfig({ baseUrl: forgejoUrl }),
+    });
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      gitUrl: `${forgejoUrl}/acme/product.git`,
+    });
+  }
+
+  async function storedSession() {
+    return AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id });
+  }
+
+  test("opens a GitHub PR using the Repository token without any Connection", async () => {
+    await AppDataSource.getRepository(IntegrationConnection).delete(connection.id);
+    const result = await publish();
+    assert.equal(result.status, "proposed");
+    assert.equal(result.pullRequestNumber, 42);
+    assert.equal(result.publishedBranch, session.branch);
+    assert.deepEqual(calls, [`push:${session.branch}`, "find", "create"]);
+  });
+
+  test("ignores an ungranted pinned Connection's credential", async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      githubConnectionId: connection.id,
+    });
+    await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+      encryptedConfig: encryptConnectionConfig({ apiKey: "ungranted-connection-token" }),
+    });
+    assert.equal((await publish()).status, "proposed");
+    assert.deepEqual(calls, [`push:${session.branch}`, "find", "create"]);
+  });
+
+  test("uses a configured Forgejo endpoint with its Repository token and no Connection Grant", async () => {
+    await configureForgejo();
+    const create = deps.createPullRequest!;
+    deps.createPullRequest = async (endpoint, credential, input) => {
+      assert.deepEqual(endpoint, forgejoEndpoint(forgejoUrl));
+      return create(endpoint, credential, input);
+    };
+    assert.equal((await publish()).status, "proposed");
+    assert.deepEqual(calls, [`push:${session.branch}`, "find", "create"]);
+  });
+
+  test("does not guess an API endpoint for an unknown host", async () => {
+    await AppDataSource.getRepository(Repository).update(repository.id, {
+      gitUrl: "https://unconfigured.example/acme/product.git",
+    });
+    await refuse(/host needs a configured/);
+  });
+
+  for (const invalid of ["missing", "unreadable", "unsafe"] as const) {
+    test(`a ${invalid} Repository token never falls back to a Connection`, async () => {
+      await insert(EmployeeConnectionGrant, {
+        employeeId: employee.id,
+        connectionId: connection.id,
+      });
+      await AppDataSource.getRepository(Repository).update(repository.id, {
+        githubConnectionId: connection.id,
+        encryptedToken:
+          invalid === "missing"
+            ? null
+            : invalid === "unreadable"
+              ? "not-ciphertext"
+              : encryptRepoSecret("unsafe\nsecret", company.id),
+      });
+      await refuse(/missing|could not be decrypted|invalid line break/);
+      assert.equal((await storedSession()).publishedBranch, null);
+    });
+  }
+
+  test("a token without Git write access fails without trying another credential", async () => {
+    let resolutions = 0;
+    deps.resolveForge = async (repo, options) => {
+      resolutions += 1;
+      return resolveRepositoryForge(repo, options);
+    };
+    deps.push = async (_repo, branch, options) => {
+      await options?.authorize?.();
+      calls.push(`push:${branch}`);
+      throw new Error("Permission denied for the Repository token");
+    };
+    await assert.rejects(publish, /Permission denied/);
+    assert.equal(resolutions, 1);
+    assert.deepEqual(calls, [`push:${session.branch}`]);
+    assert.equal((await storedSession()).publishedBranch, null);
+  });
+
+  test("a token without PR scope fails without trying a Connection token", async () => {
+    deps.createPullRequest = async (_endpoint, credential) => {
+      assert.equal(credential, token);
+      calls.push("create");
+      throw new Error("Repository token cannot create pull requests");
+    };
+    await assert.rejects(publish, /token cannot create pull requests/);
+    assert.deepEqual(calls, [`push:${session.branch}`, "find", "create"]);
+    const stored = await storedSession();
+    assert.equal(stored.publishedBranch, session.branch);
+    assert.equal(stored.status, "ready");
+    assert.equal(stored.pullRequestUrl, null);
+  });
+
+  test("revoking the Repository Grant during credential resolution prevents the push", async () => {
+    deps.resolveForge = async (repo, options) => {
+      const resolved = await resolveRepositoryForge(repo, options);
+      await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({
+        employeeId: employee.id,
+      });
+      return resolved;
+    };
+    await refuse(/write Grant/);
+  });
+
+  test("replacing the Repository token during resolution prevents the push", async () => {
+    deps.resolveForge = async (repo, options) => {
+      const resolved = await resolveRepositoryForge(repo, options);
+      await AppDataSource.getRepository(Repository).update(repository.id, {
+        encryptedToken: encryptRepoSecret("replacement-pat", company.id),
+      });
+      return resolved;
+    };
+    await refuse(/changed before delivery/);
+  });
+
+  test("changing Forgejo host metadata during credential resolution prevents the push", async () => {
+    await configureForgejo();
+    deps.resolveForge = async (repo, options) => {
+      const resolved = await resolveRepositoryForge(repo, options);
+      await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+        encryptedConfig: encryptConnectionConfig({ baseUrl: "https://changed.example" }),
+      });
+      return resolved;
+    };
+    await refuse(/forge endpoint changed/);
+  });
+
+  test("rejects a different resolved API endpoint even when metadata was changed back", async () => {
+    deps.resolveForge = async (repo, options) => {
+      await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+        provider: "forgejo",
+        encryptedConfig: encryptConnectionConfig({ baseUrl: "https://github.com" }),
+      });
+      const resolved = await resolveRepositoryForge(repo, options);
+      await AppDataSource.getRepository(IntegrationConnection).update(connection.id, {
+        provider: connection.provider,
+        encryptedConfig: connection.encryptedConfig,
+      });
+      return resolved;
+    };
+    await refuse(/forge endpoint changed/);
+  });
+
+  for (const revoked of ["token", "Grant"] as const) {
+    test(`rechecking the ${revoked} after pushing prevents credentialed API reads`, async () => {
+      const pushBranch = deps.push!;
+      deps.push = async (repo, branch, options) => {
+        const result = await pushBranch(repo, branch, options);
+        if (revoked === "token") {
+          await AppDataSource.getRepository(Repository).update(repository.id, {
+            encryptedToken: null,
+          });
+        } else {
+          await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({
+            employeeId: employee.id,
+          });
+        }
+        return result;
+      };
+      await assert.rejects(publish, /changed before delivery|write Grant/);
+      assert.deepEqual(calls, [`push:${session.branch}`]);
+      assert.equal((await storedSession()).publishedBranch, session.branch);
+    });
+  }
+
+  test("rechecks the token between Git and API reads while resolving the base branch", async () => {
+    deps.branchExists = async () => {
+      await AppDataSource.getRepository(Repository).update(repository.id, {
+        encryptedToken: encryptRepoSecret("replacement-pat", company.id),
+      });
+      return false;
+    };
+    deps.remoteDefaultBranch = async () => {
+      calls.push("read-api-base");
+      return "main";
+    };
+    await assert.rejects(publish, /changed before delivery/);
+    assert.deepEqual(calls, [`push:${session.branch}`, "find"]);
+  });
+
+  test("rechecks the token after the PR lookup and before creating a pull request", async () => {
+    const find = deps.findOpenPullRequest!;
+    deps.findOpenPullRequest = async (endpoint, credential, input) => {
+      const result = await find(endpoint, credential, input);
+      await AppDataSource.getRepository(Repository).update(repository.id, {
+        encryptedToken: encryptRepoSecret("replacement-pat", company.id),
+      });
+      return result;
+    };
+    await assert.rejects(publish, /changed before delivery/);
+    assert.deepEqual(calls, [`push:${session.branch}`, "find"]);
+    assert.equal((await storedSession()).pullRequestUrl, null);
   });
 });

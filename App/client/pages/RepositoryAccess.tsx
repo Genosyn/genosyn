@@ -99,7 +99,7 @@ export default function RepositoryAccess() {
     background(() => api.patch(`${base}/grants/${grant.id}`, { accessLevel: level }), {
       title: "Couldn’t update access",
       error: (error) => `${errorMessage(error)} The change was undone.`,
-      onSuccess: () => void reloadRepos(),
+      onSuccess: () => void Promise.all([reload(), reloadRepos()]),
       onError: () => {
         setGrants(
           (current) => current?.map((item) => (item.id === grant.id ? grant : item)) ?? current,
@@ -152,10 +152,18 @@ export default function RepositoryAccess() {
         />
         <ReadinessCard
           icon={<GitPullRequest size={17} />}
-          title="Pull requests use a Connection"
-          detail="To let an AI employee open pull requests, choose this repository's GitHub or Forgejo Connection in Settings and give the employee a Grant to that same Connection. Its completed session branch can push with the stored SSH key or token."
+          title={
+            repo.authMode === "https"
+              ? "Pull requests use the stored token"
+              : "Pull requests use a Connection"
+          }
+          detail={
+            repo.authMode === "https"
+              ? "A write Grant lets an AI employee push completed Work session branches and open pull requests using this repository's personal access token. No separate Connection Grant is needed. GitHub and connected Forgejo / Gitea servers are supported; the token must allow repository writes and pull requests."
+              : "To let an AI employee open pull requests, choose this repository's GitHub or Forgejo Connection in Settings and give the employee a Grant to that same Connection. An SSH repository keeps its stored key for branch pushes."
+          }
           to={`/c/${company.slug}/repositories/${repo.slug}/settings`}
-          linkLabel="Choose a Connection"
+          linkLabel={repo.authMode === "https" ? "Review sign-in" : "Choose a Connection"}
         />
       </div>
 
@@ -272,10 +280,22 @@ export default function RepositoryAccess() {
                       </Link>
                       {!grant.employee.pullRequestReady && grant.accessLevel === "write" && (
                         <Link
-                          to={`/c/${company.slug}/employees/${grant.employee.slug}/settings/connections`}
+                          to={
+                            repo.authMode === "https"
+                              ? `/c/${company.slug}/repositories/${repo.slug}/settings`
+                              : `/c/${company.slug}/employees/${grant.employee.slug}/settings/connections`
+                          }
                           className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                          aria-label={`Manage ${grant.employee.name}'s Connections`}
-                          title="Grant a Connection for the git host"
+                          aria-label={
+                            repo.authMode === "https"
+                              ? "Review repository token"
+                              : `Manage ${grant.employee.name}'s Connections`
+                          }
+                          title={
+                            repo.authMode === "https"
+                              ? "Check the repository token"
+                              : "Grant a Connection for the git host"
+                          }
                         >
                           <PlugZap size={15} />
                         </Link>
@@ -343,13 +363,13 @@ function DeliveryBadge({ grant }: { grant: RepositoryGrant }) {
   if (grant.employee?.pullRequestReady) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-        <GitPullRequest size={11} /> PR tool connected
+        <GitPullRequest size={11} /> PR access configured
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-      <PlugZap size={11} /> PR tool unavailable
+      <PlugZap size={11} /> PR access unavailable
     </span>
   );
 }

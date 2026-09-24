@@ -398,6 +398,25 @@ export function describeRepositoryForge(
   return { provider: match.provider, name: forgeProviderName(match.provider), credential };
 }
 
+/** Configured delivery access; the remote still decides whether a token can write. */
+export function employeePullRequestReady(
+  repo: Repository,
+  accessLevel: "read" | "write",
+  match: ForgeRemoteMatch | null,
+  grantedConnectionIds: ReadonlySet<string>,
+): boolean {
+  if (accessLevel !== "write" || repo.origin !== "remote" || !match) return false;
+  // A Repository token supplies both Git and API access. Do not advertise a
+  // Connection fallback when that token is missing.
+  if (repo.authMode === "https") return !!repo.encryptedToken;
+  if (repo.authMode === "ssh" && !repo.encryptedSshKey) return false;
+  return (
+    !!repo.githubConnectionId &&
+    match.connection?.id === repo.githubConnectionId &&
+    grantedConnectionIds.has(repo.githubConnectionId)
+  );
+}
+
 /**
  * Find the Connection that can authenticate git operations on this
  * repository's remote, for a repository whose own `authMode` is `none`.

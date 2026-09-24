@@ -2787,8 +2787,9 @@ export type RepositoryGrantEmployee = {
   role: string;
   avatarKey: string | null;
   /**
-   * True when a grant on a connected forge Connection — GitHub, or a Forgejo /
-   * Gitea server — exposes the pull request tool to this employee.
+   * True when a write Grant plus the stored Repository token or exact granted
+   * forge Connection configures pull request delivery. Remote permissions are
+   * checked when the employee publishes.
    */
   pullRequestReady: boolean;
 };

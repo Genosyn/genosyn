@@ -740,6 +740,11 @@ describe("a session that really starts", () => {
       /opens beside this conversation/.test(note),
       "the employee should say where the work opens, because that is where it opens",
     );
+    assert.match(note, /stored HTTPS personal access token.*without a separate Connection Grant/);
+    assert.match(
+      note,
+      /SSH and Connection-backed repositories need the exact granted forge Connection/,
+    );
 
     const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
       id: res.body.sessionId as string,

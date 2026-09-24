@@ -39,6 +39,7 @@ import {
 import { normalizeAllowedCommands } from "../services/repositoryCommandPolicy.js";
 import {
   describeRepositoryForge,
+  employeePullRequestReady,
   loadForgeCandidates,
   matchForgeRemote,
   repositoryForgeConnectionError,
@@ -434,17 +435,7 @@ type GrantWithEmployee = EmployeeRepositoryGrant & {
     slug: string;
     role: string;
     avatarKey: string | null;
-    /**
-     * A grant on a Connection that can speak for *this repository's* host
-     * exposes the pull-request tool next run.
-     *
-     * Narrowed to the host on purpose. While GitHub was the only forge, "holds
-     * a grant on any connected forge Connection" happened to be the same
-     * question; with two it is not, and the loose version marked an employee
-     * ready on a Forgejo repository because it had been granted the company's
-     * GitHub account — a badge saying yes next to a tool that cannot resolve a
-     * token for that server.
-     */
+    /** A write Grant plus the Repository token or its exact granted Connection. */
     pullRequestReady: boolean;
   } | null;
 };
@@ -464,15 +455,13 @@ async function hydrateGrants(
       where: { employeeId: In(empIds) },
     }),
   ]);
-  // Only the Connections that can authenticate THIS remote count. Everything
-  // else is a credential for a different server.
   const match = matchForgeRemote(repo, await loadForgeCandidates(companyId));
-  const forgeConnectionIds = new Set((match?.connections ?? []).map((connection) => connection.id));
-  const prReadyEmployeeIds = new Set(
-    connectionGrants
-      .filter((grant) => forgeConnectionIds.has(grant.connectionId))
-      .map((grant) => grant.employeeId),
-  );
+  const connectionIdsByEmployee = new Map<string, Set<string>>();
+  for (const grant of connectionGrants) {
+    const ids = connectionIdsByEmployee.get(grant.employeeId) ?? new Set<string>();
+    ids.add(grant.connectionId);
+    connectionIdsByEmployee.set(grant.employeeId, ids);
+  }
   const byId = new Map(emps.map((e) => [e.id, e]));
   return grants.map((g) => {
     const e = byId.get(g.employeeId);
@@ -484,7 +473,12 @@ async function hydrateGrants(
             slug: e.slug,
             role: e.role,
             avatarKey: e.avatarKey ?? null,
-            pullRequestReady: prReadyEmployeeIds.has(e.id),
+            pullRequestReady: employeePullRequestReady(
+              repo,
+              g.accessLevel,
+              match,
+              connectionIdsByEmployee.get(e.id) ?? new Set<string>(),
+            ),
           }
         : null,
     });

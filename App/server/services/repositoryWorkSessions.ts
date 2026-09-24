@@ -48,6 +48,7 @@ import {
 import { ForgeApiError, type ForgeEndpoint } from "../integrations/providers/forge/client.js";
 import { forgeProviderName } from "../integrations/providers/forge/connection.js";
 import { decryptRepositorySecret } from "./repositories.js";
+import { assertSafeCredentialToken } from "./gitCredentialHelper.js";
 import { workSessionCommandAvailability } from "./repositoryCommandRun.js";
 import { AGENTS_GUIDE_FILENAME, readContributorGuide } from "./repositoryGuidance.js";
 export {
@@ -1558,15 +1559,18 @@ async function resolvePullRequestBase(
   repo: Repository,
   forge: ResolvedRepositoryForge,
   deps: WorkSessionPullRequestDeps,
+  authorize?: () => Promise<void>,
 ): Promise<string> {
   const stored = (repo.defaultBranch || "").trim();
   // A stored branch the remote actually has is a Member's choice — a team that
   // merges into `develop` or a long-lived release branch means it. Only a
   // stored branch that is not on the remote is the bug this exists to fix, and
   // only that case may be overwritten.
-  if (stored && (await deps.branchExists(repo, stored).catch(() => false))) {
-    return stored;
+  if (stored) {
+    await authorize?.();
+    if (await deps.branchExists(repo, stored).catch(() => false)) return stored;
   }
+  await authorize?.();
   const found =
     (await deps.remoteDefaultBranch(
       forge.endpoint,
@@ -1636,7 +1640,11 @@ type OpenRepositoryWorkSessionPullRequestArgs = {
   title?: string;
   body?: string;
   /** Employee delivery rechecks its live Grants before each external write. */
-  authorize?: (session: RepositoryWorkSession, repo: Repository) => Promise<void>;
+  authorize?: (
+    session: RepositoryWorkSession,
+    repo: Repository,
+    forge?: ResolvedRepositoryForge,
+  ) => Promise<void>;
   /** Seam for tests; defaults to the real push + GitHub API. */
   deps?: Partial<WorkSessionPullRequestDeps>;
 };
@@ -1679,9 +1687,9 @@ async function openRepositoryWorkSessionPullRequestUnlocked(
   // branch it has never seen, and a revision's new commits have to be up there
   // before the existing pull request can pick them up.
   try {
-    await args.authorize?.(session, repo);
+    await args.authorize?.(session, repo, forge);
     await deps.push(repo, session.branch, {
-      authorize: args.authorize ? () => args.authorize!(session, repo) : undefined,
+      authorize: args.authorize ? () => args.authorize!(session, repo, forge) : undefined,
       expectedHeadCommit: session.headCommit ?? undefined,
     });
   } catch (error) {
@@ -1700,6 +1708,9 @@ async function openRepositoryWorkSessionPullRequestUnlocked(
   session.publishedBranch = session.branch;
   await sessionRepo.save(session);
 
+  // A completed Git push does not retain authority to use the API token if
+  // the Repository credential, Grant or trusted endpoint changed meanwhile.
+  await args.authorize?.(session, repo, forge);
   const existing = await deps.findOpenPullRequest(forge.endpoint, forge.token, {
     owner: remote.owner,
     repo: remote.repo,
@@ -1713,9 +1724,14 @@ async function openRepositoryWorkSessionPullRequestUnlocked(
     // know what the trunk is called, so it does not go and ask.
     pull = existing;
   } else {
-    const base = await resolvePullRequestBase(repo, forge, deps);
+    const base = await resolvePullRequestBase(
+      repo,
+      forge,
+      deps,
+      args.authorize ? () => args.authorize!(session, repo, forge) : undefined,
+    );
     try {
-      await args.authorize?.(session, repo);
+      await args.authorize?.(session, repo, forge);
       pull = await deps.createPullRequest(forge.endpoint, forge.token, {
         owner: remote.owner,
         repo: remote.repo,
@@ -1942,10 +1958,10 @@ export type ResolvedRepositoryForge = {
  *
  *   • *Where* comes from the host. github.com is always known; any other host
  *     is known only because a Forgejo Connection carries its base URL.
- *   • *Which credential*: Member delivery can use the Repository's own HTTPS
- *     token; SSH uses a Connection for the API. Employee delivery explicitly
- *     requests the pinned Connection so its live Connection Grant governs
- *     the API credential independently from Git transport.
+ *   • *Which credential*: a Repository's own HTTPS token authorizes Git and
+ *     its forge API. SSH uses a separate Connection for the API. Employee
+ *     delivery that needs Connection credentials explicitly requests the
+ *     pinned Connection and requires its live Connection Grant.
  *
  * The halves used to be one check against `github.com`, which is why a
  * repository on a company's own Forgejo could be cloned, worked in, committed
@@ -1976,7 +1992,10 @@ export async function resolveRepositoryForge(
   }
   if (repo.authMode === "https" && !options.preferConnection) {
     const token = decryptRepositorySecret(repo.encryptedToken);
-    if (token) return { ...forge, token };
+    if (token) {
+      assertSafeCredentialToken(token);
+      return { ...forge, token };
+    }
     // Falling through to the Connection here used to report "no credential at
     // all" and send someone to connect the forge — which would not have
     // helped, because the Connection lookup only answers for

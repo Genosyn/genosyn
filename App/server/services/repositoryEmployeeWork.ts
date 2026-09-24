@@ -13,6 +13,7 @@ import {
   pushRepositoryWorkSession,
   resolveRepositoryForge,
   sessionBranchName,
+  type ResolvedRepositoryForge,
   type WorkSessionPullRequestDeps,
   type WorkSessionPushDeps,
 } from "./repositoryWorkSessions.js";
@@ -77,7 +78,7 @@ export async function pushEmployeeRepositoryWorkSession(
   );
 }
 
-/** SSH pushes use the Repository key; the PR API needs its separately granted forge Connection. */
+/** HTTPS tokens can deliver directly; SSH needs a separately granted Connection for the PR API. */
 export async function openEmployeeRepositoryWorkSessionPullRequest(
   args: EmployeeDeliveryArgs & {
     title?: string;
@@ -95,10 +96,12 @@ export async function openEmployeeRepositoryWorkSessionPullRequest(
         body: args.body,
         deps: {
           ...args.deps,
-          // Repository credentials authorize Git transport only. The API uses
-          // the exact pinned, granted Connection for SSH and HTTPS alike.
+          // A Repository HTTPS token authorizes Git and the forge API. Other
+          // modes must use the exact pinned, granted Connection for the API.
           resolveForge: (repo) =>
-            (args.deps?.resolveForge ?? resolveRepositoryForge)(repo, { preferConnection: true }),
+            (args.deps?.resolveForge ?? resolveRepositoryForge)(repo, {
+              preferConnection: repo.authMode !== "https",
+            }),
         },
         authorize,
       }),
@@ -106,7 +109,11 @@ export async function openEmployeeRepositoryWorkSessionPullRequest(
 }
 
 type DeliveryTool = "push_repository_work_session" | "open_repository_work_session_pull_request";
-type DeliveryAuthorizer = (session?: RepositoryWorkSession, repo?: Repository) => Promise<void>;
+type DeliveryAuthorizer = (
+  session?: RepositoryWorkSession,
+  repo?: Repository,
+  forge?: ResolvedRepositoryForge,
+) => Promise<void>;
 
 async function withEmployeeDelivery(
   args: EmployeeDeliveryArgs,
@@ -137,7 +144,8 @@ function employeeDeliveryAuthorizer(
   const pullRequest = tool === "open_repository_work_session_pull_request";
   let initialWork: string | undefined;
   let initialConnection: string | undefined;
-  return async (expectedSession, expectedRepo) => {
+  let initialTokenForge: string | undefined;
+  return async (expectedSession, expectedRepo, expectedForge) => {
     const memberDenial = await authorizeMember?.();
     if (memberDenial) throw new Error(memberDenial);
     const policy = await policyForbiddingTool(args.companyId, tool);
@@ -201,14 +209,14 @@ function employeeDeliveryAuthorizer(
     }
     initialWork ??= work;
 
-    // Repository credentials authorize Git transport. An absent credential may
-    // borrow only the exact pinned and currently granted Connection. SSH needs
-    // that same Connection separately when opening a pull request through its API.
-    if (repo.authMode === "none" || pullRequest) {
+    // A Repository HTTPS token is scoped to this Repository by its write
+    // Grant. Connection credentials still need their own live Grant: an absent
+    // Git credential borrows one, and SSH needs one separately for the PR API.
+    if (repo.authMode === "none" || (pullRequest && repo.authMode !== "https")) {
       if (!repo.githubConnectionId) {
         throw new Error(
           pullRequest
-            ? "Automatic pull requests need a Repository connected through a granted GitHub or Forgejo Connection. Repository SSH keys and HTTPS tokens can push the work-session branch without a Connection."
+            ? "Automatic pull requests need a stored Repository HTTPS token or a Repository connected through a granted GitHub or Forgejo Connection. An SSH key can push the work-session branch without a Connection."
             : "Repository delivery without a stored SSH key or HTTPS token needs a Repository connected through a granted GitHub or Forgejo Connection.",
         );
       }
@@ -235,6 +243,7 @@ function employeeDeliveryAuthorizer(
       if (!forge || forge.connection?.id !== pair.connection.id) {
         throw new Error("The Repository's remote does not match its granted forge Connection.");
       }
+      assertResolvedForgeUnchanged(forge, expectedForge);
       // Grants bind the Connection resource, so rotation within this bounded
       // call preserves its authority. Bind identity and trusted endpoint, not
       // ciphertext OAuth legitimately refreshes; no token reaches the model.
@@ -254,8 +263,40 @@ function employeeDeliveryAuthorizer(
         );
       }
       initialConnection ??= connection;
+    } else if (pullRequest) {
+      // A configured Forgejo Connection may identify its server even though
+      // its credential is not granted or used. Bind the resulting endpoint
+      // and repository before resolving the PAT, then recheck before each use.
+      const forge = await resolveForgeRemote(repo);
+      if (!forge) {
+        throw new Error(
+          initialTokenForge === undefined
+            ? "This Repository's host needs a configured GitHub or Forgejo Integration before opening pull requests."
+            : "The Repository's forge endpoint changed before delivery. Check it again.",
+        );
+      }
+      assertIntegrationAllowed(forge.provider);
+      assertResolvedForgeUnchanged(forge, expectedForge);
+      const tokenForge = JSON.stringify([forge.provider, forge.endpoint, forge.remote]);
+      if (initialTokenForge !== undefined && initialTokenForge !== tokenForge) {
+        throw new Error("The Repository's forge endpoint changed before delivery. Check it again.");
+      }
+      initialTokenForge ??= tokenForge;
     }
     const blocked = workBlocked(args.companyId, { employeeId: args.employeeId });
     if (blocked.blocked) throw new Error(`This AI Employee is stood down: ${blocked.reason}`);
   };
+}
+
+function assertResolvedForgeUnchanged(
+  current: Pick<ResolvedRepositoryForge, "endpoint" | "remote">,
+  resolved?: ResolvedRepositoryForge,
+): void {
+  if (
+    resolved &&
+    JSON.stringify([resolved.endpoint, resolved.remote]) !==
+      JSON.stringify([current.endpoint, current.remote])
+  ) {
+    throw new Error("The Repository's forge endpoint changed before delivery. Check it again.");
+  }
 }

@@ -396,17 +396,13 @@ export default function RepositoryOverview() {
               icon={<GitPullRequest size={17} />}
               title="Hand the work back to you"
               detail={
-                // Three different situations, and only the first has a next
-                // step. A remote on a host no Integration covers — a GitLab,
-                // a Bitbucket, a plain git server — can never get a pull
-                // request button, so promising one is worse than silence:
-                // it sends the reader looking for a Connection that does not
-                // exist, on a step that will never turn green.
                 repo.forge
-                  ? `Employees can push their completed Work session branches. Choose this repository's ${repo.forge.name} Connection in Settings and grant it to the employee to open pull requests. A Member decides whether to merge.`
+                  ? repo.authMode === "https"
+                    ? `Employees with a write Grant can push completed Work session branches and open pull requests on ${repo.forge.name} using the stored personal access token. The token must allow both actions; no separate Connection Grant is needed. A Member decides whether to merge.`
+                    : `Employees can push their completed Work session branches. Choose this repository's ${repo.forge.name} Connection in Settings and grant it to the employee to open pull requests. A Member decides whether to merge.`
                   : repo.origin === "remote"
-                    ? "Employees with write access can push completed Work session branches using the stored SSH key or token. A Member decides whether to merge. Pull requests also need GitHub or a Forgejo / Gitea Connection."
-                    : "You read the diff and decide whether to merge. Connect this repository to a git host for branch pushes, and choose a granted GitHub or Forgejo Connection for employee pull requests."
+                    ? "Employees with write access can push completed Work session branches using the stored SSH key or token. Pull requests are supported on GitHub and Forgejo / Gitea servers connected in Integrations. A Member decides whether to merge."
+                    : "You read the diff and decide whether to merge. Connect this repository to GitHub or a connected Forgejo / Gitea server for branch pushes and employee pull requests."
               }
               status={
                 grants === null
@@ -414,7 +410,7 @@ export default function RepositoryOverview() {
                   : prReady.length > 0
                     ? `${prReady.length} ready`
                     : repo.forge
-                      ? "Needs a Connection"
+                      ? "Check delivery access"
                       : "Review here"
               }
               ready={prReady.length > 0}

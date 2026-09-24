@@ -14398,7 +14398,7 @@ mcpInternalRouter.post(
         note: [
           "Started. It runs in its own working copy, separately from this conversation.",
           `Say you have started it and link them to the work with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — it opens beside this conversation, where they review the diff, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
-          "Save the sessionId in a Workstream and schedule a Wakeup to check get_repository_work_session later. Only report completion after checking the result. When authorized, push_repository_work_session delivers the ready branch using the Repository's stored SSH key or token server-side; open_repository_work_session_pull_request also opens a PR with the exact granted forge Connection. Never report the work as done, committed, merged, pushed, or opened as a pull request just because it started.",
+          "Save the sessionId in a Workstream and schedule a Wakeup to check get_repository_work_session later. Only report completion after checking the result. When authorized, push_repository_work_session delivers the ready branch using the Repository's stored SSH key or token server-side. open_repository_work_session_pull_request uses a stored HTTPS personal access token to open the PR without a separate Connection Grant; SSH and Connection-backed repositories need the exact granted forge Connection for the PR API. Never report the work as done, committed, merged, pushed, or opened as a pull request just because it started.",
         ].join(" "),
       });
     } catch (error) {

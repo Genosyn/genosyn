@@ -206,10 +206,20 @@ describe("materialized employee repository contributor context", () => {
       assert.match(result, /start_repository_work_session before editing/);
       assert.match(result, /start_repository_work_session using repository "website"/);
       assert.match(result, /push_repository_work_session.*server-held SSH or HTTPS credentials/);
-      assert.match(
-        result,
-        /open_repository_work_session_pull_request.*exact granted forge Connection/,
-      );
+      if (authMode === "https") {
+        assert.match(
+          result,
+          /open_repository_work_session_pull_request uses this Repository's stored HTTPS personal access token/,
+        );
+        assert.match(result, /without a separate forge Connection Grant/);
+        assert.doesNotMatch(result, /pull_request requires.*exact granted forge Connection/);
+      } else {
+        assert.match(
+          result,
+          /open_repository_work_session_pull_request requires.*exact granted forge Connection/,
+        );
+        assert.doesNotMatch(result, /without a separate forge Connection Grant/);
+      }
       assert.match(result, /get_repository_work_session confirms completed work/);
       assert.match(result, /claim a PR only when the tool returns its URL/);
       assert.match(result, /credentials stay server-side/);

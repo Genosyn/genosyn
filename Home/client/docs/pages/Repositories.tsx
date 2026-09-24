@@ -545,14 +545,22 @@ export function Repositories() {
         and granted to the employee.
       </P>
       <P>
-        To create a pull request, choose <Strong>Pull request Connection</Strong> in the
-        Repository&apos;s <Strong>Settings</Strong> and grant that same GitHub or Forgejo Connection
-        to the employee. <Code>open_repository_work_session_pull_request</Code> pushes the completed
-        branch and opens or updates its PR. SSH repositories keep their SSH key for Git; the
-        Connection supplies the separate API access needed to create a PR. An SSH key alone can push
-        a branch but cannot create a PR. Genosyn rechecks Grants before delivery and refuses
-        unfinished, stopped, or failed work. Merging and publishing the default branch remain Member
-        actions.
+        <Code>open_repository_work_session_pull_request</Code> pushes the completed branch and opens
+        or updates its PR. For an HTTPS repository with a stored personal access token, the same
+        token handles both actions; the employee needs a Repository write Grant, with no separate
+        Connection Grant. The token must allow repository writes and pull requests. GitHub needs no
+        Connection. For Forgejo / Gitea, keep a matching server connected in
+        <Strong> Settings → Integrations</Strong>. Genosyn uses that Connection only to identify the
+        configured server address; the Repository&apos;s own token makes the API call. It never
+        guesses an endpoint from an unknown host.
+      </P>
+      <P>
+        For SSH or Connection-backed repositories, choose <Strong>Pull request Connection</Strong>
+        in the Repository&apos;s <Strong>Settings</Strong> and grant that same GitHub or Forgejo
+        Connection to the employee. SSH repositories keep their SSH key for Git; the Connection
+        supplies the separate API access needed to create a PR. An SSH key alone can push a branch
+        but cannot create a PR. Genosyn rechecks Grants before delivery and refuses unfinished,
+        stopped, or failed work. Merging and publishing the default branch remain Member actions.
       </P>
       <P>
         Changes intended for delivery should start in a Work session. An employee&apos;s general
