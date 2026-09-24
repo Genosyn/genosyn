@@ -237,6 +237,7 @@ function fixtures(extra = 0, longNames = false) {
     enabled: true,
     goalId: null,
     lastRunAt: row.lastRun?.startedAt ?? null,
+    standdown: null,
     nextRunAt: "2026-09-18T09:00:00.000Z",
     timeoutSec: 300,
     requiresApproval: false,

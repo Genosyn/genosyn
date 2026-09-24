@@ -27,6 +27,7 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { STANDDOWNS_CHANGED_EVENT } from "@/components/StanddownBanner";
 import { childrenByParent } from "../lib/routineFolders";
 
 /**
@@ -71,7 +72,12 @@ export default function RoutinesLayout({ company }: { company: Company }) {
     refresh();
   }, [refresh]);
 
-  useLiveRefetch(["routine", "run"], refresh);
+  useLiveRefetch(["routine", "run", "standdown"], refresh);
+
+  React.useEffect(() => {
+    window.addEventListener(STANDDOWNS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(STANDDOWNS_CHANGED_EVENT, refresh);
+  }, [refresh]);
 
   const ctx = React.useMemo<RoutinesContext>(
     () => ({

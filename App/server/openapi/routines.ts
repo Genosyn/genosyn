@@ -321,9 +321,32 @@ const RunOrNull = Run.nullable()
   .describe("Newest run for this routine — null if it has never run.")
   .openapi("RunOrNull");
 
+const RoutineStanddownOrNull = z
+  .object({
+    id: z.string().uuid(),
+    scope: z.enum(["company", "employee", "routine"]),
+    scopeId: z.string().uuid().nullable(),
+    reason: z.string(),
+    source: z.enum(["human", "breaker"]),
+    placedByUserId: z.string().uuid().nullable(),
+    placedAt: z.string().datetime(),
+    liftedAt: z.string().datetime().nullable(),
+    liftedByUserId: z.string().uuid().nullable(),
+    liftedReason: z.string(),
+    active: z.boolean(),
+    createdAt: z.string().datetime(),
+  })
+  .nullable()
+  .describe(
+    "The widest active Standdown covering this Routine: company, then AI Employee, then " +
+      "Routine. Null when none applies. Independent of the Routine's enabled switch.",
+  )
+  .openapi("RoutineStanddownOrNull");
+
 const RoutineListItem = RoutineColumns.extend({
   employee: EmployeeSummaryOrNull,
   lastRun: RunOrNull,
+  standdown: RoutineStanddownOrNull,
 }).openapi("RoutineListItem");
 
 const RoutineDetail = RoutineColumns.extend({
@@ -332,6 +355,7 @@ const RoutineDetail = RoutineColumns.extend({
   // employee isn't in this company, so a 200 always carries an employee.
   employee: EmployeeSummary,
   lastRun: RunOrNull,
+  standdown: RoutineStanddownOrNull,
 }).openapi("RoutineDetail");
 
 const RoutineActivityRun = Run.pick({

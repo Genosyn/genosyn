@@ -8,6 +8,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Standdown, type StanddownScope, type StanddownSource } from "../db/entities/Standdown.js";
 import { recordAudit } from "./audit.js";
+import { emitResourceChange } from "./resourceEvents.js";
 import { createNotifications } from "./notifications.js";
 import { managingMemberIdForEmployee } from "./reportingLine.js";
 
@@ -118,6 +119,14 @@ function applyLocally(edit: (into: CacheMap) => void): void {
   for (const buffer of refreshBuffers) buffer.push(edit);
 }
 
+/** Active row identities are stable until a Standdown is placed or lifted. */
+function activeStanddownIds(entry: CompanyStanddowns | undefined): string {
+  if (!entry) return "";
+  const ids = [...entry.employees.values(), ...entry.routines.values()].map((row) => row.id);
+  if (entry.company) ids.push(entry.company.id);
+  return ids.sort().join(",");
+}
+
 /**
  * Reload every active standdown. Exported for boot and for the tests; the
  * timer is the only other caller.
@@ -132,7 +141,15 @@ export async function refreshStanddowns(): Promise<void> {
     const next: CacheMap = new Map();
     for (const row of rows) indexRow(next, row);
     for (const edit of buffer) edit(next);
+    const changedCompanies = [...new Set([...cache.keys(), ...next.keys()])].filter(
+      (companyId) => activeStanddownIds(cache.get(companyId)) !== activeStanddownIds(next.get(companyId)),
+    );
     cache = next;
+    // Other replicas' edits must refresh open lists after enforcement catches
+    // up. Local edits already notified viewers and must not notify them twice.
+    for (const companyId of changedCompanies) {
+      emitResourceChange(companyId, "standdown", undefined, { trigger: false });
+    }
   } finally {
     refreshBuffers.delete(buffer);
   }
@@ -425,7 +442,11 @@ export async function placeStanddown(input: PlaceStanddownInput): Promise<Standd
   if (existing) {
     // The row may have been placed on another replica; index it here so this
     // process enforces it from now rather than from the next refresh.
+    const previousActiveIds = activeStanddownIds(cache.get(input.companyId));
     applyLocally((into) => indexRow(into, existing));
+    if (previousActiveIds !== activeStanddownIds(cache.get(input.companyId))) {
+      emitResourceChange(input.companyId, "standdown", undefined, { trigger: false });
+    }
     return existing;
   }
 
@@ -444,6 +465,9 @@ export async function placeStanddown(input: PlaceStanddownInput): Promise<Standd
     }),
   );
   applyLocally((into) => indexRow(into, standdown));
+  // Publish only after enforcement sees the stop; this refreshes the UI
+  // without turning a safety control into a business Trigger.
+  emitResourceChange(input.companyId, "standdown", undefined, { trigger: false });
   const interrupted = interruptCoveredRuns(standdown);
 
   const employees = await coveredEmployees(input.companyId, input.scope, scopeId);
@@ -502,7 +526,14 @@ export async function liftStanddown(args: {
   const current = await repo.findOneByOrFail({ id: args.standdown.id });
   // Whoever lost the race still gets the correct answer back; they just do not
   // re-audit and re-journal a lift that already happened.
+  const previousActiveIds = activeStanddownIds(cache.get(current.companyId));
   applyLocally((into) => unindexRow(into, current));
+  if (
+    claim.affected === 1 ||
+    previousActiveIds !== activeStanddownIds(cache.get(current.companyId))
+  ) {
+    emitResourceChange(current.companyId, "standdown", undefined, { trigger: false });
+  }
   if (claim.affected !== 1) return current;
 
   const employees = await coveredEmployees(current.companyId, current.scope, current.scopeId);

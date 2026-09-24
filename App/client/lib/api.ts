@@ -571,6 +571,8 @@ export type EmployeeSummary = {
 export type RoutineWithMeta = Routine & {
   employee: EmployeeSummary | null;
   lastRun: Run | null;
+  /** The active Standdown covering the company, AI Employee, or Routine. */
+  standdown: Standdown | null;
   /** Only present on the single-routine endpoint. */
   body?: string;
 };

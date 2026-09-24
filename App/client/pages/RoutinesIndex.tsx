@@ -9,6 +9,7 @@ import {
   FolderInput,
   FolderPlus,
   Inbox,
+  OctagonX,
   Pause,
   Play,
   Search,
@@ -52,7 +53,7 @@ import { RoutineActivity } from "@/components/routines/RoutineActivity";
  * to the detail page.
  */
 
-type Health = "all" | "active" | "paused" | "attention";
+type Health = "all" | "active" | "paused" | "stoodDown" | "attention";
 
 /**
  * The `?folder=` value for "in no folder at all". Never a real folder slug —
@@ -74,6 +75,7 @@ const MOVE_BATCH_LIMIT = 200;
  * usually means the server was down, or the scheduler isn't running.
  */
 function needsAttention(r: RoutineWithMeta): boolean {
+  if (r.standdown) return true;
   const status = r.lastRun?.status;
   if (runNeedsAttention(status)) return true;
   if (!r.enabled) return false;
@@ -244,14 +246,16 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   // results and neither number means anything.
   const counts = {
     all: narrowed.length,
-    active: narrowed.filter((r) => r.enabled).length,
+    active: narrowed.filter((r) => r.enabled && !r.standdown).length,
     paused: narrowed.filter((r) => !r.enabled).length,
+    stoodDown: narrowed.filter((r) => r.standdown).length,
     attention: narrowed.filter(needsAttention).length,
   };
 
   const shown = narrowed.filter((r) => {
-    if (health === "active") return r.enabled;
+    if (health === "active") return r.enabled && !r.standdown;
     if (health === "paused") return !r.enabled;
+    if (health === "stoodDown") return !!r.standdown;
     if (health === "attention") return needsAttention(r);
     return true;
   });
@@ -397,12 +401,14 @@ export default function RoutinesIndex({ company }: { company: Company }) {
                 ["all", "All"],
                 ["active", "Active"],
                 ["paused", "Paused"],
+                ["stoodDown", "Stood down"],
                 ["attention", "Needs attention"],
               ] as Array<[Health, string]>
             ).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setHealth(key)}
+                aria-pressed={health === key}
                 className={
                   "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition " +
                   (health === key
@@ -412,6 +418,9 @@ export default function RoutinesIndex({ company }: { company: Company }) {
               >
                 {key === "attention" && counts.attention > 0 && (
                   <AlertTriangle size={12} className="text-amber-500" />
+                )}
+                {key === "stoodDown" && counts.stoodDown > 0 && (
+                  <OctagonX size={12} className="text-red-600 dark:text-red-400" />
                 )}
                 {label}
                 <span className="tabular-nums text-slate-400 dark:text-slate-500">
@@ -659,6 +668,9 @@ function RoutineRow({
   const to = r.employee ? `/c/${company.slug}/routines/${r.employee.slug}/${r.slug}` : null;
   const brokenSchedule = r.enabled && r.nextRunAt === null;
   const folder = r.folderId ? (folders.find((f) => f.id === r.folderId) ?? null) : null;
+  const standdownTitle = r.standdown
+    ? `${r.standdown.scope === "company" ? "Company" : r.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${r.standdown.reason}`
+    : undefined;
 
   return (
     <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-900">
@@ -673,17 +685,25 @@ function RoutineRow({
           />
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {to ? (
               <Link
                 to={to}
-                className="truncate font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
+                className="max-w-full truncate font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
               >
                 {r.name}
               </Link>
             ) : (
               <span className="truncate font-medium text-slate-900 dark:text-slate-100">
                 {r.name}
+              </span>
+            )}
+            {r.standdown && (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300"
+                title={standdownTitle}
+              >
+                <OctagonX size={11} aria-hidden="true" /> Stood down
               </span>
             )}
             {!r.enabled && (
@@ -742,7 +762,11 @@ function RoutineRow({
           {describeCronExpr(r.cronExpr)}
         </div>
         <div className="truncate text-xs text-slate-400 dark:text-slate-500">
-          {brokenSchedule ? (
+          {r.standdown ? (
+            <span className="text-red-600 dark:text-red-400" title={standdownTitle}>
+              Stood down
+            </span>
+          ) : brokenSchedule ? (
             <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
               <AlertTriangle size={10} /> never fires
             </span>
@@ -794,7 +818,13 @@ function RoutineRow({
             onNewFolder={onNewFolder}
           />
         ) : (
-          <Button size="sm" variant="ghost" onClick={onRun} title="Run now">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onRun}
+            disabled={!!r.standdown}
+            title={standdownTitle ?? "Run now"}
+          >
             <Play size={14} /> Run
           </Button>
         )}
