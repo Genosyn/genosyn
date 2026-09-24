@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from "react-router-do
 import { api, Company, Me } from "./lib/api";
 import { invitationPath, invitationTokenFromSearch } from "./lib/invitationNavigation";
 import { AppShell } from "./components/AppShell";
-import { Spinner } from "./components/ui/Spinner";
+import { SplashScreen } from "@/components/SplashScreen";
 import { DialogProvider } from "./components/ui/Dialog";
 import { ThemeProvider } from "./components/Theme";
 import { ChatSessionsProvider } from "./lib/chatSessions";
@@ -238,11 +238,7 @@ function FullPageRedirect({ to }: { to: string }) {
   React.useEffect(() => {
     window.location.replace(to);
   }, [to]);
-  return (
-    <div className="flex h-full items-center justify-center">
-      <Spinner size={24} />
-    </div>
-  );
+  return <SplashScreen />;
 }
 
 export default function App() {
@@ -289,9 +285,7 @@ export default function App() {
             <Route path="/forms/:token" element={<PublicForm />} />
           </Routes>
         ) : auth.status === "loading" ? (
-          <div className="flex h-full items-center justify-center">
-            <Spinner size={24} />
-          </div>
+          <SplashScreen />
         ) : auth.status === "anon" ? (
           <Routes>
             <Route path="/login" element={<Login />} />

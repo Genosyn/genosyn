@@ -99,6 +99,10 @@ export function MobileApp() {
       <UL>
         <LI>A home-screen icon and a standalone window — no browser tabs or address bar.</LI>
         <LI>
+          A black launch screen with the white Genosyn circle and full name while the app loads.
+          Android may briefly show its own circle-icon screen first.
+        </LI>
+        <LI>
           A shell that loads instantly and stays responsive on a flaky connection. Your data still
           lives on the server, so you need to be online to sign in and work.
         </LI>
