@@ -266,6 +266,31 @@ test("parallel workers retain partial step-exhausted evidence as failed, never c
   assert.equal(calls, 2);
 });
 
+for (const maxSteps of [null, 8, 100]) {
+  test(`parallel workers ${maxSteps === null ? "inherit unlimited Routine steps" : `retain their finite ceiling for a ${maxSteps}-step parent`}`, async (t) => {
+    const seen: Array<number | null> = [];
+    t.mock.method(agentRuntime, "run", async (input: Parameters<typeof agentRuntime.run>[0]) => {
+      seen.push(input.maxSteps);
+      const diagnostics = JSON.parse(
+        (await input.registry.resolve("get_runtime_diagnostics")!.run({})).content,
+      );
+      assert.equal(diagnostics.limits.maxSteps, input.maxSteps);
+      if (seen.length === 1) {
+        const delegated = await input.registry.resolve("delegate_parallel_work")!.run({
+          tasks: [{ label: "Source review", instruction: "Review the complete source" }],
+        });
+        assert.notEqual(delegated.isError, true);
+        return { finalText: "Reviewed worker evidence", steps: 1, stopReason: "end_turn" };
+      }
+      assert.equal(input.registry.resolve("delegate_parallel_work"), undefined);
+      return { finalText: "Complete source evidence", steps: 125, stopReason: "end_turn" };
+    });
+    const result = await runEmployeeAgent({ ...params, maxSteps });
+    assert.equal(result.status, "ok");
+    assert.deepEqual(seen, [maxSteps, maxSteps === null ? null : Math.min(maxSteps, 30)]);
+  });
+}
+
 test("worker callback IDs stay distinct when providers reuse IDs and labels across sessions", async (t) => {
   const used: string[] = [];
   const returned: string[] = [];

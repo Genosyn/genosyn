@@ -8,7 +8,8 @@ const inputSchema = z.object({ toolName: z.string().trim().min(1).max(128).optio
 export function createRuntimeDiagnostics(options: {
   runtime: "opencode" | "codex_subscription";
   contextWindow: number | null;
-  maxSteps: number;
+  /** Null means this turn has no step ceiling; caller cancellation still applies. */
+  maxSteps: number | null;
   bashTimeoutMs: number;
   codingMode: "host" | "bubblewrap" | "disabled";
   nativeCoding: boolean;

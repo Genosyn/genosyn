@@ -272,8 +272,8 @@ export function Verification() {
         When a required Check fails, the Run is not finished — but it does not get to try forever
         either. Genosyn briefs the employee with the failing Check&apos;s name and detail and lets
         it try again, for at most <Strong>two further rounds</Strong>, entirely inside the
-        Routine&apos;s existing <Code>timeoutSec</Code>. There is no extra time budget and no third
-        round.
+        Routine&apos;s existing <Code>timeoutSec</Code>. Those rounds have no fixed limit on model
+        steps or tool calls. There is no extra time budget and no third round.
       </P>
       <P>
         Every round&apos;s results are kept, so the strip on the Run is honest about a Run that only

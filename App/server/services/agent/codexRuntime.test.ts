@@ -51,7 +51,7 @@ test("subscription turns verify the app-server isolation posture", () => {
   );
 });
 
-test("subscription shutdown refuses a queued tool request delivered after abort", async (t) => {
+test("unlimited subscription shutdown refuses a queued tool request delivered after abort", async (t) => {
   const mutableConfig = config as unknown as {
     sessionSecret: string;
     security: { multiTenant: boolean; encryptionSecret: string };
@@ -134,7 +134,7 @@ test("subscription shutdown refuses a queued tool request delivered after abort"
         system: "Continue the saved work.",
         messages: [{ role: "user", content: [{ type: "text", text: "Review the next record." }] }],
         registry,
-        maxSteps: 10,
+        maxSteps: null,
         signal: controller.signal,
       }),
       { name: "AbortError" },
@@ -143,6 +143,119 @@ test("subscription shutdown refuses a queued tool request delivered after abort"
     assert.equal(runTool.mock.callCount(), 0);
     assert.equal((lateResponse as { success: boolean }).success, false);
     assert.match(JSON.stringify(lateResponse), /aborted/);
+  } finally {
+    await closeTestDb();
+    mutableConfig.sessionSecret = original.sessionSecret;
+    Object.assign(mutableConfig.security, original.security);
+    mutableConfig.agent.codingTools.executionMode = original.executionMode;
+  }
+});
+
+test("subscription turns exceed 100 tool calls only with an unlimited step policy", async (t) => {
+  const mutableConfig = config as unknown as {
+    sessionSecret: string;
+    security: { multiTenant: boolean; encryptionSecret: string };
+    agent: { codingTools: { executionMode: "host" | "bubblewrap" | "disabled" } };
+  };
+  const original = {
+    sessionSecret: mutableConfig.sessionSecret,
+    security: { ...mutableConfig.security },
+    executionMode: mutableConfig.agent.codingTools.executionMode,
+  };
+  mutableConfig.sessionSecret = "codex-steps-test-session-secret-2026";
+  mutableConfig.security.multiTenant = false;
+  mutableConfig.security.encryptionSecret = "codex-steps-test-encryption-secret-2026";
+  mutableConfig.agent.codingTools.executionMode = "disabled";
+  try {
+    await initTestDb();
+    const model = await insert(AIModel, {
+      employeeId: "test-employee",
+      provider: "openai",
+      model: expected.model,
+      authMode: "subscription",
+      connectedAt: new Date(),
+      configJson: JSON.stringify({
+        codexAccessTokenEncrypted: encryptSecret("test-codex-steps-token"),
+      }),
+    });
+    for (const maxSteps of [null, 100]) {
+      await t.test(maxSteps === null ? "unlimited" : "finite", async (subtest) => {
+        const runTool = subtest.mock.fn(async () => ({ content: "Source reviewed." }));
+        const registry = residentOnlyRegistry([
+          {
+            name: "read_record",
+            description: "Read a test record.",
+            inputSchema: { type: "object", properties: {} },
+            readOnly: true,
+            run: runTool,
+          },
+        ]);
+        let interrupts = 0;
+        subtest.mock.method(
+          CodexAppServer,
+          "start",
+          async (options: Parameters<typeof CodexAppServer.start>[0]) => {
+            assert.ok(options.onServerRequest);
+            let notify: Parameters<CodexAppServer["onNotification"]>[0] | undefined;
+            return {
+              request: async (method: string) => {
+                if (method === "thread/start")
+                  return {
+                    ...safeResponse,
+                    cwd: options.cwd,
+                    thread: { ...safeResponse.thread, cwd: options.cwd },
+                  };
+                if (method === "turn/start") {
+                  for (let index = 0; index < 125; index++) {
+                    const response = (await options.onServerRequest!("item/tool/call", {
+                      threadId: "thread-id",
+                      turnId: "turn-id",
+                      callId: `call-${index}`,
+                      namespace: null,
+                      tool: "read_record",
+                      arguments: {},
+                    })) as { success: boolean };
+                    if (!response.success) break;
+                  }
+                  notify?.("turn/completed", {
+                    threadId: "thread-id",
+                    turn: { id: "turn-id", status: "completed" },
+                  });
+                  return { turn: { id: "turn-id" } };
+                }
+                if (method === "turn/interrupt") {
+                  interrupts++;
+                  return {};
+                }
+                throw new Error(`Unexpected test request: ${method}`);
+              },
+              onNotification: (handler: Parameters<CodexAppServer["onNotification"]>[0]) => {
+                notify = handler;
+                return () => undefined;
+              },
+              onExit: () => () => undefined,
+              close: async () => {},
+            } as unknown as CodexAppServer;
+          },
+        );
+        const result = runCodexSubscriptionTurn({
+          model,
+          system: "Continue reviewing the source records.",
+          messages: [{ role: "user", content: [{ type: "text", text: "Review every record." }] }],
+          registry,
+          maxSteps,
+        });
+        if (maxSteps === null) {
+          assert.equal((await result).steps, 126);
+          assert.equal(runTool.mock.callCount(), 125);
+          assert.equal(interrupts, 0);
+        } else {
+          await assert.rejects(result, /stopped this turn after 100 tool calls/);
+          assert.equal(runTool.mock.callCount(), 100);
+          assert.equal(interrupts, 1);
+        }
+      });
+    }
   } finally {
     await closeTestDb();
     mutableConfig.sessionSecret = original.sessionSecret;

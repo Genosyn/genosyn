@@ -85,7 +85,7 @@ export function openCodePermissions(
 export function buildOpenCodeConfig(args: {
   model: OpenCodeModel;
   effort?: ModelEffort | null;
-  maxSteps: number;
+  maxSteps: number | null;
   nativeCoding: boolean;
   mcp: { url: string; token: string };
 }): Config {
@@ -126,7 +126,8 @@ export function buildOpenCodeConfig(args: {
     agent: {
       [OPENCODE_AGENT]: {
         mode: "primary",
-        steps: Math.max(1, Math.floor(args.maxSteps)),
+        // OpenCode natively leaves iterations unlimited when steps is absent.
+        ...(args.maxSteps === null ? {} : { steps: Math.max(1, Math.floor(args.maxSteps)) }),
         prompt:
           "You are the runtime for a Genosyn AI Employee. Follow the supplied Genosyn system instructions and current request. Use only the tools exposed for this work surface.",
       },

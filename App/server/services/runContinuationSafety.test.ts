@@ -13,7 +13,7 @@ import { recordAudit } from "./audit.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { createCheck } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
-import { stopStanddowns } from "./standdowns.js";
+import { placeStanddown, stopStanddowns } from "./standdowns.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { saveRunCheckpoint, type RunCheckpoint } from "./runContinuation.js";
 
@@ -150,7 +150,7 @@ test("an initial complete checkpoint does not disable configured retries after a
 });
 
 for (const inherited of [false, true]) {
-  test(`${inherited ? "an inherited continuation" : "an initial Run without a checkpoint"} can finish beyond ten million tokens`, async (t) => {
+  test(`${inherited ? "an inherited continuation" : "an initial Run without a checkpoint"} can finish beyond ten million tokens and one hundred steps`, async (t) => {
     const { routine, checkpoint } = await fixture();
     const parent = inherited
       ? await pendingParent(routine, { continuationTokensUsed: 5_000_000, tokensIn: 10_000_000 })
@@ -158,6 +158,7 @@ for (const inherited of [false, true]) {
     let workTurns = 0;
     t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
       workTurns++;
+      assert.equal(params.maxSteps, null, "Routine work explicitly has no step ceiling");
       params.callbacks?.onUsage?.({ inputTokens: 10_000_000, outputTokens: 75 });
       assert.equal(params.signal?.aborted, false, "total token use must not stop the Run");
       params.callbacks?.onUsage?.({ inputTokens: 200, outputTokens: 100 });
@@ -169,7 +170,7 @@ for (const inherited of [false, true]) {
         });
         await checkpoint(current, complete);
       }
-      return { finalText: "Finished the review.", steps: 2, stopReason: "end_turn" };
+      return { finalText: "Finished the review.", steps: 125, stopReason: "end_turn" };
     });
 
     const run = await (
@@ -193,7 +194,7 @@ for (const inherited of [false, true]) {
 }
 
 for (const savesRequiredOutput of [false, true]) {
-  test(`Check remediation beyond ten million tokens ${savesRequiredOutput ? "can pass the required Check" : "retains the required Check and remediation bounds"}`, async (t) => {
+  test(`Check remediation beyond ten million tokens and thirty steps ${savesRequiredOutput ? "can pass the required Check" : "retains the required Check and remediation bounds"}`, async (t) => {
     const { company, routine } = await fixture({ maxAttempts: 2 });
     await createCheck({
       companyId: company.id,
@@ -213,6 +214,7 @@ for (const savesRequiredOutput of [false, true]) {
       if (!current) return { finalText: "", steps: 1, stopReason: "end_turn" };
       if (JSON.stringify(params.messages).includes("Your work did not pass")) {
         remediationTurns++;
+        assert.equal(params.maxSteps, null, "Check remediation explicitly has no step ceiling");
         params.callbacks?.onUsage?.({ inputTokens: 200, outputTokens: 100 });
         assert.equal(params.signal?.aborted, false, "remediation must not stop at a token total");
         if (savesRequiredOutput && remediationTurns === 2)
@@ -224,7 +226,7 @@ for (const savesRequiredOutput of [false, true]) {
             targetId: "required-output",
             targetLabel: "Required review output",
           });
-        return { finalText: "Reviewed the required output.", steps: 1, stopReason: "end_turn" };
+        return { finalText: "Reviewed the required output.", steps: 45, stopReason: "end_turn" };
       }
       workTurns++;
       params.callbacks?.onUsage?.({ inputTokens: 9_999_750, outputTokens: 0 });
@@ -245,6 +247,49 @@ for (const savesRequiredOutput of [false, true]) {
     else assert.ok(run.retryAt, "a failed Check still earns the configured retry");
   });
 }
+
+test("a Standdown still interrupts Check remediation without a step ceiling", async (t) => {
+  const { company, routine } = await fixture();
+  await createCheck({
+    companyId: company.id,
+    routineId: routine.id,
+    name: "Required saved output",
+    kind: "effect",
+    spec: JSON.stringify({ action: "note.create", min: 1 }),
+    createdById: null,
+  });
+  let remediationTurns = 0;
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    const current = await AppDataSource.getRepository(Run).findOneBy({
+      routineId: routine.id,
+      status: "running",
+    });
+    if (!current) return { finalText: "", steps: 1, stopReason: "end_turn" };
+    assert.equal(params.maxSteps, null);
+    if (!JSON.stringify(params.messages).includes("Your work did not pass"))
+      return { finalText: "Review needs its required output.", steps: 125, stopReason: "end_turn" };
+    remediationTurns++;
+    await placeStanddown({
+      companyId: company.id,
+      scope: "routine",
+      scopeId: routine.id,
+      source: "human",
+      reason: "Stop this Routine's work.",
+      placedByUserId: null,
+    });
+    assert.equal(params.signal?.aborted, true, "Standdown still interrupts an unlimited turn");
+    return { finalText: "Stopped.", steps: 45, stopReason: "aborted" };
+  });
+
+  const run = await (await startRoutineRun(routine)).completion;
+
+  assert.equal(remediationTurns, 1);
+  assert.equal(run.checkRemediations, 1);
+  assert.equal(run.status, "error");
+  assert.equal(run.errorKind, "interrupted");
+  assert.equal(run.retryAt, null);
+  assert.notEqual(run.outcomeVerdict, "on_goal");
+});
 
 for (const rejects of [false, true]) {
   test(`Check remediation beyond ten million tokens retains ${rejects ? "runtime errors" : "interruption errors"}`, async (t) => {

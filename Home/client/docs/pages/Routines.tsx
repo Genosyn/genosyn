@@ -616,9 +616,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <Strong>Failed</Strong> means the intended work was not completed. An AI Employee can call{" "}
           <Code>mark_run_failed</Code> with a <Code>reason</Code> during its own active Run; that
           reason appears under <Strong>Why this Run failed</Strong> in the log. It cannot mark
-          another Run, change a Check, or mark itself successful. Reaching the step limit,
-          exhausting required Check remediation, or an <Code>off goal</Code> outcome also fails the
-          Run. A later runtime error takes precedence and retains the reported failure reason.
+          another Run, change a Check, or mark itself successful. Exhausting required Check
+          remediation or an <Code>off goal</Code> outcome also fails the Run. A later runtime error
+          takes precedence and retains the reported failure reason.
         </LI>
         <LI>
           Each Run also records the <Strong>tokens</Strong> it consumed — the provider&apos;s own
@@ -866,12 +866,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Each occurrence permits up to three continuation Runs after the initial Run. They share the
-        original Routine time limit, with no total model token limit. Individual AI Model context
-        and response limits still apply. Token usage includes repeated and cached input across model
-        calls; it is not just the text the employee writes. Automatic continuation stops when
-        progress does not advance, the employee reports a blocker, the time limit expires, or all
-        three continuations have run; the Run shows the reason. Current Grants, delivery limits, and
-        Standdowns still apply, and approval-gated work is never replayed automatically.
+        original Routine time limit. Runs have no fixed limit on model steps or tool calls, and no
+        total model token limit. Individual AI Model context and response limits still apply. Token
+        usage includes repeated and cached input across model calls; it is not just the text the
+        employee writes. Automatic continuation stops when progress does not advance, the employee
+        reports a blocker, the time limit expires, or all three continuations have run; the Run shows
+        the reason. Current Grants, delivery limits, and Standdowns still apply, and approval-gated
+        work is never replayed automatically.
       </P>
       <P>
         Employees are briefed to save progress after small batches, retain stable source IDs and the
