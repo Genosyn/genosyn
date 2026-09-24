@@ -280,6 +280,65 @@ test("placement and lifting refresh open lists after enforcement changes without
   }
 });
 
+test("idempotent placement and a lost lift race refresh lists when they catch up the local cache", async () => {
+  const changes: Array<{ companyId: string; kind: string; blocked: boolean }> = [];
+  const triggers: string[] = [];
+  registerResourceChangeSink((companyId, kind) => {
+    changes.push({
+      companyId,
+      kind,
+      blocked: workBlocked(companyId, { employeeId: employee.id, routineId: routine.id }).blocked,
+    });
+  });
+  registerRoutineTriggerSink((_companyId, kind) => triggers.push(kind));
+  const drain = () => new Promise<void>((resolve) => setTimeout(resolve, 250));
+
+  try {
+    const remoteStop = await insert(Standdown, {
+      companyId: company.id,
+      scope: "routine",
+      scopeId: routine.id,
+      reason: "Placed on another replica",
+      placedAt: new Date(),
+    });
+    const input = {
+      companyId: company.id,
+      scope: "routine" as const,
+      scopeId: routine.id,
+      reason: "Already stood down",
+    };
+    assert.equal((await placeStanddown(input)).id, remoteStop.id);
+    await drain();
+    assert.deepEqual(changes, [{ companyId: company.id, kind: "standdown", blocked: true }]);
+    assert.equal((await list()).get(routine.id)?.standdown?.id, remoteStop.id);
+
+    await placeStanddown(input);
+    await refreshStanddowns();
+    await drain();
+    assert.equal(changes.length, 1, "unchanged placement and refresh must not repeat the event");
+
+    // Model another replica winning the conditional lift after this replica
+    // read the active row: the losing call still clears its enforcement cache.
+    await AppDataSource.getRepository(Standdown).update(remoteStop.id, { liftedAt: new Date() });
+    await liftStanddown({ standdown: remoteStop });
+    await drain();
+    assert.deepEqual(changes, [
+      { companyId: company.id, kind: "standdown", blocked: true },
+      { companyId: company.id, kind: "standdown", blocked: false },
+    ]);
+    assert.equal((await list()).get(routine.id)?.standdown, null);
+
+    await liftStanddown({ standdown: remoteStop });
+    await refreshStanddowns();
+    await drain();
+    assert.equal(changes.length, 2, "unchanged lift and refresh must not repeat the event");
+    assert.deepEqual(triggers, []);
+  } finally {
+    registerResourceChangeSink(() => {});
+    registerRoutineTriggerSink(() => {});
+  }
+});
+
 test("remote Standdown changes refresh only affected companies after the cache catches up", async () => {
   const changes: Array<{ companyId: string; kind: string; scopes: string[]; blocked: boolean }> = [];
   const triggers: string[] = [];
@@ -309,7 +368,7 @@ test("remote Standdown changes refresh only affected companies after the cache c
       placedAt: new Date(),
     });
     await drain();
-    assert.deepEqual(changes, []);
+    assert.equal(changes.length, 0);
     assert.equal((await list()).get(routine.id)?.standdown, null);
 
     await refreshStanddowns();

@@ -442,7 +442,11 @@ export async function placeStanddown(input: PlaceStanddownInput): Promise<Standd
   if (existing) {
     // The row may have been placed on another replica; index it here so this
     // process enforces it from now rather than from the next refresh.
+    const previousActiveIds = activeStanddownIds(cache.get(input.companyId));
     applyLocally((into) => indexRow(into, existing));
+    if (previousActiveIds !== activeStanddownIds(cache.get(input.companyId))) {
+      emitResourceChange(input.companyId, "standdown", undefined, { trigger: false });
+    }
     return existing;
   }
 
@@ -522,9 +526,15 @@ export async function liftStanddown(args: {
   const current = await repo.findOneByOrFail({ id: args.standdown.id });
   // Whoever lost the race still gets the correct answer back; they just do not
   // re-audit and re-journal a lift that already happened.
+  const previousActiveIds = activeStanddownIds(cache.get(current.companyId));
   applyLocally((into) => unindexRow(into, current));
+  if (
+    claim.affected === 1 ||
+    previousActiveIds !== activeStanddownIds(cache.get(current.companyId))
+  ) {
+    emitResourceChange(current.companyId, "standdown", undefined, { trigger: false });
+  }
   if (claim.affected !== 1) return current;
-  emitResourceChange(current.companyId, "standdown", undefined, { trigger: false });
 
   const employees = await coveredEmployees(current.companyId, current.scope, current.scopeId);
   await recordAudit({
