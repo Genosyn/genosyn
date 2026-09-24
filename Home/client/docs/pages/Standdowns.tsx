@@ -11,8 +11,7 @@ export function Standdowns() {
             Every other guardrail in Genosyn is per-action and decided before the fact: an Approval
             holds one call, a Budget refuses one payment, a Policy blocks one recipient. A{" "}
             <Strong>Standdown</Strong> is the other instrument — a revocable stop on all AI work at
-            company, employee, or Routine scope, placed by a human or tripped by the
-            consecutive-failure breaker.
+            company, employee, or Routine scope, placed by an owner or admin.
           </>
         }
       />
@@ -118,35 +117,21 @@ export function Standdowns() {
         </LI>
       </UL>
 
-      <H2 id="breaker">The circuit breaker</H2>
-      <P>
-        A Routine can also stand itself down without anyone pressing anything. Genosyn counts{" "}
-        <Strong>consecutive bad Runs</Strong> on each Routine — any terminal Run that is not{" "}
-        <Code>completed</Code>, plus a completed Run whose required{" "}
-        <DocLink to="/docs/verification">Checks</DocLink> failed or whose outcome graded{" "}
-        <Code>off goal</Code>. The first Run that is clean on every axis resets the counter to zero.
-      </P>
-      <P>
-        On crossing the threshold, the runner places a Standdown on that Routine, recorded with
-        source <Code>breaker</Code> rather than a person. The threshold is at{" "}
-        <Strong>Admin → Runtime</Strong>, under <Strong>Containment</Strong>, and defaults to{" "}
-        <Strong>5</Strong>. Setting it to <Code>0</Code> disables the breaker entirely and restores
-        the old behaviour: a permanently broken Routine firing every slot forever, burning model
-        spend nobody is reading.
-      </P>
-      <Callout kind="info" title="A breaker Standdown is an ordinary Standdown.">
-        It shows in the same list, needs the same admin to lift it, and carries the same reason line
-        — the streak that tripped it. The source is recorded because it is worth knowing, not
-        because lifting one is a different act.
-      </Callout>
-
       <H2 id="who">Admin-only, in both directions</H2>
       <P>
         Placing a Standdown and lifting one are both owner/admin. Placing requires a{" "}
-        <Strong>reason</Strong>: a stop nobody explained is a stop nobody can safely lift. Lifting
-        takes an optional note, and the row stays as history — lifted Standdowns enforce nothing and
-        are never deleted, so &quot;when did we stop the roster, and why&quot; stays answerable
-        afterwards.
+        <Strong>reason</Strong>: a stop nobody explained is a stop nobody can safely lift. To lift
+        one, open the affected Routine, AI Employee, or company, choose{" "}
+        <Strong>Return to work</Strong> on its Standdown banner, and say what changed. The row stays
+        as history — lifted Standdowns enforce nothing and are never deleted, so &quot;when did we
+        stop the roster, and why&quot; stays answerable afterwards.
+      </P>
+      <P>
+        Repeated Run failures do not automatically stand a Routine down. Its later scheduled Runs
+        remain eligible, while its failures, alerts, and{" "}
+        <DocLink to="/docs/verification">Check results</DocLink> stay visible. Existing Standdowns,
+        including ones placed automatically by an earlier version, stay effective until an owner
+        or admin lifts them.
       </P>
       <Callout kind="warn" title="There is no MCP tool for this — deliberately.">
         No AI Employee can place a Standdown, and far more importantly, none can lift one. A stop

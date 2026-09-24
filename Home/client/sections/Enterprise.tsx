@@ -401,9 +401,9 @@ function Architecture() {
             }
             fields={["company", "employee", "routine"]}
           >
-            A revocable stop on all AI work at one scope, placed by a human or tripped by the
-            consecutive-failure breaker. Runs already moving finalize <Field>interrupted</Field>{" "}
-            rather than failed, because nothing failed. Queued retries keep their due time and fire
+            A revocable stop on all AI work at one scope, placed by an owner or admin.
+            Runs already moving finalize <Field>Error</Field> with an interruption reason.
+            Queued retries keep their due time and fire
             after the lift. A slot that arrives during one is declined and the schedule advances, so
             lifting an old Standdown produces no catch-up storm.
           </Instrument>
@@ -629,13 +629,6 @@ const DEFAULTS: Array<[string, ReactNode]> = [
       Copies already delivered off-box are never touched.
     </>,
   ],
-  [
-    "Breaker",
-    <>
-      <Field>5</Field> consecutive bad Runs put a Standdown on that Routine, recorded with source{" "}
-      <Field>breaker</Field> rather than a person. <Field>0</Field> switches it off.
-    </>,
-  ],
 ];
 
 function Deployment() {
@@ -749,7 +742,7 @@ const SUPPORT: Array<[string, ReactNode]> = [
     "Operations",
     <>
       A restore rehearsal from <Field>data/Backup/</Field>, the per-driver migration stream, the
-      containment threshold for your risk appetite, and the first upgrade watched with you.
+      verification settings for your operation, and the first upgrade watched with you.
     </>,
   ],
 ];

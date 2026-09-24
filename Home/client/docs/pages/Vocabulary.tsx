@@ -298,7 +298,7 @@ export function Vocabulary() {
             def: (
               <>
                 A revocable stop on all AI work at company, employee, or Routine scope, placed by an
-                admin or by the consecutive-failure breaker. The exact inverse of a Waiver — imposed
+                owner or admin. The exact inverse of a Waiver — imposed
                 rather than earned, broad rather than narrow — and distinct from{" "}
                 <Code>Routine.enabled</Code>, which stays the ordinary switch. Never
                 &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or &quot;freeze.&quot; See{" "}

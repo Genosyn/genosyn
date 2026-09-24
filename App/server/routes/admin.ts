@@ -355,9 +355,6 @@ const runtimeGroupSchemas = {
     }),
   }),
   containment: z.object({
-    // 0 disables the breaker. The upper bound is nominal — anything past a
-    // few dozen consecutive failures is a Routine nobody is watching anyway.
-    routineBreakerThreshold: z.number().int().min(0).max(1_000),
     regradeAfterMinutes: z
       .number()
       .int()

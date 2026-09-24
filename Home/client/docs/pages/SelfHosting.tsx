@@ -149,8 +149,8 @@ export function SelfHosting() {
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
-                discovery), <Strong>Containment</Strong> (the Routine circuit breaker and the
-                re-grade sweep), and <Strong>Outbound network</Strong> (the private-host allowlist).
+                discovery), <Strong>Containment</Strong> (the re-grade sweep), and{" "}
+                <Strong>Outbound network</Strong> (the private-host allowlist).
               </>
             ),
           },

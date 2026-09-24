@@ -56,12 +56,10 @@ import {
 import type { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import {
   StanddownError,
-  placeStanddown,
   registerRunInterrupter,
   unregisterRunInterrupter,
   workBlocked,
 } from "./standdowns.js";
-import { getContainmentSettings } from "./runtimeSettings.js";
 import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import { runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
@@ -479,7 +477,7 @@ async function prepareRoutineRun(
         await settleAfterRun(routine.id, saved.finishedAt);
         await journalQuietly(emp.id, routine, saved);
         await contractAutonomyOnBadRun({ run: saved, employee: emp });
-        await updateRoutineBreaker(saved, routine, co.id, emp.id);
+        await updateRoutineFailureCount(saved, routine);
       }
     } finally {
       liveBuffers.delete(saved.id);
@@ -509,14 +507,7 @@ async function prepareRoutineRun(
       await settleAfterRun(routine.id, saved.finishedAt);
       await journalQuietly(emp.id, routine, saved);
       await contractAutonomyOnBadRun({ run: saved, employee: emp });
-      // The breaker has to see this. A timeout is the *characteristic* shape of
-      // the failure it exists for — a deleted integration, a renamed report, a
-      // Connection whose token expired all hang rather than returning a tidy
-      // provider error — and every one of this function's four callers returns
-      // straight out of the completion body, so leaving the count to the happy
-      // path meant the breaker never fired on exactly the population it was
-      // built for.
-      await updateRoutineBreaker(saved, routine, co.id, emp.id);
+      await updateRoutineFailureCount(saved, routine);
       return saved;
     };
     try {
@@ -868,7 +859,7 @@ async function prepareRoutineRun(
         if (finalization.persisted) {
           await settleAfterRun(routine.id, saved.finishedAt);
           await journalQuietly(emp.id, routine, saved);
-          await updateRoutineBreaker(saved, routine, co.id, emp.id);
+          await updateRoutineFailureCount(saved, routine);
         }
         return saved;
       }
@@ -1034,10 +1025,7 @@ async function prepareRoutineRun(
       if (reflect && !saved.retryAt) {
         await reflectOnRun({ run: saved, routine, employee: emp, model });
       }
-      // The breaker (M58). Same seam and same reasoning as the demotion above:
-      // tightening happens where the evidence appears, never on a sweep that
-      // might not run.
-      await updateRoutineBreaker(saved, routine, co.id, emp.id);
+      await updateRoutineFailureCount(saved, routine);
       return saved;
     } catch (err) {
       if (deadlineReached()) {
@@ -1056,10 +1044,7 @@ async function prepareRoutineRun(
       await settleAfterRun(routine.id, saved.finishedAt);
       await journalQuietly(emp.id, routine, saved);
       await contractAutonomyOnBadRun({ run: saved, employee: emp });
-      // Same reason as the timeout path: a Run that threw is a failed Run, and
-      // a Routine whose every attempt throws is precisely what the breaker is
-      // watching for.
-      await updateRoutineBreaker(saved, routine, co.id, emp.id);
+      await updateRoutineFailureCount(saved, routine);
       return saved;
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
@@ -1614,24 +1599,15 @@ function describeCheckPhase(phase: {
 }
 
 /**
- * The circuit breaker (M58).
- *
- * A Routine that is permanently broken — a deleted integration, a renamed
- * report, a Connection whose token expired — used to fire on its cron forever,
- * failing identically and burning model spend every slot for as long as nobody
- * looked. The counter lives on the row so it survives a restart, and it is
- * maintained here rather than on a sweep for the same reason autonomy demotion
- * is: the evidence exists exactly once, at this moment.
+ * Keep the failure streak for diagnostics. Repeated failures do not place a
+ * Standdown: the Routine keeps its schedule and configured retries.
  */
-async function updateRoutineBreaker(
+async function updateRoutineFailureCount(
   run: Run,
   routine: Routine,
-  companyId: string,
-  employeeId: string,
 ): Promise<void> {
   try {
-    // A retry is still owed: the chain has not finished failing yet, and
-    // counting each attempt would trip the breaker in a single bad hour.
+    // A retry is still owed: count the failed chain once it is exhausted.
     if (run.retryAt) return;
     const clean =
       run.status === "completed" &&
@@ -1646,30 +1622,14 @@ async function updateRoutineBreaker(
     // Defensive rather than reachable: `startRoutineRun` returns a skipped Run
     // long before this point. Kept because "no model connected" is not a
     // failure of the Routine's own work, and a future caller that does reach
-    // here with one must not trip the breaker on it.
+    // here with one must not count it as a failure.
     if (run.status === "skipped" || run.status === "reviewed") return;
-    const threshold = getContainmentSettings().routineBreakerThreshold;
     const next = (routine.consecutiveFailures ?? 0) + 1;
     await repo.update({ id: routine.id }, { consecutiveFailures: next });
-    if (threshold <= 0 || next < threshold) return;
-    await placeStanddown({
-      companyId,
-      scope: "routine",
-      scopeId: routine.id,
-      source: "breaker",
-      reason:
-        `${next} consecutive failed Runs — the most recent finished ${run.status}` +
-        `${run.checksVerdict === "failed" ? " with failing checks" : ""}` +
-        `${run.outcomeVerdict === "off_goal" ? " and off goal" : ""}. ` +
-        "Fix the cause and return this Routine to work.",
-      placedByUserId: null,
-    });
   } catch (err) {
-    // The breaker is a safety net. A net that can fail a Run it was watching
-    // would be worse than no net.
+    // Diagnostic bookkeeping must not fail the Run it is recording.
     // eslint-disable-next-line no-console
-    console.error(`[runner] breaker update failed for routine ${routine.id}:`, err);
-    void employeeId;
+    console.error(`[runner] failure count update failed for routine ${routine.id}:`, err);
   }
 }
 
