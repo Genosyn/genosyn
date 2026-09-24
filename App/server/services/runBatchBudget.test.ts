@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { RUN_BATCH_TOKEN_TARGET, shouldYieldRunBatch } from "./runBatchBudget.js";
-import { CONTINUATION_TOKEN_LIMIT, MAX_RUN_CONTINUATIONS } from "./runContinuation.js";
+import { RUN_BATCH_TOKEN_TARGET, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
+import { MAX_RUN_CONTINUATIONS } from "./runContinuation.js";
 
 const boundary = {
   toolName: "save_run_checkpoint",
   result: { content: JSON.stringify({ ok: true, state: "continue" }) },
   tokensThisRun: RUN_BATCH_TOKEN_TARGET,
-  previousTokens: 0,
   continuationCount: 0,
   deadlineAtMs: 60_000,
   now: 0,
@@ -32,8 +31,14 @@ test("batch handoff cannot strand the final chunk or bypass shared limits and re
   for (const patch of [
     { canContinue: false },
     { continuationCount: MAX_RUN_CONTINUATIONS },
-    { previousTokens: CONTINUATION_TOKEN_LIMIT - RUN_BATCH_TOKEN_TARGET },
     { deadlineAtMs: 5_000 },
   ])
     assert.equal(shouldYieldRunBatch({ ...boundary, ...patch }), false);
+});
+
+test("batch handoff remains available above ten million tokens without a total allowance", () => {
+  assert.equal(shouldYieldRunBatch({ ...boundary, tokensThisRun: 15_000_000 }), true);
+  const brief = runBatchBrief();
+  assert.match(brief, /There is no total model-token limit for this work\./);
+  assert.doesNotMatch(brief, /tokens remaining|token allowance/);
 });

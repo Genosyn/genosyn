@@ -693,6 +693,25 @@ describe("Routine checkpoint continuation dispatch", () => {
     assert.equal((await repo.findOneByOrFail({ id: parent.id })).retryAt, null);
   });
 
+  test("dispatches saved unfinished work above ten million cumulative tokens", async () => {
+    const { employee } = await fixture();
+    const scheduled = await routine(employee.id, "continue-high-token-use");
+    const parent = await continuationRun(scheduled.id, {
+      continuationTokensUsed: 10_000_000,
+      tokensIn: 5_000_000,
+      tokensOut: 500,
+    });
+    const result = await dispatchDueRetries(new Date());
+    assert.equal(result.started, 1);
+    await Promise.all(result.completions);
+    const repo = AppDataSource.getRepository(Run);
+    const child = await repo.findOneByOrFail({ parentRunId: parent.id });
+    assert.equal(child.triggerKind, "continuation");
+    assert.equal(child.continuationTokensUsed, 15_000_500);
+    assert.equal(child.continuationDeadlineAt?.getTime(), parent.continuationDeadlineAt?.getTime());
+    assert.equal((await repo.findOneByOrFail({ id: parent.id })).retryAt, null);
+  });
+
   test("natural schedule does not overtake queued or claimed continuation work", async () => {
     const { employee } = await fixture();
     const scheduled = await routine(employee.id, "continue-before-slot");
@@ -734,7 +753,6 @@ describe("Routine checkpoint continuation dispatch", () => {
         reason: /time limit/i,
       },
       { name: "spent", run: { continuationCount: 3 }, reason: /continuation limit/i },
-      { name: "tokens", run: { continuationTokensUsed: 10_000_000 }, reason: /token limit/i },
       {
         name: "no-progress",
         run: { continuationStopReason: "No progress since the previous checkpoint." },

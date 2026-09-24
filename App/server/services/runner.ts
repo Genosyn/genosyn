@@ -64,7 +64,7 @@ import {
 import { getContainmentSettings } from "./runtimeSettings.js";
 import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
-import { runAllowanceBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
+import { runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
 import { manualResumeEligibility, RunManualResumeError } from "./runManualResume.js";
 import {
   checkpointAdvanced,
@@ -72,7 +72,6 @@ import {
   continuationEligibility,
   readRunCheckpoint,
   CONTINUATION_DELAY_MS,
-  CONTINUATION_TOKEN_LIMIT,
 } from "./runContinuation.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
@@ -149,7 +148,7 @@ export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): 
  * and saw what happened.
  */
 export type StartRunOptions = {
-  /** Server-only: an admin grants a fresh allowance to this saved unfinished work. */
+  /** Server-only: an admin grants a fresh time window to this saved unfinished work. */
   resumeFromRunId?: string;
   /** Internal: resume an owned durable checkpoint within its original limits. */
   continuationFromRunId?: string;
@@ -371,7 +370,7 @@ export async function startRoutineRun(
       ...(continuationParent
         ? [
             manualResume
-              ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh ${CONTINUATION_TOKEN_LIMIT} token allowance; deadline ${new Date(deadlineAtMs).toISOString()}.`
+              ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh time window and no total model-token limit; deadline ${new Date(deadlineAtMs).toISOString()}.`
               : `[continuation] Resuming ${continuationParent.id}; original deadline ${new Date(deadlineAtMs).toISOString()}.`,
           ]
         : []),
@@ -628,7 +627,7 @@ export async function startRoutineRun(
         : deliveryMessage;
       const userMessage = [
         scopedMessage,
-        runAllowanceBrief(saved.continuationTokensUsed),
+        runBatchBrief(),
         continuationParent ? continuationBrief(continuationParent, manualResume) : "",
       ]
         .filter(Boolean)
@@ -662,7 +661,6 @@ export async function startRoutineRun(
       // never silently extend the configured timeout.
       const controller = new AbortController();
       let timedOut = false;
-      let continuationLimitReached = false;
       let batchYielded = false;
       const inFlightTools = new Map<string, number>();
       // A Standdown placed while this Run is in flight aborts it (M58) — a stop
@@ -749,7 +747,6 @@ export async function startRoutineRun(
                     toolName: name,
                     result: r,
                     tokensThisRun: saved.tokensIn + saved.tokensOut,
-                    previousTokens: saved.continuationTokensUsed,
                     continuationCount: saved.continuationCount,
                     deadlineAtMs,
                     canContinue:
@@ -761,7 +758,7 @@ export async function startRoutineRun(
                 ) {
                   batchYielded = true;
                   log.line(
-                    "\n[continuation] Batch progress saved; handing unfinished work to a fresh Run within the remaining allowance.",
+                    "\n[continuation] Batch progress saved; handing unfinished work to a fresh Run within the remaining time.",
                   );
                   controller.abort();
                 }
@@ -772,13 +769,6 @@ export async function startRoutineRun(
                 // terminal status.
                 saved.tokensIn += u.inputTokens;
                 saved.tokensOut += u.outputTokens;
-                if (
-                  saved.continuationTokensUsed + saved.tokensIn + saved.tokensOut >=
-                  CONTINUATION_TOKEN_LIMIT
-                ) {
-                  continuationLimitReached = true;
-                  controller.abort();
-                }
                 log.line(usageLine(u, model.contextWindow));
               },
               onCompact: (c) => log.line(compactLine(c)),
@@ -791,8 +781,7 @@ export async function startRoutineRun(
         // Providers differ in whether an aborted request resolves with an
         // error result or rejects. Both represent the same timeout verdict
         // once the absolute deadline has passed.
-        if (!timedOut && !deadlineReached() && !continuationLimitReached && !batchYielded)
-          throw err;
+        if (!timedOut && !deadlineReached() && !batchYielded) throw err;
       } finally {
         clearTimeout(timer);
       }
@@ -801,14 +790,12 @@ export async function startRoutineRun(
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
       }
-      if (continuationLimitReached || batchYielded) {
+      if (batchYielded) {
         saved.status = "failed";
         saved.errorKind = null;
         saved.exitCode = null;
         saved.finishedAt = new Date();
-        saved.continuationStopReason = continuationLimitReached
-          ? "The shared token limit for automatic continuation was reached."
-          : null;
+        saved.continuationStopReason = null;
         const finalization = await finalizeRunFromRunning(
           runRepo,
           saved,
@@ -1395,13 +1382,6 @@ async function runCheckPhase(args: {
   let remediations = 0;
   let errorKind: RunErrorKind | null = null;
   let incomplete = false;
-  const continuationLimitReached = () =>
-    args.run.continuationTokensUsed +
-      args.run.tokensIn +
-      args.run.tokensOut +
-      tokensIn +
-      tokensOut >=
-    CONTINUATION_TOKEN_LIMIT;
 
   const base = {
     run: args.run,
@@ -1429,8 +1409,7 @@ async function runCheckPhase(args: {
   while (
     phase.verdict === "failed" &&
     remediations < ROUTINE_CHECK_REMEDIATION_MAX &&
-    !args.deadlineReached() &&
-    !continuationLimitReached()
+    !args.deadlineReached()
   ) {
     const remainingMs = args.deadlineAtMs - Date.now();
     // A round with no time to work in is not a round. Say so rather than
@@ -1509,16 +1488,10 @@ async function runCheckPhase(args: {
           onUsage: (u) => {
             tokensIn += u.inputTokens;
             tokensOut += u.outputTokens;
-            if (continuationLimitReached()) controller.abort();
           },
         },
       });
-      if (continuationLimitReached()) {
-        incomplete = true;
-        args.run.continuationStopReason =
-          "The shared token limit for automatic continuation was reached during Check remediation.";
-        log.line(`\n[checks] ${args.run.continuationStopReason}`);
-      } else if (
+      if (
         controller.signal.aborted ||
         (result.status === "ok" && result.stopReason === "aborted")
       ) {
@@ -1538,25 +1511,18 @@ async function runCheckPhase(args: {
         log.line(workSummaryLogLine(""));
       }
     } catch (err) {
-      if (continuationLimitReached()) {
-        incomplete = true;
-        args.run.continuationStopReason =
-          "The shared token limit for automatic continuation was reached during Check remediation.";
-        log.line(`\n[checks] ${args.run.continuationStopReason}`);
-      } else {
-        errorKind ??= args.deadlineReached() ? "timeout" : "runtime";
-        args.diagnostics.fail(
-          err,
-          errorKind === "timeout"
-            ? "timeout"
-            : errorKind === "interrupted"
-              ? "interrupted"
-              : "application",
-        );
-        // Preserve the prior Check evidence while recording the runtime error.
-        log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
-        log.line(workSummaryLogLine(""));
-      }
+      errorKind ??= args.deadlineReached() ? "timeout" : "runtime";
+      args.diagnostics.fail(
+        err,
+        errorKind === "timeout"
+          ? "timeout"
+          : errorKind === "interrupted"
+            ? "interrupted"
+            : "application",
+      );
+      // Preserve the prior Check evidence while recording the runtime error.
+      log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
+      log.line(workSummaryLogLine(""));
     } finally {
       clearTimeout(timer);
       unregisterRunInterrupter(args.run.id);
@@ -1565,12 +1531,6 @@ async function runCheckPhase(args: {
     log.line(`\n[checks] ${describeCheckPhase(phase)}`);
     const current = await AppDataSource.getRepository(Run).findOneBy({ id: args.run.id });
     if (errorKind || incomplete || current?.failureReason || current?.status !== "running") break;
-  }
-
-  if (phase.verdict === "failed" && continuationLimitReached()) {
-    incomplete = true;
-    args.run.continuationStopReason ??=
-      "The shared token limit leaves no room for Check remediation.";
   }
 
   return {

@@ -986,7 +986,7 @@ try {
   await fs.mkdir(output, { recursive: true });
   for (const width of [1440, 390]) {
     await check(
-      `Resume unfinished work confirms new allowance and follows the Run at ${width}px`,
+      `Resume unfinished work confirms a fresh time window without a token limit and follows the Run at ${width}px`,
       async () => {
         const { page, mutations } = await open({
           width,
@@ -1006,7 +1006,9 @@ try {
           name: "Resume Daily customer update?",
           exact: true,
         });
-        await confirmation.getByText(/new allowance of 10 million model tokens/).waitFor();
+        await confirmation
+          .getByText(/configured time limit starts again, with no total model token limit/)
+          .waitFor();
         await confirmation.getByText(/verify earlier Effects/).waitFor();
         assert.equal(mutations.length, 0, "opening the confirmation cannot start a Run");
         await page.screenshot({

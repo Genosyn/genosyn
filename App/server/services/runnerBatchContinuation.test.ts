@@ -12,11 +12,7 @@ import { agentRuntime } from "./agent/runtime.js";
 import { recordAudit } from "./audit.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { RUN_BATCH_TOKEN_TARGET } from "./runBatchBudget.js";
-import {
-  CONTINUATION_TOKEN_LIMIT,
-  saveRunCheckpoint,
-  type RunCheckpoint,
-} from "./runContinuation.js";
+import { saveRunCheckpoint, type RunCheckpoint } from "./runContinuation.js";
 import { continuationEffects } from "./runEffects.js";
 import { startRoutineRun } from "./runner.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
@@ -126,7 +122,7 @@ test("a long initial Run yields at a new durable checkpoint and its child receiv
       throw new Error("The runtime observed the deliberate checkpoint handoff.");
     }
     assert.match(JSON.stringify(params.messages), /deal-5/);
-    assert.match(JSON.stringify(params.messages), /8,000,000 model tokens remaining/);
+    assert.match(JSON.stringify(params.messages), /There is no total model-token limit/);
     await checkpoint({
       ...unfinished,
       state: "complete",
@@ -167,7 +163,7 @@ test("an admin resumption retains evidence and authority but must record whether
     checkpointJson: JSON.stringify(unfinished),
     continuationDeadlineAt: new Date(0),
     continuationCount: 3,
-    continuationTokensUsed: CONTINUATION_TOKEN_LIMIT,
+    continuationTokensUsed: 10_000_000,
     continuationOriginTriggerKind: "schedule",
     continuationReviewOnly: true,
     continuationStopReason: "The shared token limit for automatic continuation was reached.",
@@ -185,7 +181,7 @@ test("an admin resumption retains evidence and authority but must record whether
     if (params.registry.resolve("submit_lesson"))
       return { finalText: "No lesson submitted.", steps: 1, stopReason: "end_turn" };
     workTurns++;
-    assert.match(JSON.stringify(params.messages), /fresh time and token allowance/);
+    assert.match(JSON.stringify(params.messages), /fresh time window/);
     assert.match(JSON.stringify(params.messages), /deal-5/);
     assert.match(JSON.stringify(params.messages), /Saved next step/);
     assert.match(params.system, /proactive preparation/);
@@ -193,13 +189,13 @@ test("an admin resumption retains evidence and authority but must record whether
     assert.equal(
       params.signal?.aborted,
       false,
-      "old token use must not spend the authorized new allowance",
+      "old token use must not interrupt the resumed work",
     );
     return { finalText: "Done", steps: 1, stopReason: "end_turn" };
   });
   const child = await (await startRoutineRun(routine, { resumeFromRunId: source.id })).completion;
   assert.equal(workTurns, 1);
-  assert.equal(child.status, "failed", "a fresh allowance is not proof of completion");
+  assert.equal(child.status, "failed", "a fresh time window is not proof of completion");
   assert.equal(child.retryAt, null, "manual resume must not fall back to a blind retry");
   assert.match(child.continuationStopReason ?? "", /without recording/);
   assert.equal(child.parentRunId, source.id);

@@ -129,7 +129,7 @@ export class Run {
   @Column({ type: dateTimeColumnType, nullable: true })
   continuationDeadlineAt!: Date | null;
 
-  /** Tokens spent by preceding Runs in this allowance, retaining earlier Effects separately. */
+  /** Tokens spent by preceding Runs in this time window, retaining earlier Effects separately. */
   @Column({ type: "integer", default: 0 })
   continuationTokensUsed!: number;
 

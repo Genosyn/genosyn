@@ -372,12 +372,13 @@ export function Reactivity() {
         and unresolved items in the linked Workstream. Give each scheduled Run a bounded batch of
         changed or due records and save progress after each batch; later Runs can pick up the
         backlog without rereading unchanged records. The initial Run and its automatic continuations
-        share the original time limit and ten million model tokens. Genosyn yields at a newly saved
-        actionable checkpoint after about two million tokens in a Run. When the shared allowance is
-        spent, an owner or admin can explicitly authorize a new allowance with
-        <Strong> Resume unfinished work</Strong> in the Run log. Employees can also page through
-        Journal summaries and retrieve a full entry in chunks, so an older audit remains reachable
-        even when recent history or a long entry would fill one response.
+        share the original time limit, with no total model token limit. Genosyn yields at a newly
+        saved actionable checkpoint after about two million tokens in a Run, continuing while time
+        and automatic continuations remain. An owner or admin can resume unfinished saved work with
+        a fresh time window through <Strong>Resume unfinished work</Strong> in the Run log.
+        Employees can also page through Journal summaries and retrieve a full entry in chunks, so an
+        older audit remains reachable even when recent history or a long entry would fill one
+        response.
       </P>
       <P>
         Temporary parallel workers return short previews and stable result IDs. Their evidence is
