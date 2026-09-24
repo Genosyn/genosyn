@@ -4,12 +4,12 @@ import { createRuntimeDiagnostics } from "./runtimeDiagnostics.js";
 import { buildRegistry } from "./toolRegistry.js";
 import type { AgentTool } from "../types.js";
 
-function setup() {
+function setup(maxSteps: number | null = 30) {
   const forwarded: unknown[] = [];
   const diagnostics = createRuntimeDiagnostics({
     runtime: "opencode",
     contextWindow: 32000,
-    maxSteps: 30,
+    maxSteps,
     bashTimeoutMs: 60000,
     codingMode: "host",
     nativeCoding: true,
@@ -42,6 +42,7 @@ test("diagnostics preserve unknown measurements and distinguish registration fro
   assert.equal(result.context.promptTokens, null);
   assert.equal(result.context.percent, null);
   assert.equal(result.context.contextWindow, 32000);
+  assert.equal(result.limits.maxSteps, 30);
   assert.equal(result.tool.visibility, "deferred");
   assert.equal(result.tool.advertised, false);
   assert.match(result.tool.authorization, /Rechecked/);
@@ -51,6 +52,12 @@ test("diagnostics preserve unknown measurements and distinguish registration fro
   );
   assert.equal(missing.tool.registered, false);
   assert.equal(missing.tool.visibility, null);
+});
+
+test("diagnostics explicitly report an unlimited step policy without losing the command timeout", async () => {
+  const { diagnostics } = setup(null);
+  const result = JSON.parse((await diagnostics.tool.run({})).content);
+  assert.deepEqual(result.limits, { maxSteps: null, bashTimeoutMs: 60000 });
 });
 
 test("diagnostics observe live callbacks and post-trim tool counts without copying raw errors", async () => {

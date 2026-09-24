@@ -39,6 +39,9 @@ test("batch handoff cannot strand the final chunk or bypass shared limits and re
 test("batch handoff remains available above ten million tokens without a total allowance", () => {
   assert.equal(shouldYieldRunBatch({ ...boundary, tokensThisRun: 15_000_000 }), true);
   const brief = runBatchBrief();
-  assert.match(brief, /There is no total model-token limit for this work\./);
+  assert.match(
+    brief,
+    /There is no total model-token limit or fixed model\/tool step limit for this work\./,
+  );
   assert.doesNotMatch(brief, /tokens remaining|token allowance/);
 });

@@ -191,7 +191,7 @@ as a clean one.
 prevented the Run from finishing: a model request error, timeout, or interrupted
 server. `errorKind` preserves that cause for retry and recovery policy. `failed`
 means the intended work was not completed: the employee reported a blocker with
-`mark_run_failed`, exhausted its steps, failed a required Check, or was graded
+`mark_run_failed`, failed a required Check, or was graded
 off-goal. The employee can report only its own active Run, with a durable
 `failureReason`; it cannot change Checks, grading, or another Run. Check and
 outcome verdicts remain separate evidence, and an unverified assessment never

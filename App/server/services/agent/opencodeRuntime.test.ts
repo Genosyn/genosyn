@@ -56,6 +56,19 @@ test("OpenCode config confines scoped turns and keeps coding tools an explicit c
   assert.equal((native.permission as Record<string, string>).question, undefined);
 });
 
+test("unlimited turns omit OpenCode's native step ceiling", () => {
+  const cfg = buildOpenCodeConfig({
+    model,
+    maxSteps: null,
+    nativeCoding: false,
+    mcp: { url: "http://localhost/mcp", token: "temporary" },
+  });
+  assert.ok(cfg.agent?.genosyn);
+  assert.equal(Object.hasOwn(cfg.agent.genosyn, "steps"), false);
+  assert.equal(Object.hasOwn(cfg.agent.genosyn, "maxSteps"), false);
+  assert.equal(cfg.compaction?.auto, true);
+});
+
 test("provider mapping preserves Responses, Anthropic effort and endpoint model IDs", () => {
   for (const provider of ["openai", "anthropic"] as const) {
     const cfg = buildOpenCodeConfig({
@@ -958,7 +971,49 @@ test("step limit aborts the external session and reports unfinished work", async
   }
 });
 
-test("cancellation reaches the headless session and returns an aborted result", async () => {
+test("unlimited external sessions continue beyond the former 100-step ceiling", async () => {
+  let observedSteps = 0;
+  const runtime = await fakeOpenCode(async (emit) => {
+    for (let step = 0; step < 125; step++) {
+      emit(
+        updated({
+          id: `step-${step}`,
+          sessionID: "session",
+          messageID: "assistant",
+          type: "step-finish",
+          reason: "tool-calls",
+          cost: 0,
+          tokens: assistant().tokens,
+        }),
+      );
+    }
+    await waitFor(() => observedSteps === 125);
+    const finish: Part = {
+      id: "finish",
+      sessionID: "session",
+      messageID: "assistant",
+      type: "step-finish",
+      reason: "stop",
+      cost: 0,
+      tokens: assistant().tokens,
+    };
+    return { info: assistant(), parts: [finish] };
+  });
+  try {
+    const result = await runOpenCodeSession(runtime.connection, "fixture", {
+      ...turnParams(),
+      maxSteps: null,
+      callbacks: { onUsage: () => observedSteps++ },
+    });
+    assert.equal(result.stopReason, "end_turn");
+    assert.equal(result.steps, 126);
+    assert.equal(runtime.aborts, 0);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("cancellation reaches an unlimited headless session and returns an aborted result", async () => {
   const controller = new AbortController();
   const runtime = await fakeOpenCode(async () => {
     controller.abort();
@@ -968,6 +1023,7 @@ test("cancellation reaches the headless session and returns an aborted result", 
   try {
     const result = await runOpenCodeSession(runtime.connection, "fixture", {
       ...turnParams(),
+      maxSteps: null,
       signal: controller.signal,
     });
     assert.equal(result.stopReason, "aborted");

@@ -27,7 +27,7 @@ export type OpenCodeTurnParams = {
   system: string;
   messages: AgentMessage[];
   registry: ToolRegistry;
-  maxSteps: number;
+  maxSteps: number | null;
   signal?: AbortSignal;
   callbacks?: StreamCallbacks;
   cwd?: string;
@@ -212,7 +212,11 @@ async function runOpenCodeSessionWithClient(
         if (event.type === "server.connected") connectedResolve();
         events.accept(event);
         await handlePermission(event);
-        if (events.steps >= params.maxSteps && !["end_turn", "stop"].includes(events.stopReason)) {
+        if (
+          params.maxSteps !== null &&
+          events.steps >= params.maxSteps &&
+          !["end_turn", "stop"].includes(events.stopReason)
+        ) {
           limited = true;
           await stop();
         }

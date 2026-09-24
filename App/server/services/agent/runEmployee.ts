@@ -73,8 +73,8 @@ export type EmployeeAgentParams = {
   genosynToken: string;
   /** Default native bash timeout; Genosyn command tools enforce it as a ceiling. */
   bashTimeoutMs: number;
-  /** Max model turns before we stop (runaway-loop backstop). */
-  maxSteps: number;
+  /** Max model turns before we stop; null leaves the turn bounded by its caller's deadline. */
+  maxSteps: number | null;
   routineId?: string;
   conversationId?: string;
   runId?: string;
@@ -629,8 +629,9 @@ async function runDelegatedBrief(
           content: [{ type: "text", text: delegatedUserMessage(brief) }],
         },
       ],
-      // A child is a bounded specialist, not another full-length top-level run.
-      maxSteps: Math.min(parent.maxSteps, 30),
+      // Routine workers share their parent's deadline without a separate step
+      // ceiling. Finite interactive turns keep their smaller specialist cap.
+      maxSteps: parent.maxSteps === null ? null : Math.min(parent.maxSteps, 30),
       // Give each browser-enabled worker an independent browser session instead
       // of racing the parent conversation's persistent page state.
       conversationId: undefined,

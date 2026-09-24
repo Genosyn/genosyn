@@ -93,11 +93,6 @@ export { RUN_LOG_MAX_BYTES } from "./runLog.js";
  */
 
 /**
- * Max model turns before the loop stops itself (runaway-loop backstop).
- */
-const RUN_MAX_STEPS = 100;
-
-/**
  * How many briefed rounds a Run gets to turn a failing Check green.
  *
  * Two, deliberately. One is often enough for the ordinary case (the employee
@@ -106,9 +101,6 @@ const RUN_MAX_STEPS = 100;
  * bounds the whole thing regardless.
  */
 const ROUTINE_CHECK_REMEDIATION_MAX = 2;
-
-/** A remediation round is a focused fix, not a second Run. */
-const ROUTINE_CHECK_REMEDIATION_STEPS = 30;
 
 /**
  * In-process registry of LogBuffers for runs that are still executing. The
@@ -680,9 +672,8 @@ export async function startRoutineRun(
         controller.abort();
       }, remainingMs);
 
-      // The final answer is already written to the transcript as it streams
-      // (onText below); track that so we don't append it a second time — except
-      // in the max-steps fallback, whose placeholder text never streamed.
+      // Track streamed answers so we append the final text only when the
+      // runtime returned it without streaming it through onText below.
       let streamedAny = false;
       let result;
       try {
@@ -700,7 +691,7 @@ export async function startRoutineRun(
             toolEnv,
             genosynToken: mcpToken,
             bashTimeoutMs: Math.min(remainingMs, 5 * 60 * 1000),
-            maxSteps: RUN_MAX_STEPS,
+            maxSteps: null,
             skillToolset: residentNamesForSkills(skills, unavailableSkillTools),
             routineId: routine.id,
             runId: saved.id,
@@ -827,19 +818,12 @@ export async function startRoutineRun(
         saved.errorKind = "runtime";
         saved.exitCode = null;
       } else if (result.stopReason === "max_steps") {
-        // The runaway backstop stopped the loop, not the model deciding it was
-        // done. Calling that "completed" made confident non-finishes read as
-        // green checkmarks; it is a failure, and the retry policy treats it
-        // like any other.
+        // Routine work has no configured step ceiling. Still treat an
+        // unexpected runtime stop as unfinished, never a completed Run.
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
-        log.line(
-          `\n[failed] Stopped after reaching the ${RUN_MAX_STEPS}-turn step limit without finishing.`,
-        );
+        log.line("\n[failed] The AI Model stopped before the work finished.");
         saved.status = "failed";
-        diagnostics.fail(
-          `The ${RUN_MAX_STEPS}-turn step limit was reached before the work finished.`,
-          "work",
-        );
+        diagnostics.fail("The AI Model stopped before the work finished.", "work");
         saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
@@ -1454,7 +1438,7 @@ async function runCheckPhase(args: {
         toolEnv: args.toolEnv,
         genosynToken: args.mcpToken,
         bashTimeoutMs: Math.min(remainingMs, 5 * 60 * 1000),
-        maxSteps: ROUTINE_CHECK_REMEDIATION_STEPS,
+        maxSteps: null,
         skillToolset: residentNamesForSkills(args.skills, args.unavailableSkillTools),
         routineId: args.routine.id,
         runId: args.run.id,

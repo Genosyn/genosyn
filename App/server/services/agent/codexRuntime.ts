@@ -60,7 +60,7 @@ export async function runCodexSubscriptionTurn(params: {
   system: string;
   messages: AgentMessage[];
   registry: ToolRegistry;
-  maxSteps: number;
+  maxSteps: number | null;
   signal?: AbortSignal;
   callbacks?: StreamCallbacks;
 }): Promise<CodexSubscriptionResult> {
@@ -103,7 +103,7 @@ export async function runCodexSubscriptionTurn(params: {
             throw new Error("Codex sent a tool call for the wrong turn.");
           }
           toolCalls += 1;
-          if (toolCalls > Math.max(1, params.maxSteps)) {
+          if (params.maxSteps !== null && toolCalls > Math.max(1, params.maxSteps)) {
             runawayViolation =
               `Genosyn stopped this turn after ${params.maxSteps} tool calls ` +
               "to prevent a runaway loop.";
