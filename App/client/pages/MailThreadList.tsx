@@ -34,6 +34,8 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
+import { MailReviewBadge } from "@/components/mail/MailReviewBadge";
+import { mergeMailThreadUpdate } from "@/lib/mailReview";
 
 /**
  * The thread list — inbox / starred / sent / drafts / all / spam / trash,
@@ -150,13 +152,22 @@ export default function MailThreadList() {
       onSuccess: ({ thread: updated }) => {
         if (!updated) return;
         setThreads(
-          (current) => current?.map((row) => (row.id === updated.id ? updated : row)) ?? current,
+          (current) =>
+            current?.map((row) =>
+              row.id === updated.id ? mergeMailThreadUpdate(row, updated) : row,
+            ) ?? current,
         );
       },
       onError: () => {
         setThreads((current) => {
           if (!current || current.some((row) => row.id === thread.id)) {
-            return current?.map((row) => (row.id === thread.id ? thread : row)) ?? current;
+            return (
+              current?.map((row) =>
+                row.id === thread.id
+                  ? { ...row, unread: thread.unread, labelIds: thread.labelIds }
+                  : row,
+              ) ?? current
+            );
           }
           const next = [...current];
           next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, thread);
@@ -954,7 +965,7 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
   );
 }
 
-function ThreadRow({
+export function ThreadRow({
   thread,
   index,
   focused,
@@ -983,7 +994,7 @@ function ThreadRow({
       data-thread-idx={index}
       onMouseEnter={onFocus}
       className={clsx(
-        "group relative flex items-center gap-2.5 pl-4",
+        "group relative flex items-center gap-2 pl-3 sm:gap-2.5 sm:pl-4",
         selected
           ? "bg-indigo-50/70 dark:bg-indigo-500/10"
           : thread.unread
@@ -999,30 +1010,29 @@ function ThreadRow({
         label={`Select ${thread.subject || "thread"}`}
         onChange={(event) => onToggleSelect(Boolean((event.nativeEvent as MouseEvent).shiftKey))}
         className={clsx(
-          !selected && "opacity-0 focus:opacity-100 group-hover:opacity-100",
+          !selected && "sm:opacity-0 sm:focus:opacity-100 sm:group-hover:opacity-100",
           "transition-opacity",
         )}
       />
+      <button
+        type="button"
+        onClick={() => onAction(thread, starred ? "unstar" : "star")}
+        aria-label={starred ? "Unstar" : "Star"}
+        title={starred ? "Unstar" : "Star"}
+        className={clsx(
+          "shrink-0 rounded py-2 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40",
+          starred ? "text-amber-400" : "text-slate-300 hover:text-slate-400 dark:text-slate-600",
+        )}
+      >
+        <Star size={15} fill={starred ? "currentColor" : "none"} aria-hidden="true" />
+      </button>
       <Link
         to={`/c/${companySlug}/mail/t/${thread.id}`}
-        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-4"
+        className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 py-3 pr-3 sm:flex sm:gap-3 sm:py-2.5 sm:pr-4"
       >
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            void onAction(thread, starred ? "unstar" : "star");
-          }}
-          title={starred ? "Unstar" : "Star"}
-          className={clsx(
-            "shrink-0",
-            starred ? "text-amber-400" : "text-slate-300 hover:text-slate-400 dark:text-slate-600",
-          )}
-        >
-          <Star size={15} fill={starred ? "currentColor" : "none"} />
-        </button>
         <span
           className={clsx(
-            "w-40 shrink-0 truncate text-sm",
+            "min-w-0 truncate text-sm sm:w-32 sm:shrink-0 lg:w-40",
             thread.unread
               ? "font-semibold text-slate-900 dark:text-slate-100"
               : "text-slate-600 dark:text-slate-400",
@@ -1037,7 +1047,7 @@ function ThreadRow({
             <span className="ml-1 text-xs font-normal text-slate-400">{thread.messageCount}</span>
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm">
+        <span className="col-span-2 row-start-2 min-w-0 flex-1 truncate text-sm sm:col-auto sm:row-auto">
           <span
             className={clsx(
               thread.unread
@@ -1052,19 +1062,28 @@ function ThreadRow({
             )}
           </span>
           {thread.snippet && (
-            <span className="text-slate-400 dark:text-slate-500">
+            <span className="hidden text-slate-400 sm:inline dark:text-slate-500">
               {" — "}
               <Highlight text={thread.snippet} terms={highlightTerms} />
             </span>
           )}
         </span>
-        {thread.hasAttachments && <Paperclip size={13} className="shrink-0 text-slate-400" />}
-        <span className="w-16 shrink-0 text-right text-xs tabular-nums text-slate-400">
+        <span className="col-start-1 row-start-3 min-w-0 sm:col-auto sm:row-auto">
+          <MailReviewBadge review={thread.aiReview} compact />
+        </span>
+        {thread.hasAttachments && (
+          <Paperclip
+            size={13}
+            className="hidden shrink-0 text-slate-400 sm:block"
+            aria-label="Has attachments"
+          />
+        )}
+        <span className="col-start-2 row-start-1 shrink-0 text-right text-[11px] tabular-nums text-slate-400 sm:w-16 sm:text-xs">
           {shortMailDate(thread.lastMessageAt)}
         </span>
       </Link>
       {/* Hover actions — float over the date column. */}
-      <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1 py-0.5 shadow-sm group-hover:flex dark:border-slate-700 dark:bg-slate-900">
+      <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1 py-0.5 shadow-sm sm:group-hover:flex sm:group-focus-within:flex dark:border-slate-700 dark:bg-slate-900">
         <RowAction
           title={thread.unread ? "Mark read" : "Mark unread"}
           icon={thread.unread ? <MailOpen size={14} /> : <Mail size={14} />}

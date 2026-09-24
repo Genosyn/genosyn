@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
+import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import {
@@ -689,6 +690,30 @@ describe("analysing one inbound message", () => {
     assert.equal(rows[0].errorMessage, "quota exhausted");
     assert.equal(rows[0].category, "");
     assert.deepEqual(parseAnalysisActions(rows[0].actionsJson), []);
+    const attempts = await AppDataSource.getRepository(AuditEvent).find({
+      where: {
+        companyId: account.companyId,
+        targetType: "mail_inbound_analysis",
+        targetId: failed!.id,
+      },
+    });
+    assert.equal(
+      attempts.filter((attempt) => attempt.action === "mail.analysis.started").length,
+      2,
+    );
+    assert.equal(
+      attempts.filter((attempt) => attempt.action === "mail.analysis.completed").length,
+      1,
+    );
+    assert.equal(attempts.filter((attempt) => attempt.action === "mail.analysis.failed").length, 1);
+    for (const attempt of attempts) {
+      assert.deepEqual(JSON.parse(attempt.metadataJson), {
+        messageId: message.id,
+        mailThreadId: message.threadId,
+      });
+      assert.equal(attempt.actorEmployeeId, failed!.employeeId);
+      assert.equal(attempt.metadataJson.includes("quota exhausted"), false);
+    }
   });
 
   test("skips silently, leaving no row, when nothing can read the mailbox", async () => {

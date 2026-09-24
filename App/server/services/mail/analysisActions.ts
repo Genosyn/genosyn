@@ -6,7 +6,7 @@ import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { emailDomain, normalizeEmail } from "../../lib/emailAddress.js";
-import { recordAudit } from "../audit.js";
+import { recordAudit, withAuditContext } from "../audit.js";
 import { createEstimateDraft } from "../estimates.js";
 import {
   draftInvoiceSlug,
@@ -141,21 +141,29 @@ export async function executeAnalysisAction(
 
   let outcome: { navigateTo: string | null; message: string };
   try {
-    outcome = await runAction(account, analysis, action, { message, thread }, actor);
+    outcome = await withAuditContext({ mailThreadId: thread.id }, () =>
+      runAction(account, analysis, action, { message, thread }, actor),
+    );
   } catch (error) {
     await releaseClaim(analysis.id, claim);
     throw error;
   }
 
-  await recordAudit({
-    companyId: account.companyId,
-    actorUserId: actor.userId,
-    action: `mail.analysis.${action.kind}`,
-    targetType: "mail_inbound_analysis",
-    targetId: analysis.id,
-    targetLabel: thread.subject || "(no subject)",
-    metadata: { actionId, kind: action.kind },
-  });
+  await withAuditContext({ mailThreadId: thread.id }, () =>
+    recordAudit({
+      companyId: account.companyId,
+      actorUserId: actor.userId,
+      action: `mail.analysis.${action.kind}`,
+      targetType: "mail_inbound_analysis",
+      targetId: analysis.id,
+      targetLabel: thread.subject || "(no subject)",
+      metadata: {
+        actionId,
+        kind: action.kind,
+        resultPath: outcome.navigateTo,
+      },
+    }),
+  );
   return { analysis: claim.row, ...outcome };
 }
 

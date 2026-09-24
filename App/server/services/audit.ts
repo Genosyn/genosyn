@@ -40,6 +40,9 @@ export type AuditContext = {
   runId?: string | null;
   routineId?: string | null;
   conversationId?: string | null;
+  /** Server-owned mail context, carried by the authenticated MCP token. */
+  mailThreadId?: string | null;
+  mailHandoverId?: string | null;
 };
 
 const auditContext = new AsyncLocalStorage<AuditContext>();
@@ -82,6 +85,17 @@ export async function recordAudit(params: {
       explicit === undefined ? (ambientValue ?? null) : (explicit ?? null);
     const runId = inherit(params.runId, ambient?.runId);
     const conversationId = inherit(params.conversationId, ambient?.conversationId);
+    // These reserved metadata keys identify the work's source, not a target
+    // nominated by a model. Only a trusted request context may supply them.
+    // Keep them in the existing ledger so a thread timeline needs no second
+    // event store and every service below the MCP seam is covered.
+    const metadata = { ...params.metadata };
+    delete metadata.mailThreadId;
+    delete metadata.mailHandoverId;
+    if (ambient?.mailThreadId) {
+      metadata.mailThreadId = ambient.mailThreadId;
+      if (ambient.mailHandoverId) metadata.mailHandoverId = ambient.mailHandoverId;
+    }
 
     const repo = AppDataSource.getRepository(AuditEvent);
     const actorEmployeeId = params.actorEmployeeId ?? null;
@@ -99,7 +113,7 @@ export async function recordAudit(params: {
       targetType: params.targetType ?? "",
       targetId: params.targetId ?? null,
       targetLabel: params.targetLabel ?? "",
-      metadataJson: params.metadata ? JSON.stringify(params.metadata) : "",
+      metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : "",
       // Stamped here rather than left to the column's database default, which
       // on SQLite is `datetime('now')` — whole seconds. Every effect one Run
       // recorded therefore carried an identical timestamp, and the effect

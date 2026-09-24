@@ -123,6 +123,7 @@ export function MailAnalysisCard({
       const result = await mailApi.analyzeMessage(companyId, row.messageId);
       // A second failure shows in the card itself, where the first one is.
       setRow(result.analysis);
+      onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Couldn\u2019t read this email again" });
     } finally {

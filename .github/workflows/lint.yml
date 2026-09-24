@@ -126,6 +126,10 @@ jobs:
         run: npm run test:home-mail-drafts
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test email AI review indicators and work timelines
+        run: npm run test:mail-review-timeline
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test Work session model selection
         run: npm run test:work-session-models
         env:

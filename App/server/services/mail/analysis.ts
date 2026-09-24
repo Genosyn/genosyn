@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { recordAudit, withAuditContext } from "../audit.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
@@ -321,9 +322,10 @@ export type SerializedMailAnalysis = ReturnType<typeof serializeAnalysis>;
 export async function analysesForThread(
   companyId: string,
   threadId: string,
+  accountId?: string,
 ): Promise<MailInboundAnalysis[]> {
   return AppDataSource.getRepository(MailInboundAnalysis).find({
-    where: { companyId, threadId },
+    where: { companyId, threadId, ...(accountId ? { accountId } : {}) },
     order: { createdAt: "ASC" },
   });
 }
@@ -452,6 +454,23 @@ export async function analyzeInboundMessage(
   return started;
 }
 
+/** Immutable attempt evidence survives re-analysis replacing the current verdict. */
+async function recordAnalysisReview(
+  row: MailInboundAnalysis,
+  phase: "started" | "completed" | "failed",
+): Promise<void> {
+  await withAuditContext({ mailThreadId: row.threadId }, () =>
+    recordAudit({
+      companyId: row.companyId,
+      actorEmployeeId: row.employeeId,
+      action: `mail.analysis.${phase}`,
+      targetType: "mail_inbound_analysis",
+      targetId: row.id,
+      metadata: { messageId: row.messageId },
+    }),
+  );
+}
+
 async function runAnalysis(
   account: MailAccount,
   message: MailMessage,
@@ -497,6 +516,8 @@ async function runAnalysis(
     finishedAt: null,
   });
   await repo.save(row);
+  await recordAnalysisReview(row, "started");
+  broadcastToCompany(account.companyId, { type: "mail.updated", accountId: account.id });
 
   try {
     const facts = await (dependencies.gatherFacts ?? gatherAnalysisFacts)(account, message, reader);
@@ -518,6 +539,7 @@ async function runAnalysis(
   }
   row.finishedAt = new Date();
   await repo.save(row);
+  await recordAnalysisReview(row, row.status === "succeeded" ? "completed" : "failed");
   // Analysis lands seconds to a minute after the email does, so a Member who
   // opened the thread first would otherwise sit on "Reading this email…"
   // until they navigated away. The mail pages already reload on this event.

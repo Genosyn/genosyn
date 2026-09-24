@@ -846,6 +846,8 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
       runId: req.mcpRunId ?? null,
       routineId: req.mcpRoutineId ?? null,
       conversationId: req.mcpConversationId ?? null,
+      mailThreadId: req.mcpMailThreadId ?? null,
+      mailHandoverId: req.mcpMailHandoverId ?? null,
     },
     next,
   );

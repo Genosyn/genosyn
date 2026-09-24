@@ -48,6 +48,49 @@ export type MailLabelInfo = {
 
 export type MailCounts = { inboxUnread: number; drafts: number; starred: number };
 
+export type MailReviewEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  avatarKey: string | null;
+};
+
+/** Review state belongs to the newest inbound message, independently of unread. */
+export type MailReviewSummary = {
+  status: "not_reviewed" | "queued" | "reviewing" | "reviewed" | "needs_attention";
+  latestMessageId: string | null;
+  employee: MailReviewEmployee | null;
+  updatedAt: string | null;
+};
+
+export type MailReviewEvent = {
+  id: string;
+  kind:
+    | "received"
+    | "review_started"
+    | "review_completed"
+    | "review_failed"
+    | "handover_queued"
+    | "handover_started"
+    | "handover_completed"
+    | "handover_failed"
+    | "decision"
+    | "draft"
+    | "sent"
+    | "quote"
+    | "approval"
+    | "action";
+  occurredAt: string;
+  title: string;
+  description: string | null;
+  employee: MailReviewEmployee | null;
+  /** A server-authorized destination relative to the current company. */
+  href: string | null;
+  status: "complete" | "running" | "pending" | "failed";
+};
+
+export type MailReviewTimelineData = { events: MailReviewEvent[]; truncated: boolean };
+
 export type MailThread = {
   id: string;
   gmailThreadId: string;
@@ -60,6 +103,8 @@ export type MailThread = {
   messageCount: number;
   hasAttachments: boolean;
   lastMessageAt: string | null;
+  /** Older mutation responses may omit the read-time projection. */
+  aiReview?: MailReviewSummary;
 };
 
 export type MailAttachment = {
@@ -637,6 +682,7 @@ export const mailApi = {
       messages: MailMessage[];
       handovers: MailHandover[];
       analyses: MailAnalysis[];
+      reviewTimeline: MailReviewTimelineData;
     }>(`${base(cid)}/threads/${tid}`),
 
   threadAction: (
