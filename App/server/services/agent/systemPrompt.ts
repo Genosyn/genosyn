@@ -224,7 +224,7 @@ export function toolsBriefing(
         "The progressKey must identify the last fully processed item or source position; keep it unchanged if no real progress occurred. " +
         "Work in batches of at most five source records or conversations. Save all progress in the checkpoint: after a long batch Genosyn may hand off immediately when the save succeeds, before you write a final report. " +
         "Save a final checkpoint before ending the turn. Genosyn automatically resumes actionable unfinished work in fresh Runs within the original time limit, " +
-        "up to three continuations and ten million cumulative tokens; do not schedule Wakeups to bypass these limits. " +
+        "up to three continuations, with no total model-token limit; do not schedule Wakeups to bypass the time or continuation limits. " +
         "Resume saved progress before collecting newer work, resolve truncated evidence using smaller pages or exact-entry reads, " +
         "and verify existing records before repeating a write or send. Keep the verified coverage checkpoint unchanged while gaps remain. " +
         "A complete checkpoint reports your progress; it cannot pass Checks or independently verify success. Find this tool with find_tools if needed.",

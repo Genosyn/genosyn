@@ -26,7 +26,7 @@ export class RunManualResumeError extends Error {
   }
 }
 
-/** A new allowance never authorizes new work or replays an approved plan. */
+/** A new time window never authorizes new work or replays an approved plan. */
 export function manualResumeEligibility(
   run: Run,
   routine: Routine,
@@ -116,13 +116,13 @@ async function loadSource(companyId: string, sourceRunId: string) {
 async function assertAdministrator(companyId: string, userId: string) {
   const membership = await AppDataSource.getRepository(Membership).findOneBy({ companyId, userId });
   if (!membership || !["owner", "admin"].includes(membership.role))
-    throw new RunManualResumeError("An administrator must authorize the new Run allowance.", 403);
+    throw new RunManualResumeError("An administrator must authorize resuming this Run.", 403);
 }
 
 /**
  * A durable, expiring CAS serializes resumptions of the same Routine across
  * replicas. It never changes retryAt: a crashed browser request must not turn
- * into background permission to buy another allowance. A later explicit
+ * into background permission to start another Run. A later explicit
  * request can reclaim an expired lease; the child row prevents any replay.
  */
 async function acquireResumeClaim(routineId: string): Promise<{ name: string; holderId: string }> {
@@ -164,10 +164,11 @@ export async function resumeRoutineRun(args: {
   companyId: string;
   sourceRunId: string;
   userId: string;
+  /** Existing API field: confirms a new Run with a fresh time window. */
   acknowledgeNewAllowance: true;
 }): Promise<Run> {
   if (args.acknowledgeNewAllowance !== true)
-    throw new RunManualResumeError("Acknowledge the new Run allowance before resuming.", 400);
+    throw new RunManualResumeError("Confirm the new Run before resuming unfinished work.", 400);
   await assertAdministrator(args.companyId, args.userId);
   const initial = await loadSource(args.companyId, args.sourceRunId);
   const claim = await acquireResumeClaim(initial.routine.id);

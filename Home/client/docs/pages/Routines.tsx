@@ -866,35 +866,36 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Each occurrence permits up to three continuation Runs after the initial Run. They share the
-        original Routine time limit and a ceiling of ten million model tokens, enforced from the
-        initial Run onward. Token usage includes repeated and cached input across model calls; it is
-        not just the text the employee writes. Automatic continuation stops when progress does not
-        advance, the employee reports a blocker, or a limit is reached; the Run shows the reason.
-        Current Grants, delivery limits, and Standdowns still apply, and approval-gated work is
-        never replayed automatically.
+        original Routine time limit, with no total model token limit. Individual AI Model context
+        and response limits still apply. Token usage includes repeated and cached input across model
+        calls; it is not just the text the employee writes. Automatic continuation stops when
+        progress does not advance, the employee reports a blocker, the time limit expires, or all
+        three continuations have run; the Run shows the reason. Current Grants, delivery limits, and
+        Standdowns still apply, and approval-gated work is never replayed automatically.
       </P>
       <P>
         Employees are briefed to save progress after small batches, retain stable source IDs and the
         original review window, and verify earlier changes before repeating a write or send. After a
         Run uses about two million tokens, Genosyn ends the batch at its next actionable saved
-        checkpoint and continues in a fresh Run while allowance remains. A saved checkpoint reports
-        progress; it does not prove completion or guarantee that an external action happens only
-        once. Coverage must be complete before advancing a verified checkpoint, and existing{" "}
-        <DocLink to="/docs/verification">Checks and outcome grading</DocLink> retain their own
-        meaning. A fully reviewed source with no matching Contacts can still be completed work.
+        checkpoint and continues in a fresh Run when time and continuations remain. A saved
+        checkpoint reports progress; it does not prove completion or guarantee that an external
+        action happens only once. Coverage must be complete before advancing a verified checkpoint,
+        and existing <DocLink to="/docs/verification">Checks and outcome grading</DocLink> retain
+        their own meaning. A fully reviewed source with no matching Contacts can still be completed
+        work.
       </P>
       <P>
         If a Failed Run has unfinished saved work and no follow-up queued, an owner or admin can
         choose <Strong>Resume unfinished work</Strong> from its Run log, the Routine&apos;s Runs
-        tab, or Home. Confirming starts a new Run from that checkpoint with a new allowance of ten
-        million model tokens and the Routine&apos;s configured time limit. Existing progress and
+        tab, or Home. Confirming starts a new Run from that checkpoint. The Routine&apos;s
+        configured time limit starts again, with no total model token limit. Existing progress and
         Effects remain available, and the employee verifies current records before repeating
         actions. Current Grants, approval requirements and Standdowns still apply. Cancel a pending
         retry or continuation before resuming manually. <Strong>Retry</Strong> and{" "}
         <Strong>Run now</Strong> start the Routine afresh.
       </P>
       <P>
-        For a backlog larger than one allowance, define a bounded daily scope: review a fixed batch
+        For a backlog that spans scheduled Runs, define a bounded daily scope: review a fixed batch
         of changed or due records, save the next source position, and leave the remaining queue in a
         linked <DocLink to="/docs/reactivity#workstreams">Workstream</DocLink>. This lets later
         scheduled Runs pick up the backlog without reading every unchanged record again.

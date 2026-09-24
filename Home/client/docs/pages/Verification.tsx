@@ -229,10 +229,10 @@ export function Verification() {
         source anchors, and the next step. Employees mark it <Code>continue</Code>,{" "}
         <Code>blocked</Code>, or
         <Code>complete</Code>. Genosyn can automatically continue actionable work within the
-        original time and token limits. The unfinished Run remains <Strong>Failed</Strong>; a
-        checkpoint marked complete is still the employee&apos;s report, and never replaces Checks or
-        outcome grading. Employees must verify prior Effects and current records before repeating a
-        write or send. See
+        original time limit. The unfinished Run remains <Strong>Failed</Strong>; a checkpoint marked
+        complete is still the employee&apos;s report, and never replaces Checks or outcome grading.
+        Employees must verify prior Effects and current records before repeating a write or send.
+        See
         <DocLink to="/docs/routines#continuations"> automatic continuation</DocLink>.
       </P>
       <Callout kind="warn" title="No tool writes a Check or lifts a Standdown">

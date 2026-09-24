@@ -43,7 +43,7 @@ function ResumeAction({ company, run, routineName, onResumed }: RunResumeButtonP
       const confirmed = await dialog.confirm({
         title: `Resume ${routineName}?`,
         message:
-          "Start a new Run from saved progress with a new allowance of 10 million model tokens and the Routine’s configured time limit. The AI Employee will verify earlier Effects and current records before repeating a write or send. Current Grants, approvals and Standdowns still apply.",
+          "Continue saved progress in a new Run. The Routine’s configured time limit starts again, with no total model token limit. The AI Employee will verify earlier Effects and current records before repeating a write or send. Current Grants, approvals and Standdowns still apply.",
         confirmLabel: "Resume unfinished work",
       });
       if (!confirmed) return;

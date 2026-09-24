@@ -16,7 +16,6 @@ import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import {
   checkpointAdvanced,
   continuationEligibility,
-  CONTINUATION_TOKEN_LIMIT,
   readRunCheckpoint,
   runCheckpointSchema,
   saveRunCheckpoint,
@@ -237,7 +236,7 @@ test("a continuation that repeats its checkpoint stops instead of spending anoth
   assert.match(child.continuationStopReason ?? "", /no measurable progress/);
 });
 
-test("automatic continuation respects approval, count, time, token and error boundaries", async () => {
+test("automatic continuation respects approval, count, time and error boundaries regardless of token use", async () => {
   const { routine } = await fixture();
   const run = await insert(Run, {
     routineId: routine.id,
@@ -247,9 +246,16 @@ test("automatic continuation respects approval, count, time, token and error bou
     checkpointJson: JSON.stringify(first),
   });
   assert.equal(continuationEligibility(run, routine).eligible, true);
+  assert.equal(
+    continuationEligibility(
+      Object.assign(new Run(), run, { continuationTokensUsed: 20_000_000, tokensIn: 10_000_000 }),
+      routine,
+    ).eligible,
+    true,
+    "token accounting must not prevent another continuation",
+  );
   for (const patch of [
     { continuationCount: 3 },
-    { continuationTokensUsed: CONTINUATION_TOKEN_LIMIT },
     { continuationDeadlineAt: new Date(0) },
     { errorKind: "runtime" as const },
     { triggerKind: "approval" as const },
