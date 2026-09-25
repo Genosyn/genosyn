@@ -20,12 +20,13 @@ function compose(args: {
   goalsContext?: string;
   policiesContext?: string;
   surface?: "chat" | "routine";
+  memoryContext?: string;
 }): string {
   return composeEmployeeSystemPrompt({
     co: { name: "Acme", mission: args.mission ?? "", vision: args.vision ?? "" } as Company,
     emp: employee,
     skills: [],
-    memoryContext: "",
+    memoryContext: args.memoryContext ?? "",
     goalsContext: args.goalsContext ?? "",
     policiesContext: args.policiesContext ?? "",
     repositoriesContext: "",
@@ -35,6 +36,7 @@ function compose(args: {
     marketingContext: "",
     opening: "You are Ada.",
     surface: args.surface ?? "routine",
+    routineId: args.surface === "chat" ? undefined : "routine-id",
     parallelDelegationAvailable: false,
     codingToolsAvailable: false,
     isolatedCodingTools: false,
@@ -103,4 +105,23 @@ test("Routine prompts explain explicit failure reporting without changing indepe
   assert.match(routine, /Do not mark an expected no-op/);
   assert.match(routine, /Runtime faults such as a model request timeout are recorded as Error/);
   assert.doesNotMatch(compose({ surface: "chat" }), /Run outcome: before finishing/);
+});
+
+test("current Standdown authority follows historical context for both Runs and chat", () => {
+  for (const surface of ["routine", "chat"] as const) {
+    const prompt = compose({
+      surface,
+      memoryContext:
+        "## Recent activity\nYour work was stood down. Nothing you are scheduled for will run.",
+    });
+    assert.ok(
+      prompt.indexOf("## Current Standdown status") > prompt.indexOf("Your work was stood down"),
+    );
+    assert.match(
+      prompt,
+      surface === "routine"
+        ? /No active company, AI Employee, or Routine Standdown covers this Run\./
+        : /No active company or AI Employee Standdown covers this conversation\./,
+    );
+  }
 });

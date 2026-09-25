@@ -68,6 +68,22 @@ const model = http.createServer(async (req, res) => {
     // reads the Routine brief, but has only its submission tool and must not
     // accidentally contribute another retry cycle to this fixture's counts.
     const routineWork = Boolean(offeredTool("call_tool") || offeredTool("mark_run_failed"));
+    if (!probe && routineWork && routineBrief.includes("qa-routine-standdown-resumed")) {
+      const system = request.messages
+        .filter((message: { role: string }) => message.role === "system")
+        .map((message: { content: unknown }) => JSON.stringify(message.content))
+        .join("\n");
+      assert.match(system, /Your work was stood down/);
+      assert.match(system, /Nothing you are scheduled for will run/);
+      assert.match(system, /## Current Standdown status/);
+      assert.match(
+        system,
+        /No active company, AI Employee, or Routine Standdown covers this Run\./,
+      );
+      console.log(
+        "[fullstack-standdown] resumed Run received current status alongside legacy Journal history",
+      );
+    }
     const timeoutMarker = ["qa-routine-timeout-recovered", "qa-routine-retry-terminal-error"].find(
       (marker) => !probe && routineWork && routineBrief.includes(marker),
     );

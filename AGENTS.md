@@ -174,7 +174,11 @@ instrument: it names a scope (company / employee / routine), records who
 stopped the work and why, aborts Runs already in flight, defers rather than
 cancels what was queued, and is placed by a human. Repeated Run failures do not
 automatically place a Standdown. Existing Standdowns remain effective until a
-human lifts them. It is the exact inverse of a **Waiver** — a Waiver is earned,
+human lifts them. Current server state determines whether work is stood down;
+historical Journal entries and saved progress checkpoints do not keep a lifted
+Standdown in force. Scope matters: stopping one Routine does not stop its AI
+Employee, and lifting one Standdown does not lift another that still covers it.
+It is the exact inverse of a **Waiver** — a Waiver is earned,
 narrow, and widens what an AI may do without a human; a Standdown is imposed,
 broad, and stops it. Neither direction has an MCP tool: the roster must not be able to
 stand itself down and, far more importantly, must not be able to lift one.

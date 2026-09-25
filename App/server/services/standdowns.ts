@@ -219,6 +219,47 @@ export function workBlocked(companyId: string, opts: StanddownTarget = {}): Work
   return { blocked: true, scope: row.scope, reason: row.reason, standdownId: row.id };
 }
 
+/** Use the enforcement view, rather than historical prose, in each new turn. */
+export function composeStanddownContext(
+  companyId: string,
+  opts: StanddownTarget = {},
+): string {
+  const block = workBlocked(companyId, opts);
+  const lines = [
+    "## Current Standdown status",
+    `Checked at: ${new Date().toISOString()}`,
+    `Company ID: ${companyId}`,
+  ];
+  if (opts.employeeId) lines.push(`AI Employee ID: ${opts.employeeId}`);
+  if (opts.routineId) lines.push(`Routine ID: ${opts.routineId}`);
+  if (block.blocked) {
+    lines.push(
+      `An active ${scopeNoun(block.scope)} Standdown covers this work.`,
+      `Standdown ID: ${block.standdownId}`,
+      `Reason: ${block.reason}`,
+      "Do not perform work covered by this Standdown. A company owner or admin must lift it.",
+    );
+  } else {
+    lines.push(
+      opts.routineId
+        ? "No active company, AI Employee, or Routine Standdown covers this Run."
+        : "No active company or AI Employee Standdown covers this conversation. " +
+          "A Routine Standdown applies only to that Routine.",
+    );
+  }
+  lines.push(
+    "",
+    "The server's current Standdown status is authoritative. Journal entries, Memory, " +
+      "Workstreams, prior Run reports, and checkpoints are historical context: they do not " +
+      "place or extend Standdowns. When no active Standdown covers this work, continue " +
+      "otherwise authorized work. Do not fail the Run, save a blocked checkpoint, or request " +
+      "another lift solely because historical text describes a past Standdown. " +
+      "Current Grants, Policies, and Approvals still apply. Only humans place or lift " +
+      "Standdowns; AI Employees must not do either.",
+  );
+  return lines.join("\n");
+}
+
 /**
  * Whether anything at all is stood down right now.
  *
@@ -422,6 +463,40 @@ function activeWhere(
   };
 }
 
+/** Lead with scope/history so bounded previews retain them despite long names or reasons. */
+const STANDDOWN_JOURNAL_HISTORY =
+  "This is a historical Journal entry. The server's current Standdown status is authoritative; " +
+  "this entry does not establish an active Standdown for later work.";
+
+async function standdownJournalTarget(
+  standdown: Standdown,
+  employees: AIEmployee[],
+): Promise<string> {
+  if (standdown.scope === "company") return `Company ${standdown.companyId}`;
+  if (standdown.scope === "employee") {
+    return `AI Employee ${employees[0]?.name ?? "(removed)"} (${standdown.scopeId})`;
+  }
+  const routine = await AppDataSource.getRepository(Routine).findOneBy({
+    id: standdown.scopeId!,
+  });
+  return `Routine ${routine?.name ?? "(removed)"} (${standdown.scopeId})`;
+}
+
+function standdownJournalIdentity(standdown: Standdown, target: string): string {
+  return `Standdown ID: ${standdown.id}\nScope: ${standdown.scope}\nTarget: ${target}`;
+}
+
+function standdownJournalCoverage(scope: StanddownScope): string {
+  if (scope === "company") return "This Standdown covers all AI work in this company.";
+  if (scope === "employee") {
+    return "This Standdown covers all AI work by this AI Employee in this company.";
+  }
+  return (
+    "This Standdown covers only this Routine. It does not stand down its AI Employee " +
+    "or the employee's other work."
+  );
+}
+
 /**
  * Place a standdown, stop the Runs it covers, and tell everyone it touches.
  *
@@ -495,12 +570,16 @@ export async function placeStanddown(input: PlaceStanddownInput): Promise<Standd
   // Once, here — not once per skipped slot. A stop that lasts a week would
   // otherwise bury the employee's journal under thousands of identical rows
   // and make the one entry that matters unfindable.
+  const journalTarget = await standdownJournalTarget(standdown, employees);
   for (const employee of employees) {
     await journalToEmployee(
       employee.id,
-      "Your work was stood down",
-      `${reason}\n\nNothing you are scheduled for will run, and Runs already in flight were ` +
-        "stopped. Work resumes when a human lifts the standdown.",
+      `${standdown.scope === "company" ? "Company AI work" : scopeNoun(standdown.scope)} stood down`,
+      `${standdownJournalCoverage(standdown.scope)}\n\n${STANDDOWN_JOURNAL_HISTORY}\n\n` +
+        `${standdownJournalIdentity(standdown, journalTarget)}\nPlaced at: ${standdown.placedAt.toISOString()}\n\n` +
+        `Reason: ${reason}\n\n` +
+        "Runs already in flight within this scope were stopped, and later work in this scope " +
+        "was deferred until a human lift.",
     );
   }
   await notifyStanddownPlaced(standdown, employees);
@@ -548,13 +627,17 @@ export async function liftStanddown(args: {
     metadata: { scope: current.scope, scopeId: current.scopeId, reason: liftedReason },
     runId: null,
   });
+  const journalTarget = await standdownJournalTarget(current, employees);
   for (const employee of employees) {
     await journalToEmployee(
       employee.id,
-      "Your standdown was lifted",
-      liftedReason
-        ? `${liftedReason}\n\nScheduled work resumes from the next slot.`
-        : "Scheduled work resumes from the next slot.",
+      `${current.scope === "company" ? "Company" : scopeNoun(current.scope)} Standdown lifted`,
+      "A human lifted only this Standdown. Other overlapping Standdowns are unchanged " +
+        "and may still block work. Scheduled work resumes from its next slot only if no " +
+        "current Standdown covers it.\n\n" +
+        `${STANDDOWN_JOURNAL_HISTORY}\n\n` +
+        `${standdownJournalIdentity(current, journalTarget)}\nLifted at: ${current.liftedAt!.toISOString()}` +
+        (liftedReason ? `\n\nReason: ${liftedReason}` : ""),
     );
   }
   return current;

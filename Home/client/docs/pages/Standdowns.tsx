@@ -112,8 +112,8 @@ export function Standdowns() {
         </LI>
         <LI>
           <Strong>Everyone covered is told.</Strong> The reason lands on a banner, in the bell for
-          owners and admins, and in the Journal of every covered employee — so the employee&apos;s
-          own next prompt knows why the last few hours are missing.
+          owners and admins, and in the Journal of every covered employee. Journal entries name
+          the scope: standing down one Routine does not stand down its AI Employee or other work.
         </LI>
       </UL>
 
@@ -127,11 +127,18 @@ export function Standdowns() {
         stop the roster, and why&quot; stays answerable afterwards.
       </P>
       <P>
-        Repeated Run failures do not automatically stand a Routine down. Its later scheduled Runs
-        remain eligible, while its failures, alerts, and{" "}
+        Standdowns are human actions. Repeated Run failures do not automatically stand a Routine
+        or its AI Employee down. Later scheduled Runs remain eligible, while failures, alerts, and{" "}
         <DocLink to="/docs/verification">Check results</DocLink> stay visible. Existing Standdowns,
         including ones placed automatically by an earlier version, stay effective until an owner
         or admin lifts them.
+      </P>
+      <P>
+        New and resumed Runs use the current Standdown state. An old Journal entry or saved progress
+        checkpoint describing a Standdown is history and does not require another lift after that
+        Standdown has been lifted. Any other active Standdown covering the Routine still applies:
+        returning one Routine to work does not lift an AI Employee or company Standdown. Run
+        explanations distinguish what the saved Run reported from the current Standdown state.
       </P>
       <Callout kind="warn" title="There is no MCP tool for this — deliberately.">
         No AI Employee can place a Standdown, and far more importantly, none can lift one. A stop
