@@ -20,6 +20,7 @@ import { getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { broadcastToCompany } from "../realtime.js";
 import { attachmentNames, jsonBoundedString } from "./promptBounds.js";
+import { analysisAttemptSnapshot } from "./analysisEvidence.js";
 import { columnHasLabel } from "./store.js";
 import { oneClickUnsubscribeAvailable } from "./unsubscribe.js";
 
@@ -463,6 +464,7 @@ export async function analyzeInboundMessage(
 async function recordAnalysisReview(
   row: MailInboundAnalysis,
   phase: "started" | "completed" | "failed",
+  startedAt: Date,
   interrupted = false,
 ): Promise<void> {
   await withAuditContext({ mailThreadId: row.threadId }, () =>
@@ -474,7 +476,9 @@ async function recordAnalysisReview(
       targetId: row.id,
       metadata: {
         messageId: row.messageId,
-        ...(phase === "started" ? { attemptStartedAt: row.updatedAt.toISOString() } : {}),
+        accountId: row.accountId,
+        attemptStartedAt: startedAt.toISOString(),
+        analysisSnapshot: analysisAttemptSnapshot(row, phase, startedAt),
         ...(interrupted ? { interrupted: true } : {}),
       },
     }),
@@ -534,7 +538,7 @@ export async function recoverInterruptedMailAnalyses(now = new Date()): Promise<
     // attempt after a later, successfully completed handover of the same email.
     row.finishedAt = new Date(startedAt.getTime() + MAIL_ANALYSIS_LIFETIME_MS);
     if (!(await finishAnalysisAttempt(row, startedAt))) continue;
-    await recordAnalysisReview(row, "failed", true);
+    await recordAnalysisReview(row, "failed", startedAt, true);
     broadcastToCompany(row.companyId, { type: "mail.updated", accountId: row.accountId });
     recovered += 1;
   }
@@ -593,7 +597,7 @@ async function runAnalysis(
   if (existing) await repo.update(existing.id, attempt);
   else await repo.save(row);
   const startedAt = row.updatedAt;
-  await recordAnalysisReview(row, "started");
+  await recordAnalysisReview(row, "started", startedAt);
   broadcastToCompany(account.companyId, { type: "mail.updated", accountId: account.id });
 
   const controller = new AbortController();
@@ -643,7 +647,7 @@ async function runAnalysis(
   }
   row.finishedAt = new Date();
   if (!(await finishAnalysisAttempt(row, startedAt))) return repo.findOneBy({ id: row.id });
-  await recordAnalysisReview(row, row.status === "succeeded" ? "completed" : "failed");
+  await recordAnalysisReview(row, row.status === "succeeded" ? "completed" : "failed", startedAt);
   // Analysis lands seconds to a minute after the email does, so a Member who
   // opened the thread first would otherwise sit on "Reading this email…"
   // until they navigated away. The mail pages already reload on this event.

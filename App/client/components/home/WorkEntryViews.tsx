@@ -4,6 +4,7 @@ import {
   CircleDashed,
   GitCommitHorizontal,
   Lightbulb,
+  Mail,
   MessageSquare,
   Play,
   ShieldCheck,
@@ -15,7 +16,10 @@ import type { WorkEntry, WorkEntryKind } from "@/lib/api";
 import {
   humanizeWorkAction,
   workClock,
+  workEmailAnalysisDetails,
+  workEmailAnalysisPhase,
   workEffectOverflowLabel,
+  workEntryKindLabel,
   workNarrative,
   workRelativeTime,
   WORK_KIND_META,
@@ -98,8 +102,8 @@ export function WorkStatePill({ state, label }: { state: EmployeeWorkState; labe
 }
 
 /** The kind, named and coloured. The legend under the chart uses the same map. */
-function WorkKindChip({ kind }: { kind: WorkEntryKind }) {
-  const meta = WORK_KIND_META[kind];
+function WorkKindChip({ entry }: { entry: WorkEntry }) {
+  const meta = WORK_KIND_META[entry.kind];
   return (
     <span
       className={clsx(
@@ -107,8 +111,8 @@ function WorkKindChip({ kind }: { kind: WorkEntryKind }) {
         meta.tone,
       )}
     >
-      {WORK_KIND_ICON[kind]}
-      {meta.label}
+      {workEmailAnalysisPhase(entry) ? <Mail size={13} /> : WORK_KIND_ICON[entry.kind]}
+      {workEntryKindLabel(entry)}
     </span>
   );
 }
@@ -134,6 +138,58 @@ function WorkEntryNarrative({ entry, nowIso }: { entry: WorkEntry; nowIso: strin
           {narrative.body.join(" ")}
         </p>
       )}
+    </div>
+  );
+}
+
+/** Suggested next steps are text, never controls that execute an old proposal. */
+function WorkEmailAnalysisResult({ entry }: { entry: WorkEntry }) {
+  const details = workEmailAnalysisDetails(entry);
+  if (!details) return null;
+  const labelClass =
+    "text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500";
+  const contentClass = "mt-0.5 break-words text-xs leading-5 text-slate-600 dark:text-slate-300";
+  return (
+    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-800/60">
+      {details.unavailable && (
+        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{details.unavailable}</p>
+      )}
+      <dl className={clsx("space-y-2", details.unavailable && "mt-2")}>
+        {details.summary && (
+          <div>
+            <dt className={labelClass}>AI summary</dt>
+            <dd className={contentClass}>{details.summary}</dd>
+          </div>
+        )}
+        {details.category && (
+          <div>
+            <dt className={labelClass}>Category</dt>
+            <dd className={contentClass}>{details.category}</dd>
+          </div>
+        )}
+        {details.suggestedActions !== null && (
+          <div>
+            <dt className={labelClass}>Suggested next steps</dt>
+            <dd className={contentClass}>
+              {details.suggestedActions.length > 0 ? (
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {details.suggestedActions.map((label, index) => (
+                    <li key={index}>{label}</li>
+                  ))}
+                </ul>
+              ) : (
+                "No next steps were suggested."
+              )}
+            </dd>
+          </div>
+        )}
+        {details.failureReason && (
+          <div>
+            <dt className={labelClass}>Why it failed</dt>
+            <dd className={contentClass}>{details.failureReason}</dd>
+          </div>
+        )}
+      </dl>
     </div>
   );
 }
@@ -214,7 +270,7 @@ export function WorkEntryBlock({
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <WorkKindChip kind={entry.kind} />
+        <WorkKindChip entry={entry} />
         <WorkRunChips entry={entry} />
         {entry.active && (
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20">
@@ -229,6 +285,7 @@ export function WorkEntryBlock({
       <div className="mt-2">
         <WorkEntryNarrative entry={entry} nowIso={nowIso} />
       </div>
+      <WorkEmailAnalysisResult entry={entry} />
       {showEffects && entry.kind !== "run" && <WorkEffectList entry={entry} />}
     </div>
   );

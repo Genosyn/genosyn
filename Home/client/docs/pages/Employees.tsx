@@ -355,7 +355,7 @@ export function Employees() {
           <Strong>Employee details</Strong> opens their Settings. Close the popup to return to Home.
         </LI>
       </UL>
-      <P>Seven kinds of work land on it:</P>
+      <P>The timeline includes:</P>
       <UL>
         <LI>
           <Strong>Routine runs</Strong> show a concise outcome in the employee&apos;s day. If no
@@ -390,6 +390,15 @@ export function Employees() {
           conversation; changes with no parent stand on their own. An Email handover names the
           people and mailbox it came from, says whether a Member or an Email rule started it, and
           links back to the original thread.
+        </LI>
+        <LI>
+          <Strong>Email analysis</Strong> entries explain an incoming email review: the AI Employee
+          reads the message, classifies it, summarises it and suggests next steps. The card names
+          the email and mailbox, links to the conversation, and shows the recorded category,
+          summary and suggested actions when available. Suggestions are not completed actions.
+          A failed review shows its recorded reason; the card says when result details are
+          unavailable. Reviewing the same email again never replaces an earlier card&apos;s
+          result with the newer review.
         </LI>
       </UL>
       <P>

@@ -349,6 +349,16 @@ export function Email() {
         to four things. Often the honest answer is none, and then you just get the one-line summary
         and a category chip.
       </P>
+      <P>
+        These reviews also appear in the AI Employee&apos;s{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> as{" "}
+        <Strong>Email analysis</Strong>. Each card explains the review and identifies its email,
+        with the recorded summary, category, suggested next steps or failure reason when available.
+        Analysis uses the message text and attachment names; it does not inspect attachment
+        contents or carry out the suggested actions. Open the linked email to review and use them.
+        Older entries without a retained result say so instead of showing a later review&apos;s
+        findings.
+      </P>
       <P>What a button does when you press it:</P>
       <UL>
         <LI>

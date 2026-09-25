@@ -3435,6 +3435,20 @@ export type WorkEntrySource = {
   detail: string;
 };
 
+/** Recorded result of this email analysis attempt, never executable actions. */
+export type WorkEntryAnalysis = {
+  kind: "email";
+  status: "started" | "completed" | "failed";
+  purpose: string;
+  category: string | null;
+  summary: string | null;
+  suggestedActions: string[];
+  error: string | null;
+  /** Whether this attempt's recorded result is available to display. */
+  resultAvailable: boolean;
+  durationMs: number | null;
+};
+
 /** A Run's concise outcome and status, without a second request. */
 export type WorkEntryRun = {
   /** A short outcome from the recorded Run, or null when none is available. */
@@ -3473,6 +3487,8 @@ export type WorkEntry = {
   detail: string;
   /** Linked provenance for a standalone change, when its source still exists. */
   source: WorkEntrySource | null;
+  /** A bounded result for an email analysis effect; optional for older responses. */
+  analysis?: WorkEntryAnalysis | null;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;
   effects: WorkEffect[];

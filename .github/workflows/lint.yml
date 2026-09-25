@@ -98,6 +98,10 @@ jobs:
         run: npm run test:work-outcomes
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test employee email analysis details, history, and source navigation
+        run: npm run test:work-analysis
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test live browser recording and saved playback transitions
         run: npm run test:browser-recording-live
         env:

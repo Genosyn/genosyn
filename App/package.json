@@ -18,6 +18,7 @@
     "test:browser-recording-live": "tsx scripts/test-browser-recording-live.ts",
     "test:mail-draft-attachments": "tsx scripts/test-mail-draft-attachments.ts",
     "test:work-outcomes": "tsx scripts/test-work-outcomes.ts",
+    "test:work-analysis": "tsx scripts/test-work-analysis.ts",
     "test:routine-activity": "tsx scripts/test-routine-activity.ts",
     "test:decision-discussions": "tsx scripts/test-decision-discussions.ts",
     "test:home-layout": "tsx scripts/test-home-layout.ts",

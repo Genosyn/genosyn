@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { WorkEmployeeSummary, WorkEntry, WorkEntryKind } from "./api.js";
+import type { WorkEmployeeSummary, WorkEntry, WorkEntryAnalysis, WorkEntryKind } from "./api.js";
 import {
   buildWorkChartLanes,
   employeeWorkStatusLabel,
@@ -23,10 +23,13 @@ import {
   workDisplayDetail,
   workDisplayEntryCount,
   workDurationLabel,
+  workEmailAnalysisDetails,
+  workEmailAnalysisPhase,
   workEffectOverflowLabel,
   workEffectPhrase,
   workEmptyTitle,
   workEntryHref,
+  workEntryKindLabel,
   workEntryLinkLabel,
   workNarrative,
   workNarrativeText,
@@ -472,6 +475,213 @@ describe("human-readable effects", () => {
       workNarrative(effect).headline,
       /^Rey could not complete an Email handover for “Renewal”/,
     );
+  });
+});
+
+describe("email analysis timeline details", () => {
+  const purpose = "Classifies the email and suggests next steps without carrying them out.";
+  function analysisEntry(
+    status: WorkEntryAnalysis["status"] = "completed",
+    analysis: Partial<WorkEntryAnalysis> = {},
+  ): WorkEntry {
+    return entryOf({
+      kind: "effect",
+      run: null,
+      active: false,
+      subject: "Pricing for the autumn launch",
+      detail: `mail.analysis.${status}`,
+      source: {
+        kind: "mail_thread",
+        id: "thread-1",
+        accountId: "account-1",
+        label: "Email with Sam",
+        detail: "hello@acme.test",
+      },
+      analysis: {
+        kind: "email",
+        status,
+        purpose,
+        category: "quote_request",
+        summary: "The sender asks for a quote for 20 seats.",
+        suggestedActions: ["Prepare a quote", "Prepare a reply"],
+        error: null,
+        resultAvailable: true,
+        durationMs: 42_000,
+        ...analysis,
+      },
+    });
+  }
+
+  for (const status of ["started", "completed", "failed"] as const) {
+    test(`names ${status} email analysis without presenting it as an Email handover`, () => {
+      const entry = analysisEntry(status);
+      assert.equal(workEmailAnalysisPhase(entry), status);
+      assert.equal(workEntryKindLabel(entry), "Email analysis");
+      const narrative = workNarrative(entry);
+      const action = status === "failed" ? "could not complete" : status;
+      assert.match(
+        narrative.headline,
+        new RegExp(`^Rey ${action} email analysis for “Pricing for the autumn launch”`),
+      );
+      assert.doesNotMatch(narrative.headline, /handover|failed analysis/);
+      assert.ok(narrative.context?.includes("Email with Sam · hello@acme.test"));
+      assert.deepEqual(narrative.body, [purpose]);
+      assert.equal(isWorkEntryActive(entry), false);
+    });
+  }
+
+  test("only exact analysis attempt actions receive the specific label", () => {
+    for (const detail of [
+      "mail.analysis.create_estimate",
+      "mail.analysis.thread_action",
+      "mail.handover.complete",
+      "analysis.completed",
+      "mail.analysis.completed.extra",
+      "constructor",
+      "__proto__",
+    ]) {
+      const entry = { ...analysisEntry(), detail };
+      assert.equal(workEmailAnalysisPhase(entry), null, detail);
+      assert.equal(workEntryKindLabel(entry), "Change", detail);
+      assert.equal(workEmailAnalysisDetails(entry), null, detail);
+    }
+    const run = { ...analysisEntry(), kind: "run" as const };
+    assert.equal(workEmailAnalysisPhase(run), null);
+    assert.equal(workEntryKindLabel(run), "Routine run");
+  });
+
+  test("humanizes analysis audit actions even inside an ordinary effect list", () => {
+    assert.equal(
+      humanizeWorkAction("mail.analysis.started", "mail_inbound_analysis"),
+      "Started email analysis",
+    );
+    assert.equal(humanizeWorkAction("mail.analysis.completed", ""), "Completed email analysis");
+    assert.equal(
+      humanizeWorkAction("mail.analysis.failed", "mail_inbound_analysis"),
+      "Could not complete email analysis",
+    );
+  });
+
+  test("keeps recorded suggestions separate from actual work and translates the category", () => {
+    assert.deepEqual(workEmailAnalysisDetails(analysisEntry()), {
+      summary: "The sender asks for a quote for 20 seats.",
+      category: "Quote request",
+      suggestedActions: ["Prepare a quote", "Prepare a reply"],
+      failureReason: null,
+      unavailable: null,
+    });
+  });
+
+  test("an empty recorded suggestion list differs from a missing historical result", () => {
+    assert.deepEqual(
+      workEmailAnalysisDetails(analysisEntry("completed", { suggestedActions: [] }))
+        ?.suggestedActions,
+      [],
+    );
+    const old = workEmailAnalysisDetails(analysisEntry("completed", { resultAvailable: false }));
+    assert.equal(old?.suggestedActions, null);
+    assert.equal(old?.summary, null);
+    assert.equal(old?.category, null);
+    assert.equal(old?.unavailable, "Result details are unavailable for this analysis.");
+  });
+
+  test("started events never inherit the result or duration from a completed attempt", () => {
+    const entry = analysisEntry("started", { status: "completed" });
+    assert.equal(workEmailAnalysisDetails(entry), null);
+    assert.equal(workNarrative(entry).context, "Email with Sam · hello@acme.test");
+  });
+
+  test("failed events show only their own saved failure reason", () => {
+    const details = workEmailAnalysisDetails(
+      analysisEntry("failed", { error: "  The AI Model timed out.  " }),
+    );
+    assert.equal(details?.failureReason, "The AI Model timed out.");
+    assert.equal(details?.summary, null);
+    assert.equal(details?.category, null);
+    assert.equal(details?.suggestedActions, null);
+    assert.equal(details?.unavailable, null);
+  });
+
+  for (const error of [null, "", "  "]) {
+    test(`a missing failure reason ${JSON.stringify(error)} stays explicit`, () => {
+      const details = workEmailAnalysisDetails(analysisEntry("failed", { error }));
+      assert.equal(details?.failureReason, null);
+      assert.equal(details?.unavailable, "The failure reason is unavailable for this analysis.");
+    });
+  }
+
+  test("does not borrow a result from another phase or from a later retry", () => {
+    for (const [phase, payload] of [
+      ["completed", "failed"],
+      ["failed", "completed"],
+    ] as const) {
+      const details = workEmailAnalysisDetails(
+        analysisEntry(phase, { status: payload, error: "A different attempt failed." }),
+      );
+      assert.equal(details?.summary, null);
+      assert.equal(details?.failureReason, null);
+      assert.equal(details?.suggestedActions, null);
+      assert.ok(details?.unavailable);
+    }
+  });
+
+  test("keeps legacy analysis rows useful when their source and result are absent", () => {
+    const entry = { ...analysisEntry(), subject: "", source: null, analysis: undefined };
+    const narrative = workNarrative(entry);
+    assert.match(narrative.headline, /^Rey completed email analysis at /);
+    assert.doesNotMatch(narrative.headline, /“”|undefined|null/);
+    assert.match(narrative.body.join(" "), /Classifies the email.*summarizes.*suggests next steps/);
+    assert.match(narrative.body.join(" "), /does not send email or carry out the suggestions/);
+    assert.equal(workEntryHref(entry, "acme"), null);
+    assert.equal(
+      workEmailAnalysisDetails(entry)?.unavailable,
+      "Result details are unavailable for this analysis.",
+    );
+  });
+
+  test("trims empty result fields without inventing a category or next step", () => {
+    const details = workEmailAnalysisDetails(
+      analysisEntry("completed", {
+        summary: " \n ",
+        category: " ",
+        suggestedActions: ["  ", " Prepare a reply "],
+      }),
+    );
+    assert.equal(details?.summary, null);
+    assert.equal(details?.category, null);
+    assert.deepEqual(details?.suggestedActions, ["Prepare a reply"]);
+    assert.equal(details?.unavailable, "No summary was recorded for this analysis.");
+  });
+
+  for (const [durationMs, duration] of [
+    [500, "under a second"],
+    [1000, "1 second"],
+    [42_000, "42 seconds"],
+    [60_000, "1 minute"],
+    [120_000, "2 minutes"],
+  ] as const) {
+    test(`names a saved ${durationMs}ms duration without treating completion time as start time`, () => {
+      assert.equal(
+        workNarrative(analysisEntry("completed", { durationMs })).context,
+        `Email with Sam · hello@acme.test · ${duration}`,
+      );
+    });
+  }
+
+  for (const durationMs of [null, 0, -1, Infinity, NaN, Number.MAX_VALUE]) {
+    test(`omits unavailable or invalid duration ${String(durationMs)}`, () => {
+      assert.equal(
+        workNarrative(analysisEntry("completed", { durationMs })).context,
+        "Email with Sam · hello@acme.test",
+      );
+    });
+  }
+
+  test("a source-linked action outside the handover namespace is not called a handover", () => {
+    const entry = { ...analysisEntry(), detail: "mail.analysis.thread_action", analysis: null };
+    const narrative = workNarrative(entry);
+    assert.doesNotMatch(narrative.headline, /handover|completed email analysis/);
+    assert.equal(narrative.context, "Email with Sam · hello@acme.test");
   });
 });
 
@@ -1027,6 +1237,36 @@ describe("counting a window", () => {
 
   test("a Routine with a large audit ledger contributes only one Run", () => {
     assert.equal(workCountsSentence([entryOf({ effectCount: 100_000 })]), "1 routine run");
+  });
+
+  test("counts email analysis lifecycle rows as updates, not completed analyses or changes", () => {
+    const entries = ["started", "completed", "failed"].map((phase) =>
+      entryOf({ kind: "effect", run: null, detail: `mail.analysis.${phase}` }),
+    );
+    assert.equal(workCountsSentence(entries.slice(0, 1)), "1 email analysis update");
+    assert.equal(workCountsSentence(entries.slice(0, 2)), "2 email analysis updates");
+    assert.equal(workCountsSentence(entries), "3 email analysis updates");
+  });
+
+  test("counts analysis updates alongside other work without adding them to changed records", () => {
+    const entries = [
+      entryOf(),
+      entryOf({ kind: "effect", run: null, detail: "mail.analysis.completed" }),
+      entryOf({ kind: "effect", run: null, detail: "invoice.create" }),
+    ];
+    assert.equal(
+      workCountsSentence(entries),
+      "1 routine run, 1 email analysis update and 1 recorded change",
+    );
+  });
+
+  test("an invoice created from an analysis remains a recorded change", () => {
+    assert.equal(
+      workCountsSentence([
+        entryOf({ kind: "effect", run: null, detail: "mail.analysis.create_invoice" }),
+      ]),
+      "1 recorded change",
+    );
   });
 
   test("is empty rather than zeroed when nothing happened", () => {

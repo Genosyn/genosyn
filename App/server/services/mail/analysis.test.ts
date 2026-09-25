@@ -720,16 +720,32 @@ describe("analysing one inbound message", () => {
       assert.deepEqual(metadata, {
         messageId: message.id,
         mailThreadId: message.threadId,
-        ...(attempt.action === "mail.analysis.started"
-          ? { attemptStartedAt: metadata.attemptStartedAt }
-          : {}),
+        accountId: account.id,
+        attemptStartedAt: metadata.attemptStartedAt,
+        analysisSnapshot: metadata.analysisSnapshot,
       });
-      if (attempt.action === "mail.analysis.started") {
-        assert.equal(typeof metadata.attemptStartedAt, "string");
-        assert.equal(Number.isNaN(new Date(metadata.attemptStartedAt).getTime()), false);
+      assert.equal(typeof metadata.attemptStartedAt, "string");
+      assert.equal(Number.isNaN(new Date(metadata.attemptStartedAt).getTime()), false);
+      const snapshot = metadata.analysisSnapshot;
+      assert.equal(snapshot.version, 1);
+      assert.equal(snapshot.status, attempt.action.split(".").at(-1));
+      if (attempt.action === "mail.analysis.completed") {
+        assert.equal(snapshot.summary, "A supplier update.");
+        assert.equal(snapshot.category, "vendor");
+        assert.deepEqual(snapshot.suggestedActions, ["Archive it"]);
+        assert.equal(typeof snapshot.durationMs, "number");
+        assert.equal(snapshot.error, undefined);
+      } else if (attempt.action === "mail.analysis.failed") {
+        assert.equal(snapshot.error, "quota exhausted");
+        assert.equal(snapshot.summary, undefined);
+        assert.equal(snapshot.suggestedActions, undefined);
+      } else {
+        assert.equal(snapshot.durationMs, null);
+        assert.equal(snapshot.summary, undefined);
+        assert.equal(snapshot.error, undefined);
       }
       assert.equal(attempt.actorEmployeeId, failed!.employeeId);
-      assert.equal(attempt.metadataJson.includes("quota exhausted"), false);
+      assert.equal(attempt.metadataJson.includes("actionsJson"), false);
     }
   });
 
@@ -810,6 +826,19 @@ describe("interrupted email review recovery", () => {
     assert.equal((await repo.findOneByOrFail({ id: boundary.id })).status, "running");
     assert.equal((await repo.findOneByOrFail({ id: live.id })).status, "running");
     assert.equal((await repo.findOneByOrFail({ id: completed.id })).summary, completed.summary);
+    const recoveryAudit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+      targetId: stale.id,
+      action: "mail.analysis.failed",
+    });
+    const recoveryMetadata = JSON.parse(recoveryAudit.metadataJson);
+    assert.equal(recoveryMetadata.attemptStartedAt, startedAt.toISOString());
+    assert.equal(recoveryMetadata.interrupted, true);
+    assert.deepEqual(recoveryMetadata.analysisSnapshot, {
+      version: 1,
+      status: "failed",
+      durationMs: MAIL_ANALYSIS_LIFETIME_MS,
+      error: "This email review was interrupted before it finished. Try again.",
+    });
     const summaryArgs = {
       account,
       message,
