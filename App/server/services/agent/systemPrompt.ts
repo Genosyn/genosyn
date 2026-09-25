@@ -4,6 +4,7 @@ import type { Skill } from "../../db/entities/Skill.js";
 import { config } from "../../../config.js";
 import { getAgentSettings } from "../runtimeSettings.js";
 import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
+import { composeStanddownContext } from "../standdowns.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 import { codingRuntimeAvailability } from "./codingAvailability.js";
 
@@ -50,6 +51,8 @@ export function composeEmployeeSystemPrompt(args: {
   /** The one line the two seams genuinely disagree on. */
   opening: string;
   surface: PromptSurface;
+  /** Include the Routine's narrow Standdown when briefing a Run. */
+  routineId?: string;
   /** Subscription turns serialize on a model lock and cannot delegate. */
   parallelDelegationAvailable: boolean;
   /** Whether this turn receives any built-in coding tool. */
@@ -125,6 +128,11 @@ export function composeEmployeeSystemPrompt(args: {
     }
     parts.push(s.body);
   }
+
+  // History can contain an old stop even after its lift has fallen outside
+  // the bounded Journal window. End with the same current state enforcement
+  // uses, so old Memory, Skills, or Run checkpoints cannot extend that stop.
+  parts.push(composeStanddownContext(co.id, { employeeId: emp.id, routineId: args.routineId }));
 
   return parts.join("\n");
 }

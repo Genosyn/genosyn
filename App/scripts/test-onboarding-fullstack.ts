@@ -1,6 +1,7 @@
 /** Real browser + real Express/services/SQLite account and onboarding regressions.
  * Run with Node 22: node --import tsx scripts/test-onboarding-fullstack.ts
  * Append --continuation to focus model Runs on saved work while retaining account flows.
+ * Append --standdown to focus model Runs on returning a stood-down Routine to work.
  * Uses an isolated in-memory DB, temporary files, console email and a loopback fake model.
  */
 import assert from "node:assert/strict";
@@ -26,6 +27,7 @@ const port = 18487;
 const uiPort = 18489;
 const origin = `http://127.0.0.1:${uiPort}`;
 const continuationOnly = process.argv.includes("--continuation");
+const standdownOnly = process.argv.includes("--standdown");
 await fs.mkdir(output, { recursive: true });
 const serverLogPath = path.join(output, "onboarding-fullstack-server.log");
 const browserLogPath = path.join(output, "onboarding-fullstack-browser.log");
@@ -281,6 +283,109 @@ try {
   assert(skills.some((skill) => skill.name === "Release checklist"));
   record("Skill created for the AI Employee");
 
+  if (!continuationOnly) {
+    const marker = "qa-routine-standdown-resumed";
+    const created = await page.request.post(`${origin}${employeeBase}/routines`, {
+      data: { name: marker, cronExpr: "0 0 1 1 *" },
+    });
+    assert.equal(created.status(), 200, await created.text());
+    const routine = (await created.json()) as { id: string; slug: string };
+    const routineApi = `/api/companies/${company.id}/routines/${routine.id}`;
+    const standdownsApi = `/api/companies/${company.id}/standdowns`;
+    const briefSaved = await page.request.put(`${origin}${routineApi}/readme`, {
+      data: { content: `Complete the local browser exercise ${marker}.` },
+    });
+    assert.equal(briefSaved.status(), 200, await briefSaved.text());
+    // Preserve the misleading prose shipped before scoped Standdown journal entries.
+    // It must remain readable history while the live server state permits this Run.
+    const legacyBody =
+      "Review this Routine before its next Run.\n\nNothing you are scheduled for will run, " +
+      "and Runs already in flight were stopped. Work resumes when a human lifts the standdown.";
+    const legacyCreated = await page.request.post(`${origin}${employeeBase}/journal`, {
+      data: { title: "Your work was stood down", body: legacyBody },
+    });
+    assert.equal(legacyCreated.status(), 200, await legacyCreated.text());
+    const legacyEntry = (await legacyCreated.json()) as { id: string };
+
+    await go(`/c/${company.slug}/routines/${employee.slug}/${routine.slug}`);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Stand down", exact: true }).click();
+    const standdownDialog = page.getByRole("dialog");
+    await standdownDialog.getByRole("textbox").fill("Review this Routine before its next Run.");
+    const placed = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(standdownsApi) && response.request().method() === "POST",
+    );
+    await standdownDialog.getByRole("button", { name: "Stand down", exact: true }).click();
+    const placeResponse = await placed;
+    assert.equal(placeResponse.status(), 200, await placeResponse.text());
+    const standdown = (await placeResponse.json()) as {
+      id: string;
+      scope: string;
+      scopeId: string;
+    };
+    assert.equal(standdown.scope, "routine");
+    assert.equal(standdown.scopeId, routine.id);
+    await page.getByText("This Routine is stood down.", { exact: true }).waitFor();
+    assert.equal(
+      (await read<{ standdown: unknown }>(`${standdownsApi}/active?employeeId=${employee.id}`))
+        .standdown,
+      null,
+      "a Routine Standdown must leave its AI Employee available",
+    );
+    await page.getByText("This Routine is stood down.", { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, "routine-stood-down.png") });
+
+    await page.getByRole("button", { name: "Return to work", exact: true }).click();
+    const returnDialog = page.getByRole("dialog");
+    await returnDialog.getByRole("textbox").fill("The Routine has been reviewed and can resume.");
+    const lifted = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`${standdownsApi}/${standdown.id}/lift`) &&
+        response.request().method() === "POST",
+    );
+    await returnDialog.getByRole("button", { name: "Return to work", exact: true }).click();
+    assert.equal((await lifted).status(), 200);
+    await page
+      .getByText("This Routine is stood down.", { exact: true })
+      .waitFor({ state: "hidden" });
+    assert.equal(
+      (await read<{ standdown: unknown }>(`${standdownsApi}/active?routineId=${routine.id}`))
+        .standdown,
+      null,
+    );
+    const started = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`${routineApi}/run`) && response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Run now", exact: true }).first().click();
+    const startResponse = await started;
+    assert.equal(startResponse.status(), 200, await startResponse.text());
+    const run = (await startResponse.json()) as { id: string };
+    const runDialog = page.getByRole("dialog");
+    await runDialog.getByText("completed", { exact: true }).waitFor({ timeout: 180_000 });
+    const persisted = await read<{ status: string; failureReason: string | null; content: string }>(
+      `/api/companies/${company.id}/runs/${run.id}/log`,
+    );
+    assert.equal(persisted.status, "completed");
+    assert.equal(persisted.failureReason, null);
+    assert.match(persisted.content, /No external work performed in this browser regression\./);
+    assert(serverLog.includes("[fullstack-standdown] resumed Run received current status"));
+    const journal = await read<Array<{ id: string; title: string; body: string }>>(
+      `${employeeBase}/journal`,
+    );
+    assert.equal(journal.find((entry) => entry.id === legacyEntry.id)?.body, legacyBody);
+    assert.equal(
+      (await read<{ standdowns: unknown[] }>(`${standdownsApi}?active=true`)).standdowns.length,
+      0,
+    );
+    await page.screenshot({ path: path.join(output, "routine-returned-to-work.png") });
+    await page.keyboard.press("Escape");
+    record(
+      "Routine Standdown and Return to work preserved employee availability and legacy Journal history; a real Run received current status and completed with the deterministic local model",
+    );
+  }
+
   // Exercise actual OpenCode, the scoped failure-report tool, persistence, and
   // browser Run log together. Only the loopback model replies are deterministic.
   const runtimeCases = [
@@ -290,7 +395,9 @@ try {
     ["qa-routine-timeout-recovered", "completed", "Completed after model timeouts"],
     ["qa-routine-retry-terminal-error", "error", "Error after a retried request becomes terminal"],
   ] as const;
-  for (const [marker, expectedStatus, label] of continuationOnly ? [] : runtimeCases) {
+  for (const [marker, expectedStatus, label] of continuationOnly || standdownOnly
+    ? []
+    : runtimeCases) {
     const created = await page.request.post(`${origin}${employeeBase}/routines`, {
       data: { name: marker, cronExpr: "0 0 1 1 *" },
     });
@@ -421,7 +528,7 @@ try {
   // The production scheduler, runner, and MCP tools own the chain. Only model
   // replies are fixtures; no Run rows or queue timestamps are inserted here.
   let cancelledContinuationApi = "";
-  for (const cancel of [true, false]) {
+  for (const cancel of standdownOnly ? [] : [true, false]) {
     const marker = cancel ? "qa-routine-continuation-cancel" : "qa-routine-continuation";
     const created = await page.request.post(`${origin}${employeeBase}/routines`, {
       data: { name: marker, cronExpr: "0 0 1 1 *" },

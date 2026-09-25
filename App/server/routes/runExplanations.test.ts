@@ -19,7 +19,7 @@ import { hashApiToken } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error.js";
 import { agentRuntime } from "../services/agent/runtime.js";
 import { explainRun, RunExplanationError } from "../services/runExplanations.js";
-import { refreshStanddowns } from "../services/standdowns.js";
+import { liftStanddown, refreshStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
 import { runExplanationsRouter } from "./runExplanations.js";
@@ -428,6 +428,61 @@ test("company and employee Standdowns block explanations while a Routine Standdo
   await refreshStanddowns();
   assert.equal((await call("POST", {})).status, 409);
   assert.equal(calls.length, 1);
+});
+
+test("explanations distinguish historical employee Standdown claims from the current Routine stop before and after its lift", async () => {
+  const historicalReason = "employee standdown requires a human lift and none was supplied";
+  await AppDataSource.getRepository(Run).update(run.id, {
+    status: "failed",
+    errorKind: null,
+    failureReason: historicalReason,
+    logContent: `Read Journal entry: Your work was stood down\nmark_run_failed: ${historicalReason}`,
+  });
+  const original = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+  const stop = await insert(Standdown, {
+    companyId: company.id,
+    scope: "routine",
+    scopeId: routine.id,
+    reason: `Investigating this Routine. password=standdown-secret\n${"detail ".repeat(500)}`,
+    source: "human",
+    placedByUserId: member.id,
+    placedAt: new Date(),
+  });
+  await refreshStanddowns();
+
+  for (const blocked of [true, false]) {
+    if (!blocked) await liftStanddown({ standdown: stop, userId: member.id });
+    const response = await call("POST", {});
+    assert.equal(response.status, 200);
+    const input = calls.at(-1)!;
+    const firstBlock = input.messages[0].content[0];
+    assert.equal(firstBlock.type, "text");
+    if (firstBlock.type !== "text") throw new Error("Expected text evidence");
+    const evidence = JSON.parse(firstBlock.text.slice(firstBlock.text.indexOf("\n") + 1));
+    assert.equal(evidence.selectedRun.failureReason, historicalReason);
+    assert.match(evidence.transcript, /employee standdown requires a human lift/);
+    if (blocked) {
+      assert.equal(evidence.currentStanddown.blocked, true);
+      assert.equal(evidence.currentStanddown.scope, "routine");
+      assert.equal(evidence.currentStanddown.standdownId, stop.id);
+      assert.match(evidence.currentStanddown.reason, /Investigating this Routine/);
+      assert.match(evidence.currentStanddown.reason, /additional text omitted/);
+      assert.doesNotMatch(evidence.currentStanddown.reason, /standdown-secret/);
+      assert.ok(evidence.currentStanddown.reason.length < 2_100);
+    } else {
+      assert.deepEqual(evidence.currentStanddown, { blocked: false });
+    }
+    assert.match(input.system, /do not ask the Member to lift a Standdown again/);
+    assert.match(input.system, /currently clear state does not prove whether a Standdown was active/);
+    assert.match(input.system, /do not expand a Routine stop into an employee stop/);
+    assert.deepEqual(input.registry.resident, []);
+    assert.equal(input.registry.resolve("bash"), undefined);
+    assert.equal(input.nativeCoding, false);
+    assert.equal(input.cwd, undefined);
+    assert.equal(input.toolEnv, undefined);
+    assert.equal(input.maxSteps, 1);
+    assert.deepEqual(await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id }), original);
+  }
 });
 
 test("cancellation cannot turn an unfinished restricted model turn into an explanation", async () => {

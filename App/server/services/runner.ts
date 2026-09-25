@@ -629,6 +629,7 @@ async function prepareRoutineRun(
         revenueContext,
         marketingContext,
         surface: "routine",
+        routineId: routine.id,
         parallelDelegationAvailable,
         codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
         isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
