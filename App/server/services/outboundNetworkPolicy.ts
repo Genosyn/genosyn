@@ -2,7 +2,7 @@ import dns, { type LookupAllOptions } from "node:dns";
 import { type LookupFunction } from "node:net";
 import http from "node:http";
 import https from "node:https";
-import { Agent, setGlobalDispatcher } from "undici";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 import { isPublicIp, privateHostAllowed } from "../lib/outboundUrl.js";
 
 const safeLookup: LookupFunction = (hostname, options, callback) => {
@@ -51,5 +51,5 @@ export function installOutboundNetworkPolicy(): void {
   installed = true;
   (http.globalAgent as unknown as { options: http.AgentOptions }).options.lookup = safeLookup;
   (https.globalAgent as unknown as { options: https.AgentOptions }).options.lookup = safeLookup;
-  setGlobalDispatcher(new Agent({ connect: { lookup: safeLookup } }));
+  setGlobalDispatcher(new EnvHttpProxyAgent({ connect: { lookup: safeLookup } }));
 }
