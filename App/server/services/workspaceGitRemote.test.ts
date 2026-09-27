@@ -8,13 +8,29 @@ import { after, before, test } from "node:test";
 import { promisify } from "node:util";
 import { config } from "../../config.js";
 import { inlineEnvCredentialHelper } from "./gitCredentialHelper.js";
+import { runWorkspaceGit } from "./workspaceGit.js";
 import {
   buildPrivateFetchSshCommand,
   cloneWorkspaceGitRemote,
   fetchWorkspaceGitRemote,
 } from "./workspaceGitRemote.js";
 
-const exec = promisify(execFile);
+const execFixture = promisify(execFile);
+
+/** Fixture Git must not inherit a developer's signing, hooks, or URL config. */
+function exec(command: "git", args: string[], options: { cwd?: string } = {}) {
+  return execFixture(command, args, {
+    ...options,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_COUNT: "0",
+    },
+  });
+}
+
 const mutableCodingTools = config.agent.codingTools as {
   enabled: boolean;
   executionMode: "host" | "bubblewrap" | "disabled";
@@ -35,6 +51,108 @@ after(() => {
   mutableCodingTools.enabled = originalCodingTools.enabled;
   mutableCodingTools.executionMode = originalCodingTools.executionMode;
   mutableCodingTools.allowUnsafeHostExecution = originalCodingTools.allowUnsafeHostExecution;
+});
+
+for (const [forge, username] of [
+  ["GitHub", "x-access-token"],
+  ["Forgejo", "forge-member"],
+] as const) {
+  test(`${forge} Connection credentials authenticate clone and fetch without entering the checkout`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-forge-sync-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const remote = path.join(root, "served", "remote.git");
+    const seed = path.join(root, "seed");
+    const checkout = path.join(root, "employee", "repos", "acme", "remote");
+    const employeeRoot = path.join(root, "employee");
+    fs.mkdirSync(path.dirname(remote), { recursive: true });
+    fs.mkdirSync(path.dirname(checkout), { recursive: true });
+    await exec("git", ["init", "--bare", "--quiet", remote]);
+    await exec("git", ["init", "--quiet", seed]);
+    await exec("git", ["config", "user.name", "Genosyn Test"], { cwd: seed });
+    await exec("git", ["config", "user.email", "test@genosyn.local"], { cwd: seed });
+    fs.writeFileSync(path.join(seed, "README.md"), "first revision\n");
+    await exec("git", ["add", "README.md"], { cwd: seed });
+    await exec("git", ["commit", "--quiet", "-m", "Initial"], { cwd: seed });
+    await exec("git", ["branch", "-M", "main"], { cwd: seed });
+    await exec("git", ["push", "--quiet", remote, "main"], { cwd: seed });
+    await exec("git", ["symbolic-ref", "HEAD", "refs/heads/main"], { cwd: remote });
+    await exec("git", ["update-server-info"], { cwd: remote });
+
+    const envKey = "GENOSYN_FORGE_TOKEN_01234567_89AB_4CDE_8F01_23456789ABCD";
+    const token = `fixture-${forge.toLowerCase()}-connection-token`;
+    const expectedAuthorization = `Basic ${Buffer.from(`${username}:${token}`).toString("base64")}`;
+    const requests: string[] = [];
+    const server = staticGitServer(path.dirname(remote), requests, { expectedAuthorization });
+    const remoteUrl = await listen(server, t, "/remote.git");
+    // Loopback test transport only. Production helpers continue to require
+    // the exact HTTPS host and repository path before returning a credential.
+    const credentialHelper =
+      `!f() { if [ "$1" = "get" ]; then ` +
+      `printf 'username=%s\\npassword=%s\\n' '${username}' "$${envKey}"; fi; }; f`;
+    const credentials = { extraEnv: { [envKey]: token }, credentialHelper };
+
+    await cloneWorkspaceGitRemote({
+      workspaceRoot: employeeRoot,
+      destinationPath: checkout,
+      remoteUrl,
+      ...credentials,
+    });
+    assert.equal(fs.readFileSync(path.join(checkout, "README.md"), "utf8"), "first revision\n");
+    assert.ok(requests.some((request) => request.includes(expectedAuthorization)));
+
+    fs.writeFileSync(path.join(seed, "README.md"), "second revision\n");
+    await exec("git", ["add", "README.md"], { cwd: seed });
+    await exec("git", ["commit", "--quiet", "-m", "Second"], { cwd: seed });
+    await exec("git", ["push", "--quiet", remote, "main"], { cwd: seed });
+    await exec("git", ["update-server-info"], { cwd: remote });
+    const { stdout: expectedHead } = await exec("git", ["rev-parse", "main"], { cwd: remote });
+    fs.writeFileSync(path.join(checkout, "README.md"), "employee work in progress\n");
+    requests.length = 0;
+
+    await fetchWorkspaceGitRemote({
+      workspaceRoot: employeeRoot,
+      cwd: checkout,
+      remoteUrl,
+      ...credentials,
+    });
+    const { stdout: fetchedHead } = await exec("git", ["rev-parse", "refs/remotes/origin/main"], {
+      cwd: checkout,
+    });
+    assert.equal(fetchedHead.trim(), expectedHead.trim());
+    assert.equal(
+      fs.readFileSync(path.join(checkout, "README.md"), "utf8"),
+      "employee work in progress\n",
+    );
+    assert.ok(requests.some((request) => request.includes(expectedAuthorization)));
+    const persistedConfig = fs.readFileSync(path.join(checkout, ".git", "config"), "utf8");
+    assert.equal(persistedConfig.includes(token), false);
+    assert.equal(persistedConfig.includes(envKey), false);
+    assert.doesNotMatch(persistedConfig, /credential|helper/);
+  });
+}
+
+test("a failing Git credential helper cannot disclose a forge Connection token", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-forge-error-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const envKey = "GENOSYN_FORGE_TOKEN_CONNECTION";
+  const token = "fixture-forge-token-in-child-stderr";
+  await assert.rejects(
+    runWorkspaceGit({
+      workspaceRoot: root,
+      cwd: root,
+      args: ["credential", "fill"],
+      stdin: "protocol=https\nhost=github.com\npath=acme/remote.git\n\n",
+      extraEnv: { [envKey]: token },
+      credentialHelper: `!f() { printf '%s\\n' "$${envKey}" >&2; }; f`,
+      serverOwned: true,
+    }),
+    (error: Error) => {
+      assert.match(error.message, /git credential failed/);
+      assert.match(error.message, /«redacted»/);
+      assert.equal(error.message.includes(token), false);
+      return true;
+    },
+  );
 });
 
 test("private SSH fetch paths remain valid after the bubblewrap remount", () => {

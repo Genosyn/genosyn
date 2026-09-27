@@ -9,7 +9,10 @@ import { requireCodingRuntime, type CodingExecutionMode } from "./agent/codingAv
 const exec = promisify(execFile);
 const GIT_TIMEOUT_MS = 5 * 60 * 1_000;
 const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin";
-const TOKEN_ENV = /^GENOSYN_(?:GH|REPO)_TOKEN_[A-Z0-9_]+$/;
+// Connection materialization uses FORGE, Repository credentials use REPO,
+// and legacy GitHub callers use GH. Keep validation and redaction on the same
+// allowlist so an accepted credential is also scrubbed from child failures.
+const TOKEN_ENV = /^GENOSYN_(?:GH|FORGE|REPO)_TOKEN_[A-Z0-9_]+$/;
 
 export type WorkspaceGitOptions = {
   /** Employee workspace (or a server-owned test temp dir) mounted at `/workspace`. */

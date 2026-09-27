@@ -9,6 +9,112 @@ import {
   redactSecrets,
 } from "./workspaceGit.js";
 
+const credentialNames = [
+  "GENOSYN_GH_TOKEN_CONNECTION",
+  "GENOSYN_REPO_TOKEN_CONNECTION",
+  "GENOSYN_FORGE_TOKEN_01234567_89AB_4CDE_8F01_23456789ABCD",
+];
+
+for (const mode of ["host", "disabled", "bubblewrap"] as const) {
+  for (const name of credentialNames) {
+    test(`${mode} Git accepts and redacts the server-held ${name} credential`, () => {
+      const token = "fixture-only-forge-credential";
+      const invocation = buildWorkspaceGitInvocation(
+        {
+          workspaceRoot: "/srv/employee",
+          cwd: "/srv/employee",
+          args: ["fetch", "https://github.com/acme/repo.git"],
+          extraEnv: { [name]: token },
+          serverOwned: true,
+        },
+        mode,
+        "/usr/bin/bwrap",
+        true,
+      );
+      if (mode === "bubblewrap") {
+        const tokenArgument = invocation.args.findIndex(
+          (value, index) => value === "--setenv" && invocation.args[index + 1] === name,
+        );
+        assert.ok(tokenArgument >= 0);
+        assert.equal(invocation.args[tokenArgument + 2], token);
+        assert.equal(name in invocation.env, false, "the launcher must not inherit credentials");
+      } else {
+        assert.equal(invocation.env[name], token);
+        assert.equal(invocation.args.includes(token), false);
+      }
+      assert.ok(invocation.secrets.includes(token));
+      assert.equal(
+        redactSecrets(`fatal: ${token} rejected; detail=${token}`, invocation.secrets),
+        "fatal: «redacted» rejected; detail=«redacted»",
+      );
+    });
+  }
+}
+
+test("allowing forge credentials does not admit arbitrary environment names or malformed suffixes", () => {
+  for (const name of [
+    "GENOSYN_FORGE_TOKEN_",
+    "GENOSYN_FORGE_TOKEN_lowercase",
+    "GENOSYN_FORGE_TOKEN_A-B",
+    "GENOSYN_FORGE_TOKEN_A=VALUE",
+    "GENOSYN_FORGE_TOKEN_A\nPATH",
+    "GENOSYN_FORGE_TOKEN_A;COMMAND",
+    "GENOSYN_FORGED_TOKEN_CONNECTION",
+    "GENOSYN_OTHER_TOKEN_CONNECTION",
+    "GENOSYN_FORGE_TOKEN",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_VALUE_0",
+    "GIT_ASKPASS",
+    "PATH",
+    "CODEX_ACCESS_TOKEN",
+  ]) {
+    assert.throws(
+      () =>
+        buildWorkspaceGitInvocation(
+          {
+            workspaceRoot: "/srv/employee",
+            cwd: "/srv/employee",
+            args: ["fetch"],
+            extraEnv: { [name]: "fixture-secret-never-echoed" },
+            serverOwned: true,
+          },
+          "host",
+        ),
+      (error: Error) => {
+        assert.match(error.message, /Git environment variable is not allowed/);
+        assert.doesNotMatch(error.message, /fixture-secret-never-echoed/);
+        return true;
+      },
+      name,
+    );
+  }
+});
+
+for (const name of credentialNames) {
+  test(`${name} rejects credential line breaks and NUL without disclosing the value`, () => {
+    for (const character of ["\0", "\r", "\n", "\r\n"]) {
+      assert.throws(
+        () =>
+          buildWorkspaceGitInvocation(
+            {
+              workspaceRoot: "/srv/employee",
+              cwd: "/srv/employee",
+              args: ["fetch"],
+              extraEnv: { [name]: `fixture-secret${character}injected-value` },
+              serverOwned: true,
+            },
+            "host",
+          ),
+        (error: Error) => {
+          assert.match(error.message, /Invalid Git (?:token )?environment value/);
+          assert.doesNotMatch(error.message, /fixture-secret|injected-value/);
+          return true;
+        },
+      );
+    }
+  });
+}
+
 /**
  * The redaction this guards used to read `invocation.env`, which under
  * bubblewrap holds only PATH — so it scrubbed nothing in the mode that ships.
