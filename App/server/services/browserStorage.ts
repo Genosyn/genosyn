@@ -172,12 +172,38 @@ async function assertPrivateStateFile(file: string): Promise<boolean> {
   }
 }
 
+const legacyMigrationTails = new Map<string, Promise<void>>();
+
 /**
  * Move the legacy workspace-visible snapshot before any coding tool is built.
  * Temporary/torn legacy snapshots are deleted too, so bubblewrapped bash never
  * inherits an old cookie file after an upgrade.
  */
 export async function migrateLegacyBrowserStorage(
+  companyId: string,
+  employeeId: string,
+): Promise<void> {
+  // Two launches for the same employee must not inspect an inode while the
+  // other migration moves or unlinks it. Unrelated employees remain independent.
+  const key = employeeBrowserStateFile(companyId, employeeId);
+  const previous = legacyMigrationTails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  legacyMigrationTails.set(key, tail);
+  await previous;
+  try {
+    await migrateLegacyBrowserStorageUnlocked(companyId, employeeId);
+  } finally {
+    // The tail always resolves even when this caller receives a migration
+    // error, so a later attempt can recheck repaired storage and retry safely.
+    release();
+    if (legacyMigrationTails.get(key) === tail) legacyMigrationTails.delete(key);
+  }
+}
+
+async function migrateLegacyBrowserStorageUnlocked(
   companyId: string,
   employeeId: string,
 ): Promise<void> {
