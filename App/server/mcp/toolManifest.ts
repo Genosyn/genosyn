@@ -4963,7 +4963,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "read_mail_attachment",
     description:
-      "Open a file that arrived on an email. Pass the `messageId` and the attachment's `index` from `get_mail_thread`; the bytes are pulled from the mailbox and become an ordinary chat attachment, so you get back an `attachmentId` that works with `read_pdf_fields`, `fill_pdf_form`, `read_xlsx`, `edit_xlsx`, `send_chat_attachment`, and the `attachments` list on `create_mail_draft` / `send_mail`. Text and PDF files also come back with their extracted text. Use this instead of asking the teammate to re-upload a file their mailbox already has — e.g. to fill in a supplier form a vendor emailed over. Requires the `read` access level.",
+      "Open a file that arrived on an email. Pass the `messageId` and attachment `index` from `get_mail_thread`; bytes become an ordinary chat attachment whose `attachment.id` works with the PDF, Word, Excel and mail compose tools. Extracted text is paged at up to 20,000 characters by default. While textCoverage.hasMore is true, repeat with the same messageId/index, attachmentId: attachment.id, textOffset: textCoverage.nextOffset, and expectedTextVersion: textVersion. Pages reuse the original file. A changed file is refused; restart at offset 0 without attachmentId/expectedTextVersion. If the runtime clips a result, retry the same offset with a smaller maxTextChars. Check extractionAvailable and previewOnly: extracted text coverage does not mean a protected message was decrypted or a document preview covers every cell or paragraph. Use this instead of asking a teammate to re-upload an email file. Requires the mailbox Read Grant on every page.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4975,6 +4975,27 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "integer",
           minimum: 0,
           description: "Zero-based `index` of the attachment on that message.",
+        },
+        textOffset: {
+          type: "integer",
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: "Continue with textCoverage.nextOffset; requires attachmentId and expectedTextVersion when greater than 0.",
+        },
+        maxTextChars: {
+          type: "integer",
+          minimum: 2,
+          maximum: 20000,
+          description: "Requested character ceiling, default 20000. The serialized tool-result budget can shorten the page; always continue with the returned nextOffset.",
+        },
+        expectedTextVersion: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$",
+          description: "Previous page's textVersion. Required for continuation to prevent combining different files.",
+        },
+        attachmentId: {
+          type: "string",
+          description: "First page's attachment.id, required for continuation so every page reuses the same file. Must have been opened in this turn.",
         },
       },
       required: ["messageId", "index"],

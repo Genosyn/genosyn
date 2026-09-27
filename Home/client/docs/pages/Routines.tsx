@@ -912,6 +912,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         linked <DocLink to="/docs/reactivity#workstreams">Workstream</DocLink>. This lets later
         scheduled Runs pick up the backlog without reading every unchanged record again.
       </P>
+      <P>
+        Fixing a Connection or upgrading Genosyn does not complete an earlier failed Run. Read its
+        failure details and saved progress first: missing source access may now be recoverable,
+        while protected files, expired event history, or work outside the available time still
+        need attention. Resume saved work when its next step is actionable. A completed batch is
+        only a successful Run when it meets the Routine&apos;s required scope.
+      </P>
 
       <H3 id="retries">Retries</H3>
       <P>

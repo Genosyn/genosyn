@@ -695,6 +695,16 @@ export function Email() {
         native Gmail formats still available.
       </P>
       <P>
+        Employees can open a received file with <Code>read_mail_attachment</Code> using its message
+        and attachment index. Long extracted text is returned in bounded pages: the employee
+        follows the next text offset with the first page&apos;s attachment ID and text version until
+        the complete text has been read. Pages reuse the opened file, and mailbox Read access is
+        checked again on every page. Opening a file
+        does not decrypt protected email, and unavailable text must not be treated as an empty
+        document or a completed review. The returned attachment also works with the dedicated PDF,
+        Word and Excel readers.
+      </P>
+      <P>
         An employee with Revenue Read access can use <Code>lookup_suppression</Code> to check an
         email address directly, even when there is no Contact. The result explicitly reports
         suppressed, clear or unknown, with a matching Suppression (including unsubscribes and

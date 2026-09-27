@@ -1,11 +1,13 @@
+import fs from "node:fs/promises";
 import { AppDataSource } from "../../db/datasource.js";
 import type { Attachment } from "../../db/entities/Attachment.js";
 import { Company } from "../../db/entities/Company.js";
 import type { MailAccount } from "../../db/entities/MailAccount.js";
 import type { MailMessage } from "../../db/entities/MailMessage.js";
-import { ATTACHMENTS_MAX_BYTES, recordAttachmentBytes } from "../uploads.js";
+import { ATTACHMENTS_MAX_BYTES, recordAttachmentBytes, resolveAttachmentFile } from "../uploads.js";
 import { mailboxForAccount } from "./mailbox/index.js";
 import type { Mailbox } from "./mailbox/types.js";
+import { mailAttachmentTextVersion } from "./attachmentRead.js";
 
 /**
  * Reading the files that arrived on an email.
@@ -159,6 +161,10 @@ export async function importMailAttachment(args: {
   account: MailAccount;
   message: MailMessage;
   index: number;
+  /** Refuse a continuation if the mailbox file or its extraction metadata changed. */
+  expectedTextVersion?: string;
+  /** Caller must verify turn ownership; continued reads reuse the original file. */
+  reuseAttachmentId?: string;
   /** See {@link MailAttachmentTransport} — production omits it. */
   transport?: MailAttachmentTransport;
 }): Promise<{ attachment: Attachment; meta: MailAttachmentMeta; bytes: Buffer }> {
@@ -179,6 +185,37 @@ export async function importMailAttachment(args: {
       `"${meta.filename}" is larger than the ${mb} MB attachment limit, so it can't be opened here.`,
       413,
     );
+  }
+  if (
+    args.expectedTextVersion &&
+    args.expectedTextVersion !==
+      mailAttachmentTextVersion(
+        bytes,
+        meta.mimeType || "application/octet-stream",
+        meta.filename || "attachment",
+      )
+  ) {
+    throw new MailAttachmentError(
+      "The attachment changed since the previous text page. Restart read_mail_attachment with textOffset: 0 and omit attachmentId and expectedTextVersion.",
+      409,
+    );
+  }
+  if (args.reuseAttachmentId) {
+    const stored = await resolveAttachmentFile(args.reuseAttachmentId, args.companyId);
+    if (!stored) throw new MailAttachmentError("Attachment not found. Restart at textOffset: 0.", 404);
+    const stat = await fs.lstat(stored.absPath);
+    if (!stat.isFile() || stat.size !== bytes.length || stat.size > ATTACHMENTS_MAX_BYTES) {
+      throw new MailAttachmentError("The saved attachment changed. Restart at textOffset: 0.", 409);
+    }
+    const savedVersion = mailAttachmentTextVersion(
+      await fs.readFile(stored.absPath),
+      stored.row.mimeType,
+      stored.row.filename,
+    );
+    if (!args.expectedTextVersion || savedVersion !== args.expectedTextVersion) {
+      throw new MailAttachmentError("The saved attachment does not match this text read. Restart at textOffset: 0.", 409);
+    }
+    return { attachment: stored.row, meta, bytes };
   }
   const attachment = await recordAttachmentBytes({
     companyId: company.id,
