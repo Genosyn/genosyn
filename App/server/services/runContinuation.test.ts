@@ -233,7 +233,7 @@ test("a continuation that repeats its checkpoint stops instead of spending anoth
   ).completion;
   assert.equal(child.status, "failed");
   assert.equal(child.retryAt, null);
-  assert.match(child.continuationStopReason ?? "", /no measurable progress/);
+  assert.match(child.continuationStopReason ?? "", /saved checkpoint did not advance/);
 });
 
 test("automatic continuation respects approval, count, time and error boundaries regardless of token use", async () => {

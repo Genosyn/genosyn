@@ -108,6 +108,29 @@ async function tool(name: string, args: unknown = {}, bearer = token) {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
+test("a checkpoint response contains exactly the normalized durable progress for batch handoff", async () => {
+  const response = await tool("save_run_checkpoint", {
+    state: "continue",
+    completed: "  Reviewed invoice-5. \n",
+    remaining: " Invoice-6 remains. ",
+    resume: "  Read invoice-6 in the original review window. ",
+    progressKey: " invoice-5 ",
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.state, "continue");
+  const persisted = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
+  assert.deepEqual(response.body.checkpoint, JSON.parse(persisted.checkpointJson!));
+  assert.deepEqual(response.body.checkpoint, {
+    state: "continue",
+    completed: "Reviewed invoice-5.",
+    remaining: "Invoice-6 remains.",
+    resume: "Read invoice-6 in the original review window.",
+    progressKey: "invoice-5",
+  });
+  assert.equal(persisted.status, "running");
+});
+
 test("reports only its own Run, preserving the runner and independent grading", async () => {
   const sibling = await insert(Run, {
     routineId: routine.id,

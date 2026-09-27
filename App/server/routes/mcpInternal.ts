@@ -8786,6 +8786,7 @@ mcpInternalRouter.post(
       res.json({
         ok: true,
         state: checkpoint.state,
+        checkpoint,
         note: "Progress saved. This checkpoint may hand unfinished work to a fresh Run immediately. Automatic continuation stays within the original limits; Checks and human review requirements still apply.",
       });
     } catch (error) {

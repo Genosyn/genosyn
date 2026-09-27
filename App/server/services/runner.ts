@@ -802,10 +802,17 @@ async function prepareRoutineRun(
                     tokensThisRun: saved.tokensIn + saved.tokensOut,
                     continuationCount: saved.continuationCount,
                     deadlineAtMs,
+                    previousCheckpoint:
+                      saved.triggerKind === "continuation"
+                        ? continuationParent
+                          ? readRunCheckpoint(continuationParent)
+                          : null
+                        : undefined,
                     canContinue:
                       routine.enabled &&
                       !routine.requiresApproval &&
                       !routine.selfReviewOnly &&
+                      saved.triggerKind !== "approval" &&
                       !proactiveApproval,
                   })
                 ) {
@@ -1123,7 +1130,7 @@ async function finalizeRunFromRunning(
         const previous = parent ? readRunCheckpoint(parent) : null;
         if (!previous || !checkpointAdvanced(checkpoint, previous)) {
           run.continuationStopReason =
-            "The continuation made no measurable progress from its saved checkpoint.";
+            "The saved checkpoint did not advance beyond the previous Run.";
         }
       }
       const eligible = continuationEligibility(run, routine);

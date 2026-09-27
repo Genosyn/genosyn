@@ -880,7 +880,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         original Routine time limit. Runs have no fixed limit on model steps or tool calls, and no
         total model token limit. Individual AI Model context and response limits still apply. Token
         usage includes repeated and cached input across model calls; it is not just the text the
-        employee writes. Automatic continuation stops when progress does not advance, the employee
+        employee writes. Automatic continuation stops when the saved checkpoint does not advance, the employee
         reports a blocker, the time limit expires, or all three continuations have run; the Run shows
         the reason. Current Grants, delivery limits, and Standdowns still apply, and approval-gated
         work is never replayed automatically.
@@ -889,7 +889,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Employees are briefed to save progress after small batches, retain stable source IDs and the
         original review window, and verify earlier changes before repeating a write or send. After a
         Run uses about two million tokens, Genosyn ends the batch at its next actionable saved
-        checkpoint and continues in a fresh Run when time and continuations remain. A saved
+        checkpoint and continues in a fresh Run when time and continuations remain. During a
+        continuation, that checkpoint must advance both its stable source position and its
+        completed-work or next-step description beyond the previous Run. Saving the same position
+        while still working keeps the current Run active; reaching the batch threshold alone does
+        not stop it. If the employee ends with an unchanged checkpoint, Genosyn stops automatic
+        continuation and explains that the saved checkpoint did not advance. Recorded Effects
+        remain visible, but do not replace a usable checkpoint. A saved
         checkpoint reports progress; it does not prove completion or guarantee that an external
         action happens only once. Coverage must be complete before advancing a verified checkpoint,
         and existing <DocLink to="/docs/verification">Checks and outcome grading</DocLink> retain
