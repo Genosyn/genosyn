@@ -88,7 +88,12 @@ function nextPageFromLink(link: string | null, path: string, page: number, perPa
     if (!match) continue;
     const url = new URL(match[1]);
     const next = Number(url.searchParams.get("page"));
-    if (url.origin !== GITHUB_ENDPOINT.apiBase || url.pathname !== path ||
+    // GitHub canonicalizes repository pagination to /repositories/<id>/events,
+    // including when our request used /repos/<owner>/<repo>/events. Accept that
+    // route on the pinned GitHub origin, but consume only its page number:
+    // retainedEvents still rebuilds every request from the caller's repo path.
+    const repositoryPath = url.pathname === path || /^\/repositories\/[1-9]\d*\/events$/.test(url.pathname);
+    if (url.origin !== GITHUB_ENDPOINT.apiBase || !repositoryPath ||
         !Number.isInteger(next) || next !== page + 1 || next > Math.ceil(300 / perPage)) {
       throw new Error("GitHub returned an invalid activity continuation; coverage could not be established.");
     }
