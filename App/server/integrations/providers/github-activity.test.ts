@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { afterEach, describe, test } from "node:test";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { githubProvider } from "./github.js";
 import { listGithubRepositoryActivity } from "./github-activity.js";
 
@@ -32,6 +34,190 @@ function pagedFeed(ids: string[]) {
   }) as typeof fetch;
   return calls;
 }
+
+// Captured from the old encoder. At character 292, changing 6 to 5 still
+// produces valid JSON with unique numeric IDs, but changes 100 snapshot IDs.
+const legacyCursorFixture = "gha1.VdcxjxtVAIXR__JqB-6d8dhed5SpoQKlWLyjxCLYK9sJAsR_RwkgHaa7ozejrzrS-3N8Xm_38_Uyjt2MX86Xl3Ecp0-3-_U2NuO2vl7v58f19vs4jufTr-u3v51f3q-P-9iM0_VyWU-P8_Xy9ss3L-fbenqMzbifL6d1HC-fPn7cjE-Xx_njf-P68329fV5fvnuM45gy7d7k6c10-CHLcckx-SbJj2Mzni-nD9fb178-PeXLMydjM15v19N6v68vb1_u4_jTu824X55f7x-uj39e_P_0v2N6enIcHHvHzrE4to7ZMTnqsOBgwcGCgwUHCw4WHCw4WHCw4GDBwYK9BXsL9hbsLdhbsLdgb8Hegr0Fewt2Fuws2Fmws2Bnwc6CnQU7C3YW7CxYLFgsWCxYLFgsWCxYLFgsWCxYLNhasLVga8HWgq0FWwu2Fmwt2FqwtWC2YLZgtmC2YLZgtmC2YLZgtmC2YLJgsmCyYLJgsmCyYLJgsmCyYLKgFtSCWlALakEtqAW1oBbUglgQC2JBLIgFsSAWxIJYoInVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaWE2sJlYTq4nVxGpiNbGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE2MJkYTo4nRxGhiNDGaGE1MpvFuM75e7r_e_edsxuvz-_X78x_rOC5__Q0";
+const fixtureIds = Array.from({ length: 299 }, (_, i) => String(9900000300 - i));
+
+function checkedPayload(payload: string) {
+  return `gha2.${payload}.${createHash("sha256").update(payload).digest("hex")}`;
+}
+function checkedState(state: unknown) {
+  return checkedPayload(deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url"));
+}
+function legacyToken(value: string) {
+  assert.match(value, /^gha2\.[A-Za-z0-9_-]+\.[a-f0-9]{64}$/);
+  return `gha1.${value.split(".")[1]}`;
+}
+async function invalidContinuation(args: unknown) {
+  let calls = 0;
+  globalThis.fetch = (async () => { calls += 1; return json([]); }) as typeof fetch;
+  await assert.rejects(listGithubRepositoryActivity(args, "token"), /Invalid GitHub activity continuation/);
+  assert.equal(calls, 0, "invalid saved state must be rejected before consulting the retained feed");
+}
+
+describe("GitHub activity continuation integrity", () => {
+  test("the captured legacy fixture reproduces a valid but corrupted cursor being mistaken for missing events", async () => {
+    Date.now = () => Date.parse("2026-09-28T06:20:00Z");
+    pagedFeed(fixtureIds);
+    const valid = await listGithubRepositoryActivity({ ...repo, per_page: 5, cursor: legacyCursorFixture }, "token");
+    assert.deepEqual(valid.eventIds, fixtureIds.slice(30, 35));
+    assert.equal(legacyCursorFixture[292], "6");
+    const corrupted = `${legacyCursorFixture.slice(0, 292)}5${legacyCursorFixture.slice(293)}`;
+    const decoded = JSON.parse(inflateRawSync(Buffer.from(corrupted.slice(5), "base64url")).toString("utf8"));
+    assert.equal(decoded.snapshotIds.length, 299);
+    assert.equal(new Set(decoded.snapshotIds).size, 299);
+    assert.equal(decoded.snapshotIds[30], "9900000570");
+    const result = await listGithubRepositoryActivity({ ...repo, per_page: 5, cursor: corrupted }, "token");
+    // Backward compatibility cannot add a checksum to a value already saved.
+    assert.equal(result.coverage.gap?.reason, "snapshot_events_missing");
+    assert.ok(result.coverage.gap.missingEventIds.includes("9900000570"));
+    assert.equal(result.coverage.processedBefore, 30);
+    assert.deepEqual(result.eventIds, []);
+    assert.equal(result.checkpoint, null);
+  });
+
+  test("the same valid DEFLATE corruption is rejected before any provider request when a checksum is present", async () => {
+    const protectedCursor = checkedPayload(legacyCursorFixture.slice(5));
+    const corrupted = `${protectedCursor.slice(0, 292)}5${protectedCursor.slice(293)}`;
+    await invalidContinuation({ ...repo, per_page: 5, cursor: corrupted });
+  });
+
+  test("new resume cursors, next cursors and completed checkpoints include the exact encoded payload's checksum", async () => {
+    feed(["3", "2", "1"]);
+    const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
+    const full = await listGithubRepositoryActivity(repo, "token");
+    for (const value of [first.resumeCursor, first.nextCursor, full.checkpoint]) {
+      assert.ok(value);
+      const match = value.match(/^gha2\.([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/);
+      assert.ok(match);
+      assert.equal(Buffer.from(match[1], "base64url").toString("base64url"), match[1]);
+      assert.equal(match[2], createHash("sha256").update(match[1]).digest("hex"));
+    }
+  });
+
+  for (const kind of ["cursor", "checkpoint"] as const) {
+    test(`rejects a one-character mutation anywhere in a newly issued ${kind}`, async () => {
+      feed(["3", "2", "1"]);
+      const result = await listGithubRepositoryActivity(repo, "token");
+      const value = (kind === "cursor" ? result.resumeCursor : result.checkpoint)!;
+      let calls = 0;
+      globalThis.fetch = (async () => { calls += 1; return json([]); }) as typeof fetch;
+      for (let index = 0; index < value.length; index += 1) {
+        const replacement = value[index] === "a" ? "b" : "a";
+        const changed = value.slice(0, index) + replacement + value.slice(index + 1);
+        await assert.rejects(listGithubRepositoryActivity({ ...repo, [kind]: changed }, "token"), /Invalid GitHub activity continuation/);
+      }
+      assert.equal(calls, 0);
+    });
+  }
+
+  const payload = legacyCursorFixture.slice(5);
+  const protectedFixture = checkedPayload(payload);
+  const digest = protectedFixture.split(".")[2];
+  const malformed = [
+    ["unknown version", protectedFixture.replace("gha2.", "gha3.")],
+    ["legacy prefix with a new checksum suffix", protectedFixture.replace("gha2.", "gha1.")],
+    ["missing checksum", `gha2.${payload}`],
+    ["empty checksum", `gha2.${payload}.`],
+    ["short checksum", `gha2.${payload}.${digest.slice(1)}`],
+    ["nonhex checksum", `gha2.${payload}.${"g".repeat(64)}`],
+    ["noncanonical checksum case", `gha2.${payload}.${digest.toUpperCase()}`],
+    ["extra segment", `${protectedFixture}.extra`],
+    ["empty payload", `gha2..${digest}`],
+    ["padded base64", `gha2.${payload}=.${digest}`],
+    ["truncated payload", `gha2.${payload.slice(0, -1)}.${digest}`],
+    ["truncated checksum", protectedFixture.slice(0, -1)],
+    ["leading whitespace", ` ${protectedFixture}`],
+    ["trailing whitespace", `${protectedFixture}\n`],
+  ];
+  for (const [reason, value] of malformed) {
+    test(`rejects ${reason} before inflating or reading GitHub`, async () => {
+      await invalidContinuation({ ...repo, per_page: 5, cursor: value });
+    });
+  }
+
+  test("a valid checksum cannot admit noncanonical base64 or invalid compressed data", async () => {
+    // The unused trailing bits in _x are nonzero, although Buffer decodes it
+    // to the same byte as canonical _w. Both cases have matching checksums.
+    assert.equal(Buffer.from("_x", "base64url").toString("base64url"), "_w");
+    for (const encoded of ["_x", "_w", "a"])
+      await invalidContinuation({ ...repo, cursor: checkedPayload(encoded) });
+  });
+
+  test("a valid checksum does not bypass the decompressed-size bound", async () => {
+    const oversized = deflateRawSync(Buffer.from(JSON.stringify({ padding: "x".repeat(65_001) }))).toString("base64url");
+    await invalidContinuation({ ...repo, cursor: checkedPayload(oversized) });
+  });
+
+  const decodedFixture = JSON.parse(inflateRawSync(Buffer.from(payload, "base64url")).toString("utf8")) as Record<string, unknown>;
+  const invalidStates = [
+    ["unsupported state version", { version: 2 }],
+    ["wrong state kind", { kind: "checkpoint" }],
+    ["unknown state field", { untrusted: true }],
+    ["invalid observation date", { observedAt: "yesterday" }],
+    ["position past snapshot", { position: 300 }],
+    ["negative position", { position: -1 }],
+    ["empty page size", { pageSize: 0 }],
+    ["oversized page", { pageSize: 101 }],
+    ["duplicate snapshot ID", { snapshotIds: ["1", "1"], position: 0 }],
+    ["duplicate processed and unread ID", { processedIds: [fixtureIds[0]] }],
+    ["more than 300 snapshot IDs", { snapshotIds: [...fixtureIds, "extra-1", "extra-2"] }],
+    ["more than 300 combined IDs", { processedIds: ["extra-1", "extra-2"] }],
+  ] as const;
+  for (const [reason, patch] of invalidStates) {
+    test(`a valid checksum still rejects ${reason}`, async () => {
+      await invalidContinuation({ ...repo, per_page: 5, cursor: checkedState({ ...decodedFixture, ...patch }) });
+    });
+  }
+
+  test("legacy 300-ID cursors resume partial batches and legacy checkpoints pick up delayed arrivals", async () => {
+    const ids = Array.from({ length: 300 }, (_, i) => String(300 - i));
+    pagedFeed(ids);
+    const args = { ...repo, per_page: 100 };
+    const first = await listGithubRepositoryActivity(args, "token");
+    const partial = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(first.resumeCursor!), afterEventId: ids[99] }, "token");
+    assert.deepEqual(partial.eventIds, ids.slice(100, 200));
+    assert.equal(partial.coverage.processedBefore, 100);
+    assert.match(partial.nextCursor!, /^gha2\./);
+    const final = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(partial.nextCursor!) }, "token");
+    assert.deepEqual(final.eventIds, ids.slice(200));
+    assert.equal(final.coverage.snapshotComplete, true);
+    assert.match(final.checkpoint!, /^gha2\./);
+    pagedFeed([...ids.slice(0, 50), "delayed", ...ids.slice(50, -1)]);
+    const next = await listGithubRepositoryActivity({ ...args, checkpoint: legacyToken(final.checkpoint!) }, "token");
+    assert.deepEqual(next.eventIds, ["delayed"]);
+    assert.equal(next.coverage.complete, false);
+    assert.equal(next.coverage.snapshotComplete, true);
+    assert.match(next.checkpoint!, /^gha2\./);
+  });
+
+  for (const version of ["legacy", "checksummed"] as const) {
+    test(`${version} values retain Connection, repository, filter, page and acknowledgment boundaries`, async () => {
+      feed(["4", "3", "2", "1"]);
+      const args = { ...repo, per_page: 2, since: "2026-09-19T00:00:00Z", until: "2026-09-21T00:00:00Z" };
+      const first = await listGithubRepositoryActivity(args, "token");
+      const last = await listGithubRepositoryActivity({ ...args, cursor: first.nextCursor }, "token");
+      const convert = (value: string) => version === "legacy" ? legacyToken(value) : value;
+      const cursor = convert(first.resumeCursor!);
+      let calls = 0;
+      globalThis.fetch = (async () => { calls += 1; return json([]); }) as typeof fetch;
+      for (const kind of ["cursor", "checkpoint"] as const) {
+        const value = kind === "cursor" ? cursor : convert(last.checkpoint!);
+        for (const patch of [
+          { owner: "other" }, { repo: "other" }, { since: undefined }, { until: undefined },
+          { since: "2026-09-18T00:00:00Z" }, { until: "2026-09-22T00:00:00Z" },
+        ]) await assert.rejects(listGithubRepositoryActivity({ ...args, ...patch, [kind]: value }, "token"), /scope unchanged/);
+        await assert.rejects(listGithubRepositoryActivity({ ...args, [kind]: value }, "token", "other-connection"), /scope unchanged/);
+      }
+      await assert.rejects(listGithubRepositoryActivity({ ...args, per_page: 3, cursor }, "token"), /scope unchanged/);
+      await assert.rejects(listGithubRepositoryActivity({ ...args, cursor, afterEventId: "2" }, "token"), /saved batch/);
+      await assert.rejects(listGithubRepositoryActivity({ ...args, checkpoint: cursor }, "token"), /Invalid GitHub activity continuation/);
+      assert.equal(calls, 0);
+    });
+  }
+});
 
 describe("GitHub structured activity coverage", () => {
   test("accepts GitHub's numeric repository pagination and resumes all 300 retained events", async () => {

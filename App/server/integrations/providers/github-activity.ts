@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import type { IntegrationTool } from "../types.js";
 import { forgeFetchWithHeaders, GITHUB_ENDPOINT, repoPath } from "./forge/client.js";
@@ -123,14 +124,26 @@ const cursorState = checkpointState.omit({ kind: true }).extend({
 type Checkpoint = z.infer<typeof checkpointState>;
 type Cursor = z.infer<typeof cursorState>;
 
-/** Caller-owned progress, never authorization. Compression bounds the 300 stable IDs. */
+/** Caller-owned progress, never authorization. The checksum detects copy errors, not forgery. */
 function encodeState(state: Checkpoint | Cursor): string {
-  return `gha1.${deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url")}`;
+  const payload = deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url");
+  return `gha2.${payload}.${createHash("sha256").update(payload).digest("hex")}`;
 }
 function decodeState(value: string, kind: "cursor" | "checkpoint"): Checkpoint | Cursor {
   try {
-    if (!/^gha1\.[A-Za-z0-9_-]+$/.test(value)) throw new Error("Invalid token");
-    const json = inflateRawSync(Buffer.from(value.slice(5), "base64url"), { maxOutputLength: 65_000 });
+    const current = value.match(/^gha2\.([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/);
+    const legacy = value.match(/^gha1\.([A-Za-z0-9_-]+)$/);
+    const matched = current ?? legacy;
+    if (!matched || matched[0] !== value) throw new Error("Invalid token");
+    const payload = matched[1];
+    // Raw DEFLATE has no integrity check: a copied character can still inflate
+    // to valid JSON with different event IDs. Verify the encoded payload before
+    // inflating it, while accepting existing gha1 progress without rewriting it.
+    if (current && createHash("sha256").update(payload).digest("hex") !== current[2])
+      throw new Error("Invalid checksum");
+    const compressed = Buffer.from(payload, "base64url");
+    if (current && compressed.toString("base64url") !== payload) throw new Error("Invalid encoding");
+    const json = inflateRawSync(compressed, { maxOutputLength: 65_000 });
     const state = (kind === "cursor" ? cursorState : checkpointState).parse(JSON.parse(json.toString("utf8")));
     const allIds = [...state.processedIds, ...("snapshotIds" in state ? state.snapshotIds : [])];
     if (allIds.length > 300 || new Set(allIds).size !== allIds.length ||

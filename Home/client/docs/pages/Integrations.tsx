@@ -444,7 +444,9 @@ export function Integrations() {
         saved value as <Code>cursor</Code> and the last processed ID as <Code>afterEventId</Code>.
         Save <Code>nextCursor</Code> after the whole batch succeeds. Replaying an unacknowledged
         cursor intentionally returns the same batch; a read receipt cannot prove that its effects
-        were applied exactly once.
+        were applied exactly once. Copy progress values exactly: newly issued values detect
+        accidental changes and reject them before reading GitHub. Restore the original saved
+        value when a continuation is invalid; older saved progress remains usable.
       </P>
       <P>
         At scan end, save <Code>checkpoint</Code> and pass it to the next scan. It excludes the
