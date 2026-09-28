@@ -4398,10 +4398,41 @@ export type InvoiceCustomerStub = {
   email: string;
 };
 
+export type InvoiceIssuer = {
+  name: string;
+  address: string;
+  country: string;
+  taxNumber: string;
+  registrationNumber: string;
+  email: string;
+  phone: string;
+  website: string;
+  footer: string;
+};
+
+export type Subsidiary = InvoiceIssuer & {
+  id: string;
+  companyId: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const financeSubsidiaries = {
+  list: (companyId: string) =>
+    api.get<Subsidiary[]>(`/api/companies/${companyId}/finance/subsidiaries`),
+  create: (companyId: string, body: InvoiceIssuer) =>
+    api.post<Subsidiary>(`/api/companies/${companyId}/finance/subsidiaries`, body),
+  update: (companyId: string, id: string, body: Partial<InvoiceIssuer> & { archived?: boolean }) =>
+    api.patch<Subsidiary>(`/api/companies/${companyId}/finance/subsidiaries/${id}`, body),
+};
+
 export type Invoice = {
   id: string;
   companyId: string;
   customerId: string;
+  subsidiaryId: string | null;
+  issuerSnapshot: InvoiceIssuer | null;
   slug: string;
   numberSeq: number;
   number: string;
@@ -4651,6 +4682,7 @@ export type RecurringInvoice = {
   id: string;
   companyId: string;
   customerId: string;
+  subsidiaryId: string | null;
   slug: string;
   name: string;
   cronExpr: string;
@@ -4728,6 +4760,8 @@ export type Estimate = {
   id: string;
   companyId: string;
   customerId: string;
+  subsidiaryId: string | null;
+  issuerSnapshot: InvoiceIssuer | null;
   slug: string;
   numberSeq: number;
   number: string;

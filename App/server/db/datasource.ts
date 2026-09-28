@@ -97,6 +97,7 @@ import { EmployeeSigningGrant } from "./entities/EmployeeSigningGrant.js";
 import { Product } from "./entities/Product.js";
 import { TaxRate } from "./entities/TaxRate.js";
 import { Invoice } from "./entities/Invoice.js";
+import { Subsidiary } from "./entities/Subsidiary.js";
 import { InvoiceLineItem } from "./entities/InvoiceLineItem.js";
 import { InvoicePayment } from "./entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "./entities/InvoiceWriteOff.js";
@@ -319,6 +320,7 @@ const entities = [
   Product,
   TaxRate,
   Invoice,
+  Subsidiary,
   InvoiceLineItem,
   InvoicePayment,
   InvoiceWriteOff,

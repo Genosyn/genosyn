@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import {
   api,
+  financeSubsidiaries,
+  Subsidiary,
   formatMoney,
   Invoice,
   RecurringInvoice,
@@ -50,16 +52,21 @@ export default function FinanceRecurringInvoiceDetail() {
   const navigate = useNavigate();
   const dialog = useDialog();
   const [ri, setRi] = React.useState<RecurringInvoice | null>(null);
+  const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!recurringSlug) return;
     try {
-      const fresh = await api.get<RecurringInvoice>(
-        `/api/companies/${company.id}/recurring-invoices/${recurringSlug}`,
-      );
+      const [fresh, issuers] = await Promise.all([
+        api.get<RecurringInvoice>(
+          `/api/companies/${company.id}/recurring-invoices/${recurringSlug}`,
+        ),
+        financeSubsidiaries.list(company.id),
+      ]);
       setRi(fresh);
+      setSubsidiaries(issuers);
       setLoadError(null);
     } catch (err) {
       setLoadError(errorMessage(err, "Could not load the recurring invoice"));
@@ -120,9 +127,7 @@ export default function FinanceRecurringInvoiceDetail() {
       const copy = await api.post<RecurringInvoice>(
         `/api/companies/${company.id}/recurring-invoices/${ri.slug}/duplicate`,
       );
-      navigate(
-        `/c/${company.slug}/finance/recurring-invoices/${copy.slug}`,
-      );
+      navigate(`/c/${company.slug}/finance/recurring-invoices/${copy.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t duplicate the schedule" });
       setBusy(false);
@@ -154,9 +159,7 @@ export default function FinanceRecurringInvoiceDetail() {
     if (!ok) return;
     setBusy(true);
     try {
-      await api.del(
-        `/api/companies/${company.id}/recurring-invoices/${ri.slug}`,
-      );
+      await api.del(`/api/companies/${company.id}/recurring-invoices/${ri.slug}`);
       navigate(`/c/${company.slug}/finance/recurring-invoices`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the schedule" });
@@ -312,11 +315,7 @@ export default function FinanceRecurringInvoiceDetail() {
                 <MenuSeparator />
                 <MenuItem
                   icon={<Trash2 size={14} className="text-red-500" />}
-                  label={
-                    <span className="text-red-600 dark:text-red-400">
-                      Delete
-                    </span>
-                  }
+                  label={<span className="text-red-600 dark:text-red-400">Delete</span>}
                   onSelect={() => {
                     close();
                     destroy();
@@ -327,6 +326,13 @@ export default function FinanceRecurringInvoiceDetail() {
           </Menu>
         </div>
       </div>
+
+      {subsidiaries.find((item) => item.id === ri.subsidiaryId)?.archived && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          This schedule uses an archived subsidiary and cannot create new invoices. Edit the
+          schedule to choose an active issuer, or reactivate the subsidiary.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -342,17 +348,10 @@ export default function FinanceRecurringInvoiceDetail() {
             <Row label="Last run" value={formatStamp(ri.lastRunAt)} />
             <Row
               label="Runs created"
-              value={
-                ri.maxRuns
-                  ? `${ri.runsCreated} / ${ri.maxRuns}`
-                  : String(ri.runsCreated)
-              }
+              value={ri.maxRuns ? `${ri.runsCreated} / ${ri.maxRuns}` : String(ri.runsCreated)}
             />
             {ri.endsOn && (
-              <Row
-                label="Ends on"
-                value={new Date(ri.endsOn).toISOString().slice(0, 10)}
-              />
+              <Row label="Ends on" value={new Date(ri.endsOn).toISOString().slice(0, 10)} />
             )}
           </dl>
         </div>
@@ -362,6 +361,15 @@ export default function FinanceRecurringInvoiceDetail() {
             Billing
           </h3>
           <dl className="space-y-2 text-sm">
+            <Row
+              label="Issued by"
+              value={
+                ri.subsidiaryId
+                  ? (subsidiaries.find((item) => item.id === ri.subsidiaryId)?.name ??
+                    "Subsidiary unavailable")
+                  : company.name
+              }
+            />
             <Row label="Customer" value={ri.customer?.name ?? "—"} />
             <Row label="Email" value={ri.customer?.email || "—"} />
             <Row label="Currency" value={ri.currency} />
@@ -370,10 +378,7 @@ export default function FinanceRecurringInvoiceDetail() {
               label="Auto-send"
               value={ri.autoSend ? "Issue + email each tick" : "Create draft only"}
             />
-            <Row
-              label="Total per invoice"
-              value={formatMoney(totalPreview, ri.currency)}
-            />
+            <Row label="Total per invoice" value={formatMoney(totalPreview, ri.currency)} />
           </dl>
         </div>
 
@@ -436,20 +441,13 @@ export default function FinanceRecurringInvoiceDetail() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {ri.lines.map((l) => (
                 <tr key={l.id}>
-                  <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
-                    {l.description}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {l.quantity}
-                  </td>
+                  <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{l.description}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{l.quantity}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatMoney(l.unitPriceCents, ri.currency)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {formatMoney(
-                      Math.round(l.quantity * l.unitPriceCents),
-                      ri.currency,
-                    )}
+                    {formatMoney(Math.round(l.quantity * l.unitPriceCents), ri.currency)}
                   </td>
                 </tr>
               ))}
@@ -492,9 +490,7 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
         {label}
       </dt>
-      <dd className="text-right text-sm text-slate-800 dark:text-slate-100">
-        {value}
-      </dd>
+      <dd className="text-right text-sm text-slate-800 dark:text-slate-100">{value}</dd>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
+import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
@@ -87,10 +88,16 @@ export async function exportInvoicesCsv(
   from: Date | null,
   to: Date | null,
 ): Promise<string> {
-  const invoices = await AppDataSource.getRepository(Invoice).find({
-    where: { companyId },
-    order: { issueDate: "ASC" },
-  });
+  const [invoices, company] = await Promise.all([
+    AppDataSource.getRepository(Invoice).find({
+      where: { companyId },
+      order: { issueDate: "ASC" },
+    }),
+    AppDataSource.getRepository(Company).findOne({
+      where: { id: companyId },
+      select: ["name"],
+    }),
+  ]);
   const filtered = invoices.filter((i) => {
     const t = i.issueDate.getTime();
     if (from && t < from.getTime()) return false;
@@ -120,6 +127,8 @@ export async function exportInvoicesCsv(
       "Total",
       "Paid",
       "Balance",
+      "Subsidiary ID",
+      "Issued by",
     ]),
   );
   for (const i of filtered) {
@@ -138,6 +147,8 @@ export async function exportInvoicesCsv(
         dollars(i.totalCents),
         dollars(i.paidCents),
         dollars(i.balanceCents),
+        i.subsidiaryId ?? "",
+        i.issuerSnapshot?.name ?? company?.name ?? "",
       ]),
     );
   }

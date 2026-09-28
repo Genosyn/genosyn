@@ -140,6 +140,7 @@ import { Handoff } from "../db/entities/Handoff.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Invoice } from "../db/entities/Invoice.js";
+import { Subsidiary } from "../db/entities/Subsidiary.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
@@ -458,6 +459,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Project, { companyId });
     await m.delete(Bill, { companyId });
     await m.delete(Invoice, { companyId });
+    await m.delete(Subsidiary, { companyId });
     await m.delete(CustomerCredit, { companyId });
     await m.delete(VendorCredit, { companyId });
     await m.delete(Customer, { companyId });

@@ -3,6 +3,8 @@ import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { Plus, Repeat } from "lucide-react";
 import {
   api,
+  financeSubsidiaries,
+  Subsidiary,
   formatMoney,
   RecurringInvoiceListItem,
   RecurringInvoiceStatus,
@@ -50,16 +52,18 @@ export default function FinanceRecurringInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const [rows, setRows] = React.useState<RecurringInvoiceListItem[] | null>(null);
+  const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
   const reload = React.useCallback(() => {
-    api
-      .get<RecurringInvoiceListItem[]>(
-        `/api/companies/${company.id}/recurring-invoices`,
-      )
-      .then((list) => {
+    Promise.all([
+      api.get<RecurringInvoiceListItem[]>(`/api/companies/${company.id}/recurring-invoices`),
+      financeSubsidiaries.list(company.id),
+    ])
+      .then(([list, issuers]) => {
         setRows(list);
+        setSubsidiaries(issuers);
         setLoadError(null);
       })
       .catch((err: unknown) => {
@@ -110,9 +114,8 @@ export default function FinanceRecurringInvoices() {
             Recurring invoices
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Schedule an invoice template to bill on a repeating cadence — e.g.
-            monthly retainers or annual licences. Each run creates a fresh
-            invoice.
+            Schedule an invoice template to bill on a repeating cadence — e.g. monthly retainers or
+            annual licences. Each run creates a fresh invoice.
           </p>
         </div>
         <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
@@ -191,9 +194,7 @@ export default function FinanceRecurringInvoices() {
                   key={r.id}
                   className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   onClick={() =>
-                    navigate(
-                      `/c/${company.slug}/finance/recurring-invoices/${r.slug}`,
-                    )
+                    navigate(`/c/${company.slug}/finance/recurring-invoices/${r.slug}`)
                   }
                 >
                   <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
@@ -201,6 +202,13 @@ export default function FinanceRecurringInvoices() {
                   </td>
                   <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                     {r.customer?.name ?? "—"}
+                    <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+                      Issued by{" "}
+                      {r.subsidiaryId
+                        ? (subsidiaries.find((item) => item.id === r.subsidiaryId)?.name ??
+                          "Subsidiary unavailable")
+                        : company.name}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {describeCron(r.cronExpr, r.intervalCount)}
@@ -223,8 +231,9 @@ export default function FinanceRecurringInvoices() {
                     {r.maxRuns ? ` / ${r.maxRuns}` : ""}
                   </td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                    {formatMoney(0, r.currency).replace(/[\d.,]/g, "").trim() ||
-                      r.currency}
+                    {formatMoney(0, r.currency)
+                      .replace(/[\d.,]/g, "")
+                      .trim() || r.currency}
                   </td>
                 </tr>
               ))}

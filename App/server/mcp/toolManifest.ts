@@ -4339,6 +4339,17 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_subsidiaries",
+    readOnly: true,
+    description:
+      "List the company's issuing legal entities with ids, legal names, addresses, tax and registration numbers, contact details, and invoice footers. Use an active subsidiary id as subsidiaryId when creating an invoice, estimate, or recurring invoice schedule. Archived subsidiaries are hidden unless includeArchived is true and cannot be selected for new documents. Omit subsidiaryId or pass null for the default company issuer. An owner or admin manages subsidiaries in Finance. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { includeArchived: { type: "boolean", default: false } },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_invoices",
     description:
       "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void) or `customerSlug`. Returns compact rows (number, status, customer, totals, balance, dates); call get_invoice for line items and payments. Needs `read` finance access.",
@@ -4409,6 +4420,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       required: ["customerSlug", "name", "cronExpr", "frequency", "lines"],
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to use the company default, or pass null explicitly. Archived subsidiaries cannot be selected.",
+        },
         customerSlug: {
           type: "string",
           description: "Who to bill (from list_customers / create_customer).",
@@ -4493,6 +4510,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       required: ["recurringInvoiceSlug"],
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to keep the existing issuer; pass null for the company default. Archived subsidiaries cannot be selected.",
+        },
         recurringInvoiceSlug: { type: "string", description: "Which schedule to update." },
         customerSlug: { type: "string", description: "Move future billing to this customer." },
         name: { type: "string" },
@@ -4660,6 +4683,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to use the company default, or pass null explicitly. Archived subsidiaries cannot be selected.",
+        },
         customerSlug: {
           type: "string",
           description: "Who receives the quotation (from list_customers / create_customer).",
@@ -4747,6 +4776,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to use the company default, or pass null explicitly. Archived subsidiaries cannot be selected.",
+        },
         customerSlug: {
           type: "string",
           description: "Who to bill (from list_customers / create_customer).",

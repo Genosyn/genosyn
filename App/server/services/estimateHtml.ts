@@ -6,6 +6,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
 import { getFinanceSettings } from "./fx.js";
 import { htmlToPdf } from "./htmlToPdf.js";
+import { documentIssuerFields } from "./subsidiaries.js";
 
 /**
  * Render an Estimate as a self-contained HTML document. Used as both
@@ -199,6 +200,7 @@ function fmtQty(q: number): string {
 
 export function renderEstimateHtml(input: EstimateHtmlInput): string {
   const { estimate, customer, lines } = input;
+  const issuer = documentIssuerFields(estimate, input);
   const cur = estimate.currency;
   const lineRows = lines
     .map((l) => {
@@ -219,8 +221,8 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
     .join("");
 
   const notesBlock = estimate.notes ? `<div class="notes">${esc(estimate.notes)}</div>` : "";
-  // Per-doc footer wins; company-wide default fills in when blank.
-  const footerText = estimate.footer || input.defaultFooter || "";
+  // Per-document terms win; otherwise use the selected issuer's defaults.
+  const footerText = estimate.footer || issuer.defaultFooter || "";
   const footerBlock = footerText ? `<div class="footer">${esc(footerText)}</div>` : "";
 
   const numberDisplay = estimate.status === "draft" ? "DRAFT" : estimate.number || "DRAFT";
@@ -244,7 +246,7 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
   <div class="page">
     <div class="header">
       <div>
-        <div class="brand">${esc(input.companyName || "")}</div>
+        <div class="brand">${esc(issuer.companyName || "")}</div>
         <div style="margin-top:24px">
           <div class="title">Estimate</div>
           <h1 class="estimate-number">${esc(numberDisplay)}</h1>
@@ -269,9 +271,9 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
       <div>
         <div class="party-label">From</div>
         ${
-          input.defaultFromBlock
-            ? `<div class="party-detail">${esc(input.defaultFromBlock)}</div>`
-            : `<div class="party-name">${esc(input.companyName || "")}</div>`
+          issuer.defaultFromBlock
+            ? `<div class="party-detail">${esc(issuer.defaultFromBlock)}</div>`
+            : `<div class="party-name">${esc(issuer.companyName || "")}</div>`
         }
       </div>
     </div>

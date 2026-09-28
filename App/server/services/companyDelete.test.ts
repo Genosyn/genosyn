@@ -20,6 +20,7 @@ import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js
 import { FinanceProposal } from "../db/entities/FinanceProposal.js";
 import { ExternalChatIdentity } from "../db/entities/ExternalChatIdentity.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
+import { Subsidiary } from "../db/entities/Subsidiary.js";
 import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MarketingCampaign } from "../db/entities/MarketingCampaign.js";
@@ -58,6 +59,7 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   ExternalChatIdentity,
   FinanceProposal,
   InvoiceWriteOff,
+  Subsidiary,
   MailDraftSendBatch,
   MailSavedSearch,
   MarketingCampaign,

@@ -104,6 +104,7 @@ export const PROACTIVE_REVIEW_TOOLS = [
   "list_estimates",
   "get_estimate",
   "list_finance_products",
+  "list_subsidiaries",
   "list_finance_transactions",
   "get_finance_transaction",
   "list_contacts",

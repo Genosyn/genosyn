@@ -291,6 +291,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb:
       "Estimates, one-off and recurring invoices, customers, payments and the books. Needs a finance grant.",
     tools: [
+      "list_subsidiaries",
       "list_finance_accounts",
       "list_finance_transactions",
       "get_finance_transaction",
@@ -624,6 +625,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   suggest_mail_actions: ["inbox", "triage", "what should i do with this email"],
 
   // Finance — "who owes us money" is the query, "receivable" is the word.
+  list_subsidiaries: ["legal entity", "issuer", "issuing entity", "subsidiary", "bill from"],
   list_invoices: ["receivable", "billing", "who owes us", "unpaid", "outstanding", "ar"],
   get_invoice: ["receivable", "billing", "bill"],
   list_recurring_invoices: [

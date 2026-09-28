@@ -59,6 +59,10 @@ export class RecurringInvoice {
   @Column({ type: "varchar" })
   customerId!: string;
 
+  /** Optional legal issuer; null retains the company default. */
+  @Column({ type: "varchar", nullable: true })
+  subsidiaryId!: string | null;
+
   /** URL slug — `ri-<short>` at create time; renames keep the slug. */
   @Column({ type: "varchar" })
   slug!: string;

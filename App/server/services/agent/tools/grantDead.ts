@@ -137,6 +137,7 @@ const MEETING_GATED_TOOLS = new Set([
  * answers to an `EmployeeFinanceGrant`.
  */
 const FINANCE_TOOL_ACCESS: Record<string, FinanceAccessLevel> = {
+  list_subsidiaries: "read",
   list_finance_accounts: "read",
   list_finance_transactions: "read",
   get_finance_transaction: "read",

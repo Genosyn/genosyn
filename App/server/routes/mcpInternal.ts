@@ -411,15 +411,14 @@ import {
   stageAiLedgerReview,
 } from "../services/transactionReviews.js";
 import {
+  createInvoiceDraft,
   displayStatus,
-  draftInvoiceSlug,
   hydrateInvoices,
   issueInvoice,
   loadCustomerBySlug,
   loadInvoiceBySlug,
   postInvoicePayment,
   recomputeInvoiceTotals,
-  replaceInvoiceLines,
   resolveInvoiceRecipients,
   sendInvoiceEmail,
   uniqueCustomerSlug,
@@ -452,6 +451,7 @@ import {
   listQuoteProducts,
 } from "../services/financeQuoteRead.js";
 import { getFinanceSettings } from "../services/fx.js";
+import { listSubsidiaries, resolveDocumentIssuer } from "../services/subsidiaries.js";
 import { disallowedRecipients, trustedRecipientDomains } from "../lib/recipientAllowlist.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { Invoice } from "../db/entities/Invoice.js";
@@ -1476,6 +1476,8 @@ function serializeInvoiceRow(h: HydratedInvoiceRow) {
     number: h.number || null,
     status: displayStatus(h),
     currency: h.currency,
+    subsidiaryId: h.subsidiaryId,
+    issuerSnapshot: h.issuerSnapshot,
     customer: h.customer ? { name: h.customer.name, slug: h.customer.slug } : null,
     subtotalCents: h.subtotalCents,
     taxCents: h.taxCents,
@@ -1525,6 +1527,7 @@ function serializeRecurringInvoiceRow(schedule: HydratedRecurringInvoice) {
     id: schedule.id,
     slug: schedule.slug,
     name: schedule.name,
+    subsidiaryId: schedule.subsidiaryId,
     status: schedule.status,
     cronExpr: schedule.cronExpr,
     frequency: schedule.frequency,
@@ -1572,6 +1575,8 @@ function serializeEstimateFull(estimate: HydratedEstimate) {
     number: estimate.number || null,
     status: displayEstimateStatus(estimate),
     currency: estimate.currency,
+    subsidiaryId: estimate.subsidiaryId,
+    issuerSnapshot: estimate.issuerSnapshot,
     customer: estimate.customer
       ? { name: estimate.customer.name, slug: estimate.customer.slug }
       : null,
@@ -1605,6 +1610,21 @@ function serializeEstimateFull(estimate: HydratedEstimate) {
 
 /** Shared by every tool that takes no arguments at all. */
 const emptyToolSchema = z.object({}).strict();
+
+const listSubsidiariesSchema = z.object({ includeArchived: z.boolean().default(false) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_subsidiaries",
+  validateBody(listSubsidiariesSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const { includeArchived } = req.body as z.infer<typeof listSubsidiariesSchema>;
+    const subsidiaries = await listSubsidiaries(req.mcpCompany!.id);
+    res.json({
+      subsidiaries: includeArchived ? subsidiaries : subsidiaries.filter((row) => !row.archived),
+    });
+  },
+);
 
 mcpInternalRouter.post(
   "/tools/list_finance_accounts",
@@ -2113,6 +2133,7 @@ mcpInternalRouter.post(
 
 const recurringInvoiceMutationFields = {
   customerSlug: z.string().min(1).max(200).optional(),
+  subsidiaryId: z.string().uuid().nullable().optional(),
   name: z.string().min(1).max(200).optional(),
   cronExpr: z
     .string()
@@ -2205,11 +2226,13 @@ mcpInternalRouter.post(
     }
 
     try {
+      const issuer = await resolveDocumentIssuer(companyId, body.subsidiaryId);
       const schedule = await AppDataSource.transaction(async (manager) => {
         const repo = manager.getRepository(RecurringInvoice);
         const row = repo.create({
           companyId,
           customerId: customer.id,
+          subsidiaryId: issuer.subsidiaryId,
           slug: await uniqueRecurringInvoiceSlug(companyId, manager),
           name: body.name,
           cronExpr: body.cronExpr,
@@ -2337,6 +2360,10 @@ mcpInternalRouter.post(
     }
 
     try {
+      if (body.subsidiaryId !== undefined && body.subsidiaryId !== schedule.subsidiaryId) {
+        const issuer = await resolveDocumentIssuer(companyId, body.subsidiaryId);
+        schedule.subsidiaryId = issuer.subsidiaryId;
+      }
       if (customer) schedule.customerId = customer.id;
       if (body.name !== undefined) schedule.name = body.name;
       if (body.cronExpr !== undefined) schedule.cronExpr = body.cronExpr;
@@ -2463,6 +2490,7 @@ mcpInternalRouter.post(
 const createEstimateSchema = z
   .object({
     customerSlug: z.string().min(1).max(200),
+    subsidiaryId: z.string().uuid().nullable().optional(),
     currency: isoCurrency.optional(),
     issueDate: z.string().datetime().optional(),
     validUntil: z.string().datetime().optional(),
@@ -2503,6 +2531,7 @@ mcpInternalRouter.post(
       const estimate = await createEstimateDraft({
         companyId,
         customerId: customer.id,
+        subsidiaryId: body.subsidiaryId,
         issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
         validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
         currency: body.currency,
@@ -2610,6 +2639,7 @@ mcpInternalRouter.post(
 const createInvoiceSchema = z
   .object({
     customerSlug: z.string().min(1).max(200),
+    subsidiaryId: z.string().uuid().nullable().optional(),
     currency: isoCurrency.optional(),
     issueDate: z.string().datetime().optional(),
     dueDate: z.string().datetime().optional(),
@@ -2652,36 +2682,31 @@ mcpInternalRouter.post(
         .status(400)
         .json({ error: `Unknown tax rate id(s): ${missingTaxRateIds.join(", ")}` });
     }
-    const repo = AppDataSource.getRepository(Invoice);
-    const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
-    const dueDate = body.dueDate
-      ? new Date(body.dueDate)
-      : new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000);
-    const inv = repo.create({
-      companyId: cid,
-      customerId: customer.id,
-      slug: await draftInvoiceSlug(cid),
-      numberSeq: 0,
-      number: "",
-      status: "draft",
-      issueDate,
-      dueDate,
-      currency: body.currency ?? customer.currency ?? "USD",
-      notes: body.notes ?? "",
-      footer: body.footer ?? "",
-      createdById: null,
-    });
-    await repo.save(inv);
-    await replaceInvoiceLines(inv, body.lines);
-    const recomputed = await recomputeInvoiceTotals(inv);
-    const [hydrated] = await hydrateInvoices(cid, [recomputed]);
+    let inv: Invoice;
+    try {
+      inv = await createInvoiceDraft({
+        companyId: cid,
+        customerId: customer.id,
+        subsidiaryId: body.subsidiaryId,
+        issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+        currency: body.currency,
+        notes: body.notes,
+        footer: body.footer,
+        lines: body.lines,
+        createdById: null,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    const [hydrated] = await hydrateInvoices(cid, [inv]);
     await aiWriteTrail(req, {
       action: "finance.invoice.create",
       targetType: "invoice",
       targetId: inv.id,
       targetLabel: `Draft for ${customer.name}`,
       journalTitle: `${req.mcpEmployee!.name} drafted an invoice for ${customer.name}`,
-      metadata: { totalCents: recomputed.totalCents, currency: recomputed.currency },
+      metadata: { totalCents: inv.totalCents, currency: inv.currency },
     });
     res.json({
       invoice: serializeInvoiceFull(hydrated),

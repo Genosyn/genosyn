@@ -13,6 +13,7 @@ import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineIte
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { computeLineTotals } from "../lib/money.js";
 import { issueInvoice, recomputeInvoiceTotals, sendInvoiceEmail } from "./finance.js";
+import { resolveDocumentIssuer } from "./subsidiaries.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 
 /**
@@ -320,6 +321,7 @@ export async function duplicateRecurringInvoice(
   const copy = repo.create({
     companyId: source.companyId,
     customerId: source.customerId,
+    subsidiaryId: source.subsidiaryId,
     slug,
     name: `${source.name} (copy)`,
     cronExpr: source.cronExpr,
@@ -402,6 +404,7 @@ export async function generateInvoiceFromRecurring(
     throw new Error("Recurring schedule has no line items to bill");
   }
 
+  const issuer = await resolveDocumentIssuer(ri.companyId, ri.subsidiaryId);
   const invRepo = AppDataSource.getRepository(Invoice);
   const slug = await uniqueDraftInvoiceSlug(ri.companyId);
   const issueDate = new Date();
@@ -409,6 +412,7 @@ export async function generateInvoiceFromRecurring(
   let draft = invRepo.create({
     companyId: ri.companyId,
     customerId: ri.customerId,
+    ...issuer,
     slug,
     numberSeq: 0,
     number: "",

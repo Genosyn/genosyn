@@ -196,6 +196,7 @@ import FinanceEstimateNew from "./pages/FinanceEstimateNew";
 import FinanceEstimateDetail from "./pages/FinanceEstimateDetail";
 import FinanceTemplates from "./pages/FinanceTemplates";
 import FinanceSettings from "./pages/FinanceSettings";
+import FinanceSubsidiaries from "@/pages/FinanceSubsidiaries";
 import FinanceAiAccess from "./pages/FinanceAiAccess";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
@@ -312,11 +313,15 @@ export default function App() {
               an invitation until that flow completes. */}
             <Route
               path="/login"
-              element={<FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />}
+              element={
+                <FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />
+              }
             />
             <Route
               path="/signup"
-              element={<FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />}
+              element={
+                <FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />
+              }
             />
             <Route path="/login/sso/:companySlug" element={<FullPageRedirect to="/" />} />
             <Route path="/forgot" element={<FullPageRedirect to="/" />} />
@@ -714,6 +719,7 @@ function CompanyRoutes({
             <Route path="currencies" element={<FinanceCurrencies />} />
             <Route path="templates" element={<FinanceTemplates />} />
             <Route path="settings" element={<FinanceSettings />} />
+            <Route path="subsidiaries" element={<FinanceSubsidiaries />} />
             <Route path="ai-access" element={<FinanceAiAccess />} />
             <Route path="periods" element={<FinancePeriods />} />
             <Route path="vendors" element={<FinanceVendors />} />

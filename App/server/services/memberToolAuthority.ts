@@ -387,6 +387,7 @@ export const INTERACTIVE_MEMBER_DENIED_TOOLS = new Set([
 ] as const);
 
 const FINANCE_READ_TOOLS = [
+  "list_subsidiaries",
   "list_finance_accounts",
   "list_finance_transactions",
   "get_finance_transaction",

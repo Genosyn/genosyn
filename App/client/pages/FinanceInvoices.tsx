@@ -251,6 +251,9 @@ export default function FinanceInvoices() {
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                       {inv.customer?.name ?? "—"}
+                      <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+                        Issued by {inv.issuerSnapshot?.name ?? company.name}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span

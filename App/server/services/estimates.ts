@@ -15,6 +15,7 @@ import { sendEmail } from "./email.js";
 import { renderEstimateHtmlForCompany } from "./estimateHtml.js";
 import { renderPdfAttachment } from "./htmlToPdf.js";
 import { issueInvoice, type LineDraft } from "./finance.js";
+import { resolveDocumentIssuer } from "./subsidiaries.js";
 
 /**
  * Estimate service — pure orchestration over the Estimate + line item
@@ -154,6 +155,7 @@ export async function recomputeEstimateTotals(estimate: Estimate): Promise<Estim
 export type CreateEstimateDraftInput = {
   companyId: string;
   customerId: string;
+  subsidiaryId?: string | null;
   issueDate?: Date;
   validUntil?: Date;
   currency?: string;
@@ -174,6 +176,7 @@ export async function createEstimateDraft(input: CreateEstimateDraftInput): Prom
     companyId: input.companyId,
   });
   if (!customer) throw new Error("Invalid customer");
+  const issuer = await resolveDocumentIssuer(input.companyId, input.subsidiaryId);
 
   const issueDate = input.issueDate ?? new Date();
   const validUntil =
@@ -182,6 +185,7 @@ export async function createEstimateDraft(input: CreateEstimateDraftInput): Prom
   const estimate = repo.create({
     companyId: input.companyId,
     customerId: customer.id,
+    ...issuer,
     slug: await uniqueDraftEstimateSlug(input.companyId),
     numberSeq: 0,
     number: "",
@@ -321,6 +325,8 @@ export async function convertEstimateToInvoice(
   const inv = invoiceRepo.create({
     companyId: estimate.companyId,
     customerId: estimate.customerId,
+    subsidiaryId: estimate.subsidiaryId,
+    issuerSnapshot: estimate.issuerSnapshot,
     slug: `draft-${Math.random().toString(36).slice(2, 8)}`,
     numberSeq: 0,
     number: "",
@@ -395,6 +401,8 @@ export async function duplicateEstimate(
   const draft = repo.create({
     companyId: source.companyId,
     customerId: source.customerId,
+    subsidiaryId: source.subsidiaryId,
+    issuerSnapshot: source.issuerSnapshot,
     slug,
     numberSeq: 0,
     number: "",

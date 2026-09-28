@@ -65,11 +65,7 @@ export default function FinanceLayout({ company }: { company: Company }) {
           icon={<ScrollText size={14} />}
           label="Customer statements"
         />
-        <SidebarLink
-          to={`${base}/credit-notes`}
-          icon={<Undo2 size={14} />}
-          label="Credit notes"
-        />
+        <SidebarLink to={`${base}/credit-notes`} icon={<Undo2 size={14} />} label="Credit notes" />
         <SidebarLink
           to={`${base}/recurring-invoices`}
           icon={<Repeat size={14} />}
@@ -124,6 +120,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/templates`}
           icon={<LayoutTemplate size={14} />}
           label="Templates"
+        />
+        <SidebarLink
+          to={`${base}/subsidiaries`}
+          icon={<Building2 size={14} />}
+          label="Subsidiaries"
         />
         <SidebarLink to={`${base}/settings`} icon={<Settings size={14} />} label="Settings" />
         <SidebarLink to={`${base}/ai-access`} icon={<Users size={14} />} label="AI access" />

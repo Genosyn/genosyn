@@ -38,6 +38,7 @@ import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -109,11 +110,8 @@ export default function FinanceInvoiceDetail() {
   const navigate = useNavigate();
   const dialog = useDialog();
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
-  const [emailDetails, setEmailDetails] =
-    React.useState<InvoiceEmailDetails | null>(null);
-  const [resendActivities, setResendActivities] = React.useState<
-    InvoiceResendActivity[]
-  >([]);
+  const [emailDetails, setEmailDetails] = React.useState<InvoiceEmailDetails | null>(null);
+  const [resendActivities, setResendActivities] = React.useState<InvoiceResendActivity[]>([]);
   const [writeOffs, setWriteOffs] = React.useState<InvoiceWriteOff[]>([]);
   const [creditApplications, setCreditApplications] = React.useState<
     CustomerCreditApplicationRow[]
@@ -217,7 +215,8 @@ export default function FinanceInvoiceDetail() {
     if (!invoice) return;
     const ok = await dialog.confirm({
       title: `Void ${invoice.number}?`,
-      message: "Voiding cannot be undone. The invoice stays in records but won't count toward outstanding balance.",
+      message:
+        "Voiding cannot be undone. The invoice stays in records but won't count toward outstanding balance.",
       variant: "danger",
       confirmLabel: "Void",
     });
@@ -375,9 +374,7 @@ export default function FinanceInvoiceDetail() {
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            {number}
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
           <span
             className={
               "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
@@ -390,9 +387,7 @@ export default function FinanceInvoiceDetail() {
         <div className="flex flex-wrap items-center gap-2">
           {invoice.status === "draft" && (
             <>
-              <Link
-                to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}
-              >
+              <Link to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}>
                 <Button variant="secondary" disabled={busy}>
                   <Pencil size={14} /> Edit
                 </Button>
@@ -408,30 +403,17 @@ export default function FinanceInvoiceDetail() {
             </Button>
           )}
           {invoice.status === "sent" && invoice.balanceCents > 0 && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowWriteOff(true)}
-              disabled={busy}
-            >
+            <Button variant="secondary" onClick={() => setShowWriteOff(true)} disabled={busy}>
               <Ban size={14} /> Write off
             </Button>
           )}
-          {(invoice.status === "sent" || invoice.status === "paid") &&
-            invoice.balanceCents > 0 && (
-              <Button
-                variant="secondary"
-                onClick={() => setShowCreditNote(true)}
-                disabled={busy}
-              >
-                <Undo2 size={14} /> Credit note
-              </Button>
-            )}
+          {(invoice.status === "sent" || invoice.status === "paid") && invoice.balanceCents > 0 && (
+            <Button variant="secondary" onClick={() => setShowCreditNote(true)} disabled={busy}>
+              <Undo2 size={14} /> Credit note
+            </Button>
+          )}
           {invoice.status === "paid" && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowResend(true)}
-              disabled={busy}
-            >
+            <Button variant="secondary" onClick={() => setShowResend(true)} disabled={busy}>
               <Mail size={14} /> Resend email
             </Button>
           )}
@@ -504,11 +486,7 @@ export default function FinanceInvoiceDetail() {
                     <MenuSeparator />
                     <MenuItem
                       icon={<Ban size={14} className="text-red-500" />}
-                      label={
-                        <span className="text-red-600 dark:text-red-400">
-                          Void
-                        </span>
-                      }
+                      label={<span className="text-red-600 dark:text-red-400">Void</span>}
                       onSelect={() => {
                         close();
                         voidInvoice();
@@ -521,11 +499,7 @@ export default function FinanceInvoiceDetail() {
                     <MenuSeparator />
                     <MenuItem
                       icon={<Trash2 size={14} className="text-red-500" />}
-                      label={
-                        <span className="text-red-600 dark:text-red-400">
-                          Delete
-                        </span>
-                      }
+                      label={<span className="text-red-600 dark:text-red-400">Delete</span>}
                       onSelect={() => {
                         close();
                         deleteDraft();
@@ -542,6 +516,7 @@ export default function FinanceInvoiceDetail() {
       <div className="space-y-6">
         <div>
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <InvoiceIssuerDetails issuer={invoice.issuerSnapshot} companyName={company.name} />
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
                 <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -550,9 +525,7 @@ export default function FinanceInvoiceDetail() {
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
                   {invoice.customer?.name ?? "—"}
                 </div>
-                <div className="text-slate-500 dark:text-slate-400">
-                  {invoice.customer?.email}
-                </div>
+                <div className="text-slate-500 dark:text-slate-400">{invoice.customer?.email}</div>
               </div>
               <div className="text-right">
                 <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -594,8 +567,7 @@ export default function FinanceInvoiceDetail() {
                           {l.description}
                           {l.taxPercent > 0 && (
                             <div className="text-xs text-slate-400">
-                              {l.taxName} {l.taxPercent}%
-                              {l.taxInclusive ? " incl." : ""}
+                              {l.taxName} {l.taxPercent}%{l.taxInclusive ? " incl." : ""}
                             </div>
                           )}
                         </td>
@@ -652,7 +624,7 @@ export default function FinanceInvoiceDetail() {
               )}
             </div>
 
-            {(invoice.notes || invoice.footer) && (
+            {(invoice.notes || invoice.footer || invoice.issuerSnapshot?.footer) && (
               <div className="mt-6 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
                 {invoice.notes && (
                   <div>
@@ -664,13 +636,13 @@ export default function FinanceInvoiceDetail() {
                     </div>
                   </div>
                 )}
-                {invoice.footer && (
+                {(invoice.footer || invoice.issuerSnapshot?.footer) && (
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                       Footer
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-500 dark:text-slate-400">
-                      {invoice.footer}
+                      {invoice.footer || invoice.issuerSnapshot?.footer}
                     </div>
                   </div>
                 )}
@@ -697,8 +669,7 @@ export default function FinanceInvoiceDetail() {
                       {formatMoney(p.amountCents, p.currency)}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {new Date(p.paidAt).toISOString().slice(0, 10)} ·{" "}
-                      {p.method}
+                      {new Date(p.paidAt).toISOString().slice(0, 10)} · {p.method}
                       {p.reference ? ` · ${p.reference}` : ""}
                     </div>
                   </div>
@@ -738,9 +709,7 @@ export default function FinanceInvoiceDetail() {
                       {w.reversedAt ? " · reversed" : ""}
                     </div>
                     {w.note ? (
-                      <div className="mt-0.5 truncate text-xs text-slate-400">
-                        {w.note}
-                      </div>
+                      <div className="mt-0.5 truncate text-xs text-slate-400">{w.note}</div>
                     ) : null}
                   </div>
                   {!w.reversedAt && (
@@ -795,23 +764,13 @@ export default function FinanceInvoiceDetail() {
             Activity
           </h3>
           <ul className="mt-3 grid gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
-            <li>
-              Created {new Date(invoice.createdAt).toISOString().slice(0, 10)}
-            </li>
+            <li>Created {new Date(invoice.createdAt).toISOString().slice(0, 10)}</li>
             {invoice.sentAt && (
-              <li>
-                Issued {new Date(invoice.sentAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Issued {new Date(invoice.sentAt).toISOString().slice(0, 10)}</li>
             )}
-            {invoice.paidAt && (
-              <li>
-                Paid {new Date(invoice.paidAt).toISOString().slice(0, 10)}
-              </li>
-            )}
+            {invoice.paidAt && <li>Paid {new Date(invoice.paidAt).toISOString().slice(0, 10)}</li>}
             {invoice.voidedAt && (
-              <li>
-                Voided {new Date(invoice.voidedAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Voided {new Date(invoice.voidedAt).toISOString().slice(0, 10)}</li>
             )}
             {resendActivities.map((activity) => (
               <li key={activity.id} className="sm:col-span-2 lg:col-span-3">
@@ -833,8 +792,7 @@ export default function FinanceInvoiceDetail() {
                 to {activity.toAddress || "the customer"} ·{" "}
                 {new Date(activity.createdAt).toLocaleString()}
                 {activity.pdfAttached && " · PDF attached"}
-                {activity.pdfRequested && !activity.pdfAttached &&
-                  " · PDF unavailable"}
+                {activity.pdfRequested && !activity.pdfAttached && " · PDF unavailable"}
                 {activity.hasMessage && " · Custom message included"}
                 {activity.ccAddress && (
                   <span className="block text-slate-400 dark:text-slate-500">
@@ -936,10 +894,7 @@ function CreditNoteModal({
     }
     setBusy(true);
     try {
-      await api.post(
-        `/api/companies/${companyId}/invoices/${invoice.slug}/credit-note`,
-        body,
-      );
+      await api.post(`/api/companies/${companyId}/invoices/${invoice.slug}/credit-note`, body);
       onSaved();
     } catch (err) {
       setError(errorMessage(err));
@@ -952,11 +907,14 @@ function CreditNoteModal({
     <Modal open onClose={onClose} title="Credit note">
       <div className="space-y-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          A credit note reduces this sale — it reverses revenue (and tax on a full
-          credit) into Sales Returns, and can be applied to the invoice to lower
-          what the customer owes.
+          A credit note reduces this sale — it reverses revenue (and tax on a full credit) into
+          Sales Returns, and can be applied to the invoice to lower what the customer owes.
         </p>
-        <Select label="Amount" value={mode} onChange={(e) => setMode(e.target.value as "full" | "amount")}>
+        <Select
+          label="Amount"
+          value={mode}
+          onChange={(e) => setMode(e.target.value as "full" | "amount")}
+        >
           <option value="full">Full — credit the whole invoice</option>
           <option value="amount">Partial — a specific amount</option>
         </Select>
@@ -1007,9 +965,7 @@ function WriteOffModal({
   onClose: () => void;
   onSaved: (fresh: Invoice, writeOffs: InvoiceWriteOff[]) => void;
 }) {
-  const [amount, setAmount] = React.useState(
-    (invoice.balanceCents / 100).toFixed(2),
-  );
+  const [amount, setAmount] = React.useState((invoice.balanceCents / 100).toFixed(2));
   const [kind, setKind] = React.useState<InvoiceWriteOffKind>("bad_debt");
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -1044,9 +1000,9 @@ function WriteOffModal({
     <Modal open onClose={onClose} title="Write off">
       <div className="space-y-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          A write-off clears part of this invoice&apos;s balance without a
-          payment and without reversing the sale. Bad debt posts to Bad Debt
-          Expense; the revenue stays recognized in its original period.
+          A write-off clears part of this invoice&apos;s balance without a payment and without
+          reversing the sale. Bad debt posts to Bad Debt Expense; the revenue stays recognized in
+          its original period.
         </p>
         <Input
           label={`Amount (${invoice.currency})`}
@@ -1190,17 +1146,15 @@ function ResendInvoiceModal({
                   className="h-9"
                 />
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Additional recipients only. Finance → Settings recipients are
-                  always included. Separate multiple addresses with commas.
+                  Additional recipients only. Finance → Settings recipients are always included.
+                  Separate multiple addresses with commas.
                 </p>
               </dd>
             </div>
             {details.replyTo && (
               <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
                 <dt className="text-slate-500 dark:text-slate-400">Reply to</dt>
-                <dd className="break-all text-slate-700 dark:text-slate-200">
-                  {details.replyTo}
-                </dd>
+                <dd className="break-all text-slate-700 dark:text-slate-200">{details.replyTo}</dd>
               </div>
             )}
           </dl>
@@ -1208,8 +1162,8 @@ function ResendInvoiceModal({
 
         {!details.configured && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-            No email transport is configured. This attempt will be logged, but
-            no email will be delivered.
+            No email transport is configured. This attempt will be logged, but no email will be
+            delivered.
           </div>
         )}
 
@@ -1230,10 +1184,7 @@ function ResendInvoiceModal({
             className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800"
           />
           <span className="flex min-w-0 gap-2">
-            <Paperclip
-              size={16}
-              className="mt-0.5 shrink-0 text-slate-400"
-            />
+            <Paperclip size={16} className="mt-0.5 shrink-0 text-slate-400" />
             <span>
               <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">
                 Attach invoice as PDF
@@ -1282,12 +1233,8 @@ function PaymentModal({
   onClose: () => void;
   onSaved: (fresh: Invoice) => void;
 }) {
-  const [amount, setAmount] = React.useState(
-    (invoice.balanceCents / 100).toFixed(2),
-  );
-  const [paidAt, setPaidAt] = React.useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [amount, setAmount] = React.useState((invoice.balanceCents / 100).toFixed(2));
+  const [paidAt, setPaidAt] = React.useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = React.useState<InvoicePaymentMethod>("bank_transfer");
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
@@ -1333,7 +1280,9 @@ function PaymentModal({
             inputMode="decimal"
             required
           />
-          <p className={`mt-1 text-xs ${overpay ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`}>
+          <p
+            className={`mt-1 text-xs ${overpay ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`}
+          >
             {overpay
               ? `Exceeds the ${formatMoney(invoice.balanceCents, invoice.currency)} balance due`
               : `Balance due: ${formatMoney(invoice.balanceCents, invoice.currency)}`}
