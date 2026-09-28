@@ -250,6 +250,34 @@ test("batch ordering follows Routine priorities without replacing required curre
   }
 });
 
+for (const continuationCount of [0, MAX_RUN_CONTINUATIONS]) {
+  test(`compact discovery pagination is separate from substantive batches at continuation count ${continuationCount}`, () => {
+    const brief = runBatchBrief({ ...briefWindow, continuationCount });
+    assert.match(
+      brief,
+      /Substantively review or process at most five source records or conversations per batch/,
+    );
+    assert.match(
+      brief,
+      /Compact discovery listings may use the tool's supported bounded page sizes/,
+    );
+    assert.match(brief, /retry the same page with a smaller limit if its output is truncated/);
+    assert.match(brief, /Capture and deduplicate stable IDs and cursors from fully read pages/);
+    assert.match(brief, /Record inventory coverage separately from completed substantive review/);
+    assert.match(
+      brief,
+      /keep completed IDs, unresolved items and stable source cursors in each checkpoint/i,
+    );
+    assert.match(brief, /Never call unfinished required work complete just because a batch ended/);
+    assert.match(
+      brief,
+      /respect current Grants, delivery limits, approval requirements and Standdowns/,
+    );
+    assert.match(brief, /elapsed work and waiting do not reset that boundary/);
+    assert.doesNotMatch(brief, /Review at most five source records or conversations per batch/);
+  });
+}
+
 test("deadline guidance reports the existing boundary without extending or rounding away its expiry", () => {
   const oneMillisecond = runBatchBrief({
     ...briefWindow,

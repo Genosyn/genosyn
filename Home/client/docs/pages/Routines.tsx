@@ -895,7 +895,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Employees are briefed to save progress after small batches, retain stable source IDs and the
-        original review window, and verify earlier changes before repeating a write or send. After a
+        original review window, and verify earlier changes before repeating a write or send. The
+        five-record batch size applies to substantive review or processing. Compact inventory
+        listings can use bounded pages supported by their tools, reducing the page size when a
+        response is truncated; captured IDs alone do not count as completed reviews. After a
         Run uses about two million tokens, Genosyn ends the batch at its next actionable saved
         checkpoint and continues in a fresh Run when time and continuations remain. During a
         continuation, that checkpoint must advance both its stable source position and its

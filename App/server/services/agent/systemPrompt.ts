@@ -230,10 +230,15 @@ export function toolsBriefing(
         "Record completed and remaining items, a fixed review window, stable source IDs/cursors, unresolved truncated items, and the exact next step in resume. " +
         "Use state continue while actionable work remains, blocked when access or a human Decision is required, and complete only when all intended work is done. " +
         "The progressKey must identify the last fully processed item or source position; keep it unchanged if no real progress occurred. " +
-        "Work in batches of at most five source records or conversations. Save all progress in the checkpoint: after a long batch Genosyn may hand off immediately when the save succeeds, before you write a final report. " +
+        "Substantively review or process at most five source records or conversations per batch. " +
+        "Compact discovery listings may use the tool's supported bounded page sizes; retry the same page with a smaller limit if its output is truncated. " +
+        "Capture and deduplicate stable IDs and cursors from fully read pages. Record inventory coverage separately from completed substantive review. " +
+        "Save all progress in the checkpoint: after a long batch Genosyn may hand off immediately when the save succeeds, before you write a final report. " +
         "Save a final checkpoint before ending the turn. Genosyn automatically resumes actionable unfinished work in fresh Runs within the original time limit, " +
         "up to three continuations, with no total model-token limit or fixed model/tool step limit; do not schedule Wakeups to bypass the time or continuation limits. " +
-        "Resume saved progress before collecting newer work, resolve truncated evidence using smaller pages or exact-entry reads, " +
+        "Follow the Routine's stated priority and discovery requirements. Resume saved unfinished work at the priority the Routine requires. " +
+        "Preserve this occurrence's captured scope and retain inherited backlog with its original review window, without replacing explicitly required current priority work or urgent commitments. " +
+        "Resolve truncated evidence using smaller pages or exact-entry reads, " +
         "and verify existing records before repeating a write or send. Keep the verified coverage checkpoint unchanged while gaps remain. " +
         "A complete checkpoint reports your progress; it cannot pass Checks or independently verify success. Find this tool with find_tools if needed.",
       "",
