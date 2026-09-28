@@ -532,6 +532,13 @@ export function Integrations() {
         with the same query and labels. It repeats this until Gmail omits <Code>nextPageToken</Code>
         , so busy date windows are scanned in full instead of stopping at the first 100 messages.
       </P>
+      <P>
+        Gmail searches, message reads in every supported format, and label lists automatically
+        retry temporary network failures, timeouts, rate limits, and service errors, with short
+        pauses and up to four attempts per read request. If those attempts fail, the tool returns
+        the error and the unread work remains unfinished. Sending mail and creating drafts are
+        single-attempt operations to avoid duplicates.
+      </P>
 
       <H3 id="gmail-attachments">Emailing files from Resources</H3>
       <P>

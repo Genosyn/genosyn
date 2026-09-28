@@ -3,11 +3,11 @@
  *
  * Deliberately dumb: every function takes a known-fresh access token and
  * returns parsed JSON — token refresh, persistence, and grant checks live in
- * `accounts.ts` / the callers. Kept separate from the agent-facing tools in
- * `integrations/providers/google/gmail-tools.ts`, which are one-shot LLM
- * tools; this module is the sync/write-through engine's transport.
+ * `accounts.ts` / the callers. The Email section and agent-facing Gmail
+ * reads share this transport so their transient-failure policy cannot drift.
  */
 
+import { setTimeout as delay } from "node:timers/promises";
 import { buildMimeString, toBase64Url, type MimeAttachment, type MimeFields } from "./mime.js";
 
 // Re-exported so the many call sites that import these from the mail client
@@ -111,14 +111,14 @@ export class GmailApiError extends Error {
 }
 
 export type GmailFetchOptions = {
-  /** GETs used by mailbox sync are idempotent and may be retried. Gmail writes
+  /** GETs used by mailbox sync and Gmail tools may be retried. Gmail writes
    * deliberately stay single-attempt: retrying an ambiguous send can deliver
    * the same email twice. */
   retry?: "read" | "none";
   /** Test seam. Production callers use the defaults. */
   maxAttempts?: number;
   timeoutMs?: number;
-  sleep?: (delayMs: number) => Promise<void>;
+  sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
   rng?: () => number;
 };
 
@@ -206,20 +206,19 @@ export async function gmailFetch(
   init: RequestInit = {},
   options: GmailFetchOptions = {},
 ): Promise<unknown> {
-  const retryReads = options.retry === "read";
+  // Opt-in alone must never replay an ambiguous send or other mutation.
+  const retryReads = options.retry === "read" && (init.method ?? "GET").toUpperCase() === "GET";
   const maxAttempts = retryReads ? (options.maxAttempts ?? GMAIL_READ_MAX_ATTEMPTS) : 1;
   const timeoutMs = Math.max(1, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
-  const sleep =
-    options.sleep ??
-    ((delayMs: number) =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, delayMs);
-      }));
+  const callerSignal = init.signal;
+  const sleep = options.sleep ?? ((delayMs, signal) => delay(delayMs, undefined, { signal }));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    callerSignal?.throwIfAborted();
     try {
       // A timeout signal cannot be reused after it fires; create a fresh one
-      // for every attempt.
+      // for every attempt, without replacing the caller's cancellation.
+      const timeoutSignal = AbortSignal.timeout(timeoutMs);
       const res = await fetch(`${GMAIL_API}${path}`, {
         ...init,
         headers: {
@@ -227,9 +226,11 @@ export async function gmailFetch(
           Authorization: `Bearer ${accessToken}`,
           accept: "application/json",
         },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal,
       });
+      callerSignal?.throwIfAborted();
       const text = await res.text();
+      callerSignal?.throwIfAborted();
       let parsed: unknown = null;
       try {
         parsed = text ? JSON.parse(text) : null;
@@ -254,8 +255,19 @@ export async function gmailFetch(
       }
       return parsed;
     } catch (error) {
+      // Caller cancellation is final, even if its reason looks like a
+      // retryable network failure. Only an individual request timeout retries.
+      callerSignal?.throwIfAborted();
       if (!retryReads || attempt >= maxAttempts || !isRetryableGmailReadError(error)) throw error;
-      await sleep(gmailReadRetryDelayMs(error, attempt, { rng: options.rng }));
+      try {
+        await sleep(
+          gmailReadRetryDelayMs(error, attempt, { rng: options.rng }),
+          callerSignal ?? undefined,
+        );
+      } catch (sleepError) {
+        callerSignal?.throwIfAborted();
+        throw sleepError;
+      }
     }
   }
   throw new Error("Gmail request exhausted its retry budget");

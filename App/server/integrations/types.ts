@@ -402,6 +402,12 @@ export type IntegrationProvider = {
    * client credentials (so the provider can refresh later), the
    * scope-group keys the user picked at start time, and (if the provider
    * returns one) a userinfo payload.
+   *
+   * The top-level `scope` config field is reserved for the issuer's granted
+   * scope identifiers (`tokens.scope`), never an outbound endpoint. The host
+   * excludes this metadata from destination preflight unless the catalog
+   * explicitly declares a form field named `scope`; all other URL/host fields
+   * remain subject to the public-network policy.
    */
   buildOauthConfig?(args: {
     tokens: OauthTokenSet;

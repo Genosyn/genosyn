@@ -36,7 +36,7 @@ import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
 import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
 import { makeAdSpendLedger } from "./adSpend.js";
-import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
+import { assertSafeIntegrationConfig } from "./integrationOutboundConfig.js";
 import { hasGoogleGmailMailboxScope } from "../integrations/providers/google/auth.js";
 
 const connectionCredentialTails = new Map<string, Promise<void>>();
@@ -794,7 +794,7 @@ export async function refreshConnectionStatus(
   let cfg: IntegrationConfig;
   try {
     cfg = decryptConnectionConfig(conn);
-    await assertSafeOutboundConfig(cfg);
+    await assertSafeIntegrationConfig({ provider, authMode: conn.authMode, config: cfg });
   } catch (err) {
     await persistConnectionStatusIfCurrent({
       connection: conn,
@@ -972,7 +972,7 @@ export async function invokeConnectionTool(args: {
 
   const cfg = decryptConnectionConfig(pair.connection);
   const credentialSnapshot = pair.connection.encryptedConfig;
-  await assertSafeOutboundConfig(cfg);
+  await assertSafeIntegrationConfig({ provider, authMode: pair.connection.authMode, config: cfg });
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
     authMode: pair.connection.authMode,

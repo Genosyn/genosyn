@@ -13,7 +13,8 @@ import { Channel } from "../../db/entities/Channel.js";
 import { createBaseRecordRow, findBaseField, unknownBaseFieldMessage, UUID_RE } from "../bases.js";
 import { findChannelBySlugOrId } from "../workspaceChat.js";
 import { broadcastToCompany } from "../realtime.js";
-import { assertSafeOutboundConfig, safeFetchBuffer } from "../../lib/outboundUrl.js";
+import { safeFetchBuffer } from "../../lib/outboundUrl.js";
+import { assertSafeIntegrationConfig } from "../integrationOutboundConfig.js";
 import { chatWithEmployee } from "../chat.js";
 import { recordAudit } from "../audit.js";
 import { toSlug } from "../../lib/slug.js";
@@ -425,7 +426,7 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
 
     const credentialSnapshot = conn.encryptedConfig;
     const cfg = decryptConnectionConfig(conn);
-    await assertSafeOutboundConfig(cfg);
+    await assertSafeIntegrationConfig({ provider, authMode: conn.authMode, config: cfg });
     let refreshed: IntegrationConfig | null = null;
     const runtimeCtx: IntegrationRuntimeContext = {
       authMode: conn.authMode,

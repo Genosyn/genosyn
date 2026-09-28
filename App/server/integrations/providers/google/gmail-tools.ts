@@ -9,6 +9,7 @@ import { readMailBody } from "../../../services/mail/bodyRead.js";
 import {
   extractBodies,
   getMessageWithInlineBodies,
+  gmailFetch as sharedGmailFetch,
   headerValue,
   type GmailMessage,
 } from "../../../services/mail/gmailClient.js";
@@ -209,7 +210,12 @@ export async function invokeGmailTool(
           if (typeof id === "string") qs.append("labelIds", id);
         }
       }
-      return gmailFetch(accessToken, `/users/me/messages?${qs.toString()}`);
+      return sharedGmailFetch(
+        accessToken,
+        `/users/me/messages?${qs.toString()}`,
+        {},
+        { retry: "read" },
+      );
     }
     case "gmail_get_message": {
       await assertCapability("mail.read", ctx);
@@ -220,9 +226,11 @@ export async function invokeGmailTool(
       const message =
         fmt === "text"
           ? await getMessageWithInlineBodies(accessToken, a.messageId)
-          : await gmailFetch(
+          : await sharedGmailFetch(
               accessToken,
               `/users/me/messages/${encodeURIComponent(a.messageId)}?format=${encodeURIComponent(fmt === "text" ? "full" : fmt)}`,
+              {},
+              { retry: "read" },
             );
       if (fmt !== "text") return message;
       const gmailMessage = message as GmailMessage;
@@ -265,7 +273,7 @@ export async function invokeGmailTool(
     }
     case "gmail_list_labels":
       await assertCapability("mail.read", ctx);
-      return gmailFetch(accessToken, "/users/me/labels");
+      return sharedGmailFetch(accessToken, "/users/me/labels", {}, { retry: "read" });
     default:
       throw new Error(`Unknown Gmail tool: ${name}`);
   }
