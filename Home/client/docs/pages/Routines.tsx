@@ -70,6 +70,11 @@ export function Routines() {
         and finished today. Skipped Runs are excluded. Both sections update automatically and follow
         the same search, employee, folder, tag, and health filters as the list below.
       </P>
+      <P>
+        A slow refresh can leave the last loaded results on screen until new data arrives. If recent
+        Runs cannot be loaded, use <Strong>Try again</Strong>. This loading error does not change a
+        Run&apos;s status.
+      </P>
 
       <H2 id="search">Searching the list</H2>
       <P>

@@ -58,55 +58,78 @@ export function RoutineActivity({
   routines: RoutineWithMeta[];
 }) {
   const [snapshot, setSnapshot] = React.useState<{
+    companyId: string;
     from: string;
     data: RoutineActivityData;
   } | null>(null);
-  const [error, setError] = React.useState(false);
+  const [errorCompanyId, setErrorCompanyId] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState(false);
-  const requestId = React.useRef(0);
-
-  const refresh = React.useCallback(async () => {
-    const id = ++requestId.current;
-    const range = todayRange();
-    try {
-      const data = await api.get<RoutineActivityData>(
-        `/api/companies/${company.id}/routines/activity?${new URLSearchParams(range)}`,
-      );
-      if (id !== requestId.current) return;
-      setSnapshot({ from: range.from, data });
-      setError(false);
-    } catch {
-      if (id !== requestId.current) return;
-      setError(true);
-    }
-  }, [company.id]);
+  const refreshRef = React.useRef<(() => void) | null>(null);
+  const refresh = React.useCallback(() => refreshRef.current?.(), []);
 
   React.useEffect(() => {
-    void refresh();
+    let disposed = false;
+    let inFlight = false;
+    let pending = false;
+    const load = async () => {
+      if (disposed) return;
+      if (inFlight) {
+        pending = true;
+        return;
+      }
+      inFlight = true;
+      const range = todayRange();
+      try {
+        const data = await api.get<RoutineActivityData>(
+          `/api/companies/${company.id}/routines/activity?${new URLSearchParams(range)}`,
+        );
+        if (disposed) return;
+        setSnapshot({ companyId: company.id, from: range.from, data });
+        setErrorCompanyId(null);
+      } catch {
+        if (!disposed) setErrorCompanyId(company.id);
+      } finally {
+        inFlight = false;
+        // Keep the reply visible even when reads are slower than polling or
+        // live events. Those refreshes need only one follow-up, not competing
+        // requests that continually invalidate each other's result.
+        if (pending && !disposed) {
+          pending = false;
+          void load();
+        }
+      }
+    };
+    refreshRef.current = () => void load();
+    // StrictMode tears down its first setup immediately. Avoid issuing a read
+    // for that discarded lifecycle; its guarded microtask simply does nothing.
+    queueMicrotask(() => void load());
     // Socket events cover ordinary changes. Polling also handles reconnects,
     // advancing elapsed times, and a page left open across local midnight.
     const refreshVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void load();
     };
     const timer = window.setInterval(refreshVisible, 30_000);
     window.addEventListener("focus", refreshVisible);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => {
-      requestId.current += 1;
+      disposed = true;
+      refreshRef.current = null;
       window.clearInterval(timer);
       window.removeEventListener("focus", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [refresh]);
+  }, [company.id]);
   useLiveRefetch(["routine", "run"], refresh);
 
   const byId = new Map(routines.map((routine) => [routine.id, routine]));
-  const data = snapshot?.from === todayRange().from ? snapshot.data : null;
+  const data = snapshot?.companyId === company.id && snapshot.from === todayRange().from
+    ? snapshot.data
+    : null;
   const running = data?.running.filter((run) => byId.has(run.routineId)) ?? [];
   const today = data?.today.filter((item) => byId.has(item.routineId)) ?? [];
   const runCount = today.reduce((count, item) => count + item.runCount, 0);
 
-  if (error) {
+  if (errorCompanyId === company.id) {
     return (
       <div className="mb-6 space-y-2">
         <FormError message="Couldn’t load recent Runs. Try again to see what’s running and what ran today." />

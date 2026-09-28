@@ -9,8 +9,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
-import { chromium, type Page, type WebSocketRoute } from "playwright-core";
-import type { CompanyTag, Employee, RoutineFolder, RoutineWithMeta, Run } from "../client/lib/api";
+import { chromium, type Page, type Route as BrowserRoute, type WebSocketRoute } from "playwright-core";
+import type { CompanyTag, EmployeeSummary, RoutineFolder, RoutineWithMeta, Run } from "../client/lib/api";
 import type { RoutineActivityData } from "../client/components/routines/RoutineActivity";
 import { browserTestVite } from "./browserTestVite";
 
@@ -56,10 +56,10 @@ const browser = await chromium
     throw error;
   });
 
-const employees = [
+const employees: EmployeeSummary[] = [
   { id: "jamie", slug: "jamie", name: "Jamie Mallers", role: "Support", avatarKey: null },
   { id: "alex", slug: "alex", name: "Alex Rivera", role: "Finance", avatarKey: null },
-] as Employee[];
+];
 
 function tag(id: string, name: string, color: CompanyTag["color"]): CompanyTag {
   return {
@@ -261,6 +261,9 @@ async function open(
     holdActivity?: boolean;
     activityError?: boolean;
     tickingClock?: boolean;
+    controlledActivity?: boolean;
+    lifecycle?: boolean;
+    strictLifecycle?: boolean;
   } = {},
 ) {
   const context = await browser.newContext({
@@ -271,6 +274,24 @@ async function open(
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
+  if (options.controlledActivity) {
+    // Count fetch starts synchronously, so asserting no request was issued does
+    // not depend on whether Playwright has delivered its route callback yet.
+    await page.addInitScript(() => {
+      const state = { started: 0, active: 0, maxActive: 0 };
+      (window as unknown as { activityRequests: typeof state }).activityRequests = state;
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (!new URL(url, location.href).pathname.endsWith("/routines/activity"))
+          return originalFetch(input, init);
+        state.started += 1;
+        state.active += 1;
+        state.maxActive = Math.max(state.maxActive, state.active);
+        return originalFetch(input, init).finally(() => { state.active -= 1; });
+      };
+    });
+  }
   if (options.tickingClock) {
     await page.clock.install({ time: new Date(fixtureNow.getTime() - 1000) });
     await page.clock.pauseAt(fixtureNow);
@@ -286,6 +307,8 @@ async function open(
     releaseActivity = resolve;
   });
   const reads: URL[] = [];
+  const activityRoutes: BrowserRoute[] = [];
+  const activityWaiters = new Map<number, () => void>();
   const sockets = new Set<WebSocketRoute>();
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.routeWebSocket("**/api/ws?*", (socket) => {
@@ -301,7 +324,7 @@ async function open(
       return route.abort();
     }
     if (!url.pathname.startsWith("/api/")) return route.continue();
-    if (request.method() === "POST" && url.pathname === "/api/companies/company/workspace/ws-token")
+    if (request.method() === "POST" && /^\/api\/companies\/(company|other)\/workspace\/ws-token$/.test(url.pathname))
       return route.fulfill({ json: { token: "fixture" } });
     if (request.method() !== "GET") {
       unexpectedRequests.push(`Unexpected write: ${request.method()} ${url.pathname}`);
@@ -314,7 +337,12 @@ async function open(
       return route.fulfill({ json: employees });
     if (url.pathname === "/api/companies/company/routine-folders")
       return route.fulfill({ json: { folders, unfiledCount: 2, maxDepth: 5 } });
-    if (url.pathname === "/api/companies/company/routines/activity") {
+    if (/^\/api\/companies\/(company|other)\/routines\/activity$/.test(url.pathname)) {
+      if (options.controlledActivity) {
+        activityRoutes.push(route);
+        activityWaiters.get(activityRoutes.length)?.();
+        return;
+      }
       if (options.holdActivity) await heldActivity;
       if (failed) return route.fulfill({ status: 503, json: { error: "Unavailable" } });
       return route.fulfill({ json: activity });
@@ -322,15 +350,34 @@ async function open(
     unexpectedRequests.push(`Unexpected read: ${url.pathname}`);
     return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
   });
-  await page.goto(`${origin}/__routine_activity`, { waitUntil: "commit", timeout: 60_000 });
-  await page
-    .getByRole("textbox", { name: "Search routines", exact: true })
-    .waitFor({ timeout: 300_000 });
+  const search = options.lifecycle ? `?lifecycle${options.strictLifecycle ? "&strict" : ""}` : "";
+  await page.goto(`${origin}/__routine_activity${search}`, { waitUntil: "commit", timeout: 60_000 });
+  await (options.lifecycle
+    ? page.getByRole("button", { name: "Unmount activity", exact: true })
+    : page.getByRole("textbox", { name: "Search routines", exact: true })
+  ).waitFor({ timeout: 300_000 });
   await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
   return {
     page,
     reads,
     releaseActivity,
+    waitForActivity: async (count: number) => {
+      if (activityRoutes.length >= count) return;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Activity request ${count} did not start`)), 15_000);
+        activityWaiters.set(count, () => { clearTimeout(timeout); resolve(); });
+      });
+    },
+    respondActivity: async (index: number, body: RoutineActivityData = activity, status = 200) => {
+      const route = activityRoutes[index];
+      assert.ok(route, `Activity request ${index + 1} must exist before responding`);
+      const response = page.waitForResponse((value) => value.request() === route.request());
+      await route.fulfill({ status, json: status === 200 ? body : { error: "Unavailable" } });
+      await response;
+    },
+    requestCounts: () => page.evaluate(() =>
+      (window as unknown as { activityRequests: { started: number; active: number; maxActive: number } }).activityRequests,
+    ),
     routines: data.routines,
     recover: () => {
       failed = false;
@@ -428,8 +475,144 @@ async function check(name: string, test: () => Promise<void>) {
   console.log(`PASS ${name}`);
 }
 
+/** Polls, focus, visibility and separate socket bursts all arrive before a reply. */
+async function refreshWhilePending(fixture: Awaited<ReturnType<typeof open>>) {
+  await fixture.page.clock.fastForward(30_001);
+  await fixture.page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  for (const kind of ["run", "routine"]) {
+    fixture.event(kind);
+    await fixture.page.clock.runFor(200);
+  }
+  await fixture.page.clock.fastForward(30_001);
+}
+
 try {
   await fs.mkdir(output, { recursive: true });
+  await check("slow activity success stays visible while refreshes coalesce", async () => {
+    const fixture = await open({ lifecycle: true, controlledActivity: true, tickingClock: true });
+    try {
+      await fixture.waitForActivity(1);
+      await refreshWhilePending(fixture);
+      assert.deepEqual(await fixture.requestCounts(), { started: 1, active: 1, maxActive: 1 });
+      await fixture.respondActivity(0);
+      await running(fixture.page).waitFor();
+      await fixture.waitForActivity(2);
+      assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 1, maxActive: 1 });
+      assert.equal(await fixture.page.getByText("Loading recent Runs…", { exact: true }).count(), 0);
+      await fixture.respondActivity(1, { running: [], today: [] });
+      await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
+      await fixture.page.clock.runFor(200);
+      assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 0, maxActive: 1 });
+    } finally {
+      await fixture.close();
+    }
+  });
+  await check("slow activity errors stay retryable while refreshes coalesce", async () => {
+    const fixture = await open({ lifecycle: true, controlledActivity: true, tickingClock: true });
+    try {
+      await fixture.waitForActivity(1);
+      await refreshWhilePending(fixture);
+      assert.equal((await fixture.requestCounts()).started, 1);
+      await fixture.respondActivity(0, undefined, 524);
+      await fixture.page.getByRole("alert").waitFor();
+      await fixture.waitForActivity(2);
+      assert.equal(await today(fixture.page).count(), 0);
+      await fixture.page.getByRole("button", { name: "Try again", exact: true }).click();
+      await fixture.page.getByRole("button", { name: "Try again", exact: true }).click();
+      assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 1, maxActive: 1 });
+      await fixture.respondActivity(1);
+      await running(fixture.page).waitFor();
+      await fixture.waitForActivity(3);
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+      await fixture.respondActivity(2);
+      await fixture.page.clock.runFor(200);
+      assert.deepEqual(await fixture.requestCounts(), { started: 3, active: 0, maxActive: 1 });
+    } finally {
+      await fixture.close();
+    }
+  });
+  await check("StrictMode effect restart keeps one usable slow activity request", async () => {
+    const fixture = await open({ lifecycle: true, strictLifecycle: true, controlledActivity: true, tickingClock: true });
+    try {
+      await fixture.waitForActivity(1);
+      await refreshWhilePending(fixture);
+      assert.deepEqual(await fixture.requestCounts(), { started: 1, active: 1, maxActive: 1 });
+      await fixture.respondActivity(0);
+      await running(fixture.page).waitFor();
+      await fixture.waitForActivity(2);
+      await fixture.respondActivity(1, { running: [], today: [] });
+      await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
+      await fixture.page.clock.runFor(200);
+      assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 0, maxActive: 1 });
+    } finally {
+      await fixture.close();
+    }
+  });
+  await check("unmount discards a slow activity response and its pending refresh", async () => {
+    const fixture = await open({ lifecycle: true, controlledActivity: true, tickingClock: true });
+    try {
+      await fixture.waitForActivity(1);
+      await refreshWhilePending(fixture);
+      await fixture.page.getByRole("button", { name: "Unmount activity", exact: true }).click();
+      await fixture.respondActivity(0, undefined, 524);
+      await refreshWhilePending(fixture);
+      assert.deepEqual(await fixture.requestCounts(), { started: 1, active: 0, maxActive: 1 });
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+      assert.equal(await today(fixture.page).count(), 0);
+      await fixture.page.getByRole("button", { name: "Mount activity", exact: true }).click();
+      await fixture.waitForActivity(2);
+      await fixture.respondActivity(1, { running: [], today: [] });
+      await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
+    } finally {
+      await fixture.close();
+    }
+  });
+  for (const oldStatus of [200, 524]) {
+    await check(`company change discards old activity data, ${oldStatus} reply and pending refresh`, async () => {
+      const fixture = await open({ lifecycle: true, controlledActivity: true, tickingClock: true });
+      try {
+        await fixture.waitForActivity(1);
+        await fixture.respondActivity(0);
+        await running(fixture.page).waitFor();
+        await fixture.page.clock.fastForward(30_001);
+        await fixture.waitForActivity(2);
+        await refreshWhilePending(fixture);
+        await fixture.page.getByRole("button", { name: "Switch company", exact: true }).click();
+        await fixture.waitForActivity(3);
+        await fixture.page.getByText("Loading recent Runs…", { exact: true }).waitFor();
+        assert.equal(await running(fixture.page).count(), 0, "the previous company's snapshot must not remain visible");
+        await fixture.respondActivity(2, { running: [], today: [] });
+        await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
+        await fixture.respondActivity(1, undefined, oldStatus);
+        await fixture.page.clock.runFor(200);
+        assert.equal(await running(fixture.page).count(), 0);
+        assert.equal(await fixture.page.getByRole("alert").count(), 0);
+        assert.equal((await fixture.requestCounts()).started, 3, "old-company pending work must not refetch");
+        await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
+      } finally {
+        await fixture.close();
+      }
+    });
+  }
+  await check("company change hides the previous company's activity error immediately", async () => {
+    const fixture = await open({ lifecycle: true, controlledActivity: true, tickingClock: true });
+    try {
+      await fixture.waitForActivity(1);
+      await fixture.respondActivity(0, undefined, 524);
+      await fixture.page.getByRole("alert").waitFor();
+      await fixture.page.getByRole("button", { name: "Switch company", exact: true }).click();
+      await fixture.waitForActivity(2);
+      await fixture.page.getByText("Loading recent Runs…", { exact: true }).waitFor();
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+      await fixture.respondActivity(1, { running: [], today: [] });
+      await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
+    } finally {
+      await fixture.close();
+    }
+  });
   for (const width of [1440, 375]) {
     await check(
       `continuation link keeps the historical badge and opens the current child at ${width}px`,

@@ -5,7 +5,8 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { CompanySocketProvider, useCompanySocket } from "@/components/CompanySocket";
 import { DialogProvider } from "@/components/ui/Dialog";
 import { ThemeProvider } from "@/components/Theme";
-import type { Company } from "@/lib/api";
+import { api, type Company, type RoutineWithMeta } from "@/lib/api";
+import { RoutineActivity } from "@/components/routines/RoutineActivity";
 import RoutinesIndex from "@/pages/RoutinesIndex";
 import RoutinesLayout from "@/pages/RoutinesLayout";
 import "../client/styles/index.css";
@@ -28,8 +29,37 @@ function SocketStatus() {
   return <output data-socket-status={status} hidden />;
 }
 
+/** Exercise prop changes without a key hiding the component's own cleanup. */
+function ActivityLifecycleHarness() {
+  const [selectedCompany, setSelectedCompany] = React.useState(company);
+  const [mounted, setMounted] = React.useState(true);
+  const [routines, setRoutines] = React.useState<RoutineWithMeta[] | null>(null);
+  React.useEffect(() => {
+    void api.get<RoutineWithMeta[]>("/api/companies/company/routines").then(setRoutines);
+  }, []);
+  return (
+    <CompanySocketProvider companyId={selectedCompany.id}>
+      <SocketStatus />
+      <button onClick={() => setMounted((value) => !value)}>
+        {mounted ? "Unmount activity" : "Mount activity"}
+      </button>
+      <button onClick={() => setSelectedCompany({ ...company, id: "other", slug: "other" })}>
+        Switch company
+      </button>
+      {mounted && routines && (
+        <RoutineActivity company={selectedCompany} routines={routines} />
+      )}
+    </CompanySocketProvider>
+  );
+}
+
+const lifecycle = new URLSearchParams(window.location.search).has("lifecycle");
+const strictLifecycle = new URLSearchParams(window.location.search).has("strict");
+const activityHarness = <MemoryRouter><ActivityLifecycleHarness /></MemoryRouter>;
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
+  lifecycle ? (
+    strictLifecycle ? <React.StrictMode>{activityHarness}</React.StrictMode> : activityHarness
+  ) : <React.StrictMode>
     <MemoryRouter initialEntries={["/c/company/routines"]}>
       <ThemeProvider>
         <DialogProvider>
