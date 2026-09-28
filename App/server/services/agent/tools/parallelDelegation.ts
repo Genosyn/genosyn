@@ -142,7 +142,7 @@ export function createParallelDelegationTool(params: {
     name: "delegate_parallel_work",
     executionLane: "delegation",
     description:
-      "Delegate independent briefs to copies of you with the same Grants. Include all inputs and requiredTools; workers do not see your conversation. Partition file writes because workers share a directory. At most 8 briefs per call, 12 per turn, 4 concurrent across calls. Returns completed results or pending result IDs after a bounded wait. While workers are pending, do independent work and recover status/evidence with get_parallel_work_result; use its bounded waitMs when waiting on a result instead of rapid polling. Do not redispatch. Keep the parent turn active until you have verified the needed results: ending it stops unfinished workers. Results persist for this Run lineage or conversation and identical completed briefs are reused. Required tools are checked before workers start. Verify results before acting.",
+      "Delegate independent, self-contained briefs with your Grants. Include inputs and requiredTools; workers cannot see this conversation. Partition shared file writes. Max 8/call, 12/turn, 4 concurrent across calls. Long work returns pending result IDs; do independent work or use get_parallel_work_result (waitMs:30000), without redispatch. Verify needed results before acting or ending this turn, which stops unfinished workers. Results persist for this Run lineage/conversation; identical completed briefs are reused. Required tools are checked first.",
     inputSchema: {
       type: "object",
       properties: {
