@@ -1,4 +1,5 @@
-import { In, IsNull, Not } from "typeorm";
+import { randomUUID } from "node:crypto";
+import { IsNull, LessThanOrEqual, Like, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -12,7 +13,7 @@ import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.
 
 export class QueuedRoutineIneligibleError extends Error {}
 
-/** Durable Runs are the queue; these promises are only local callers waiting for their result. */
+/** Pending Runs are durable; these promises are only local callers waiting for their result. */
 const waiters = new Map<
   string,
   { resolve: (run: Run) => void; reject: (error: unknown) => void }
@@ -46,140 +47,131 @@ export function registerQueuedRun(run: Run): Promise<Run> {
   });
   // A caller may only need the accepted Run id. The durable result remains readable.
   void completion.catch(() => undefined);
-  requestEmployeeDrain(run.employeeId!);
+  requestRunDispatch(run.id);
   return completion;
 }
 
-function requestEmployeeDrain(employeeId: string): void {
+function requestRunDispatch(runId: string): void {
   if (!canDispatch()) return;
-  requested.add(employeeId);
-  if (workers.has(employeeId)) return;
+  requested.add(runId);
+  if (workers.has(runId)) return;
   const generation = dispatchGeneration;
   const canClaim = (): boolean => canDispatch() && generation === dispatchGeneration;
   const work = Promise.resolve()
     .then(async () => {
       do {
         if (!canClaim()) return;
-        requested.delete(employeeId);
-        await withSchedulerLease(`routine-queue:${employeeId}`, 90_000, async (lease) => {
-          for (;;) {
-            if (!canClaim()) return;
-            lease.assertHeld();
-            const next = await claimNextRun(employeeId, lease.assertHeld, canClaim);
-            if (!next) return;
-            // Keep the employee slot until assessment, reflection and cleanup also finish.
-            await processRun(next.run, next.routine);
-          }
+        requested.delete(runId);
+        await withSchedulerLease(`routine-run:${runId}`, 90_000, async (lease) => {
+          if (!canClaim()) return;
+          lease.assertHeld();
+          const next = await claimRun(runId, lease.assertHeld, canClaim);
+          if (!next) return;
+          // Each Run owns its lifecycle independently, including assessment and cleanup.
+          await processRun(next.run, next.routine);
         });
-      } while (canClaim() && requested.has(employeeId));
+      } while (canClaim() && requested.has(runId));
     })
     .catch((error) => {
-      // The next heartbeat resumes durable queued work after transient database failures.
+      // The next heartbeat resumes durable pending work after transient database failures.
       // eslint-disable-next-line no-console
-      console.error(`[routine-queue] employee ${employeeId} dispatch failed:`, error);
+      console.error(`[routine-dispatch] Run ${runId} dispatch failed:`, error);
     })
-    .finally(() => {
-      workers.delete(employeeId);
-      if (canDispatch() && requested.has(employeeId)) requestEmployeeDrain(employeeId);
+    .finally(async () => {
+      // Run-specific leases must not accumulate one row per completed Run. A
+      // competing owner may already have renewed this name, so delete only an
+      // expired lease; its claim still provides the final duplicate-start fence.
+      if (AppDataSource.isInitialized) {
+        await AppDataSource.getRepository(SchedulerLease)
+          .delete({
+            name: `routine-run:${runId}`,
+            expiresAt: LessThanOrEqual(new Date()),
+          })
+          .catch((error) => {
+            // Recovery also sweeps expired dispatch leases after a crash or outage.
+            // eslint-disable-next-line no-console
+            console.error(`[routine-dispatch] Run ${runId} lease cleanup failed:`, error);
+          });
+      }
+      workers.delete(runId);
+      if (canDispatch() && requested.has(runId)) requestRunDispatch(runId);
     });
-  workers.set(employeeId, work);
+  workers.set(runId, work);
 }
 
-async function claimNextRun(
-  employeeId: string,
+async function claimRun(
+  runId: string,
   assertHeld: () => void,
   canClaim: () => boolean,
 ): Promise<{ run: Run; routine: Routine } | null> {
   if (!canClaim()) return null;
   const repo = AppDataSource.getRepository(Run);
-  if (await repo.existsBy({ queueActiveEmployeeId: employeeId })) return null;
-  if (!canClaim()) return null;
-  // A Run created before this feature was installed may lack its employee snapshot.
-  if (
-    await repo
-      .createQueryBuilder("run")
-      .innerJoin(Routine, "routine", "CAST(routine.id AS text) = run.routineId")
-      .where("routine.employeeId = :employeeId", { employeeId })
-      .andWhere("run.status = :status", { status: "running" })
-      .getExists()
-  )
-    return null;
-  if (!canClaim()) return null;
-  const pending = await repo
+  const run = await repo
     .createQueryBuilder("run")
     .addSelect("run.queueOptionsJson")
-    .where("run.employeeId = :employeeId AND run.status = :status", {
-      employeeId,
-      status: "queued",
-    })
-    .orderBy("run.createdAt", "ASC")
-    .addOrderBy("run.id", "ASC")
-    .getMany();
-  for (const run of pending) {
-    if (!canClaim()) return null;
-    assertHeld();
-    const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: run.routineId });
-    if (!canClaim()) return null;
-    const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
-    if (!canClaim()) return null;
-    if (!routine || !employee || routine.employeeId !== employeeId) {
-      await skipQueuedRun(run, "The Routine or its AI Employee was removed or reassigned.");
-      continue;
-    }
-    if (browserRunCreationBlocked({ employeeId, routineId: routine.id })) continue;
-    if ((await workBlockedForRoutine(routine)).blocked) continue;
-    if (!canClaim()) return null;
-    const automatic = ["schedule", "retry", "event", "webhook", "continuation"].includes(
-      run.triggerKind,
+    .where("run.id = :runId AND run.status = :status", { runId, status: "queued" })
+    .getOne();
+  if (!run?.employeeId || !canClaim()) return null;
+  assertHeld();
+  const employeeId = run.employeeId;
+  const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: run.routineId });
+  if (!canClaim()) return null;
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
+  if (!canClaim()) return null;
+  if (!routine || !employee || routine.employeeId !== employeeId) {
+    await skipQueuedRun(run, "The Routine or its AI Employee was removed or reassigned.");
+    return null;
+  }
+  if (browserRunCreationBlocked({ employeeId, routineId: routine.id })) return null;
+  if ((await workBlockedForRoutine(routine)).blocked) return null;
+  if (!canClaim()) return null;
+  const automatic = ["schedule", "retry", "event", "webhook", "continuation"].includes(
+    run.triggerKind,
+  );
+  if (automatic && (!routine.enabled || routine.requiresApproval)) {
+    await skipQueuedRun(
+      run,
+      routine.enabled
+        ? "This Routine now requires human approval before starting."
+        : "This Routine was disabled before its pending work started.",
     );
-    if (automatic && (!routine.enabled || routine.requiresApproval)) {
-      await skipQueuedRun(
-        run,
-        routine.enabled
-          ? "This Routine now requires human approval before starting."
-          : "This Routine was disabled before its queued work started.",
-      );
-      continue;
-    }
-    assertHeld();
-    try {
-      const claimed = await repo.update(
-        { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
+    return null;
+  }
+  assertHeld();
+  // The legacy column now identifies this Run's claim, never an employee slot.
+  // The conditional status transition fences competing dispatchers even if a
+  // scheduler lease expires while its owner is waiting on the database. A fresh
+  // token also fences late cleanup after this occurrence is deferred and reclaimed.
+  const claimId = `run:${run.id}:${randomUUID()}`;
+  const claimed = await repo.update(
+    { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
+    {
+      routineId: run.routineId,
+      status: "running",
+      queueActiveEmployeeId: claimId,
+      startedAt: new Date(),
+    },
+  );
+  if (claimed.affected !== 1) return null;
+  if (!canClaim()) {
+    // A stop may arrive during the claim's database round trip. Restore
+    // its pending state before returning whenever the connection remains open.
+    if (AppDataSource.isInitialized) {
+      await repo.update(
+        { id: run.id, status: "running", queueActiveEmployeeId: claimId },
         {
           routineId: run.routineId,
-          status: "running",
-          queueActiveEmployeeId: employeeId,
-          startedAt: new Date(),
+          status: "queued",
+          queueActiveEmployeeId: null,
+          startedAt: run.startedAt,
         },
       );
-      if (claimed.affected !== 1) continue;
-      if (!canClaim()) {
-        // A stop may arrive during the claim's database round trip. Restore
-        // its pending state before returning whenever the connection remains open.
-        if (AppDataSource.isInitialized) {
-          await repo.update(
-            { id: run.id, status: "running", queueActiveEmployeeId: employeeId },
-            {
-              routineId: run.routineId,
-              status: "queued",
-              queueActiveEmployeeId: null,
-              startedAt: run.startedAt,
-            },
-          );
-        }
-        return null;
-      }
-    } catch (error) {
-      // The unique slot also fences two replicas whose scheduler leases overlapped.
-      const code = (error as { code?: string }).code;
-      if (code === "23505" || code === "SQLITE_CONSTRAINT_UNIQUE") return null;
-      throw error;
     }
-    run.status = "running";
-    run.queueActiveEmployeeId = employeeId;
-    return { run, routine };
+    return null;
   }
-  return null;
+  run.status = "running";
+  run.queueActiveEmployeeId = claimId;
+  return { run, routine };
 }
 
 async function skipQueuedRun(run: Run, reason: string): Promise<void> {
@@ -208,8 +200,13 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
       // A stop that lands during preparation preserves this exact occurrence.
       deferred = true;
       await repo.update(
-        { id: run.id, status: "running" },
-        { routineId: run.routineId, status: "queued", startedAt: run.createdAt },
+        { id: run.id, status: "running", queueActiveEmployeeId: run.queueActiveEmployeeId! },
+        {
+          routineId: run.routineId,
+          status: "queued",
+          queueActiveEmployeeId: null,
+          startedAt: run.createdAt,
+        },
       );
     } else {
       const skipped = error instanceof QueuedRoutineIneligibleError;
@@ -226,7 +223,7 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
           retryOnTimeout: routine.retryOnTimeout,
         });
       await repo.update(
-        { id: run.id, status: "running" },
+        { id: run.id, status: "running", queueActiveEmployeeId: run.queueActiveEmployeeId! },
         {
           routineId: run.routineId,
           status: skipped ? "skipped" : "error",
@@ -250,7 +247,7 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
     }
   } finally {
     await repo.update(
-      { id: run.id, queueActiveEmployeeId: run.employeeId! },
+      { id: run.id, queueActiveEmployeeId: run.queueActiveEmployeeId! },
       {
         routineId: run.routineId,
         queueActiveEmployeeId: null,
@@ -294,19 +291,17 @@ export async function dispatchQueuedRoutineRuns(): Promise<void> {
   if (!canDispatch()) return;
   const rows = await AppDataSource.getRepository(Run).find({
     where: { status: "queued", employeeId: Not(IsNull()) },
-    select: { employeeId: true },
+    select: { id: true },
   });
-  for (const employeeId of new Set(rows.map((row) => row.employeeId!))) {
-    requestEmployeeDrain(employeeId);
-  }
+  for (const run of rows) requestRunDispatch(run.id);
 }
 
 /** Test/restore seam: await work already owned by this process, without creating new work. */
 export async function waitForRoutineQueueIdle(): Promise<void> {
-  await Promise.all(workers.values());
+  while (workers.size) await Promise.all(workers.values());
 }
 
-/** Release a crashed worker's post-Run slot only after its bounded assessment work can finish. */
+/** Release a crashed worker's claim only after its bounded assessment work can finish. */
 export async function releaseOrphanedQueueSlots(
   singleProcessBoot: boolean,
   now: Date,
@@ -315,16 +310,19 @@ export async function releaseOrphanedQueueSlots(
   const rows = await repo.find({ where: { queueActiveEmployeeId: Not(IsNull()) } });
   for (const run of rows) {
     if (run.status === "running") continue;
-    if (workers.has(run.queueActiveEmployeeId!)) continue;
+    if (workers.has(run.id)) continue;
     const lease = await AppDataSource.getRepository(SchedulerLease).findOneBy({
-      name: `routine-queue:${run.queueActiveEmployeeId}`,
+      // Employee-valued claims and their leases may remain after an upgrade.
+      name: run.queueActiveEmployeeId!.startsWith("run:")
+        ? `routine-run:${run.id}`
+        : `routine-queue:${run.queueActiveEmployeeId}`,
     });
     // A terminal verdict precedes assessment and reflection. A live owner still
-    // holds this slot, however old the Routine's original timeout has become.
+    // holds this claim, however old the Routine's original timeout has become.
     if (!singleProcessBoot && lease?.expiresAt && lease.expiresAt > now) continue;
     const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: run.routineId });
     // Grading and reflection each have a two-minute runtime ceiling. Even a
-    // lost renewal must not release the slot while either turn can still run.
+    // lost renewal must not release the claim while either turn can still run.
     const postRunDeadline = (run.finishedAt?.getTime() ?? 0) + 4 * 60_000;
     const cutoff =
       Math.max(
@@ -335,10 +333,14 @@ export async function releaseOrphanedQueueSlots(
     await repo.update(
       {
         id: run.id,
-        status: Not(In(["running", "queued"])),
+        status: Not("running"),
         queueActiveEmployeeId: run.queueActiveEmployeeId!,
       },
       { routineId: run.routineId, queueActiveEmployeeId: null },
     );
   }
+  await AppDataSource.getRepository(SchedulerLease).delete({
+    name: Like("routine-run:%"),
+    expiresAt: LessThanOrEqual(now),
+  });
 }

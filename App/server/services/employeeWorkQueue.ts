@@ -22,13 +22,16 @@ export type EmployeeQueueItem = {
 
 export type EmployeeWorkQueue = {
   employeeId: string;
+  /** First running item retained for older API clients. */
   current: EmployeeQueueItem | null;
+  running: EmployeeQueueItem[];
+  runningCount: number;
   pending: EmployeeQueueItem[];
   pendingCount: number;
 };
 
 /**
- * Read the durable queue independently of the calendar's selected day. Only
+ * Read active and deferred Routine work independently of the selected day. Only
  * public scheduling metadata crosses this boundary: replay options, approval
  * authority, checkpoints and transcripts never leave the server.
  */
@@ -58,6 +61,7 @@ export async function getEmployeeWorkQueue(
         "run.routineId",
         "run.triggerKind",
         "run.createdAt",
+        "run.startedAt",
         "run.finishedAt",
         "run.retryAt",
         "run.checkpointJson",
@@ -65,14 +69,15 @@ export async function getEmployeeWorkQueue(
         "run.continuationStopReason",
       ]);
 
-  const [currentRun, [queued, queuedCount], [retries, retryCount]] = await Promise.all([
+  const [[active, runningCount], [queued, queuedCount], [retries, retryCount]] = await Promise.all([
     query()
-      .andWhere("(run.status = :running OR run.queueActiveEmployeeId = :employeeId)", {
+      .andWhere("(run.status = :running OR run.queueActiveEmployeeId IS NOT NULL)", {
         running: "running",
       })
       .orderBy("run.startedAt", "ASC")
       .addOrderBy("run.id", "ASC")
-      .getOne(),
+      .take(QUEUE_PREVIEW_LIMIT)
+      .getManyAndCount(),
     query()
       .andWhere("run.status = :queued AND run.queueActiveEmployeeId IS NULL", { queued: "queued" })
       .orderBy("run.createdAt", "ASC")
@@ -83,7 +88,7 @@ export async function getEmployeeWorkQueue(
       .andWhere("run.status NOT IN (:...active) AND run.retryAt IS NOT NULL", {
         active: ["queued", "running"],
       })
-      // A child takes over the queue position at dispatch. Never show its
+      // A child replaces its follow-up at dispatch. Never show its
       // parent's temporary retry claim as a second pending occurrence.
       .andWhere((qb) => {
         const child = qb
@@ -129,16 +134,19 @@ export async function getEmployeeWorkQueue(
     };
   }
 
-  // Ready requests retain their durable FIFO order. Delayed retries have not
-  // joined that order yet, and follow it until the scheduler enqueues them.
+  const running = active
+    .map((run) => item(run))
+    .filter((entry): entry is EmployeeQueueItem => entry !== null);
+  // Sort pending work for display only. Different Runs dispatch independently.
   const pending = [...queued.map((run) => item(run)), ...retries.map((run) => item(run, true))]
     .filter((entry): entry is EmployeeQueueItem => entry !== null)
-    .slice(0, QUEUE_PREVIEW_LIMIT)
-    .map((entry, index) => ({ ...entry, position: index + 1 }));
+    .slice(0, QUEUE_PREVIEW_LIMIT);
 
   return {
     employeeId,
-    current: currentRun ? item(currentRun) : null,
+    current: running[0] ?? null,
+    running,
+    runningCount,
     pending,
     pendingCount: queuedCount + retryCount,
   };

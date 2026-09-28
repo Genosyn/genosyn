@@ -86,7 +86,11 @@ export class Run {
   @Column({ type: "varchar", nullable: true })
   employeeId!: string | null;
 
-  /** One database-enforced execution slot per employee, including final assessment. */
+  /**
+   * Active dispatch marker through final assessment. New claims use `run:<id>:<nonce>`
+   * so independent Runs never occupy a shared employee slot. The legacy column
+   * name and employee-valued claims remain compatible with existing databases.
+   */
   @Index({ unique: true })
   @Column({ type: "varchar", nullable: true })
   queueActiveEmployeeId!: string | null;

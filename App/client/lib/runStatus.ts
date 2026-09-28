@@ -10,6 +10,7 @@ export function runNeedsAttention(status: RunStatus | undefined): boolean {
 }
 
 export function runStatusLabel(status: RunStatus): string {
+  if (status === "queued") return "pending";
   return isRunError(status) ? "error" : status;
 }
 
@@ -18,7 +19,7 @@ export function runStatusHint(
   errorKind?: RunErrorKind | null,
 ): string | undefined {
   if (status === "queued")
-    return "Waiting in the AI Employee’s work queue. Routines run one at a time.";
+    return "Waiting to start. A Standdown can defer this Run; other Routines run independently.";
   if (status === "reviewed")
     return "The proactive review finished. This Run did not carry out the proposed work.";
   if (status === "failed")

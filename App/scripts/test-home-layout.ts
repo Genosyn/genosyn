@@ -326,7 +326,7 @@ function queueItem(changes: Partial<EmployeeQueueItem> = {}): EmployeeQueueItem 
     triggerKind: "schedule",
     queuedAt: "2026-09-09T08:55:00.000Z",
     availableAt: null,
-    position: 1,
+    position: null,
     blockedReason: null,
     ...changes,
   };
@@ -776,13 +776,16 @@ async function open(options: FixtureOptions = {}) {
       if (queueError)
         return route.fulfill({
           status: 503,
-          json: { error: "Work queue is temporarily unavailable." },
+          json: { error: "Routine Runs are temporarily unavailable." },
         });
       return route.fulfill({
         json:
           workQueue?.employeeId === queueMatch[1]
             ? workQueue
-            : { employeeId: queueMatch[1], current: null, pending: [], pendingCount: 0 },
+            : {
+                employeeId: queueMatch[1], current: null, running: [], runningCount: 0,
+                pending: [], pendingCount: 0,
+              },
       });
     }
     if (
@@ -3071,35 +3074,45 @@ try {
   });
   for (const width of [1440, 390, 320]) {
     await check(
-      `employee work queue stays above the calendar and shows waiting order at ${width}px`,
+      `employee Routine Runs stay above the calendar and show concurrent work at ${width}px`,
       async () => {
         const fixture = await open({
           width,
           dark: width === 320,
           workQueue: {
             employeeId: "employee-1",
-            current: queueItem({
-              id: "active",
-              runId: "active",
-              position: null,
-              routine: {
-                id: "active-routine",
-                name: "Morning customer briefing",
-                slug: "morning-briefing",
-              },
-            }),
+            current: null,
+            running: [
+              queueItem({
+                id: "active",
+                runId: "active",
+                routine: {
+                  id: "active-routine",
+                  name: "Morning customer briefing",
+                  slug: "morning-briefing",
+                },
+              }),
+              queueItem({
+                id: "active-2",
+                runId: "active-2",
+                routine: {
+                  id: "active-routine-2",
+                  name: "Review product feedback",
+                  slug: "product-feedback",
+                },
+              }),
+            ],
+            runningCount: 2,
             pending: [
               queueItem(),
               queueItem({
                 id: "queued-2",
-                position: 2,
                 triggerKind: "retry",
                 routine: { id: "routine-2", name: "Refresh customer notes", slug: "refresh-notes" },
                 availableAt: "2026-09-09T10:30:00.000Z",
               }),
               queueItem({
                 id: "queued-3",
-                position: 3,
                 triggerKind: "continuation",
                 routine: { id: "routine-3", name: "Finish weekly report", slug: "weekly-report" },
                 blockedReason: "Waiting for the employee Standdown to be lifted.",
@@ -3110,8 +3123,8 @@ try {
         });
         try {
           const day = await openDay(fixture.page);
-          const queue = day.getByRole("region", { name: "Work queue", exact: true });
-          await queue.getByText("3 pending", { exact: true }).waitFor();
+          const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+          await queue.getByText("2 running · 3 pending", { exact: true }).waitFor();
           await queue.getByText("Working now", { exact: true }).waitFor();
           assert.equal(
             await queue
@@ -3125,9 +3138,17 @@ try {
             "Refresh customer notes",
             "Finish weekly report",
           ]);
-          assert.deepEqual(
-            await pending.locator("[aria-label^='Queue position']").allTextContents(),
-            ["1", "2", "3"],
+          assert.equal(await pending.locator("[aria-label^='Queue position']").count(), 0);
+          const running = queue.getByRole("list", { name: "Running Routines", exact: true });
+          assert.deepEqual(await running.getByRole("link").allTextContents(), [
+            "Morning customer briefing",
+            "Review product feedback",
+          ]);
+          assert.equal(
+            await running
+              .getByRole("link", { name: "Review product feedback", exact: true })
+              .getAttribute("href"),
+            "/c/company/routines/employee-1/product-feedback?run=active-2",
           );
           await pending.getByText(/Waiting until/).waitFor();
           await pending
@@ -3135,7 +3156,7 @@ try {
             .waitFor();
           await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
           const queueHeading = await box(
-            queue.getByRole("heading", { name: "Work queue", exact: true }),
+            queue.getByRole("heading", { name: "Routine Runs", exact: true }),
           );
           const bounds = await box(day);
           assert.ok(
@@ -3148,7 +3169,7 @@ try {
             "modal has no horizontal overflow",
           );
           await fixture.page.screenshot({
-            path: path.join(output, `employee-work-queue-${width}.png`),
+            path: path.join(output, `employee-routine-runs-${width}.png`),
             fullPage: true,
           });
           const before = fixture.reads.filter((url) => url.includes("/work-queue")).length;
@@ -3159,7 +3180,7 @@ try {
             before,
             "changing calendar date does not reload or replace the queue",
           );
-          await queue.getByText("3 pending", { exact: true }).waitFor();
+          await queue.getByText("2 running · 3 pending", { exact: true }).waitFor();
           assert.deepEqual(fixture.writes, []);
         } finally {
           await fixture.page.close();
@@ -3168,32 +3189,36 @@ try {
     );
   }
   await check(
-    "employee work queue refreshes after a Run finishes while an earlier day stays selected",
+    "employee Routine Runs refresh after a Run finishes while an earlier day stays selected",
     async () => {
       const first = queueItem();
       const second = queueItem({
         id: "queued-2",
         runId: "queued-2",
-        position: 2,
         routine: { id: "routine-2", name: "Refresh customer notes", slug: "refresh-notes" },
       });
       const fixture = await open({
         live: true,
-        workQueue: { employeeId: "employee-1", current: first, pending: [second], pendingCount: 1 },
+        workQueue: {
+          employeeId: "employee-1", current: first, running: [first, second], runningCount: 2,
+          pending: [], pendingCount: 0,
+        },
       });
       try {
         const day = await openDay(fixture.page);
-        const queue = day.getByRole("region", { name: "Work queue", exact: true });
-        await queue.getByText("1 pending", { exact: true }).waitFor();
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue.getByText("2 running · 0 pending", { exact: true }).waitFor();
         await day.getByRole("button", { name: "Previous day", exact: true }).click();
         fixture.setQueue({
           employeeId: "employee-1",
-          current: { ...second, position: null },
+          current: second,
+          running: [second],
+          runningCount: 1,
           pending: [],
           pendingCount: 0,
         });
         fixture.emitResourceEvent("run");
-        await queue.getByText("0 pending", { exact: true }).waitFor();
+        await queue.getByText("1 running · 0 pending", { exact: true }).waitFor();
         await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
         assert.equal(
           await queue.getByRole("link", { name: "Review customer requests", exact: true }).count(),
@@ -3212,16 +3237,16 @@ try {
     },
   );
   await check(
-    "employee work queue loading and empty states leave recorded work usable",
+    "employee Routine Runs loading and empty states leave recorded work usable",
     async () => {
       const fixture = await open({ holdQueue: true });
       try {
         const day = await openDay(fixture.page);
-        const queue = day.getByRole("region", { name: "Work queue", exact: true });
-        await queue.getByRole("status").getByText("Loading work queue…", { exact: true }).waitFor();
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue.getByRole("status").getByText("Loading Routine Runs…", { exact: true }).waitFor();
         await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
         fixture.releaseQueue();
-        await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
+        await queue.getByText("No active or pending Routines.", { exact: true }).waitFor();
         assert.equal(await queue.getByText("Working now", { exact: true }).count(), 0);
       } finally {
         fixture.releaseQueue();
@@ -3230,23 +3255,25 @@ try {
     },
   );
   await check(
-    "employee work queue expands a long preview without hiding its full pending count",
+    "employee Routine Runs expands a long preview without hiding its full pending count",
     async () => {
       const fixture = await open({
         width: 390,
         workQueue: {
           employeeId: "employee-1",
           current: null,
+          running: [],
+          runningCount: 0,
           pending: Array.from({ length: 7 }, (_, index) =>
-            queueItem({ id: `queued-${index + 1}`, position: index + 1 }),
+            queueItem({ id: `queued-${index + 1}` }),
           ),
           pendingCount: 120,
         },
       });
       try {
         const day = await openDay(fixture.page);
-        const queue = day.getByRole("region", { name: "Work queue", exact: true });
-        await queue.getByText("120 pending", { exact: true }).waitFor();
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue.getByText("0 running · 120 pending", { exact: true }).waitFor();
         assert.equal(await queue.getByRole("listitem").count(), 5);
         await queue
           .getByText("Showing the first 5 of 120 pending Routines.", { exact: true })
@@ -3271,20 +3298,20 @@ try {
     },
   );
   await check(
-    "employee work queue failure is inline and retries independently of the calendar",
+    "employee Routine Runs failure is inline and retries independently of the calendar",
     async () => {
       const fixture = await open({ queueError: true, width: 320 });
       try {
         const day = await openDay(fixture.page);
-        const queue = day.getByRole("region", { name: "Work queue", exact: true });
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
         await queue
           .getByRole("alert")
-          .getByText("Work queue is temporarily unavailable.", { exact: true })
+          .getByText("Routine Runs are temporarily unavailable.", { exact: true })
           .waitFor();
         await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
         fixture.recover();
         await queue.getByRole("button", { name: "Try again", exact: true }).click();
-        await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
+        await queue.getByText("No active or pending Routines.", { exact: true }).waitFor();
         assert.equal(await queue.getByRole("alert").count(), 0);
       } finally {
         await fixture.page.close();

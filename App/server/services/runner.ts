@@ -167,8 +167,8 @@ export type StartRunOptions = {
 };
 
 /**
- * Enqueue a Run and return its durable row immediately (status `queued`),
- * along with a `completion` promise that resolves once the agent finishes and
+ * Persist and independently dispatch a Run, returning its durable row immediately
+ * (initially `queued`) and a `completion` promise that resolves once the agent finishes and
  * the row has been finalized. The durable log is registered in
  * {@link liveBuffers} for the lifetime of the run so polling clients can tail
  * output, while periodic snapshots are checkpointed to the DB for crash
@@ -181,7 +181,7 @@ export async function startRoutineRun(
   return prepareRoutineRun(routine, opts);
 }
 
-/** Queue-only execution seam: the caller must own the employee's durable slot. */
+/** Dispatch-only execution seam: the caller must own this Run's durable claim. */
 export async function executeQueuedRoutineRun(
   routine: Routine,
   queued: Run,
@@ -278,7 +278,7 @@ async function prepareRoutineRun(
     ...(queued ? { id: queued.id, createdAt: queued.createdAt } : { createdAt: startedAt }),
     routineId: routine.id,
     employeeId: emp.id,
-    queueActiveEmployeeId: queued ? emp.id : null,
+    queueActiveEmployeeId: queued?.queueActiveEmployeeId ?? null,
     queueOptionsJson: JSON.stringify({ ...opts, beforeRunPersist: undefined }),
     startedAt,
     status: queued ? "running" : "queued",
@@ -369,7 +369,7 @@ async function prepareRoutineRun(
   if (queued) {
     // A removed Routine/employee must not be resurrected by a slow setup save.
     const updated = await runRepo.update(
-      { id: queued.id, status: "running", queueActiveEmployeeId: emp.id },
+      { id: queued.id, status: "running", queueActiveEmployeeId: queued.queueActiveEmployeeId! },
       run,
     );
     if (updated.affected !== 1) throw new Error("The queued Run was removed before starting.");
@@ -1355,14 +1355,27 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
  * owns also keeps a concurrent settings edit from being clobbered.
  */
 async function touchRoutine(routineId: string, at: Date | null): Promise<void> {
+  if (!at) return;
   const repo = AppDataSource.getRepository(Routine);
-  const fresh = await repo.findOneBy({ id: routineId });
-  if (!fresh) return;
-  // Recompute nextRunAt from the moment the run finished. Collapses any missed
-  // slots that elapsed during a long-running invocation into a single future
-  // tick, so the heartbeat doesn't immediately refire the stale slot.
-  const next = fresh.enabled ? nextRunFor(fresh.cronExpr, at ?? new Date()) : fresh.nextRunAt;
-  await repo.update({ id: routineId }, { lastRunAt: at, nextRunAt: next });
+  for (;;) {
+    const fresh = await repo.findOneBy({ id: routineId });
+    if (!fresh || (fresh.lastRunAt && fresh.lastRunAt >= at)) return;
+    // Collapse elapsed slots without rewinding one already advanced by the
+    // heartbeat. A concurrent schedule edit is re-read before another attempt.
+    let next = fresh.enabled ? nextRunFor(fresh.cronExpr, at) : fresh.nextRunAt;
+    if (next && fresh.nextRunAt && fresh.nextRunAt > next) next = fresh.nextRunAt;
+    const updated = await repo.update(
+      {
+        id: routineId,
+        enabled: fresh.enabled,
+        cronExpr: fresh.cronExpr,
+        lastRunAt: fresh.lastRunAt ?? IsNull(),
+        nextRunAt: fresh.nextRunAt ?? IsNull(),
+      },
+      { lastRunAt: at, nextRunAt: next },
+    );
+    if (updated.affected === 1) return;
+  }
 }
 
 /**
@@ -1610,10 +1623,7 @@ function describeCheckPhase(phase: {
  * Keep the failure streak for diagnostics. Repeated failures do not place a
  * Standdown: the Routine keeps its schedule and configured retries.
  */
-async function updateRoutineFailureCount(
-  run: Run,
-  routine: Routine,
-): Promise<void> {
+async function updateRoutineFailureCount(run: Run, routine: Routine): Promise<void> {
   try {
     // A retry is still owed: count the failed chain once it is exhausted.
     if (run.retryAt) return;
@@ -1623,7 +1633,6 @@ async function updateRoutineFailureCount(
       run.outcomeVerdict !== "off_goal";
     const repo = AppDataSource.getRepository(Routine);
     if (clean) {
-      if (routine.consecutiveFailures === 0) return;
       await repo.update({ id: routine.id }, { consecutiveFailures: 0 });
       return;
     }
@@ -1632,8 +1641,7 @@ async function updateRoutineFailureCount(
     // failure of the Routine's own work, and a future caller that does reach
     // here with one must not count it as a failure.
     if (run.status === "skipped" || run.status === "reviewed") return;
-    const next = (routine.consecutiveFailures ?? 0) + 1;
-    await repo.update({ id: routine.id }, { consecutiveFailures: next });
+    await repo.increment({ id: routine.id }, "consecutiveFailures", 1);
   } catch (err) {
     // Diagnostic bookkeeping must not fail the Run it is recording.
     // eslint-disable-next-line no-console

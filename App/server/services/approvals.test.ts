@@ -29,7 +29,7 @@ import {
   rejectPendingApproval,
 } from "./approvals.js";
 import { notifyApprovalPending } from "./notifications.js";
-import { dispatchQueuedRoutineRuns, waitForRoutineQueueIdle } from "./routineQueue.js";
+import { resumeRoutineQueue, stopRoutineQueue, waitForRoutineQueueIdle } from "./routineQueue.js";
 
 before(initTestDb);
 after(closeTestDb);
@@ -101,13 +101,6 @@ describe("approval decision claims", () => {
       body: "Review the records.",
       requiresApproval: true,
     });
-    const blocker = await insert(Run, {
-      employeeId: employee.id,
-      routineId: routine.id,
-      status: "running",
-      startedAt: new Date(),
-      queueActiveEmployeeId: employee.id,
-    });
     const approval = await insert(Approval, {
       companyId: company.id,
       employeeId: employee.id,
@@ -115,6 +108,7 @@ describe("approval decision claims", () => {
       kind: "routine",
       status: "pending",
     });
+    stopRoutineQueue();
     try {
       const result = await approvePendingApproval({
         companyId: company.id,
@@ -132,8 +126,7 @@ describe("approval decision claims", () => {
         1,
       );
     } finally {
-      await AppDataSource.getRepository(Run).delete(blocker.id);
-      await dispatchQueuedRoutineRuns();
+      await resumeRoutineQueue();
       await waitForRoutineQueueIdle();
     }
   });

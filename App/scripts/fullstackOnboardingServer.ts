@@ -42,7 +42,20 @@ Object.assign(config.agent.codingTools, { enabled: false, executionMode: "disabl
 // Only the model endpoint is fake: Genosyn starts the actual pinned OpenCode runtime,
 // whose HTTP requests and MCP tool calls cross real process and network boundaries.
 const timeoutAttempts = new Map<string, number>();
+const concurrentModelRequests = new Set<string>();
+let releaseConcurrentModel!: () => void;
+const concurrentModelRelease = new Promise<void>((resolve) => {
+  releaseConcurrentModel = resolve;
+});
 const model = http.createServer(async (req, res) => {
+  // Hold only these fixture replies so the browser can prove both distinct
+  // Routines reached the real model runtime before either Run finishes.
+  if (req.method === "POST" && req.url === "/qa/concurrency/release") {
+    releaseConcurrentModel();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ reached: [...concurrentModelRequests] }));
+    return;
+  }
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
   if (req.url === "/v1/chat/completions") {
@@ -68,6 +81,14 @@ const model = http.createServer(async (req, res) => {
     // reads the Routine brief, but has only its submission tool and must not
     // accidentally contribute another retry cycle to this fixture's counts.
     const routineWork = Boolean(offeredTool("call_tool") || offeredTool("mark_run_failed"));
+    const concurrentMarker = ["qa-concurrent-routine-one", "qa-concurrent-routine-two"].find(
+      (marker) => !probe && routineWork && routineBrief.includes(marker),
+    );
+    if (concurrentMarker) {
+      concurrentModelRequests.add(concurrentMarker);
+      console.log(`[fullstack-concurrent] ${concurrentMarker} reached model`);
+      await concurrentModelRelease;
+    }
     if (!probe && routineWork && routineBrief.includes("qa-routine-standdown-resumed")) {
       const system = request.messages
         .filter((message: { role: string }) => message.role === "system")

@@ -28,7 +28,7 @@ import { releaseOrphanedQueueSlots } from "./routineQueue.js";
 /**
  * Crash recovery for Runs.
  *
- * The employee queue claims `status: "running"` before it does any work, and
+ * Routine dispatch claims `status: "running"` before it does any work, and
  * the writes that move the row off that status live in a detached async block
  * that a `kill -9` or a power cut never reaches. Nothing used to reconcile the
  * leftovers: the Run stayed `running` forever and System Health flagged it as

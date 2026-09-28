@@ -416,19 +416,19 @@ Post it to the #morning channel.`}</Pre>
         under the composer, and the conversation stays on whichever model answered last.
       </P>
 
-      <H2 id="concurrent-runs">The employee work queue</H2>
+      <H2 id="concurrent-runs">Concurrent Routine Runs</H2>
       <P>
-        Each AI Employee runs <Strong>one Routine at a time</Strong>. Scheduled, manually started,
-        and triggered work joins that employee&apos;s work queue and waits its turn. Queued work
-        survives a server restart. Retries and continuations wait until their due time, and a
-        Standdown keeps affected work waiting until it is lifted. Other AI Employees can keep
-        running their own Routines.
+        Each AI Employee can run <Strong>multiple Routines at the same time</Strong>. Scheduled,
+        manually started, and triggered Runs start independently, including when that employee is
+        already working. Runs waiting to start survive a server restart. Retries and continuations
+        wait until their due time, and a Standdown defers affected work until it is lifted.
       </P>
       <P>
         On <Strong>Home</Strong>, choose an AI Employee&apos;s bubble to see the{" "}
-        <Strong>Work queue</Strong> above their daily calendar: the current Routine, pending
-        positions, and any waiting reason. Both update automatically. Changing the calendar date
-        does not change the current queue.
+        <Strong>Routine Runs</Strong> above their daily calendar: concurrent Routines and any
+        pending work, including delayed retries, continuations, and Standdown reasons. Both update
+        automatically. Changing the calendar date does not change the current work. Pending Runs
+        have no employee queue position and do not wait for other Routines to finish.
       </P>
       <P>
         Starting a Routine does not make its AI Employee unavailable for Chat. Conversations are

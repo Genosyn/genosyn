@@ -83,8 +83,15 @@ async function call(eid = employee.id, suffix = "", cid = company.id) {
   return { status: response.status, body: await response.json() as EmployeeWorkQueue };
 }
 
-test("an ordinary Member sees active and FIFO pending work without internal payloads", async () => {
-  const active = await seedRun({ status: "running", queueActiveEmployeeId: employee.id });
+test("an ordinary Member sees concurrent active Runs and pending work without internal payloads", async () => {
+  const active = await seedRun({ status: "running", queueActiveEmployeeId: "run:first" });
+  const otherRoutine = await insert(Routine, {
+    employeeId: employee.id, name: "Inbox review", slug: "inbox-review", cronExpr: "0 9 * * *", body: "",
+  });
+  const concurrent = await seedRun({
+    status: "running", queueActiveEmployeeId: "run:second", routineId: otherRoutine.id,
+    startedAt: new Date("2026-09-24T08:00:01Z"),
+  });
   const second = await seedRun({
     createdAt: new Date("2026-09-24T08:02:00Z"),
     queueOptionsJson: JSON.stringify({ proactiveApprovalId: "private-authority" }),
@@ -98,19 +105,29 @@ test("an ordinary Member sees active and FIFO pending work without internal payl
   assert.equal(body.employeeId, employee.id);
   assert.equal(body.current?.runId, active.id);
   assert.equal(body.current?.position, null);
+  assert.equal(body.runningCount, 2);
+  assert.deepEqual(body.running.map((row) => [row.runId, row.position]), [[active.id, null], [concurrent.id, null]]);
   assert.equal(body.pendingCount, 2);
-  assert.deepEqual(body.pending.map((row) => [row.runId, row.position]), [[first.id, 1], [second.id, 2]]);
+  assert.deepEqual(body.pending.map((row) => [row.runId, row.position]), [[first.id, null], [second.id, null]]);
   assert.deepEqual(body.pending[0].routine, { id: routine.id, name: routine.name, slug: routine.slug });
   assert.doesNotMatch(JSON.stringify(body), /private-|queueOptionsJson|queueActiveEmployeeId|checkpointJson|logContent/);
 });
 
-test("a finishing Run still occupies the current slot until its cleanup completes", async () => {
-  const active = await seedRun({ status: "completed", queueActiveEmployeeId: employee.id });
-  assert.equal((await call()).body.current?.runId, active.id);
+test("finishing Runs retain live visibility for modern and legacy dispatch markers", async () => {
+  const legacy = await seedRun({ status: "completed", queueActiveEmployeeId: employee.id });
+  const active = await seedRun({
+    status: "completed", queueActiveEmployeeId: "run:finishing",
+    startedAt: new Date("2026-09-24T08:00:01Z"),
+  });
+  const { body } = await call();
+  assert.equal(body.runningCount, 2);
+  assert.deepEqual(body.running.map((row) => row.runId), [legacy.id, active.id]);
 });
 
 test("empty, unauthenticated, foreign company and foreign employee queues stay distinct", async () => {
-  assert.deepEqual((await call()).body, { employeeId: employee.id, current: null, pending: [], pendingCount: 0 });
+  assert.deepEqual((await call()).body, {
+    employeeId: employee.id, current: null, running: [], runningCount: 0, pending: [], pendingCount: 0,
+  });
   assert.equal((await call(randomUUID())).status, 404);
   const foreign = await insert(AIEmployee, { companyId: randomUUID(), name: "Other", slug: "other", role: "", soulBody: "" });
   assert.equal((await call(foreign.id)).status, 404);
@@ -126,11 +143,14 @@ test("validates employee identifiers and rejects unknown query fields", async ()
 
 test("excludes another employee's Runs and stale ownership after reassignment", async () => {
   await seedRun({ employeeId: randomUUID() });
+  await seedRun({ employeeId: randomUUID(), status: "running", queueActiveEmployeeId: "run:foreign" });
   const otherRoutine = await insert(Routine, {
     employeeId: randomUUID(), name: "Other", slug: "other", cronExpr: "0 9 * * *", body: "",
   });
   await seedRun({ routineId: otherRoutine.id });
-  assert.equal((await call()).body.pendingCount, 0);
+  const { body } = await call();
+  assert.equal(body.pendingCount, 0);
+  assert.equal(body.runningCount, 0);
 });
 
 test("shows delayed retries once, without exposing internal dispatch claim dates", async () => {
@@ -168,5 +188,16 @@ test("bounds the preview while preserving the full pending count", async () => {
   const { body } = await call();
   assert.equal(body.pending.length, 100);
   assert.equal(body.pendingCount, 103);
-  assert.equal(body.pending[99].position, 100);
+  assert.equal(body.pending[99].position, null);
+});
+
+test("bounds concurrent running previews without undercounting active work", async () => {
+  for (let i = 0; i < 103; i++) {
+    await seedRun({ status: "running", queueActiveEmployeeId: `run:${i}` });
+  }
+  const { body } = await call();
+  assert.equal(body.running.length, 100);
+  assert.equal(body.runningCount, 103);
+  assert.equal(body.current?.id, body.running[0].id);
+  assert.equal(body.pendingCount, 0);
 });

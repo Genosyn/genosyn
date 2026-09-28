@@ -283,6 +283,74 @@ try {
   assert(skills.some((skill) => skill.name === "Release checklist"));
   record("Skill created for the AI Employee");
 
+  if (!continuationOnly && !standdownOnly) {
+    const concurrentRuns: Array<{ routineApi: string; runId: string; marker: string }> = [];
+    for (const marker of ["qa-concurrent-routine-one", "qa-concurrent-routine-two"]) {
+      const created = await page.request.post(`${origin}${employeeBase}/routines`, {
+        data: { name: marker, cronExpr: "0 0 1 1 *" },
+      });
+      assert.equal(created.status(), 200, await created.text());
+      const routine = (await created.json()) as { id: string; slug: string };
+      const routineApi = `/api/companies/${company.id}/routines/${routine.id}`;
+      const saved = await page.request.put(`${origin}${routineApi}/readme`, {
+        data: { content: `Complete the local browser exercise ${marker}.` },
+      });
+      assert.equal(saved.status(), 200, await saved.text());
+      await go(`/c/${company.slug}/routines/${employee.slug}/${routine.slug}`);
+      const started: Promise<Response> = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`${routineApi}/run`) && response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Run now", exact: true }).first().click();
+      const response: Response = await started;
+      assert.equal(response.status(), 200, await response.text());
+      const run = (await response.json()) as { id: string };
+      concurrentRuns.push({ routineApi, runId: run.id, marker });
+      await page.getByRole("dialog").getByText("running", { exact: true }).waitFor();
+      await page.keyboard.press("Escape");
+    }
+    await until(
+      () =>
+        concurrentRuns.every(({ marker }) =>
+          serverLog.includes(`[fullstack-concurrent] ${marker} reached model`),
+        ),
+      "both Routines reaching the model concurrently",
+    );
+    for (const { runId } of concurrentRuns) {
+      assert.equal(
+        (await read<{ status: string }>(`/api/companies/${company.id}/runs/${runId}/log`)).status,
+        "running",
+      );
+    }
+    await go(`/c/${company.slug}/routines`);
+    const runningNow = page.getByRole("region", { name: "Running now", exact: true });
+    for (const { marker } of concurrentRuns) {
+      await runningNow
+        .getByRole("link", { name: `${marker}: view live Run`, exact: true })
+        .waitFor();
+    }
+    await page.screenshot({ path: path.join(output, "routines-running-concurrently.png") });
+    const released = await page.request.post(modelURL.replace(/\/v1$/, "/qa/concurrency/release"));
+    assert.equal(released.status(), 200, await released.text());
+    assert.deepEqual(
+      ((await released.json()) as { reached: string[] }).reached.sort(),
+      concurrentRuns.map(({ marker }) => marker).sort(),
+    );
+    await until(async () => {
+      const histories = await Promise.all(
+        concurrentRuns.map(({ routineApi }) =>
+          read<Array<{ status: string }>>(`${routineApi}/runs`),
+        ),
+      );
+      return histories.every(
+        (history) => history.length === 1 && history[0].status === "completed",
+      );
+    }, "both concurrent Routines completing");
+    record(
+      "Two different Routines for one AI Employee reached the real model concurrently, appeared together under Running now, and completed independently",
+    );
+  }
+
   if (!continuationOnly) {
     const marker = "qa-routine-standdown-resumed";
     const created = await page.request.post(`${origin}${employeeBase}/routines`, {

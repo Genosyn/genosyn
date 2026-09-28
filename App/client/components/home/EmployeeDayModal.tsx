@@ -116,7 +116,7 @@ export function EmployeeDayModal({
       size="lg"
       padded={false}
       title={`${employee.name}'s day`}
-      description={`${employee.role} · Work queue and daily timeline`}
+      description={`${employee.role} · Routine Runs and daily timeline`}
       footer={
         <>
           <Link

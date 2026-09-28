@@ -111,16 +111,28 @@ async function childMain(mode: string): Promise<void> {
         await import("../services/routineQueue.js");
       const employeeId = process.env.GENOSYN_TEST_EMPLOYEE_ID;
       assert.ok(employeeId);
-      // The real queue and runner coordinate through Postgres; only the model
-      // turn is deterministic and held so the parent can inspect ownership.
-      agentRuntime.run = async () => {
-        const active = await AppDataSource.getRepository(Run).findBy({
+      const { Routine } = await import("../db/entities/Routine.js");
+      // Real dispatch and Run lifecycles coordinate through Postgres; hold only
+      // the model turns so the parent can inspect concurrent claim ownership.
+      agentRuntime.run = async (params) => {
+        const prompt = params.messages
+          .flatMap((message) =>
+            message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])),
+          )
+          .join("\n");
+        const name = /^## Routine: (.+)$/m.exec(prompt)?.[1];
+        assert.ok(name, "Routine brief must identify its work");
+        const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({
           employeeId,
+          name,
+        });
+        const active = await AppDataSource.getRepository(Run).findOneByOrFail({
+          employeeId,
+          routineId: routine.id,
           status: "running",
         });
-        assert.equal(active.length, 1, "Two Routines ran for the same employee");
-        const finish = parentMessage("finish-run");
-        process.send!({ kind: "routine-started", runId: active[0].id });
+        const finish = parentMessage(`finish-run:${active.id}`);
+        process.send!({ kind: "routine-started", runId: active.id });
         await finish;
         return { finalText: "Done", steps: 1, stopReason: "end_turn" };
       };
@@ -592,45 +604,47 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     }
     await Promise.all(queuePeers.map((peer) => peer.ready));
     for (const peer of queuePeers) peer.child.send("start");
-    for (let index = 0; index < queued.length; index++) {
-      while (starts.length <= index) {
-        await deadline(
-          new Promise<void>((resolve) => {
-            wake = resolve;
-          }),
-          "Queued Run start",
-        );
-        wake = undefined;
-      }
-      assert.equal(
-        starts.length,
-        index + 1,
-        "A later Routine started before the active one finished",
+    while (starts.length < queued.length) {
+      await deadline(
+        new Promise<void>((resolve) => {
+          wake = resolve;
+        }),
+        "Concurrent Routine starts",
       );
-      assert.equal(starts[index].runId, queued[index].id, "Queued work must start in FIFO order");
-      assert.equal(await runs.countBy({ employeeId: queueEmployee.id, status: "running" }), 1);
-      assert.equal(
-        await runs.countBy({ employeeId: queueEmployee.id, status: "queued" }),
-        2 - index,
-      );
-      if (index === 0) {
-        await assert.rejects(
-          () => runs.update(queued[1].id, { queueActiveEmployeeId: queueEmployee.id }),
-          (error: unknown) => {
-            assert.equal((error as { code?: string }).code, "23505");
-            return true;
-          },
-          "Postgres must reject a second process claiming the occupied employee slot",
-        );
-      }
-      starts[index].child.send("finish-run");
+      wake = undefined;
     }
+    assert.equal(starts.length, queued.length);
+    assert.deepEqual(
+      new Set(starts.map(({ runId }) => runId)),
+      new Set(queued.map((run) => run.id)),
+      "Competing processes must execute each durable Run exactly once",
+    );
+    const concurrent = await runs.findBy({ employeeId: queueEmployee.id, status: "running" });
+    assert.equal(
+      concurrent.length,
+      queued.length,
+      "Every ready Routine must start before any finishes",
+    );
+    assert.equal(await runs.countBy({ employeeId: queueEmployee.id, status: "queued" }), 0);
+    for (const run of concurrent)
+      assert.ok(run.queueActiveEmployeeId?.startsWith(`run:${run.id}:`));
+    for (const { runId, child } of starts) child.send(`finish-run:${runId}`);
     await Promise.all(queuePeers.map((peer) => peer.exited()));
     assert.equal(starts.length, queued.length);
-    assert.equal(await runs.countBy({ employeeId: queueEmployee.id, status: "completed" }), 3);
-    assert.equal(await runs.countBy({ queueActiveEmployeeId: queueEmployee.id }), 0);
+    const completed = await runs.findBy({ employeeId: queueEmployee.id, status: "completed" });
+    assert.equal(completed.length, queued.length);
+    assert.ok(completed.every((run) => run.queueActiveEmployeeId === null));
+    for (const run of completed) {
+      assert.equal(
+        await AppDataSource.getRepository(SchedulerLease).countBy({
+          name: `routine-run:${run.id}`,
+        }),
+        0,
+        "Completed Runs must not leave permanent dispatch lease rows",
+      );
+    }
     console.log(
-      "PASS cross-process Routine queue: durable recovery, FIFO and exclusive employee ownership",
+      "PASS cross-process Routine dispatch: durable recovery, concurrent starts and one owner per Run",
     );
 
     const { createUserSession, resolveUserSession, revokeCurrentUserSession } =

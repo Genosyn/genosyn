@@ -325,12 +325,13 @@ export function Employees() {
         day. Work details stay hidden until you choose an employee.
       </P>
       <P>
-        Choose a bubble to open the employee&apos;s <Strong>Work queue</Strong> and{" "}
-        <Strong>work timeline</Strong> in a popup. The queue shows the Routine working now and
-        pending Routines in order, including when a retry or continuation is waiting until later or
-        a Standdown is stopping the work. Each AI Employee runs one Routine at a time, and the queue
-        updates as work starts and finishes. It always shows current work, even while you browse an
-        earlier day below. A long queue starts with five Routines; expand it to see more pending work.
+        Choose a bubble to open the employee&apos;s <Strong>Routine Runs</Strong> and{" "}
+        <Strong>work timeline</Strong> in a popup. The Runs list shows Routines working now
+        and any pending work, including when a retry or continuation is waiting until later or a
+        Standdown is stopping the work. An AI Employee can run multiple Routines together, and the
+        list updates as work starts and finishes. It always shows current work, even while you
+        browse an earlier day below. A long pending list starts with five Routines; expand it to see
+        more.
       </P>
       <P>
         The calendar opens on today, with the clock down the left and recorded work arranged through

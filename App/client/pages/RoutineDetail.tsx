@@ -1290,7 +1290,7 @@ function RunsTab({
                   </div>
                   <div className="text-slate-400 dark:text-slate-500">
                     {r.status === "queued"
-                      ? "Waiting in work queue"
+                      ? "Waiting to start"
                       : formatDuration(r.startedAt, r.finishedAt)}
                   </div>
                 </button>
@@ -1310,7 +1310,7 @@ function RunsTab({
             placeholder={
               logLoadError ??
               ((log?.status ?? activeRun?.status) === "queued"
-                ? "Waiting in this AI Employee’s work queue. This Run starts when earlier work finishes."
+                ? "Waiting to start. If a Standdown covers this Run, it resumes after the Standdown is lifted."
                 : "(empty log)")
             }
             className="h-full max-h-[60vh] min-h-[400px]"

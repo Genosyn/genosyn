@@ -61,7 +61,7 @@ for (const status of [
         onOpenRun: () => {},
       }),
     );
-    assert.match(html, new RegExp(`Continuation ${status}`));
+    assert.match(html, new RegExp(`Continuation ${status === "queued" ? "pending" : status}`));
     assert.match(html, /historical Run keeps its own result/);
     assert.doesNotMatch(html, /Old stop reason|success|verified/);
   });
@@ -223,7 +223,6 @@ describe("Routine Run failure and error presentation", () => {
 
   test("other status labels are preserved", () => {
     for (const status of [
-      "queued",
       "running",
       "completed",
       "reviewed",
@@ -292,7 +291,9 @@ describe("Routine Run failure and error presentation", () => {
     assert.equal(runLogNeedsPolling({ ...log, status: "running" }), true);
     assert.equal(runLogNeedsPolling({ ...log, status: "completed" }), false);
     const html = renderToStaticMarkup(React.createElement(RunStatusChip, { status: "queued" }));
-    assert.match(html, /Waiting in the AI Employee/);
+    assert.match(html, /Waiting to start/);
+    assert.match(html, />pending</);
+    assert.doesNotMatch(html, /work queue|one at a time/);
     assert.doesNotMatch(html, /animate-spin/);
   });
 });

@@ -975,7 +975,7 @@ export type RunTrigger =
 export type Run = {
   id: string;
   routineId: string;
-  /** When this Run joined its AI Employee's work queue. */
+  /** When this Run was accepted for dispatch. */
   queuedAt?: string | null;
   startedAt: string;
   finishedAt: string | null;
@@ -3547,14 +3547,17 @@ export type EmployeeQueueItem = {
   triggerKind: RunTrigger;
   queuedAt: string;
   availableAt: string | null;
-  /** One-based waiting order; the active Run has no position. */
+  /** Legacy field, always null: Runs no longer wait in employee order. */
   position: number | null;
   blockedReason: string | null;
 };
 
 export type EmployeeWorkQueue = {
   employeeId: string;
+  /** First running item retained for older API clients. */
   current: EmployeeQueueItem | null;
+  running: EmployeeQueueItem[];
+  runningCount: number;
   pending: EmployeeQueueItem[];
   pendingCount: number;
 };

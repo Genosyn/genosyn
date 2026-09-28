@@ -224,7 +224,7 @@ async function open(
     );
     if (queueMatch)
       return route.fulfill({
-        json: { employeeId: queueMatch[1], current: null, pending: [], pendingCount: 0 },
+        json: { employeeId: queueMatch[1], current: null, running: [], runningCount: 0, pending: [], pendingCount: 0 },
       });
     const logMatch = /^\/api\/companies\/company\/runs\/([^/]+)\/log$/.exec(url.pathname);
     if (logMatch && runLogs[logMatch[1]]) return route.fulfill({ json: runLogs[logMatch[1]] });
@@ -387,7 +387,7 @@ try {
           await day.getByRole("button", { name: "Go to first work", exact: true }).click();
           await day.getByRole("button", { name: "Open the run log", exact: true }).click();
           const modal = page.getByRole("dialog", { name: `Run: ${routine}`, exact: true });
-          await modal.getByText("Continuation queued", { exact: true }).waitFor();
+          await modal.getByText("Continuation pending", { exact: true }).waitFor();
           await modal.getByText("Original unfinished work", { exact: true }).waitFor();
           await modal.getByText("checks failed", { exact: true }).waitFor();
           assert.equal(
@@ -405,7 +405,7 @@ try {
           await modal.getByText("Continuation running", { exact: true }).waitFor();
           await modal.getByText("Historical parent transcript", { exact: true }).waitFor();
           setRunLog("outcome-run", { ...parentLog, followUpRun: leaf });
-          await modal.getByText("Continuation queued", { exact: true }).waitFor();
+          await modal.getByText("Continuation pending", { exact: true }).waitFor();
           await fitsViewport(page);
           await page.screenshot({
             path: path.join(output, `continuation-handoff-${width}.png`),
@@ -459,8 +459,8 @@ try {
       const dialog = await openDay(page);
       await dialog.getByText(summary, { exact: true }).waitFor();
       await dialog
-        .getByRole("region", { name: "Work queue", exact: true })
-        .getByText("No Routines waiting.", { exact: true })
+        .getByRole("region", { name: "Routine Runs", exact: true })
+        .getByText("No active or pending Routines.", { exact: true })
         .waitFor();
       await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
       assert.equal(await dialog.getByText(summary, { exact: true }).count(), 1);

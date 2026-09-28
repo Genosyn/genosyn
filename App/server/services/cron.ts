@@ -193,8 +193,8 @@ export async function tickRoutine(
     );
     return;
   }
-  // Each occurrence joins the employee's durable queue, even while a previous
-  // Routine is still running. The queue owns overlap prevention for all origins.
+  // Persist each occurrence and dispatch it independently, even while another
+  // Routine is running. Per-Run claims prevent duplicate starts across replicas.
   const { completion } = await startRoutineRun(fresh, {
     triggerKind: "schedule",
     missedSlots: meta.missedSlots,
@@ -637,7 +637,7 @@ async function runHeartbeat(generation: number): Promise<void> {
       assertHeld();
       await dispatchDueRetries(now, assertHeld);
       // Resume queued occurrences after restart or after a Standdown is lifted.
-      // Workers hold one employee slot and execute in the background.
+      // Each Run owns its dispatch claim and executes independently in the background.
       assertHeld();
       if (pendingQueueResume) {
         pendingQueueResume = false;

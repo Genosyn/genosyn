@@ -30,27 +30,29 @@ const EmployeeQueueItem = z.object({
   triggerKind: z.enum(["schedule", "manual", "webhook", "approval", "retry", "event", "continuation"]),
   queuedAt: z.string().datetime(),
   availableAt: z.string().datetime().nullable(),
-  position: z.number().int().positive().nullable(),
+  position: z.null().describe("Legacy field; concurrent Runs have no queue position."),
   blockedReason: z.string().nullable(),
 });
 
 registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/employees/{eid}/work-queue",
-  summary: "Read an AI Employee's Routine work queue",
+  summary: "Read an AI Employee's active and pending Routine Runs",
   description:
-    "Returns current work and up to 100 pending Runs in queue order, followed by delayed retries " +
-    "and continuations. Each AI Employee processes one Routine at a time. The queue is independent " +
-    "of the work calendar and is visible to every company Member.",
+    "Returns up to 100 concurrent running Runs and 100 pending Runs, including delayed retries " +
+    "and continuations, with full counts. Pending work does not wait for another Routine to finish. " +
+    "The list is independent of the work calendar and is visible to every company Member.",
   tags: ["Employees"],
   security: defaultSecurity,
   request: { params: cidEidParam },
   responses: {
     200: {
-      description: "Current work, pending work and the full pending count",
+      description: "Running work, pending work and their full counts",
       content: { "application/json": { schema: z.object({
         employeeId: z.string().uuid(),
-        current: EmployeeQueueItem.nullable(),
+        current: EmployeeQueueItem.nullable().describe("First running item, for older API clients."),
+        running: z.array(EmployeeQueueItem),
+        runningCount: z.number().int().nonnegative(),
         pending: z.array(EmployeeQueueItem),
         pendingCount: z.number().int().nonnegative(),
       }) } },

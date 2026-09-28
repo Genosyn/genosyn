@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Clock3, ListOrdered } from "lucide-react";
+import { Activity, Clock3 } from "lucide-react";
 
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Button } from "@/components/ui/Button";
@@ -16,7 +16,7 @@ import type {
 import { errorMessage } from "@/lib/errors";
 import { workRelativeTime } from "@/lib/workTimeline";
 
-/** The employee's live Routine queue stays independent of the calendar date. */
+/** Active and pending Routine Runs stay independent of the calendar date. */
 export function EmployeeWorkQueue({
   company,
   employee,
@@ -44,7 +44,7 @@ export function EmployeeWorkQueue({
       setError(null);
     } catch (err) {
       if (ticket !== request.current) return;
-      setError(errorMessage(err, "Could not load the work queue."));
+      setError(errorMessage(err, "Could not load Routine Runs."));
     }
   }, [company.id, employee.id]);
 
@@ -78,20 +78,20 @@ export function EmployeeWorkQueue({
           id={headingId}
           className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100"
         >
-          <ListOrdered size={16} className="text-slate-400" aria-hidden="true" />
-          Work queue
+          <Activity size={16} className="text-slate-400" aria-hidden="true" />
+          Routine Runs
         </h3>
         {currentData && !error && (
           <span
             className="text-xs tabular-nums text-slate-500 dark:text-slate-400"
             aria-live="polite"
           >
-            {currentData.pendingCount} pending
+            {currentData.runningCount} running · {currentData.pendingCount} pending
           </span>
         )}
       </div>
       <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-        Routines run one at a time. This queue always shows the current work.
+        Routines run independently. Current work stays visible while you browse the calendar.
       </p>
       {error ? (
         <div className="mt-3">
@@ -111,37 +111,37 @@ export function EmployeeWorkQueue({
           className="mt-4 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"
           role="status"
         >
-          <Spinner size={14} /> Loading work queue…
+          <Spinner size={14} /> Loading Routine Runs…
         </div>
       ) : (
         <div className="mt-3 space-y-3">
-          {currentData.current && (
+          {currentData.running.length > 0 && (
             <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 dark:border-indigo-500/20 dark:bg-indigo-500/5">
               <p className="mb-1.5 flex items-center gap-2 text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
                 Working now
               </p>
-              <QueueRoutine
-                item={currentData.current}
-                routineBase={routineBase}
-                onClose={onClose}
-                active
-              />
+              <ul aria-label="Running Routines" className="space-y-2">
+                {currentData.running.map((item) => (
+                  <li key={item.id}>
+                    <QueueRoutine item={item} routineBase={routineBase} onClose={onClose} active />
+                  </li>
+                ))}
+              </ul>
+              {currentData.runningCount > currentData.running.length && (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Showing {currentData.running.length} of {currentData.runningCount} running Routines.
+                </p>
+              )}
             </div>
           )}
           {currentData.pending.length > 0 ? (
-            <ol
+            <ul
               aria-label="Pending Routines"
               className="divide-y divide-slate-100 dark:divide-slate-800"
             >
               {visiblePending.map((item) => (
                 <li key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                  <span
-                    aria-label={`Queue position ${item.position}`}
-                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-[11px] font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                  >
-                    {item.position}
-                  </span>
                   <div className="min-w-0 flex-1">
                     <QueueRoutine item={item} routineBase={routineBase} onClose={onClose} />
                     <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
@@ -149,7 +149,7 @@ export function EmployeeWorkQueue({
                         ? "Retry"
                         : item.triggerKind === "continuation"
                           ? "Continuation"
-                          : "Queued"}
+                          : "Pending"}
                       {" · "}
                       <time
                         dateTime={item.queuedAt}
@@ -182,10 +182,10 @@ export function EmployeeWorkQueue({
                   </div>
                 </li>
               ))}
-            </ol>
+            </ul>
           ) : (
             <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-              No Routines waiting.
+              {currentData.runningCount > 0 ? "No Routines waiting." : "No active or pending Routines."}
             </p>
           )}
           {currentData.pending.length > 5 && (

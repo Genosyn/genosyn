@@ -1316,7 +1316,7 @@ function RunLiveModalContent({
               onScroll={handleScroll}
               placeholder={
                 isQueued
-                  ? "Waiting in this AI Employee’s work queue. This Run starts when earlier work finishes."
+                  ? "Waiting to start. If a Standdown covers this Run, it resumes after the Standdown is lifted."
                   : log === null
                     ? "Starting…"
                     : "Waiting for output…"

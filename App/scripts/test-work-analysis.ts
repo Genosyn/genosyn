@@ -537,7 +537,7 @@ try {
         return route.fulfill({ json: timeline(item.entries, url.searchParams) });
       if (url.pathname === "/api/companies/company/employees/jamie/work-queue")
         return route.fulfill({
-          json: { employeeId: "jamie", current: null, pending: [], pendingCount: 0 },
+          json: { employeeId: "jamie", current: null, running: [], runningCount: 0, pending: [], pendingCount: 0 },
         });
       unexpected.push(`${request.method()} ${url.pathname}`);
       return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
@@ -549,8 +549,8 @@ try {
       const day = page.getByRole("dialog", { name: "Jamie Mallers's day", exact: true });
       await day.getByRole("button", { name: "Go to first work", exact: true }).click();
       await day
-        .getByRole("region", { name: "Work queue", exact: true })
-        .getByText("No Routines waiting.", { exact: true })
+        .getByRole("region", { name: "Routine Runs", exact: true })
+        .getByText("No active or pending Routines.", { exact: true })
         .waitFor();
       await item.run(page, day);
       assert.deepEqual(errors, [], "Production components must not throw in the browser");

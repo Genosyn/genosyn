@@ -90,7 +90,7 @@ const Run = z
         "The AI Employee's reason the intended work could not be completed; separate from outcome grading and Checks.",
       ),
     exitCode: z.number().nullable(),
-    queuedAt: z.string().datetime().describe("When this Run joined the AI Employee's work queue."),
+    queuedAt: z.string().datetime().describe("When this Run was accepted for dispatch."),
     startedAt: z.string().datetime(),
     finishedAt: z.string().datetime().nullable(),
     triggerKind: z
@@ -530,10 +530,10 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/companies/{cid}/routines/{rid}/run",
-  summary: "Add a routine to its AI Employee's work queue",
+  summary: "Start a Routine now",
   description:
-    "Queues the routine outside its cron schedule. Returns the new `Run` row in `queued` status. " +
-    "Each AI Employee processes one Routine at a time, in queue order. " +
+    "Accepts a Routine Run outside its cron schedule. Returns the new `Run` row in `queued` status " +
+    "while dispatch starts it independently of other Runs for the same AI Employee. " +
     "Poll `GET /routines/{rid}/runs` or the log via " +
     "`GET /runs/{runId}/log` to follow progress.",
   tags: ["Routines"],
