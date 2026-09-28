@@ -79,7 +79,7 @@ export function ConnectMailboxForm({
   const [phase, setPhase] = React.useState<Phase>({ step: "address" });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [waitingForGoogle, setWaitingForGoogle] = React.useState(false);
+  const [waitingForOauth, setWaitingForOauth] = React.useState(false);
   const oauthController = React.useRef<AbortController | null>(null);
 
   // Password step
@@ -141,7 +141,7 @@ export function ConnectMailboxForm({
       await connectWithOauth({
         companyId,
         signal: controller.signal,
-        onWaiting: () => setWaitingForGoogle(true),
+        onWaiting: () => setWaitingForOauth(true),
         start: () =>
           api.post<IntegrationOauthStart>(`/api/companies/${companyId}/integrations/oauth/start`, {
             provider,
@@ -155,7 +155,7 @@ export function ConnectMailboxForm({
       if (!controller.signal.aborted) setError(errorText(err));
     } finally {
       oauthController.current = null;
-      setWaitingForGoogle(false);
+      setWaitingForOauth(false);
       setBusy(false);
     }
   }
@@ -272,9 +272,9 @@ export function ConnectMailboxForm({
               installation.
             </p>
           )}
-          {waitingForGoogle && (
+          {waitingForOauth && (
             <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-              <p role="status">Waiting for Google sign-in…</p>
+              <p role="status">Waiting for sign-in…</p>
               <button
                 type="button"
                 className="underline"

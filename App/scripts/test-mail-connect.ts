@@ -376,7 +376,7 @@ add(
       path: path.join(output, "mail-connect-hosted-broker.png"),
       fullPage: true,
     });
-    await form(page).getByRole("status").getByText("Waiting for Google sign-in…").waitFor();
+    await form(page).getByRole("status").getByText("Waiting for sign-in…").waitFor();
     // A forged same-origin message is not proof that the hosted flow completed.
     await page.evaluate(() =>
       window.postMessage({ source: "genosyn-oauth", ok: true }, window.location.origin),
