@@ -279,6 +279,9 @@ export function Employees() {
           days are injected into every chat and routine run. For the server&apos;s own account of
           the same work, rather than the employee&apos;s, see{" "}
           <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
+          {" "}Employee-written entries allow a title of 1–200 characters and a body of up to
+          10,000 characters. Keep summaries compact and link to existing detailed records;
+          the tool advertises these limits before the employee writes an entry.
         </LI>
         <LI>
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and

@@ -1596,8 +1596,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
-        title: { type: "string" },
-        body: { type: "string" },
+        title: { type: "string", minLength: 1, maxLength: 200 },
+        body: { type: "string", maxLength: 10_000 },
       },
       required: ["title"],
       additionalProperties: false,
