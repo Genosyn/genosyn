@@ -335,23 +335,28 @@ routineChecksRouter.get(
   "/routines/runs/:runId/effects",
   validateParams(runParamsSchema),
   validateQuery(effectsQuerySchema),
-  async (req, res) => {
-    const run = await loadRun(req.params.cid, req.params.runId);
-    if (!run) return res.status(404).json({ error: "Run not found" });
-    const { limit } = req.query as unknown as z.infer<typeof effectsQuerySchema>;
-    const [effects, total] = await Promise.all([
-      runEffects(run.id, { companyId: req.params.cid, limit }),
-      countEffects(run.id),
-    ]);
-    res.json({
-      effects: effects.map((e) => ({
-        action: e.action,
-        targetType: e.targetType,
-        targetId: e.targetId,
-        targetLabel: e.targetLabel,
-        at: e.at.toISOString(),
-      })),
-      total,
-    });
+  async (req, res, next) => {
+    try {
+      const run = await loadRun(req.params.cid, req.params.runId);
+      if (!run) return res.status(404).json({ error: "Run not found" });
+      const { limit } = req.query as unknown as z.infer<typeof effectsQuerySchema>;
+      const [effects, total] = await Promise.all([
+        runEffects(run.id, { companyId: req.params.cid, limit }),
+        countEffects(run.id),
+      ]);
+      res.json({
+        effects: effects.map((e) => ({
+          action: e.action,
+          targetType: e.targetType,
+          targetId: e.targetId,
+          targetLabel: e.targetLabel,
+          at: e.at.toISOString(),
+        })),
+        total,
+      });
+    } catch (err) {
+      // A failed evidence read must answer the browser, not leave it loading.
+      next(err);
+    }
   },
 );

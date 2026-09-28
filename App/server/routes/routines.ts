@@ -919,54 +919,59 @@ routinesRouter.get(
  * endpoint never has to worry about runaway sizes. Status fields ride
  * along so callers can poll a single endpoint to drive a live-log modal.
  */
-routinesRouter.get("/runs/:runId/log", async (req, res) => {
-  const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
-  if (!run) return res.status(404).json({ error: "Not found" });
-  // Confirm the caller has access to the parent routine (company scope).
-  const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
-  if (!found) return res.status(404).json({ error: "Not found" });
+routinesRouter.get("/runs/:runId/log", async (req, res, next) => {
+  try {
+    const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
+    if (!run) return res.status(404).json({ error: "Not found" });
+    // Confirm the caller has access to the parent routine (company scope).
+    const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
+    if (!found) return res.status(404).json({ error: "Not found" });
 
-  const live = getLiveRunSnapshot(run.id);
-  const content = live ? live.content : (run.logContent ?? "");
-  const size = live ? live.size : Buffer.byteLength(content, "utf8");
-  const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
-  const browserRecordings = await recordingsVisibleToRequester(req, run);
-  const followUps = await loadRunFollowUps(found.co.id, [run]);
+    const live = getLiveRunSnapshot(run.id);
+    const content = live ? live.content : (run.logContent ?? "");
+    const size = live ? live.size : Buffer.byteLength(content, "utf8");
+    const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
+    const browserRecordings = await recordingsVisibleToRequester(req, run);
+    const followUps = await loadRunFollowUps(found.co.id, [run]);
 
-  res.json({
-    content,
-    truncated,
-    size,
-    live: live !== null,
-    status: run.status,
-    errorKind: run.errorKind,
-    failureReason: run.failureReason,
-    diagnostics: readRunDiagnostics(run),
-    exitCode: run.exitCode,
-    queuedAt: run.createdAt,
-    startedAt: run.startedAt,
-    finishedAt: run.finishedAt,
-    // So the live-log modal can say "retrying in 2m" without a second request.
-    retryAt: run.retryAt,
-    ...runContinuationView(run, followUps.get(run.id)),
-    attempt: run.attempt,
-    // The outcome check lands shortly after a completed run finalizes; polling
-    // this endpoint picks the verdict up without a second request.
-    outcomeVerdict: run.outcomeVerdict,
-    outcomeNote: run.outcomeNote,
-    checksVerdict: run.checksVerdict,
-    checkRemediations: run.checkRemediations,
-    // True while a verdict is still owed — the routine declares acceptance
-    // criteria and this completed run has not been graded yet. The live-log
-    // modal polls on this rather than guessing how long a check takes.
-    awaitingOutcome:
-      run.status === "completed" &&
-      run.outcomeVerdict === null &&
-      found.routine.acceptanceCriteria.trim().length > 0,
-    tokensIn: run.tokensIn,
-    tokensOut: run.tokensOut,
-    browserRecordings,
-  });
+    res.json({
+      content,
+      truncated,
+      size,
+      live: live !== null,
+      status: run.status,
+      errorKind: run.errorKind,
+      failureReason: run.failureReason,
+      diagnostics: readRunDiagnostics(run),
+      exitCode: run.exitCode,
+      queuedAt: run.createdAt,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      // So the live-log modal can say "retrying in 2m" without a second request.
+      retryAt: run.retryAt,
+      ...runContinuationView(run, followUps.get(run.id)),
+      attempt: run.attempt,
+      // The outcome check lands shortly after a completed run finalizes; polling
+      // this endpoint picks the verdict up without a second request.
+      outcomeVerdict: run.outcomeVerdict,
+      outcomeNote: run.outcomeNote,
+      checksVerdict: run.checksVerdict,
+      checkRemediations: run.checkRemediations,
+      // True while a verdict is still owed — the routine declares acceptance
+      // criteria and this completed run has not been graded yet. The live-log
+      // modal polls on this rather than guessing how long a check takes.
+      awaitingOutcome:
+        run.status === "completed" &&
+        run.outcomeVerdict === null &&
+        found.routine.acceptanceCriteria.trim().length > 0,
+      tokensIn: run.tokensIn,
+      tokensOut: run.tokensOut,
+      browserRecordings,
+    });
+  } catch (err) {
+    // Express 4 does not forward rejected async reads to the error handler.
+    next(err);
+  }
 });
 
 /**
