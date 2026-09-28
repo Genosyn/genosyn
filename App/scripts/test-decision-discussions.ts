@@ -415,6 +415,7 @@ async function open(options: FixtureOptions = {}) {
   let decisionError = options.decisionError ?? false;
   let failNextApprovalRead = false;
   let allowWrites = false;
+  const firstReply = replies.length;
   const conversations = options.history === false ? [] : [conversation()];
   let createdCount = 0;
   page.on("pageerror", (error) => {
@@ -540,10 +541,17 @@ async function open(options: FixtureOptions = {}) {
           return route.fulfill({
             json: {
               conversation: saved,
-              messages:
-                id === "older-chat"
+              // A conversation refresh must read back the same messages the
+              // fixture streamed, as the real persisted conversation does.
+              messages: [
+                ...(id === "older-chat"
                   ? [message("old-message", id, "assistant", "Earlier unrelated planning details.")]
-                  : [],
+                  : []),
+                ...replies
+                  .slice(firstReply)
+                  .filter((reply) => reply.conversationId === id)
+                  .flatMap((reply) => [reply.user, reply.assistant]),
+              ],
             },
           });
       }

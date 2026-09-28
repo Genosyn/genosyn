@@ -290,11 +290,23 @@ try {
     state = fixture();
     unexpected.length = 0;
     const errors: string[] = [];
+    const consoleErrors: string[] = [];
+    const pendingRequests = new Set<string>();
+    const failedRequests: string[] = [];
     const context = await browser.newContext({
       viewport: item.mobile ? { width: 390, height: 844 } : { width: 1200, height: 900 },
     });
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
+    page.on("request", (request) => pendingRequests.add(request.url()));
+    page.on("requestfinished", (request) => pendingRequests.delete(request.url()));
+    page.on("requestfailed", (request) => {
+      pendingRequests.delete(request.url());
+      failedRequests.push(`${request.url()}: ${request.failure()?.errorText}`);
+    });
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
     page.on("pageerror", (error) => errors.push(error.message));
     context.on("page", (opened) => opened.on("pageerror", (error) => errors.push(error.message)));
     await context.route("**/*", (route) => {
@@ -309,7 +321,8 @@ try {
         waitUntil: "commit",
         timeout: 60_000,
       });
-      await dialog(page).waitFor({ timeout: 120_000 });
+      // Allow the first Vite compilation; interactions keep their short deadline.
+      await dialog(page).waitFor({ timeout: 180_000 });
       await item.run(page);
       assert.deepEqual(errors, [], "Browser must not throw");
       assert.deepEqual(unexpected, [], "All requests must be expected and local");
@@ -319,7 +332,16 @@ try {
       await fs.writeFile(
         path.join(output, "hosted-google-modal-failure.json"),
         JSON.stringify(
-          { name: item.name, error: String(error), errors, unexpected, calls: state.calls },
+          {
+            name: item.name,
+            error: String(error),
+            errors,
+            consoleErrors,
+            pendingRequests: [...pendingRequests],
+            failedRequests,
+            unexpected,
+            calls: state.calls,
+          },
           null,
           2,
         ),

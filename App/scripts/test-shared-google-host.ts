@@ -164,7 +164,9 @@ try {
   const page = await context.newPage();
   await page.goto(`${appOrigin}/__runtime`, { waitUntil: "commit" });
   const host = page.getByRole("textbox", { name: "Hosted sign-in address", exact: true });
-  await host.waitFor({ timeout: 120_000 });
+  // Vite compiles the real admin screen and its styles on the first request.
+  // Keep the ordinary interaction deadlines once the fixture has mounted.
+  await host.waitFor({ timeout: 180_000 });
   const form = page.locator("form").filter({ has: host });
   await host.fill("https://connect.example.test/invalid-path");
   await form.getByRole("button", { name: "Save changes", exact: true }).click();
