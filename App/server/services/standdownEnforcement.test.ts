@@ -444,7 +444,8 @@ describe("the retry queue under a Standdown", () => {
 });
 
 describe("the schedule under a Standdown", () => {
-  test("a due Routine still has nextRunAt advanced, so a lift is not a catch-up storm", async () => {
+  test("a due Routine still has nextRunAt advanced, so a lift is not a catch-up storm", async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-09-28T12:04:59.900Z") });
     const overdue = new Date(Date.now() - 6 * 60 * 60 * 1000);
     await AppDataSource.getRepository(Routine).update(
       { id: routine.id },
@@ -456,16 +457,18 @@ describe("the schedule under a Standdown", () => {
       reason: "everything is stopped",
     });
 
-    // Phase 2 lives inside the heartbeat's unexported `tick()`; `bootCron`
-    // awaits exactly one pass of it, which is the only reachable way in.
+    // bootCron awaits its first heartbeat, including schedule advancement.
     await bootCron();
     stopCron();
 
+    // The heartbeat uses its starting clock. Crossing the next slot before
+    // reading the result must not make correctly advanced schedules fail.
+    t.mock.timers.setTime(Date.parse("2026-09-28T12:05:00.100Z"));
     const after = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
-    assert.ok(after.nextRunAt, "the schedule must not be left frozen in the past");
-    assert.ok(
-      (after.nextRunAt as Date).getTime() > Date.now(),
-      "a stop that holds nextRunAt still queues every missed slot for the lift",
+    assert.equal(
+      after.nextRunAt?.toISOString(),
+      "2026-09-28T12:05:00.000Z",
+      "a Standdown must skip missed slots and advance from the heartbeat's clock",
     );
     assert.equal(await runCount(routine.id), 0);
   });
