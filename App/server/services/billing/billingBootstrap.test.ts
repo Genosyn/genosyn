@@ -17,6 +17,10 @@ import {
 } from "./billingSettings.js";
 
 const ENV = "GENOSYN_BILLING_BOOTSTRAP_JSON";
+const mutableConfig = config as unknown as {
+  sessionSecret: string;
+  security: { encryptionSecret: string; multiTenant: boolean };
+};
 const VALID = {
   enabled: true,
   secretKey: "sk_test_SyntheticBootstrapCredential123",
@@ -32,9 +36,9 @@ const original = {
 };
 
 before(async () => {
-  config.sessionSecret = "synthetic-billing-session-secret-123456789";
-  config.security.encryptionSecret = "synthetic-billing-encryption-secret-987654321";
-  config.security.multiTenant = true;
+  mutableConfig.sessionSecret = "synthetic-billing-session-secret-123456789";
+  mutableConfig.security.encryptionSecret = "synthetic-billing-encryption-secret-987654321";
+  mutableConfig.security.multiTenant = true;
   resetInstanceSecretsCacheForTests();
   await initTestDb();
 });
@@ -48,9 +52,9 @@ afterEach(() => {
 });
 after(async () => {
   await closeTestDb();
-  config.sessionSecret = original.sessionSecret;
-  config.security.encryptionSecret = original.encryptionSecret;
-  config.security.multiTenant = original.multiTenant;
+  mutableConfig.sessionSecret = original.sessionSecret;
+  mutableConfig.security.encryptionSecret = original.encryptionSecret;
+  mutableConfig.security.multiTenant = original.multiTenant;
   if (original.bootstrap !== undefined) process.env[ENV] = original.bootstrap;
   resetInstanceSecretsCacheForTests();
 });
