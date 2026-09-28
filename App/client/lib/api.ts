@@ -1003,6 +1003,8 @@ export type Run = {
   continuationCount?: number;
   /** Why automatic continuation stopped, when intervention may be needed. */
   continuationStopReason?: string | null;
+  /** Same-Routine follow-up metadata; undefined until relationships have been loaded. */
+  followUpRun?: RunFollowUp | null;
   /** Occurrences missed during downtime that this run stands in for. */
   missedSlots?: number;
   /** How the run measured against its Routine's acceptance criteria. */
@@ -1017,6 +1019,23 @@ export type Run = {
   tokensIn?: number;
   /** Completion tokens billed across every model turn of this run. */
   tokensOut?: number;
+};
+export type RunFollowUp = Pick<
+  Run,
+  | "id"
+  | "routineId"
+  | "status"
+  | "errorKind"
+  | "createdAt"
+  | "startedAt"
+  | "finishedAt"
+  | "exitCode"
+  | "triggerKind"
+  | "continuationCount"
+> & {
+  retryPending: boolean;
+  awaitingOutcome: boolean;
+  isLatest: boolean;
 };
 /**
  * `achieved` — the transcript shows the criteria were met. `off_goal` — the
@@ -1081,6 +1100,7 @@ export type RunLog = {
   hasUnfinishedWork?: boolean;
   continuationCount?: number;
   continuationStopReason?: string | null;
+  followUpRun?: RunFollowUp | null;
   attempt?: number;
   outcomeVerdict?: RunOutcomeVerdict | null;
   outcomeNote?: string | null;
@@ -3376,6 +3396,7 @@ export type HomeChannel = {
 };
 
 export type HomeFailedRun = {
+  followUpRun?: RunFollowUp | null;
   runId: string;
   routineId: string;
   routineName: string;

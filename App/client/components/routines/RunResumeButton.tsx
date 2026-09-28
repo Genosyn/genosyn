@@ -6,7 +6,13 @@ import { useDialog } from "@/components/ui/Dialog";
 
 type ResumableRun = Pick<
   Run,
-  "id" | "status" | "errorKind" | "hasUnfinishedWork" | "retryAt" | "continuationPending"
+  | "id"
+  | "status"
+  | "errorKind"
+  | "hasUnfinishedWork"
+  | "retryAt"
+  | "continuationPending"
+  | "followUpRun"
 >;
 
 type RunResumeButtonProps = {
@@ -25,7 +31,8 @@ export function RunResumeButton(props: RunResumeButtonProps) {
     run.status !== "failed" ||
     run.errorKind ||
     run.retryAt ||
-    run.continuationPending
+    run.continuationPending ||
+    run.followUpRun !== null
   )
     return null;
   return <ResumeAction {...props} />;

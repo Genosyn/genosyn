@@ -72,6 +72,9 @@ import {
   RunChecksChip,
   RunChecksStrip,
   RunContinuationNotice,
+  followUpNeedsPolling,
+  mergeRunContinuationState,
+  runFollowUpLabel,
   RunEffectsPane,
   RunFailureNotice,
   RunLogPane,
@@ -1126,6 +1129,14 @@ function RunsTab({
         if (cancelled) return;
         consecutiveErrors = 0;
         setLog(l);
+        // Either live list reads or log polling can observe a handoff first.
+        // Apply the latest received metadata to this exact selected Run.
+        setRuns(
+          (current) =>
+            current?.map((run) =>
+              run.id === activeId ? mergeRunContinuationState(run, l) : run,
+            ) ?? null,
+        );
         setLogLoadError(null);
         if (runLogNeedsPolling(l)) timer = setTimeout(loadLog, 1200);
       } catch (err) {
@@ -1196,6 +1207,17 @@ function RunsTab({
       <RunContinuationNotice
         continuationPending={activeRun?.continuationPending}
         continuationStopReason={activeRun?.continuationStopReason}
+        followUpRun={activeRun?.followUpRun}
+        onOpenRun={
+          activeRun?.followUpRun?.id !== activeId
+            ? (next) => {
+                setRuns((current) =>
+                  current?.some((run) => run.id === next.id) ? current : [next, ...(current ?? [])],
+                );
+                setActiveId(next.id);
+              }
+            : undefined
+        }
       />
       <RunFailureNotice reason={log?.failureReason ?? activeRun?.failureReason} />
       <div
@@ -1222,6 +1244,11 @@ function RunsTab({
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
+                    {r.followUpRun && (
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {runFollowUpLabel(r.followUpRun)}
+                      </span>
+                    )}
                     {r.status !== "reviewed" && r.outcomeVerdict && (
                       <RunOutcomeChip verdict={r.outcomeVerdict} note={r.outcomeNote} size="xs" />
                     )}
@@ -1351,16 +1378,16 @@ function RunsTab({
               }}
             />
           )}
-          {pendingRetryAt ? (
+          {pendingRetryAt && !activeRun?.followUpRun ? (
             <Button variant="secondary" onClick={cancelActiveRetry}>
               <Ban size={14} />
               {activeRun?.continuationPending ? "Cancel continuation" : "Cancel retry"}
             </Button>
-          ) : (
+          ) : !followUpNeedsPolling(activeRun?.followUpRun) ? (
             <Button variant="secondary" onClick={onRetry}>
               <Play size={14} /> Run now
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

@@ -22,7 +22,7 @@ import { approvalInboxSelect } from "./approvalInbox.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
 import { findLiveRunFailures } from "./runFailures.js";
-import { runContinuationView } from "./runContinuationView.js";
+import { loadRunFollowUps, runContinuationView, type RunFollowUp } from "./runContinuationView.js";
 import { listHomeRepositoryWork, type HomeRepositoryWork } from "./homeRepositoryWork.js";
 import {
   listHomeDraftEmails,
@@ -76,6 +76,7 @@ export type HomeChannel = {
 };
 
 export type HomeFailedRun = {
+  followUpRun: RunFollowUp | null;
   hasUnfinishedWork: boolean;
   continuationPending: boolean;
   runId: string;
@@ -354,6 +355,7 @@ export async function getHomeData(params: {
       take: 6,
     });
     failedRunCount = count;
+    const followUps = await loadRunFollowUps(companyId, rows);
     failedRuns = rows
       .map((run): HomeFailedRun | null => {
         const routine = compRoutineById.get(run.routineId);
@@ -365,6 +367,7 @@ export async function getHomeData(params: {
           routineId: routine.id,
           routineName: routine.name,
           status: run.status,
+          followUpRun: followUps.get(run.id) ?? null,
           hasUnfinishedWork: runContinuationView(run).hasUnfinishedWork,
           continuationPending: runContinuationView(run).continuationPending,
           errorKind: run.errorKind,

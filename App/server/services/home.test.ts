@@ -12,6 +12,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { User } from "../db/entities/User.js";
@@ -60,6 +61,42 @@ beforeEach(async () => {
     cronExpr: "0 9 * * *",
     body: "Review new customer reports and propose useful work.",
   });
+});
+
+test("Home provides explicit childless metadata for resumable failures and links an existing retry", async () => {
+  const source = await insert(Run, {
+    routineId: sourceRoutine.id,
+    status: "failed",
+    startedAt: new Date(Date.now() - 60_000),
+    finishedAt: new Date(),
+    checkpointJson: JSON.stringify({
+      state: "continue",
+      completed: "First page",
+      remaining: "Second page",
+      resume: "private-source-anchor",
+      progressKey: "page-1",
+    }),
+  });
+  const load = () => getHomeData({ companyId: company.id, userId: owner.id, role: "owner" });
+  const childless = (await load()).failedRuns.find((row) => row.runId === source.id)!;
+  assert.equal(childless.hasUnfinishedWork, true);
+  assert.equal(childless.followUpRun, null);
+  const child = await insert(Run, {
+    routineId: sourceRoutine.id,
+    parentRunId: source.id,
+    triggerKind: "retry",
+    status: "running",
+    startedAt: new Date(),
+  });
+  const linked = (await load()).failedRuns.find((row) => row.runId === source.id)!;
+  assert.equal(linked.followUpRun?.id, child.id);
+  assert.equal(linked.followUpRun?.status, "running");
+  assert.doesNotMatch(JSON.stringify(linked), /private-source-anchor|checkpointJson/);
+  await AppDataSource.getRepository(Run).update(child.id, { triggerKind: "continuation" });
+  assert.equal(
+    (await load()).failedRuns.some((row) => row.runId === source.id),
+    false,
+  );
 });
 
 async function approval(overrides: Partial<Approval> = {}): Promise<Approval> {

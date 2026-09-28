@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, type Locator, type Page } from "playwright-core";
-import type { WorkEntry, WorkEntryRun, WorkTimeline } from "../client/lib/api";
+import type { RunFollowUp, RunLog, WorkEntry, WorkEntryRun, WorkTimeline } from "../client/lib/api";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const origin = "http://127.0.0.1:18473";
@@ -184,12 +184,18 @@ function timeline(allEntries: WorkEntry[], query: URLSearchParams): WorkTimeline
 }
 async function open(
   fixture: WorkEntry | WorkEntry[] = entryFixture(),
-  options: { dayError?: boolean; delayDay?: boolean; delaySince?: string } = {},
+  options: {
+    dayError?: boolean;
+    delayDay?: boolean;
+    delaySince?: string;
+    runLogs?: Record<string, RunLog>;
+  } = {},
 ) {
   const page = await context.newPage();
   await page.clock.setFixedTime(fixtureNow);
   const entries = Array.isArray(fixture) ? fixture : [fixture];
   const reads: string[] = [];
+  const runLogs = { ...options.runLogs };
   let dayError = options.dayError ?? false;
   let releaseDay: () => void = () => {};
   const dayGate = new Promise<void>((resolve) => {
@@ -220,6 +226,14 @@ async function open(
       return route.fulfill({
         json: { employeeId: queueMatch[1], current: null, pending: [], pendingCount: 0 },
       });
+    const logMatch = /^\/api\/companies\/company\/runs\/([^/]+)\/log$/.exec(url.pathname);
+    if (logMatch && runLogs[logMatch[1]]) return route.fulfill({ json: runLogs[logMatch[1]] });
+    const evidenceMatch =
+      /^\/api\/companies\/company\/routines\/runs\/([^/]+)\/(effects|checks)$/.exec(url.pathname);
+    if (evidenceMatch && runLogs[evidenceMatch[1]])
+      return route.fulfill({
+        json: evidenceMatch[2] === "effects" ? { effects: [], total: 0 } : { results: [] },
+      });
     const entry = entries.find((row) => row.run && url.pathname.includes(`/${row.run.id}/`));
     if (!entry) {
       unexpectedRequests.push(`${request.method()} ${url.pathname}`);
@@ -233,6 +247,7 @@ async function open(
           startedAt: entry.at,
           finishedAt: entry.endedAt,
           live: false,
+          followUpRun: null,
           browserRecordings: [],
         },
       });
@@ -252,6 +267,9 @@ async function open(
   return {
     page,
     reads,
+    setRunLog: (id: string, log: RunLog) => {
+      runLogs[id] = log;
+    },
     releaseDay,
     recoverDay: () => {
       dayError = false;
@@ -307,6 +325,109 @@ async function check(name: string, run: () => Promise<void>) {
 }
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const width of [1440, 375]) {
+    await check(
+      `continuation handoff stays linked through queue, running and next-child transitions at ${width}px`,
+      async () => {
+        const child: RunFollowUp = {
+          id: "continuation-1",
+          routineId: "outreach",
+          status: "queued",
+          triggerKind: "continuation",
+          createdAt: fixtureNow.toISOString(),
+          startedAt: fixtureNow.toISOString(),
+          finishedAt: null,
+          exitCode: null,
+          continuationCount: 1,
+          retryPending: false,
+          awaitingOutcome: false,
+          isLatest: true,
+        };
+        const parentLog: RunLog = {
+          content: "Historical parent transcript",
+          status: "failed",
+          errorKind: null,
+          failureReason: "Original unfinished work",
+          hasUnfinishedWork: true,
+          followUpRun: child,
+          continuationPending: false,
+          retryAt: null,
+          outcomeVerdict: "unverified",
+          checksVerdict: "failed",
+          browserRecordings: [],
+        };
+        const leaf = { ...child, id: "continuation-2", continuationCount: 2 };
+        const fixture = await open(
+          entryFixture({
+            status: "failed",
+            summary: "Saved progress for continuing work.",
+            outcomeVerdict: "unverified",
+            checksVerdict: "failed",
+          }),
+          {
+            runLogs: {
+              "outcome-run": parentLog,
+              [leaf.id]: {
+                content: "Latest continuation transcript",
+                status: "failed",
+                errorKind: null,
+                hasUnfinishedWork: true,
+                followUpRun: null,
+                continuationPending: false,
+                retryAt: null,
+                browserRecordings: [],
+              },
+            },
+          },
+        );
+        const { page, setRunLog, reads } = fixture;
+        try {
+          await page.setViewportSize({ width, height: 1000 });
+          const day = await openDay(page);
+          await day.getByRole("button", { name: "Go to first work", exact: true }).click();
+          await day.getByRole("button", { name: "Open the run log", exact: true }).click();
+          const modal = page.getByRole("dialog", { name: `Run: ${routine}`, exact: true });
+          await modal.getByText("Continuation queued", { exact: true }).waitFor();
+          await modal.getByText("Original unfinished work", { exact: true }).waitFor();
+          await modal.getByText("checks failed", { exact: true }).waitFor();
+          assert.equal(
+            await modal
+              .getByRole("button", { name: "Resume unfinished work", exact: true })
+              .count(),
+            0,
+          );
+          assert.equal(await modal.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+          assert.equal(
+            await modal.getByRole("button", { name: /Cancel continuation|Cancel retry/ }).count(),
+            0,
+          );
+          setRunLog("outcome-run", { ...parentLog, followUpRun: { ...child, status: "running" } });
+          await modal.getByText("Continuation running", { exact: true }).waitFor();
+          await modal.getByText("Historical parent transcript", { exact: true }).waitFor();
+          setRunLog("outcome-run", { ...parentLog, followUpRun: leaf });
+          await modal.getByText("Continuation queued", { exact: true }).waitFor();
+          await fitsViewport(page);
+          await page.screenshot({
+            path: path.join(output, `continuation-handoff-${width}.png`),
+            fullPage: true,
+          });
+          await modal.getByRole("button", { name: "Open continuation", exact: true }).click();
+          await modal.getByText("Latest continuation transcript", { exact: true }).waitFor();
+          assert.ok(reads.includes(`/api/companies/company/runs/${leaf.id}/log`));
+          assert.equal(
+            await modal.getByText("Historical parent transcript", { exact: true }).count(),
+            0,
+          );
+          await modal
+            .getByRole("button", { name: "Resume unfinished work", exact: true })
+            .waitFor();
+          await modal.getByRole("button", { name: "Retry", exact: true }).waitFor();
+        } finally {
+          await page.close();
+        }
+      },
+    );
+  }
   await check(
     "Home shows only right-side employee bubbles; opening a day reveals the concise outcome",
     async () => {

@@ -25,6 +25,7 @@ import {
   RunEffect,
   RunEffectList,
   RunErrorKind,
+  RunFollowUp,
   RunLog,
   RunOutcomeVerdict,
   RunStatus,
@@ -110,7 +111,35 @@ export function RunFailureNotice({ reason }: { reason?: string | null }) {
 export function RunContinuationNotice({
   continuationPending,
   continuationStopReason,
-}: Pick<Run, "continuationPending" | "continuationStopReason">) {
+  followUpRun,
+  onOpenRun,
+}: Pick<Run, "continuationPending" | "continuationStopReason" | "followUpRun"> & {
+  onOpenRun?: (run: RunFollowUp) => void;
+}) {
+  if (followUpRun) {
+    const continuation = followUpRun.triggerKind === "continuation";
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+        <p className="font-medium text-slate-800 dark:text-slate-200">
+          {runFollowUpLabel(followUpRun)}
+        </p>
+        <p className="mt-1 text-slate-600 dark:text-slate-300">
+          This historical Run keeps its own result. Later work has a separate Run; open it to review
+          its progress, Checks and Effects.
+        </p>
+        {onOpenRun && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-2"
+            onClick={() => onOpenRun(followUpRun)}
+          >
+            Open {continuation ? "continuation" : "follow-up Run"}
+          </Button>
+        )}
+      </div>
+    );
+  }
   if (!continuationPending && !continuationStopReason?.trim()) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
@@ -124,6 +153,12 @@ export function RunContinuationNotice({
       </p>
     </div>
   );
+}
+
+export function runFollowUpLabel(run: RunFollowUp): string {
+  if (!run.isLatest) return "Later work exists";
+  if (run.retryPending) return "Further work scheduled";
+  return `${run.triggerKind === "continuation" ? "Continuation" : "Follow-up"} ${runStatusLabel(run.status)}`;
 }
 
 export function RunReviewNotice({ companySlug }: { companySlug: string }) {
@@ -374,6 +409,7 @@ export function runLogNeedsPolling(log: RunLog): boolean {
     log.status === "queued" ||
     log.status === "running" ||
     log.continuationPending === true ||
+    followUpNeedsPolling(log.followUpRun) ||
     // The outcome check runs after the transcript is final, so a completed run
     // on a routine with acceptance criteria lands its verdict a moment after
     // the status does. Keep polling until it arrives, or the chip would only
@@ -383,6 +419,33 @@ export function runLogNeedsPolling(log: RunLog): boolean {
       (recording) => recording.status === "recording" || recording.status === "finalizing",
     )
   );
+}
+
+/** A parent stays current while its later work can still change or hand off. */
+export function followUpNeedsPolling(run: RunFollowUp | null | undefined): boolean {
+  return (
+    !!run &&
+    (!run.isLatest ||
+      run.status === "queued" ||
+      run.status === "running" ||
+      run.retryPending ||
+      run.awaitingOutcome)
+  );
+}
+
+/** Apply a newly received log's scheduling metadata without copying its transcript. */
+export function mergeRunContinuationState(run: Run, log: RunLog): Run {
+  return {
+    ...run,
+    status: log.status ?? run.status,
+    errorKind: log.errorKind,
+    retryAt: log.retryAt,
+    hasUnfinishedWork: log.hasUnfinishedWork,
+    continuationPending: log.continuationPending,
+    continuationCount: log.continuationCount,
+    continuationStopReason: log.continuationStopReason,
+    followUpRun: log.followUpRun,
+  };
 }
 
 /** `2.4 MB` — recording metadata without making the browser fetch the video. */
@@ -909,6 +972,7 @@ export function RunLiveModal(props: RunLiveModalProps) {
         setResumed({ sourceRunId: props.run.id, run: next });
         await props.onResumed?.(next);
       }}
+      onOpenRun={(next) => setResumed({ sourceRunId: props.run.id, run: next })}
     />
   );
 }
@@ -920,8 +984,12 @@ function RunLiveModalContent({
   onClose,
   onRetry,
   onResumed,
+  onOpenRun,
   initialView = "log",
-}: RunLiveModalProps & { onResumed: (run: Run) => void | Promise<void> }) {
+}: RunLiveModalProps & {
+  onResumed: (run: Run) => void | Promise<void>;
+  onOpenRun: (run: RunFollowUp) => void;
+}) {
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const preRef = React.useRef<HTMLPreElement>(null);
@@ -1001,6 +1069,7 @@ function RunLiveModalContent({
   const finishedAt = log ? log.finishedAt : initialRun.finishedAt;
   const exitCode = log ? log.exitCode : initialRun.exitCode;
   const needsAttention = runNeedsAttention(status);
+  const followUpRun = log ? log.followUpRun : initialRun.followUpRun;
   const metrics = [
     {
       label: "Duration",
@@ -1084,15 +1153,16 @@ function RunLiveModalContent({
                   hasUnfinishedWork: log?.hasUnfinishedWork ?? initialRun.hasUnfinishedWork,
                   retryAt: log ? log.retryAt : initialRun.retryAt,
                   continuationPending: log?.continuationPending ?? initialRun.continuationPending,
+                  followUpRun,
                 }}
                 onResumed={onResumed}
               />
-              {log?.retryAt ? (
+              {log?.retryAt && !followUpRun ? (
                 <Button variant="secondary" size="sm" onClick={cancelRetry}>
                   <Ban size={13} />{" "}
                   {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
                 </Button>
-              ) : onRetry && isTerminal && needsAttention ? (
+              ) : onRetry && isTerminal && needsAttention && followUpRun === null ? (
                 <Button variant="secondary" size="sm" onClick={onRetry}>
                   <RotateCcw size={13} /> Retry
                 </Button>
@@ -1197,6 +1267,8 @@ function RunLiveModalContent({
             continuationStopReason={
               log?.continuationStopReason ?? initialRun.continuationStopReason
             }
+            followUpRun={followUpRun}
+            onOpenRun={followUpRun?.id !== initialRun.id ? onOpenRun : undefined}
           />
           {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
           <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />

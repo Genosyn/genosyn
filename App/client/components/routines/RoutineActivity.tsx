@@ -11,6 +11,7 @@ import {
   RunChecksChip,
   RunOutcomeChip,
   RunStatusChip,
+  runFollowUpLabel,
   timeAgo,
 } from "@/components/routines/RunViews";
 
@@ -28,6 +29,7 @@ export type RoutineActivityRun = Pick<
   | "continuationPending"
   | "continuationCount"
   | "continuationStopReason"
+  | "followUpRun"
   | "missedSlots"
   | "outcomeVerdict"
   | "checksVerdict"
@@ -221,14 +223,15 @@ function ActivityRow({
 }) {
   const running = run.status === "running";
   const employee = routine.employee;
-  const href = employee
-    ? `/c/${company.slug}/routines/${employee.slug}/${routine.slug}?run=${encodeURIComponent(run.id)}`
-    : `/c/${company.slug}/routines?routine=${encodeURIComponent(routine.id)}&run=${encodeURIComponent(run.id)}`;
+  const hrefForRun = (id: string) =>
+    employee
+      ? `/c/${company.slug}/routines/${employee.slug}/${routine.slug}?run=${encodeURIComponent(id)}`
+      : `/c/${company.slug}/routines?routine=${encodeURIComponent(routine.id)}&run=${encodeURIComponent(id)}`;
   const endedAt = run.finishedAt ?? run.startedAt;
   return (
     <li className="min-w-0">
       <Link
-        to={href}
+        to={hrefForRun(run.id)}
         aria-label={`${routine.name}: ${running ? "view live Run" : "view latest Run"}`}
         className="group flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-indigo-500/50"
       >
@@ -293,6 +296,15 @@ function ActivityRow({
           className="ml-auto shrink-0 text-slate-400 group-hover:text-indigo-500"
         />
       </Link>
+      {run.followUpRun && run.followUpRun.id !== run.id && (
+        <Link
+          to={hrefForRun(run.followUpRun.id)}
+          className="mt-1 inline-block px-4 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          {runFollowUpLabel(run.followUpRun)} · Open{" "}
+          {run.followUpRun.triggerKind === "continuation" ? "continuation" : "follow-up Run"}
+        </Link>
+      )}
     </li>
   );
 }

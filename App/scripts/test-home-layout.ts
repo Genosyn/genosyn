@@ -207,6 +207,7 @@ function notification(id: string, title: string): Notification {
 
 function failedRun(changes: Partial<HomeFailedRun> = {}): HomeFailedRun {
   return {
+    followUpRun: null,
     runId: "failed-run",
     routineId: "customer-update",
     routineName: "Daily customer update",
@@ -722,6 +723,7 @@ async function open(options: FixtureOptions = {}) {
           hasUnfinishedWork: failure.hasUnfinishedWork,
           retryAt: failure.retryAt,
           continuationPending: failure.continuationPending,
+          followUpRun: failure.followUpRun,
           exitCode: failure.exitCode,
           startedAt: failure.startedAt,
           finishedAt: failure.status === "running" ? null : "2026-09-09T08:00:06.000Z",

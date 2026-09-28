@@ -874,6 +874,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Workstream. Open the Run log to see <Strong>Continuation scheduled</Strong>; use
         <Strong> Cancel continuation</Strong> to stop the follow-up without disabling the Routine.
         The unfinished Run retains its Failed status, and later Runs show their continuation number.
+        Once a later Run exists, the original Run links to it with its current status. Choose
+        <Strong> Open continuation</Strong> to follow its progress. A completed or reviewed later
+        Run keeps its own Checks and outcome; it does not rewrite the original Run&apos;s result.
       </P>
       <P>
         Each occurrence permits up to three continuation Runs after the initial Run. They share the
@@ -903,14 +906,17 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         work.
       </P>
       <P>
-        If a Failed Run has unfinished saved work and no follow-up queued, an owner or admin can
+        If a Failed Run has unfinished saved work and no follow-up already created or queued, an
+        owner or admin can
         choose <Strong>Resume unfinished work</Strong> from its Run log, the Routine&apos;s Runs
         tab, or Home. Confirming starts a new Run from that checkpoint. The Routine&apos;s
         configured time limit starts again, with no total model token limit. Existing progress and
         Effects remain available, and the employee verifies current records before repeating
         actions. Current Grants, approval requirements and Standdowns still apply. Cancel a pending
         retry or continuation before resuming manually. <Strong>Retry</Strong> and{" "}
-        <Strong>Run now</Strong> start the Routine afresh.
+        <Strong>Run now</Strong> start the Routine afresh. A historical Run with a later follow-up
+        offers the link to that work instead of another resumption. Open the latest Run to see
+        whether it still needs attention.
       </P>
       <P>
         For a backlog that spans scheduled Runs, define a bounded daily scope: review a fixed batch

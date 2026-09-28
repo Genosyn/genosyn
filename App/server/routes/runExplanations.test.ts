@@ -253,6 +253,34 @@ test("always uses the Routine's employee, ignoring another employee supplied by 
   assert.equal(calls.length, 4);
 });
 
+test("failure explanations see the active follow-up without replacing the selected historical evidence", async () => {
+  await AppDataSource.getRepository(Run).update(run.id, {
+    status: "failed",
+    errorKind: null,
+    failureReason: "Historical unfinished work",
+  });
+  const child = await insert(Run, {
+    routineId: routine.id,
+    parentRunId: run.id,
+    triggerKind: "continuation",
+    status: "running",
+    startedAt: new Date(),
+    logContent: "private descendant transcript",
+    checkpointJson: "private descendant checkpoint",
+  });
+  assert.equal((await call("POST", {})).status, 200);
+  const block = calls[0].messages[0].content[0];
+  assert.equal(block.type, "text");
+  if (block.type !== "text") throw new Error("Expected evidence");
+  const evidence = JSON.parse(block.text.slice(block.text.indexOf("\n") + 1));
+  assert.equal(evidence.selectedRun.id, run.id);
+  assert.equal(evidence.selectedRun.status, "failed");
+  assert.equal(evidence.selectedRun.failureReason, "Historical unfinished work");
+  assert.equal(evidence.selectedRun.followUpRun.id, child.id);
+  assert.equal(evidence.selectedRun.followUpRun.status, "running");
+  assert.doesNotMatch(JSON.stringify(evidence), /private descendant/);
+});
+
 test("does not fall back to another employee when the Routine's employee has no connected model", async () => {
   const alternate = await seedEmployee("Alex", "alex");
   await seedModel(alternate.id);

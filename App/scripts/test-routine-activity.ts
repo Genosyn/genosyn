@@ -430,6 +430,58 @@ async function check(name: string, test: () => Promise<void>) {
 
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const width of [1440, 375]) {
+    await check(
+      `continuation link keeps the historical badge and opens the current child at ${width}px`,
+      async () => {
+        const fixture = await open({ width });
+        try {
+          const child = {
+            ...run("inbox-continuation", "inbox", {
+              status: "running",
+              finishedAt: null,
+              exitCode: null,
+            }),
+            triggerKind: "continuation" as const,
+            continuationCount: 1,
+            retryPending: false,
+            awaitingOutcome: false,
+            isLatest: true,
+          };
+          const parent = run("inbox-parent", "inbox", {
+            status: "failed",
+            checksVerdict: "failed",
+            outcomeVerdict: "unverified",
+            followUpRun: child,
+          });
+          fixture.setActivity({
+            running: [child],
+            today: [{ routineId: "inbox", runCount: 1, latestRun: parent }],
+          });
+          fixture.event();
+          const related = today(fixture.page).getByRole("link", {
+            name: "Continuation running · Open continuation",
+            exact: true,
+          });
+          await related.waitFor();
+          await today(fixture.page).getByText("failed", { exact: true }).waitFor();
+          await today(fixture.page).getByText("checks failed", { exact: true }).waitFor();
+          assert.equal(
+            await related.getAttribute("href"),
+            "/c/company/routines/jamie/inbox?run=inbox-continuation",
+          );
+          await fits(fixture.page);
+          await related.click();
+          assert.equal(
+            await fixture.page.getByLabel("Opened route", { exact: true }).innerText(),
+            "/c/company/routines/jamie/inbox?run=inbox-continuation",
+          );
+        } finally {
+          await fixture.close();
+        }
+      },
+    );
+  }
   await check(
     "running work and unique routines that ran today are visible with local-day bounds",
     async () => {

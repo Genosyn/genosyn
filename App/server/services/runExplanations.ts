@@ -13,7 +13,7 @@ import { effectiveActiveId } from "./models.js";
 import { isModelConnected } from "./providers.js";
 import { workBlocked } from "./standdowns.js";
 import { readRunDiagnostics } from "./runDiagnostics.js";
-import { runContinuationView } from "./runContinuationView.js";
+import { loadRunFollowUps, runContinuationView } from "./runContinuationView.js";
 
 const EXPLAINABLE_STATUSES = new Set<Run["status"]>(["failed", "error", "timeout", "interrupted"]);
 const TRANSCRIPT_CHARS = 28_000;
@@ -102,6 +102,7 @@ function transcriptEvidence(log: string) {
 }
 
 async function evidenceForRun(companyId: string, run: Run, routine: Routine, owner: AIEmployee) {
+  const followUps = await loadRunFollowUps(companyId, [run]);
   const rows = await AppDataSource.getRepository(RunCheckResult).find({
     where: { runId: run.id, companyId },
     order: { attempt: "DESC", createdAt: "ASC", id: "ASC" },
@@ -124,7 +125,7 @@ async function evidenceForRun(companyId: string, run: Run, routine: Routine, own
       triggerKind: run.triggerKind,
       attempt: run.attempt,
       retryAt: run.retryAt,
-      ...runContinuationView(run),
+      ...runContinuationView(run, followUps.get(run.id)),
       failureReason: boundedText(run.failureReason, 4_000),
       outcomeVerdict: run.outcomeVerdict,
       outcomeNote: boundedText(run.outcomeNote, 2_000),

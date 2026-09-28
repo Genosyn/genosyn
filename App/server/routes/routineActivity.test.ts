@@ -262,6 +262,7 @@ test("summaries contain only safe metadata and preserve independent outcome and 
     "continuationPending",
     "continuationCount",
     "continuationStopReason",
+    "followUpRun",
     "missedSlots",
     "outcomeVerdict",
     "checksVerdict",
@@ -276,6 +277,123 @@ test("summaries contain only safe metadata and preserve independent outcome and 
     JSON.stringify(body),
     /private|logContent|failureReason|outcomeNote|soulBody|body/,
   );
+});
+
+test("Run history, logs and daily activity resolve a continuation that has taken over unfinished work", async () => {
+  const source = await seedRun({
+    status: "failed",
+    startedAt: at(7),
+    finishedAt: at(8),
+    failureReason: "Original report",
+    checksVerdict: "failed",
+    outcomeVerdict: "off_goal",
+  });
+  const child = await seedRun({
+    parentRunId: source.id,
+    triggerKind: "continuation",
+    continuationCount: 1,
+    status: "running",
+    startedAt: at(9),
+    finishedAt: null,
+    logContent: "private child log",
+    checkpointJson: "private child checkpoint",
+  });
+  for (const status of [
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "reviewed",
+    "skipped",
+  ] as const) {
+    await AppDataSource.getRepository(Run).update(child.id, { status });
+    const listResponse = await fetch(
+      `${baseUrl}/api/companies/${company.id}/routines/${routine.id}/runs`,
+    );
+    const rows = (await listResponse.json()) as Array<{
+      id: string;
+      status: string;
+      followUpRun: { id: string; status: string };
+      checksVerdict: string;
+      outcomeVerdict: string;
+    }>;
+    const row = rows.find((run) => run.id === source.id)!;
+    assert.equal(row.status, "failed");
+    assert.equal(row.followUpRun.id, child.id);
+    assert.equal(row.followUpRun.status, status);
+    assert.equal(row.checksVerdict, "failed");
+    assert.equal(row.outcomeVerdict, "off_goal");
+    const log = await (
+      await fetch(`${baseUrl}/api/companies/${company.id}/runs/${source.id}/log`)
+    ).json();
+    assert.deepEqual(log.followUpRun, row.followUpRun);
+    assert.equal(log.continuationPending, false);
+    assert.equal(log.retryAt, null);
+    assert.equal(log.failureReason, "Original report");
+    assert.doesNotMatch(JSON.stringify(row.followUpRun), /private|checkpoint|logContent/);
+    if (status === "running" || status === "queued") {
+      const { body } = await call();
+      assert.equal(body.today[0].latestRun.id, source.id);
+      assert.equal(body.today[0].latestRun.followUpRun?.id, child.id);
+    }
+  }
+});
+
+test("historical Run links resolve beyond the 50-row history window and remain company scoped", async () => {
+  const source = await seedRun({ status: "failed", startedAt: at(10), finishedAt: at(11) });
+  const child = await seedRun({
+    parentRunId: source.id,
+    triggerKind: "continuation",
+    startedAt: at(1),
+    finishedAt: at(2),
+  });
+  for (let n = 0; n < 51; n++) await seedRun({ startedAt: at(3), finishedAt: at(4) });
+  const list = await (
+    await fetch(`${baseUrl}/api/companies/${company.id}/routines/${routine.id}/runs`)
+  ).json();
+  assert.equal(list.length, 50);
+  assert.equal(
+    list.some((row: Run) => row.id === child.id),
+    false,
+  );
+  assert.equal(list.find((row: Run) => row.id === source.id).followUpRun.id, child.id);
+  actingUserId = outsider.id;
+  assert.equal(
+    (await fetch(`${baseUrl}/api/companies/${company.id}/runs/${source.id}/log`)).status,
+    403,
+  );
+  actingUserId = null;
+  assert.equal(
+    (await fetch(`${baseUrl}/api/companies/${company.id}/runs/${source.id}/log`)).status,
+    401,
+  );
+});
+
+test("a continuation hands off again and all historical API responses follow the new leaf", async () => {
+  const source = await seedRun({ status: "failed", startedAt: at(6), finishedAt: at(7) });
+  const child = await seedRun({
+    parentRunId: source.id,
+    triggerKind: "continuation",
+    status: "failed",
+    startedAt: at(8),
+    finishedAt: at(9),
+  });
+  const leaf = await seedRun({
+    parentRunId: child.id,
+    triggerKind: "continuation",
+    status: "queued",
+    startedAt: at(10),
+    finishedAt: null,
+  });
+  const rows = await (
+    await fetch(`${baseUrl}/api/companies/${company.id}/routines/${routine.id}/runs`)
+  ).json();
+  for (const ancestor of [source, child]) {
+    const row = rows.find((row: Run) => row.id === ancestor.id);
+    assert.equal(row.followUpRun.id, leaf.id);
+    assert.equal(row.followUpRun.isLatest, true);
+  }
+  assert.equal(rows.find((row: Run) => row.id === leaf.id).followUpRun, null);
 });
 
 test("Run surfaces expose unfinished-work flags without exposing saved checkpoints", async () => {

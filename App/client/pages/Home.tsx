@@ -611,6 +611,7 @@ function HomeOverlayHost({
             hasUnfinishedWork: overlay.run.hasUnfinishedWork,
             retryAt: overlay.run.retryAt,
             continuationPending: overlay.run.continuationPending,
+            followUpRun: overlay.run.followUpRun,
             exitCode: overlay.run.exitCode,
             createdAt: overlay.run.startedAt,
           }}
@@ -1194,21 +1195,23 @@ function FailedRoutinesAlert({
               run={{ ...r, id: r.runId }}
               onResumed={async () => onChanged()}
             />
-            <button
-              type="button"
-              onClick={() => retry(r)}
-              disabled={busy?.runId === r.runId}
-              title="Retry"
-              aria-label={`Retry ${r.routineName}`}
-              className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              {busy?.runId === r.runId && busy.action === "retry" ? (
-                <Spinner size={14} />
-              ) : (
-                <RotateCw size={14} />
-              )}
-              <span className="hidden sm:inline">Retry</span>
-            </button>
+            {r.followUpRun === null && (
+              <button
+                type="button"
+                onClick={() => retry(r)}
+                disabled={busy?.runId === r.runId}
+                title="Retry"
+                aria-label={`Retry ${r.routineName}`}
+                className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              >
+                {busy?.runId === r.runId && busy.action === "retry" ? (
+                  <Spinner size={14} />
+                ) : (
+                  <RotateCw size={14} />
+                )}
+                <span className="hidden sm:inline">Retry</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => dismiss(r.runId)}

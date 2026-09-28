@@ -32,7 +32,11 @@ import { activeStanddownFor, serializeStanddown, StanddownError } from "../servi
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { resumeRoutineRun, RunManualResumeError } from "../services/runManualResume.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
-import { publicRun, runContinuationView } from "../services/runContinuationView.js";
+import {
+  loadRunFollowUps,
+  publicRun,
+  runContinuationView,
+} from "../services/runContinuationView.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { memberManagesEmployee } from "../services/reportingLine.js";
@@ -146,6 +150,7 @@ function employeeSummary(emp: AIEmployee): EmployeeSummary {
  * would both come back; the Map below keeps the first and drops the tie.
  */
 async function lastRunByRoutine(
+  companyId: string,
   routineIds: string[],
 ): Promise<Map<string, ReturnType<typeof publicRun>>> {
   if (routineIds.length === 0) return new Map();
@@ -174,8 +179,10 @@ async function lastRunByRoutine(
     )
     .getMany();
   const byRoutine = new Map<string, ReturnType<typeof publicRun>>();
+  const followUps = await loadRunFollowUps(companyId, runs);
   for (const run of runs)
-    if (!byRoutine.has(run.routineId)) byRoutine.set(run.routineId, publicRun(run));
+    if (!byRoutine.has(run.routineId))
+      byRoutine.set(run.routineId, publicRun(run, followUps.get(run.id)));
   return byRoutine;
 }
 
@@ -197,7 +204,10 @@ routinesRouter.get("/routines", async (req, res) => {
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: In([...byId.keys()]) },
   });
-  const lastRuns = await lastRunByRoutine(routines.map((r) => r.id));
+  const lastRuns = await lastRunByRoutine(
+    cid,
+    routines.map((r) => r.id),
+  );
   const tags = await tagsByResourceIds(
     cid,
     "routine",
@@ -594,7 +604,7 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
 routinesRouter.get("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  const lastRuns = await lastRunByRoutine([found.routine.id]);
+  const lastRuns = await lastRunByRoutine(found.co.id, [found.routine.id]);
   const tags = await tagsForResource(found.co.id, "routine", found.routine.id);
   const standdown = activeStanddownFor(found.co.id, {
     employeeId: found.emp.id,
@@ -730,7 +740,8 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
     .orderBy("run.startedAt", "DESC")
     .take(50)
     .getMany();
-  res.json(runs.map(publicRun));
+  const followUps = await loadRunFollowUps(found.co.id, runs);
+  res.json(runs.map((run) => publicRun(run, followUps.get(run.id))));
 });
 
 const runRecordingParamsSchema = z
@@ -920,6 +931,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
   const size = live ? live.size : Buffer.byteLength(content, "utf8");
   const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
   const browserRecordings = await recordingsVisibleToRequester(req, run);
+  const followUps = await loadRunFollowUps(found.co.id, [run]);
 
   res.json({
     content,
@@ -936,7 +948,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     finishedAt: run.finishedAt,
     // So the live-log modal can say "retrying in 2m" without a second request.
     retryAt: run.retryAt,
-    ...runContinuationView(run),
+    ...runContinuationView(run, followUps.get(run.id)),
     attempt: run.attempt,
     // The outcome check lands shortly after a completed run finalizes; polling
     // this endpoint picks the verdict up without a second request.
