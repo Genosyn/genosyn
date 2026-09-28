@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, type Page, type Route as BrowserRoute, type WebSocketRoute } from "playwright-core";
-import type { CompanyTag, EmployeeSummary, RoutineFolder, RoutineWithMeta, Run } from "../client/lib/api";
+import type { CompanyTag, EmployeeSummary, RoutineFolder, RoutineWithMeta, Run, RunCheckResultList, RunEffectList } from "../client/lib/api";
 import type { RoutineActivityData } from "../client/components/routines/RoutineActivity";
 import { browserTestVite } from "./browserTestVite";
 
@@ -264,6 +264,7 @@ async function open(
     controlledActivity?: boolean;
     lifecycle?: boolean;
     strictLifecycle?: boolean;
+    evidence?: boolean;
   } = {},
 ) {
   const context = await browser.newContext({
@@ -309,6 +310,8 @@ async function open(
   const reads: URL[] = [];
   const activityRoutes: BrowserRoute[] = [];
   const activityWaiters = new Map<number, () => void>();
+  const evidenceRoutes: BrowserRoute[] = [];
+  const evidenceWaiters = new Map<number, () => void>();
   const sockets = new Set<WebSocketRoute>();
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.routeWebSocket("**/api/ws?*", (socket) => {
@@ -331,6 +334,11 @@ async function open(
       return route.abort();
     }
     reads.push(url);
+    if (options.evidence && /^\/api\/companies\/(company|other)\/routines\/runs\/run-[ab]\/(checks|effects)$/.test(url.pathname)) {
+      evidenceRoutes.push(route);
+      evidenceWaiters.get(evidenceRoutes.length)?.();
+      return;
+    }
     if (url.pathname === "/api/companies/company/routines")
       return route.fulfill({ json: data.routines });
     if (url.pathname === "/api/companies/company/employees")
@@ -350,17 +358,43 @@ async function open(
     unexpectedRequests.push(`Unexpected read: ${url.pathname}`);
     return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
   });
-  const search = options.lifecycle ? `?lifecycle${options.strictLifecycle ? "&strict" : ""}` : "";
+  const search = options.evidence ? "?evidence" : options.lifecycle ? `?lifecycle${options.strictLifecycle ? "&strict" : ""}` : "";
   await page.goto(`${origin}/__routine_activity${search}`, { waitUntil: "commit", timeout: 60_000 });
-  await (options.lifecycle
+  await (options.evidence
+    ? page.getByTestId("evidence-identity")
+    : options.lifecycle
     ? page.getByRole("button", { name: "Unmount activity", exact: true })
     : page.getByRole("textbox", { name: "Search routines", exact: true })
   ).waitFor({ timeout: 300_000 });
-  await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
+  if (!options.evidence) await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
   return {
     page,
     reads,
     releaseActivity,
+    waitForEvidence: async (count: number) => {
+      if (evidenceRoutes.length >= count) return;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Evidence request ${count} did not start`)), 15_000);
+        evidenceWaiters.set(count, () => { clearTimeout(timeout); resolve(); });
+      });
+    },
+    respondEvidence: async (batch: number, label: string, status = 200, count = 2) => {
+      for (const index of [batch * 2, batch * 2 + 1]) {
+        const route = evidenceRoutes[index];
+        assert.ok(route, `Evidence request ${index + 1} must exist before responding`);
+        const checks = new URL(route.request().url()).pathname.endsWith("/checks");
+        const response = page.waitForResponse((value) => value.request() === route.request());
+        await route.fulfill({ status, json: status === 200
+          ? evidenceReply(checks, label, count)
+          : { error: `${label} ${checks ? "Checks" : "Effects"} unavailable` } });
+        await (await response).finished();
+      }
+      // Flush browser rendering after old replies, including ignored errors.
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+    },
+    evidenceRequestCount: () => evidenceRoutes.length,
     waitForActivity: async (count: number) => {
       if (activityRoutes.length >= count) return;
       await new Promise<void>((resolve, reject) => {
@@ -489,8 +523,149 @@ async function refreshWhilePending(fixture: Awaited<ReturnType<typeof open>>) {
   await fixture.page.clock.fastForward(30_001);
 }
 
+function evidenceReply(checks: boolean, label: string, count: number): RunCheckResultList | RunEffectList {
+  if (checks) return {
+    runStatus: "completed",
+    results: Array.from({ length: count }, (_, index) => ({
+      id: `${label}-${index}`,
+      runId: "fixture-run",
+      checkId: null,
+      name: `${label} Check ${index + 1}`,
+      kind: "effect",
+      required: true,
+      passed: true,
+      exitCode: null,
+      detail: `${label} verified result ${index + 1}`,
+      durationMs: 10,
+      attempt: 0,
+      createdAt: fixtureNow.toISOString(),
+    })),
+  };
+  return {
+    effects: [{ action: "note.update", targetType: "note", targetId: null, targetLabel: `${label} effect`, at: fixtureNow.toISOString() }],
+    total: count + 1,
+  };
+}
+
+async function assertEvidenceVisible(page: Page, label: string, count = 2) {
+  await page.getByTestId("run-checks").getByText(`${label} Check 1`, { exact: true }).waitFor();
+  await page.getByTestId("run-effects").getByText(`${label} effect`, { exact: true }).waitFor();
+  assert.equal(await page.getByTestId("run-checks").getByText(`${count} result${count === 1 ? "" : "s"}`, { exact: true }).count(), 1);
+  assert.equal(await page.getByTestId("run-effects").getByText(`${count + 1} recorded`, { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("alert").count(), 0);
+}
+
+async function assertEvidenceLoading(page: Page) {
+  await page.getByTestId("run-effects").getByText("Loading effects…", { exact: true }).waitFor();
+  assert.equal(await page.getByTestId("run-checks").innerText(), "");
+  assert.equal(await page.getByTestId("run-effects").getByText(/^\d+ recorded$/).count(), 0);
+  assert.equal(await page.getByTestId("run-effects").getByText(/more not shown/).count(), 0);
+  assert.equal(await page.getByRole("alert").count(), 0);
+}
+
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const identity of ["Run", "company"] as const) {
+    await check(`Run evidence clears previous data and counts when changing ${identity}`, async () => {
+      const fixture = await open({ evidence: true });
+      try {
+        await fixture.waitForEvidence(2);
+        await fixture.respondEvidence(0, "Previous");
+        await assertEvidenceVisible(fixture.page, "Previous");
+        await fixture.page.getByRole("button", { name: `Switch evidence ${identity}`, exact: true }).click();
+        await fixture.waitForEvidence(4);
+        assert.ok(fixture.reads.slice(-2).every((url) => url.pathname.includes(identity === "Run" ? "/runs/run-b/" : "/companies/other/")));
+        await assertEvidenceLoading(fixture.page);
+        assert.equal(await fixture.page.getByTestId("run-evidence").getByText(/Previous/).count(), 0);
+        await fixture.respondEvidence(1, "Selected", 200, 1);
+        await assertEvidenceVisible(fixture.page, "Selected", 1);
+        assert.equal(fixture.evidenceRequestCount(), 4);
+      } finally {
+        await fixture.close();
+      }
+    });
+    await check(`Run evidence clears previous errors when changing ${identity}`, async () => {
+      const fixture = await open({ evidence: true });
+      try {
+        await fixture.waitForEvidence(2);
+        await fixture.respondEvidence(0, "Previous", 524);
+        assert.equal(await fixture.page.getByRole("alert").count(), 2);
+        await fixture.page.getByRole("button", { name: `Switch evidence ${identity}`, exact: true }).click();
+        await fixture.waitForEvidence(4);
+        await assertEvidenceLoading(fixture.page);
+        assert.equal(await fixture.page.getByText(/Previous .* unavailable/).count(), 0);
+        await fixture.respondEvidence(1, "Selected");
+        await assertEvidenceVisible(fixture.page, "Selected");
+      } finally {
+        await fixture.close();
+      }
+    });
+    for (const oldStatus of [200, 524]) {
+      for (const oldFirst of [true, false]) {
+        await check(`Run evidence ignores old ${oldStatus} reply ${oldFirst ? "before" : "after"} the new ${identity} reply`, async () => {
+          const fixture = await open({ evidence: true });
+          try {
+            await fixture.waitForEvidence(2);
+            await fixture.respondEvidence(0, "Previous");
+            await assertEvidenceVisible(fixture.page, "Previous");
+            await fixture.page.getByRole("button", { name: "Reload evidence", exact: true }).click();
+            await fixture.waitForEvidence(4);
+            await fixture.page.getByRole("button", { name: `Switch evidence ${identity}`, exact: true }).click();
+            await fixture.waitForEvidence(6);
+            await assertEvidenceLoading(fixture.page);
+            if (oldFirst) {
+              await fixture.respondEvidence(1, "Obsolete", oldStatus);
+              await assertEvidenceLoading(fixture.page);
+            }
+            await fixture.respondEvidence(2, "Selected", 200, 1);
+            await assertEvidenceVisible(fixture.page, "Selected", 1);
+            if (!oldFirst) await fixture.respondEvidence(1, "Obsolete", oldStatus);
+            await assertEvidenceVisible(fixture.page, "Selected", 1);
+            assert.equal(await fixture.page.getByTestId("run-evidence").getByText(/Previous|Obsolete/).count(), 0);
+            assert.equal(fixture.evidenceRequestCount(), 6);
+          } finally {
+            await fixture.close();
+          }
+        });
+      }
+    }
+  }
+  await check("Run evidence keeps same-Run results visible until its reload settles", async () => {
+    const fixture = await open({ evidence: true });
+    try {
+      await fixture.waitForEvidence(2);
+      await fixture.respondEvidence(0, "Existing");
+      await assertEvidenceVisible(fixture.page, "Existing");
+      await fixture.page.getByRole("button", { name: "Reload evidence", exact: true }).click();
+      await fixture.waitForEvidence(4);
+      await assertEvidenceVisible(fixture.page, "Existing");
+      assert.equal(await fixture.page.getByText("Loading effects…", { exact: true }).count(), 0);
+      await fixture.respondEvidence(1, "Updated", 200, 1);
+      await assertEvidenceVisible(fixture.page, "Updated", 1);
+      assert.equal(await fixture.page.getByText(/Existing/).count(), 0);
+      assert.equal(fixture.evidenceRequestCount(), 4);
+    } finally {
+      await fixture.close();
+    }
+  });
+  await check("Run evidence ignores late errors after unmount and loads cleanly on remount", async () => {
+    const fixture = await open({ evidence: true });
+    try {
+      await fixture.waitForEvidence(2);
+      await fixture.page.getByRole("button", { name: "Unmount evidence", exact: true }).click();
+      await fixture.respondEvidence(0, "Unmounted", 524);
+      assert.equal(await fixture.page.getByTestId("run-evidence").count(), 0);
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+      await fixture.page.getByRole("button", { name: "Mount evidence", exact: true }).click();
+      await fixture.waitForEvidence(4);
+      await assertEvidenceLoading(fixture.page);
+      await fixture.respondEvidence(1, "Remounted");
+      await assertEvidenceVisible(fixture.page, "Remounted");
+      assert.equal(fixture.evidenceRequestCount(), 4);
+    } finally {
+      await fixture.close();
+    }
+  });
   await check("slow activity success stays visible while refreshes coalesce", async () => {
     const fixture = await open({ lifecycle: true, controlledActivity: true, tickingClock: true });
     try {

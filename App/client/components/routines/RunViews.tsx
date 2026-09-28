@@ -710,6 +710,14 @@ function EvidenceLoading({ label }: { label: string }) {
   );
 }
 
+type RunEvidenceProps = {
+  companyId: string;
+  runId: string;
+  /** Change this to re-read evidence for the same Run without clearing it. */
+  reloadKey?: string;
+  className?: string;
+};
+
 /**
  * Every Check result on one Run, in the order they ran.
  *
@@ -719,18 +727,18 @@ function EvidenceLoading({ label }: { label: string }) {
  * attention than it returns. The Checks verdict chip is hidden for the same
  * reason, so the two agree.
  */
-export function RunChecksStrip({
+export function RunChecksStrip(props: RunEvidenceProps) {
+  // Evidence belongs to an exact company and Run. Reset every state field in
+  // the same render when that identity changes, before its next read settles.
+  return <RunChecksStripContent key={JSON.stringify([props.companyId, props.runId])} {...props} />;
+}
+
+function RunChecksStripContent({
   companyId,
   runId,
-  /** Change this to re-read — a live Run lands its results at the very end. */
   reloadKey,
   className = "",
-}: {
-  companyId: string;
-  runId: string;
-  reloadKey?: string;
-  className?: string;
-}) {
+}: RunEvidenceProps) {
   const [results, setResults] = React.useState<RunCheckResult[] | null>(null);
   const [coverage, setCoverage] = React.useState<RunCheckResultList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -852,17 +860,16 @@ export function RunChecksStrip({
  * three emails and updated the deal" is a narration again; five lines naming
  * the action, the thing, and the minute are a ledger.
  */
-export function RunEffectsPane({
+export function RunEffectsPane(props: RunEvidenceProps) {
+  return <RunEffectsPaneContent key={JSON.stringify([props.companyId, props.runId])} {...props} />;
+}
+
+function RunEffectsPaneContent({
   companyId,
   runId,
   reloadKey,
   className = "",
-}: {
-  companyId: string;
-  runId: string;
-  reloadKey?: string;
-  className?: string;
-}) {
+}: RunEvidenceProps) {
   const [data, setData] = React.useState<RunEffectList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
