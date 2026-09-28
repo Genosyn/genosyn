@@ -227,6 +227,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   // Workers forward cost/retry observations, but never replace the parent's context reading.
   params = { ...params, callbacks: diagnostics.callbacks };
   const deferredLocalTools: AgentTool[] = params.toolScope?.surfaceOnly ? [] : [diagnostics.tool];
+  let delegationTool: ReturnType<typeof createParallelDelegationTool> | undefined;
   const localTools: AgentTool[] = selectSurfaceTools(params.extraTools ?? [], {
     authority: params.extraToolsAuthority,
     allowPrivileged,
@@ -246,45 +247,41 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       : createParallelResultStore();
     deferredLocalTools.push(
       ...guardPrivilegedTools(
-        [createParallelWorkResultTool(resultStore)],
+        [createParallelWorkResultTool(resultStore, { signal: params.signal })],
         params.authorizePrivilegedToolCall,
       ),
     );
-    localTools.push(
-      ...guardPrivilegedTools(
-        [
-          createParallelDelegationTool({
-            budget: delegationBudget,
-            resultStore,
-            signal: params.signal,
-            runBrief: (brief, resultId) =>
-              runDelegatedBrief(
-                {
-                  ...params,
-                  recoveryGrantObserver:
-                    resultId && resultStore.captureGrants
-                      ? (grants) => resultStore.captureGrants!(resultId, grants)
-                      : undefined,
-                },
-                brief,
-                delegationBudget,
-              ),
-            preflight: async (briefs) => {
-              try {
-                await params.recoveryRecorder?.check(
-                  briefs.flatMap((brief) => brief.requiredTools ?? []),
-                );
-                return null;
-              } catch (error) {
-                if (error instanceof RetryPreflightError) return error.message;
-                throw error;
-              }
-            },
-          }),
-        ],
-        params.authorizePrivilegedToolCall,
-      ),
-    );
+    delegationTool = createParallelDelegationTool({
+      budget: delegationBudget,
+      resultStore,
+      signal: params.signal,
+      onBackgroundWork: params.callbacks?.onBackgroundWork,
+      runBrief: (brief, resultId, signal) =>
+        runDelegatedBrief(
+          {
+            ...params,
+            signal,
+            recoveryGrantObserver:
+              resultId && resultStore.captureGrants
+                ? (grants) => resultStore.captureGrants!(resultId, grants)
+                : undefined,
+          },
+          brief,
+          delegationBudget,
+        ),
+      preflight: async (briefs) => {
+        try {
+          await params.recoveryRecorder?.check(
+            briefs.flatMap((brief) => brief.requiredTools ?? []),
+          );
+          return null;
+        } catch (error) {
+          if (error instanceof RetryPreflightError) return error.message;
+          throw error;
+        }
+      },
+    });
+    localTools.push(...guardPrivilegedTools([delegationTool], params.authorizePrivilegedToolCall));
   }
 
   if (params.model.authMode === "subscription") {
@@ -390,6 +387,10 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     };
   } finally {
     try {
+      // A tool's bounded pending response must not let its workers outlive a
+      // normally ending parent. Stop and join them before releasing its tools,
+      // MCP token, capacity slot, or the caller's deadline timer.
+      await delegationTool?.close();
       await params.recoveryRecorder?.flush();
     } finally {
       await gathered.close();

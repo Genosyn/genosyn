@@ -61,6 +61,8 @@ export type ToolResult = {
 /** A tool the model can call. `run` executes it and returns text for the model. */
 export type AgentTool = ToolDef & {
   run(input: Record<string, unknown>): Promise<ToolResult>;
+  /** Server-owned orchestration waits do not hold the ordinary company write lane. */
+  executionLane?: "delegation";
   /**
    * The tool observes state and never changes it — a file read, a search, a
    * listing, a diff.
@@ -88,6 +90,8 @@ export type AgentTool = ToolDef & {
 // ---------- runtime activity ----------
 
 export type StreamCallbacks = {
+  /** Server-owned worker groups still running after a bounded tool response. */
+  onBackgroundWork?: (pendingGroups: number) => void;
   /** Human-visible reply prose, streamed token-by-token. */
   onText?: (delta: string) => void;
   /**

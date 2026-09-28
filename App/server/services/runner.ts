@@ -716,6 +716,7 @@ async function prepareRoutineRun(
       const controller = new AbortController();
       let timedOut = false;
       let batchYielded = false;
+      let backgroundWork = 0;
       const inFlightTools = new Map<string, number>();
       // A Standdown placed while this Run is in flight aborts it (M58) — a stop
       // that only takes effect at the next slot is not a stop. The registry
@@ -768,6 +769,9 @@ async function prepareRoutineRun(
             toolScope: selfReviewToolScope(routine.selfReviewOnly),
             signal: controller.signal,
             callbacks: {
+              onBackgroundWork: (pendingGroups) => {
+                backgroundWork = pendingGroups;
+              },
               onModelRetry: (retry) =>
                 log.line(
                   `\n[model] ${retry.reason}; retrying attempt ${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${(retry.delayMs / 1000).toFixed(1)}s`,
@@ -796,6 +800,7 @@ async function prepareRoutineRun(
                 if (
                   !controller.signal.aborted &&
                   inFlightTools.size === 0 &&
+                  backgroundWork === 0 &&
                   shouldYieldRunBatch({
                     toolName: name,
                     result: r,

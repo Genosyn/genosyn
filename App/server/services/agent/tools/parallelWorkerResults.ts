@@ -6,6 +6,8 @@ export const MAX_STORED_WORKER_RESULTS = 12;
 export const MAX_STORED_WORKER_CHARS = 1_000_000;
 export const MAX_SINGLE_WORKER_CHARS = 256_000;
 const MAX_READ_CHARS = 8_000;
+const MAX_WAIT_MS = 30_000;
+const RESULT_POLL_MS = 1_000;
 const RESULT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type StoredResult = {
@@ -111,12 +113,16 @@ export type ParallelResultStore = {
   }>;
 };
 
-export function createParallelWorkResultTool(store: ParallelResultStore): AgentTool {
+export function createParallelWorkResultTool(
+  store: ParallelResultStore,
+  options: { signal?: AbortSignal } = {},
+): AgentTool {
   return {
     name: "get_parallel_work_result",
     readOnly: true,
+    executionLane: "delegation",
     description:
-      "Recover worker results without rerunning work. Omit resultId to list IDs, labels and status; provide one to read a bounded page. Follow nextOffset until null. Saved results survive the parent timeout and are available only in the same Run retry/continuation lineage or exact conversation and authority. Current Grants are rechecked. Scope and storage limits are explicit.",
+      "Recover worker results without rerunning work. Omit resultId to list IDs, labels and status; provide one to read a bounded page. When a needed result is pending and no independent work remains, provide its exact resultId and waitMs: 30000 to wait without rapid polling; the original turn deadline still applies. Returns early when the result finishes or becomes unavailable. Follow nextOffset until null. Saved results survive the parent timeout and are available only in the same Run retry/continuation lineage or exact conversation and authority. Current Grants are rechecked throughout the wait. Scope and storage limits are explicit.",
     inputSchema: {
       type: "object",
       properties: {
@@ -129,14 +135,24 @@ export function createParallelWorkResultTool(store: ParallelResultStore): AgentT
             "Character offset when reading a result; listing offset when resultId is omitted.",
         },
         maxChars: { type: "integer", minimum: 1, maximum: MAX_READ_CHARS },
+        waitMs: {
+          type: "integer",
+          minimum: 0,
+          maximum: MAX_WAIT_MS,
+          description:
+            "Wait up to this many milliseconds for an exact pending resultId. Defaults to 0; finished results return immediately.",
+        },
       },
       additionalProperties: false,
     },
     run: async (input) => {
       const offset = input.offset ?? 0;
       const maxChars = input.maxChars ?? 4_000;
+      const waitMs = input.waitMs === undefined ? 0 : input.waitMs;
       if (
-        Object.keys(input).some((key) => !["resultId", "offset", "maxChars"].includes(key)) ||
+        Object.keys(input).some(
+          (key) => !["resultId", "offset", "maxChars", "waitMs"].includes(key),
+        ) ||
         (input.resultId !== undefined &&
           (typeof input.resultId !== "string" || !RESULT_ID.test(input.resultId))) ||
         typeof offset !== "number" ||
@@ -146,10 +162,16 @@ export function createParallelWorkResultTool(store: ParallelResultStore): AgentT
         typeof maxChars !== "number" ||
         !Number.isInteger(maxChars) ||
         maxChars < 1 ||
-        maxChars > MAX_READ_CHARS
+        maxChars > MAX_READ_CHARS ||
+        typeof waitMs !== "number" ||
+        !Number.isInteger(waitMs) ||
+        waitMs < 0 ||
+        waitMs > MAX_WAIT_MS ||
+        (waitMs > 0 && input.resultId === undefined)
       ) {
         return {
-          content: "Invalid resultId, offset or maxChars for worker result recovery.",
+          content:
+            "Invalid resultId, offset, maxChars or waitMs for worker result recovery. A positive waitMs requires an exact resultId.",
           isError: true,
         };
       }
@@ -171,7 +193,23 @@ export function createParallelWorkResultTool(store: ParallelResultStore): AgentT
           }),
         };
       }
-      const result = await store.read(input.resultId as string, offset, maxChars);
+      let result: Awaited<ReturnType<ParallelResultStore["read"]>>;
+      try {
+        result = await readPendingResult(
+          store,
+          input.resultId as string,
+          offset,
+          maxChars,
+          waitMs,
+          options.signal,
+        );
+      } catch (error) {
+        if (!options.signal?.aborted) throw error;
+        return {
+          content: "Worker result recovery stopped because the parent turn ended.",
+          isError: true,
+        };
+      }
       if (!result) {
         return {
           content: JSON.stringify({
@@ -185,4 +223,59 @@ export function createParallelWorkResultTool(store: ParallelResultStore): AgentT
       return { content: JSON.stringify({ scope, ...result }) };
     },
   };
+}
+
+async function readPendingResult(
+  store: ParallelResultStore,
+  resultId: string,
+  offset: number,
+  maxChars: number,
+  waitMs: number,
+  signal?: AbortSignal,
+) {
+  const deadline = Date.now() + waitMs;
+  signal?.throwIfAborted();
+  let result = await untilAborted(Promise.resolve(store.read(resultId, offset, maxChars)), signal);
+  while (result?.status === "pending" && Date.now() < deadline) {
+    const delay = Math.min(RESULT_POLL_MS, deadline - Date.now());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await untilAborted(
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, delay);
+        }),
+        signal,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    signal?.throwIfAborted();
+    // Every poll, including the final read, uses the store's current authority
+    // check. Never return cached output after a Grant disappears while waiting.
+    result = await untilAborted(Promise.resolve(store.read(resultId, offset, maxChars)), signal);
+  }
+  signal?.throwIfAborted();
+  return result;
+}
+
+function untilAborted<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (result) => {
+        signal.removeEventListener("abort", abort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+    if (signal.aborted) abort();
+  });
 }

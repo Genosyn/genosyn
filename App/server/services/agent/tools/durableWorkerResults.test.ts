@@ -153,6 +153,93 @@ test("an aborted duplicate that never starts cannot overwrite completed evidence
   assert.equal(row.output, "completed before abort");
 });
 
+test("closing a pending batch finalizes unstarted owned rows without changing earlier pending work", async () => {
+  const prior = await storeFor(parent);
+  const earlierId = await prior.store.reserve(brief.label, brief);
+  assert.ok(earlierId);
+  const { store } = await storeFor(parent);
+  const started: string[] = [];
+  let announceStarted!: () => void;
+  const twoStarted = new Promise<void>((resolve) => {
+    announceStarted = resolve;
+  });
+  const tool = createParallelDelegationTool({
+    budget: { remaining: 12 },
+    resultStore: store,
+    runBrief: async (value, _resultId, signal) => {
+      started.push(value.label);
+      if (started.length === 2) announceStarted();
+      assert.ok(signal);
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return { status: "failed", error: "Parent ended before this source was finished" };
+    },
+  });
+  const call = tool.run({
+    tasks: [
+      brief,
+      ...Array.from({ length: 7 }, (_, index) => ({
+        label: `New source ${index}`,
+        instruction: `Read new source ${index}`,
+      })),
+    ],
+    maxConcurrency: 2,
+  });
+  await twoStarted;
+  await tool.close();
+  await call;
+  const rows = await AppDataSource.getRepository(ParallelWorkerResult).find();
+  assert.equal(rows.length, 8);
+  assert.equal(rows.find((row) => row.id === earlierId)?.status, "pending");
+  assert.ok(rows.filter((row) => row.id !== earlierId).every((row) => row.status === "failed"));
+  assert.equal(started.length, 2);
+});
+
+test("redispatching a still-pending identical brief does not overwrite or restart it", async () => {
+  const { store } = await storeFor(parent);
+  let announceStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    announceStarted = resolve;
+  });
+  let release!: () => void;
+  const finish = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const tool = createParallelDelegationTool({
+    budget: { remaining: 12 },
+    resultStore: store,
+    runBrief: async () => {
+      calls++;
+      announceStarted();
+      await finish;
+      return { status: "completed", output: "single verified result" };
+    },
+  });
+  const first = tool.run({ tasks: [brief] });
+  try {
+    await started;
+    const second = await tool.run({ tasks: [brief] });
+    assert.equal(second.isError, true);
+    assert.match(second.content, /already running/);
+    const pending = await AppDataSource.getRepository(ParallelWorkerResult).find();
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].status, "pending");
+    assert.equal(calls, 1);
+    release();
+    await first;
+    const result = await AppDataSource.getRepository(ParallelWorkerResult).findOneByOrFail({
+      id: pending[0].id,
+    });
+    assert.equal(result.status, "completed");
+    assert.equal(result.output, "single verified result");
+  } finally {
+    release();
+    await tool.close();
+  }
+});
+
 test("another occurrence, employee, company or broken lineage cannot recover a known result", async () => {
   const first = await storeFor(parent);
   const id = await first.store.reserve(brief.label, brief);

@@ -504,6 +504,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           relevant dates, data sources, constraints, and expected output in each brief.
         </LI>
         <LI>
+          Longer briefs return a pending status and result IDs after a short wait. The parent can
+          continue independent work and recover the results without starting duplicate workers;
+          it can also wait briefly for a particular result instead of checking repeatedly.
+          Pending work does not mean the company&apos;s tools are unavailable. Ending the parent
+          turn stops its unfinished workers. Completed evidence remains available to authorized
+          retries and continuations.
+        </LI>
+        <LI>
           Workers share the employee&apos;s working directory. Parallel reads are safe; for writes,
           assign distinct files and avoid concurrent git operations or overlapping edits.
         </LI>

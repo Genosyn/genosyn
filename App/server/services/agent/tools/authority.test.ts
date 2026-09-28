@@ -3,12 +3,15 @@ import { describe, test } from "node:test";
 
 import type { AgentTool } from "../types.js";
 import { guardPrivilegedTools, selectSurfaceTools } from "./index.js";
+import { residentOnlyRegistry } from "./toolRegistry.js";
+import { createCallTool } from "./discovery.js";
 
 function fakeTool(onRun: () => void): AgentTool {
   return {
     name: "local_tool",
     description: "A test tool",
     inputSchema: { type: "object", properties: {} },
+    executionLane: "delegation",
     describeCall: (input) => ({ name: "real_local_tool", input }),
     run: async () => {
       onRun();
@@ -30,6 +33,7 @@ describe("privileged ambient tool guards", () => {
       name: "real_local_tool",
       input: { value: 1 },
     });
+    assert.equal(guarded.executionLane, "delegation");
     assert.deepEqual(await guarded.run({}), { content: "ran" });
     assert.deepEqual(await guarded.run({}), {
       content: "revoked mid-turn",
@@ -37,6 +41,32 @@ describe("privileged ambient tool guards", () => {
     });
     assert.equal(checks, 2);
     assert.equal(runs, 1);
+  });
+
+  test("delegation scheduling metadata survives registry resolution without bypassing live authority", async () => {
+    let checks = 0;
+    let runs = 0;
+    const [guarded] = guardPrivilegedTools([fakeTool(() => runs++)], async () => {
+      checks++;
+      return "revoked before dispatch";
+    });
+    const registry = residentOnlyRegistry([guarded]);
+    assert.equal(registry.resolve("local_tool")?.executionLane, "delegation");
+    assert.deepEqual(await registry.resolve("local_tool")!.run({}), {
+      content: "revoked before dispatch",
+      isError: true,
+    });
+    const deferred = createCallTool({
+      searchable: [guarded],
+      resolve: registry.resolve,
+      grantDead: new Set(),
+    });
+    assert.deepEqual(await deferred.run({ name: "local_tool", args_json: "{}" }), {
+      content: "revoked before dispatch",
+      isError: true,
+    });
+    assert.equal(checks, 2);
+    assert.equal(runs, 0);
   });
 
   test("fails closed without leaking an authority lookup error", async () => {

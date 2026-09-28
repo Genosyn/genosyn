@@ -393,6 +393,52 @@ for (const scenario of [
   });
 }
 
+for (const continuing of [false, true]) {
+  test(`${continuing ? "a continuation" : "an initial Run"} waits for background workers before handing off a saved batch`, async (t) => {
+    const { routine, checkpoint } = await fixture();
+    const parent = continuing ? await priorRun(routine) : null;
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
+      const persisted = await checkpoint(advanced);
+      for (const pending of [2, 1]) {
+        params.callbacks?.onBackgroundWork?.(pending);
+        reportCheckpoint(params, persisted);
+        assert.equal(
+          params.signal?.aborted,
+          false,
+          "a pending response cannot make unfinished workers safe to interrupt",
+        );
+      }
+      params.callbacks?.onBackgroundWork?.(0);
+      assert.equal(
+        params.signal?.aborted,
+        false,
+        "worker completion alone is not a durable handoff boundary",
+      );
+      reportCheckpoint(params, await checkpoint(advanced));
+      assert.equal(params.signal?.aborted, true);
+      return { finalText: "", steps: 1, stopReason: "aborted" };
+    });
+    const result = await (
+      await startRoutineRun(
+        routine,
+        parent
+          ? { triggerKind: "continuation", continuationFromRunId: parent.id }
+          : { triggerKind: "manual" },
+      )
+    ).completion;
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorKind, null);
+    assert.ok(result.retryAt);
+    assert.match(result.logContent, /Batch progress saved; handing unfinished work/);
+    if (parent)
+      assert.equal(
+        result.continuationDeadlineAt?.getTime(),
+        parent.continuationDeadlineAt?.getTime(),
+      );
+  });
+}
+
 test("a long initial Run yields at a new durable checkpoint and its child receives saved progress", async (t) => {
   const { routine, checkpoint } = await fixture();
   let calls = 0;
