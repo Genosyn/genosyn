@@ -204,30 +204,6 @@ export function RecommendationsStep({
     };
   }, [load]);
 
-  React.useEffect(() => {
-    function handleOauthMessage(event: MessageEvent) {
-      // The popup is same-origin; anything else is not ours to trust.
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as {
-        source?: string;
-        ok?: boolean;
-        title?: string;
-        detail?: string;
-      } | null;
-      if (!data || data.source !== "genosyn-oauth") return;
-      if (data.ok) {
-        setOauthEntry(null);
-        load().catch((err) => setError((err as Error).message));
-      } else {
-        void dialog.error(data.detail ?? data.title ?? "Connection failed", {
-          title: "Couldn’t add the Connection",
-        });
-      }
-    }
-    window.addEventListener("message", handleOauthMessage);
-    return () => window.removeEventListener("message", handleOauthMessage);
-  }, [dialog, load]);
-
   function toggleRoutine(id: string) {
     if (addingRoutines) return;
     const selected = selectedRoutineIds.has(id);

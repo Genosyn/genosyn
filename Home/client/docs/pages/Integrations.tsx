@@ -101,23 +101,32 @@ export function Integrations() {
         Postgres and MySQL Connections stay disabled until an isolated egress worker is configured.
       </Callout>
 
-      <H2 id="instance-oauth-apps">Register an OAuth app once, connect with one click</H2>
+      <H2 id="instance-oauth-apps">Google sign-in and your own OAuth apps</H2>
       <P>
-        An OAuth Connection needs a client registered with the provider — a Google Cloud OAuth
-        client, a GitHub OAuth App, and so on. By default each Connection brings its own, which
-        means whoever connects a mailbox first has to create a Google Cloud project, enable the
-        Gmail API, configure a consent screen, register a Web client, and paste an ID and secret
-        into the connect form. Then do it again for the next mailbox, and again in the next company.
-        That setup, not the consent screen, is what made connecting email hard.
+        For Gmail, open <Strong>Email</Strong>, enter your address, and choose{" "}
+        <Strong>Continue with Google</Strong>. Self-hosted installations can use Genosyn&apos;s
+        hosted Gmail sign-in service without creating a Google Cloud project, once that service is
+        available. It handles Google consent and token renewal; email reads and sends go directly
+        between your installation and Google. Credentials are stored encrypted on your installation;
+        token renewal sends the refresh credential to the original sign-in service.
       </P>
       <P>
-        An instance admin can do it <Strong>once for the whole install</Strong> instead. Open{" "}
+        An instance admin manages this at <Strong>Admin → Runtime → Gmail sign-in</Strong>. Turning
+        off <Strong>Use hosted Gmail sign-in</Strong> stops new hosted sign-ins without revoking
+        existing Connections. Changing the service URL affects new Connections; existing ones keep
+        using the service that issued their credentials. Only use a replacement service you trust
+        with those credentials. Hosted sign-in covers Gmail only.
+      </P>
+      <P>
+        For independent Gmail sign-in or other OAuth integrations, register an app{" "}
+        <Strong>once for the whole install</Strong>. Open{" "}
         <Strong>Admin → Integrations</Strong>, pick a provider, copy the redirect URI it shows into
         the provider&apos;s console, and paste back the Client ID and Client Secret. From then on,
         every company on the instance connects that provider by clicking it and approving on the
         provider&apos;s own screen — there is no ID to create and nothing to paste. Connecting a
-        Gmail mailbox becomes: click <Strong>Google Workspace</Strong>, tick the products it may
-        touch, approve. (A mailbox that is not on Google needs no registration at all — see{" "}
+        Google Workspace Connection becomes: click <Strong>Google Workspace</Strong>, tick the products it may
+        touch, approve. A locally registered Google app takes precedence over hosted Gmail sign-in.
+        (A mailbox that is not on Google needs no registration at all — see{" "}
         <Strong>Email account (IMAP)</Strong> below.)
       </P>
       <P>

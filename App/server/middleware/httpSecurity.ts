@@ -51,7 +51,9 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  // OAuth starts in a popup. Preserve the opener long enough for the hosted
+  // sign-in page to verify its origin; cross-origin DOM access stays blocked.
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   if (req.secure || getPublicUrl().startsWith("https://")) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }

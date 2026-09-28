@@ -120,6 +120,9 @@ export type IntegrationCatalogEntry = {
      * all. Several integrations can share one app — registering `google`
      * covers Workspace, Analytics, and Search Console together. */
     instanceApp?: boolean;
+    /** Verified hosted Gmail sign-in. Only the Google Workspace entry may
+     * carry this, and only its mail scope group uses the hosted app. */
+    hostedSignIn?: boolean;
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];

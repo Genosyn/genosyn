@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright-core";
 import { createServer } from "vite";
 import { discoverMailbox } from "../server/services/mail/discovery";
+import { googleSignInPage } from "../server/services/googleSignInBroker";
+import express from "express";
+import { integrationsOauthRouter } from "../server/routes/integrationsOauth";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.resolve(root, "../output/playwright");
@@ -22,6 +25,12 @@ type State = {
   discoveryError: boolean;
   oauthError: boolean;
   consentDenied: boolean;
+  hosted: boolean;
+  hostedComplete: boolean;
+  hostedExpired: boolean;
+  hostedPollError: boolean;
+  brokerLaunchVerified: boolean;
+  realDirectCallback: boolean;
   calls: Call[];
 };
 const fixture = (): State => ({
@@ -29,6 +38,12 @@ const fixture = (): State => ({
   discoveryError: false,
   oauthError: false,
   consentDenied: false,
+  hosted: false,
+  hostedComplete: false,
+  hostedExpired: false,
+  hostedPollError: false,
+  brokerLaunchVerified: false,
+  realDirectCallback: false,
   calls: [],
 });
 let state = fixture();
@@ -54,9 +69,13 @@ const server = await createServer({
     {
       name: "mail-connect-fixture",
       configureServer(dev) {
+        const callbackApp = express();
+        callbackApp.use("/api/integrations/oauth", integrationsOauthRouter);
+        dev.middlewares.use(callbackApp);
         dev.middlewares.use(async (req, res, next) => {
           const url = new URL(req.url ?? "/", "http://fixture");
           if (url.pathname === "/__mail_connect") {
+            res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
             const html = await dev.transformIndexHtml(
               url.pathname,
               '<!doctype html><html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><div id="root"></div>' +
@@ -78,6 +97,40 @@ const server = await createServer({
             res.end(
               `<script>window.opener.postMessage(${JSON.stringify(result)}, window.location.origin);window.close();</script>`,
             );
+            return;
+          }
+          if (url.pathname === "/__hosted_popup") {
+            res.setHeader("content-type", "text/html");
+            res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
+            res.setHeader(
+              "Content-Security-Policy",
+              "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'unsafe-inline'; script-src 'nonce-fixture-script'",
+            );
+            res.end(
+              googleSignInPage({
+                scriptNonce: "fixture-script",
+                form: {
+                  requestId: "b".repeat(43),
+                  browserNonce: "n".repeat(43),
+                  installationOrigin: origin,
+                },
+              }),
+            );
+            return;
+          }
+          if (url.pathname === "/api/google-sign-in/authorize") {
+            let raw = "";
+            for await (const chunk of req) raw += chunk.toString();
+            const body = new URLSearchParams(raw);
+            state.brokerLaunchVerified =
+              body.get("browserProof") === "p".repeat(43) && req.headers.origin === brokerOrigin;
+            assert.ok(
+              state.brokerLaunchVerified,
+              "The actual broker page must receive the launch proof from its opener",
+            );
+            state.hostedComplete = true;
+            res.setHeader("content-type", "text/html");
+            res.end(googleSignInPage({ detail: "Gmail sign-in is complete. Return to Genosyn." }));
             return;
           }
           if (!url.pathname.startsWith("/api/")) return next();
@@ -106,6 +159,7 @@ const server = await createServer({
                 options: routes.map((route) => ({
                   ...route,
                   ready: route.kind === "imap" || state.googleReady,
+                  ...(route.kind === "oauth" && state.hosted ? { hostedSignIn: true } : {}),
                   ...(route.kind === "oauth" && !state.googleReady
                     ? {
                         blockedReason:
@@ -119,7 +173,40 @@ const server = await createServer({
           if (req.method === "POST" && url.pathname === `${base}/integrations/oauth/start`) {
             if (state.oauthError)
               return json({ error: "Google sign-in could not start. Try again." }, 400);
+            if (state.realDirectCallback)
+              return json({
+                authorizeUrl: `${origin}/api/integrations/oauth/callback/google?error=access_denied&error_description=${encodeURIComponent("Denied </script><script>throw new Error('injected')</script>")}`,
+              });
+            if (state.hosted)
+              return json({
+                authorizeUrl: `${brokerOrigin}/__hosted_popup?requestId=${"b".repeat(43)}`,
+                hostedAttempt: "fixture-attempt",
+                hostedBrowserProof: "p".repeat(43),
+                expiresAt: Date.now() + (state.hostedExpired ? -1 : 10 * 60_000),
+              });
             return json({ authorizeUrl: `${origin}/__oauth_popup` });
+          }
+          if (req.method === "POST" && url.pathname === `${base}/integrations/oauth/hosted/poll`) {
+            if (state.hostedPollError)
+              return json(
+                { error: "Gmail sign-in is temporarily unavailable. Please try again." },
+                503,
+              );
+            if (!state.hostedComplete) return json({ status: "pending" });
+            return json(
+              state.consentDenied
+                ? {
+                    status: "denied",
+                    detail: "Google sign-in was cancelled. Try again when ready.",
+                  }
+                : { status: "complete" },
+            );
+          }
+          if (
+            req.method === "POST" &&
+            url.pathname === `${base}/integrations/oauth/hosted/cancel`
+          ) {
+            return json({ ok: true });
           }
           if (req.method === "POST" && url.pathname === `${base}/mail/connect/imap`) {
             return json({ account: { id: "mailbox", address: body.address, provider: "imap" } });
@@ -133,6 +220,7 @@ const server = await createServer({
 });
 await server.listen();
 const origin = `http://127.0.0.1:${(server.httpServer!.address() as AddressInfo).port}`;
+const brokerOrigin = `http://localhost:${(server.httpServer!.address() as AddressInfo).port}`;
 const browser = await chromium
   .launch({
     channel: process.env.GENOSYN_TEST_BROWSER ?? "chrome",
@@ -266,6 +354,127 @@ add("blocked popups explain the retry and keep Google as the only choice", async
   await assertNoPassword(page);
   assert.equal(await proceed(page).isEnabled(), true);
 });
+add(
+  "hosted Gmail connects from a private installation without a registered client",
+  async (page) => {
+    state.hosted = true;
+    await discover(page);
+    await assertNoPassword(page);
+    await form(page)
+      .getByText(/Genosyn handles Google sign-in/)
+      .waitFor();
+    await page.screenshot({
+      path: path.join(output, "mail-connect-hosted-gmail.png"),
+      fullPage: true,
+    });
+    const opened = page.waitForEvent("popup");
+    await proceed(page).click();
+    const popup = await opened;
+    await popup.getByRole("button", { name: "Continue with Google" }).waitFor();
+    assert.equal(new URL(popup.url()).origin, brokerOrigin);
+    await popup.screenshot({
+      path: path.join(output, "mail-connect-hosted-broker.png"),
+      fullPage: true,
+    });
+    await form(page).getByRole("status").getByText("Waiting for Google sign-in…").waitFor();
+    // A forged same-origin message is not proof that the hosted flow completed.
+    await page.evaluate(() =>
+      window.postMessage({ source: "genosyn-oauth", ok: true }, window.location.origin),
+    );
+    assert.equal(
+      await form(page).getByText("Connected Google mailbox", { exact: true }).count(),
+      0,
+    );
+    await popup.getByRole("button", { name: "Continue with Google" }).click();
+    await form(page).getByRole("status").getByText("Connected Google mailbox").waitFor();
+    const start = state.calls.find((call) => call.path.endsWith("/oauth/start"))!;
+    assert.equal(start.body.clientId, undefined);
+    assert.equal(start.body.clientSecret, undefined);
+    assert.ok(state.calls.some((call) => call.path.endsWith("/hosted/poll")));
+    assert.equal(state.brokerLaunchVerified, true);
+    assert.ok(state.calls.every((call) => !JSON.stringify(call.body).includes("refreshToken")));
+  },
+);
+add(
+  "direct OAuth callback executes under its production CSP and escapes provider text",
+  async (page) => {
+    state.realDirectCallback = true;
+    await discover(page);
+    await proceed(page).click();
+    await form(page)
+      .getByText("Denied </script><script>throw new Error('injected')</script>", { exact: true })
+      .waitFor();
+    assert.equal(await proceed(page).isEnabled(), true);
+  },
+);
+add("hosted Gmail cancellation stops polling and permits another sign-in", async (page) => {
+  state.hosted = true;
+  await discover(page);
+  await proceed(page).click();
+  await form(page).getByRole("button", { name: "Cancel sign-in" }).click();
+  await proceed(page).waitFor({ state: "visible" });
+  assert.equal(await proceed(page).isEnabled(), true);
+  assert.ok(state.calls.some((call) => call.path.endsWith("/hosted/cancel")));
+  const opened = page.waitForEvent("popup");
+  await proceed(page).click();
+  await (await opened).getByRole("button", { name: "Continue with Google" }).click();
+  await form(page).getByRole("status").getByText("Connected Google mailbox").waitFor();
+});
+add("hosted Gmail refuses a sign-in page opened without its installation", async (page) => {
+  const standalone = await page.context().newPage();
+  await standalone.goto(`${brokerOrigin}/__hosted_popup?requestId=${"b".repeat(43)}`);
+  assert.equal(
+    await standalone.getByRole("button", { name: "Continue with Google" }).isEnabled(),
+    false,
+  );
+  await standalone.evaluate(() =>
+    window.postMessage(
+      {
+        source: "genosyn-google-sign-in-launch",
+        requestId: "b".repeat(43),
+        proof: "p".repeat(43),
+      },
+      window.location.origin,
+    ),
+  );
+  assert.equal(
+    await standalone.getByRole("button", { name: "Continue with Google" }).isEnabled(),
+    false,
+  );
+  assert.equal(state.brokerLaunchVerified, false);
+  await standalone.close();
+});
+add("hosted Gmail denial stays inline and can be retried", async (page) => {
+  state.hosted = true;
+  state.consentDenied = true;
+  await discover(page);
+  const opened = page.waitForEvent("popup");
+  await proceed(page).click();
+  await (await opened).getByRole("button", { name: "Continue with Google" }).click();
+  await form(page)
+    .getByText("Google sign-in was cancelled. Try again when ready.", { exact: true })
+    .waitFor();
+  assert.equal(await proceed(page).isEnabled(), true);
+  await assertNoPassword(page);
+});
+add("hosted Gmail expiry restores the form", async (page) => {
+  state.hosted = true;
+  state.hostedExpired = true;
+  await discover(page);
+  await proceed(page).click();
+  await form(page).getByText("Sign-in timed out. Please try again.", { exact: true }).waitFor();
+  assert.equal(await proceed(page).isEnabled(), true);
+});
+add("hosted Gmail service errors stay inline", async (page) => {
+  state.hosted = true;
+  state.hostedPollError = true;
+  await discover(page);
+  await proceed(page).click();
+  await form(page)
+    .getByText("Gmail sign-in is temporarily unavailable. Please try again.", { exact: true })
+    .waitFor();
+  assert.equal(await proceed(page).isEnabled(), true);
+});
 add("other services still connect with a password and discovered servers", async (page) => {
   await discover(page, "owner@fastmail.com");
   await page.getByLabel("Password", { exact: true }).fill("fixture-app-password");
@@ -350,7 +559,8 @@ try {
     context.on("page", (opened) => opened.on("pageerror", (error) => errors.push(error.message)));
     page.on("pageerror", (error) => errors.push(error.message));
     await context.route("**/*", (route) => {
-      if (new URL(route.request().url()).origin === origin) return route.continue();
+      if ([origin, brokerOrigin].includes(new URL(route.request().url()).origin))
+        return route.continue();
       unexpected.push(`External request: ${route.request().url()}`);
       return route.abort();
     });

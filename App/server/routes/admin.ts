@@ -32,6 +32,7 @@ import {
 } from "../services/customJavaScript.js";
 import {
   getRuntimeSettingsSnapshot,
+  normalizeGmailSignInUrl,
   resetRuntimeSettingsGroup,
   saveRuntimeSettingsGroup,
 } from "../services/runtimeSettings.js";
@@ -307,7 +308,7 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
 // every value.
 
 const runtimeGroupParams = z.object({
-  group: z.enum(["web", "mail", "meetings", "browser", "agent", "containment", "network"]),
+  group: z.enum(["web", "mail", "oauth", "meetings", "browser", "agent", "containment", "network"]),
 });
 
 const runtimeGroupSchemas = {
@@ -327,6 +328,14 @@ const runtimeGroupSchemas = {
     backfillThreadsPerPass: z.number().int().min(1).max(5_000),
     backfillPassSeconds: z.number().int().min(1).max(600),
     backfillDays: z.number().int().min(0).max(36_500),
+  }),
+  oauth: z.object({
+    gmailSignInEnabled: z.boolean(),
+    gmailSignInUrl: z.string().trim().max(2048).refine(
+      (value) => normalizeGmailSignInUrl(value) !== null,
+      "Use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
+    ),
+    hostGmailSignIn: z.boolean(),
   }),
   meetings: z.object({
     enabled: z.boolean(),

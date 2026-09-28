@@ -68,6 +68,8 @@ export type ConnectionDTO = {
    * Empty array for API-key connections or legacy rows that pre-date
    * scope groups. The reconnect modal uses this to prefill checkboxes. */
   scopeGroups: string[];
+  /** Non-secret transport hint: hosted Google Connections support Gmail only. */
+  hostedSignIn?: boolean;
   /** Set when this row's connector has been removed from the catalog, so the
    * connection list can say so instead of rendering an anonymous card the
    * operator can only stare at. Null for every live Connection. Costs no
@@ -88,7 +90,7 @@ export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
     lastCheckedAt: c.lastCheckedAt ? c.lastCheckedAt.toISOString() : null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
-    scopeGroups: readScopeGroups(c),
+    ...readOauthMetadata(c),
     retired: getRetiredProvider(c.provider),
   };
 }
@@ -98,20 +100,23 @@ export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
  * other secret fields. Returns `[]` for API-key connections or anything
  * we can't decrypt — the UI treats `[]` as "no scope groups picked".
  */
-function readScopeGroups(c: IntegrationConnection): string[] {
+function readOauthMetadata(c: IntegrationConnection): { scopeGroups: string[]; hostedSignIn?: boolean } {
   // `browser` is a retired mode with rows still in the table; its config
   // never held scope groups, so keep skipping it rather than decrypting a
   // credential blob to learn nothing.
-  if (c.authMode === "apikey" || c.authMode === "browser") return [];
+  if (c.authMode === "apikey" || c.authMode === "browser") return { scopeGroups: [] };
   try {
-    const cfg = decryptConnectionConfig(c) as { scopeGroups?: unknown };
-    if (Array.isArray(cfg.scopeGroups)) {
-      return cfg.scopeGroups.filter((s): s is string => typeof s === "string");
-    }
+    const cfg = decryptConnectionConfig(c) as { scopeGroups?: unknown; credentialSource?: unknown };
+    return {
+      scopeGroups: Array.isArray(cfg.scopeGroups)
+        ? cfg.scopeGroups.filter((s): s is string => typeof s === "string")
+        : [],
+      ...(c.provider === "google" && cfg.credentialSource === "hosted" ? { hostedSignIn: true } : {}),
+    };
   } catch {
     // Bad config — surface as empty rather than crashing the list endpoint.
   }
-  return [];
+  return { scopeGroups: [] };
 }
 
 export async function listConnections(companyId: string): Promise<IntegrationConnection[]> {

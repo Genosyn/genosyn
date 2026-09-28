@@ -1,0 +1,155 @@
+# Operating hosted Gmail sign-in
+
+Genosyn includes a Gmail sign-in service inside the **App** server. The default
+customer setting points to `https://connect.genosyn.com`, but shipping the code
+does not deploy that service or register a Google app. Until it is online and
+configured, customers need their own Google OAuth app.
+
+## Dedicated deployment
+
+Use the existing App image and a separate database, data volume, and instance
+secrets. Pin an immutable image containing this feature; publishing the Home
+site or deploying an older release does not install the service. Build and
+release conventions are in [RELEASING.md](../RELEASING.md).
+
+For a small dedicated service, the existing Helm chart's
+[`values-selfhost.yaml`](../Helm/genosyn/values-selfhost.yaml) provides one App
+replica, SQLite on a persistent volume, and no bundled Postgres or sandbox
+privileges. Keep `replicaCount: 1`, `strategy: Recreate`,
+`config.multiTenant: false`, persistence enabled, and a predeclared
+`config.bootstrapMasterAdminEmail`. Before starting the App, use
+`config.extraJs` to replace the complete `agent` block: set
+`codingTools.enabled: false`, `codingTools.executionMode: "disabled"`,
+`codingTools.allowNetwork: false`, `codingTools.allowUnsafeHostExecution: false`,
+and `browserEnabledInMultiTenant: false`; retain `codingTools.bubblewrapPath`
+from the chart. This override is required because the self-host profile
+otherwise permits host command execution. This is an operator-only installation;
+do not create customer companies, AI Models, or AI Employees here. Disable
+Member browsers and meetings at **Admin → Runtime**. A managed Postgres
+database is also supported; it does not remove the need for durable instance
+secrets and the data volume.
+
+The chart's ordinary ingress exposes the whole App. Keep
+`ingress.enabled: false` and configure a dedicated TLS ingress or reverse proxy
+for `connect.genosyn.com` that permits only these exact public paths:
+
+| Path                            | Methods   |
+| ------------------------------- | --------- |
+| `/api/google-sign-in/status`    | GET       |
+| `/api/google-sign-in/start`     | POST      |
+| `/api/google-sign-in/authorize` | GET, POST |
+| `/api/google-sign-in/callback`  | GET       |
+| `/api/google-sign-in/poll`      | POST      |
+| `/api/google-sign-in/refresh`   | POST      |
+
+Forward to the App service on port 8471 (the Helm Service exposes port 80),
+without rewriting the path. Keep all other App paths private, including
+registration, administration, internal APIs, and `/api/health`. The chart's
+existing internal readiness and liveness probes use `/api/health`; monitor
+`/api/google-sign-in/status` separately. Its `available: true` means the local
+configuration is present, so a real consent and refresh check is still required.
+
+Give operators private access to the full UI through a tunnel or restricted
+ingress that preserves the canonical HTTPS origin. Complete bootstrap before
+opening public broker access: configure the exact operator email, then from
+`/app` in the container run
+`node dist/server/scripts/setupPublicUrl.js --url https://connect.genosyn.com`.
+Register that operator, verify its email, sign in, and disable registration at
+**Admin → Sign-ups**. Before an email transport is configured, verification
+links appear in the private server log; keep that log access restricted. Set
+an email transport for subsequent account recovery. Confirm **Admin → General
+→ Public URL** remains `https://connect.genosyn.com`.
+
+Set `security.trustedProxyHops` to the actual proxy chain length (in Helm,
+override with `security: { ...security, trustedProxyHops: N }` through
+`config.extraJs`). Block direct public access to the App port. Preserve the
+original Host, Origin, cookies, and the App's CSP and opener headers. Do not
+cache these endpoints or put browser challenges or interactive access gates
+in front of server-to-server requests. Disable request body/header capture;
+proxy access logs must omit query strings, especially on the Google callback.
+Keep the outbound private-host allowlist empty; the service needs outbound
+HTTPS to Google and never needs to contact customer installation addresses.
+
+## Launch the Genosyn service
+
+1. Deploy a dedicated App installation at `https://connect.genosyn.com`, with
+   persistent storage, durable instance secrets, and TLS as described above.
+   Set **Admin → General → Public URL** to that origin. This is an App deployment; the marketing
+   site's Cloudflare Worker does not provide these endpoints.
+2. Create a Google Cloud project, enable the Gmail API, and configure its OAuth
+   branding and consent screen. Register a **Web application** OAuth client with
+   this exact authorized redirect URI:
+
+   `https://connect.genosyn.com/api/google-sign-in/callback`
+
+   Customer installation URLs are not registered as Google redirect URIs.
+
+3. Set that Client ID and Client Secret at **Admin → Integrations → Google** on
+   the dedicated service. These credentials remain server-side and are stored
+   encrypted. Keep the same Client ID for the life of issued Connections;
+   replacing it invalidates the refresh path for credentials issued by the old
+   client.
+4. Complete Google's production verification for the requested Gmail scopes.
+   Publish accurate support, privacy, and deletion information covering both
+   the sign-in service and self-hosted installations. Review the security
+   assessment requirements with Google before launching; routing mail directly
+   to customer installations does not itself establish an exemption. Google's
+   [restricted-scope verification requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
+   and [Gmail scope list](https://developers.google.com/workspace/gmail/api/auth/scopes)
+   are the authoritative references.
+5. After configuration and verification, open **Admin → Runtime → Gmail
+   sign-in**, enable **Host Gmail sign-in on this installation**, and save.
+   Ordinary customer installations leave this setting off. This opens the
+   sign-in and token-renewal endpoints to other Genosyn installations.
+6. Verify the browser flow from a separate installation: **Email → enter Gmail
+   address → Continue with Google → consent → mailbox opens**. Check a rejected
+   consent, an interrupted flow, reconnect, and an expired access token before
+   announcing availability. Include a localhost customer installation in the
+   verification: the service must not need inbound network access to it.
+
+For local development, the service URL may use HTTP only on `localhost`,
+`127.0.0.1`, or `[::1]`. Production uses HTTPS. Do not use real production
+credentials or accounts in a local mock flow.
+
+## Data and availability
+
+The sign-in service owns the Google OAuth client secret. It exchanges the
+Google code and briefly holds an encrypted, one-time handoff. The hosted page
+verifies which installation opened it before Google consent. A separate
+server-held proof is required to collect the credentials. Handoffs
+expire after ten minutes; a cleanup pass deletes expired rows at startup and
+every minute. Previously created encrypted backups follow their own retention.
+The customer installation stores the returned Google credentials encrypted in its existing
+Connection row. For token renewal, it sends the refresh credential to the
+original sign-in service over HTTPS. The service has no long-term refresh-token
+registry. Email content is read and sent directly between the customer
+installation and Google.
+
+Treat callback query strings, handoff values, authorization headers, and token
+request/response bodies as secrets. Do not record them in reverse-proxy logs,
+error-reporting payloads, analytics, support bundles, or request-body capture.
+Monitor availability and Google error counts without credential material.
+Back up the dedicated service's database and instance secrets together.
+
+An outage affects new sign-ins and token renewal. Already issued access tokens
+work until they expire. Restoring the service with the same Google client lets
+existing Connections renew again; revoked credentials require reconnecting.
+
+## Customer controls
+
+The default **Use hosted Gmail sign-in** setting needs no customer OAuth app
+when the Genosyn service is available. An operator may replace the service URL
+with another trusted service; it must be an HTTPS origin without credentials,
+a path, query, or fragment. This changes where **new** Connections authenticate.
+Existing Connections retain their original issuer for refresh, so changing the
+default cannot redirect an existing credential to a different service.
+
+Disabling **Use hosted Gmail sign-in** prevents new hosted sign-ins without
+revoking existing Connections or blocking their refresh. Disconnect the
+Connection and revoke its access in Google to withdraw access.
+
+A locally registered Google OAuth app, or explicit credentials on a
+Connection, takes precedence over hosted Gmail sign-in. This preserves the
+independent installation path. Hosted sign-in supports Gmail only; Drive,
+Calendar, Analytics, Search Console, Ads, and the other Google products still
+need an independently registered app.

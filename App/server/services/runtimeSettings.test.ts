@@ -19,12 +19,15 @@ import {
   getMailSettings,
   getMeetingsSettings,
   getNetworkSettings,
+  getRuntimeOauthSettings,
   getRuntimeSettingsSnapshot,
   getWebSettings,
   importLegacyConfigOverrides,
   overrideRuntimeSettingsForTests,
+  normalizeGmailSignInUrl,
   parseAgentSettings,
   parseNetworkSettings,
+  parseOauthSettings,
   reloadRuntimeSettings,
   resetRuntimeSettingsCacheForTests,
   resetRuntimeSettingsGroup,
@@ -136,6 +139,7 @@ describe("defaults", () => {
     assert.deepEqual(snapshot.overridden, {
       web: false,
       mail: false,
+      oauth: false,
       meetings: false,
       browser: false,
       agent: false,
@@ -390,6 +394,64 @@ describe("the network group", () => {
     const stored = JSON.parse((await readRow(RUNTIME_SETTING_KEYS.network))!);
     assert.deepEqual(stored.privateHostAllowlist, ["git.internal", "ollama.lan"]);
     assert.deepEqual(getNetworkSettings().privateHostAllowlist, ["git.internal", "ollama.lan"]);
+  });
+});
+
+describe("hosted Gmail sign-in settings", () => {
+  test("fresh installations use Genosyn sign-in without hosting a service", async () => {
+    await reloadRuntimeSettings();
+    assert.deepEqual(getRuntimeOauthSettings(), {
+      gmailSignInEnabled: true,
+      gmailSignInUrl: "https://connect.genosyn.com",
+      hostGmailSignIn: false,
+    });
+  });
+
+  test("only secure service origins and explicit development loopback are accepted", () => {
+    for (const value of [
+      "http://connect.example.com",
+      "https://user:secret@connect.example.com",
+      "https://connect.example.com/start",
+      "https://connect.example.com?token=secret",
+      "https://connect.example.com#token",
+      "ftp://connect.example.com",
+      "http://localhost.example.com",
+      "not a URL",
+    ]) {
+      assert.equal(normalizeGmailSignInUrl(value), null, value);
+    }
+    assert.equal(normalizeGmailSignInUrl(" https://CONNECT.example.com/ "), "https://connect.example.com");
+    assert.equal(normalizeGmailSignInUrl("http://localhost:3001/"), "http://localhost:3001");
+    assert.equal(normalizeGmailSignInUrl("http://127.0.0.1:3001"), "http://127.0.0.1:3001");
+    assert.equal(normalizeGmailSignInUrl("http://[::1]:3001/"), "http://[::1]:3001");
+  });
+
+  test("bad stored fields fall back independently and cannot enable hosting", () => {
+    assert.deepEqual(parseOauthSettings({
+      gmailSignInEnabled: false,
+      gmailSignInUrl: "http://untrusted.example.com",
+      hostGmailSignIn: "true",
+    }), {
+      gmailSignInEnabled: false,
+      gmailSignInUrl: "https://connect.genosyn.com",
+      hostGmailSignIn: false,
+    });
+  });
+
+  test("custom settings persist, normalize, and reset through the shared cache", async () => {
+    await saveRuntimeSettingsGroup("oauth", {
+      gmailSignInEnabled: false,
+      gmailSignInUrl: "https://connect.example.com/",
+      hostGmailSignIn: false,
+    });
+    assert.equal(getRuntimeOauthSettings().gmailSignInUrl, "https://connect.example.com");
+    resetRuntimeSettingsCacheForTests();
+    const snapshot = await getRuntimeSettingsSnapshot();
+    assert.equal(snapshot.oauth.gmailSignInEnabled, false);
+    assert.equal(snapshot.overridden.oauth, true);
+    await resetRuntimeSettingsGroup("oauth");
+    assert.equal(await readRow(RUNTIME_SETTING_KEYS.oauth), null);
+    assert.deepEqual(getRuntimeOauthSettings(), RUNTIME_SETTINGS_DEFAULTS.oauth);
   });
 });
 

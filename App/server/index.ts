@@ -74,6 +74,7 @@ import { adminRouter } from "./routes/admin.js";
 import { customJavaScriptRouter } from "./routes/customJavaScript.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
+import { googleSignInBrokerRouter } from "./routes/googleSignInBroker.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
 // The mount path is imported rather than repeated: the same constant builds
 // the URL the operator pastes into Microsoft's or Meta's console, and a mount
@@ -141,6 +142,7 @@ import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.j
 import { bootPublicUrl } from "./services/publicUrl.js";
 import { bootCustomJavaScript } from "./services/customJavaScript.js";
 import { bootRuntimeSettings, importLegacyConfigOverrides } from "./services/runtimeSettings.js";
+import { bootAuthFlowStateSweeper, stopAuthFlowStateSweeper } from "./services/authFlowCleanup.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
@@ -162,6 +164,7 @@ async function main() {
   installOutboundNetworkPolicy();
   await initDb();
   await bindInstanceSecretsToDatabase();
+  await bootAuthFlowStateSweeper();
   await bootPublicUrl();
   await bootCustomJavaScript();
   // An install upgrading from an old-shape config.ts (or a Kubernetes overlay
@@ -345,6 +348,9 @@ async function main() {
   // inside startOauth(). Mounted before session so cross-site-redirect
   // cookie behavior doesn't matter.
   app.use("/api/integrations/oauth", integrationsOauthRouter);
+  // Fixed Google callback and proof-bound handoffs for self-hosted installs.
+  // Hosting is off by default; this router owns its browser CSRF protection.
+  app.use("/api/google-sign-in", googleSignInBrokerRouter);
 
   // Built-in MCP tools called by the Genosyn stdio binary we spawn alongside
   // every AI employee. Auth is a short-lived Bearer token we issued moments
@@ -627,6 +633,7 @@ function installShutdownHandlers(server: http.Server): void {
   let shuttingDown = false;
 
   const shutdown = (signal: NodeJS.Signals): void => {
+    stopAuthFlowStateSweeper();
     // A second Ctrl-C should not start a second flush over the first.
     if (shuttingDown) return;
     shuttingDown = true;

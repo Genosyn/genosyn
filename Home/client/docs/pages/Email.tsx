@@ -64,9 +64,18 @@ export function Email() {
         </LI>
       </OL>
       <P>
-        If Google sign-in is unavailable, ask an instance admin to register the Google OAuth app at{" "}
-        <Strong>Admin → Integrations</Strong>, then return and choose{" "}
-        <Strong>Continue with Google</Strong>. See{" "}
+        Self-hosted installations can use Genosyn&apos;s hosted Gmail sign-in service without
+        creating a Google Cloud project. Once the service is available, choose{" "}
+        <Strong>Continue with Google</Strong>, select your account, and consent. The service handles
+        sign-in and token renewal; your installation reads and sends email directly through Google.
+        Google credentials stay encrypted in your installation and are sent to the sign-in service
+        when needed to renew access. Email content does not pass through that service.
+      </P>
+      <P>
+        If Google sign-in is unavailable, an instance admin can check <Strong>Gmail sign-in</Strong>
+        {" "}at <Strong>Admin → Runtime</Strong>, or register an independent Google OAuth app at{" "}
+        <Strong>Admin → Integrations</Strong>. A locally registered app takes precedence. Hosted
+        sign-in covers Gmail only; other Google products need your own app. See{" "}
         <DocLink to="/docs/integrations">Integrations</DocLink> for setup. You can skip connecting
         email during onboarding and add it later.
       </P>
@@ -126,8 +135,8 @@ export function Email() {
 
       <Callout kind="info" title="No push endpoint to expose.">
         Sync is poll-based on a short interval, so there is no Google Cloud Pub/Sub topic and no
-        inbound webhook. Gmail needs a registered Google OAuth app; other supported mailboxes use
-        their password and server settings. (On a very large account a master admin can cap the
+        inbound webhook. Gmail uses hosted sign-in or a locally registered Google OAuth app; other
+        supported mailboxes use their password and server settings. (On a very large account a master admin can cap the
         first import to recent mail with <Strong>Backfill days</Strong> at{" "}
         <Code>Admin → Runtime</Code>; the default imports everything.)
       </Callout>

@@ -244,7 +244,7 @@ function catalogDisabledReason(providerId: string): string | null {
  * recommending a connector that cannot work here is worse than no card.
  */
 export function listCatalog(
-  opts: { registeredOauthApps?: ReadonlySet<string> } = {},
+  opts: { registeredOauthApps?: ReadonlySet<string>; hostedGoogleSignIn?: boolean } = {},
 ): IntegrationCatalogEntry[] {
   const registered = opts.registeredOauthApps;
   return Object.values(PROVIDERS).map((p) => {
@@ -254,6 +254,9 @@ export function listCatalog(
       : { ...p.catalog };
     if (entry.oauth && registered?.has(entry.oauth.app)) {
       entry.oauth = { ...entry.oauth, instanceApp: true };
+    }
+    if (entry.provider === "google" && entry.oauth && opts.hostedGoogleSignIn) {
+      entry.oauth = { ...entry.oauth, hostedSignIn: true };
     }
     return entry;
   });

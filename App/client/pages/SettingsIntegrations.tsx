@@ -48,6 +48,7 @@ import {
   type IntegrationCategory,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { connectWithOauth, type IntegrationOauthStart } from "@/lib/integrationOauth";
 import { copyToClipboard } from "../lib/clipboard";
 import { formatRelative } from "../components/decisions/relative";
 import { chatSurfaceLabel, isChatSurfaceProvider } from "./LinkChat";
@@ -250,30 +251,6 @@ function IntegrationsPage({
   ]);
 
   useLiveRefetch("connection", reload);
-
-  // When an OAuth popup finishes, it posts a message to the opener window
-  // (this page). Refresh the list on success so the new connection appears.
-  React.useEffect(() => {
-    function handler(ev: MessageEvent) {
-      if (ev.origin !== window.location.origin) return;
-      const data = ev.data as {
-        source?: string;
-        ok?: boolean;
-        title?: string;
-        detail?: string;
-      } | null;
-      if (!data || data.source !== "genosyn-oauth") return;
-      if (data.ok) {
-        reload();
-      } else {
-        void dialog.error(data.detail ?? data.title ?? "OAuth failed", {
-          title: "Couldn’t finish connecting",
-        });
-      }
-    }
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [reload, dialog]);
 
   const allowedProviders = React.useMemo(
     () => (scope?.providers ? new Set(scope.providers) : null),
@@ -531,8 +508,7 @@ function IntegrationsPage({
                           <StatusBadge status={c.status} message={c.statusMessage} />
                         </div>
                         <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-                          {c.retired?.name ?? entry?.name ?? c.provider} ·{" "}
-                          {c.accountHint || "—"}
+                          {c.retired?.name ?? entry?.name ?? c.provider} · {c.accountHint || "—"}
                         </div>
                         {c.retired ? (
                           // A retired connector has no catalog entry, so
@@ -552,9 +528,8 @@ function IntegrationsPage({
                             Retired in {c.retired.retiredIn}. {c.retired.reason}{" "}
                             {c.statusMessage ? `${c.statusMessage} ` : ""}
                             This connection still holds the only copy of that secret, and
-                            disconnecting deletes it for good. Restore the previous
-                            encryption key first if you need the value back; otherwise keep
-                            new credentials in the{" "}
+                            disconnecting deletes it for good. Restore the previous encryption key
+                            first if you need the value back; otherwise keep new credentials in the{" "}
                             <Link
                               to={`/c/${company.slug}/vault`}
                               className="underline underline-offset-2"
@@ -806,6 +781,7 @@ function IntegrationsPage({
                 label: reconnecting.conn.label,
                 authMode: reconnecting.conn.authMode,
                 scopeGroups: reconnecting.conn.scopeGroups,
+                hostedSignIn: reconnecting.conn.hostedSignIn,
               }
             : null
         }
@@ -1566,6 +1542,7 @@ export function OauthOrServiceAccountModal({
     label: string;
     authMode: "oauth2" | "service_account" | "github_app";
     scopeGroups: string[];
+    hostedSignIn?: boolean;
   } | null;
   companyId: string;
   initialScopeGroups?: string[];
@@ -1610,6 +1587,23 @@ export function OauthOrServiceAccountModal({
   const [busy, setBusy] = React.useState(false);
   // One banner per form; only one mode's form is mounted at a time.
   const [error, setError] = React.useState<string | null>(null);
+  const [waitingForOauth, setWaitingForOauth] = React.useState(false);
+  const oauthController = React.useRef<AbortController | null>(null);
+  const hostedAvailable = entry?.provider === "google" && !!entry.oauth?.hostedSignIn;
+  const usesHostedSignIn =
+    !usesInstanceApp &&
+    !ownClient &&
+    hostedAvailable &&
+    selectedScopeGroups.length === 1 &&
+    selectedScopeGroups[0] === "mail";
+  const usesSharedApp = usesInstanceApp || usesHostedSignIn;
+
+  React.useEffect(
+    () => () => {
+      oauthController.current?.abort();
+    },
+    [open, companyId],
+  );
 
   React.useEffect(() => {
     if (open && entry) {
@@ -1639,6 +1633,7 @@ export function OauthOrServiceAccountModal({
       setSelectedInstallationId("");
       setOauthExtraFields({});
       setError(null);
+      setOwnClient(false);
       // Providers may declare a safer starting set when some permissions
       // require a separate review (LinkedIn company-page posting, for
       // example). Providers without explicit defaults preserve the
@@ -1657,9 +1652,11 @@ export function OauthOrServiceAccountModal({
           ? stored
           : preferred.length > 0
             ? preferred
-            : defaultGroupKeys.length > 0
-              ? defaultGroupKeys
-              : allGroupKeys,
+            : entry.oauth?.hostedSignIn && !entry.oauth.instanceApp
+              ? ["mail"]
+              : defaultGroupKeys.length > 0
+                ? defaultGroupKeys
+                : allGroupKeys,
       );
     }
   }, [
@@ -1687,39 +1684,42 @@ export function OauthOrServiceAccountModal({
     if (!entry) return;
     setBusy(true);
     setError(null);
+    const controller = new AbortController();
+    oauthController.current = controller;
     try {
       const isOauthReconnect = isReconnect && reconnect.authMode === "oauth2";
-      const { authorizeUrl } = isOauthReconnect
-        ? await api.post<{ authorizeUrl: string }>(
-            `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/reconnect/oauth`,
-            { scopeGroups: selectedScopeGroups },
-          )
-        : await api.post<{ authorizeUrl: string }>(
-            `/api/companies/${companyId}/integrations/oauth/start`,
-            {
-              provider: entry.provider,
-              label: label.trim() || entry.name,
-              // Omitted entirely when the instance has a registered app, so
-              // the server resolves the credentials rather than receiving
-              // blanks it would have to reject.
-              ...(usesInstanceApp
-                ? {}
-                : { clientId: clientId.trim(), clientSecret: clientSecret.trim() }),
-              scopeGroups: selectedScopeGroups,
-              ...(entry.oauth?.extraFields?.length ? { extraFields: oauthExtraFields } : {}),
-            },
-          );
-      const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
-      if (!popup) {
-        setError("Popup blocked — allow popups for this site and try again.");
-      } else {
-        // Close modal optimistically; the parent listens for the popup's
-        // postMessage and refreshes the connection list on success.
-        onSaved();
-      }
+      await connectWithOauth({
+        companyId,
+        signal: controller.signal,
+        onWaiting: () => setWaitingForOauth(true),
+        start: () =>
+          isOauthReconnect
+            ? api.post<IntegrationOauthStart>(
+                `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/reconnect/oauth`,
+                { scopeGroups: selectedScopeGroups },
+              )
+            : api.post<IntegrationOauthStart>(
+                `/api/companies/${companyId}/integrations/oauth/start`,
+                {
+                  provider: entry.provider,
+                  label: label.trim() || entry.name,
+                  // Omitted entirely when the instance has a registered app, so
+                  // the server resolves the credentials rather than receiving
+                  // blanks it would have to reject.
+                  ...(usesSharedApp
+                    ? {}
+                    : { clientId: clientId.trim(), clientSecret: clientSecret.trim() }),
+                  scopeGroups: selectedScopeGroups,
+                  ...(entry.oauth?.extraFields?.length ? { extraFields: oauthExtraFields } : {}),
+                },
+              ),
+      });
+      onSaved();
     } catch (err) {
-      setError(errorMessage(err));
+      if (!controller.signal.aborted) setError(errorMessage(err));
     } finally {
+      oauthController.current = null;
+      setWaitingForOauth(false);
       setBusy(false);
     }
   }
@@ -1971,13 +1971,13 @@ export function OauthOrServiceAccountModal({
           <form className="flex flex-col gap-3" onSubmit={submitOauth}>
             {!isReconnect && (
               <>
-                {usesInstanceApp ? (
+                {usesSharedApp ? (
                   <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
                     <p className="font-medium">Nothing to set up</p>
                     <p className="mt-1">
-                      This Genosyn instance already has a registered {entry.name} app, so there
-                      is no Client ID to create or paste. Pick what it may access below, then
-                      approve on {entry.name}&apos;s screen.
+                      {usesHostedSignIn
+                        ? "Genosyn handles Google sign-in and token renewal. Your mailbox syncs directly with Google on this installation."
+                        : `This Genosyn instance already has a registered ${entry.name} app. Pick what it may access below, then continue to sign in.`}
                     </p>
                     <button
                       type="button"
@@ -2000,13 +2000,18 @@ export function OauthOrServiceAccountModal({
                       </li>
                       <li>Paste the resulting Client ID and Client Secret below.</li>
                     </ol>
-                    {instanceAppAvailable ? (
+                    {instanceAppAvailable || hostedAvailable ? (
                       <button
                         type="button"
                         className="mt-1.5 font-medium underline underline-offset-2"
-                        onClick={() => setOwnClient(false)}
+                        onClick={() => {
+                          setOwnClient(false);
+                          if (!instanceAppAvailable) setSelectedScopeGroups(["mail"]);
+                        }}
                       >
-                        Use this instance&apos;s registered app instead
+                        {instanceAppAvailable
+                          ? "Use this instance’s registered app instead"
+                          : "Use Genosyn’s Gmail sign-in instead"}
                       </button>
                     ) : (
                       <p className="mt-1.5">
@@ -2023,7 +2028,7 @@ export function OauthOrServiceAccountModal({
                   placeholder={entry.name}
                   required
                 />
-                {!usesInstanceApp && (
+                {!usesSharedApp && (
                   <>
                     <Input
                       label="OAuth Client ID"
@@ -2045,8 +2050,8 @@ export function OauthOrServiceAccountModal({
                         className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
                       />
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        Encrypted at rest with the app&apos;s session secret. Used to refresh
-                        access tokens.
+                        Encrypted at rest with the app&apos;s session secret. Used to refresh access
+                        tokens.
                       </p>
                     </div>
                   </>
@@ -2080,23 +2085,35 @@ export function OauthOrServiceAccountModal({
               </>
             )}
             <ScopeGroupPicker
-              groups={entry.oauth?.scopeGroups ?? []}
+              groups={(entry.oauth?.scopeGroups ?? []).filter(
+                (group) => !reconnect?.hostedSignIn || group.key === "mail",
+              )}
               selected={selectedScopeGroups}
               onToggle={toggleScopeGroup}
             />
             <FormError message={error} />
+            {waitingForOauth && (
+              <p role="status" className="text-xs text-slate-500">
+                Waiting for sign-in…
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
-                Cancel
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  if (busy) oauthController.current?.abort();
+                  else onClose();
+                }}
+              >
+                {busy ? "Cancel sign-in" : "Cancel"}
               </Button>
               <Button
                 type="submit"
                 disabled={
                   busy ||
                   selectedScopeGroups.length === 0 ||
-                  (!isReconnect &&
-                    !usesInstanceApp &&
-                    (!clientId.trim() || !clientSecret.trim()))
+                  (!isReconnect && !usesSharedApp && (!clientId.trim() || !clientSecret.trim()))
                 }
               >
                 {busy ? "Starting…" : isReconnect ? "Reconnect" : `Connect with ${entry.name}`}
@@ -2349,7 +2366,6 @@ export function OauthOrServiceAccountModal({
             </div>
           </form>
         ) : null}
-
       </div>
     </Modal>
   );

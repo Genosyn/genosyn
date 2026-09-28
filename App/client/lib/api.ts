@@ -1692,6 +1692,8 @@ export type IntegrationCatalogEntry = {
      *  (Admin → Integrations). The connect form then asks for no credentials
      *  at all — the handshake uses the instance's client. */
     instanceApp?: boolean;
+    /** Hosted sign-in covers Gmail only; other Google products need a registered client. */
+    hostedSignIn?: boolean;
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     /** Extra create-time inputs (developer tokens, account ids, safety
@@ -1713,6 +1715,7 @@ export type IntegrationCatalogEntry = {
 };
 export type IntegrationConnectionStatus = "connected" | "error" | "expired";
 export type IntegrationConnection = {
+  hostedSignIn?: boolean;
   id: string;
   companyId: string;
   provider: string;
@@ -3709,6 +3712,7 @@ export type GlobalEmailTransport = {
 export type RuntimeSettingsGroup =
   | "web"
   | "mail"
+  | "oauth"
   | "meetings"
   | "browser"
   | "agent"
@@ -3730,6 +3734,12 @@ export type RuntimeMailSettings = {
   backfillThreadsPerPass: number;
   backfillPassSeconds: number;
   backfillDays: number;
+};
+
+export type RuntimeOauthSettings = {
+  gmailSignInEnabled: boolean;
+  gmailSignInUrl: string;
+  hostGmailSignIn: boolean;
 };
 
 /** Calendar mirror + meeting transcription. */
@@ -3779,6 +3789,7 @@ export type RuntimeNetworkSettings = {
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
+  oauth: RuntimeOauthSettings;
   meetings: RuntimeMeetingsSettings;
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;

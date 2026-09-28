@@ -7,6 +7,7 @@ import type {
 } from "../../types.js";
 import { safeJson } from "./util.js";
 import { getPublicUrl } from "../../../services/publicUrl.js";
+import { refreshHostedGoogleToken } from "../../../services/hostedGoogleOauth.js";
 
 /**
  * Provider-agnostic Google OAuth + Service-Account machinery.
@@ -82,9 +83,8 @@ export function hasGoogleCalendarScope(scopes: string | string[] | null | undefi
 
 // ---------- Config shapes (what's stored encrypted on each Connection) ----------
 
-export type GoogleOauthConfig = {
+type GoogleOauthTokens = {
   clientId: string;
-  clientSecret: string;
   accessToken: string;
   refreshToken: string;
   /** ms epoch. Renewed on refresh. */
@@ -98,6 +98,17 @@ export type GoogleOauthConfig = {
    * as "all groups" for the prefill default. */
   scopeGroups?: string[];
 };
+
+export type GoogleHostedOauthConfig = GoogleOauthTokens & {
+  credentialSource: "hosted";
+  tokenBrokerUrl: string;
+  clientSecret?: never;
+};
+
+export type GoogleOauthConfig = GoogleHostedOauthConfig | (GoogleOauthTokens & {
+  credentialSource?: "direct";
+  clientSecret: string;
+});
 
 export type GoogleServiceAccountConfig = {
   clientEmail: string;
@@ -328,6 +339,12 @@ export async function ensureFreshGoogleToken(ctx: IntegrationRuntimeContext): Pr
 async function refreshOauthToken(ctx: IntegrationRuntimeContext): Promise<void> {
   const cfg = ctx.config as GoogleOauthConfig;
   if (cfg.expiresAt > Date.now() + 60_000) return;
+  if (cfg.credentialSource === "hosted") {
+    const next = await refreshHostedGoogleToken(cfg);
+    ctx.setConfig?.(next as unknown as IntegrationConfig);
+    ctx.config = next as unknown as IntegrationConfig;
+    return;
+  }
   if (!cfg.clientId || !cfg.clientSecret) {
     throw new Error("Connection is missing OAuth client credentials — disconnect and reconnect.");
   }
