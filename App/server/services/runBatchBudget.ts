@@ -64,12 +64,29 @@ export function shouldYieldRunBatch(args: {
   }
 }
 
-export function runBatchBrief(): string {
+export function runBatchBrief(args: {
+  continuationCount: number;
+  deadlineAtMs: number;
+  now?: number;
+}): string {
+  const remainingContinuations = Math.max(0, MAX_RUN_CONTINUATIONS - args.continuationCount);
+  const remainingMs = args.deadlineAtMs - (args.now ?? Date.now());
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const deadline = new Date(args.deadlineAtMs).toISOString();
   return [
     "## Work in small batches",
-    "There is no total model-token limit or fixed model/tool step limit for this work. Continue until the required work is complete or an applicable time or continuation limit is reached.",
-    "Review at most five source records or conversations per batch. Read bounded pages and exact entries; keep completed IDs, unresolved items and stable source cursors in each checkpoint. Resume older unfinished work before collecting newer work.",
-    `Use save_run_checkpoint after each batch. Once this Run uses ${RUN_BATCH_TOKEN_TARGET.toLocaleString("en-US")} tokens, a successful continue checkpoint can hand the work to a fresh Run automatically. Save all progress before that call; do not rely on being able to write a report afterward.`,
+    "There is no total model-token limit or fixed model/tool step limit for this work. Finish promptly when the required work is complete. Otherwise keep making safe progress within the original scope until an actual blocker prevents further useful work, the runtime stops this Run, or the shared deadline requires closing. Work on independent unblocked items before stopping for a blocker; respect current Grants, delivery limits, approval requirements and Standdowns.",
+    args.continuationCount === 0
+      ? "This is the initial Run in the current time window."
+      : `This is continuation ${args.continuationCount} of ${MAX_RUN_CONTINUATIONS} in the current time window.`,
+    remainingMs > 0
+      ? `Shared absolute deadline: ${deadline} (UTC). Approximately ${remainingSeconds} second${remainingSeconds === 1 ? "" : "s"} remained when this brief was prepared; elapsed work and waiting do not reset that boundary. Reserve enough time to save truthful progress and your final report before it. Avoid starting an action that cannot safely finish in the time remaining.`
+      : `Shared absolute deadline: ${deadline} (UTC). That deadline has been reached. Record the unfinished work and finish without starting further work or assuming a fresh time allowance.`,
+    "Review at most five source records or conversations per batch. Read bounded pages and exact entries; keep completed IDs, unresolved items and stable source cursors in each checkpoint. Follow the Routine's stated priority and discovery requirements. Preserve this occurrence's captured scope and retain inherited backlog without letting it replace explicitly required current priority work or urgent commitments. Resume older unfinished items at the priority the Routine requires.",
+    "Use save_run_checkpoint after each batch. If the call returns control, keep working on the next useful step while time remains. Saving progress alone is not a reason to end your turn or defer independent required work to the next scheduled occurrence.",
+    remainingContinuations > 0
+      ? `Up to ${remainingContinuations} automatic continuations may follow this Run, subject to the existing progress, review and time rules. Once this Run uses ${RUN_BATCH_TOKEN_TARGET.toLocaleString("en-US")} tokens, a successful continue checkpoint can hand the work to a fresh Run automatically. Save all progress before that call; do not rely on being able to write a report afterward.`
+      : "No automatic continuations remain after this Run. The continuation allowance limits creation of another Run; it does not require ending this active Run. Continue safe useful work within the remaining shared time, checkpointing each batch. Do not stop merely because this is the final continuation or plan another Run to bypass the limit.",
     "A continuation can hand off only after its stable source progressKey and its completed or resume description advance beyond the previous Run's checkpoint. Keep the key truthful to the last fully processed source item; never change it merely to request another Run. An unchanged checkpoint preserves the current Run so you can finish the current item or continue within the remaining time.",
     "The initial Run and its automatic continuations share the same time limit. For a backlog spanning daily occurrences, maintain a linked Workstream with the remaining IDs and original review window; do not repeatedly audit unchanged completed records or expand this occurrence's scope. Never call unfinished required work complete just because a batch ended.",
   ].join("\n");

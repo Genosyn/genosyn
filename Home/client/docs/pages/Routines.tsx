@@ -886,7 +886,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         employee writes. Automatic continuation stops when the saved checkpoint does not advance, the employee
         reports a blocker, the time limit expires, or all three continuations have run; the Run shows
         the reason. Current Grants, delivery limits, and Standdowns still apply, and approval-gated
-        work is never replayed automatically.
+        work is never replayed automatically. The final continuation can keep working within the
+        remaining shared time: saving a checkpoint does not require ending that Run. It should
+        finish when its work is complete, a real blocker prevents further useful work, or it must
+        close before the deadline, preserving any unfinished progress. The Routine&apos;s priorities govern
+        the order of work; inherited backlog stays recorded without displacing explicitly required
+        current work or changing the captured scope.
       </P>
       <P>
         Employees are briefed to save progress after small batches, retain stable source IDs and the

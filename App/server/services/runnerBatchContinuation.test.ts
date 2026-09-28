@@ -330,6 +330,17 @@ for (const scenario of [
     t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
       if (scenario === "review-only")
         assert.match(JSON.stringify(params.messages), /suggestion-only review/);
+      if (scenario === "last-continuation") {
+        const brief = JSON.stringify(params.messages);
+        assert.match(brief, /This is continuation 3 of 3 in the current time window/);
+        assert.match(brief, /No automatic continuations remain after this Run/);
+        assert.match(brief, /it does not require ending this active Run/);
+        assert.ok(
+          brief.includes(
+            `Shared absolute deadline: ${parent!.continuationDeadlineAt!.toISOString()} (UTC)`,
+          ),
+        );
+      }
       params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
       const persisted = await checkpoint(advanced);
       const clock =
@@ -341,6 +352,22 @@ for (const scenario of [
         assert.equal(params.signal?.aborted, false);
       } finally {
         clock?.mock.restore();
+      }
+      if (scenario === "last-continuation") {
+        params.callbacks?.onUsage?.({ inputTokens: 15_000_000, outputTokens: 0 });
+        reportCheckpoint(
+          params,
+          await checkpoint({
+            ...advanced,
+            progressKey: "deal-7",
+            completed: "Reviewed Deals 1 through 7 in the original daily window.",
+          }),
+        );
+        assert.equal(
+          params.signal?.aborted,
+          false,
+          "the final Run keeps working across saved batches",
+        );
       }
       reportCheckpoint(params, await checkpoint(complete));
       return { finalText: "Completed the original window.", steps: 1, stopReason: "end_turn" };
@@ -356,6 +383,13 @@ for (const scenario of [
     assert.equal(result.status, "completed");
     assert.equal(result.retryAt, null);
     assert.doesNotMatch(result.logContent, /handing unfinished work/);
+    if (scenario === "last-continuation") {
+      assert.equal(result.continuationCount, 3);
+      assert.equal(
+        result.continuationDeadlineAt!.getTime(),
+        parent!.continuationDeadlineAt!.getTime(),
+      );
+    }
   });
 }
 

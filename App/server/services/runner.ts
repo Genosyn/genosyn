@@ -681,7 +681,7 @@ async function prepareRoutineRun(
         : deliveryMessage;
       const userMessage = [
         scopedMessage,
-        runBatchBrief(),
+        runBatchBrief({ continuationCount: saved.continuationCount, deadlineAtMs }),
         continuationParent ? continuationBrief(continuationParent, manualResume) : "",
       ]
         .filter(Boolean)

@@ -156,10 +156,138 @@ test("batch handoff cannot strand the final chunk or bypass shared limits and re
 
 test("batch handoff remains available above ten million tokens without a total allowance", () => {
   assert.equal(shouldYieldRunBatch({ ...boundary, tokensThisRun: 15_000_000 }), true);
-  const brief = runBatchBrief();
+  const brief = runBatchBrief({ continuationCount: 0, deadlineAtMs: 60_000, now: 0 });
   assert.match(
     brief,
     /There is no total model-token limit or fixed model\/tool step limit for this work\./,
   );
   assert.doesNotMatch(brief, /tokens remaining|token allowance/);
+});
+
+const briefWindow = {
+  deadlineAtMs: Date.parse("2026-09-28T12:35:53.038Z"),
+  now: Date.parse("2026-09-28T11:55:53.038Z"),
+};
+
+test("the final continuation is briefed to use its remaining shared time without requiring another Run", () => {
+  const brief = runBatchBrief({ ...briefWindow, continuationCount: MAX_RUN_CONTINUATIONS });
+  assert.match(brief, /This is continuation 3 of 3 in the current time window\./);
+  assert.match(brief, /Shared absolute deadline: 2026-09-28T12:35:53\.038Z \(UTC\)/);
+  assert.match(brief, /Approximately 2400 seconds remained when this brief was prepared/);
+  assert.match(brief, /No automatic continuations remain after this Run\./);
+  assert.match(brief, /it does not require ending this active Run/);
+  assert.match(
+    brief,
+    /Continue safe useful work within the remaining shared time, checkpointing each batch/,
+  );
+  assert.match(brief, /If the call returns control, keep working on the next useful step/);
+  assert.match(brief, /Do not stop merely because this is the final continuation/);
+  assert.doesNotMatch(
+    brief,
+    /until .*continuation limit is reached|hand the work to a fresh Run automatically/,
+  );
+});
+
+for (const count of [0, 1, 2]) {
+  test(`Run at continuation count ${count} retains its precise count and conditional handoff guidance`, () => {
+    const brief = runBatchBrief({ ...briefWindow, continuationCount: count });
+    assert.match(
+      brief,
+      count === 0
+        ? /This is the initial Run in the current time window\./
+        : new RegExp(`This is continuation ${count} of 3 in the current time window\\.`),
+    );
+    assert.match(
+      brief,
+      new RegExp(
+        `Up to ${MAX_RUN_CONTINUATIONS - count} automatic continuations may follow this Run`,
+      ),
+    );
+    assert.match(brief, /subject to the existing progress, review and time rules/);
+    assert.match(
+      brief,
+      /Once this Run uses 2,000,000 tokens, a successful continue checkpoint can hand the work to a fresh Run automatically/,
+    );
+    assert.match(brief, /If the call returns control, keep working on the next useful step/);
+    assert.match(brief, /2026-09-28T12:35:53\.038Z \(UTC\)/);
+    assert.doesNotMatch(brief, /No automatic continuations remain/);
+  });
+}
+
+test("every brief preserves early completion, real blockers, scope and time to close safely", () => {
+  for (const count of [0, MAX_RUN_CONTINUATIONS]) {
+    const brief = runBatchBrief({ ...briefWindow, continuationCount: count });
+    assert.match(brief, /Finish promptly when the required work is complete/);
+    assert.match(brief, /actual blocker prevents further useful work/);
+    assert.match(brief, /Work on independent unblocked items before stopping for a blocker/);
+    assert.match(
+      brief,
+      /respect current Grants, delivery limits, approval requirements and Standdowns/,
+    );
+    assert.match(
+      brief,
+      /Reserve enough time to save truthful progress and your final report before it/,
+    );
+    assert.match(brief, /Avoid starting an action that cannot safely finish in the time remaining/);
+    assert.match(brief, /do not .*expand this occurrence's scope/);
+    assert.match(brief, /Never call unfinished required work complete just because a batch ended/);
+  }
+});
+
+test("batch ordering follows Routine priorities without replacing required current work with inherited backlog", () => {
+  for (const continuationCount of [0, 1, MAX_RUN_CONTINUATIONS]) {
+    const brief = runBatchBrief({ ...briefWindow, continuationCount });
+    assert.match(brief, /Follow the Routine's stated priority and discovery requirements/);
+    assert.match(brief, /Preserve this occurrence's captured scope and retain inherited backlog/);
+    assert.match(
+      brief,
+      /without letting it replace explicitly required current priority work or urgent commitments/,
+    );
+    assert.match(brief, /Resume older unfinished items at the priority the Routine requires/);
+    assert.match(brief, /remaining IDs and original review window/);
+    assert.match(brief, /do not .*expand this occurrence's scope/);
+    assert.doesNotMatch(brief, /Resume older unfinished work before collecting newer work/);
+  }
+});
+
+test("deadline guidance reports the existing boundary without extending or rounding away its expiry", () => {
+  const oneMillisecond = runBatchBrief({
+    ...briefWindow,
+    continuationCount: 3,
+    now: briefWindow.deadlineAtMs - 1,
+  });
+  assert.match(oneMillisecond, /Approximately 1 second remained/);
+  for (const now of [briefWindow.deadlineAtMs, briefWindow.deadlineAtMs + 1000]) {
+    const expired = runBatchBrief({ ...briefWindow, continuationCount: 3, now });
+    assert.match(expired, /2026-09-28T12:35:53\.038Z \(UTC\)/);
+    assert.match(expired, /That deadline has been reached/);
+    assert.match(
+      expired,
+      /finish without starting further work or assuming a fresh time allowance/,
+    );
+    assert.doesNotMatch(expired, /Approximately .* seconds remained/);
+  }
+});
+
+test("prompt clarification preserves the final-Run and five-second handoff boundaries", () => {
+  const advanced = resultFor({
+    ...checkpoint,
+    progressKey: "deal-6",
+    completed: "Reviewed Deal 6.",
+  });
+  for (const remainingMs of [5001, 5000, 1, 0]) {
+    for (const count of [2, MAX_RUN_CONTINUATIONS]) {
+      assert.equal(
+        shouldYieldRunBatch({
+          ...boundary,
+          continuationCount: count,
+          previousCheckpoint: checkpoint,
+          result: advanced,
+          tokensThisRun: 15_000_000,
+          deadlineAtMs: remainingMs,
+        }),
+        count < MAX_RUN_CONTINUATIONS && remainingMs > 5000,
+      );
+    }
+  }
 });
