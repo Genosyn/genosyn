@@ -83,6 +83,9 @@ export async function createCheckoutSession(
 ): Promise<{ url: string }> {
   const params = new URLSearchParams();
   params.set("mode", "subscription");
+  // Stripe collects the code and validates coupon eligibility, expiry and
+  // redemption limits against this company's existing customer record.
+  params.set("allow_promotion_codes", "true");
   params.set("customer", args.customerId);
   params.set("line_items[0][price]", args.priceId);
   params.set("line_items[0][quantity]", String(args.quantity));

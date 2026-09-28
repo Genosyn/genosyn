@@ -5,14 +5,43 @@ customer setting points to `https://connect.genosyn.com`, but shipping the code
 does not deploy that service or register a Google app. Until it is online and
 configured, customers need their own Google OAuth app.
 
-## Dedicated deployment
+## Share the SaaS App deployment
+
+The production Helm profile serves both `app.genosyn.com` and
+`connect.genosyn.com` through the same Ingress, App Service, containers,
+database, and instance secrets. `connect.genosyn.com` exposes only the six
+Gmail sign-in paths listed below. It does not expose the App UI or admin
+routes. Both names use the same load-balancer address; provision the
+`genosyn-prod-tls` and `genosyn-connect-tls` certificates in `genosyn-prod`.
+With `GENOSYN_PROD_KUBE_CONTEXT` set to your existing Kubernetes context,
+`npm run deploy-prod` installs both host rules using your chosen ingress controller.
+Configure that controller's HTTPS routing and query-string-free access logs
+for both hosts. No separate connect release,
+database, or container is needed.
+
+Keep **Admin → General → Public URL** at `https://app.genosyn.com`. In
+**Admin → Runtime → Gmail sign-in**, set **Hosted sign-in address** to
+`https://connect.genosyn.com`. This separate address controls the hosted
+authorization page, its browser-origin checks, and Google's callback. Leaving
+it blank uses the App's public URL, which supports an existing dedicated host.
+**Sign-in service URL (advanced)** still chooses the remote service used by
+this installation as a customer; it does not configure the hosting address.
+
+Register the Google app and complete the launch steps below before enabling
+**Host Gmail sign-in on this installation**. The Helm profile configures
+routing, while these settings and OAuth credentials remain in the dashboard.
+The two domains share capacity, upgrades, and outages. The test profile leaves
+the extra host off; opt in with `ingress.gmailSignIn` and a separate test
+hostname/certificate when testing hosted sign-in.
+
+## Optional dedicated deployment
 
 Use the existing App image and a separate database, data volume, and instance
 secrets. Pin an immutable image containing this feature; publishing the Home
 site or deploying an older release does not install the service. Build and
 release conventions are in [RELEASING.md](../RELEASING.md).
 
-For a small dedicated service, the existing Helm chart's
+For a separately operated service, the existing Helm chart's
 [`values-selfhost.yaml`](../Helm/genosyn/values-selfhost.yaml) provides one App
 replica, SQLite on a persistent volume, and no bundled Postgres or sandbox
 privileges. Keep `replicaCount: 1`, `strategy: Recreate`,
@@ -29,7 +58,7 @@ Member browsers and meetings at **Admin → Runtime**. A managed Postgres
 database is also supported; it does not remove the need for durable instance
 secrets and the data volume.
 
-The chart's ordinary ingress exposes the whole App. Keep
+For this dedicated topology, the chart's ordinary ingress exposes the whole App. Keep
 `ingress.enabled: false` and configure a dedicated TLS ingress or reverse proxy
 for `connect.genosyn.com` that permits only these exact public paths:
 
@@ -72,10 +101,13 @@ HTTPS to Google and never needs to contact customer installation addresses.
 
 ## Launch the Genosyn service
 
-1. Deploy a dedicated App installation at `https://connect.genosyn.com`, with
-   persistent storage, durable instance secrets, and TLS as described above.
-   Set **Admin → General → Public URL** to that origin. This is an App deployment; the marketing
-   site's Cloudflare Worker does not provide these endpoints.
+1. Deploy the production SaaS profile with both domains, or the optional
+   dedicated topology above. On a shared deployment, keep **Admin → General
+   → Public URL** at `https://app.genosyn.com` and set **Admin → Runtime
+   → Gmail sign-in → Hosted sign-in address** to `https://connect.genosyn.com`.
+   On a dedicated installation, its public URL can be `https://connect.genosyn.com`
+   with the hosting address left blank. The marketing site's Cloudflare Worker
+   does not provide these endpoints.
 2. Create a Google Cloud project, enable the Gmail API, and configure its OAuth
    branding and consent screen. Register a **Web application** OAuth client with
    this exact authorized redirect URI:
@@ -83,9 +115,13 @@ HTTPS to Google and never needs to contact customer installation addresses.
    `https://connect.genosyn.com/api/google-sign-in/callback`
 
    Customer installation URLs are not registered as Google redirect URIs.
+   A shared SaaS App also uses its locally registered Google app for its own
+   Connections. Keep the ordinary redirect URI shown at **Admin → Integrations
+   → Google** registered too:
+   `https://app.genosyn.com/api/integrations/oauth/callback/google`.
 
 3. Set that Client ID and Client Secret at **Admin → Integrations → Google** on
-   the dedicated service. These credentials remain server-side and are stored
+   the hosting App. These credentials remain server-side and are stored
    encrypted. Keep the same Client ID for the life of issued Connections;
    replacing it invalidates the refresh path for credentials issued by the old
    client.
@@ -110,6 +146,10 @@ HTTPS to Google and never needs to contact customer installation addresses.
 For local development, the service URL may use HTTP only on `localhost`,
 `127.0.0.1`, or `[::1]`. Production uses HTTPS. Do not use real production
 credentials or accounts in a local mock flow.
+From `App/`, `npm run test:shared-google-host` exercises the real admin form
+and sign-in routes on two local origins, with an in-memory database and
+mocked Google consent/token responses. It checks cookie separation and that
+the hosted address does not replace the App's public URL.
 
 ## Data and availability
 
@@ -129,7 +169,8 @@ Treat callback query strings, handoff values, authorization headers, and token
 request/response bodies as secrets. Do not record them in reverse-proxy logs,
 error-reporting payloads, analytics, support bundles, or request-body capture.
 Monitor availability and Google error counts without credential material.
-Back up the dedicated service's database and instance secrets together.
+Back up the hosting App's database and instance secrets together; the shared
+topology uses the SaaS deployment's existing backup plan.
 
 An outage affects new sign-ins and token renewal. Already issued access tokens
 work until they expire. Restoring the service with the same Google client lets

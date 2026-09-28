@@ -14,14 +14,27 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    and ingress.host (WebSockets pass through a plain Ingress rule).
 {{- end }}
 
+   Select your installed controller with ingress.className and extend its
+   configuration with ingress.annotations or service.annotations. Set its
+   WebSocket/streaming timeouts and buffering as needed, and omit query
+   strings from access logs (OAuth callbacks contain authorization codes).
+   Kubernetes Ingress has no portable timeout field. The App defaults to
+   one trusted ingress proxy; match trustedProxyHops to your actual chain.
+
 2. First boot
 
    The pod becomes Ready once every database migration has run — /api/health
    answers only after boot completes, so a pending readiness probe during the
-   first minute is normal. Create the first account in the browser; the first
-   verified sign-in becomes the master admin. Then review the public URL at
-   Admin -> General.
+   first minute is normal.
 {{- if .Values.config.multiTenant }}
+
+   Before registering, initialize the database-backed public HTTPS URL:
+
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "genosyn.fullname" . }} -c app -- \
+       node /app/dist/server/scripts/setupPublicUrl.js --url {{ printf "https://%s" (.Values.ingress.host | default "genosyn.example.com") | quote }}
+
+   Use your actual HTTPS ingress origin. The repository's npm deploy-test and
+   deploy-prod commands run this first-write-only setup automatically.
 
    multiTenant is ON (the chart default). Only
    {{ .Values.config.bootstrapMasterAdminEmail }} may claim the master-admin
@@ -29,6 +42,10 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    login must already happen over HTTPS: reach the app through the Ingress
    with TLS, not a plain http:// port-forward, or the browser will drop the
    session cookie.
+{{- else }}
+
+   Create and verify the first account; it becomes the master admin. Then
+   review the public URL at Admin -> General.
 {{- end }}
 
    System email (verification, invites, password resets) is NOT in this
@@ -41,6 +58,12 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 
    Paste that link into the browser to verify and claim the account, then set
    up SMTP from the dashboard.
+
+   Optional Stripe billing bootstrap is configured through the billing.*
+   values in your private values file. When enabled, credentials are passed
+   through a dedicated Kubernetes Secret and imported only if no billing
+   settings have been saved. Later changes belong at Admin -> Billing;
+   changing Helm values or restarting never overwrites saved settings.
 
 3. Command execution (the coding sandbox)
 {{- if .Values.sandbox.enabled }}
@@ -65,14 +88,14 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
      helm upgrade {{ .Release.Name }} ... --set sandbox.enabled=false
 {{- end }}
 
-   Genosyn then runs with command execution disabled and says why.
+   In that trusted single-tenant shape, OpenCode and Repository commands run
+   inside the App container without an OS sandbox.
 {{- else }}
 
-   sandbox.enabled=false — Genosyn boots with command execution disabled and
-   logs the reason. Chat, Routines, Integrations, and browser work all still
-   function; builds, test suites, and per-employee checkouts do not. Set
-   sandbox.enabled=true when your cluster can honor the required
-   securityContext (see values.yaml).
+   sandbox.enabled=false — trusted single-tenant installs run OpenCode and
+   Repository commands inside the App container without an OS sandbox. Set
+   sandbox.enabled=true for optional bubblewrap isolation when the cluster
+   can honor the required securityContext (see values.yaml).
 {{- end }}
 
 4. Data
@@ -83,7 +106,7 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 {{- if not .Values.secrets.existingSecret }}
 
    The session/encryption secrets live in Secret {{ include "genosyn.instanceSecretsName" . }}
-   (generated once, kept across upgrades AND `helm uninstall` — rotating the
+   (set once, kept across upgrades AND `helm uninstall` — rotating the
    encryption secret would orphan every encrypted row). Back that Secret up
    with the database.
 {{- end }}

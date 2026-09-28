@@ -11,6 +11,7 @@ import {
 import {
   authorizeGoogleSignIn,
   completeGoogleSignIn,
+  getGoogleSignInBrokerOrigin,
   getGoogleSignInBrokerStatus,
   googleSignInCookieName,
   googleSignInPage,
@@ -21,7 +22,6 @@ import {
   startGoogleSignIn,
 } from "../services/googleSignInBroker.js";
 import { GoogleSignInUpstreamError } from "../services/googleSignInGoogle.js";
-import { getPublicUrl } from "../services/publicUrl.js";
 
 /** Public broker protocol; mount before application-session CSRF middleware. */
 export const googleSignInBrokerRouter = Router();
@@ -116,7 +116,7 @@ function browserCookie(req: Request, token: string): string {
 function setFlowCookie(res: Response, token: string, value: string, expiresAt: number) {
   res.cookie(googleSignInCookieName(token), value, {
     httpOnly: true,
-    secure: getPublicUrl().startsWith("https://"),
+    secure: getGoogleSignInBrokerOrigin()?.startsWith("https://") ?? true,
     sameSite: "lax",
     path: "/api/google-sign-in",
     maxAge: Math.max(0, expiresAt - Date.now()),
@@ -169,6 +169,9 @@ googleSignInBrokerRouter.get(
     const page = await prepareGoogleSignIn(requestId);
     const scriptNonce = crypto.randomBytes(18).toString("base64url");
     res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
+    // A no-referrer policy makes navigation POSTs send Origin: null. Keep the
+    // exact-origin consent check usable without sending a referrer to Google.
+    res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader(
       "Content-Security-Policy",
       `default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://accounts.google.com; style-src 'unsafe-inline'; script-src 'nonce-${scriptNonce}'`,
@@ -186,9 +189,9 @@ googleSignInBrokerRouter.post(
     await consumeAuthAttempt(authThrottleKeys(req, "gmail-broker-authorize"));
     const { requestId, csrfToken, browserProof } = req.body as z.infer<typeof authorizeSchema>;
     const nonce = browserCookie(req, requestId);
-    // The public URL is operator-owned. Never compare Origin with request Host.
+    // The broker origin is operator-owned. Never compare Origin with request Host.
     if (
-      req.headers.origin !== getPublicUrl() ||
+      req.headers.origin !== getGoogleSignInBrokerOrigin() ||
       req.headers["sec-fetch-site"] === "cross-site" ||
       !nonce ||
       !crypto.timingSafeEqual(Buffer.from(nonce), Buffer.from(csrfToken))

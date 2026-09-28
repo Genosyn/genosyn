@@ -331,11 +331,24 @@ const runtimeGroupSchemas = {
   }),
   oauth: z.object({
     gmailSignInEnabled: z.boolean(),
-    gmailSignInUrl: z.string().trim().max(2048).refine(
-      (value) => normalizeGmailSignInUrl(value) !== null,
-      "Use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
-    ),
+    gmailSignInUrl: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine(
+        (value) => normalizeGmailSignInUrl(value) !== null,
+        "Use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
+      ),
     hostGmailSignIn: z.boolean(),
+    gmailSignInHostUrl: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine(
+        (value) => value === "" || normalizeGmailSignInUrl(value) !== null,
+        "Leave blank or use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
+      )
+      .default(""),
   }),
   meetings: z.object({
     enabled: z.boolean(),

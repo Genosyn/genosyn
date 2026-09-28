@@ -170,10 +170,9 @@ export function AdminBilling() {
           <CardHeader>
             <h2 className="text-sm font-semibold">Stripe configuration</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Create recurring per-seat prices in Stripe for Growth and Scale and
-              paste their price ids here, along with the API secret key and the
-              webhook signing secret. The monthly pair is required; leave the
-              annual pair blank and companies are only offered monthly.
+              Create recurring per-seat prices in Stripe for Growth and Scale and paste their price
+              ids here, along with the API secret key and the webhook signing secret. The monthly
+              pair is required; leave the annual pair blank and companies are only offered monthly.
             </p>
           </CardHeader>
           <CardBody>
@@ -190,9 +189,8 @@ export function AdminBilling() {
                     Enable per-company billing
                   </div>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Requires the secret key and both monthly price ids to be
-                    configured first. Companies without a subscription land on the
-                    Free plan.
+                    Requires the secret key and both monthly price ids to be configured first.
+                    Companies without a subscription land on the Free plan.
                   </p>
                 </div>
                 <Toggle
@@ -278,11 +276,51 @@ export function AdminBilling() {
 
         <Card>
           <CardHeader>
+            <h2 className="text-sm font-semibold">Coupons and promotion codes</h2>
+          </CardHeader>
+          <CardBody className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+            <p>
+              Create a coupon and a customer-facing promotion code in the same Stripe account and
+              test/live mode as this installation. Company owners enter the code at Stripe Checkout
+              when starting a paid Plan, monthly or annual when offered.
+            </p>
+            <p>
+              For new-customer offers, select <strong>Eligible for first-time order only</strong>.
+              Stripe validates eligibility, expiry, and redemption limits. A <strong>once</strong>{" "}
+              coupon discounts the first invoice, including the full annual invoice on annual
+              billing.
+            </p>
+            <p>
+              Existing subscriptions change in place; this code entry is for initial checkout.
+              Existing discounts follow their Stripe terms.
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              <a
+                href="https://dashboard.stripe.com/coupons"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Open Stripe coupons
+              </a>
+              <a
+                href="https://docs.stripe.com/billing/subscriptions/coupons"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Stripe guide
+              </a>
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <h2 className="text-sm font-semibold">Stripe webhook endpoint</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Point a Stripe webhook at this URL and subscribe it to the
-              checkout and subscription events. The signing secret above is how
-              this install verifies those deliveries.
+              Point a Stripe webhook at this URL and subscribe it to the checkout and subscription
+              events. The signing secret above is how this install verifies those deliveries.
             </p>
           </CardHeader>
           <CardBody>

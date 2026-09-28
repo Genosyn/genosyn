@@ -404,6 +404,7 @@ describe("hosted Gmail sign-in settings", () => {
       gmailSignInEnabled: true,
       gmailSignInUrl: "https://connect.genosyn.com",
       hostGmailSignIn: false,
+      gmailSignInHostUrl: "",
     });
   });
 
@@ -420,34 +421,103 @@ describe("hosted Gmail sign-in settings", () => {
     ]) {
       assert.equal(normalizeGmailSignInUrl(value), null, value);
     }
-    assert.equal(normalizeGmailSignInUrl(" https://CONNECT.example.com/ "), "https://connect.example.com");
+    assert.equal(
+      normalizeGmailSignInUrl(" https://CONNECT.example.com/ "),
+      "https://connect.example.com",
+    );
     assert.equal(normalizeGmailSignInUrl("http://localhost:3001/"), "http://localhost:3001");
     assert.equal(normalizeGmailSignInUrl("http://127.0.0.1:3001"), "http://127.0.0.1:3001");
     assert.equal(normalizeGmailSignInUrl("http://[::1]:3001/"), "http://[::1]:3001");
   });
 
   test("bad stored fields fall back independently and cannot enable hosting", () => {
-    assert.deepEqual(parseOauthSettings({
-      gmailSignInEnabled: false,
-      gmailSignInUrl: "http://untrusted.example.com",
-      hostGmailSignIn: "true",
-    }), {
-      gmailSignInEnabled: false,
-      gmailSignInUrl: "https://connect.genosyn.com",
-      hostGmailSignIn: false,
-    });
+    assert.deepEqual(
+      parseOauthSettings({
+        gmailSignInEnabled: false,
+        gmailSignInUrl: "http://untrusted.example.com",
+        hostGmailSignIn: "true",
+      }),
+      {
+        gmailSignInEnabled: false,
+        gmailSignInUrl: "https://connect.genosyn.com",
+        hostGmailSignIn: false,
+        gmailSignInHostUrl: "",
+      },
+    );
+  });
+
+  test("older hosting settings and blank host addresses keep the installation address", () => {
+    for (const gmailSignInHostUrl of [undefined, "", "   "]) {
+      const parsed = parseOauthSettings({ hostGmailSignIn: true, gmailSignInHostUrl });
+      assert.equal(parsed.gmailSignInHostUrl, "");
+      assert.equal(parsed.hostGmailSignIn, true);
+    }
+  });
+
+  test("a separate host address normalizes without enabling hosting or changing the consumer URL", () => {
+    for (const [value, expected] of [
+      [" https://CONNECT.example.com/ ", "https://connect.example.com"],
+      ["http://localhost:3001/", "http://localhost:3001"],
+      ["http://127.0.0.1:3001/", "http://127.0.0.1:3001"],
+      ["http://[::1]:3001/", "http://[::1]:3001"],
+    ]) {
+      const parsed = parseOauthSettings({ gmailSignInHostUrl: value });
+      assert.equal(parsed.gmailSignInHostUrl, expected);
+      assert.equal(parsed.gmailSignInUrl, RUNTIME_SETTINGS_DEFAULTS.oauth.gmailSignInUrl);
+      assert.equal(parsed.hostGmailSignIn, false);
+    }
+  });
+
+  test("malformed stored host addresses fail closed even when hosting was enabled", async () => {
+    for (const gmailSignInHostUrl of [
+      null,
+      true,
+      123,
+      {},
+      [],
+      "x".repeat(2049),
+      "http://connect.example.com",
+      "https://user:secret@connect.example.com",
+      "https://connect.example.com/callback",
+      "https://connect.example.com?token=secret",
+      "https://connect.example.com#token",
+    ]) {
+      await writeRow(
+        RUNTIME_SETTING_KEYS.oauth,
+        JSON.stringify({
+          hostGmailSignIn: true,
+          gmailSignInHostUrl,
+          gmailSignInUrl: "https://customer-service.example.com",
+        }),
+      );
+      await reloadRuntimeSettings();
+      assert.equal(getRuntimeOauthSettings().hostGmailSignIn, false);
+      assert.equal(getRuntimeOauthSettings().gmailSignInHostUrl, "");
+      assert.equal(
+        getRuntimeOauthSettings().gmailSignInUrl,
+        "https://customer-service.example.com",
+      );
+      await AppDataSource.getRepository(AppSetting).delete({ key: RUNTIME_SETTING_KEYS.oauth });
+    }
   });
 
   test("custom settings persist, normalize, and reset through the shared cache", async () => {
     await saveRuntimeSettingsGroup("oauth", {
       gmailSignInEnabled: false,
       gmailSignInUrl: "https://connect.example.com/",
-      hostGmailSignIn: false,
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: " https://LOGIN.example.com/ ",
     });
     assert.equal(getRuntimeOauthSettings().gmailSignInUrl, "https://connect.example.com");
+    assert.equal(getRuntimeOauthSettings().gmailSignInHostUrl, "https://login.example.com");
+    assert.equal(getRuntimeOauthSettings().hostGmailSignIn, true);
+    const stored = JSON.parse((await readRow(RUNTIME_SETTING_KEYS.oauth))!);
+    assert.equal(stored.gmailSignInHostUrl, "https://login.example.com");
     resetRuntimeSettingsCacheForTests();
     const snapshot = await getRuntimeSettingsSnapshot();
     assert.equal(snapshot.oauth.gmailSignInEnabled, false);
+    assert.equal(snapshot.oauth.gmailSignInHostUrl, "https://login.example.com");
+    assert.equal(snapshot.oauth.hostGmailSignIn, true);
     assert.equal(snapshot.overridden.oauth, true);
     await resetRuntimeSettingsGroup("oauth");
     assert.equal(await readRow(RUNTIME_SETTING_KEYS.oauth), null);

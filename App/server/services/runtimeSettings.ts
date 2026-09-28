@@ -92,6 +92,8 @@ export type RuntimeOauthSettings = {
   gmailSignInUrl: string;
   /** Only enabled on the installation operating the public sign-in service. */
   hostGmailSignIn: boolean;
+  /** Empty uses the installation's public URL. */
+  gmailSignInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription (M42/M44). */
@@ -204,6 +206,7 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     gmailSignInEnabled: true,
     gmailSignInUrl: "https://connect.genosyn.com",
     hostGmailSignIn: false,
+    gmailSignInHostUrl: "",
   },
   meetings: {
     enabled: true,
@@ -456,12 +459,30 @@ export function parseOauthSettings(raw: unknown): RuntimeOauthSettings {
   const candidate = stringField(o, "oauth", "gmailSignInUrl", d.gmailSignInUrl, 2048);
   const gmailSignInUrl = normalizeGmailSignInUrl(candidate);
   if (!gmailSignInUrl) {
-    warnOnce("oauth.gmailSignInUrl", "oauth.gmailSignInUrl must be an HTTPS origin; using the default");
+    warnOnce(
+      "oauth.gmailSignInUrl",
+      "oauth.gmailSignInUrl must be an HTTPS origin; using the default",
+    );
+  }
+  const hostCandidate = o.gmailSignInHostUrl;
+  let gmailSignInHostUrl: string | null = null;
+  if (hostCandidate === undefined) {
+    gmailSignInHostUrl = d.gmailSignInHostUrl;
+  } else if (typeof hostCandidate === "string" && hostCandidate.length <= 2048) {
+    gmailSignInHostUrl = hostCandidate.trim() ? normalizeGmailSignInUrl(hostCandidate) : "";
+  }
+  if (gmailSignInHostUrl === null) {
+    warnOnce(
+      "oauth.gmailSignInHostUrl",
+      "oauth.gmailSignInHostUrl must be empty or an HTTPS origin; hosting is disabled",
+    );
   }
   return {
     gmailSignInEnabled: boolField(o, "oauth", "gmailSignInEnabled", d.gmailSignInEnabled),
     gmailSignInUrl: gmailSignInUrl ?? d.gmailSignInUrl,
-    hostGmailSignIn: boolField(o, "oauth", "hostGmailSignIn", d.hostGmailSignIn),
+    hostGmailSignIn:
+      boolField(o, "oauth", "hostGmailSignIn", d.hostGmailSignIn) && gmailSignInHostUrl !== null,
+    gmailSignInHostUrl: gmailSignInHostUrl ?? d.gmailSignInHostUrl,
   };
 }
 

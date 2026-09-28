@@ -12,6 +12,9 @@ build/
 # Runtime data (SQLite db + per-company filesystem tree)
 data/
 
+# Private SaaS deployment values (keep the chart defaults tracked)
+/Helm/Values/*.yaml
+
 # Logs
 logs/
 *.log

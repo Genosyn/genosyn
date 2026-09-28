@@ -43,10 +43,13 @@ strategy: Recreate
 service:
   type: ClusterIP
   port: 80
+  # Optional annotations for the cluster's Service/load-balancer integration.
+  # The chart adds no cloud-specific annotations or custom resources.
+  annotations: {}
 
 ingress:
   enabled: false
-  # e.g. nginx. Leave empty to use the cluster default.
+  # Name of an IngressClass installed in this cluster. Empty uses its default.
   className: ""
   # e.g. genosyn.example.com
   host: ""
@@ -54,9 +57,18 @@ ingress:
     enabled: false
     # Name of a TLS secret in the release namespace (cert-manager or hand-fed).
     secretName: ""
-  # WebSockets share port 8471 with everything else. nginx and Traefik pass
-  # Upgrade requests through a plain Ingress without extra annotations; add
-  # controller-specific tuning (timeouts, buffering) here if yours needs it.
+  # Optional Gmail sign-in hostname on this same Ingress and App Service.
+  # Only the six /api/google-sign-in endpoints are routed on this host; the
+  # main App public URL stays ingress.host. Requires ingress + TLS above.
+  gmailSignIn:
+    enabled: false
+    host: ""
+    tlsSecretName: ""
+  # WebSockets and streamed replies share port 8471 with regular HTTP. Configure
+  # the chosen ingress controller's upgrade support, timeouts, and buffering
+  # through its supported annotations or controller configuration. Kubernetes
+  # Ingress has no portable timeout field. Configure its access logs to omit
+  # query strings: OAuth callback URLs carry short-lived authorization codes.
   #
   # `/api/internal/*` is the AI Employee tool surface. The App refuses any
   # request to it that did not arrive on loopback, so publishing it is not
@@ -146,13 +158,33 @@ config:
 secrets:
   # A pre-created secret with keys `sessionSecret` and `encryptionSecret`
   # (each a unique random string of at least 32 characters; they must differ).
-  # Left empty, the chart generates a `<fullname>-instance-secrets` Secret
-  # once with strong random values and preserves it across upgrades AND
+  # Left empty, the chart manages a `<fullname>-instance-secrets` Secret
+  # using the private values below, or fresh random values when both are empty.
+  # It preserves them across upgrades AND
   # uninstall/reinstall (`helm.sh/resource-policy: keep`) — rotating the
   # encryptionSecret would orphan every encrypted row. Either way the app
   # receives explicit strong secrets via env, which is what multiTenant
   # requires (shared SaaS refuses the managed on-disk secrets file).
   existingSecret: ""
+  # Optional inline values, only in a private, untracked values file. Supply
+  # both together: at least 32 characters each, and different from one another.
+  # Do not combine with existingSecret. Once the chart-managed Secret exists,
+  # these must match it exactly; a mismatch fails rather than rotating keys.
+  sessionSecret: ""
+  encryptionSecret: ""
+
+# Optional first-boot import for paid plans. Keep credentials only in private,
+# untracked values files. These become an encrypted billing.settings row only
+# when no billing settings have been saved; Admin -> Billing owns later edits.
+# Disabling this block or changing its values never changes saved billing.
+billing:
+  enabled: false
+  secretKey: ""
+  webhookSecret: ""
+  growthMonthlyPriceId: ""
+  growthAnnualPriceId: ""
+  scaleMonthlyPriceId: ""
+  scaleAnnualPriceId: ""
 
 # Extra environment variables for the app container, verbatim pod-spec syntax
 # (name/value or valueFrom). Anything config.extraJs reads via process.env.*
@@ -169,8 +201,12 @@ postgres:
   image: postgres:16
   database: genosyn
   username: genosyn
+  # Optional inline bundled-Postgres password, only in a private values file.
+  # Use URL-safe characters (letters, digits, '.', '_', '~', '-'). Do not
+  # combine with passwordSecret. An existing chart-managed password must match.
+  password: ""
   # A secret holding the password under `key`. Left empty, the chart generates
-  # a random password once and preserves it across upgrades — and across
+  # or uses postgres.password once and preserves it across upgrades — and across
   # uninstall/reinstall: the generated secret carries
   # `helm.sh/resource-policy: keep` so it outlives `helm uninstall` alongside
   # the pgdata PVC, which Postgres only initialized with that password.

@@ -47,6 +47,7 @@ genosyn/
 ├── CLI/         # `genosyn` cluster-maintainer CLI (bash). Served from the
 │                # Home site at /install.sh and /genosyn via a sync step in
 │                # Home's predev/prebuild scripts.
+├── package.json # Root npm commands for SaaS Helm deployments (no dependencies).
 ├── AGENTS.md    # This file.
 └── CLAUDE.md    # Pointer to this file.
 ```
@@ -65,6 +66,17 @@ Both files are copied into `Home/client/public/` by Home's `sync-cli`
 npm script (wired into `predev` and `prebuild`), so editing `CLI/` is the
 single source of truth. Bump `CLI_VERSION` in `CLI/genosyn` when you ship a
 change users should notice.
+
+`CLI/deploy-saas.sh` is the separate operator helper behind the root
+`npm run deploy-test` / `npm run deploy-prod` commands. It applies
+the private, Git-ignored `Helm/Values/test.values.yaml` or `prod.values.yaml`
+using the existing chart and an explicitly selected Kubernetes context.
+It has no cloud-specific authentication or cluster defaults and never changes
+the operator's current context. It is not part of the downloaded self-host CLI
+and is not copied to Home.
+These operator-private files may contain deployment secrets. Keep them out of
+Git, Docker build contexts, logs, and command output. Never copy their values
+into tracked examples or CI fixtures. See `Helm/Values/README.md`.
 
 Both Docker images use the repo root as their build context. Home needs the
 root because `sync-cli` reads from `../CLI/`; App needs it because in-app Help
@@ -352,6 +364,12 @@ file and restart a container to change how often a mailbox polls.
 | Global SMTP transport | **Admin → Email transport** | `smtp.global` |
 | Browser-facing public URL and custom JavaScript | **Admin → General** | `instance.publicUrl`, `instance.customJavaScript` |
 | OAuth app credentials | **Admin → Integrations** | `oauth.apps` |
+| Cloud Plans and Stripe billing | **Admin → Billing** | `billing.settings` |
+
+The Helm chart can initialize billing from private values on first setup via
+`GENOSYN_BILLING_BOOTSTRAP_JSON`. Boot inserts encrypted `billing.settings`
+only when no row exists, then discards the environment payload. Later changes
+belong at Admin → Billing; redeployment must never overwrite saved settings.
 
 `services/runtimeSettings.ts` owns every `runtime.*` group: types, defaults,
 tolerant per-field parsing, synchronous cached getters on a shared 30s refresh

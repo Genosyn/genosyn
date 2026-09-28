@@ -439,6 +439,11 @@ describe("POST /billing/checkout with Stripe configured", () => {
     const params = new URLSearchParams(sessionCall.body);
     assert.equal(params.get("customer"), "cus_1");
     assert.equal(params.get("line_items[0][price]"), "price_growth");
+    assert.equal(params.get("allow_promotion_codes"), "true");
+    assert.ok(
+      !stripeCalls.some((c) => c.url.endsWith("/v1/customers")),
+      "reuse the customer so Stripe can enforce new-customer promotion restrictions",
+    );
   });
 
   /** Add the annual price ids the base fixture deliberately leaves blank. */
@@ -490,10 +495,26 @@ describe("POST /billing/checkout with Stripe configured", () => {
     assert.equal(got.status, 200);
     const sessionCall = stripeCalls.find((c) => c.url.includes("/v1/checkout/sessions"));
     assert.ok(sessionCall);
-    assert.equal(
-      new URLSearchParams(sessionCall.body).get("line_items[0][price]"),
-      "price_scale_year",
-    );
+    const params = new URLSearchParams(sessionCall.body);
+    assert.equal(params.get("line_items[0][price]"), "price_scale_year");
+    assert.equal(params.get("allow_promotion_codes"), "true");
+  });
+
+  test("coupon and discount parameters cannot bypass Stripe Checkout validation", async () => {
+    for (const extra of [
+      { coupon: "coupon_unverified" },
+      { promotionCode: "WELCOME100" },
+      { discounts: [{ promotion_code: "promo_unverified" }] },
+      { allow_promotion_codes: false },
+    ]) {
+      const got = await call<{ error: string }>("POST", "/billing/checkout", {
+        plan: "growth",
+        ...extra,
+      });
+      assert.equal(got.status, 400);
+      assert.equal(got.body.error, "ValidationError");
+    }
+    assert.equal(stripeCalls.length, 0, "discounts are entered and validated by Stripe");
   });
 
   // The bug this whole change exists to fix: before intervals, "same plan"

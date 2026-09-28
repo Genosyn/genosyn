@@ -14,6 +14,7 @@ import {
   RUNTIME_SETTINGS_DEFAULTS,
   RUNTIME_SETTING_KEYS,
   getMailSettings,
+  getRuntimeOauthSettings,
   getWebSettings,
   resetRuntimeSettingsCacheForTests,
 } from "../services/runtimeSettings.js";
@@ -91,6 +92,7 @@ async function call<T = Record<string, unknown>>(
 type Snapshot = {
   web: typeof RUNTIME_SETTINGS_DEFAULTS.web;
   mail: typeof RUNTIME_SETTINGS_DEFAULTS.mail;
+  oauth: typeof RUNTIME_SETTINGS_DEFAULTS.oauth;
   meetings: typeof RUNTIME_SETTINGS_DEFAULTS.meetings;
   browser: typeof RUNTIME_SETTINGS_DEFAULTS.browser;
   agent: typeof RUNTIME_SETTINGS_DEFAULTS.agent;
@@ -105,12 +107,14 @@ describe("GET /api/admin/runtime-settings", () => {
     assert.equal(status, 200);
     assert.deepEqual(body.web, RUNTIME_SETTINGS_DEFAULTS.web);
     assert.deepEqual(body.mail, RUNTIME_SETTINGS_DEFAULTS.mail);
+    assert.deepEqual(body.oauth, RUNTIME_SETTINGS_DEFAULTS.oauth);
     assert.deepEqual(body.meetings, RUNTIME_SETTINGS_DEFAULTS.meetings);
     assert.deepEqual(body.browser, RUNTIME_SETTINGS_DEFAULTS.browser);
     assert.deepEqual(body.agent, RUNTIME_SETTINGS_DEFAULTS.agent);
     assert.deepEqual(body.overridden, {
       web: false,
       mail: false,
+      oauth: false,
       meetings: false,
       browser: false,
       agent: false,
@@ -126,6 +130,82 @@ describe("GET /api/admin/runtime-settings", () => {
 });
 
 describe("PUT /api/admin/runtime-settings/:group", () => {
+  test("a separate Gmail host address normalizes and leaves the consumer service intact", async () => {
+    const expected = {
+      gmailSignInEnabled: false,
+      gmailSignInUrl: "https://customer-sign-in.example.com",
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "https://connect.example.com",
+    };
+    const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+      ...expected,
+      gmailSignInHostUrl: " https://CONNECT.example.com/ ",
+    });
+
+    assert.equal(status, 200);
+    assert.deepEqual(body.oauth, expected);
+    assert.equal(body.overridden.oauth, true);
+    assert.deepEqual(getRuntimeOauthSettings(), expected);
+    const stored = await AppDataSource.getRepository(AppSetting).findOneBy({
+      key: RUNTIME_SETTING_KEYS.oauth,
+    });
+    assert.deepEqual(JSON.parse(stored!.value), expected);
+  });
+
+  test("a blank Gmail host address can restore the installation address", async () => {
+    const settings = {
+      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
+      hostGmailSignIn: true,
+      gmailSignInUrl: "https://customer-sign-in.example.com",
+      gmailSignInHostUrl: "https://connect.example.com",
+    };
+    assert.equal((await call("PUT", "/runtime-settings/oauth", settings)).status, 200);
+
+    for (const gmailSignInHostUrl of ["", "   "]) {
+      const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+        ...settings,
+        gmailSignInHostUrl,
+      });
+      assert.equal(status, 200);
+      assert.equal(body.oauth.gmailSignInHostUrl, "");
+      assert.equal(body.oauth.hostGmailSignIn, true);
+      assert.equal(body.oauth.gmailSignInUrl, settings.gmailSignInUrl);
+    }
+  });
+
+  test("invalid Gmail host addresses are rejected without replacing saved settings", async () => {
+    const settings = {
+      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
+      gmailSignInUrl: "https://customer-sign-in.example.com",
+      gmailSignInHostUrl: "https://connect.example.com",
+    };
+    assert.equal((await call("PUT", "/runtime-settings/oauth", settings)).status, 200);
+
+    for (const gmailSignInHostUrl of [
+      "http://connect.example.com",
+      "https://connect.example.com/callback",
+      "https://connect.example.com?value=1",
+      "https://connect.example.com#fragment",
+      "https://user:secret@connect.example.com",
+      null,
+      123,
+      "x".repeat(2049),
+    ]) {
+      const { status, body } = await call<{ error: string }>("PUT", "/runtime-settings/oauth", {
+        ...settings,
+        hostGmailSignIn: true,
+        gmailSignInHostUrl,
+      });
+      assert.equal(status, 400);
+      assert.match(body.error, /Invalid runtime settings/);
+      assert.deepEqual(getRuntimeOauthSettings(), settings);
+    }
+    const stored = await AppDataSource.getRepository(AppSetting).findOneBy({
+      key: RUNTIME_SETTING_KEYS.oauth,
+    });
+    assert.deepEqual(JSON.parse(stored!.value), settings);
+  });
+
   test("a save persists, is reflected in the snapshot, and reaches the readers", async () => {
     const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/web", {
       enabled: false,

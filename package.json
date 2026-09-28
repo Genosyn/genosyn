@@ -1,0 +1,15 @@
+{
+  "name": "@genosyn/deployment",
+  "private": true,
+  "description": "Genosyn SaaS deployment commands",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "deploy-test": "bash CLI/deploy-saas.sh test",
+    "deploy-prod": "bash CLI/deploy-saas.sh prod",
+    "template-deploy-test": "bash CLI/deploy-saas.sh test --template",
+    "template-deploy-prod": "bash CLI/deploy-saas.sh prod --template",
+    "test:deploy": "bash CLI/test-deploy-saas.sh"
+  }
+}

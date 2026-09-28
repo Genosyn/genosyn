@@ -142,6 +142,10 @@ describe("subscription client calls", () => {
     assert.equal(params.get("items[0][price]"), "price_scale");
     assert.equal(params.get("items[0][quantity]"), "3");
     assert.equal(params.get("proration_behavior"), "create_prorations");
+    assert.ok(
+      ![...params.keys()].some((key) => /^(discounts|coupon|promotion_code)(\[|$)/.test(key)),
+      "plan and interval changes must leave existing Stripe discounts untouched",
+    );
     assert.equal(sub.id, "sub_1");
     assert.deepEqual(sub.items, [{ id: "si_1", priceId: "price_scale", quantity: 3 }]);
   });

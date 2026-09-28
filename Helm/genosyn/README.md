@@ -8,6 +8,17 @@ an OCI artifact alongside every release, and listed on
 
 ## Quickstart
 
+For Genosyn's test and production SaaS environments, use the root
+`npm run deploy-test` and `npm run deploy-prod` commands with the private,
+Git-ignored files `Helm/Values/test.values.yaml` and
+`Helm/Values/prod.values.yaml`. The
+[environment guide](../Values/README.md) covers Kubernetes contexts, namespaces, TLS,
+database Secrets, offline previews, and public URL initialization.
+Production routes `connect.genosyn.com` to the same App through six exact
+Gmail sign-in paths. Set its separate **Hosted sign-in address** at
+**Admin → Runtime → Gmail sign-in** while retaining `app.genosyn.com` as the
+App's public URL; see the [Gmail sign-in guide](../../App/GMAIL_SIGN_IN.md).
+
 The chart's **default posture is production multi-tenant SaaS**: `multiTenant`
 on, Postgres, the bubblewrap sandbox granted, chart-generated strong secrets.
 A bare `helm install` fails fast at template time with one aggregated message
@@ -32,6 +43,18 @@ HTTPS**. The default install runs the **bundled evaluation Postgres**; real
 production should operate its own (managed instance, CloudNativePG, an
 operator) and point `config.db.postgresUrlSecret` at it with
 `postgres.enabled=false`.
+
+Before the first SaaS registration, initialize the database-backed public URL
+from the running container. Use the actual HTTPS ingress origin:
+
+```bash
+kubectl -n genosyn exec deploy/genosyn -c app -- \
+  node /app/dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com
+```
+
+The root npm deployment commands do this automatically after Helm reports
+readiness. This setup is first-write-only: an existing different origin must
+be changed at **Admin → General**.
 
 **System SMTP is not a chart value.** Configure the mail transport after boot
 at **Admin → Email transport**, where it is stored encrypted in the database.
@@ -61,6 +84,39 @@ The pod becomes Ready once every migration has run (`/api/health` answers
 only after boot completes). Create the first account in the browser, then
 review the public URL at **Admin → General**.
 
+## Cluster compatibility
+
+The chart renders standard Kubernetes resources: Deployments, Services,
+ConfigMaps, Secrets, PersistentVolumeClaims, an optional StatefulSet, and an
+optional `networking.k8s.io/v1` Ingress. It has no cloud-specific resources or
+annotations. Use a Kubernetes context with access to the chosen namespace;
+the chart does not create a cluster or install an ingress controller.
+
+Select an installed controller through `ingress.className`, or leave it empty
+for the cluster's default. Supply TLS Secrets for the enabled hostnames.
+`ingress.annotations` and `service.annotations` pass through settings for your
+chosen controller and load balancer. Configure WebSocket upgrades, timeouts
+long enough for streamed replies, and response buffering there or in the
+controller itself; the standard Ingress API has no portable timeout field.
+Configure ingress and load-balancer access logs to omit query strings because
+OAuth callbacks contain short-lived authorization codes. The App's standard
+readiness and liveness probes use `/api/health` on port 8471; any external
+load-balancer health probe is the operator's responsibility.
+
+The default assumes one trusted ingress proxy (`trustedProxyHops: 1`). Match
+this count to your actual proxy chain through `config.extraJs`, and prevent
+direct untrusted access around those proxies. Choose `persistence.storageClass`
+and `postgres.persistence.storageClass` for the cluster's storage, or leave
+them empty to use its default StorageClass. An existing App PVC is also
+supported through `persistence.existingClaim`.
+
+Compatible clusters must support the selected workload's security posture.
+Shared SaaS requires a working bubblewrap sandbox, the relevant kernel and
+Kubernetes features, and admission policy permitting the security settings
+described below. Restricted clusters that forbid them cannot run this SaaS
+mode. The trusted single-tenant `values-selfhost.yaml` profile instead runs
+OpenCode and Repository commands inside the App container without an OS sandbox.
+
 ## Values that matter
 
 | Value | Default | What it does |
@@ -69,17 +125,73 @@ review the public URL at **Admin → General**.
 | `replicaCount` | `1` | Keep at 1 unless running multi-tenant with Postgres + RWX storage. |
 | `strategy` | `Recreate` | Required for RWO volumes; `RollingUpdate` only for multi-replica RWX. |
 | `ingress.enabled` / `ingress.host` | `false` / `""` | Front the app. WebSockets pass through a plain Ingress rule on nginx/Traefik. |
+| `ingress.gmailSignIn.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` | Add a separate TLS hostname on the same Ingress and Service for the six exact Gmail sign-in paths. Configure the hosting address and Google app in the dashboard before enabling hosting. |
+| `ingress.className` | Empty | Installed IngressClass to use; empty leaves selection to the cluster's default. |
+| `ingress.annotations` | `{}` | Controller-specific settings passed through to the Ingress. |
+| `service.annotations` | `{}` | Optional settings passed through to the App Service for the chosen cluster/load balancer. |
+| `persistence.storageClass` / `postgres.persistence.storageClass` | Empty | App and bundled database StorageClasses; empty uses the cluster default. |
 | `persistence.size` | `20Gi` | The `/app/data` volume. Holds checkouts, browser state, uploads — and the managed instance secrets. |
 | `persistence.existingClaim` | `""` | Use a PVC you manage instead of the chart's. |
 | `config.db.driver` | `postgres` | `sqlite` for single-tenant self-host (`values-selfhost.yaml` sets it). |
 | `config.db.postgresUrlSecret` | `{}` | Secret + key holding a full `postgresql://…` URL — the production database. |
 | `postgres.enabled` | `true` | Bundled single-node Postgres, evaluation only. Turn off when using `postgresUrlSecret`. |
+| `postgres.password` | `""` | Optional inline bundled-Postgres password in a private values file. Use only letters, digits, `.`, `_`, `~`, or `-`. Cannot be combined with `postgres.passwordSecret.name`. |
 | `sandbox.enabled` | `true` | Grant the securityContext the bubblewrap coding sandbox needs (see below). |
-| `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). Empty generates a kept `-instance-secrets` Secret. |
+| `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). Empty lets the chart manage a kept `-instance-secrets` Secret. |
+| `secrets.sessionSecret` / `secrets.encryptionSecret` | `""` / `""` | Optional inline instance secrets in a private values file. Supply both, at least 32 characters each and distinct. Cannot be combined with `secrets.existingSecret`. |
 | `config.multiTenant` | `true` | Shared SaaS mode — the default; read the checklist below. |
 | `config.bootstrapMasterAdminEmail` | `""` | The only email allowed to claim the first master admin. Required when `multiTenant`. |
 | `config.extraJs` | `""` | Extra `key: value,` lines spliced into the generated `config.js`. |
 | `env` | `[]` | Extra container env vars (verbatim pod-spec syntax). |
+
+Inline secrets belong only in a private, untracked values file such as the
+operator-owned files under `Helm/Values/`. Restrict the file to its owner
+(`chmod 600`). The chart puts these values into Kubernetes Secrets; Helm also
+stores them in its release values, and direct `helm template` output contains
+the rendered Secret data.
+
+Leaving the inline fields empty preserves the existing behavior: reuse a
+chart-managed Secret if one exists, otherwise generate strong random values.
+When inline values are supplied for an existing chart-managed Secret, they
+must match its current values exactly. A mismatch stops the deployment with
+no values shown; it neither rotates stored keys/passwords nor ignores the
+requested values. Recover existing values from your backup when adopting this
+mode. Password and encryption-key changes require a separate migration.
+`postgres.password` applies only to the bundled database and is rejected when
+`postgres.enabled=false`; an external production database still uses
+`config.db.postgresUrlSecret`.
+
+## Stripe billing bootstrap
+
+For paid plans, set these fields directly in a private, untracked values file.
+Enable `billing.enabled` once the Stripe credentials and both monthly price
+IDs are ready. Use a different price ID for each configured plan and interval.
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `billing.enabled` | `false` | Import billing settings only when none have been saved. |
+| `billing.secretKey` | Empty | Stripe `sk_` or `rk_` test/live secret key. Required when enabled. |
+| `billing.webhookSecret` | Empty | Stripe `whsec_` webhook signing secret. Required when enabled. |
+| `billing.growthMonthlyPriceId` | Empty | Required Growth monthly Stripe `price_` ID. |
+| `billing.scaleMonthlyPriceId` | Empty | Required Scale monthly Stripe `price_` ID. |
+| `billing.growthAnnualPriceId` | Empty | Optional Growth annual Stripe `price_` ID. |
+| `billing.scaleAnnualPriceId` | Empty | Optional Scale annual Stripe `price_` ID. |
+
+The chart creates a separate `-billing-bootstrap` Secret whose `settings.json`
+key is injected through a Secret reference as `GENOSYN_BILLING_BOOTSTRAP_JSON`.
+Credentials are absent from the ConfigMap, pod annotations, and deployment
+notes. Direct `helm template` output still contains the Secret data, and Helm
+retains the values in its release record.
+
+At boot, the App atomically imports these settings into the encrypted
+`billing.settings` database row **only if that row does not exist**. An
+existing row always wins, including one with billing disabled. Use **Admin →
+Billing** for later edits: changing Helm values, restarting, or turning
+`billing.enabled` off does not replace or disable saved settings. This
+bootstrap Secret is managed normally by Helm and is not retained on
+uninstall; the database and its encryption key preserve the saved settings.
+The default disabled block renders neither the Secret nor the bootstrap
+environment variable.
 
 ## How config works
 
@@ -177,7 +289,8 @@ value. The checklist, mapped to chart values:
    values, preserved across upgrades and `helm uninstall`
    (`helm.sh/resource-policy: keep`). Or bring your own via
    `secrets.existingSecret` (distinct `sessionSecret` / `encryptionSecret`,
-   ≥ 32 characters each). Managed on-disk secrets are refused in this mode.
+   ≥ 32 characters each), or the paired inline fields in a private values
+   file. Managed on-disk secrets are refused in this mode.
 3. **Working sandbox** — `sandbox.enabled: true` (default), on a cluster
    that actually honors the fields; multi-tenant boot probes bubblewrap and
    refuses on failure instead of degrading.

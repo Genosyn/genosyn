@@ -149,11 +149,16 @@ import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
 import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
 import { rejectAiBrowserAppRequests } from "./services/browserRequestBoundary.js";
+import {
+  initializeBillingSettings,
+  takeBillingBootstrapJson,
+} from "./services/billing/billingBootstrap.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
+  const billingBootstrapJson = takeBillingBootstrapJson();
   // First, so nothing that follows can print a raw error object. Node's
   // default handler would dump the whole thing — bound SQL parameters and all
   // — and log retention makes that unfixable after the fact.
@@ -164,6 +169,7 @@ async function main() {
   installOutboundNetworkPolicy();
   await initDb();
   await bindInstanceSecretsToDatabase();
+  await initializeBillingSettings(billingBootstrapJson);
   await bootAuthFlowStateSweeper();
   await bootPublicUrl();
   await bootCustomJavaScript();

@@ -1,9 +1,9 @@
 {{- if .Values.ingress.enabled }}
 {{/*
-WebSockets share port 8471 with regular HTTP. nginx and Traefik pass Upgrade
-requests through a plain Ingress rule without extra annotations; if your
-controller needs tuning (idle timeouts, buffering), add it via
-ingress.annotations in values.yaml.
+WebSockets and streamed replies share port 8471 with regular HTTP. Configure
+the selected controller's upgrade support, timeouts, buffering and query-log
+redaction through ingress.annotations or its own configuration. The standard
+Ingress API has no portable timeout setting.
 */}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -23,7 +23,12 @@ spec:
   tls:
     - hosts:
         - {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
-      secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled" .Values.ingress.tls.secretName }}
+      secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled" .Values.ingress.tls.secretName | quote }}
+    {{- if .Values.ingress.gmailSignIn.enabled }}
+    - hosts:
+        - {{ .Values.ingress.gmailSignIn.host | quote }}
+      secretName: {{ .Values.ingress.gmailSignIn.tlsSecretName | quote }}
+    {{- end }}
   {{- end }}
   rules:
     - host: {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
@@ -36,4 +41,18 @@ spec:
                 name: {{ include "genosyn.fullname" . }}
                 port:
                   number: {{ .Values.service.port }}
+    {{- if .Values.ingress.gmailSignIn.enabled }}
+    - host: {{ .Values.ingress.gmailSignIn.host | quote }}
+      http:
+        paths:
+          {{- range list "status" "start" "authorize" "callback" "poll" "refresh" }}
+          - path: /api/google-sign-in/{{ . }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "genosyn.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
 {{- end }}

@@ -24,9 +24,7 @@ export function Kubernetes() {
           <>
             Genosyn ships an official Helm chart at{" "}
             <Code>oci://ghcr.io/genosyn/charts/genosyn</Code>, versioned in lockstep with every
-            release. You trade the one-line installer for <Code>helm</Code> — and you give up the{" "}
-            <Code>genosyn upgrade</Code> and <Code>genosyn backup</Code> commands, which only know
-            how to drive Docker on a single host.
+            release. Use Helm for upgrades and your cluster&apos;s backup system for storage.
           </>
         }
       />
@@ -47,13 +45,18 @@ export function Kubernetes() {
         :
       </P>
       <Pre lang="bash">{`helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \\
-  --namespace genosyn --create-namespace`}</Pre>
+  --namespace genosyn --create-namespace \\
+  --set config.bootstrapMasterAdminEmail=operator@example.com \\
+  --set ingress.enabled=true --set ingress.host=genosyn.example.com \\
+  --set ingress.tls.enabled=true --set ingress.tls.secretName=genosyn-tls`}</Pre>
       <P>
-        That gives you the same shape as the one-line Docker installer: one replica, SQLite, and a
-        20Gi volume at <Code>/app/data</Code>. The pod becomes Ready once every migration has run —{" "}
-        <Code>/api/health</Code> answers <Code>{"{ ok: true, version }"}</Code> only after boot
-        completes, so a pending readiness probe during the first minute is normal. The handful of
-        values that matter:
+        The default chart enables shared SaaS mode, bundled Postgres, and the coding sandbox, with
+        one replica and a 20Gi volume at <Code>/app/data</Code>. Supply your own operator email,
+        hostname, and TLS Secret. Private installations can use the repository&apos;s{" "}
+        <Code>Helm/genosyn/values-selfhost.yaml</Code> overlay for SQLite and single-tenant mode.
+        The pod becomes Ready once every migration has run — <Code>/api/health</Code> answers{" "}
+        <Code>{"{ ok: true, version }"}</Code> only after boot completes, so a pending readiness
+        probe during the first minute is normal. The handful of values that matter:
       </P>
       <KeyList
         rows={[
@@ -72,8 +75,8 @@ export function Kubernetes() {
             def: (
               <>
                 The <Code>/app/data</Code> volume — 20Gi by default. Keep it even on Postgres
-                installs: unless explicit secrets are configured, the managed instance encryption
-                secrets live there.
+                installs: it holds checkouts, browser state, artifacts, and uploads. The chart
+                stores instance secrets in a separate Kubernetes Secret.
               </>
             ),
           },
@@ -106,8 +109,8 @@ export function Kubernetes() {
             def: (
               <>
                 A Secret with <Code>sessionSecret</Code> and <Code>encryptionSecret</Code> keys
-                (each 32+ characters, distinct). Strongly recommended; required for{" "}
-                <DocLink to="/docs/saas-hosting">shared SaaS mode</DocLink>.
+                (each 32+ characters, distinct). When omitted, the chart generates a durable Secret
+                and preserves it across upgrades and uninstall. Back it up with the database.
               </>
             ),
           },
@@ -122,13 +125,83 @@ export function Kubernetes() {
       <P>
         The full values reference, the multi-tenant checklist, and the sandbox details live in the
         chart&apos;s README in the <Code>Helm/genosyn</Code> directory of the repository. The rest
-        of this page explains what the chart deploys — read on if you want the raw manifests
-        instead.
+        of this page explains what the chart deploys and how to operate it.
+      </P>
+
+      <H2 id="saas-deploy">Test and production SaaS deployments</H2>
+      <P>
+        From the repository root, use <Code>Helm/Values/test.values.yaml</Code> and{" "}
+        <Code>Helm/Values/prod.values.yaml</Code> with the npm commands below. Supply the cluster,
+        DNS, and certificates separately; each profile includes Postgres. Private values are
+        excluded from Git and Docker builds. Restore them from private storage on a new checkout.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Test:</Strong> <Code>test.genosyn.com</Code>, namespace <Code>genosyn-test</Code>,
+          TLS Secret <Code>genosyn-test-tls</Code>, and bundled Postgres for evaluation.
+        </LI>
+        <LI>
+          <Strong>Production:</Strong> <Code>app.genosyn.com</Code>, namespace{" "}
+          <Code>genosyn-prod</Code>, TLS Secret <Code>genosyn-prod-tls</Code>, and a single-node
+          Postgres database with a 100Gi volume. The same App and Ingress serve{" "}
+          <Code>connect.genosyn.com</Code> using <Code>genosyn-connect-tls</Code>; that host exposes
+          only the six Gmail sign-in paths. Both domains share one address.
+        </LI>
+      </UL>
+      <P>
+        Both profiles enable SaaS security and the sandbox. They use one replica,{" "}
+        <Code>Recreate</Code>, and a persistent <Code>ReadWriteOnce</Code> volume from the
+        cluster&apos;s default StorageClass. Select your ingress controller with{" "}
+        <Code>ingress.className</Code>, or leave it empty for the cluster default. The chart uses
+        standard Kubernetes resources; configure HTTPS redirects, WebSockets, streaming timeouts,
+        and query-string-free access logs in your ingress infrastructure. Controller settings can
+        pass through <Code>ingress.annotations</Code> and <Code>service.annotations</Code>.
+        Kubernetes probes still use <Code>/api/health</Code>. The App trusts one HTTP proxy hop by
+        default; adjust <Code>trustedProxyHops</Code> through <Code>config.extraJs</Code> to match
+        your proxy chain, and keep the App port private. Supply TLS and a suitable StorageClass; the
+        cluster must support the sandbox, and production needs backups. Helm creates Secrets from
+        each profile&apos;s private <Code>secrets.sessionSecret</Code>,{" "}
+        <Code>secrets.encryptionSecret</Code>, and <Code>postgres.password</Code>. Keep these values
+        stable and back them up with the database; deployment previews omit Secret documents.
+      </P>
+      <P>
+        Set <Code>config.bootstrapMasterAdminEmail</Code> in your local profile or pass{" "}
+        <Code>GENOSYN_BOOTSTRAP_ADMIN_EMAIL</Code>. Deployment requires an explicit operator email.
+        Commands deploy the published image named by <Code>VERSION</Code>; they do not build or
+        publish it. Use <Code>GENOSYN_IMAGE_TAG</Code> for another release or a pinned{" "}
+        <Code>sha-</Code> commit tag. Preview before deploying:
+      </P>
+      <Pre lang="bash">{`GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operator@example.com npm run template-deploy-test
+GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operator@example.com npm run template-deploy-prod
+
+GENOSYN_TEST_KUBE_CONTEXT=your-test-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operator@example.com npm run deploy-test
+GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operator@example.com npm run deploy-prod`}</Pre>
+      <P>
+        The commands require Node 22, Helm, kubectl, and access through your existing kubeconfig.
+        Set the environment&apos;s context as above, or use <Code>GENOSYN_KUBE_CONTEXT</Code> for a
+        one-command override. Live deployments require an explicit context and never change your
+        current context. Standard <Code>KUBECONFIG</Code> settings and your cluster&apos;s
+        credential plugins work as usual; offline previews need no cluster access.
+      </P>
+      <P>
+        Deployment waits for App readiness, then initializes the stored HTTPS public URL for a fresh
+        database. It does not replace an existing different URL; change that at{" "}
+        <Code>Admin → General</Code>. Verify DNS and HTTPS before opening registration, then verify
+        the configured operator and set <Code>Admin → Email transport</Code> for verification and
+        recovery messages. OAuth apps belong at <Code>Admin → Integrations</Code>. Private{" "}
+        <Code>billing</Code> values initialize Stripe on first setup; see{" "}
+        <DocLink to="/docs/plans-billing#operators">billing setup</DocLink>. Edit saved settings at{" "}
+        <Code>Admin → Billing</Code>. Keep the public URL at <Code>https://app.genosyn.com</Code>.
+        For hosted Gmail, set{" "}
+        <Strong>Admin → Runtime → Gmail sign-in → Hosted sign-in address</Strong> to{" "}
+        <Code>https://connect.genosyn.com</Code> before enabling hosting. Register its Google
+        callback alongside the App&apos;s ordinary Google redirect URI. Test leaves the extra host
+        off. See <DocLink to="/docs/saas-hosting">shared SaaS setup</DocLink> for these final steps.
       </P>
 
       <H2 id="architecture">Architecture</H2>
       <P>
-        Genosyn is a single stateless container. Everything that needs to survive a restart is
+        Genosyn runs one App container per replica. Everything that needs to survive a restart is
         either in Postgres or under <Code>/app/data</Code>:
       </P>
       <UL>
@@ -145,9 +218,9 @@ export function Kubernetes() {
           stay encrypted in Postgres.
         </LI>
         <LI>
-          <Strong>External Postgres.</Strong> SQLite works inside a pod but dies with the pod. Run
-          Postgres in-cluster (a separate Helm chart, CloudNativePG, Zalando, …) or point at a
-          managed instance.
+          <Strong>External Postgres.</Strong> SaaS requires Postgres; private installations can
+          persist SQLite on the data volume. Run Postgres in-cluster (a separate Helm chart,
+          CloudNativePG, Zalando, …) or point at a managed instance.
         </LI>
         <LI>
           <Strong>Secret with config overrides.</Strong> Genosyn&apos;s config is a bundled
@@ -161,9 +234,7 @@ export function Kubernetes() {
 
       <H2 id="by-hand">Doing it by hand</H2>
       <P>
-        Everything below is what the chart renders for you, as raw manifests. Skip it if Helm
-        already did the job; use it when you want to own every object yourself or fold Genosyn into
-        an existing GitOps tree.
+        Render <Code>Helm/genosyn/templates</Code> for the maintained manifests when using GitOps.
       </P>
 
       <H2 id="prerequisites">Prerequisites</H2>
@@ -171,7 +242,7 @@ export function Kubernetes() {
         rows={[
           {
             term: "Cluster",
-            def: "Any conformant Kubernetes 1.27+. Managed EKS / GKE / AKS, k3s, or kind all work — the manifests below are vanilla.",
+            def: "A cluster that permits the sandbox securityContext and user namespaces. Confirm support before deploying shared SaaS; it refuses to start without a working sandbox.",
           },
           {
             term: "Postgres",
@@ -205,48 +276,9 @@ export function Kubernetes() {
         <Code>ConfigMap</Code> over that path. The mount <em>replaces</em> the whole object, so
         every key the server still reads has to be present — which is a short list, because the
         compiled shape mirrors <DocLink to="/docs/self-hosting">the source</DocLink> exactly and
-        that file is boot configuration only:
+        that file is boot configuration only. Start from{" "}
+        <Code>Helm/genosyn/templates/configmap.yaml</Code> to retain the complete current shape.
       </P>
-      <Pre lang="yaml">{`apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: genosyn-config
-  namespace: genosyn
-data:
-  config.js: |
-    export const config = {
-      dataDir: "/app/data",
-      db: {
-        driver: "postgres",
-        sqlitePath: "",
-        postgresUrl: process.env.GENOSYN_POSTGRES_URL,
-      },
-      port: 8471,
-      sessionSecret: process.env.GENOSYN_SESSION_SECRET,
-      security: {
-        multiTenant: false,
-        encryptionSecret: process.env.GENOSYN_ENCRYPTION_SECRET,
-        previousEncryptionSecrets: [],
-        secureCookies: "auto",
-        sessionMaxAgeDays: 7,
-        trustedProxyHops: 1,
-        outboundPrivateHostAllowlist: [],
-        outboundRequestTimeoutMs: 15_000,
-        outboundMaxResponseBytes: 25 * 1024 * 1024,
-        authRateLimit: { windowMinutes: 15, maxAttempts: 10, blockMinutes: 15 },
-        bootstrapMasterAdminEmail: "operator@example.com",
-      },
-      agent: {
-        codingTools: {
-          enabled: true,
-          executionMode: "host",
-          bubblewrapPath: "/usr/bin/bwrap",
-          allowNetwork: false,
-          allowUnsafeHostExecution: true,
-        },
-        browserEnabledInMultiTenant: false,
-      },
-    };`}</Pre>
       <Callout kind="tip" title="Why process.env here is fine.">
         Genosyn doesn&apos;t use <Code>dotenv</Code> or per-environment files, but the config object
         is plain JavaScript at runtime — referencing <Code>process.env</Code> inside it is just
@@ -274,112 +306,17 @@ data:
         <Code>Check your inbox</Code> once signed in — it prints to the log again.
       </Callout>
       <P>
-        Sensitive values go in a separate <Code>Secret</Code>:
+        The instance Secret contains <Code>sessionSecret</Code> and <Code>encryptionSecret</Code>.
+        Each must be a different random value of at least 32 characters. An external database URL
+        belongs in its own Secret, referenced through <Code>config.db.postgresUrlSecret</Code>.
       </P>
-      <Pre lang="yaml">{`apiVersion: v1
-kind: Secret
-metadata:
-  name: genosyn-secrets
-  namespace: genosyn
-type: Opaque
-stringData:
-  GENOSYN_POSTGRES_URL: postgresql://genosyn:****@postgres:5432/genosyn
-  GENOSYN_SESSION_SECRET: "<32+ random bytes>"
-  GENOSYN_ENCRYPTION_SECRET: "<a different 32+ random bytes>"`}</Pre>
 
       <H2 id="manifests">PVC, Deployment, Service, Ingress</H2>
       <P>
-        One file, four objects. Apply with <Code>kubectl apply -f</Code>:
+        The template commands above render all these objects together. Review the generated
+        namespace, image, storage, and ingress before applying it through your deployment process.
+        Generated manifests can include Secret values; keep their output private.
       </P>
-      <Pre lang="yaml">{`---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: genosyn-data
-  namespace: genosyn
-spec:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 20Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: genosyn
-  namespace: genosyn
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels: { app: genosyn }
-  template:
-    metadata:
-      labels: { app: genosyn }
-    spec:
-      containers:
-        - name: app
-          image: ghcr.io/genosyn/app:latest
-          ports:
-            - containerPort: 8471
-          envFrom:
-            - secretRef:
-                name: genosyn-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
-            - name: config
-              mountPath: /app/dist/config.js
-              subPath: config.js
-              readOnly: true
-          readinessProbe:
-            httpGet: { path: /api/health, port: 8471 }
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          # Lax on purpose: migrations run on boot and can hold /api/health
-          # closed for a while on upgrade. Don't tighten this.
-          livenessProbe:
-            httpGet: { path: /api/health, port: 8471 }
-            initialDelaySeconds: 60
-            periodSeconds: 20
-            failureThreshold: 6
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: genosyn-data
-        - name: config
-          configMap:
-            name: genosyn-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: genosyn
-  namespace: genosyn
-spec:
-  selector: { app: genosyn }
-  ports:
-    - port: 80
-      targetPort: 8471
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: genosyn
-  namespace: genosyn
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: genosyn.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: genosyn
-                port: { number: 80 }`}</Pre>
       <P>
         <Strong>Recreate</Strong> over <Strong>RollingUpdate</Strong> because an RWO volume can only
         attach to one pod at a time. The old pod must terminate before the new one schedules.
@@ -391,7 +328,7 @@ spec:
         the schema is current.
       </P>
       <Callout kind="info" title="Execution mode follows the deployment shape.">
-        The single-tenant manifest above uses host coding. OpenCode runs commands with the App
+        The single-tenant self-host values file uses host coding. OpenCode runs commands with the App
         process user&apos;s authority inside the pod, so no additional namespace permissions are
         required. The chart&apos;s default shared SaaS deployment uses bubblewrap instead. Its
         <Code> sandbox.enabled</Code> setting adds <Code>seccompProfile: Unconfined</Code> and
@@ -411,14 +348,14 @@ spec:
 kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <P>
         Pin a tag rather than tracking <Code>latest</Code> — that&apos;s how you get repeatable
-        rollbacks. Image tags carry no <Code>v</Code> prefix, even though the matching GitHub
+        deployments. Image tags carry no <Code>v</Code> prefix, even though the matching GitHub
         release does: the release is <Code>v1.155.0</Code>, the image is <Code>app:1.155.0</Code>.
       </P>
 
       <H2 id="backups">Backups</H2>
       <P>
         On Docker, <Code>genosyn backup</Code> tarballs the data volume. On Kubernetes you back up{" "}
-        <Strong>two</Strong> things, separately:
+        <Strong>three</Strong> things, separately:
       </P>
       <UL>
         <LI>
@@ -433,9 +370,13 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
           Use a VolumeSnapshot if your StorageClass supports it, or a CronJob that <Code>tar</Code>s
           the volume to object storage.
         </LI>
+        <LI>
+          <Strong>The instance Secret.</Strong> Preserve the session and encryption keys with the
+          database. Losing the encryption key makes stored credentials unreadable.
+        </LI>
       </UL>
       <P>
-        Restore is symmetric: load Postgres first, then rehydrate the PVC, then start the
+        Restore is symmetric: restore the Secret and Postgres, rehydrate the PVC, then start the
         Deployment.
       </P>
 

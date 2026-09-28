@@ -372,6 +372,12 @@ export function SettingsBilling() {
           ))}
         </div>
 
+        {isOwner && summary.plan === "free" && summary.stripeConfigured && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Have a promotion code? Enter it at Stripe checkout after choosing a paid plan.
+          </p>
+        )}
+
         <p className="text-xs text-slate-400 dark:text-slate-500">
           {selectedInterval === "year"
             ? `An AI Employee is ${monthlyEquivalent(summary.prices.growth.year.unitAmount)} a month billed annually — not a salary.`

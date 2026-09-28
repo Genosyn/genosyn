@@ -128,22 +128,22 @@ export function PlansBilling() {
       <H2 id="upgrading">Upgrading your company</H2>
       <P>
         Open <Strong>Settings → Billing</Strong>. The top card shows your current plan, whether it
-        bills monthly or annually, its subscription status, how many AI Employees you have, and —
-        on Free — how many of your Routines are used. Below it, a{" "}
-        <Strong>Monthly / Annual</Strong> switch sets which prices the three plan cards quote, and
-        each card lists what it includes; your plan is marked <Strong>Current plan</Strong>.
+        bills monthly or annually, its subscription status, how many AI Employees you have, and — on
+        Free — how many of your Routines are used. Below it, a <Strong>Monthly / Annual</Strong>{" "}
+        switch sets which prices the three plan cards quote, and each card lists what it includes;
+        your plan is marked <Strong>Current plan</Strong>.
       </P>
       <UL>
         <LI>
-          Click <Strong>Upgrade to Growth</Strong> or <Strong>Upgrade to Scale</Strong> on a plan
-          card. You are redirected to Stripe Checkout; on success you land back on the Billing page
-          with the new plan active.
+          To start a paid subscription, click <Strong>Upgrade to Growth</Strong> or{" "}
+          <Strong>Upgrade to Scale</Strong> on a plan card. You are redirected to Stripe Checkout;
+          on success you land back on the Billing page with the new plan active.
         </LI>
         <LI>
           To keep your Plan and change only how often you pay, flip the switch and click{" "}
-          <Strong>Switch to annual billing</Strong> (or back to monthly) on the card you are
-          already on. There is no second subscription: the one you have is repriced in place and
-          Stripe credits the unused remainder of the period you had paid for.
+          <Strong>Switch to annual billing</Strong> (or back to monthly) on the card you are already
+          on. There is no second subscription: the one you have is repriced in place and Stripe
+          credits the unused remainder of the period you had paid for.
         </LI>
         <LI>
           <Strong>Manage billing</Strong> opens the Stripe billing portal, where you update cards,
@@ -154,6 +154,18 @@ export function PlansBilling() {
           company admins can read everything on the page.
         </LI>
       </UL>
+
+      <H2 id="promotion-codes">Using a promotion code</H2>
+      <P>
+        When starting a paid subscription, enter your promotion code at Stripe Checkout before
+        paying. Codes can apply to monthly billing or annual billing when offered. Stripe checks the
+        code&apos;s eligibility, expiry, and redemption limits and shows the resulting total.
+      </P>
+      <P>
+        Changing an existing paid Plan or billing interval updates that subscription in place; there
+        is no new checkout code entry. Discounts already applied remain subject to their duration
+        and other Stripe terms.
+      </P>
 
       <H2 id="limits">What happens at the Free limits</H2>
       <P>
@@ -229,17 +241,16 @@ export function PlansBilling() {
         away). Turning it on is what makes an install behave like Genosyn Cloud.
       </P>
       <P>
-        Open <Strong>Admin → Billing</Strong> and fill in the <Strong>Stripe configuration</Strong>
-        {" "}
+        Open <Strong>Admin → Billing</Strong> and fill in the <Strong>Stripe configuration</Strong>{" "}
         card:
       </P>
       <UL>
         <LI>
-          Create recurring per-seat prices in Stripe and paste their ids into the four price
-          fields: <Strong>Growth — monthly</Strong> ($19), <Strong>Growth — annual</Strong>{" "}
-          ($205.20), <Strong>Scale — monthly</Strong> ($49) and <Strong>Scale — annual</Strong>{" "}
-          ($529.20). Only the two monthly ids are required; leave the annual pair blank and the
-          Monthly / Annual switch never appears on a company&apos;s Billing page.
+          Create recurring per-seat prices in Stripe and paste their ids into the four price fields:{" "}
+          <Strong>Growth — monthly</Strong> ($19), <Strong>Growth — annual</Strong> ($205.20),{" "}
+          <Strong>Scale — monthly</Strong> ($49) and <Strong>Scale — annual</Strong> ($529.20). Only
+          the two monthly ids are required; leave the annual pair blank and the Monthly / Annual
+          switch never appears on a company&apos;s Billing page.
         </LI>
         <LI>
           Paste the <Strong>Stripe secret key</Strong> and the{" "}
@@ -254,11 +265,41 @@ export function PlansBilling() {
         </LI>
       </UL>
       <P>
-        Then point a Stripe webhook at <Code>&lt;your URL&gt;/api/billing/stripe/webhook</Code> (the
-        {" "}
+        Then point a Stripe webhook at <Code>&lt;your URL&gt;/api/billing/stripe/webhook</Code> (the{" "}
         <Strong>Stripe webhook endpoint</Strong> card shows the exact URL with a copy button) and
         subscribe it to the checkout and subscription events. The signing secret is how the install
         verifies those deliveries.
+      </P>
+      <P>
+        For a fresh Helm deployment, you can supply the same settings in the private values file:
+        <Code>billing.secretKey</Code>, <Code>billing.webhookSecret</Code>, and the{" "}
+        <Code>growthMonthlyPriceId</Code>, <Code>scaleMonthlyPriceId</Code>,{" "}
+        <Code>growthAnnualPriceId</Code>, and <Code>scaleAnnualPriceId</Code> fields under{" "}
+        <Code>billing</Code>. Set <Code>billing.enabled: true</Code> after filling the required keys
+        and monthly prices. Use Stripe test credentials and prices for test, and live values for
+        production. These are Stripe-issued credentials, not locally generated secrets.
+      </P>
+      <P>
+        Helm initializes billing only if the install has no saved billing settings. Credentials are
+        encrypted in the database and remain hidden in the admin page. After that first setup,
+        change keys, prices, or the billing switch at <Strong>Admin → Billing</Strong>; subsequent
+        values-file changes do not overwrite saved settings. See{" "}
+        <DocLink to="/docs/kubernetes#saas-deploy">SaaS Helm deployments</DocLink> for the private
+        files and deployment commands.
+      </P>
+      <P>
+        To issue codes, open{" "}
+        <ExtLink href="https://dashboard.stripe.com/coupons">Stripe coupons</ExtLink> in the same
+        account and test/live mode as your billing setup. Create a coupon and its customer-facing
+        promotion code, then share the code with customers. For new-customer offers, select{" "}
+        <Strong>Eligible for first-time order only</Strong>; Stripe can exclude customers with
+        previous payment attempts or trials. A coupon with duration <Code>once</Code> discounts the
+        first invoice: a monthly charge for monthly billing or the full annual invoice for annual
+        billing. See the{" "}
+        <ExtLink href="https://docs.stripe.com/billing/subscriptions/coupons">
+          Stripe coupons and promotion codes guide
+        </ExtLink>{" "}
+        for restrictions and duration options.
       </P>
       <Callout kind="info" title="Plans never cover model usage.">
         A company&apos;s Plan pays for Genosyn seats. The tokens its AI Employees consume are always

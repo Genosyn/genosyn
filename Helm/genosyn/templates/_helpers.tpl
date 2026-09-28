@@ -87,6 +87,51 @@ secrets.existingSecret is not set.
 {{- printf "%s-instance-secrets" (include "genosyn.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* Keep the suffix even when fullnameOverride fills the DNS name limit. */}}
+{{- define "genosyn.billingBootstrapName" -}}
+{{- printf "%s-billing-bootstrap" (include "genosyn.fullname" . | trunc 45 | trimSuffix "-") }}
+{{- end }}
+
+{{/*
+Resolve Secret data after validation. The actual templates supply lookup's
+result; keeping resolution separate also lets offline checks exercise upgrades.
+Never put a supplied or stored value in a failure message.
+*/}}
+{{- define "genosyn.instanceSecretData" -}}
+{{- $session := default "" .values.sessionSecret -}}
+{{- $encryption := default "" .values.encryptionSecret -}}
+{{- if .existing -}}
+{{- if not (and .existing.data (index .existing.data "sessionSecret") (index .existing.data "encryptionSecret")) -}}
+{{- fail "The existing chart-managed instance Secret is incomplete; restore it from backup before deploying. No keys were generated or changed." -}}
+{{- end -}}
+{{- if and $session (or (ne ($session | b64enc) (index .existing.data "sessionSecret")) (ne ($encryption | b64enc) (index .existing.data "encryptionSecret"))) -}}
+{{- fail "Inline instance secrets do not match the existing chart-managed Secret. Supply its current values; key rotation requires a separate migration." -}}
+{{- end -}}
+{{- toYaml (dict "sessionSecret" (index .existing.data "sessionSecret") "encryptionSecret" (index .existing.data "encryptionSecret")) -}}
+{{- else if $session -}}
+{{- toYaml (dict "sessionSecret" ($session | b64enc) "encryptionSecret" ($encryption | b64enc)) -}}
+{{- else -}}
+{{- toYaml (dict "sessionSecret" (randAlphaNum 48 | b64enc) "encryptionSecret" (randAlphaNum 48 | b64enc)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "genosyn.postgresSecretData" -}}
+{{- $password := default "" .values.password -}}
+{{- if .existing -}}
+{{- if not (and .existing.data (index .existing.data "password")) -}}
+{{- fail "The existing chart-managed Postgres Secret is incomplete; restore its password before deploying. No password was generated or changed." -}}
+{{- end -}}
+{{- if and $password (ne ($password | b64enc) (index .existing.data "password")) -}}
+{{- fail "postgres.password does not match the existing chart-managed Secret. Supply its current value; changing the database password requires a separate migration." -}}
+{{- end -}}
+{{- toYaml (dict "password" (index .existing.data "password")) -}}
+{{- else if $password -}}
+{{- toYaml (dict "password" ($password | b64enc)) -}}
+{{- else -}}
+{{- toYaml (dict "password" (randAlphaNum 32 | b64enc)) -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Fail fast — at template time, aggregated — when the configuration cannot boot.
 Genosyn's multi-tenant startup validation (App/server/services/runtimeSecurity.ts)
@@ -98,6 +143,79 @@ Included from deployment.yaml so it runs on every render.
 */}}
 {{- define "genosyn.validate" -}}
 {{- $problems := list -}}
+{{- if hasKey .Values "billing" -}}
+{{- $billing := .Values.billing -}}
+{{- if not (kindIs "map" $billing) -}}
+{{- $problems = append $problems "billing must be a settings object" -}}
+{{- else if and (hasKey $billing "enabled") (not (kindIs "bool" $billing.enabled)) -}}
+{{- $problems = append $problems "billing.enabled must be a boolean" -}}
+{{- else if $billing.enabled -}}
+{{- $patterns := dict "secretKey" "^(sk|rk)_(test|live)_[A-Za-z0-9]+$" "webhookSecret" "^whsec_[A-Za-z0-9]+$" "growthMonthlyPriceId" "^price_[A-Za-z0-9]+$" "growthAnnualPriceId" "^price_[A-Za-z0-9]+$" "scaleMonthlyPriceId" "^price_[A-Za-z0-9]+$" "scaleAnnualPriceId" "^price_[A-Za-z0-9]+$" -}}
+{{- $priceIds := list -}}
+{{- range $field, $pattern := $patterns -}}
+{{- $value := get $billing $field -}}
+{{- if not (kindIs "string" $value) -}}
+{{- $problems = append $problems (printf "billing.%s must be a string" $field) -}}
+{{- else -}}
+{{- $value = trim $value -}}
+{{- $optional := or (eq $field "growthAnnualPriceId") (eq $field "scaleAnnualPriceId") -}}
+{{- if and (or (not $optional) $value) (or (gt (len $value) 512) (not (regexMatch $pattern $value))) -}}
+{{- $problems = append $problems (printf "billing.%s must be a valid Stripe value of at most 512 characters when billing.enabled=true (secretKey: sk_/rk_ test/live; webhookSecret: whsec_; price IDs: price_; annual IDs may be blank)" $field) -}}
+{{- end -}}
+{{- if and (hasSuffix "PriceId" $field) $value -}}
+{{- if has $value $priceIds -}}
+{{- $problems = append $problems "Configured billing price IDs must be different for each plan and interval" -}}
+{{- end -}}
+{{- $priceIds = append $priceIds $value -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $session := get .Values.secrets "sessionSecret" -}}
+{{- $encryption := get .Values.secrets "encryptionSecret" -}}
+{{- $password := get .Values.postgres "password" -}}
+{{- if or (not (kindIs "string" $session)) (not (kindIs "string" $encryption)) -}}
+{{- $problems = append $problems "secrets.sessionSecret and secrets.encryptionSecret must be strings" -}}
+{{- else if or $session $encryption -}}
+{{- if or (lt (len ($session | trim)) 32) (lt (len ($encryption | trim)) 32) -}}
+{{- $problems = append $problems "secrets.sessionSecret and secrets.encryptionSecret must be supplied together and each contain at least 32 characters" -}}
+{{- end -}}
+{{- if eq $session $encryption -}}
+{{- $problems = append $problems "secrets.sessionSecret and secrets.encryptionSecret must be different" -}}
+{{- end -}}
+{{- if .Values.secrets.existingSecret -}}
+{{- $problems = append $problems "Inline instance secrets cannot be combined with secrets.existingSecret" -}}
+{{- end -}}
+{{- end -}}
+{{- if not (kindIs "string" $password) -}}
+{{- $problems = append $problems "postgres.password must be a string" -}}
+{{- else if $password -}}
+{{- if not .Values.postgres.enabled -}}
+{{- $problems = append $problems "postgres.password requires postgres.enabled=true; external databases use config.db.postgresUrlSecret" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._~-]+$" $password) -}}
+{{- $problems = append $problems "postgres.password must use URL-safe letters, digits, '.', '_', '~', or '-'" -}}
+{{- end -}}
+{{- if .Values.postgres.passwordSecret.name -}}
+{{- $problems = append $problems "postgres.password cannot be combined with postgres.passwordSecret.name" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.ingress.gmailSignIn.enabled -}}
+{{- if or (not .Values.ingress.enabled) (not .Values.ingress.tls.enabled) -}}
+{{- $problems = append $problems "ingress.gmailSignIn.enabled requires ingress.enabled=true and ingress.tls.enabled=true" -}}
+{{- end -}}
+{{- $signInHost := default "" .Values.ingress.gmailSignIn.host -}}
+{{- if or (gt (len $signInHost) 253) (not (regexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$" $signInHost)) (regexMatch "^[0-9]+(\\.[0-9]+){3}$" $signInHost) -}}
+{{- $problems = append $problems "ingress.gmailSignIn.host must be a valid lowercase DNS hostname without a scheme, port, path, wildcard, or IP address" -}}
+{{- end -}}
+{{- if eq (lower $signInHost) (lower (default "" .Values.ingress.host)) -}}
+{{- $problems = append $problems "ingress.gmailSignIn.host must differ from ingress.host" -}}
+{{- end -}}
+{{- if not (default "" .Values.ingress.gmailSignIn.tlsSecretName | trim) -}}
+{{- $problems = append $problems "ingress.gmailSignIn.tlsSecretName is required when ingress.gmailSignIn.enabled" -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.config.multiTenant -}}
 {{- if not (default "" .Values.config.bootstrapMasterAdminEmail | trim) -}}
 {{- $problems = append $problems "config.bootstrapMasterAdminEmail is required (multi-tenant bootstrap predeclares the only email allowed to claim the first master admin) — fix: --set config.bootstrapMasterAdminEmail=you@example.com" -}}

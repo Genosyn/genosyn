@@ -184,6 +184,10 @@ jobs:
         run: npm run test:model-setup
       - name: Test Gmail OAuth-only setup
         run: npm run test:mail-connect
+      - name: Test hosted Gmail connection dialogs
+        run: npm run test:hosted-google-modal
+      - name: Test shared App and Gmail sign-in host
+        run: npm run test:shared-google-host
       - name: Build the client for the full app browser test
         run: npm run build:client
       - name: Test signup, company setup, hiring, and account recovery

@@ -3740,6 +3740,7 @@ export type RuntimeOauthSettings = {
   gmailSignInEnabled: boolean;
   gmailSignInUrl: string;
   hostGmailSignIn: boolean;
+  gmailSignInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription. */

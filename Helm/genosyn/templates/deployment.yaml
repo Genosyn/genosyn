@@ -91,6 +91,14 @@ spec:
                 secretKeyRef:
                   name: {{ $instanceSecret }}
                   key: encryptionSecret
+            {{- $billing := default dict .Values.billing }}
+            {{- if $billing.enabled }}
+            - name: GENOSYN_BILLING_BOOTSTRAP_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "genosyn.billingBootstrapName" . }}
+                  key: settings.json
+            {{- end }}
             {{- if .Values.config.db.postgresUrlSecret.name }}
             - name: GENOSYN_POSTGRES_URL
               valueFrom:

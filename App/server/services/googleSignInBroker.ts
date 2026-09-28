@@ -13,7 +13,7 @@ import {
 } from "./authFlowState.js";
 import { getRegisteredOauthApp } from "./oauthApps.js";
 import { getPublicUrl, normalizePublicUrl } from "./publicUrl.js";
-import { getRuntimeOauthSettings } from "./runtimeSettings.js";
+import { getRuntimeOauthSettings, normalizeGmailSignInUrl } from "./runtimeSettings.js";
 import { exchangeHostedGoogleCode, refreshHostedGoogleToken } from "./googleSignInGoogle.js";
 
 export const GOOGLE_SIGN_IN_TTL_MS = 10 * 60_000;
@@ -77,20 +77,14 @@ export function normalizeGoogleInstallationOrigin(value: string): string {
   }
 }
 
-function brokerOrigin(): string | null {
-  try {
-    const origin = normalizePublicUrl(getPublicUrl());
-    const url = new URL(origin);
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    return url.protocol === "https:" || loopback ? origin : null;
-  } catch {
-    return null;
-  }
+/** Operator-owned broker origin; independent of customer issuer settings and request Host. */
+export function getGoogleSignInBrokerOrigin(): string | null {
+  return normalizeGmailSignInUrl(getRuntimeOauthSettings().gmailSignInHostUrl || getPublicUrl());
 }
 
 async function brokerConfiguration() {
   if (!getRuntimeOauthSettings().hostGmailSignIn) return null;
-  const origin = brokerOrigin();
+  const origin = getGoogleSignInBrokerOrigin();
   if (!origin) return null;
   const credentials = await getRegisteredOauthApp("google");
   return credentials

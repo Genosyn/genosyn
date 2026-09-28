@@ -194,6 +194,42 @@ describe("POST /api/billing/stripe/webhook", () => {
     assert.equal(row.seatCount, 4, "annual is still billed per seat");
   });
 
+  test("a fully discounted checkout activates the purchased plan without a payment", async () => {
+    const cid = testCompanyId();
+    stripeSubscriptions["sub_123"] = {
+      ...rawSubscription(cid, { priceId: "price_scale_year" }),
+      discount: { coupon: { id: "coupon_full", percent_off: 100, duration: "once" } },
+      latest_invoice: { amount_due: 0, paid: true },
+    };
+    const raw = JSON.stringify({
+      id: "evt_discounted_checkout",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_discounted",
+          mode: "subscription",
+          customer: "cus_9",
+          subscription: "sub_123",
+          amount_total: 0,
+          payment_status: "no_payment_required",
+        },
+      },
+    });
+    const got = await post(raw, stripeHeader(raw));
+    assert.equal(got.status, 200);
+    assert.deepEqual(stripeGetCalls, ["sub_123"]);
+
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
+      companyId: cid,
+    });
+    assert.equal(row.plan, "scale", "the configured subscription price determines access");
+    assert.equal(row.status, "active");
+    assert.equal(row.billingInterval, "year");
+    assert.equal(row.seatCount, 4);
+    assert.equal(row.stripeCustomerId, "cus_9");
+    assert.equal(row.stripeSubscriptionId, "sub_123");
+  });
+
   test("an interval change arriving by webhook overwrites the stored one", async () => {
     const cid = testCompanyId();
     stripeSubscriptions["sub_123"] = rawSubscription(cid, { priceId: "price_growth_year" });

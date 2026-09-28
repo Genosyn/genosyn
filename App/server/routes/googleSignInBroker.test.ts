@@ -7,10 +7,11 @@ import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AuthFlowState } from "../db/entities/AuthFlowState.js";
 import { errorHandler } from "../middleware/error.js";
+import { securityHeaders } from "../middleware/httpSecurity.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
 import { googleSignInCookieName } from "../services/googleSignInBroker.js";
 import { saveOauthApp } from "../services/oauthApps.js";
-import { setPublicUrl } from "../services/publicUrl.js";
+import { getPublicUrl, setPublicUrl } from "../services/publicUrl.js";
 import {
   overrideRuntimeSettingsForTests,
   resetRuntimeSettingsCacheForTests,
@@ -32,6 +33,7 @@ let tokenStatus: number;
 before(async () => {
   await initTestDb();
   const app = express();
+  app.use(securityHeaders);
   // Mirrors the App's existing parser before the broker-specific smaller cap.
   app.use(express.json({ limit: "1mb" }));
   app.use("/api/google-sign-in", googleSignInBrokerRouter);
@@ -131,6 +133,7 @@ async function consent(requestId: string) {
     }),
   });
   assert.equal(response.status, 303);
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
   const url = new URL(response.headers.get("location")!);
   const state = url.searchParams.get("state")!;
   const cookie = `${googleSignInCookieName(state)}=${prepared.nonce}`;
@@ -181,7 +184,7 @@ test("consent displays the exact installation, sets private cookies, and request
   assert.match(prepared.page, /http:\/\/nas.local:3000/);
   assert.match(prepared.page, /Continue with Google/);
   assert.equal(prepared.response.headers.get("cache-control"), "no-store");
-  assert.equal(prepared.response.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(prepared.response.headers.get("referrer-policy"), "same-origin");
   assert.match(prepared.response.headers.get("content-security-policy")!, /frame-ancestors 'none'/);
   assert.match(prepared.response.headers.get("set-cookie")!, /HttpOnly/);
   assert.match(prepared.response.headers.get("set-cookie")!, /SameSite=Lax/);
@@ -203,6 +206,94 @@ test("consent displays the exact installation, sets private cookies, and request
   assert.equal(authorization.url.searchParams.get("include_granted_scopes"), "false");
   assert.equal(authorization.url.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorization.url.toString().includes("broker-secret"), false);
+});
+
+test("a separate broker host completes consent and refresh without changing the App origin", async () => {
+  const appOrigin = "https://app.genosyn.test";
+  await setPublicUrl(appOrigin);
+  overrideRuntimeSettingsForTests({
+    oauth: {
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: BROKER_ORIGIN,
+      // Choosing a service as a consumer must not change this broker's identity.
+      gmailSignInUrl: "https://another-service.example.com",
+    },
+  });
+  const flow = await start();
+  assert.equal(new URL(flow.authorizeUrl).origin, BROKER_ORIGIN);
+  const prepared = await prepare(flow.requestId);
+  assert.match(prepared.response.headers.get("set-cookie")!, /Secure/);
+  assert.doesNotMatch(prepared.response.headers.get("set-cookie")!, /Domain=/i);
+  for (const origin of [appOrigin, "https://attacker.test"]) {
+    const rejected = await realFetch(`${baseUrl}/authorize`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin,
+        host: new URL(origin).host,
+        "sec-fetch-site": "same-site",
+        cookie: prepared.cookie,
+      },
+      body: new URLSearchParams({
+        requestId: flow.requestId,
+        csrfToken: prepared.nonce,
+        browserProof: BROWSER_PROOF,
+      }),
+    });
+    assert.equal(rejected.status, 403);
+  }
+  assert.equal(googleCalls.length, 0);
+  const authorization = await consent(flow.requestId);
+  assert.equal(
+    authorization.url.searchParams.get("redirect_uri"),
+    `${BROKER_ORIGIN}/api/google-sign-in/callback`,
+  );
+  const completed = await callback(authorization.state, authorization.cookie);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.headers.get("referrer-policy"), "no-referrer");
+  assert.match(await completed.text(), /sign-in is complete/);
+  const exchanged = new URLSearchParams(
+    googleCalls.find((call) => call.url.endsWith("/token"))!.body,
+  );
+  assert.equal(exchanged.get("redirect_uri"), `${BROKER_ORIGIN}/api/google-sign-in/callback`);
+  const result = (await (
+    await post("/poll", { requestId: flow.requestId, codeVerifier: flow.verifier })
+  ).json()) as { status: string; credential: { clientId: string; refreshToken: string } };
+  assert.equal(result.status, "complete");
+  tokenResponse.access_token = "renewed-access-token";
+  const refreshed = await post("/refresh", {
+    clientId: result.credential.clientId,
+    refreshToken: result.credential.refreshToken,
+  });
+  assert.equal(refreshed.status, 200);
+  assert.equal(
+    ((await refreshed.json()) as { accessToken: string }).accessToken,
+    "renewed-access-token",
+  );
+  const renewal = new URLSearchParams(googleCalls.at(-1)!.body);
+  assert.equal(renewal.get("grant_type"), "refresh_token");
+  assert.equal(renewal.get("client_id"), "broker-client");
+  assert.equal(getPublicUrl(), appOrigin);
+  assert.equal(await AppDataSource.getRepository(AuthFlowState).count(), 0);
+});
+
+test("flow cookies follow the broker protocol independently of the App public URL", async () => {
+  for (const { appOrigin, brokerOrigin, secure } of [
+    { appOrigin: "http://localhost:8471", brokerOrigin: BROKER_ORIGIN, secure: true },
+    { appOrigin: "https://app.genosyn.test", brokerOrigin: "http://127.0.0.1:3000", secure: false },
+  ]) {
+    await setPublicUrl(appOrigin);
+    overrideRuntimeSettingsForTests({
+      oauth: { hostGmailSignIn: true, gmailSignInHostUrl: brokerOrigin },
+    });
+    const flow = await start();
+    assert.equal(new URL(flow.authorizeUrl).origin, brokerOrigin);
+    const prepared = await prepare(flow.requestId);
+    const cookie = prepared.response.headers.get("set-cookie")!;
+    assert.equal(/; Secure(?:;|$)/.test(cookie), secure);
+    assert.doesNotMatch(cookie, /Domain=/i);
+  }
 });
 
 test("interstitial POST rejects cross-origin requests and mismatched cookies without burning the flow", async () => {

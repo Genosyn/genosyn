@@ -185,6 +185,15 @@ const GROUPS: GroupSpec[] = [
         label: "Host Gmail sign-in on this installation",
         help: "For the operator of the public sign-in service only. This exposes sign-in and token-renewal endpoints for other installations. Set a public HTTPS URL, register a Google app at Admin → Integrations, and complete Google production verification before enabling. Ordinary self-hosted installations leave this off.",
       },
+      {
+        kind: "text",
+        path: "gmailSignInHostUrl",
+        label: "Hosted sign-in address",
+        maxLength: 2048,
+        placeholder: "https://connect.genosyn.com",
+        mono: true,
+        help: "Leave blank to use the App address. Set https://connect.genosyn.com when the sign-in service shares the SaaS deployment. Route this address to the App and register its /api/google-sign-in/callback URL with Google. Hosting still needs to be enabled above.",
+      },
     ],
   },
   {
@@ -651,7 +660,7 @@ function GroupCard({
       const confirmed = await dialog.confirm({
         title: "Host the public Gmail sign-in service?",
         message:
-          "Other installations will send Google sign-in and token-renewal requests here. Enable this only on the dedicated service after configuring its public HTTPS URL and Google OAuth app, registering /api/google-sign-in/callback, and completing Google production verification. This setting is not needed to connect your own Gmail mailbox.",
+          "Other installations will send Google sign-in and token-renewal requests here. Enable this after configuring the public sign-in address and Google OAuth app, registering that address with /api/google-sign-in/callback, and completing Google production verification. This setting is not needed to connect your own Gmail mailbox.",
         confirmLabel: "Enable hosting",
       });
       if (!confirmed) return;
