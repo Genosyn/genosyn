@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contentSecurityPolicy, isTrustedBrowserOrigin } from "./httpSecurity.js";
+import { contentSecurityPolicy, isTrustedBrowserOrigin, securityHeaders } from "./httpSecurity.js";
+import type { Request, Response } from "express";
+
+test("keeps initiated OAuth popups connected for origin verification", () => {
+  const headers = new Map<string, string>();
+  securityHeaders(
+    { secure: false, path: "/", originalUrl: "/" } as Request,
+    { setHeader: (name: string, value: string) => headers.set(name, value) } as unknown as Response,
+    () => {},
+  );
+  assert.equal(headers.get("Cross-Origin-Opener-Policy"), "same-origin-allow-popups");
+});
 
 test("accepts same-host browser mutations independently of stored settings", () => {
   assert.equal(

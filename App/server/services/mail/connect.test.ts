@@ -1,3 +1,4 @@
+import { overrideRuntimeSettingsForTests } from "../runtimeSettings.js";
 import assert from "node:assert/strict";
 import dns from "node:dns/promises";
 import { after, before, beforeEach, describe, mock, test, type TestContext } from "node:test";
@@ -20,6 +21,9 @@ import {
   type MailboxConnectOption,
   type MailboxConnectPlan,
 } from "./connect.js";
+
+beforeEach(() => overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: false } }));
+after(() => overrideRuntimeSettingsForTests(null));
 
 before(initTestDb);
 beforeEach(resetTestDb);

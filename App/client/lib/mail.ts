@@ -255,6 +255,7 @@ export type MailboxConnectOption =
       label: string;
       scopeGroups: string[];
       instanceApp?: boolean;
+      hostedSignIn?: boolean;
       ready: boolean;
       blockedReason?: string;
     }

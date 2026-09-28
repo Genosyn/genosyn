@@ -146,6 +146,7 @@ export function SelfHosting() {
               <>
                 <Strong>Web tools</Strong> (on/off, search provider, result and document limits),{" "}
                 <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
+                <Strong>Gmail sign-in</Strong> (hosted sign-in and service URL),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
@@ -350,13 +351,25 @@ export function SelfHosting() {
 
       <H2 id="oauth-apps">OAuth apps for the whole install</H2>
       <P>
-        Integrations that sign in with OAuth — Google, GitHub, Microsoft, LinkedIn, Reddit, X — need
-        a client registered with the provider. Left alone, every Connection has to bring its own, so
-        the first person to connect a Gmail mailbox has to stand up a Google Cloud project before
-        they can start.
+        Gmail can use Genosyn&apos;s hosted sign-in service: open <Strong>Email</Strong>, enter
+        your address, then choose <Strong>Continue with Google</Strong>. No Google Cloud project is
+        needed on your installation when the service is available. Sign-in and token renewal use
+        the hosted service; reading and sending mail happen directly between your installation and
+        Google. Credentials are stored encrypted locally and sent to the service to renew access.
+        Email content never passes through the sign-in service.
       </P>
       <P>
-        Do it once instead, at <Code>Admin → Integrations</Code>. Each provider card shows the exact
+        <Code>Admin → Runtime → Gmail sign-in</Code> controls hosted sign-in. The default service is
+        {" "}<Code>https://connect.genosyn.com</Code>; it must be deployed and available before sign-in
+        works. Turning off <Strong>Use hosted Gmail sign-in</Strong> prevents new hosted sign-ins
+        without revoking existing Connections. Existing Connections continue renewing through their
+        original service even if you change the URL. Leave <Strong>Host Gmail sign-in on this
+        installation</Strong> off; that setting is for the operator of the dedicated public service.
+      </P>
+      <P>
+        To manage Gmail independently, or connect Google Drive, Calendar, Analytics, Search Console,
+        Ads and other OAuth integrations, register your own app at <Code>Admin → Integrations</Code>.
+        Each provider card shows the exact
         redirect URI to allow-list (derived from the <Code>Public URL</Code> above, so set that
         first) and the ordered steps for that provider&apos;s console. Paste back the Client ID and
         Client Secret, and every company on the instance can connect that provider with a single

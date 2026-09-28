@@ -1,3 +1,4 @@
+import { overrideRuntimeSettingsForTests } from "./runtimeSettings.js";
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
@@ -18,6 +19,9 @@ import {
   saveOauthApp,
 } from "./oauthApps.js";
 import { resolveOauthState, startOauth, startOauthReconnect } from "./oauth.js";
+
+beforeEach(() => overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: false } }));
+after(() => overrideRuntimeSettingsForTests(null));
 
 before(initTestDb);
 after(closeTestDb);

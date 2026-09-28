@@ -46,6 +46,7 @@ import {
 export const RUNTIME_SETTING_KEYS = {
   web: "runtime.web",
   mail: "runtime.mail",
+  oauth: "runtime.oauth",
   meetings: "runtime.meetings",
   browser: "runtime.browser",
   agent: "runtime.agent",
@@ -83,6 +84,14 @@ export type RuntimeMailSettings = {
   backfillPassSeconds: number;
   /** Only-recent cap for the first import. 0 imports the whole mailbox. */
   backfillDays: number;
+};
+
+/** Hosted Gmail sign-in; explicit Google OAuth credentials take precedence. */
+export type RuntimeOauthSettings = {
+  gmailSignInEnabled: boolean;
+  gmailSignInUrl: string;
+  /** Only enabled on the installation operating the public sign-in service. */
+  hostGmailSignIn: boolean;
 };
 
 /** Calendar mirror + meeting transcription (M42/M44). */
@@ -155,6 +164,7 @@ export type RuntimeNetworkSettings = {
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
+  oauth: RuntimeOauthSettings;
   meetings: RuntimeMeetingsSettings;
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
@@ -189,6 +199,11 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     backfillThreadsPerPass: 200,
     backfillPassSeconds: 25,
     backfillDays: 0,
+  },
+  oauth: {
+    gmailSignInEnabled: true,
+    gmailSignInUrl: "https://connect.genosyn.com",
+    hostGmailSignIn: false,
   },
   meetings: {
     enabled: true,
@@ -422,6 +437,34 @@ export function parseMailSettings(raw: unknown): RuntimeMailSettings {
   };
 }
 
+/** A sign-in service is an origin, never a credential-bearing or path URL. */
+export function normalizeGmailSignInUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return null;
+    if (url.username || url.password || url.search || url.hash || url.pathname !== "/") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function parseOauthSettings(raw: unknown): RuntimeOauthSettings {
+  const o = asRecord(raw);
+  const d = RUNTIME_SETTINGS_DEFAULTS.oauth;
+  const candidate = stringField(o, "oauth", "gmailSignInUrl", d.gmailSignInUrl, 2048);
+  const gmailSignInUrl = normalizeGmailSignInUrl(candidate);
+  if (!gmailSignInUrl) {
+    warnOnce("oauth.gmailSignInUrl", "oauth.gmailSignInUrl must be an HTTPS origin; using the default");
+  }
+  return {
+    gmailSignInEnabled: boolField(o, "oauth", "gmailSignInEnabled", d.gmailSignInEnabled),
+    gmailSignInUrl: gmailSignInUrl ?? d.gmailSignInUrl,
+    hostGmailSignIn: boolField(o, "oauth", "hostGmailSignIn", d.hostGmailSignIn),
+  };
+}
+
 export function parseMeetingsSettings(raw: unknown): RuntimeMeetingsSettings {
   const o = asRecord(raw);
   const d = RUNTIME_SETTINGS_DEFAULTS.meetings;
@@ -555,6 +598,7 @@ const PARSERS: {
 } = {
   web: parseWebSettings,
   mail: parseMailSettings,
+  oauth: parseOauthSettings,
   meetings: parseMeetingsSettings,
   browser: parseBrowserSettings,
   agent: parseAgentSettings,
@@ -568,6 +612,7 @@ let cache: RuntimeSettings = defaultRuntimeSettings();
 let overridden: RuntimeSettingsOverridden = {
   web: false,
   mail: false,
+  oauth: false,
   meetings: false,
   browser: false,
   agent: false,
@@ -596,6 +641,10 @@ export function getWebSettings(): RuntimeWebSettings {
 /** Mail sync. Read per heartbeat tick and per backfill pass. */
 export function getMailSettings(): RuntimeMailSettings {
   return effective("mail");
+}
+
+export function getRuntimeOauthSettings(): RuntimeOauthSettings {
+  return effective("oauth");
 }
 
 /** Meetings. Read per heartbeat tick, per upload, and per transcription. */
@@ -647,6 +696,7 @@ async function refreshRuntimeSettings(): Promise<void> {
   const nextOverridden: RuntimeSettingsOverridden = {
     web: false,
     mail: false,
+    oauth: false,
     meetings: false,
     browser: false,
     agent: false,
@@ -691,6 +741,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
   return {
     web: effective("web"),
     mail: effective("mail"),
+    oauth: effective("oauth"),
     meetings: effective("meetings"),
     browser: effective("browser"),
     agent: effective("agent"),
@@ -760,6 +811,7 @@ export function resetRuntimeSettingsCacheForTests(): void {
   overridden = {
     web: false,
     mail: false,
+    oauth: false,
     meetings: false,
     browser: false,
     agent: false,
@@ -834,6 +886,8 @@ export async function importLegacyConfigOverrides(): Promise<void> {
   const legacy = config as unknown as LegacyRuntimeConfig;
 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
+    // Hosted sign-in never lived in boot config.
+    if (group === "oauth") continue;
     const raw =
       group === "agent"
         ? legacyAgentBlock(legacy)

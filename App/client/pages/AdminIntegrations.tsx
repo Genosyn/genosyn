@@ -23,11 +23,8 @@ import { errorMessage } from "../lib/errors";
  * whole install, so nobody has to stand up a Google Cloud project just to
  * connect their mailbox.
  *
- * Without a registration here, every Connection must bring its own Client ID
- * and Secret — which meant the person connecting Gmail first had to create a
- * Google Cloud project, enable the Gmail API, configure a consent screen, and
- * register a Web OAuth client. Registering Google here reduces that to: click
- * Google, approve on Google's screen, done.
+ * Gmail can also use hosted sign-in configured at Admin → Runtime. A local
+ * registration takes precedence and covers the other Google products too.
  *
  * Secrets are write-only. The API returns whether one is on file, never the
  * value, so the field renders blank with a placeholder that says a secret is
@@ -97,13 +94,14 @@ export function AdminIntegrations() {
               </p>
               <p className="mt-1">
                 Every company on this instance can then connect these
-                integrations with a single click — no Google Cloud project, no
-                Client ID to paste. Without a registration, each Connection has
-                to bring its own credentials.
+                integrations with a single click. Gmail can use the hosted
+                sign-in service at Admin → Runtime without registering an app
+                here. Register Google for other Google products, or to manage
+                Gmail sign-in independently.
               </p>
               <p className="mt-1.5">
                 {configuredCount === 0
-                  ? "Nothing registered yet. Start with Google — that's the one that makes connecting email hard."
+                  ? "No local OAuth apps registered."
                   : `${configuredCount} of ${apps.length} registered.`}
               </p>
             </div>

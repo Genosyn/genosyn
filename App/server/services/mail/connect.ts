@@ -4,6 +4,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { assertIntegrationAllowed } from "../../integrations/index.js";
 import { createApiKeyConnection, deleteConnection } from "../integrations.js";
 import { registeredOauthApps } from "../oauthApps.js";
+import { hostedGoogleSignInAvailable } from "../hostedGoogleOauth.js";
 import { createMailAccount } from "./accounts.js";
 import { assertMailConnectionAllowed } from "./hostPolicy.js";
 import { discoverMailbox, type MailboxConnectRoute, type MailboxDiscovery } from "./discovery.js";
@@ -32,6 +33,8 @@ export type MailboxConnectOption = MailboxConnectRoute & {
   ready: boolean;
   /** Why it is not ready, when it is not. */
   blockedReason?: string;
+  /** Verified hosted sign-in, limited to Gmail, without an install OAuth app. */
+  hostedSignIn?: boolean;
 };
 
 export type MailboxConnectPlan = Omit<MailboxDiscovery, "routes"> & {
@@ -50,6 +53,9 @@ export type MailboxConnectPlan = Omit<MailboxDiscovery, "routes"> & {
 export async function describeMailboxConnect(email: string): Promise<MailboxConnectPlan> {
   const found = await discoverMailbox(email);
   const registered = await registeredOauthApps();
+  const hosted = !registered.has("google") && found.routes.some((route) => route.kind === "oauth" && route.provider === "google")
+    ? await hostedGoogleSignInAvailable()
+    : false;
   // A shared multi-tenant install refuses raw-TCP connectors, IMAP among them.
   // Offering the form anyway and refusing on submit would waste the person's
   // app password on a route that was never going to work here.
@@ -60,15 +66,18 @@ export async function describeMailboxConnect(email: string): Promise<MailboxConn
         ? { ...route, ready: false, blockedReason: imapBlocked }
         : { ...route, ready: true };
     }
-    const ready = registered.has(route.provider);
+    const instanceApp = registered.has(route.provider);
+    const hostedSignIn = route.provider === "google" && hosted;
+    const ready = instanceApp || hostedSignIn;
     return {
       ...route,
-      instanceApp: ready,
+      instanceApp,
+      ...(hostedSignIn ? { hostedSignIn: true } : {}),
       ready,
       ...(ready
         ? {}
         : {
-            blockedReason: `No ${route.provider === "google" ? "Google" : "Microsoft"} OAuth app is registered on this install. Ask an instance admin to add one at Admin → Integrations, then return here to sign in.`,
+            blockedReason: `No ${route.provider === "google" ? "Google" : "Microsoft"} OAuth app is registered on this install${route.provider === "google" ? ", and hosted Google sign-in is unavailable" : ""}. Ask an instance admin to add one at Admin → Integrations, then return here to sign in.`,
           }),
     };
   });

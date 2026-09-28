@@ -1,3 +1,4 @@
+import { overrideRuntimeSettingsForTests } from "../services/runtimeSettings.js";
 import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -95,6 +96,9 @@ let baseUrl = "";
 let actingUserId: string | null = null;
 let company: Company;
 let owner: User;
+
+beforeEach(() => overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: false } }));
+after(() => overrideRuntimeSettingsForTests(null));
 
 before(async () => {
   await initTestDb();
