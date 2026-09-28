@@ -1,4 +1,5 @@
 {{- if .Values.ingress.enabled }}
+{{- $gmailSignIn := default dict .Values.ingress.gmailSignIn }}
 {{/*
 WebSockets and streamed replies share port 8471 with regular HTTP. Configure
 the selected controller's upgrade support, timeouts, buffering and query-log
@@ -24,10 +25,10 @@ spec:
     - hosts:
         - {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
       secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled" .Values.ingress.tls.secretName | quote }}
-    {{- if .Values.ingress.gmailSignIn.enabled }}
+    {{- if $gmailSignIn.enabled }}
     - hosts:
-        - {{ .Values.ingress.gmailSignIn.host | quote }}
-      secretName: {{ .Values.ingress.gmailSignIn.tlsSecretName | quote }}
+        - {{ $gmailSignIn.host | quote }}
+      secretName: {{ $gmailSignIn.tlsSecretName | quote }}
     {{- end }}
   {{- end }}
   rules:
@@ -41,8 +42,8 @@ spec:
                 name: {{ include "genosyn.fullname" . }}
                 port:
                   number: {{ .Values.service.port }}
-    {{- if .Values.ingress.gmailSignIn.enabled }}
-    - host: {{ .Values.ingress.gmailSignIn.host | quote }}
+    {{- if $gmailSignIn.enabled }}
+    - host: {{ $gmailSignIn.host | quote }}
       http:
         paths:
           {{- range list "status" "start" "authorize" "callback" "poll" "refresh" }}

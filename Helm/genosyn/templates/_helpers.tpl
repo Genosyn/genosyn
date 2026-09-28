@@ -201,18 +201,19 @@ Included from deployment.yaml so it runs on every render.
 {{- $problems = append $problems "postgres.password cannot be combined with postgres.passwordSecret.name" -}}
 {{- end -}}
 {{- end -}}
-{{- if .Values.ingress.gmailSignIn.enabled -}}
+{{- $gmailSignIn := default dict .Values.ingress.gmailSignIn -}}
+{{- if $gmailSignIn.enabled -}}
 {{- if or (not .Values.ingress.enabled) (not .Values.ingress.tls.enabled) -}}
 {{- $problems = append $problems "ingress.gmailSignIn.enabled requires ingress.enabled=true and ingress.tls.enabled=true" -}}
 {{- end -}}
-{{- $signInHost := default "" .Values.ingress.gmailSignIn.host -}}
+{{- $signInHost := default "" $gmailSignIn.host -}}
 {{- if or (gt (len $signInHost) 253) (not (regexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$" $signInHost)) (regexMatch "^[0-9]+(\\.[0-9]+){3}$" $signInHost) -}}
 {{- $problems = append $problems "ingress.gmailSignIn.host must be a valid lowercase DNS hostname without a scheme, port, path, wildcard, or IP address" -}}
 {{- end -}}
 {{- if eq (lower $signInHost) (lower (default "" .Values.ingress.host)) -}}
 {{- $problems = append $problems "ingress.gmailSignIn.host must differ from ingress.host" -}}
 {{- end -}}
-{{- if not (default "" .Values.ingress.gmailSignIn.tlsSecretName | trim) -}}
+{{- if not (default "" $gmailSignIn.tlsSecretName | trim) -}}
 {{- $problems = append $problems "ingress.gmailSignIn.tlsSecretName is required when ingress.gmailSignIn.enabled" -}}
 {{- end -}}
 {{- end -}}
