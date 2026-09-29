@@ -619,20 +619,28 @@ routinesRouter.get("/routines/:rid", async (req, res) => {
   });
 });
 
-routinesRouter.get("/routines/:rid/readme", async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  res.json({ content: found.routine.body });
+routinesRouter.get("/routines/:rid/readme", async (req, res, next) => {
+  try {
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    res.json({ content: found.routine.body });
+  } catch (err) {
+    next(err);
+  }
 });
 
 const readmeSchema = z.object({ content: z.string() });
 
-routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
-  await AppDataSource.getRepository(Routine).save(found.routine);
-  res.json({ ok: true });
+routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (req, res, next) => {
+  try {
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
+    await AppDataSource.getRepository(Routine).save(found.routine);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
