@@ -311,6 +311,33 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
       `PASS ${AppDataSource.migrations.length} migrations at head with zero schema drift`,
     );
 
+    const { findUuidTextComparisons } = await import("./postgresQueryComparisons.js");
+    const migratedColumns: { table_name: string; column_name: string; data_type: string }[] =
+      await AppDataSource.query(
+        "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema()",
+      );
+    const columnTypes = new Map<string, Map<string, string>>();
+    for (const entity of AppDataSource.entityMetadatas) {
+      const types = new Map<string, string>();
+      for (const column of entity.columns) {
+        const migrated = migratedColumns.find(
+          (row) => row.table_name === entity.tableName && row.column_name === column.databaseName,
+        );
+        if (migrated) types.set(column.propertyName, migrated.data_type);
+      }
+      columnTypes.set(entity.name, types);
+    }
+    const uuidTextComparisons = await findUuidTextComparisons(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
+      columnTypes,
+    );
+    assert.deepEqual(
+      uuidTextComparisons,
+      [],
+      "Postgres has no uuid = varchar operator; cast the uuid side, e.g. CAST(run.id AS text) = session.runId",
+    );
+    console.log("PASS query builder comparisons match migrated Postgres column types");
+
     const { AIEmployee } = await import("../db/entities/AIEmployee.js");
     const { AuditEvent } = await import("../db/entities/AuditEvent.js");
     const { Base } = await import("../db/entities/Base.js");
@@ -1038,6 +1065,47 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     });
     assert.equal(await resolveUserSession(expired), null);
     console.log("PASS Postgres browser sessions: individual logout, account revocation and expiry");
+
+    const { BrowserSession } = await import("../db/entities/BrowserSession.js");
+    const { reconcileOrphanedRuns } = await import("../services/runRecovery.js");
+    const { dispatchDueMeetings } = await import("../services/meetings/recorder.js");
+    const recordedRoutine = await routines.save(
+      routines.create({
+        employeeId: queueEmployee.id,
+        name: "Recorded browser Routine",
+        slug: "recorded-browser-routine",
+        cronExpr: "0 9 * * *",
+        timeoutSec: 60,
+        body: "Use the browser.",
+      }),
+    );
+    const recordedRun = await runs.save(
+      runs.create({
+        employeeId: queueEmployee.id,
+        routineId: recordedRoutine.id,
+        status: "error",
+        triggerKind: "manual",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      }),
+    );
+    const browserSessions = AppDataSource.getRepository(BrowserSession);
+    await browserSessions.save(
+      browserSessions.create({
+        companyId: formsCompany.id,
+        employeeId: queueEmployee.id,
+        runId: recordedRun.id,
+        mcpToken: randomUUID(),
+        mcpTokenExpiresAt: new Date(),
+        status: "closed",
+      }),
+    );
+    // Both run on every scheduler heartbeat. Boot recovery must finish before
+    // the heartbeat dispatches any due Routine, so a failing query here stops
+    // all scheduled work rather than one feature.
+    await reconcileOrphanedRuns({ boot: true, now: new Date() });
+    await dispatchDueMeetings(new Date());
+    console.log("PASS Postgres scheduler heartbeat: boot recovery and notetaker dispatch queries");
   } finally {
     await stopChildren();
     if (AppDataSource.isInitialized) await AppDataSource.destroy();

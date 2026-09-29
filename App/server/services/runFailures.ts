@@ -60,7 +60,7 @@ export async function findLiveRunFailures({
         .subQuery()
         .select("1")
         .from(Run, "continuation")
-        .where("continuation.parentRunId = run.id")
+        .where("continuation.parentRunId = CAST(run.id AS text)")
         .andWhere("continuation.routineId = run.routineId")
         .andWhere("continuation.triggerKind = :continuationTrigger")
         .andWhere(

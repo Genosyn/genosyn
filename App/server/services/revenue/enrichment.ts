@@ -1501,14 +1501,14 @@ export async function listRevenueEvidence(
       .where("sourceContact.companyId = :evidenceContactCompanyId", {
         evidenceContactCompanyId: companyId,
       })
-      .andWhere("sourceContact.id = evidence.sourceId");
+      .andWhere("CAST(sourceContact.id AS text) = evidence.sourceId");
     const anySourceMessage = AppDataSource.getRepository(MailMessage)
       .createQueryBuilder("anySourceMessage")
       .select("1")
       .where("anySourceMessage.companyId = :anyEvidenceMailCompanyId", {
         anyEvidenceMailCompanyId: companyId,
       })
-      .andWhere("anySourceMessage.id = evidence.sourceId");
+      .andWhere("CAST(anySourceMessage.id AS text) = evidence.sourceId");
     const allowedSourceMessage =
       allowedAccountIds.length > 0
         ? AppDataSource.getRepository(MailMessage)
@@ -1517,7 +1517,7 @@ export async function listRevenueEvidence(
             .where("allowedSourceMessage.companyId = :evidenceMailCompanyId", {
               evidenceMailCompanyId: companyId,
             })
-            .andWhere("allowedSourceMessage.id = evidence.sourceId")
+            .andWhere("CAST(allowedSourceMessage.id AS text) = evidence.sourceId")
             .andWhere("allowedSourceMessage.accountId IN (:...allowedEvidenceMailAccountIds)", {
               allowedEvidenceMailAccountIds: allowedAccountIds,
             })

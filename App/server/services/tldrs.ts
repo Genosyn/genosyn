@@ -1050,7 +1050,7 @@ export async function listTldrs(params: {
       .leftJoin(
         TldrDismissal,
         "dismissal",
-        "dismissal.tldrId = tldr.id AND dismissal.userId = :userId",
+        "dismissal.tldrId = CAST(tldr.id AS text) AND dismissal.userId = :userId",
         { userId: params.userId },
       )
       .where("tldr.companyId = :companyId", { companyId: params.companyId })
@@ -1078,7 +1078,7 @@ export async function listHomeTldrs(params: {
     .leftJoin(
       TldrDismissal,
       "dismissal",
-      "dismissal.tldrId = tldr.id AND dismissal.userId = :userId",
+      "dismissal.tldrId = CAST(tldr.id AS text) AND dismissal.userId = :userId",
       { userId: params.userId },
     )
     .where("tldr.companyId = :companyId", { companyId: params.companyId })

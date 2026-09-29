@@ -167,16 +167,20 @@ export async function listFollowUps(
     .andWhere("a.kind = 'task'")
     .andWhere("a.taskStatus = :taskStatus", { taskStatus: opts.status ?? "open" })
     .andWhere("a.dueAt IS NOT NULL")
-    .leftJoin(Deal, "taskDeal", "taskDeal.companyId = a.companyId AND taskDeal.id = a.dealId")
+    .leftJoin(
+      Deal,
+      "taskDeal",
+      "taskDeal.companyId = a.companyId AND CAST(taskDeal.id AS text) = a.dealId",
+    )
     .leftJoin(
       Contact,
       "taskContact",
-      "taskContact.companyId = a.companyId AND taskContact.id = a.contactId",
+      "taskContact.companyId = a.companyId AND CAST(taskContact.id AS text) = a.contactId",
     )
     .leftJoin(
       Partnership,
       "taskPartnership",
-      "taskPartnership.companyId = a.companyId AND taskPartnership.id = a.partnershipId",
+      "taskPartnership.companyId = a.companyId AND CAST(taskPartnership.id AS text) = a.partnershipId",
     )
     .leftJoin(
       Customer,
@@ -190,7 +194,7 @@ export async function listFollowUps(
     .leftJoin(
       Customer,
       "dealAccount",
-      "dealAccount.companyId = d.companyId AND dealAccount.id = d.customerId",
+      "dealAccount.companyId = d.companyId AND CAST(dealAccount.id AS text) = d.customerId",
     );
   const partnershipQb = AppDataSource.getRepository(Partnership)
     .createQueryBuilder("p")
@@ -199,7 +203,7 @@ export async function listFollowUps(
     .leftJoin(
       Customer,
       "partnershipAccount",
-      "partnershipAccount.companyId = p.companyId AND partnershipAccount.id = p.customerId",
+      "partnershipAccount.companyId = p.companyId AND CAST(partnershipAccount.id AS text) = p.customerId",
     );
 
   if (opts.archivedResources === "only") {

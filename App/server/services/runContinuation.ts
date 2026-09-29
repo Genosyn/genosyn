@@ -103,7 +103,7 @@ export async function saveRunCheckpoint(
   const ownership = AppDataSource.getRepository(Routine)
     .createQueryBuilder("routine")
     .select("routine.id")
-    .innerJoin(AIEmployee, "employee", "employee.id = routine.employeeId")
+    .innerJoin(AIEmployee, "employee", "CAST(employee.id AS text) = routine.employeeId")
     .where("routine.id = :routineId", { routineId: info.routineId })
     .andWhere("routine.employeeId = :employeeId", { employeeId: info.employeeId })
     .andWhere("employee.companyId = :companyId", { companyId: info.companyId });

@@ -1083,7 +1083,7 @@ export async function dispatchDueMeetings(
     .innerJoin(
       CalendarEvent,
       "event",
-      "event.id = meeting.calendarEventId AND event.companyId = meeting.companyId",
+      "CAST(event.id AS text) = meeting.calendarEventId AND event.companyId = meeting.companyId",
     )
     .where(
       `(meeting.status = :scheduled

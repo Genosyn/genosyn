@@ -353,7 +353,7 @@ export async function reconcileOrphanedRuns(opts?: {
     const rows = await AppDataSource.getRepository(BrowserSession)
       .createQueryBuilder("session")
       .select("DISTINCT session.runId", "runId")
-      .innerJoin(Run, "run", "run.id = session.runId")
+      .innerJoin(Run, "run", "CAST(run.id AS text) = session.runId")
       .where("run.status IN (:...statuses)", { statuses: ["error", "interrupted"] })
       .andWhere("session.runId IS NOT NULL")
       .getRawMany<{ runId: string }>();
