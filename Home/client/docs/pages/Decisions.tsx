@@ -32,7 +32,8 @@ export function Decisions() {
       <P>
         A <Strong>Decision</Strong> asks for consequential judgement or information only a human can
         supply: a change in business direction, a customer commitment, or a significant tradeoff.
-        Each choice explains what the employee will do with your answer. A Decision answer does not
+        Each choice explains what the employee will do with your answer in up to 240 characters;
+        longer context belongs in the Decision body. A Decision answer does not
         replace a required work Approval or bypass the employee&apos;s existing limits.
       </P>
       <P>

@@ -2336,7 +2336,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
               },
               detail: {
                 type: "string",
-                description: "Next step and exact information needed in the Member's note.",
+                maxLength: 240,
+                description: "Next step and required Member input.",
               },
               tone: {
                 type: "string",

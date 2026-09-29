@@ -8,6 +8,7 @@ import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -108,9 +109,102 @@ describe("decision tools are published", () => {
     assert.equal("expiresInHours" in (request.inputSchema.properties ?? {}), false);
     assert.ok(request.inputSchema.required?.includes("humanDecisionReason"));
   });
+
+  test("advertises the existing 240-character Decision option-detail limit", () => {
+    const request = STATIC_TOOLS.find((tool) => tool.name === "request_decision");
+    assert.ok(request);
+    const options = request.inputSchema.properties?.options as {
+      items: {
+        properties: { detail: { type: string; maxLength?: number; minLength?: number } };
+        required: string[];
+      };
+    };
+    assert.equal(options.items.properties.detail.type, "string");
+    assert.equal(options.items.properties.detail.maxLength, 240);
+    assert.equal(options.items.properties.detail.minLength, undefined);
+    assert.equal(options.items.required.includes("detail"), false);
+  });
 });
 
 describe("request_decision", () => {
+  test("preserves a 240-character option detail while keeping longer context in the body", async () => {
+    const detail =
+      "Consider the customer impact and document the chosen next step. ".repeat(4).slice(0, 239) +
+      ".";
+    const body = "The decision affects the proposed customer commitment. ".repeat(20).trim();
+    assert.equal(detail.length, 240);
+    assert.ok(body.length > 240);
+    const response = await tool<{ decisionId: string }>("request_decision", {
+      title: "Choose the customer commitment",
+      humanDecisionReason,
+      body,
+      options: [{ label: "Keep the current terms", detail }, { label: "Decline the commitment" }],
+    });
+    assert.equal(response.status, 200);
+    const row = await AppDataSource.getRepository(Decision).findOneByOrFail({
+      id: response.body.decisionId,
+    });
+    const options = JSON.parse(row.optionsJson) as Array<{ detail: string | null }>;
+    assert.equal(options[0].detail, detail);
+    assert.ok(row.body.includes(body));
+    assert.equal(await AppDataSource.getRepository(JournalEntry).count(), 1);
+    assert.equal(await AppDataSource.getRepository(AuditEvent).countBy({ action: "decision.create" }), 1);
+  });
+
+  test("accepts omitted and empty option details", async () => {
+    const response = await tool<{ decisionId: string }>("request_decision", {
+      title: "Choose the customer commitment",
+      humanDecisionReason,
+      options: [{ label: "Keep the current terms" }, { label: "Decline", detail: "" }],
+    });
+    assert.equal(response.status, 200);
+    const row = await AppDataSource.getRepository(Decision).findOneByOrFail({
+      id: response.body.decisionId,
+    });
+    const options = JSON.parse(row.optionsJson) as Array<{ detail: string | null }>;
+    assert.deepEqual(
+      options.map((option) => option.detail),
+      [null, null],
+    );
+  });
+
+  for (const invalidIndex of [0, 1]) {
+    test(`rejects an oversized detail on option ${invalidIndex} without writes, then accepts one corrected retry`, async () => {
+      const args = {
+        title: "Choose the customer commitment",
+        humanDecisionReason,
+        options: [
+          { label: "Keep the current terms", detail: "Keep the agreed scope." },
+          { label: "Decline the commitment", detail: "Do not make a new commitment." },
+        ],
+      };
+      args.options[invalidIndex].detail = "x".repeat(241);
+      const response = await tool<{
+        error: string;
+        issues: Array<{ path: Array<string | number>; message: string; maximum?: number }>;
+      }>("request_decision", args);
+      assert.equal(response.status, 400);
+      assert.equal(response.body.error, "ValidationError");
+      assert.deepEqual(response.body.issues[0].path, ["options", invalidIndex, "detail"]);
+      assert.equal(response.body.issues[0].maximum, 240);
+      assert.match(response.body.issues[0].message, /at most 240 character/);
+      assert.equal(await AppDataSource.getRepository(Decision).count(), 0);
+      assert.equal(await AppDataSource.getRepository(JournalEntry).count(), 0);
+      assert.equal(await AppDataSource.getRepository(AuditEvent).countBy({ action: "decision.create" }), 0);
+
+      args.options[invalidIndex].detail = "Document the chosen next step.";
+      const accepted = await tool<{ decisionId: string }>("request_decision", args);
+      assert.equal(accepted.status, 200);
+      const rows = await AppDataSource.getRepository(Decision).find();
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].id, accepted.body.decisionId);
+      const options = JSON.parse(rows[0].optionsJson) as Array<{ detail: string | null }>;
+      assert.equal(options[invalidIndex].detail, args.options[invalidIndex].detail);
+      assert.equal(await AppDataSource.getRepository(JournalEntry).count(), 1);
+      assert.equal(await AppDataSource.getRepository(AuditEvent).countBy({ action: "decision.create" }), 1);
+    });
+  }
+
   test("stacks the question, journals it, and tells the model to stop", async () => {
     const response = await tool<{ decisionId: string; options: Array<{ id: string }>; note: string }>(
       "request_decision",

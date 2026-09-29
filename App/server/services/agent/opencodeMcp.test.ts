@@ -6,6 +6,7 @@ import type { Part } from "@opencode-ai/sdk/v2";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { createCallTool } from "./tools/discovery.js";
+import { collapseStaticTools } from "./tools/genosynFamilies.js";
 import {
   createParallelResultStore,
   createParallelWorkResultTool,
@@ -88,6 +89,29 @@ async function fixture(
     },
   };
 }
+
+test("OpenCode advertises Decision option-detail limits unchanged through tools/list", async () => {
+  const request = collapseStaticTools().passthrough.find(
+    (candidate) => candidate.name === "request_decision",
+  );
+  assert.ok(request);
+  const runtime = await fixture([
+    { ...request, run: async () => assert.fail("Listing must not request a Decision") },
+  ]);
+  try {
+    const { tools } = await runtime.client.listTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].name, "request_decision");
+    assert.deepEqual(tools[0].inputSchema, request.inputSchema);
+    const options = tools[0].inputSchema.properties?.options as {
+      items: { properties: { detail: { type: string; maxLength?: number } } };
+    };
+    assert.equal(options.items.properties.detail.type, "string");
+    assert.equal(options.items.properties.detail.maxLength, 240);
+  } finally {
+    await runtime.close();
+  }
+});
 
 for (const deferred of [false, true])
   test(`a canceled ${deferred ? "deferred" : "direct"} delegation does not block parent reads or recovery`, async () => {
