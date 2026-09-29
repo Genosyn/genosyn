@@ -431,6 +431,151 @@ async function open(
   };
 }
 
+type RoutineLoadResource = "routines" | "employees" | "routine-folders";
+
+/** The real layout, detail editor and index share these controlled responses. */
+async function openRoutineLoading(options: {
+  failed?: RoutineLoadResource;
+  empty?: boolean;
+  holdInitial?: boolean;
+} = {}) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  page.setDefaultTimeout(15_000);
+  await page.clock.setFixedTime(fixtureNow);
+  await page.addInitScript(() => localStorage.setItem("genosyn.routineAssistant.open", "0"));
+  const data = fixtures();
+  let failed = options.failed;
+  let holdLoads = options.holdInitial ?? false;
+  let holdBriefs = false;
+  const loads: BrowserRoute[] = [];
+  const saves: BrowserRoute[] = [];
+  const briefReads: BrowserRoute[] = [];
+  const briefs = new Map([["company", "Original brief"], ["other", "Other company brief"]]);
+  const sockets = new Set<WebSocketRoute>();
+  const waiters = new Set<() => void>();
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  await page.routeWebSocket("**/api/ws?*", (socket) => {
+    sockets.add(socket);
+    socket.onClose(() => sockets.delete(socket));
+    socket.onMessage((message) => unexpectedRequests.push(`Unexpected socket write: ${message}`));
+  });
+  const parts = (route: BrowserRoute) => new URL(route.request().url()).pathname.split("/");
+  const reply = async (route: BrowserRoute, failure?: RoutineLoadResource) => {
+    const [, , , companyId, resource] = parts(route);
+    const rows = companyId === "other"
+      ? [{ ...data.routines[0], name: "Other company Routine", tags: [], folderId: null }]
+      : options.empty ? [] : data.routines;
+    const json = resource === "routines" ? rows : resource === "employees" ? employees : {
+      folders: companyId === "other" || options.empty ? [] : folders,
+      unfiledCount: 2,
+      maxDepth: 5,
+    };
+    await route.fulfill({
+      status: resource === failure ? 503 : 200,
+      json: resource === failure ? { error: `${resource} temporarily unavailable` } : json,
+    });
+  };
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.origin !== origin) {
+      unexpectedRequests.push(`External request: ${request.method()} ${url.href}`);
+      return route.abort();
+    }
+    if (!url.pathname.startsWith("/api/")) return route.continue();
+    if (request.method() === "POST" && url.pathname.endsWith("/workspace/ws-token"))
+      return route.fulfill({ json: { token: "fixture" } });
+    if (request.method() === "PUT" && url.pathname.endsWith("/routines/inbox/readme")) {
+      saves.push(route);
+      for (const notify of waiters) notify();
+      return;
+    }
+    if (request.method() !== "GET") {
+      unexpectedRequests.push(`Unexpected write: ${request.method()} ${url.pathname}`);
+      return route.abort();
+    }
+    if (/^\/api\/companies\/(company|other)\/(routines|employees|routine-folders)$/.test(url.pathname)) {
+      if (holdLoads) {
+        loads.push(route);
+        for (const notify of waiters) notify();
+        return;
+      }
+      return reply(route, failed);
+    }
+    if (/\/routines\/(inbox|invoices)\/readme$/.test(url.pathname)) {
+      if (holdBriefs) {
+        briefReads.push(route);
+        for (const notify of waiters) notify();
+        return;
+      }
+      return route.fulfill({ json: { content: url.pathname.endsWith("/inbox/readme")
+        ? briefs.get(parts(route)[3]) : "Other Routine brief" } });
+    }
+    if (url.pathname.endsWith("/standdowns/active"))
+      return route.fulfill({ json: { standdown: null } });
+    if (url.pathname.endsWith("/tags")) return route.fulfill({ json: [] });
+    if (url.pathname.endsWith("/routines/activity"))
+      return route.fulfill({ json: { running: [], today: [] } });
+    unexpectedRequests.push(`Unexpected read: ${url.pathname}`);
+    return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
+  });
+  const waitFor = async (ready: () => boolean) => {
+    if (ready()) return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        waiters.delete(notify);
+        reject(new Error("The controlled Routine request did not start"));
+      }, 15_000);
+      const notify = () => {
+        if (!ready()) return;
+        clearTimeout(timer);
+        waiters.delete(notify);
+        resolve();
+      };
+      waiters.add(notify);
+    });
+  };
+  await page.goto(`${origin}/__routine_activity?loading`, { waitUntil: "commit", timeout: 60_000 });
+  await page.getByRole("button", { name: "Show brief", exact: true }).waitFor({ timeout: 300_000 });
+  await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
+  return {
+    page,
+    editor: page.locator("textarea"),
+    fail: (resource?: RoutineLoadResource) => { failed = resource; },
+    hold: () => { holdLoads = true; },
+    holdBriefs: () => { holdBriefs = true; },
+    event: () => {
+      for (const socket of sockets)
+        socket.send(JSON.stringify({ type: "resource.changed", kind: "run", scopeIds: [] }));
+    },
+    waitForLoads: (count: number) => waitFor(() => loads.length >= count),
+    loadCount: () => loads.length,
+    respondLoads: async (batch: number, failure?: RoutineLoadResource) => {
+      for (const route of loads.slice(batch * 3, batch * 3 + 3)) await reply(route, failure);
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+    },
+    waitForSave: (count: number) => waitFor(() => saves.length >= count),
+    waitForBriefs: (count: number) => waitFor(() => briefReads.length >= count),
+    respondBriefs: async (start: number, end: number, content: string, status = 200) => {
+      for (const route of briefReads.slice(start, end))
+        await route.fulfill({ status, json: status === 200 ? { content } : { error: content } });
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+    },
+    respondSave: async (index: number, status: number) => {
+      const route = saves[index];
+      assert.ok(route, "The save request must exist before acknowledgment");
+      if (status === 200) briefs.set(parts(route)[3], route.request().postDataJSON().content);
+      await route.fulfill({ status, json: status === 200 ? { ok: true } : { error: "Brief save unavailable" } });
+    },
+    close: () => context.close(),
+  };
+}
+
 const running = (page: Page) => page.getByRole("region", { name: "Running now", exact: true });
 const today = (page: Page) => page.getByRole("region", { name: "Ran today", exact: true });
 async function names(page: Page, section: "running" | "today") {
@@ -565,6 +710,238 @@ async function assertEvidenceLoading(page: Page) {
 
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const resource of ["routines", "employees", "routine-folders"] as const) {
+    await check(`Routine loading initial ${resource} failure is retryable, not missing data`, async () => {
+      const fixture = await openRoutineLoading({ failed: resource });
+      try {
+        await fixture.page.getByRole("alert").getByText("Could not load Routines.", { exact: true }).waitFor();
+        assert.equal(await fixture.page.getByText("Routine not found", { exact: true }).count(), 0);
+        await fixture.page.getByRole("button", { name: "Show Routines", exact: true }).click();
+        assert.equal(await fixture.page.getByText("No routines yet", { exact: true }).count(), 0);
+        fixture.fail();
+        await fixture.page.getByRole("button", { name: "Try again", exact: true }).click();
+        await fixture.page.getByRole("textbox", { name: "Search routines", exact: true }).waitFor();
+        assert.equal(await fixture.page.getByRole("alert").count(), 0);
+        await fixture.page.getByRole("button", { name: "Show brief", exact: true }).click();
+        await fixture.editor.waitFor();
+        assert.equal(await fixture.editor.inputValue(), "Original brief");
+      } finally { await fixture.close(); }
+    });
+    await check(`Routine loading ${resource} refresh failure preserves sidebar and exact edited brief`, async () => {
+      const fixture = await openRoutineLoading();
+      try {
+        await fixture.editor.waitFor();
+        const editor = await fixture.editor.elementHandle();
+        const sidebar = await fixture.page.locator("aside").innerText();
+        const draft = `Edited ${resource} brief\n\nKeep every line and Unicode: café ✓.`;
+        await fixture.editor.fill(draft);
+        fixture.fail(resource);
+        fixture.event();
+        await fixture.page.getByRole("alert").getByText(/Could not refresh Routines/).waitFor();
+        assert.equal(await editor!.evaluate((element) => element.isConnected), true);
+        assert.equal(await fixture.editor.inputValue(), draft);
+        assert.equal(await fixture.page.locator("aside").innerText(), sidebar);
+        assert.equal(await fixture.page.getByText("Routine not found", { exact: true }).count(), 0);
+        fixture.fail();
+        await fixture.page.getByRole("button", { name: "Try again", exact: true }).click();
+        await fixture.page.getByRole("alert").waitFor({ state: "detached" });
+        assert.equal(await editor!.evaluate((element) => element.isConnected), true);
+        assert.equal(await fixture.editor.inputValue(), draft);
+        assert.equal(await fixture.page.getByText("Unsaved changes", { exact: true }).count(), 1);
+      } finally { await fixture.close(); }
+    });
+  }
+  await check("Routine loading refresh and failed save preserve newer editable text until acknowledged", async () => {
+    const fixture = await openRoutineLoading();
+    try {
+      await fixture.editor.waitFor();
+      await fixture.editor.fill("Submitted snapshot");
+      await fixture.page.getByRole("button", { name: "Save brief", exact: true }).click();
+      await fixture.waitForSave(1);
+      await fixture.editor.fill("Newer edit while save is pending\nSecond line");
+      fixture.fail("routine-folders");
+      fixture.event();
+      await fixture.page.getByRole("alert").getByText(/Could not refresh Routines/).waitFor();
+      await fixture.respondSave(0, 503);
+      await fixture.page.getByRole("alert").getByText("Brief save unavailable", { exact: true }).waitFor();
+      assert.equal(await fixture.editor.inputValue(), "Newer edit while save is pending\nSecond line");
+      assert.equal(await fixture.page.getByRole("button", { name: "Save brief", exact: true }).isEnabled(), true);
+      fixture.fail();
+      await fixture.page.getByRole("button", { name: "Try again", exact: true }).click();
+      await fixture.page.getByText(/Could not refresh Routines/).waitFor({ state: "detached" });
+      await fixture.page.getByRole("button", { name: "Save brief", exact: true }).click();
+      await fixture.waitForSave(2);
+      assert.equal(await fixture.page.getByText("Unsaved changes", { exact: true }).count(), 1);
+      await fixture.respondSave(1, 200);
+      await fixture.page.getByText("Unsaved changes", { exact: true }).waitFor({ state: "detached" });
+      assert.equal(await fixture.page.getByRole("button", { name: "Save brief", exact: true }).isDisabled(), true);
+      await fixture.page.getByRole("button", { name: "Show Routines", exact: true }).click();
+      await fixture.page.getByRole("button", { name: "Show brief", exact: true }).click();
+      await fixture.editor.waitFor();
+      assert.equal(await fixture.editor.inputValue(), "Newer edit while save is pending\nSecond line");
+    } finally { await fixture.close(); }
+  });
+  await check("Routine loading confirmed empty data and missing addresses keep their genuine empty states", async () => {
+    const fixture = await openRoutineLoading({ empty: true });
+    try {
+      await fixture.page.getByText("Routine not found", { exact: true }).waitFor();
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+      await fixture.page.getByRole("button", { name: "Show Routines", exact: true }).click();
+      await fixture.page.getByText("No routines yet", { exact: true }).waitFor();
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+    } finally { await fixture.close(); }
+  });
+  await check("Routine loading a successful save acknowledges only the submitted snapshot", async () => {
+    const fixture = await openRoutineLoading();
+    try {
+      await fixture.editor.waitFor();
+      await fixture.editor.fill("Submitted brief");
+      await fixture.page.getByRole("button", { name: "Save brief", exact: true }).click();
+      await fixture.waitForSave(1);
+      await fixture.editor.fill("Newer unsaved brief");
+      fixture.event();
+      await fixture.respondSave(0, 200);
+      await fixture.page.getByRole("button", { name: "Save brief", exact: true }).waitFor();
+      assert.equal(await fixture.editor.inputValue(), "Newer unsaved brief");
+      assert.equal(await fixture.page.getByRole("button", { name: "Save brief", exact: true }).isEnabled(), true);
+      assert.equal(await fixture.page.getByText("Unsaved changes", { exact: true }).count(), 1);
+    } finally { await fixture.close(); }
+  });
+  await check("Routine loading a genuine brief 404 stays an error and can be retried", async () => {
+    const fixture = await openRoutineLoading();
+    try {
+      await fixture.editor.waitFor();
+      fixture.holdBriefs();
+      await fixture.page.getByRole("button", { name: "Show other brief", exact: true }).click();
+      await fixture.waitForBriefs(2);
+      await fixture.respondBriefs(0, 2, "Brief not found", 404);
+      await fixture.page.getByRole("alert").getByText("Brief not found", { exact: true }).waitFor();
+      assert.equal(await fixture.editor.count(), 0);
+      assert.equal(await fixture.page.getByText("No routines yet", { exact: true }).count(), 0);
+      await fixture.page.getByRole("button", { name: "Retry brief", exact: true }).click();
+      await fixture.waitForBriefs(3);
+      await fixture.respondBriefs(2, 3, "Recovered brief");
+      await fixture.editor.waitFor();
+      assert.equal(await fixture.editor.inputValue(), "Recovered brief");
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+    } finally { await fixture.close(); }
+  });
+  for (const oldFailure of [false, true]) {
+    await check(`Routine loading company change rejects old ${oldFailure ? "failed" : "successful"} responses and drafts`, async () => {
+      const fixture = await openRoutineLoading();
+      try {
+        await fixture.editor.waitFor();
+        await fixture.editor.fill("Company private unsaved draft");
+        fixture.hold();
+        fixture.event();
+        await fixture.waitForLoads(3);
+        await fixture.page.getByRole("button", { name: "Switch Routine company", exact: true }).click();
+        // StrictMode restarts the new keyed company's initial effect.
+        await fixture.waitForLoads(9);
+        assert.equal(await fixture.editor.count(), 0);
+        assert.equal(await fixture.page.getByRole("heading", { name: "Inbox sweep", exact: true }).count(), 0);
+        assert.equal(await fixture.page.locator("aside").getByText("Operations", { exact: true }).count(), 0);
+        await fixture.respondLoads(2);
+        await fixture.editor.waitFor();
+        assert.equal(await fixture.editor.inputValue(), "Other company brief");
+        await fixture.respondLoads(1, oldFailure ? "employees" : undefined);
+        await fixture.respondLoads(0, oldFailure ? "routines" : undefined);
+        assert.equal(await fixture.editor.inputValue(), "Other company brief");
+        assert.equal(await fixture.page.getByRole("heading", { name: "Other company Routine", exact: true }).count(), 1);
+        assert.equal(await fixture.page.getByRole("alert").count(), 0);
+      } finally { await fixture.close(); }
+    });
+    await check(`Routine loading rapid brief navigation ignores delayed ${oldFailure ? "error" : "success"}`, async () => {
+      const fixture = await openRoutineLoading();
+      try {
+        await fixture.editor.waitFor();
+        await fixture.editor.fill("Previous Routine draft");
+        fixture.holdBriefs();
+        await fixture.page.getByRole("button", { name: "Show other brief", exact: true }).click();
+        await fixture.waitForBriefs(2);
+        assert.equal(await fixture.editor.count(), 0, "The previous brief cannot be saved under the next Routine");
+        assert.equal(await fixture.page.getByRole("button", { name: "Save brief", exact: true }).count(), 0);
+        await fixture.page.getByRole("button", { name: "Show brief", exact: true }).click();
+        await fixture.waitForBriefs(4);
+        await fixture.respondBriefs(2, 4, "Selected fresh brief");
+        await fixture.editor.waitFor();
+        await fixture.editor.fill("Selected unsaved edit");
+        await fixture.respondBriefs(0, 2, "Obsolete other Routine reply", oldFailure ? 503 : 200);
+        assert.equal(await fixture.editor.inputValue(), "Selected unsaved edit");
+        assert.equal(await fixture.page.getByRole("alert").count(), 0);
+        assert.equal(await fixture.page.getByText("Unsaved changes", { exact: true }).count(), 1);
+      } finally { await fixture.close(); }
+    });
+  }
+  await check("Routine loading StrictMode discards its obsolete initial failure", async () => {
+    const fixture = await openRoutineLoading({ holdInitial: true });
+    try {
+      await fixture.waitForLoads(6);
+      await fixture.respondLoads(1);
+      await fixture.editor.waitFor();
+      await fixture.editor.fill("Loaded editor draft");
+      await fixture.respondLoads(0, "routines");
+      assert.equal(await fixture.editor.inputValue(), "Loaded editor draft");
+      assert.equal(await fixture.page.getByRole("alert").count(), 0);
+    } finally { await fixture.close(); }
+  });
+  await check("Routine loading slow refresh coalesces notifications without starving snapshots", async () => {
+    const fixture = await openRoutineLoading();
+    try {
+      await fixture.editor.waitFor();
+      fixture.hold();
+      fixture.event();
+      await fixture.waitForLoads(3);
+      fixture.event();
+      await fixture.page.waitForTimeout(160);
+      fixture.event();
+      await fixture.page.waitForTimeout(160);
+      assert.equal(fixture.loadCount(), 3);
+      await fixture.respondLoads(0, "employees");
+      await fixture.waitForLoads(6);
+      await fixture.page.getByRole("alert").getByText(/Could not refresh Routines/).waitFor();
+      assert.equal(await fixture.editor.inputValue(), "Original brief");
+      await fixture.respondLoads(1);
+      await fixture.page.getByRole("alert").waitFor({ state: "detached" });
+      assert.equal(fixture.loadCount(), 6);
+    } finally { await fixture.close(); }
+  });
+  await check("Routine loading post-write callers await the next snapshot but not later notifications", async () => {
+    const fixture = await openRoutineLoading();
+    try {
+      await fixture.editor.waitFor();
+      fixture.hold();
+      fixture.event();
+      await fixture.waitForLoads(3);
+      await fixture.page.getByRole("button", { name: "Await post-write refresh", exact: true }).click();
+      await fixture.respondLoads(0);
+      await fixture.waitForLoads(6);
+      assert.equal(await fixture.page.getByTestId("routine-refresh-status").innerText(), "Waiting for post-write refresh");
+      fixture.event();
+      await fixture.page.waitForTimeout(160);
+      await fixture.respondLoads(1);
+      await fixture.waitForLoads(9);
+      await fixture.page.getByTestId("routine-refresh-status").getByText("Post-write refresh settled", { exact: true }).waitFor();
+      await fixture.respondLoads(2);
+      assert.equal(await fixture.editor.inputValue(), "Original brief");
+    } finally { await fixture.close(); }
+  });
+  await check("Routine loading failed refresh cannot confirm a missing address or discard its deep link", async () => {
+    const fixture = await openRoutineLoading();
+    try {
+      await fixture.editor.waitFor();
+      fixture.fail("routines");
+      fixture.event();
+      await fixture.page.getByRole("alert").getByText(/Could not refresh Routines/).waitFor();
+      await fixture.page.getByRole("button", { name: "Show missing Routine", exact: true }).click();
+      assert.equal(await fixture.page.getByText("Routine not found", { exact: true }).count(), 0);
+      await fixture.page.getByRole("button", { name: "Show missing deep link", exact: true }).click();
+      assert.equal(await fixture.page.getByRole("dialog").count(), 0);
+      fixture.fail();
+      await fixture.page.getByRole("button", { name: "Try again", exact: true }).click();
+      await fixture.page.getByRole("dialog").getByText("Couldn’t open that routine", { exact: true }).waitFor();
+    } finally { await fixture.close(); }
+  });
   for (const identity of ["Run", "company"] as const) {
     await check(`Run evidence clears previous data and counts when changing ${identity}`, async () => {
       const fixture = await open({ evidence: true });

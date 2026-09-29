@@ -365,6 +365,7 @@ type FixtureOptions = {
   allowReview?: boolean;
   decisionAnswerError?: boolean;
   failedRuns?: HomeFailedRun[];
+  runRetry?: "same" | "new" | "network-error";
   allowRunResume?: boolean;
   runResumeError?: boolean;
   holdExplanation?: boolean;
@@ -480,6 +481,26 @@ async function open(options: FixtureOptions = {}) {
     if (request.method() === "POST") {
       if (options.live && url.pathname === "/api/companies/company/workspace/ws-token")
         return route.fulfill({ json: { token: "fixture-token" } });
+      const retrying = failedRuns.find(
+        (item) => url.pathname === `/api/companies/company/routines/${item.routineId}/run`,
+      );
+      if (options.runRetry && retrying) {
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: null });
+        if (options.runRetry === "network-error") return route.abort("failed");
+        return route.fulfill({
+          json: { id: options.runRetry === "same" ? retrying.runId : "new-run" },
+        });
+      }
+      const dismissing = failedRuns.find(
+        (item) => url.pathname === `/api/companies/company/runs/${item.runId}/dismiss`,
+      );
+      if (options.runRetry && dismissing) {
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: null });
+        failedRuns = failedRuns.filter((item) => item.runId !== dismissing.runId);
+        return route.fulfill({ json: { ok: true } });
+      }
       const resuming = failedRuns.find(
         (item) => url.pathname === `/api/companies/company/runs/${item.runId}/resume`,
       );
@@ -783,8 +804,12 @@ async function open(options: FixtureOptions = {}) {
           workQueue?.employeeId === queueMatch[1]
             ? workQueue
             : {
-                employeeId: queueMatch[1], current: null, running: [], runningCount: 0,
-                pending: [], pendingCount: 0,
+                employeeId: queueMatch[1],
+                current: null,
+                running: [],
+                runningCount: 0,
+                pending: [],
+                pendingCount: 0,
               },
       });
     }
@@ -1037,6 +1062,72 @@ async function check(name: string, run: () => Promise<void>) {
 }
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const response of ["same", "new", "network-error"] as const) {
+    await check(
+      `Home Retry acceptance handles ${response} without hiding unfinished cleanup`,
+      async () => {
+        const { page, mutations } = await open({
+          quiet: true,
+          role: "admin",
+          runRetry: response,
+          failedRuns: [failedRun({ status: "error", errorKind: "interrupted" })],
+        });
+        const panel = card(page, "Routines needing attention");
+        await panel
+          .getByRole("button", { name: "Retry Daily customer update", exact: true })
+          .click();
+        const confirmation = page.getByRole("dialog", {
+          name: "Run Daily customer update again?",
+          exact: true,
+        });
+        await confirmation.getByText(/Review its recorded reason, log, and Effects/).waitFor();
+        assert.equal(await confirmation.getByText(/server stopped/).count(), 0);
+        assert.equal(mutations.length, 0, "confirmation alone performs no work");
+        await confirmation.getByRole("button", { name: "Retry", exact: true }).click();
+        if (response === "same") {
+          const modal = page.getByRole("dialog", {
+            name: "Run: Daily customer update",
+            exact: true,
+          });
+          await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+          await page.keyboard.press("Escape");
+          await modal.waitFor({ state: "detached" });
+          await panel
+            .getByRole("button", { name: "Retry Daily customer update", exact: true })
+            .waitFor();
+          assert.deepEqual(
+            mutations.map((entry) => entry.path),
+            ["/api/companies/company/routines/customer-update/run"],
+          );
+        } else if (response === "new") {
+          await panel.waitFor({ state: "detached" });
+          assert.deepEqual(
+            mutations.map((entry) => entry.path),
+            [
+              "/api/companies/company/routines/customer-update/run",
+              "/api/companies/company/runs/failed-run/dismiss",
+            ],
+          );
+        } else {
+          const error = page.getByRole("dialog", {
+            name: "Couldn’t run Daily customer update again",
+            exact: true,
+          });
+          await error.waitFor();
+          await page.keyboard.press("Escape");
+          await error.waitFor({ state: "detached" });
+          await panel
+            .getByRole("button", { name: "Retry Daily customer update", exact: true })
+            .waitFor();
+          assert.deepEqual(
+            mutations.map((entry) => entry.path),
+            ["/api/companies/company/routines/customer-update/run"],
+          );
+        }
+        await page.close();
+      },
+    );
+  }
   for (const width of [1440, 390]) {
     await check(
       `Resume unfinished work confirms a fresh time window without a token limit and follows the Run at ${width}px`,
@@ -3200,8 +3291,12 @@ try {
       const fixture = await open({
         live: true,
         workQueue: {
-          employeeId: "employee-1", current: first, running: [first, second], runningCount: 2,
-          pending: [], pendingCount: 0,
+          employeeId: "employee-1",
+          current: first,
+          running: [first, second],
+          runningCount: 2,
+          pending: [],
+          pendingCount: 0,
         },
       });
       try {
@@ -3243,7 +3338,10 @@ try {
       try {
         const day = await openDay(fixture.page);
         const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
-        await queue.getByRole("status").getByText("Loading Routine Runs…", { exact: true }).waitFor();
+        await queue
+          .getByRole("status")
+          .getByText("Loading Routine Runs…", { exact: true })
+          .waitFor();
         await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
         fixture.releaseQueue();
         await queue.getByText("No active or pending Routines.", { exact: true }).waitFor();

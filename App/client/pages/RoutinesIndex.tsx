@@ -84,7 +84,7 @@ function needsAttention(r: RoutineWithMeta): boolean {
 }
 
 export default function RoutinesIndex({ company }: { company: Company }) {
-  const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
+  const { routines, folders, loading, loadError, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [health, setHealth] = React.useState<Health>("all");
   const [query, setQuery] = React.useState("");
@@ -114,7 +114,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   // a slug pair and hand off to the detail page. Handled once, then stripped so
   // navigating back here doesn't bounce again.
   React.useEffect(() => {
-    if (handledDeepLinkRef.current || loading) return;
+    if (handledDeepLinkRef.current || loading || loadError) return;
     const routineId = searchParams.get("routine");
     if (!routineId) return;
     handledDeepLinkRef.current = true;
@@ -140,7 +140,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
       replace: true,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, routines]);
+  }, [loading, loadError, routines]);
 
   // Leaving a folder (or the list reloading without it) should not keep a
   // stale selection alive behind the new filter.
@@ -340,7 +340,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
 
       {loading ? (
         <Spinner />
-      ) : missingFolder ? (
+      ) : loadError && (missingFolder || routines.length === 0) ? null : missingFolder ? (
         <EmptyState
           title="That folder no longer exists"
           description="It may have been deleted or renamed away. Its routines were never deleted — they moved up to the parent folder, or to Unfiled."

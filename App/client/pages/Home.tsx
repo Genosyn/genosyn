@@ -1112,23 +1112,26 @@ function FailedRoutinesAlert({
    * button, asked here as a confirm because this panel is one click from a
    * page nobody opened to think about side effects.
    *
-   * Starting the retry acknowledges the failed run, so the row drops off
-   * instead of sitting there inviting a second, duplicate run.
+   * A different accepted Run acknowledges the failed one. If cleanup still
+   * owns this same Run, open its log and retain the failure for a later retry.
    */
   async function retry(r: HomeFailedRun) {
     const ok = await dialog.confirm({
       title: `Run ${r.routineName} again?`,
       message:
         r.status === "interrupted" || r.errorKind === "interrupted"
-          ? "The server stopped part-way through, so nothing is known about work done after the log's last line. Run it again only if repeating that work is safe."
+          ? "This Run was interrupted. Review its recorded reason, log, and Effects before running it again; work already done may repeat."
           : "The run stopped part-way through, so any work it had already done stands. Run it again only if repeating that work is safe — otherwise open the log first.",
       confirmLabel: "Retry",
     });
     if (!ok) return;
     setBusy({ runId: r.runId, action: "retry" });
     try {
-      await api.post(`/api/companies/${company.id}/routines/${r.routineId}/run`);
-      await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
+      const accepted = await api.post<{ id: string }>(
+        `/api/companies/${company.id}/routines/${r.routineId}/run`,
+      );
+      if (accepted.id === r.runId) onOpen({ kind: "run", run: r });
+      else await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
       await onChanged();
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t run ${r.routineName} again` });

@@ -733,12 +733,7 @@ export function RunChecksStrip(props: RunEvidenceProps) {
   return <RunChecksStripContent key={JSON.stringify([props.companyId, props.runId])} {...props} />;
 }
 
-function RunChecksStripContent({
-  companyId,
-  runId,
-  reloadKey,
-  className = "",
-}: RunEvidenceProps) {
+function RunChecksStripContent({ companyId, runId, reloadKey, className = "" }: RunEvidenceProps) {
   const [results, setResults] = React.useState<RunCheckResult[] | null>(null);
   const [coverage, setCoverage] = React.useState<RunCheckResultList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -864,12 +859,7 @@ export function RunEffectsPane(props: RunEvidenceProps) {
   return <RunEffectsPaneContent key={JSON.stringify([props.companyId, props.runId])} {...props} />;
 }
 
-function RunEffectsPaneContent({
-  companyId,
-  runId,
-  reloadKey,
-  className = "",
-}: RunEvidenceProps) {
+function RunEffectsPaneContent({ companyId, runId, reloadKey, className = "" }: RunEvidenceProps) {
   const [data, setData] = React.useState<RunEffectList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -909,8 +899,8 @@ function RunEffectsPaneContent({
       {!error && data === null && <EvidenceLoading label="Loading effects…" />}
       {!error && data !== null && shown === 0 && (
         <p className="px-3 py-4 text-xs text-slate-400 dark:text-slate-500">
-          This run changed nothing. Nothing it may have read, said, or decided appears here — only
-          writes do.
+          No changes appear in Effects. Browser or other external actions may only appear in the Run
+          log. Verify their current state before repeating them.
         </p>
       )}
       {!error && data !== null && shown > 0 && (

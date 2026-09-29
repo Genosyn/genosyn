@@ -171,9 +171,10 @@ export function Verification() {
       <P>
         It is not a summary of the transcript and it is not derived from one. The transcript is the
         model&apos;s account of its work; the Effects list is the server&apos;s, written by the code
-        that performed each change. It is the one record of a Run the model had no hand in — which
-        is why a Run that ends with a confident summary of six emails sent, beside an empty Effects
-        list, is now a visibly different object from a Run that sent six emails.
+        that performed each recorded change. These entries provide independent evidence for the
+        changes they cover. An empty list means no changes were recorded in Effects; browser or
+        other external actions may only appear in the Run log. Verify the current external state
+        before repeating a submission or send, including after a failed or timed-out Run.
       </P>
       <P>The same ledger has three other readers:</P>
       <UL>
@@ -295,8 +296,8 @@ export function Verification() {
           <DocLink to="/docs/improvement">The improvement loop</DocLink>.
         </LI>
         <LI>
-          It counts toward the Routine&apos;s consecutive-failure streak and remains visible in
-          its Run history. Repeated failures do not automatically place a{" "}
+          It counts toward the Routine&apos;s consecutive-failure streak and remains visible in its
+          Run history. Repeated failures do not automatically place a{" "}
           <DocLink to="/docs/standdowns">Standdown</DocLink>.
         </LI>
       </UL>

@@ -141,7 +141,7 @@ function writeFlag(key: string, value: boolean): void {
 
 export default function RoutineDetail({ company }: { company: Company }) {
   const { empSlug, routineSlug } = useParams();
-  const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
+  const { routines, folders, loading, loadError, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
   const [aiOpen, setAiOpen] = React.useState(() => readFlag(ASSISTANT_OPEN_KEY, false));
@@ -239,6 +239,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
     );
   }
 
+  if (!routine && loadError) return null;
   if (!routine) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -393,7 +394,9 @@ export default function RoutineDetail({ company }: { company: Company }) {
             onOpenRun={openRun}
           />
         )}
-        {tab === "brief" && <BriefTab company={company} routine={routine} />}
+        {tab === "brief" && (
+          <BriefTab key={`${company.id}:${routine.id}`} company={company} routine={routine} />
+        )}
         {tab === "runs" && (
           <RunsTab
             company={company}
@@ -1003,17 +1006,26 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
   const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    let active = true;
+    setLoadError(null);
     api
       .get<{ content: string }>(`/api/companies/${company.id}/routines/${routine.id}/readme`)
       .then((r) => {
+        if (!active) return;
         setContent(r.content);
         setSaved(r.content);
       })
-      .catch((err: unknown) => setLoadError(errorMessage(err, "Could not load the brief")));
-  }, [company.id, routine.id]);
+      .catch((err: unknown) => {
+        if (active) setLoadError(errorMessage(err, "Could not load the brief"));
+      });
+    return () => {
+      active = false;
+    };
+  }, [company.id, routine.id, loadAttempt]);
 
   async function save() {
     if (content === null) return;
@@ -1029,7 +1041,15 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
     }
   }
 
-  if (loadError) return <FormError message={loadError} />;
+  if (loadError)
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <FormError message={loadError} />
+        <Button variant="secondary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+          Retry brief
+        </Button>
+      </div>
+    );
   if (content === null) return <Spinner />;
   const dirty = content !== saved;
 
@@ -1355,7 +1375,7 @@ function RunsTab({
               ? `Unfinished work will continue from saved progress ${timeUntil(pendingRetryAt)}.`
               : `Automatic recovery is scheduled ${timeUntil(pendingRetryAt)}. Cancel it before running manually to avoid two Runs.`
             : activeRun?.status === "interrupted" || activeRun?.errorKind === "interrupted"
-              ? "The log above shows activity captured before the server stopped; anything after its final line is unknown. Run it again only if repeating the work is safe."
+              ? "This Run was interrupted. Review its recorded reason, log, and Effects before running it again; work already done may repeat."
               : activeRun?.status === "failed"
                 ? "This Run did not complete its intended work. Review the reason before running it again."
                 : isRunError(activeRun?.status)

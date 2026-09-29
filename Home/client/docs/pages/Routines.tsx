@@ -52,6 +52,14 @@ export function Routines() {
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
         filtered to them.
       </P>
+      <P>
+        If the list, employee roster, or folders cannot refresh, Genosyn keeps the last loaded
+        Routines and any edits in the open brief. An error offers <Strong>Try again</Strong>; it
+        does not mean the Routine was deleted. If the brief itself cannot load, use{" "}
+        <Strong>Retry brief</Strong>. A failed save keeps your edits available to retry, and the
+        brief is marked saved only after storage confirms the submitted text. Switching to another
+        Routine or company opens that destination&apos;s own brief.
+      </P>
 
       <H2 id="recent-runs">Running now and today</H2>
       <P>
@@ -510,11 +518,11 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           Longer briefs return a pending status and result IDs after a short wait. The parent can
-          continue independent work and recover the results without starting duplicate workers;
-          it can also wait briefly for a particular result instead of checking repeatedly.
-          Pending work does not mean the company&apos;s tools are unavailable. Ending the parent
-          turn stops its unfinished workers. Completed evidence remains available to authorized
-          retries and continuations.
+          continue independent work and recover the results without starting duplicate workers; it
+          can also wait briefly for a particular result instead of checking repeatedly. Pending work
+          does not mean the company&apos;s tools are unavailable. Ending the parent turn stops its
+          unfinished workers. Completed evidence remains available to authorized retries and
+          continuations.
         </LI>
         <LI>
           Workers share the employee&apos;s working directory. Parallel reads are safe; for writes,
@@ -579,14 +587,19 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="runs">Runs</H2>
       <P>
-        Every cron tick — and every manual trigger — creates a <Code>Run</Code> row. The runner runs
-        OpenCode (or the official Codex app-server for subscription models) with the employee&apos;s
-        context and stores the agent transcript — the model&apos;s messages and tool trace, not
-        captured CLI stdout — on <Code>Run.logContent</Code>. It records what each tool{" "}
-        <Strong>returned</Strong>, not only what was called, and an oversized transcript is elided
-        in the middle rather than cut off at the cap: the ending is where a Run says what it did,
-        and it is the last thing worth losing. While the Run is active, Genosyn checkpoints that
-        transcript to the database about once a second, so it survives a server or container crash.
+        Every accepted scheduled occurrence creates a <Code>Run</Code> row. <Strong>Run now</Strong>{" "}
+        opens the Routine&apos;s existing queued or running Run when there is one, including while a
+        stopped Run is still finishing cleanup. This also prevents a repeated click after a lost
+        response from starting duplicate work. Once that work has fully ended, a fresh click creates
+        a new Run. Home&apos;s <Strong>Retry</Strong> keeps the failure alert and opens the original
+        Run while its cleanup is still in progress. The runner runs OpenCode (or the official Codex
+        app-server for subscription models) with the employee&apos;s context and stores the agent
+        transcript — the model&apos;s messages and tool trace, not captured CLI stdout — on{" "}
+        <Code>Run.logContent</Code>. It records what each tool <Strong>returned</Strong>, not only
+        what was called, and an oversized transcript is elided in the middle rather than cut off at
+        the cap: the ending is where a Run says what it did, and it is the last thing worth losing.
+        While the Run is active, Genosyn checkpoints that transcript to the database about once a
+        second, so it survives a server or container crash.
       </P>
       <P>
         The transcript is still the model&apos;s account of its own work. What the server recorded
@@ -658,8 +671,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           <Strong>Retry</Strong> a Run marked <Strong>Failed</Strong> or <Strong>Error</Strong>{" "}
-          straight from its run history. It re-triggers the routine immediately, outside the
-          schedule, and opens the live log for the new Run.
+          straight from its run history. It opens any already accepted Run for that Routine;
+          otherwise it starts a fresh Run outside the schedule and opens its live log.
         </LI>
       </UL>
       <P>
@@ -686,29 +699,29 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         Click <Strong>Why did it fail?</Strong> or <Strong>Why did it error?</Strong> beside a Run
         on Home, or inside its Run modal. A compact summary groups the Run&apos;s status, duration,
-        and token usage above the <Strong>Run log</Strong> and explanation tabs. The AI Employee
-        who ran the Routine automatically
-        reads that specific Run&apos;s recorded log, failure reason, and Check results, then explains
-        the cause, the evidence, and what to try next in the same modal. Missing or incomplete
-        evidence is called out.
+        and token usage above the <Strong>Run log</Strong> and explanation tabs. The AI Employee who
+        ran the Routine automatically reads that specific Run&apos;s recorded log, failure reason,
+        and Check results, then explains the cause, the evidence, and what to try next in the same
+        modal. Missing or incomplete evidence is called out.
       </P>
       <P>
         Use <Strong>Message</Strong>, labelled with the employee&apos;s name, to ask about the
         failure, evidence, or possible fixes. The message box stays below the conversation while you
         scroll through replies. Click <Strong>Send</Strong> or press <Code>Cmd/Ctrl + Enter</Code>;
         the same employee answers every follow-up with your conversation&apos;s context. Switching
-        to <Strong>Run log</Strong> keeps your conversation and draft while the modal is open.
-        If their AI Model is unavailable, restore their connected AI Model and try again.
-        Any Member can ask; the explanation does not retry the Routine, change records, or change
-        the Run&apos;s status or verdicts.
+        to <Strong>Run log</Strong> keeps your conversation and draft while the modal is open. If
+        their AI Model is unavailable, restore their connected AI Model and try again. Any Member
+        can ask; the explanation does not retry the Routine, change records, or change the
+        Run&apos;s status or verdicts.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer
-        to a broken Run doesn&apos;t cost a trip into the routine. It runs the routine again
-        immediately, outside the schedule, and dismisses the Run it came from — which keeps the
-        panel from inviting a second, duplicate Run. It confirms first, because a Run that stopped
-        part-way through may already have sent the email or moved the money; read the log if
-        you&apos;re not sure repeating the work is safe.
+        to a broken Run doesn&apos;t cost a trip into the routine. It reuses any already accepted
+        Run or starts one outside the schedule. The source failure is dismissed only when another
+        Run was accepted. If the source still owns cleanup, its alert remains and its existing log
+        opens. Retry confirms first, because a Run that stopped part-way through may already have
+        changed records or sent a message; read the log if you&apos;re not sure repeating the work
+        is safe.
       </P>
       <P>
         A failure the routine has already recovered from clears itself. If the routine has completed
@@ -779,9 +792,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
       </P>
       <P>
-        A company admin configures Checks in that panel, or through the authenticated company API
-        at <Code>/api/companies/:companyId/routines/:routineId/checks</Code>. AI Employees can read
-        the requirements but cannot change them. Run reports explicitly show when no Check evidence
+        A company admin configures Checks in that panel, or through the authenticated company API at{" "}
+        <Code>/api/companies/:companyId/routines/:routineId/checks</Code>. AI Employees can read the
+        requirements but cannot change them. Run reports explicitly show when no Check evidence
         exists, and show the current configuration separately from the evidence a past Run recorded.
       </P>
       <P>
@@ -849,8 +862,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Recovery distinguishes a confirmed restart from an overdue Run whose outcome was never
         saved. An overdue record alone does not prove the server restarted. If this process still
         owns the Run and its deadline has passed, recovery requests cancellation and records a
-        timeout. Another Run of the same Routine waits until the earlier Run finishes cleanup;
-        this also applies to manual retries. Independent Routines can continue working.
+        timeout. Another Run of the same Routine waits until the earlier Run finishes cleanup; this
+        also applies to manual retries. Independent Routines can continue working.
       </P>
       <P>
         When Genosyn marks an initial scheduled Run on an enabled routine interrupted, it also
@@ -903,45 +916,43 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         original Routine time limit. Runs have no fixed limit on model steps or tool calls, and no
         total model token limit. Individual AI Model context and response limits still apply. Token
         usage includes repeated and cached input across model calls; it is not just the text the
-        employee writes. Automatic continuation stops when the saved checkpoint does not advance, the employee
-        reports a blocker, the time limit expires, or all three continuations have run; the Run shows
-        the reason. Current Grants, delivery limits, and Standdowns still apply, and approval-gated
-        work is never replayed automatically. The final continuation can keep working within the
-        remaining shared time: saving a checkpoint does not require ending that Run. It should
-        finish when its work is complete, a real blocker prevents further useful work, or it must
-        close before the deadline, preserving any unfinished progress. The Routine&apos;s priorities govern
-        the order of work; inherited backlog stays recorded without displacing explicitly required
-        current work or changing the captured scope.
+        employee writes. Automatic continuation stops when the saved checkpoint does not advance,
+        the employee reports a blocker, the time limit expires, or all three continuations have run;
+        the Run shows the reason. Current Grants, delivery limits, and Standdowns still apply, and
+        approval-gated work is never replayed automatically. The final continuation can keep working
+        within the remaining shared time: saving a checkpoint does not require ending that Run. It
+        should finish when its work is complete, a real blocker prevents further useful work, or it
+        must close before the deadline, preserving any unfinished progress. The Routine&apos;s
+        priorities govern the order of work; inherited backlog stays recorded without displacing
+        explicitly required current work or changing the captured scope.
       </P>
       <P>
         Employees are briefed to save progress after small batches, retain stable source IDs and the
         original review window, and verify earlier changes before repeating a write or send. The
         five-record batch size applies to substantive review or processing. Compact inventory
         listings can use bounded pages supported by their tools, reducing the page size when a
-        response is truncated; captured IDs alone do not count as completed reviews. After a
-        Run uses about two million tokens, Genosyn ends the batch at its next actionable saved
+        response is truncated; captured IDs alone do not count as completed reviews. After a Run
+        uses about two million tokens, Genosyn ends the batch at its next actionable saved
         checkpoint and continues in a fresh Run when time and continuations remain. During a
         continuation, that checkpoint must advance both its stable source position and its
         completed-work or next-step description beyond the previous Run. Saving the same position
         while still working keeps the current Run active; reaching the batch threshold alone does
         not stop it. If the employee ends with an unchanged checkpoint, Genosyn stops automatic
-        continuation and explains that the saved checkpoint did not advance. Recorded Effects
-        remain visible, but do not replace a usable checkpoint. A saved
-        checkpoint reports progress; it does not prove completion or guarantee that an external
-        action happens only once. Coverage must be complete before advancing a verified checkpoint,
-        and existing <DocLink to="/docs/verification">Checks and outcome grading</DocLink> retain
-        their own meaning. A fully reviewed source with no matching Contacts can still be completed
-        work.
+        continuation and explains that the saved checkpoint did not advance. Recorded Effects remain
+        visible, but do not replace a usable checkpoint. A saved checkpoint reports progress; it
+        does not prove completion or guarantee that an external action happens only once. Coverage
+        must be complete before advancing a verified checkpoint, and existing{" "}
+        <DocLink to="/docs/verification">Checks and outcome grading</DocLink> retain their own
+        meaning. A fully reviewed source with no matching Contacts can still be completed work.
       </P>
       <P>
         If a Failed Run has unfinished saved work and no follow-up already created or queued, an
-        owner or admin can
-        choose <Strong>Resume unfinished work</Strong> from its Run log, the Routine&apos;s Runs
-        tab, or Home. Confirming starts a new Run from that checkpoint. The Routine&apos;s
-        configured time limit starts again, with no total model token limit. Existing progress and
-        Effects remain available, and the employee verifies current records before repeating
-        actions. Current Grants, approval requirements and Standdowns still apply. Cancel a pending
-        retry or continuation before resuming manually. <Strong>Retry</Strong> and{" "}
+        owner or admin can choose <Strong>Resume unfinished work</Strong> from its Run log, the
+        Routine&apos;s Runs tab, or Home. Confirming starts a new Run from that checkpoint. The
+        Routine&apos;s configured time limit starts again, with no total model token limit. Existing
+        progress and Effects remain available, and the employee verifies current records before
+        repeating actions. Current Grants, approval requirements and Standdowns still apply. Cancel
+        a pending retry or continuation before resuming manually. <Strong>Retry</Strong> and{" "}
         <Strong>Run now</Strong> start the Routine afresh. A historical Run with a later follow-up
         offers the link to that work instead of another resumption. Open the latest Run to see
         whether it still needs attention.
@@ -955,9 +966,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         Fixing a Connection or upgrading Genosyn does not complete an earlier failed Run. Read its
         failure details and saved progress first: missing source access may now be recoverable,
-        while protected files, expired event history, or work outside the available time still
-        need attention. Resume saved work when its next step is actionable. A completed batch is
-        only a successful Run when it meets the Routine&apos;s required scope.
+        while protected files, expired event history, or work outside the available time still need
+        attention. Resume saved work when its next step is actionable. A completed batch is only a
+        successful Run when it meets the Routine&apos;s required scope.
       </P>
 
       <H3 id="retries">Retries</H3>
