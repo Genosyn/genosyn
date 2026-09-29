@@ -97,15 +97,125 @@ export async function createCheckoutSession(
   return { url: String(session.url) };
 }
 
+/**
+ * The customer portal Genosyn opens, created through the API so an install
+ * never depends on someone saving portal settings in the Stripe Dashboard.
+ * Owners update cards and billing details, download invoices, and cancel at
+ * period end. Plan and quantity changes stay off: Genosyn switches plans
+ * itself and keeps the seat count equal to the AI Employee count. The
+ * metadata marker finds the configuration again; bump its version when these
+ * settings change and existing configurations are updated in place.
+ */
+const PORTAL_MARKER = "genosyn_portal";
+const PORTAL_VERSION = "1";
+
+function portalConfigurationParams(): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("features[invoice_history][enabled]", "true");
+  params.set("features[payment_method_update][enabled]", "true");
+  params.set("features[customer_update][enabled]", "true");
+  ["email", "name", "address", "tax_id"].forEach((field, i) =>
+    params.set(`features[customer_update][allowed_updates][${i}]`, field),
+  );
+  params.set("features[subscription_cancel][enabled]", "true");
+  params.set("features[subscription_cancel][mode]", "at_period_end");
+  params.set("features[subscription_update][enabled]", "false");
+  params.set(`metadata[${PORTAL_MARKER}]`, PORTAL_VERSION);
+  return params;
+}
+
+/** This account's active Genosyn portal configuration, preferring one at the
+ * current version. */
+async function findPortalConfiguration(
+  secretKey: string,
+): Promise<{ id: string; version: string } | null> {
+  let stale: { id: string; version: string } | null = null;
+  let startingAfter = "";
+  for (;;) {
+    const params = new URLSearchParams();
+    params.set("active", "true");
+    params.set("limit", "100");
+    if (startingAfter) params.set("starting_after", startingAfter);
+    const page = await stripeRequest(secretKey, "GET", "/v1/billing_portal/configurations", params);
+    const data = Array.isArray(page.data) ? (page.data as Array<Record<string, unknown>>) : [];
+    for (const configuration of data) {
+      const version = (configuration.metadata as Record<string, unknown> | undefined)?.[
+        PORTAL_MARKER
+      ];
+      if (typeof version !== "string") continue;
+      const found = { id: String(configuration.id), version };
+      if (version === PORTAL_VERSION) return found;
+      stale ??= found;
+    }
+    if (page.has_more !== true || data.length === 0) return stale;
+    startingAfter = String(data[data.length - 1].id);
+  }
+}
+
+async function ensurePortalConfiguration(secretKey: string): Promise<string> {
+  const existing = await findPortalConfiguration(secretKey);
+  if (existing?.version === PORTAL_VERSION) return existing.id;
+  const path = existing
+    ? `/v1/billing_portal/configurations/${encodeURIComponent(existing.id)}`
+    : "/v1/billing_portal/configurations";
+  const configuration = await stripeRequest(secretKey, "POST", path, portalConfigurationParams());
+  return String(configuration.id);
+}
+
+/** Configuration ids per Stripe account, keyed by a hash of its secret key. */
+const portalConfigurations = new Map<string, Promise<string | null>>();
+
+function portalCacheKey(secretKey: string): string {
+  return crypto.createHash("sha256").update(secretKey).digest("hex");
+}
+
+/**
+ * The configuration to open the portal with. Null — the account's Dashboard
+ * default — when Stripe refuses to list or create one, e.g. for a restricted
+ * key without portal configuration access; not cached, so the next open tries
+ * again.
+ */
+function portalConfigurationFor(secretKey: string): Promise<string | null> {
+  const key = portalCacheKey(secretKey);
+  const cached = portalConfigurations.get(key);
+  if (cached) return cached;
+  const pending: Promise<string | null> = ensurePortalConfiguration(secretKey).catch((err) => {
+    if (portalConfigurations.get(key) === pending) portalConfigurations.delete(key);
+    if (!(err instanceof StripeApiError)) throw err;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[billing] could not set up the Stripe customer portal configuration, using the account default: ${err.message}`,
+    );
+    return null;
+  });
+  portalConfigurations.set(key, pending);
+  return pending;
+}
+
 export async function createPortalSession(
   secretKey: string,
   args: { customerId: string; returnUrl: string },
 ): Promise<{ url: string }> {
-  const params = new URLSearchParams();
-  params.set("customer", args.customerId);
-  params.set("return_url", args.returnUrl);
-  const session = await stripeRequest(secretKey, "POST", "/v1/billing_portal/sessions", params);
-  return { url: String(session.url) };
+  const open = async (configuration: string | null): Promise<{ url: string }> => {
+    const params = new URLSearchParams();
+    params.set("customer", args.customerId);
+    params.set("return_url", args.returnUrl);
+    if (configuration) params.set("configuration", configuration);
+    const session = await stripeRequest(secretKey, "POST", "/v1/billing_portal/sessions", params);
+    return { url: String(session.url) };
+  };
+  const configuration = await portalConfigurationFor(secretKey);
+  try {
+    return await open(configuration);
+  } catch (err) {
+    if (!(err instanceof StripeApiError) || !configuration) throw err;
+    // The remembered configuration may have been deactivated in the Stripe
+    // Dashboard since: look it up again and retry once with its replacement.
+    portalConfigurations.delete(portalCacheKey(secretKey));
+    const replacement = await portalConfigurationFor(secretKey);
+    if (!replacement || replacement === configuration) throw err;
+    return open(replacement);
+  }
 }
 
 export type StripeSubscription = {

@@ -5,6 +5,7 @@ import { afterEach, describe, test } from "node:test";
 import {
   StripeApiError,
   cancelSubscription,
+  createPortalSession,
   listSubscriptions,
   parseSubscription,
   updateSubscriptionPlan,
@@ -95,8 +96,8 @@ describe("parseSubscription", () => {
   });
 });
 
-/** The subscription-mutating client calls, against a captured `fetch`. */
-describe("subscription client calls", () => {
+/** The client calls that reach Stripe, against a captured `fetch`. */
+describe("Stripe client calls", () => {
   const originalFetch = globalThis.fetch;
   type Captured = { method: string; url: string; body: string };
   const calls: Captured[] = [];
@@ -106,13 +107,15 @@ describe("subscription client calls", () => {
     calls.length = 0;
   });
 
-  function mockStripeFetch(status: number, body: unknown): void {
+  /** Answer successive requests with `responses` in order. */
+  function mockStripeFetch(...responses: Array<[status: number, body: unknown]>): void {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({
         method: init?.method ?? "GET",
         url: String(input),
         body: init?.body ? String(init.body) : "",
       });
+      const [status, body] = responses.shift() ?? [500, { error: { message: "Unexpected" } }];
       return new Response(JSON.stringify(body), { status });
     }) as typeof fetch;
   }
@@ -126,7 +129,7 @@ describe("subscription client calls", () => {
   };
 
   test("updateSubscriptionPlan posts the new price, quantity and proration, returning the subscription", async () => {
-    mockStripeFetch(200, rawScaleSub);
+    mockStripeFetch([200, rawScaleSub]);
     const sub = await updateSubscriptionPlan("sk_test", {
       subscriptionId: "sub_1",
       itemId: "si_1",
@@ -151,7 +154,7 @@ describe("subscription client calls", () => {
   });
 
   test("cancelSubscription issues a DELETE for the subscription", async () => {
-    mockStripeFetch(200, { id: "sub_1", status: "canceled" });
+    mockStripeFetch([200, { id: "sub_1", status: "canceled" }]);
     await cancelSubscription("sk_test", "sub_1");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].method, "DELETE");
@@ -159,7 +162,7 @@ describe("subscription client calls", () => {
   });
 
   test("listSubscriptions lists every status for the customer and parses the page", async () => {
-    mockStripeFetch(200, { data: [rawScaleSub, { id: "sub_0", status: "canceled" }] });
+    mockStripeFetch([200, { data: [rawScaleSub, { id: "sub_0", status: "canceled" }] }]);
     const subs = await listSubscriptions("sk_test", "cus_9");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].method, "GET");
@@ -173,7 +176,7 @@ describe("subscription client calls", () => {
   });
 
   test("a non-2xx response surfaces as a StripeApiError with Stripe's message", async () => {
-    mockStripeFetch(404, { error: { message: "No such subscription" } });
+    mockStripeFetch([404, { error: { message: "No such subscription" } }]);
     await assert.rejects(
       cancelSubscription("sk_test", "sub_gone"),
       (err: unknown) =>
@@ -181,5 +184,121 @@ describe("subscription client calls", () => {
         err.status === 404 &&
         err.message === "No such subscription",
     );
+  });
+
+  // The portal configuration id is remembered per Stripe account (secret
+  // key), so each portal test uses a key of its own.
+  const portalArgs = {
+    customerId: "cus_1",
+    returnUrl: "https://genosyn.test/c/acme/settings/billing",
+  };
+  const portalSession: [number, unknown] = [200, { url: "https://billing.stripe.com/p/s_1" }];
+  const listConfigurations = "https://api.stripe.com/v1/billing_portal/configurations";
+  const openPortal = "https://api.stripe.com/v1/billing_portal/sessions";
+  const sessionConfiguration = (index: number) =>
+    new URLSearchParams(calls[index].body).get("configuration");
+
+  test("createPortalSession finds the Genosyn configuration across pages, then remembers it", async () => {
+    mockStripeFetch(
+      [200, { data: [{ id: "bpc_dashboard", metadata: {} }], has_more: true }],
+      [200, { data: [{ id: "bpc_genosyn", metadata: { genosyn_portal: "1" } }] }],
+      portalSession,
+      portalSession,
+    );
+    const session = await createPortalSession("sk_test_portal_reuse", portalArgs);
+    assert.equal(session.url, "https://billing.stripe.com/p/s_1");
+    await createPortalSession("sk_test_portal_reuse", portalArgs);
+    assert.deepEqual(
+      calls.map((call) => `${call.method} ${call.url}`),
+      [
+        `GET ${listConfigurations}?active=true&limit=100`,
+        `GET ${listConfigurations}?active=true&limit=100&starting_after=bpc_dashboard`,
+        `POST ${openPortal}`,
+        `POST ${openPortal}`,
+      ],
+    );
+    const params = new URLSearchParams(calls[2].body);
+    assert.equal(params.get("customer"), "cus_1");
+    assert.equal(params.get("return_url"), portalArgs.returnUrl);
+    assert.equal(sessionConfiguration(2), "bpc_genosyn");
+    assert.equal(sessionConfiguration(3), "bpc_genosyn");
+  });
+
+  test("createPortalSession creates the configuration when the account has none", async () => {
+    mockStripeFetch([200, { data: [] }], [200, { id: "bpc_new" }], portalSession);
+    await createPortalSession("sk_test_portal_create", portalArgs);
+    assert.equal(calls.length, 3);
+    assert.equal(`${calls[1].method} ${calls[1].url}`, `POST ${listConfigurations}`);
+    const config = new URLSearchParams(calls[1].body);
+    assert.equal(config.get("metadata[genosyn_portal]"), "1");
+    assert.equal(config.get("features[invoice_history][enabled]"), "true");
+    assert.equal(config.get("features[payment_method_update][enabled]"), "true");
+    assert.equal(config.get("features[customer_update][enabled]"), "true");
+    assert.equal(config.get("features[subscription_cancel][mode]"), "at_period_end");
+    assert.equal(
+      config.get("features[subscription_update][enabled]"),
+      "false",
+      "plans change in Genosyn and seats follow the AI Employee count",
+    );
+    assert.equal(sessionConfiguration(2), "bpc_new");
+  });
+
+  test("createPortalSession updates an older Genosyn configuration in place", async () => {
+    mockStripeFetch(
+      [200, { data: [{ id: "bpc_old", metadata: { genosyn_portal: "0" } }] }],
+      [200, { id: "bpc_old" }],
+      portalSession,
+    );
+    await createPortalSession("sk_test_portal_upgrade", portalArgs);
+    assert.equal(`${calls[1].method} ${calls[1].url}`, `POST ${listConfigurations}/bpc_old`);
+    assert.equal(new URLSearchParams(calls[1].body).get("metadata[genosyn_portal]"), "1");
+    assert.equal(sessionConfiguration(2), "bpc_old");
+  });
+
+  test("createPortalSession falls back to the account default while Stripe refuses the configuration", async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    const refused: [number, unknown] = [403, { error: { message: "Key lacks permission" } }];
+    mockStripeFetch(refused, portalSession, refused, portalSession);
+    const session = await createPortalSession("rk_test_portal_restricted", portalArgs);
+    assert.equal(session.url, "https://billing.stripe.com/p/s_1");
+    await createPortalSession("rk_test_portal_restricted", portalArgs);
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ["GET", "POST", "GET", "POST"],
+      "a refusal is not remembered, so the next open tries again",
+    );
+    assert.equal(sessionConfiguration(1), null);
+    assert.equal(sessionConfiguration(3), null);
+    assert.equal(warn.mock.callCount(), 2);
+  });
+
+  test("createPortalSession replaces a remembered configuration that Stripe rejects", async () => {
+    mockStripeFetch(
+      [200, { data: [{ id: "bpc_gone", metadata: { genosyn_portal: "1" } }] }],
+      portalSession,
+      [400, { error: { message: "This configuration is inactive." } }],
+      [200, { data: [] }],
+      [200, { id: "bpc_fresh" }],
+      portalSession,
+    );
+    await createPortalSession("sk_test_portal_replace", portalArgs);
+    const session = await createPortalSession("sk_test_portal_replace", portalArgs);
+    assert.equal(session.url, "https://billing.stripe.com/p/s_1");
+    assert.equal(calls.length, 6);
+    assert.equal(sessionConfiguration(2), "bpc_gone");
+    assert.equal(sessionConfiguration(5), "bpc_fresh");
+  });
+
+  test("createPortalSession surfaces Stripe's error when the configuration is still current", async () => {
+    const current: [number, unknown] = [
+      200,
+      { data: [{ id: "bpc_1", metadata: { genosyn_portal: "1" } }] },
+    ];
+    mockStripeFetch(current, [400, { error: { message: "No such customer" } }], current);
+    await assert.rejects(
+      createPortalSession("sk_test_portal_customer_gone", portalArgs),
+      (err: unknown) => err instanceof StripeApiError && err.message === "No such customer",
+    );
+    assert.equal(calls.length, 3, "retries only with a different configuration");
   });
 });

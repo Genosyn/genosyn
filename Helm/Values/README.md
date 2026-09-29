@@ -103,7 +103,8 @@ Stripe account's values, then set `billing.enabled: true` before deploying:
 
 - `secretKey`: a server-side API key (`sk_test_…` or `rk_test_…` for test;
   `sk_live_…` or `rk_live_…` for production). Restricted keys need access to
-  the customer, checkout, subscription, and billing portal operations used by Genosyn.
+  the customer, checkout, and subscription operations used by Genosyn, plus
+  write access to the customer portal.
 - `webhookSecret`: the endpoint's `whsec_…` signing secret.
 - `growthMonthlyPriceId` and `scaleMonthlyPriceId`: required recurring,
   per-seat `price_…` IDs for the paid Plans.
@@ -121,7 +122,9 @@ Create a webhook endpoint for each environment:
 
 Subscribe to `checkout.session.completed`, `customer.subscription.created`,
 `customer.subscription.updated`, and `customer.subscription.deleted`.
-Configure the Stripe customer portal so Members can manage their subscriptions.
+There is no customer portal to configure: the first time an owner clicks
+**Manage billing**, Genosyn creates its own portal configuration in that Stripe
+account (marked `genosyn_portal` in its metadata) and reuses it after that.
 The `connect.genosyn.com` host serves hosted sign-in only.
 
 Helm passes the billing payload through a Kubernetes Secret. On first setup,

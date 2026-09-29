@@ -146,8 +146,10 @@ export function PlansBilling() {
           credits the unused remainder of the period you had paid for.
         </LI>
         <LI>
-          <Strong>Manage billing</Strong> opens the Stripe billing portal, where you update cards,
-          download invoices, or cancel — changes sync back automatically.
+          <Strong>Manage billing</Strong> opens the Stripe billing portal, where you update cards
+          and billing details, download invoices, or cancel at the end of the current billing
+          period — changes sync back automatically. Plan changes stay on this page, and seats keep
+          following your AI Employees.
         </LI>
         <LI>
           Only the company <Strong>owner</Strong> can change the plan or open the billing portal;
@@ -269,6 +271,13 @@ export function PlansBilling() {
         <Strong>Stripe webhook endpoint</Strong> card shows the exact URL with a copy button) and
         subscribe it to the checkout and subscription events. The signing secret is how the install
         verifies those deliveries.
+      </P>
+      <P>
+        There is nothing to set up in Stripe&apos;s customer portal settings. The first time an
+        owner clicks <Strong>Manage billing</Strong>, the install creates its own portal
+        configuration in that Stripe account (marked <Code>genosyn_portal</Code> in its metadata)
+        and reuses it after that. A restricted key needs write access to the customer portal for
+        this; without it, Stripe falls back to the portal settings saved in its Dashboard.
       </P>
       <P>
         For a fresh Helm deployment, you can supply the same settings in the private values file:
