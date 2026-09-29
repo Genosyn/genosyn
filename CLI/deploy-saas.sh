@@ -28,10 +28,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 chart_dir="${repo_root}/Helm/genosyn"
 values_file="${repo_root}/Helm/Values/${environment}.values.yaml"
 release=genosyn
-namespace="genosyn-${environment}"
+# Each environment has its own namespace unless the operator names one.
+namespace="${GENOSYN_NAMESPACE:-genosyn-${environment}}"
 
 fail() { echo "$*" >&2; exit 1; }
 require_command() { command -v "$1" >/dev/null 2>&1 || fail "Required command is unavailable: $1"; }
+namespace_pattern='^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$'
+[[ "$namespace" =~ $namespace_pattern ]] || fail "GENOSYN_NAMESPACE must be a Kubernetes namespace name: lowercase letters, digits and hyphens."
 require_command helm
 require_command node
 [ -f "$values_file" ] || fail "Missing deployment profile: ${values_file}"
@@ -76,18 +79,24 @@ try {
   if (format === "ingress") {
     const rules = [...input.matchAll(/^    - host: (.+)$/gm)];
     const tls = /\n  tls:\n([\s\S]*?)\n  rules:\n/.exec(input);
-    if (rules.length < 1 || rules.length > 2 || !tls) throw new Error();
+    // gke.managedCertificate terminates TLS at the load balancer, not from a Secret.
+    const managed = /^    networking\.gke\.io\/managed-certificates: \S/m.test(input);
+    if (rules.length < 1 || rules.length > 2 || (!tls && !managed)) throw new Error();
     host = JSON.parse(rules[0][1]);
-    const primaryTls = tls[1].split(/(?=^    - hosts:$)/m).some(entry => {
-      const hosts = [...entry.matchAll(/^        - (.+)$/gm)].map(match => JSON.parse(match[1]));
-      const secret = /^      secretName: (.+)$/m.exec(entry)?.[1];
-      const name = secret?.startsWith('"') ? JSON.parse(secret) : secret;
-      return hosts.includes(host) && typeof name === "string" && Boolean(name.trim());
-    });
-    if (!primaryTls) throw new Error();
+    if (tls) {
+      const primaryTls = tls[1].split(/(?=^    - hosts:$)/m).some(entry => {
+        const hosts = [...entry.matchAll(/^        - (.+)$/gm)].map(match => JSON.parse(match[1]));
+        const secret = /^      secretName: (.+)$/m.exec(entry)?.[1];
+        const name = secret?.startsWith('"') ? JSON.parse(secret) : secret;
+        return hosts.includes(host) && typeof name === "string" && Boolean(name.trim());
+      });
+      if (!primaryTls) throw new Error();
+    }
   } else {
-    const { ingress } = JSON.parse(input);
-    if (ingress?.enabled !== true || ingress.tls?.enabled !== true || typeof ingress.tls.secretName !== "string" || !ingress.tls.secretName.trim()) throw new Error();
+    const { ingress, gke } = JSON.parse(input);
+    const managed = gke?.enabled === true && gke.managedCertificate?.enabled === true;
+    const secretTls = ingress?.tls?.enabled === true && typeof ingress.tls.secretName === "string" && Boolean(ingress.tls.secretName.trim());
+    if (ingress?.enabled !== true || !(secretTls || managed)) throw new Error();
     host = ingress.host;
   }
   if (typeof host !== "string" || host.length > 253 || !host.split(".").every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) throw new Error();

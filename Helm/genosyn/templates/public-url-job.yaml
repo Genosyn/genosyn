@@ -1,0 +1,79 @@
+{{- /*
+Multi-tenant installs refuse sign-ups until the public HTTPS origin is stored
+in the database. This hook stores it with the App's own host-only setup
+script, which writes the setting once: an origin already changed at
+Admin -> General is kept, and the upgrade continues. It shares the App's
+environment but not its data volume, which a ReadWriteOnce claim would pin to
+the App's node; the script needs only the database.
+*/ -}}
+{{- $publicUrl := include "genosyn.publicUrl" . }}
+{{- if and .Values.config.multiTenant $publicUrl }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-public-url" (include "genosyn.fullname" . | trunc 52 | trimSuffix "-") }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+    app.kubernetes.io/component: public-url
+  annotations:
+    # After --wait, so migrations have run; replaced on every upgrade.
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "genosyn.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: public-url
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: public-url
+          image: {{ include "genosyn.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: /app
+          command: ["sh", "-c"]
+          args:
+            - |
+              output="$(node /app/dist/server/scripts/setupPublicUrl.js --url "$GENOSYN_PUBLIC_URL" 2>&1)"
+              status=$?
+              printf '%s\n' "$output"
+              case "$output" in
+                *"A different public URL is already stored"*)
+                  echo "Keeping the public URL set at Admin -> General."
+                  exit 0
+                  ;;
+              esac
+              exit "$status"
+          env:
+            - name: GENOSYN_PUBLIC_URL
+              value: {{ $publicUrl | quote }}
+            {{- include "genosyn.appEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/dist/config.js
+              subPath: config.js
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "genosyn.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

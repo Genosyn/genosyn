@@ -28,6 +28,8 @@ verify that it exists before applying anything. They use the normal kubectl
 kubeconfig resolution, including `KUBECONFIG` with multiple files, without
 rewriting configuration or changing the current context. Both releases are
 named `genosyn`; all cluster commands select the context and namespace explicitly.
+Set `GENOSYN_NAMESPACE` to deploy an environment into a different namespace,
+for example `genosyn` when each environment has its own cluster.
 Helm-only connection overrides are cleared so Helm and kubectl use the same
 endpoint and credentials from that kubeconfig.
 
@@ -42,12 +44,17 @@ endpoint and credentials from that kubeconfig.
    IngressClass, or leave it empty to use the cluster's default. The profiles
    use the default StorageClass; set `persistence.storageClass` and
    `postgres.persistence.storageClass` when a specific class is needed.
-   Create the namespaces, provision the named TLS certificates in them, and
-   point the domains at the ingress controller's external address. The
-   profiles do not create a cluster, ingress controller, certificate issuer, or DNS
-   records. Production needs both `genosyn-prod-tls` and `genosyn-connect-tls`;
-   point both production domains at the same ingress address. External
-   address allocation and any required load balancer are cluster infrastructure.
+   Provision the named TLS certificates, or let the chart do it:
+   `ingress.tls.certManager.enabled` issues them through cert-manager, and on
+   GKE `gke.enabled` with `gke.managedCertificate.enabled` uses a
+   Google-managed certificate and needs nothing else installed (see the
+   [chart README](../genosyn/README.md#gke)). Point the domains at the Ingress
+   address, DNS only. The deploy command creates the namespace. The chart does
+   not create a cluster, an ingress controller, cert-manager, or DNS records.
+   Production needs both `genosyn-prod-tls` and `genosyn-connect-tls` (or one
+   managed certificate for both); point both production domains at the same
+   ingress address. External address allocation and any required load balancer
+   are cluster infrastructure.
 3. Set `config.bootstrapMasterAdminEmail` to the real operator's email, or
    supply `GENOSYN_BOOTSTRAP_ADMIN_EMAIL` when running a command. It is
    required: validation stops before deployment until an operator is named.
@@ -80,6 +87,9 @@ has no universal timeout setting, so controller configuration or annotations
 own this behavior. `ingress.annotations` and `service.annotations` pass through
 your own settings without selecting a provider. Proxy access logs must omit
 query strings and request bodies/headers because OAuth callbacks carry codes.
+On GKE's built-in Ingress, `gke.enabled` applies all of this: a one-hour
+timeout, the `/api/health` check, request logging off, the HTTPS redirect, and
+two trusted proxy hops.
 
 The chart defaults to one trusted HTTP proxy hop. Set
 `security: { ...security, trustedProxyHops: N },` through `config.extraJs` only
@@ -149,12 +159,13 @@ image tag. This avoids accidentally deploying the older development
 set `GENOSYN_IMAGE_TAG=sha-<commit>`; moving tags such as `latest` are refused.
 
 The helper validates the chart before contacting the cluster, installs or upgrades the
-release, and waits for readiness. It then runs the existing host-only public URL
-initializer against the deployment's actual HTTPS ingress address. This writes
-the database setting only once and refuses to replace a different stored
-origin; change an established origin at **Admin → General**. A failed upgrade
-or URL setup returns failure. Rollback is an operator decision because App boot
-can apply database migrations.
+release, and waits for readiness. The chart's post-install Job stores the public
+URL, keeping an origin already changed at **Admin → General**. The helper then
+runs the same host-only initializer against the deployment's actual HTTPS
+ingress address as a check: it writes the database setting only once and
+refuses to replace a different stored origin; change an established origin at
+**Admin → General**. A failed upgrade or URL setup returns failure. Rollback is
+an operator decision because App boot can apply database migrations.
 
 After deployment, register and verify the configured operator. Until SMTP is
 configured, the verification link is in the private App log. Configure

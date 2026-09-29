@@ -1,10 +1,18 @@
+{{- /* Operator annotations win over the ones an opt-in integration adds. */ -}}
+{{- $annotations := deepCopy (default dict .Values.service.annotations) -}}
+{{- if include "genosyn.gke.enabled" . -}}
+{{- $gke := dict
+  "cloud.google.com/neg" "{\"ingress\": true}"
+  "cloud.google.com/backend-config" (printf "{\"default\": \"%s\"}" (include "genosyn.gke.backendConfigName" .)) -}}
+{{- $annotations = merge $annotations $gke -}}
+{{- end -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "genosyn.fullname" . }}
   labels:
     {{- include "genosyn.labels" . | nindent 4 }}
-  {{- with .Values.service.annotations }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}

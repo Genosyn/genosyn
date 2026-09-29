@@ -52,7 +52,10 @@ export function Kubernetes() {
       <P>
         The default chart enables shared SaaS mode, bundled Postgres, and the coding sandbox, with
         one replica and a 20Gi volume at <Code>/app/data</Code>. Supply your own operator email,
-        hostname, and TLS Secret. Private installations can use the repository&apos;s{" "}
+        hostname, and TLS Secret, or let the chart provide TLS: <Code>ingress.tls.certManager.enabled</Code>{" "}
+        issues it through cert-manager, and on GKE <Code>gke.enabled</Code> with{" "}
+        <Code>gke.managedCertificate.enabled</Code> uses a Google-managed certificate in place of the
+        TLS flags above. Private installations can use the repository&apos;s{" "}
         <Code>Helm/genosyn/values-selfhost.yaml</Code> overlay for SQLite and single-tenant mode.
         The pod becomes Ready once every migration has run — <Code>/api/health</Code> answers{" "}
         <Code>{"{ ok: true, version }"}</Code> only after boot completes, so a pending readiness
@@ -155,12 +158,15 @@ export function Kubernetes() {
         cluster&apos;s default StorageClass. Select your ingress controller with{" "}
         <Code>ingress.className</Code>, or leave it empty for the cluster default. The chart uses
         standard Kubernetes resources; configure HTTPS redirects, WebSockets, streaming timeouts,
-        and query-string-free access logs in your ingress infrastructure. Controller settings can
+        and query-string-free access logs in your ingress infrastructure, or on GKE&apos;s built-in
+        Ingress set <Code>gke.enabled</Code> and the chart configures them. Controller settings can
         pass through <Code>ingress.annotations</Code> and <Code>service.annotations</Code>.
         Kubernetes probes still use <Code>/api/health</Code>. The App trusts one HTTP proxy hop by
-        default; adjust <Code>trustedProxyHops</Code> through <Code>config.extraJs</Code> to match
-        your proxy chain, and keep the App port private. Supply TLS and a suitable StorageClass; the
-        cluster must support the sandbox, and production needs backups. Helm creates Secrets from
+        default (two with <Code>gke.enabled</Code>); adjust <Code>trustedProxyHops</Code> through{" "}
+        <Code>config.extraJs</Code> to match your proxy chain, and keep the App port private. Supply
+        TLS and a suitable StorageClass; the cluster must support the sandbox (the App container
+        runs AppArmor-unconfined, and on GKE it belongs on Container-Optimized OS nodes), and
+        production needs backups. Helm creates Secrets from
         each profile&apos;s private <Code>secrets.sessionSecret</Code>,{" "}
         <Code>secrets.encryptionSecret</Code>, and <Code>postgres.password</Code>. Keep these values
         stable and back them up with the database; deployment previews omit Secret documents.
@@ -302,9 +308,10 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         meetings, the container&apos;s browser, and the agent&apos;s taint policy, member browsers,
         and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>{" "}
         and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
-        ConfigMap edit and a rollout. Set the initial public URL before signup using the command
-        below; later changes belong at <Code>Admin → General</Code>. Those values are stored in
-        Postgres and shared by every replica.
+        ConfigMap edit and a rollout. Signup needs the initial public URL: with an HTTPS Ingress or{" "}
+        <Code>config.publicUrl</Code>, a post-install Job stores it; otherwise run the command
+        below. Later changes belong at <Code>Admin → General</Code>, and the Job keeps them. Those
+        values are stored in Postgres and shared by every replica.
       </P>
       <Pre lang="bash">{`kubectl exec -n genosyn deploy/genosyn -- node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</Pre>
       <Callout kind="info" title="Claiming the first account before SMTP exists.">

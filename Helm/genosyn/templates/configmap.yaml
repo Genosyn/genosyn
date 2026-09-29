@@ -37,7 +37,7 @@ data:
       previousEncryptionSecrets: [],
       secureCookies: "auto",
       sessionMaxAgeDays: 7,
-      trustedProxyHops: 1,
+      trustedProxyHops: {{ include "genosyn.trustedProxyHops" . }},
       outboundPrivateHostAllowlist: [],
       outboundRequestTimeoutMs: 15_000,
       outboundMaxResponseBytes: 25 * 1024 * 1024,

@@ -44,17 +44,17 @@ production should operate its own (managed instance, CloudNativePG, an
 operator) and point `config.db.postgresUrlSecret` at it with
 `postgres.enabled=false`.
 
-Before the first SaaS registration, initialize the database-backed public URL
-from the running container. Use the actual HTTPS ingress origin:
+Multi-tenant installs accept registrations only once the database stores their
+public HTTPS URL. The chart does this itself: a post-install and post-upgrade
+Job stores `https://<ingress.host>` (or `config.publicUrl`) with the App's
+first-write-only setup script. An origin later changed at **Admin → General** is
+kept, and the upgrade continues. Without an HTTPS Ingress or `config.publicUrl`
+no Job runs; initialize it from the running container instead:
 
 ```bash
 kubectl -n genosyn exec deploy/genosyn -c app -- \
   node /app/dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com
 ```
-
-The root npm deployment commands do this automatically after Helm reports
-readiness. This setup is first-write-only: an existing different origin must
-be changed at **Admin → General**.
 
 **System SMTP is not a chart value.** Configure the mail transport after boot
 at **Admin → Email transport**, where it is stored encrypted in the database.
@@ -87,10 +87,12 @@ review the public URL at **Admin → General**.
 ## Cluster compatibility
 
 The chart renders standard Kubernetes resources: Deployments, Services,
-ConfigMaps, Secrets, PersistentVolumeClaims, an optional StatefulSet, and an
-optional `networking.k8s.io/v1` Ingress. It has no cloud-specific resources or
-annotations. Use a Kubernetes context with access to the chosen namespace;
-the chart does not create a cluster or install an ingress controller.
+ConfigMaps, Secrets, PersistentVolumeClaims, a Job, an optional StatefulSet,
+and an optional `networking.k8s.io/v1` Ingress. By default it has no
+cloud-specific resources or annotations; the opt-in [GKE](#gke) and
+[cert-manager](#tls-with-cert-manager) settings below add theirs. Use a
+Kubernetes context with access to the chosen namespace; the chart does not
+create a cluster or install an ingress controller or cert-manager.
 
 Select an installed controller through `ingress.className`, or leave it empty
 for the cluster's default. Supply TLS Secrets for the enabled hostnames.
@@ -103,9 +105,10 @@ OAuth callbacks contain short-lived authorization codes. The App's standard
 readiness and liveness probes use `/api/health` on port 8471; any external
 load-balancer health probe is the operator's responsibility.
 
-The default assumes one trusted ingress proxy (`trustedProxyHops: 1`). Match
-this count to your actual proxy chain through `config.extraJs`, and prevent
-direct untrusted access around those proxies. Choose `persistence.storageClass`
+The default assumes one trusted ingress proxy (`trustedProxyHops: 1`;
+`gke.enabled` sets 2 for Google's load balancer). Match this count to your
+actual proxy chain through `config.extraJs`, and prevent direct untrusted
+access around those proxies. Choose `persistence.storageClass`
 and `postgres.persistence.storageClass` for the cluster's storage, or leave
 them empty to use its default StorageClass. An existing App PVC is also
 supported through `persistence.existingClaim`.
@@ -117,6 +120,62 @@ described below. Restricted clusters that forbid them cannot run this SaaS
 mode. The trusted single-tenant `values-selfhost.yaml` profile instead runs
 OpenCode and Repository commands inside the App container without an OS sandbox.
 
+### GKE
+
+`gke.enabled` configures GKE's built-in Ingress (the external Application Load
+Balancer, used when no IngressClass is set). The chart then adds a
+BackendConfig with a one-hour timeout for WebSockets and streamed replies, the
+`/api/health` check, and load balancer request logging turned off; a
+FrontendConfig that redirects HTTP to HTTPS; the annotations that attach them;
+and `trustedProxyHops: 2`. With `gke.managedCertificate.enabled`, a
+Google-managed certificate covers `ingress.host` and the Connect host instead
+of TLS Secrets, so nothing else needs installing:
+
+```yaml
+ingress:
+  enabled: true
+  host: genosyn.example.com
+gke:
+  enabled: true
+  managedCertificate:
+    enabled: true
+  # Optional: a reserved global address keeps DNS stable if the Ingress is recreated.
+  # staticIpName: genosyn
+# Container-Optimized OS nodes run the sandbox; see sandbox.appArmorProfile.
+nodeSelector:
+  cloud.google.com/gke-os-distribution: cos
+```
+
+Point every hostname at the Ingress address with DNS only (not through a
+proxy); Google provisions the certificate once each one resolves, usually
+within an hour. To keep an existing ManagedCertificate, set
+`gke.managedCertificate.name` to its name.
+
+### TLS with cert-manager
+
+On clusters with [cert-manager](https://cert-manager.io) installed,
+`ingress.tls.certManager.enabled` issues and renews `ingress.tls.secretName` and
+the Connect host's `tlsSecretName`. The chart's own Issuer uses ACME HTTP-01
+through the App's Ingress (Let's Encrypt production by default), or set
+`ingress.tls.certManager.issuerRef` to an existing Issuer or ClusterIssuer. Each
+Certificate starts from a temporary self-signed certificate, so an Ingress that
+needs its Secret to exist, such as GKE's, comes up before the first issuance:
+
+```yaml
+ingress:
+  enabled: true
+  host: genosyn.example.com
+  tls:
+    enabled: true
+    secretName: genosyn-tls
+    certManager:
+      enabled: true
+```
+
+cert-manager itself is a one-time cluster add-on, like the ingress controller:
+Helm cannot create its CRDs and webhook in the same release as Certificates
+that depend on them.
+
 ## Values that matter
 
 | Value | Default | What it does |
@@ -127,8 +186,13 @@ OpenCode and Repository commands inside the App container without an OS sandbox.
 | `ingress.enabled` / `ingress.host` | `false` / `""` | Front the app. WebSockets pass through a plain Ingress rule on nginx/Traefik. |
 | `ingress.connect.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` (effective) | Add a separate TLS hostname on the same Ingress and Service for hosted sign-in. Configure the hosting address and OAuth apps in the dashboard before enabling hosting. Legacy `ingress.gmailSignIn` fields remain supported. |
 | `ingress.className` | Empty | Installed IngressClass to use; empty leaves selection to the cluster's default. |
-| `ingress.annotations` | `{}` | Controller-specific settings passed through to the Ingress. |
-| `service.annotations` | `{}` | Optional settings passed through to the App Service for the chosen cluster/load balancer. |
+| `ingress.annotations` | `{}` | Controller-specific settings passed through to the Ingress. They win over annotations an integration adds. |
+| `service.annotations` | `{}` | Optional settings passed through to the App Service for the chosen cluster/load balancer. They win over annotations an integration adds. |
+| `ingress.tls.certManager.enabled` / `issuerRef` / `email` | `false` / `{}` / `""` | Let cert-manager issue the Ingress TLS Secrets, with the chart's ACME Issuer or an existing one. See [TLS with cert-manager](#tls-with-cert-manager). |
+| `gke.enabled` | `false` | Configure GKE's built-in Ingress: BackendConfig, HTTPS redirect, annotations and two proxy hops. See [GKE](#gke). |
+| `gke.managedCertificate.enabled` / `name` | `false` / `""` | Google-managed certificate for the Ingress hostnames, instead of `ingress.tls`. |
+| `gke.backendConfig.timeoutSec` / `gke.staticIpName` | `3600` / `""` | Load balancer request and WebSocket timeout; optional reserved global static IP. |
+| `config.publicUrl` | `""` | Public HTTPS origin the post-install Job stores; empty derives it from an HTTPS `ingress.host`. |
 | `persistence.storageClass` / `postgres.persistence.storageClass` | Empty | App and bundled database StorageClasses; empty uses the cluster default. |
 | `persistence.size` | `20Gi` | The `/app/data` volume. Holds checkouts, browser state, uploads — and the managed instance secrets. |
 | `persistence.existingClaim` | `""` | Use a PVC you manage instead of the chart's. |
@@ -137,6 +201,7 @@ OpenCode and Repository commands inside the App container without an OS sandbox.
 | `postgres.enabled` | `true` | Bundled single-node Postgres, evaluation only. Turn off when using `postgresUrlSecret`. |
 | `postgres.password` | `""` | Optional inline bundled-Postgres password in a private values file. Use only letters, digits, `.`, `_`, `~`, or `-`. Cannot be combined with `postgres.passwordSecret.name`. |
 | `sandbox.enabled` | `true` | Grant the securityContext the bubblewrap coding sandbox needs (see below). |
+| `sandbox.appArmorProfile` | `Unconfined` | AppArmor profile for the sandboxed App container; an empty string omits it. |
 | `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). Empty lets the chart manage a kept `-instance-secrets` Secret. |
 | `secrets.sessionSecret` / `secrets.encryptionSecret` | `""` / `""` | Optional inline instance secrets in a private values file. Supply both, at least 32 characters each and distinct. Cannot be combined with `secrets.existingSecret`. |
 | `config.multiTenant` | `true` | Shared SaaS mode — the default; read the checklist below. |
@@ -291,7 +356,17 @@ allows neither, so `sandbox.enabled=true` sets on the container:
 securityContext:
   seccompProfile: { type: Unconfined }
   procMount: Unmasked
+  appArmorProfile: { type: Unconfined }
 ```
+
+The container runtime's default AppArmor profile (containerd's, on GKE, Ubuntu
+and Container-Optimized OS nodes) denies the mounts bubblewrap makes inside its
+own namespaces, so `sandbox.appArmorProfile` defaults to `Unconfined`. On
+Kubernetes before 1.30 the chart sets the equivalent pod annotation instead;
+an empty string omits both. Ubuntu 24.04 nodes additionally block the
+sandbox's nested user namespace through
+`kernel.apparmor_restrict_unprivileged_userns=1`, so schedule the App onto
+other nodes with `nodeSelector` (on GKE, Container-Optimized OS).
 
 `procMount: Unmasked` needs the cluster's `ProcMountType` feature gate and,
 on newer Kubernetes (1.31+), a user-namespaced pod: the chart therefore also

@@ -96,7 +96,11 @@ data:
 ---
 SECRET
         fi
-        printf 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nspec:\n'
+        printf 'apiVersion: networking.k8s.io/v1\nkind: Ingress\n'
+        if [ "$MOCK_TEMPLATE_MANAGED" = true ]; then
+          printf 'metadata:\n  annotations:\n    networking.gke.io/managed-certificates: genosyn\n'
+        fi
+        printf 'spec:\n'
         if [ "$MOCK_TEMPLATE_TLS" = true ] || [ -n "$MOCK_SECONDARY_HOST" ]; then
           printf '  tls:\n'
           if [ "$MOCK_TEMPLATE_TLS" = true ]; then
@@ -157,7 +161,8 @@ SECRET
       upgrade) exit "$MOCK_UPGRADE_EXIT" ;;
       get)
         node - <<'VALUES'
-console.log(JSON.stringify({ ingress: { enabled: true, host: process.env.MOCK_GET_HOST, tls: { enabled: process.env.MOCK_GET_TLS_ENABLED === "true", secretName: process.env.MOCK_GET_TLS_SECRET }, connect: { enabled: Boolean(process.env.MOCK_SECONDARY_HOST), host: process.env.MOCK_SECONDARY_HOST, tlsSecretName: "secondary-tls" } }, secretData: "must-not-appear-in-deploy-output" }));
+const managed = process.env.MOCK_GET_MANAGED === "true";
+console.log(JSON.stringify({ ingress: { enabled: true, host: process.env.MOCK_GET_HOST, tls: { enabled: process.env.MOCK_GET_TLS_ENABLED === "true", secretName: process.env.MOCK_GET_TLS_SECRET }, connect: { enabled: Boolean(process.env.MOCK_SECONDARY_HOST), host: process.env.MOCK_SECONDARY_HOST, tlsSecretName: "secondary-tls" } }, gke: { enabled: managed, managedCertificate: { enabled: managed } }, secretData: "must-not-appear-in-deploy-output" }));
 VALUES
         ;;
       *) echo "Unexpected mock Helm command" >&2; exit 99 ;;
@@ -179,6 +184,7 @@ esac
       GENOSYN_PROD_KUBE_CONTEXT: "fixture-prod-context",
       GENOSYN_IMAGE_TAG: "",
       GENOSYN_BOOTSTRAP_ADMIN_EMAIL: "",
+      GENOSYN_NAMESPACE: "",
       MOCK_LOG: log,
       MOCK_LINT_EXIT: "0",
       MOCK_CONTEXT_EXIT: "0",
@@ -194,6 +200,8 @@ esac
       MOCK_GET_HOST: "test.genosyn.com",
       MOCK_GET_TLS_ENABLED: "true",
       MOCK_GET_TLS_SECRET: "example-tls",
+      MOCK_TEMPLATE_MANAGED: "false",
+      MOCK_GET_MANAGED: "false",
       ...extraEnv,
     };
     const result = spawnSync("bash", [path.join(repo, "CLI/deploy-saas.sh"), ...args], { cwd: testRoot, env, encoding: "utf8" });
@@ -210,7 +218,7 @@ esac
       assert(!row.args.includes("--kubeconfig"), "multi-file KUBECONFIG must remain supported");
       const contextFlag = row.tool === "kubectl" ? "--context" : "--kube-context";
       assert.equal(row.args[row.args.indexOf(contextFlag) + 1], selectedContext, "selected context was not passed explicitly");
-      assert.equal(row.args[row.args.indexOf("--namespace") + 1], `genosyn-${args[0]}`, "namespace was not passed explicitly");
+      assert.equal(row.args[row.args.indexOf("--namespace") + 1], env.GENOSYN_NAMESPACE || `genosyn-${args[0]}`, "namespace was not passed explicitly");
     }
     return { ...result, rows, output: result.stdout + result.stderr };
   }
@@ -290,6 +298,30 @@ esac
     assert.equal(flag(setup, "--namespace"), "genosyn-test");
     assert.equal(flag(setup, "--url"), "https://effective.test.genosyn.com");
     assert(!result.output.includes("must-not-appear-in-deploy-output"));
+  });
+  test("a namespace override reaches the preview and every cluster command", () => {
+    const result = run(["prod"], { GENOSYN_NAMESPACE: "genosyn", MOCK_GET_HOST: "app.genosyn.com" });
+    assert.equal(result.status, 0, result.output);
+    assert.equal(flag(command(result, "helm", "template"), "--namespace"), "genosyn");
+    assert.equal(flag(command(result, "helm", "upgrade"), "--namespace"), "genosyn");
+    assert.equal(flag(command(result, "kubectl", "exec"), "--namespace"), "genosyn");
+    assert.match(result.stdout, /Deploying genosyn to genosyn \(fixture-prod-context\)/);
+  });
+  test("an invalid namespace override fails before any command runs", () => {
+    for (const namespace of ["Genosyn", "genosyn_prod", "-genosyn", "a".repeat(64)]) {
+      const result = run(["test"], { GENOSYN_NAMESPACE: namespace });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /GENOSYN_NAMESPACE must be a Kubernetes namespace name/);
+      assert.deepEqual(result.rows, [], "no command may run with an invalid namespace");
+    }
+  });
+  test("a Google-managed certificate satisfies HTTPS without a TLS Secret", () => {
+    const result = run(["test"], { MOCK_TEMPLATE_TLS: "false", MOCK_TEMPLATE_MANAGED: "true", MOCK_GET_TLS_ENABLED: "false", MOCK_GET_MANAGED: "true" });
+    assert.equal(result.status, 0, result.output);
+    assert.equal(flag(command(result, "kubectl", "exec"), "--url"), "https://test.genosyn.com");
+    const unmanaged = run(["test"], { MOCK_TEMPLATE_TLS: "false", MOCK_TEMPLATE_MANAGED: "true", MOCK_GET_TLS_ENABLED: "false" });
+    assert.notEqual(unmanaged.status, 0, "effective values without TLS must still fail");
+    assert.equal(command(unmanaged, "kubectl", "exec"), undefined);
   });
   test("production uses its own selected context and fixed release and namespace", () => {
     const result = run(["prod"], { MOCK_GET_HOST: "app.genosyn.com" });

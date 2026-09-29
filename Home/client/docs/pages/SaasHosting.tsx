@@ -97,7 +97,9 @@ node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</
       <P>
         This command applies pending migrations and sets an absent public URL. Repeating the same
         URL is safe; changing an existing value requires <Strong>Admin → General</Strong>.
-        The value is stored in Postgres and shared by all replicas.
+        The value is stored in Postgres and shared by all replicas. The Helm chart runs this step
+        itself in a post-install Job when its Ingress has TLS; see{" "}
+        <DocLink to="/docs/kubernetes">Kubernetes</DocLink>.
       </P>
 
       <H2 id="startup">What startup checks</H2>

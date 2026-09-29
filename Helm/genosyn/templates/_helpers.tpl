@@ -162,6 +162,117 @@ takes precedence. Neither setting ever creates a second App Service.
 {{- end -}}
 
 {{/*
+Opt-in integrations, read defensively: values reused from an older release
+(`helm upgrade --reuse-values`) lack these blocks entirely. Each boolean helper
+renders "true" or nothing, so it can be used directly in `if`.
+*/}}
+{{- define "genosyn.gke.enabled" -}}
+{{- if (default dict .Values.gke).enabled }}true{{ end -}}
+{{- end -}}
+
+{{- define "genosyn.gke.managedCertificate" -}}
+{{- $gke := default dict .Values.gke -}}
+{{- if and $gke.enabled (default dict $gke.managedCertificate).enabled }}true{{ end -}}
+{{- end -}}
+
+{{- define "genosyn.gke.backendConfigName" -}}
+{{- printf "%s-backend" (include "genosyn.fullname" . | trunc 55 | trimSuffix "-") }}
+{{- end -}}
+
+{{- define "genosyn.gke.frontendConfigName" -}}
+{{- printf "%s-frontend" (include "genosyn.fullname" . | trunc 54 | trimSuffix "-") }}
+{{- end -}}
+
+{{- define "genosyn.gke.managedCertificateName" -}}
+{{- (default dict (default dict .Values.gke).managedCertificate).name | default (include "genosyn.fullname" .) }}
+{{- end -}}
+
+{{/* The Ingress terminates TLS: from Secrets, or a Google-managed certificate. */}}
+{{- define "genosyn.ingressTls" -}}
+{{- if and .Values.ingress.enabled (or .Values.ingress.tls.enabled (include "genosyn.gke.managedCertificate" .)) }}true{{ end -}}
+{{- end -}}
+
+{{/* The public HTTPS origin the post-install Job stores, or nothing. */}}
+{{- define "genosyn.publicUrl" -}}
+{{- $explicit := default "" .Values.config.publicUrl | trim | trimSuffix "/" -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else if and (include "genosyn.ingressTls" .) .Values.ingress.host -}}
+{{- printf "https://%s" .Values.ingress.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Proxy hops in front of the App. GKE's load balancer appends both the client's
+address and its own to X-Forwarded-For; config.extraJs can still override.
+*/}}
+{{- define "genosyn.trustedProxyHops" -}}
+{{- if include "genosyn.gke.enabled" . }}2{{ else }}1{{ end -}}
+{{- end -}}
+
+{{/*
+AppArmor profile type for the sandboxed App container, or nothing to omit it.
+An empty string omits it. A missing key, which is also what Helm leaves for
+null or for values reused from an older release, keeps the requirement.
+*/}}
+{{- define "genosyn.appArmorProfile" -}}
+{{- if .Values.sandbox.enabled -}}
+{{- if hasKey .Values.sandbox "appArmorProfile" -}}
+{{- with .Values.sandbox.appArmorProfile }}{{ . }}{{ end -}}
+{{- else -}}
+Unconfined
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Environment shared by the App container and the public URL Job, so the Job
+opens the same database with the same secrets.
+*/}}
+{{- define "genosyn.appEnv" -}}
+{{- $instanceSecret := .Values.secrets.existingSecret | default (include "genosyn.instanceSecretsName" .) -}}
+# Always injected: from secrets.existingSecret when set, else the
+# chart-generated instance secrets. Not `optional` — a missing key
+# must block the pod, never let boot fall through to placeholders.
+- name: GENOSYN_SESSION_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $instanceSecret }}
+      key: sessionSecret
+- name: GENOSYN_ENCRYPTION_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $instanceSecret }}
+      key: encryptionSecret
+{{- $billing := default dict .Values.billing }}
+{{- if $billing.enabled }}
+- name: GENOSYN_BILLING_BOOTSTRAP_JSON
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "genosyn.billingBootstrapName" . }}
+      key: settings.json
+{{- end }}
+{{- if .Values.config.db.postgresUrlSecret.name }}
+- name: GENOSYN_POSTGRES_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.config.db.postgresUrlSecret.name }}
+      key: {{ .Values.config.db.postgresUrlSecret.key | default "url" }}
+{{- else if .Values.postgres.enabled }}
+- name: GENOSYN_POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "genosyn.postgres.secretName" . }}
+      key: {{ include "genosyn.postgres.secretKey" . }}
+- name: GENOSYN_POSTGRES_URL
+  value: "postgresql://{{ .Values.postgres.username }}:$(GENOSYN_POSTGRES_PASSWORD)@{{ include "genosyn.postgres.fullname" . }}:5432/{{ .Values.postgres.database }}"
+{{- end }}
+{{- with .Values.env }}
+{{ toYaml . }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Fail fast — at template time, aggregated — when the configuration cannot boot.
 Genosyn's multi-tenant startup validation (App/server/services/runtimeSecurity.ts)
 refuses to boot a shared SaaS below its baseline; catching the chart-supplied
@@ -232,8 +343,8 @@ Included from deployment.yaml so it runs on every render.
 {{- end -}}
 {{- $connect := include "genosyn.connectIngress" . | fromYaml -}}
 {{- if $connect.enabled -}}
-{{- if or (not .Values.ingress.enabled) (not .Values.ingress.tls.enabled) -}}
-{{- $problems = append $problems "ingress.connect.enabled requires ingress.enabled=true and ingress.tls.enabled=true" -}}
+{{- if not (include "genosyn.ingressTls" .) -}}
+{{- $problems = append $problems "ingress.connect.enabled requires ingress.enabled=true and ingress.tls.enabled=true (or gke.managedCertificate.enabled=true)" -}}
 {{- end -}}
 {{- $signInHost := $connect.host -}}
 {{- if or (gt (len $signInHost) 253) (not (regexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$" $signInHost)) (regexMatch "^[0-9]+(\\.[0-9]+){3}$" $signInHost) -}}
@@ -242,9 +353,38 @@ Included from deployment.yaml so it runs on every render.
 {{- if eq (lower $signInHost) (lower (default "" .Values.ingress.host)) -}}
 {{- $problems = append $problems "ingress.connect.host must differ from ingress.host" -}}
 {{- end -}}
-{{- if not ($connect.tlsSecretName | trim) -}}
-{{- $problems = append $problems "ingress.connect.tlsSecretName is required when ingress.connect.enabled" -}}
+{{- if and .Values.ingress.tls.enabled (not ($connect.tlsSecretName | trim)) -}}
+{{- $problems = append $problems "ingress.connect.tlsSecretName is required when ingress.connect.enabled uses ingress.tls" -}}
 {{- end -}}
+{{- end -}}
+{{- $gke := default dict .Values.gke -}}
+{{- if (default dict $gke.managedCertificate).enabled -}}
+{{- if not $gke.enabled -}}
+{{- $problems = append $problems "gke.managedCertificate.enabled requires gke.enabled=true" -}}
+{{- else if or (not .Values.ingress.enabled) (not .Values.ingress.host) -}}
+{{- $problems = append $problems "gke.managedCertificate.enabled requires ingress.enabled=true and ingress.host" -}}
+{{- end -}}
+{{- if .Values.ingress.tls.enabled -}}
+{{- $problems = append $problems "gke.managedCertificate.enabled and ingress.tls.enabled are alternatives; enable one" -}}
+{{- end -}}
+{{- end -}}
+{{- $certManager := default dict .Values.ingress.tls.certManager -}}
+{{- if $certManager.enabled -}}
+{{- if or (not .Values.ingress.enabled) (not .Values.ingress.host) (not .Values.ingress.tls.enabled) (not (default "" .Values.ingress.tls.secretName | trim)) -}}
+{{- $problems = append $problems "ingress.tls.certManager.enabled requires ingress.enabled=true, ingress.host, ingress.tls.enabled=true and ingress.tls.secretName" -}}
+{{- end -}}
+{{- $issuerRef := default dict $certManager.issuerRef -}}
+{{- if and (gt (len $issuerRef) 0) (not $issuerRef.name) -}}
+{{- $problems = append $problems "ingress.tls.certManager.issuerRef needs a name, or leave it empty to use the chart's own Issuer" -}}
+{{- end -}}
+{{- end -}}
+{{- $appArmor := include "genosyn.appArmorProfile" . -}}
+{{- if and $appArmor (not (has $appArmor (list "Unconfined" "RuntimeDefault"))) -}}
+{{- $problems = append $problems "sandbox.appArmorProfile must be Unconfined, RuntimeDefault, or an empty string to omit it" -}}
+{{- end -}}
+{{- $publicUrl := default "" .Values.config.publicUrl | trim -}}
+{{- if and .Values.config.multiTenant $publicUrl (not (regexMatch "^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?/?$" $publicUrl)) -}}
+{{- $problems = append $problems "config.publicUrl must be an https:// origin with a lowercase host and no path, e.g. https://genosyn.example.com" -}}
 {{- end -}}
 {{- if .Values.config.multiTenant -}}
 {{- if not (default "" .Values.config.bootstrapMasterAdminEmail | trim) -}}

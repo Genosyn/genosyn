@@ -3,7 +3,7 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 1. Reach the app
 {{- if .Values.ingress.enabled }}
 
-   http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+   http{{ if include "genosyn.ingressTls" . }}s{{ end }}://{{ .Values.ingress.host }}
 {{- else }}
 
    No Ingress is enabled. Port-forward to try it out:
@@ -14,12 +14,33 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    and ingress.host (WebSockets pass through a plain Ingress rule).
 {{- end }}
 
+{{- if include "genosyn.gke.enabled" . }}
+
+   gke.enabled=true: GKE's load balancer uses BackendConfig
+   {{ include "genosyn.gke.backendConfigName" . }} (timeouts, /api/health, request logging off), and the
+   App trusts its two proxy hops.
+{{- if include "genosyn.gke.managedCertificate" . }} Point every Ingress hostname at the Ingress
+   address (DNS only) so Google can provision ManagedCertificate
+   {{ include "genosyn.gke.managedCertificateName" . }}:
+
+     kubectl -n {{ .Release.Namespace }} get ingress {{ include "genosyn.fullname" . }}
+{{- end }}
+{{- else }}
+
    Select your installed controller with ingress.className and extend its
    configuration with ingress.annotations or service.annotations. Set its
    WebSocket/streaming timeouts and buffering as needed, and omit query
    strings from access logs (OAuth callbacks contain authorization codes).
    Kubernetes Ingress has no portable timeout field. The App defaults to
    one trusted ingress proxy; match trustedProxyHops to your actual chain.
+   On GKE's built-in Ingress, gke.enabled=true configures all of this.
+{{- end }}
+{{- if (default dict .Values.ingress.tls.certManager).enabled }}
+
+   cert-manager issues and renews the Ingress TLS Secrets. Point every
+   Ingress hostname at the Ingress address; until the first issuance the
+   Secrets hold a temporary self-signed certificate.
+{{- end }}
 
 2. First boot
 
@@ -27,14 +48,22 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    answers only after boot completes, so a pending readiness probe during the
    first minute is normal.
 {{- if .Values.config.multiTenant }}
+{{- $publicUrl := include "genosyn.publicUrl" . }}
+{{- if $publicUrl }}
+
+   A post-install Job stored the public URL {{ $publicUrl }}, which
+   registration and verification emails need. An origin already changed at
+   Admin -> General is kept.
+{{- else }}
 
    Before registering, initialize the database-backed public HTTPS URL:
 
      kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "genosyn.fullname" . }} -c app -- \
        node /app/dist/server/scripts/setupPublicUrl.js --url {{ printf "https://%s" (.Values.ingress.host | default "genosyn.example.com") | quote }}
 
-   Use your actual HTTPS ingress origin. The repository's npm deploy-test and
-   deploy-prod commands run this first-write-only setup automatically.
+   Use your actual HTTPS ingress origin. With an HTTPS Ingress, or
+   config.publicUrl, the chart runs this first-write-only setup itself.
+{{- end }}
 
    multiTenant is ON (the chart default). Only
    {{ .Values.config.bootstrapMasterAdminEmail }} may claim the master-admin

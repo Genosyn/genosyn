@@ -1,5 +1,9 @@
 {{- /* Aggregated template-time boot validation — see _helpers.tpl. */ -}}
 {{- include "genosyn.validate" . -}}
+{{- $appArmor := include "genosyn.appArmorProfile" . -}}
+{{- /* The appArmorProfile field is GA from Kubernetes 1.30; older API servers
+     reject it, and read the per-container annotation instead. */ -}}
+{{- $appArmorField := semverCompare ">=1.30-0" .Capabilities.KubeVersion.Version -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,6 +35,9 @@ spec:
       annotations:
         # Roll the pod when the rendered config.js changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if and $appArmor (not $appArmorField) }}
+        container.apparmor.security.beta.kubernetes.io/app: {{ ternary "unconfined" "runtime/default" (eq $appArmor "Unconfined") }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -75,48 +82,15 @@ spec:
             seccompProfile:
               type: Unconfined
             procMount: Unmasked
+            {{- if and $appArmor $appArmorField }}
+            # The runtime's default AppArmor profile denies the mounts
+            # bubblewrap makes inside its own namespaces (sandbox.appArmorProfile).
+            appArmorProfile:
+              type: {{ $appArmor }}
+            {{- end }}
           {{- end }}
           env:
-            # Always injected: from secrets.existingSecret when set, else the
-            # chart-generated instance secrets. Not `optional` — a missing key
-            # must block the pod, never let boot fall through to placeholders.
-            {{- $instanceSecret := .Values.secrets.existingSecret | default (include "genosyn.instanceSecretsName" .) }}
-            - name: GENOSYN_SESSION_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $instanceSecret }}
-                  key: sessionSecret
-            - name: GENOSYN_ENCRYPTION_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $instanceSecret }}
-                  key: encryptionSecret
-            {{- $billing := default dict .Values.billing }}
-            {{- if $billing.enabled }}
-            - name: GENOSYN_BILLING_BOOTSTRAP_JSON
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "genosyn.billingBootstrapName" . }}
-                  key: settings.json
-            {{- end }}
-            {{- if .Values.config.db.postgresUrlSecret.name }}
-            - name: GENOSYN_POSTGRES_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.config.db.postgresUrlSecret.name }}
-                  key: {{ .Values.config.db.postgresUrlSecret.key | default "url" }}
-            {{- else if .Values.postgres.enabled }}
-            - name: GENOSYN_POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "genosyn.postgres.secretName" . }}
-                  key: {{ include "genosyn.postgres.secretKey" . }}
-            - name: GENOSYN_POSTGRES_URL
-              value: "postgresql://{{ .Values.postgres.username }}:$(GENOSYN_POSTGRES_PASSWORD)@{{ include "genosyn.postgres.fullname" . }}:5432/{{ .Values.postgres.database }}"
-            {{- end }}
-            {{- with .Values.env }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- include "genosyn.appEnv" . | nindent 12 }}
           volumeMounts:
             {{- if .Values.persistence.enabled }}
             - name: data

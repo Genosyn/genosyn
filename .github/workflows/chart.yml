@@ -81,6 +81,9 @@ jobs:
       - name: Verify portable Kubernetes resources
         run: bash Helm/test-portability.sh
 
+      - name: Verify GKE, cert-manager, AppArmor and public URL integrations
+        run: bash Helm/test-integrations.sh
+
       - name: Validate test and production SaaS profiles
         env:
           GENOSYN_BOOTSTRAP_ADMIN_EMAIL: ops@example.com

@@ -1,0 +1,63 @@
+{{- /*
+GKE's built-in Ingress (gke.enabled). Rendered only when opted in, so the
+default chart stays provider-neutral. The Service and Ingress templates add the
+annotations that point at these resources.
+*/ -}}
+{{- if include "genosyn.gke.enabled" . }}
+{{- $gke := default dict .Values.gke }}
+{{- $backend := default dict $gke.backendConfig }}
+{{- $connect := include "genosyn.connectIngress" . | fromYaml }}
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ include "genosyn.gke.backendConfigName" . }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+spec:
+  # WebSockets and streamed replies share the App port; the load balancer
+  # closes any request or WebSocket still open after this many seconds.
+  timeoutSec: {{ $backend.timeoutSec | default 3600 }}
+  connectionDraining:
+    drainingTimeoutSec: {{ $backend.drainingTimeoutSec | default 30 }}
+  healthCheck:
+    type: HTTP
+    requestPath: /api/health
+    port: 8471
+    checkIntervalSec: 15
+    timeoutSec: 5
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+  # Request logs would record full URLs, and OAuth callback query strings
+  # carry short-lived authorization codes.
+  logging:
+    enable: false
+{{- if and (ne (toString $gke.redirectToHttps) "false") (include "genosyn.ingressTls" .) }}
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: {{ include "genosyn.gke.frontendConfigName" . }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT
+{{- end }}
+{{- if include "genosyn.gke.managedCertificate" . }}
+---
+# Google provisions this once every domain resolves to the Ingress address.
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ include "genosyn.gke.managedCertificateName" . }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+spec:
+  domains:
+    - {{ .Values.ingress.host | quote }}
+    {{- if $connect.enabled }}
+    - {{ $connect.host | quote }}
+    {{- end }}
+{{- end }}
+{{- end }}

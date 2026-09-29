@@ -44,7 +44,8 @@ service:
   type: ClusterIP
   port: 80
   # Optional annotations for the cluster's Service/load-balancer integration.
-  # The chart adds no cloud-specific annotations or custom resources.
+  # The chart adds provider annotations only for an opt-in integration such as
+  # gke.enabled below; values given here win over them.
   annotations: {}
 
 ingress:
@@ -57,6 +58,22 @@ ingress:
     enabled: false
     # Name of a TLS secret in the release namespace (cert-manager or hand-fed).
     secretName: ""
+    # Let cert-manager issue and renew secretName, and the connect host's
+    # tlsSecretName, through this Ingress. Requires cert-manager in the
+    # cluster (a one-time cluster add-on, like the ingress controller). Each
+    # Certificate starts from a temporary self-signed certificate, so an
+    # Ingress that needs its Secret to exist (GKE) comes up before the first
+    # issuance. Point both hostnames at the Ingress address in DNS.
+    certManager:
+      enabled: false
+      # Use an existing Issuer or ClusterIssuer instead of the chart's own,
+      # e.g. { kind: ClusterIssuer, name: letsencrypt }.
+      issuerRef: {}
+      # The chart's own Issuer (when issuerRef is empty): ACME over HTTP-01,
+      # answered through this Ingress. Let's Encrypt production by default.
+      server: https://acme-v02.api.letsencrypt.org/directory
+      # Optional ACME account email for the certificate authority's notices.
+      email: ""
   # Optional hosted sign-in hostname on this same Ingress and App Service.
   # Routes /api/connect and the six legacy /api/google-sign-in endpoints only.
   # The App public URL stays ingress.host. Requires ingress + TLS above.
@@ -84,6 +101,37 @@ ingress:
   #     nginx.ingress.kubernetes.io/server-snippet: |
   #       location /api/internal { deny all; return 404; }
   annotations: {}
+
+# Opt-in integration with GKE's built-in Ingress, the external Application Load
+# Balancer that serves Ingresses with no IngressClass. Off by default, which
+# keeps every resource this chart renders portable. Enabled, the chart adds:
+#   - a BackendConfig on the App Service: the timeout below for WebSockets and
+#     streamed replies, the /api/health check, and load balancer request
+#     logging off (OAuth callback URLs carry authorization codes);
+#   - a FrontendConfig that redirects HTTP to HTTPS when the Ingress has TLS;
+#   - optionally a Google-managed certificate for ingress.host and the connect
+#     host, in place of ingress.tls Secrets and cert-manager;
+#   - security.trustedProxyHops: 2, because the load balancer appends both the
+#     client's address and its own to X-Forwarded-For.
+gke:
+  enabled: false
+  backendConfig:
+    # Seconds a request or WebSocket may stay open through the load balancer.
+    timeoutSec: 3600
+    drainingTimeoutSec: 30
+  # Redirect HTTP to HTTPS at the load balancer when the Ingress has TLS.
+  redirectToHttps: true
+  # A reserved global static IP (gcloud compute addresses create NAME --global),
+  # so DNS survives the Ingress being recreated. Empty uses an ephemeral address.
+  staticIpName: ""
+  managedCertificate:
+    # A Google-managed certificate for ingress.host and the connect host, used
+    # instead of ingress.tls. Google provisions it once every hostname resolves
+    # to the Ingress address (DNS only, not through a proxy such as Cloudflare's).
+    enabled: false
+    # Keeps an existing ManagedCertificate's name when adopting it. Empty uses
+    # the release's full name.
+    name: ""
 
 # The /app/data volume. This must persist even when the database is Postgres:
 # it holds materialized git checkouts, browser state, tool artifacts, and
@@ -123,6 +171,17 @@ sandbox:
   # UserNamespacesSupport feature gate. Clusters without the gate can set
   # this to null to omit the field entirely.
   hostUsers: false
+  # AppArmor profile type for the App container. The container runtime's
+  # default profile (containerd's cri-containerd.apparmor.d on GKE, Ubuntu and
+  # Container-Optimized OS nodes) denies the mounts bubblewrap makes inside its
+  # own namespaces ("bwrap: Failed to make / slave: Permission denied"), so the
+  # sandbox needs Unconfined wherever nodes enforce AppArmor. Set to an empty
+  # string to omit it (Helm drops null values, which keeps the default).
+  # Ubuntu 24.04 nodes also set kernel.apparmor_restrict_unprivileged_userns=1,
+  # which blocks the sandbox's nested user namespace even when unconfined;
+  # schedule onto other nodes with nodeSelector (on GKE, Container-Optimized OS:
+  # cloud.google.com/gke-os-distribution: cos).
+  appArmorProfile: Unconfined
 
 config:
   db:
@@ -144,6 +203,12 @@ config:
   # bootstrap). REQUIRED when multiTenant — a bare install fails at template
   # time until you set it.
   bootstrapMasterAdminEmail: ""
+  # The public HTTPS origin, e.g. https://genosyn.example.com. Multi-tenant
+  # installs refuse sign-ups until it is stored in the database, so the chart
+  # runs a post-install/post-upgrade Job that stores it once. Empty derives it
+  # from ingress.host when the Ingress has TLS; with neither, no Job runs. An
+  # origin already changed at Admin -> General is kept.
+  publicUrl: ""
   # Extra JavaScript spliced verbatim into the generated config.js, just
   # before the closing brace of the config object — so each line should be a
   # `key: value,` entry. A duplicate top-level key replaces the default block
