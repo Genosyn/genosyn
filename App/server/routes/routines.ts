@@ -27,7 +27,12 @@ import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
-import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
+import {
+  startManualRoutineRun,
+  getLiveRunSnapshot,
+  RUN_LOG_MAX_BYTES,
+} from "../services/runner.js";
+import { ManualRoutineStartError } from "../services/routineManualStart.js";
 import { activeStanddownFor, serializeStanddown, StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { resumeRoutineRun, RunManualResumeError } from "../services/runManualResume.js";
@@ -668,46 +673,28 @@ routinesRouter.post("/routines/:rid/webhook", validateBody(webhookSchema), async
   res.json(r);
 });
 
-routinesRouter.post("/routines/:rid/run", async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  await recordAudit({
-    companyId: found.co.id,
-    actorUserId: req.userId ?? null,
-    action: "routine.run.manual",
-    targetType: "routine",
-    targetId: found.routine.id,
-    targetLabel: found.routine.name,
-  });
-  // Return as soon as the Run row exists so the UI can open a tail-log modal
-  // and poll /runs/:runId/log while the child process is still alive. The
-  // completion promise is left to settle in the background; errors are
-  // captured on the Run row, so we just swallow rejections here.
-  //
-  // The *start* can refuse, though, and that has to be answered rather than
-  // thrown: Express 4 does not catch a rejected async handler, so an
-  // uncaught refusal here takes the process down. A Standdown makes that a
-  // routine occurrence rather than a theoretical one — pressing "Run now" on a
-  // stopped Routine is exactly what a person does when they have forgotten it
-  // is stopped, and they deserve the reason back, not a dead server.
-  let run: Run;
-  let completion: Promise<Run>;
+routinesRouter.post("/routines/:rid/run", async (req, res, next) => {
   try {
-    ({ run, completion } = await startRoutineRun(found.routine));
-  } catch (err) {
-    if (err instanceof StanddownError) {
-      return res.status(409).json({ error: err.message });
-    }
-    // eslint-disable-next-line no-console
-    console.error("[run] could not start:", err);
-    return res.status(500).json({
-      error: err instanceof Error ? err.message : "Could not start the run.",
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.run.manual",
+      targetType: "routine",
+      targetId: found.routine.id,
+      targetLabel: found.routine.name,
     });
+    // A repeated request opens the accepted Run; losing an HTTP response must
+    // not silently enqueue another occurrence of the same Routine.
+    const run = await startManualRoutineRun(found.routine, found.co.id);
+    res.json(publicRun(run));
+  } catch (err) {
+    if (err instanceof StanddownError) return res.status(409).json({ error: err.message });
+    if (err instanceof ManualRoutineStartError)
+      return res.status(err.status).json({ error: err.message });
+    next(err);
   }
-  completion.catch((err) => {
-    console.error("[run]", err);
-  });
-  res.json(publicRun(run));
 });
 
 /**

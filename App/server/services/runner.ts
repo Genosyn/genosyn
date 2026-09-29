@@ -72,6 +72,7 @@ import {
   CONTINUATION_DELAY_MS,
 } from "./runContinuation.js";
 import { QueuedRoutineIneligibleError, registerQueuedRun } from "./routineQueue.js";
+import { findAcceptedManualRoutineRun, persistManualRoutineRun } from "./routineManualStart.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -181,6 +182,18 @@ export async function startRoutineRun(
   return prepareRoutineRun(routine, opts);
 }
 
+/** Direct Member requests open accepted work instead of duplicating an uncertain start. */
+export async function startManualRoutineRun(routine: Routine, companyId: string): Promise<Run> {
+  const existing = await findAcceptedManualRoutineRun(routine, companyId);
+  if (existing) return existing;
+  const { run, completion } = await prepareRoutineRun(routine, {}, undefined, companyId);
+  // A reused Run keeps its original caller's waiter, even on another process.
+  completion?.catch((error) => {
+    console.error("[run]", error);
+  });
+  return run;
+}
+
 /** Dispatch-only execution seam: the caller must own this Run's durable claim. */
 export async function executeQueuedRoutineRun(
   routine: Routine,
@@ -194,7 +207,19 @@ async function prepareRoutineRun(
   routine: Routine,
   opts: StartRunOptions,
   queued?: Run,
-): Promise<{ run: Run; completion: Promise<Run> }> {
+): Promise<{ run: Run; completion: Promise<Run> }>;
+async function prepareRoutineRun(
+  routine: Routine,
+  opts: StartRunOptions,
+  queued: undefined,
+  manualCompanyId: string,
+): Promise<{ run: Run; completion: Promise<Run> | null }>;
+async function prepareRoutineRun(
+  routine: Routine,
+  opts: StartRunOptions,
+  queued?: Run,
+  manualCompanyId?: string,
+): Promise<{ run: Run; completion: Promise<Run> | null }> {
   const retainQueuePolicy = (): void => {
     routine.selfReviewOnly ||= !!opts.queuePolicy?.selfReviewOnly;
     routine.mailDeliveryMode ||= opts.queuePolicy?.mailDeliveryMode ?? null;
@@ -375,6 +400,10 @@ async function prepareRoutineRun(
     );
     if (updated.affected !== 1) throw new Error("The queued Run was removed before starting.");
     saved = run;
+  } else if (manualCompanyId) {
+    const accepted = await persistManualRoutineRun(run, manualCompanyId);
+    if (!accepted.created) return { run: accepted.run, completion: null };
+    saved = accepted.run;
   } else {
     saved = await runRepo.save(run);
   }

@@ -117,6 +117,40 @@ async function childMain(mode: string): Promise<void> {
         await release;
         signal?.throwIfAborted();
       });
+    } else if (mode === "accept-manual-routines") {
+      const { AIEmployee } = await import("../db/entities/AIEmployee.js");
+      const { Routine } = await import("../db/entities/Routine.js");
+      const { startManualRoutineRun } = await import("../services/runner.js");
+      const { stopRoutineQueue } = await import("../services/routineQueue.js");
+      // Acceptance must finish without waiting for model work. Keep the durable
+      // queued rows stable while independent processes race the actual helper.
+      stopRoutineQueue();
+      const employeeId = process.env.GENOSYN_TEST_EMPLOYEE_ID;
+      assert.ok(employeeId);
+      const employee = await AppDataSource.getRepository(AIEmployee).findOneByOrFail({
+        id: employeeId,
+      });
+      const selectedIds: unknown = JSON.parse(process.env.GENOSYN_TEST_ROUTINE_IDS ?? "[]");
+      assert.ok(
+        Array.isArray(selectedIds) &&
+          selectedIds.length > 0 &&
+          selectedIds.every((id) => typeof id === "string"),
+      );
+      const selected = await Promise.all(
+        selectedIds.map((id: string) =>
+          AppDataSource.getRepository(Routine).findOneByOrFail({ id, employeeId }),
+        ),
+      );
+      const start = parentMessage("start");
+      process.send("ready");
+      await start;
+      await Promise.all(
+        selected.map(async (routine) => {
+          const run = await startManualRoutineRun(routine, employee.companyId);
+          assert.equal(run.routineId, routine.id);
+          process.send!({ kind: "manual-run-accepted", routineId: routine.id, runId: run.id });
+        }),
+      );
     } else if (mode === "drain-routine-queue" || mode === "exercise-routine-admission") {
       const { Run } = await import("../db/entities/Run.js");
       const { agentRuntime } = await import("../services/agent/runtime.js");
@@ -190,6 +224,7 @@ function spawnChild(
   dataDir: string,
   employeeId = "",
   runIds: string[] = [],
+  routineIds: string[] = [],
 ) {
   stop.signal.throwIfAborted();
   const child = fork(fileURLToPath(import.meta.url), [mode], {
@@ -200,6 +235,7 @@ function spawnChild(
       GENOSYN_TEST_DATA_DIR: dataDir,
       GENOSYN_TEST_EMPLOYEE_ID: employeeId,
       GENOSYN_TEST_RUN_IDS: JSON.stringify(runIds),
+      GENOSYN_TEST_ROUTINE_IDS: JSON.stringify(routineIds),
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
@@ -852,6 +888,112 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
       "PASS cross-process Routine admission: same-Routine serialization, terminal cleanup exclusion and unrelated concurrency",
     );
 
+    const [manualShared, manualUnrelated] = await Promise.all(
+      ["Shared manual request", "Independent manual request"].map((name, index) =>
+        routines.save(
+          routines.create({
+            employeeId: queueEmployee.id,
+            name,
+            slug: `manual-acceptance-${index}`,
+            cronExpr: "0 9 * * *",
+            timeoutSec: 60,
+            body: "Complete this Routine.",
+          }),
+        ),
+      ),
+    );
+    const manualPeers = [
+      spawnChild(
+        "accept-manual-routines",
+        url,
+        dataDir,
+        queueEmployee.id,
+        [],
+        [manualShared.id, manualUnrelated.id],
+      ),
+      spawnChild("accept-manual-routines", url, dataDir, queueEmployee.id, [], [manualShared.id]),
+    ];
+    const manualAccepted: { routineId: string; runId: string; child: ChildProcess }[] = [];
+    for (const peer of manualPeers) {
+      peer.child.on("message", (message: unknown) => {
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "kind" in message &&
+          message.kind === "manual-run-accepted" &&
+          "routineId" in message &&
+          typeof message.routineId === "string" &&
+          "runId" in message &&
+          typeof message.runId === "string"
+        ) {
+          manualAccepted.push({
+            routineId: message.routineId,
+            runId: message.runId,
+            child: peer.child,
+          });
+        }
+      });
+    }
+    await Promise.all(manualPeers.map((peer) => peer.ready));
+    const manualLock = AppDataSource.createQueryRunner();
+    await manualLock.connect();
+    await manualLock.startTransaction();
+    try {
+      await manualLock.manager.getRepository(Routine).findOneOrFail({
+        where: { id: manualShared.id },
+        lock: { mode: "pessimistic_write" },
+      });
+      for (const peer of manualPeers) peer.child.send("start");
+      await waitUntil(async () => {
+        assert.ok(
+          manualAccepted.every(({ routineId }) => routineId === manualUnrelated.id),
+          "A manual request must not insert or return a Run before acquiring its Routine lock",
+        );
+        const blocked: { pid: number }[] = await AppDataSource.query(
+          "SELECT pid FROM pg_stat_activity WHERE datname = current_database() " +
+            "AND wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'",
+        );
+        return blocked.length === 2 && manualAccepted.length === 1;
+      }, "Two manual requests wait on the same Routine while an unrelated request is accepted");
+      assert.equal(await runs.countBy({ routineId: manualShared.id }), 0);
+      const independent = await runs.findOneByOrFail({ routineId: manualUnrelated.id });
+      assert.equal(independent.id, manualAccepted[0].runId);
+      assert.equal(independent.status, "queued");
+    } finally {
+      await manualLock.rollbackTransaction();
+      await manualLock.release();
+    }
+    await Promise.all(manualPeers.map((peer) => peer.exited()));
+    assert.equal(manualAccepted.length, 3);
+    const sharedResponses = manualAccepted.filter(({ routineId }) => routineId === manualShared.id);
+    assert.equal(sharedResponses.length, 2);
+    assert.equal(new Set(sharedResponses.map(({ child }) => child)).size, 2);
+    assert.equal(new Set(sharedResponses.map(({ runId }) => runId)).size, 1);
+    const sharedRows = await runs.findBy({ routineId: manualShared.id });
+    assert.equal(
+      sharedRows.length,
+      1,
+      "Simultaneous Member requests must create only one durable Run",
+    );
+    assert.equal(sharedRows[0].id, sharedResponses[0].runId);
+    assert.notEqual(
+      sharedRows[0].id,
+      manualAccepted.find(({ routineId }) => routineId === manualUnrelated.id)!.runId,
+    );
+    for (const routine of [manualShared, manualUnrelated]) {
+      assert.equal(await runs.countBy({ routineId: routine.id }), 1);
+      const accepted = await runs.findOneByOrFail({ routineId: routine.id });
+      assert.equal(accepted.employeeId, queueEmployee.id);
+      assert.equal(accepted.status, "queued");
+      assert.equal(accepted.triggerKind, "manual");
+      assert.equal(accepted.queueActiveEmployeeId, null);
+      assert.equal(accepted.parentRunId, null);
+      assert.equal(accepted.continuationCount, 0);
+    }
+    console.log(
+      "PASS cross-process manual requests: one accepted Run, shared response ID and independent Routine progress",
+    );
+
     const { createUserSession, resolveUserSession, revokeCurrentUserSession } =
       await import("../services/userSessions.js");
     const user = await users.save(
@@ -903,7 +1045,10 @@ async function main(): Promise<void> {
     assert.match(name, /^genosyn_saas_smoke_[a-f0-9]{32}$/);
     await maintenance.query(`CREATE DATABASE "${name}"`);
     created = true;
-    await deadline(exercisePostgres(testUrl, dataDir), "Postgres smoke", 180_000);
+    // Multiple independent process pairs each import and initialize the full
+    // service graph. Keep their individual deadlines while allowing all phases
+    // to complete on a busy CI worker.
+    await deadline(exercisePostgres(testUrl, dataDir), "Postgres smoke", 300_000);
   } finally {
     stop.abort(new Error("Postgres smoke cleanup"));
     try {
