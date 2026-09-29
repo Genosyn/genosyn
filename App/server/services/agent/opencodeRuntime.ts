@@ -180,7 +180,10 @@ async function runOpenCodeSessionWithClient(
         ? "The turn has ended."
         : !params.nativeCoding || !OPENCODE_NATIVE_PERMISSIONS.includes(event.properties.permission)
           ? "This native tool is unavailable for this work surface."
-          : await params.authorizePrivilegedToolCall?.();
+          : await waitForNativeAuthorization(
+              params.authorizePrivilegedToolCall,
+              streamController.signal,
+            );
       if (params.signal?.aborted) denial = "The turn has ended.";
       await client.permission.reply(
         {
@@ -303,4 +306,38 @@ async function runOpenCodeSessionWithClient(
     // OpenCode. Keep its HTTP dispatcher alive until that bounded request ends.
     await stopping;
   }
+}
+
+/** Stop waiting on authority when the session ends; a late result cannot grant a tool. */
+async function waitForNativeAuthorization(
+  authorize: PrivilegedToolCallAuthorizer | undefined,
+  signal: AbortSignal,
+): Promise<string | null> {
+  signal.throwIfAborted();
+  if (!authorize) return null;
+  return new Promise<string | null>((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    // The authority lookup may finish later. Observe both outcomes without
+    // continuing the permission reply or blocking the session's cleanup.
+    void Promise.resolve()
+      .then(() => {
+        signal.throwIfAborted();
+        return authorize();
+      })
+      .then(
+        (denial) => {
+          signal.removeEventListener("abort", abort);
+          resolve(denial);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", abort);
+          reject(error);
+        },
+      );
+    if (signal.aborted) abort();
+  });
 }

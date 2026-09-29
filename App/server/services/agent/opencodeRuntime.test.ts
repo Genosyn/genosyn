@@ -908,7 +908,11 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 test("native permissions recheck Member authority, and scoped turns deny them", async () => {
-  for (const nativeCoding of [false, true]) {
+  for (const { nativeCoding, denial, reply } of [
+    { nativeCoding: false, denial: null, reply: "reject" },
+    { nativeCoding: true, denial: "Member authority was removed.", reply: "reject" },
+    { nativeCoding: true, denial: null, reply: "once" },
+  ]) {
     let checked = 0;
     const runtime = await fakeOpenCode(async (emit) => {
       emit({
@@ -932,16 +936,91 @@ test("native permissions recheck Member authority, and scoped turns deny them", 
         nativeCoding,
         authorizePrivilegedToolCall: async () => {
           checked++;
-          return "Member authority was removed.";
+          return denial;
         },
       });
-      assert.equal(runtime.permissions[0].reply, "reject");
+      assert.equal(runtime.permissions[0].reply, reply);
       assert.equal(checked, nativeCoding ? 1 : 0);
     } finally {
       await runtime.close();
     }
   }
 });
+
+for (const ending of ["cancelled", "completed"] as const) {
+  for (const lateResult of ["allow", "reject"] as const) {
+    test(
+      `a ${ending} session stops waiting for native authorization before its late ${lateResult}`,
+      { timeout: 15_000 },
+      async () => {
+        const controller = new AbortController();
+        let checked = false;
+        let settled = false;
+        let finishAuthorization!: () => void;
+        const authorization = new Promise<string | null>((resolve, reject) => {
+          finishAuthorization = () => {
+            settled = true;
+            if (lateResult === "allow") resolve(null);
+            else reject(new Error("The delayed authority check failed."));
+          };
+        });
+        const runtime = await fakeOpenCode(async (emit) => {
+          emit({
+            id: "permission",
+            type: "permission.asked",
+            properties: {
+              id: "request",
+              sessionID: "session",
+              permission: "bash",
+              patterns: ["echo example"],
+              metadata: {},
+              always: [],
+            },
+          });
+          await waitFor(() => checked);
+          if (ending === "cancelled") await waitFor(() => runtime.aborts === 1);
+          return { info: assistant(), parts: [] };
+        });
+        const turn = runOpenCodeSession(runtime.connection, "fixture", {
+          ...turnParams(),
+          signal: controller.signal,
+          nativeCoding: true,
+          authorizePrivilegedToolCall: () => {
+            checked = true;
+            return authorization;
+          },
+        });
+        void turn.catch(() => {});
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await waitFor(() => checked);
+          if (ending === "cancelled") controller.abort(new Error("Original Run deadline reached"));
+          const result = await Promise.race([
+            turn,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("Session teardown waited for the blocked authorizer.")),
+                3000,
+              );
+            }),
+          ]);
+          assert.equal(result.stopReason, ending === "cancelled" ? "aborted" : "end_turn");
+          assert.equal(settled, false, "cleanup must finish while the authority check is pending");
+          assert.equal(runtime.aborts, ending === "cancelled" ? 1 : 0);
+          assert.deepEqual(runtime.permissions, [], "pending authority must never grant access");
+          finishAuthorization();
+          await authorization.catch(() => null);
+          assert.deepEqual(runtime.permissions, [], "late authority cannot reopen the ended turn");
+        } finally {
+          clearTimeout(timer);
+          finishAuthorization();
+          await turn.catch(() => {});
+          await runtime.close();
+        }
+      },
+    );
+  }
+}
 
 test("step limit aborts the external session and reports unfinished work", async () => {
   const runtime = await fakeOpenCode(async (emit) => {
