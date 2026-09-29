@@ -267,7 +267,7 @@ function spawnChild(
     `${mode} readiness`,
   );
   void ready.catch(() => undefined);
-  return { child, ready, exited: () => deadline(exited, `${mode} completion`) };
+  return { child, ready, completion: exited, exited: () => deadline(exited, `${mode} completion`) };
 }
 
 async function stopChildren(): Promise<void> {
@@ -943,18 +943,36 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
         where: { id: manualShared.id },
         lock: { mode: "pessimistic_write" },
       });
+      const [{ pid: lockOwner }]: { pid: number }[] = await manualLock.query(
+        "SELECT pg_backend_pid() AS pid",
+      );
       for (const peer of manualPeers) peer.child.send("start");
-      await waitUntil(async () => {
-        assert.ok(
-          manualAccepted.every(({ routineId }) => routineId === manualUnrelated.id),
-          "A manual request must not insert or return a Run before acquiring its Routine lock",
-        );
-        const blocked: { pid: number }[] = await AppDataSource.query(
-          "SELECT pid FROM pg_stat_activity WHERE datname = current_database() " +
-            "AND wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'",
-        );
-        return blocked.length === 2 && manualAccepted.length === 1;
-      }, "Two manual requests wait on the same Routine while an unrelated request is accepted");
+      await Promise.race([
+        waitUntil(async () => {
+          assert.ok(
+            manualAccepted.every(({ routineId }) => routineId === manualUnrelated.id),
+            "A manual request must not insert or return a Run before acquiring its Routine lock",
+          );
+          // Postgres truncates activity query text at 1kB by default, before
+          // FOR UPDATE on a full Routine SELECT. Follow the actual blocker
+          // chain, including a second waiter queued behind the first one.
+          const blocked: { pid: number }[] = await AppDataSource.query(
+            "WITH RECURSIVE blocked(pid) AS (" +
+              "SELECT pid FROM pg_stat_activity WHERE datname = current_database() " +
+              "AND $1 = ANY(pg_blocking_pids(pid)) " +
+              "UNION SELECT activity.pid FROM pg_stat_activity activity " +
+              "JOIN blocked ON blocked.pid = ANY(pg_blocking_pids(activity.pid)) " +
+              "WHERE activity.datname = current_database()) SELECT pid FROM blocked",
+            [lockOwner],
+          );
+          return blocked.length === 2 && manualAccepted.length === 1;
+        }, "Two manual requests wait on the same Routine while an unrelated request is accepted"),
+        ...manualPeers.map((peer) =>
+          peer.completion.then(() => {
+            throw new Error("Manual request process exited before its Routine lock was released");
+          }),
+        ),
+      ]);
       assert.equal(await runs.countBy({ routineId: manualShared.id }), 0);
       const independent = await runs.findOneByOrFail({ routineId: manualUnrelated.id });
       assert.equal(independent.id, manualAccepted[0].runId);
