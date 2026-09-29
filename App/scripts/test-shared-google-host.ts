@@ -16,7 +16,7 @@ import { User } from "../server/db/entities/User";
 import { errorHandler } from "../server/middleware/error";
 import { securityHeaders } from "../server/middleware/httpSecurity";
 import { adminRouter } from "../server/routes/admin";
-import { googleSignInBrokerRouter } from "../server/routes/googleSignInBroker";
+import { connectSignInRouter } from "../server/routes/connectSignIn";
 import { saveOauthApp } from "../server/services/oauthApps";
 import { getPublicUrl, setPublicUrl } from "../server/services/publicUrl";
 import {
@@ -83,10 +83,10 @@ app.use(
   adminRouter,
 );
 app.use(
-  "/api/google-sign-in",
+  "/api/connect",
   (req, _res, next) => {
     brokerCookies.push(req.headers.cookie ?? "");
-    if (req.method === "POST" && req.path === "/authorize") {
+    if (req.method === "POST" && req.path === "/google/authorize") {
       consentHeaders.push({
         origin: req.get("origin"),
         fetchSite: req.get("sec-fetch-site"),
@@ -95,7 +95,7 @@ app.use(
     }
     next();
   },
-  googleSignInBrokerRouter,
+  connectSignInRouter,
 );
 app.get("/__runtime", async (_req, res) => {
   res
@@ -113,8 +113,8 @@ app.get("/__opener", (_req, res) => {
     let popup;
     document.getElementById("connect").onclick=()=>{popup=window.open(${JSON.stringify(started.authorizeUrl)});};
     window.addEventListener("message",event=>{
-      if(event.source===popup && event.origin===${JSON.stringify(brokerOrigin)} && event.data?.source==="genosyn-google-sign-in-ready" && event.data.requestId===${JSON.stringify(started.requestId)})
-        popup.postMessage({source:"genosyn-google-sign-in-launch",requestId:${JSON.stringify(started.requestId)},proof:${JSON.stringify(proof)}},event.origin);
+      if(event.source===popup && event.origin===${JSON.stringify(brokerOrigin)} && event.data?.source==="genosyn-sign-in-ready" && event.data.requestId===${JSON.stringify(started.requestId)})
+        popup.postMessage({source:"genosyn-sign-in-launch",requestId:${JSON.stringify(started.requestId)},proof:${JSON.stringify(proof)}},event.origin);
     });
   </script></html>`);
 });
@@ -171,10 +171,10 @@ try {
   await host.fill("https://connect.example.test/invalid-path");
   await form.getByRole("button", { name: "Save changes", exact: true }).click();
   await form.getByText("Invalid runtime settings", { exact: true }).waitFor();
-  assert.equal(getRuntimeOauthSettings().hostGmailSignIn, false);
+  assert.equal(getRuntimeOauthSettings().hostSignIn, false);
   await host.fill(`${brokerOrigin}/`);
   await page
-    .getByRole("checkbox", { name: "Host Gmail sign-in on this installation", exact: true })
+    .getByRole("checkbox", { name: "Host shared sign-in on this installation", exact: true })
     .check();
   await form.getByRole("button", { name: "Save changes", exact: true }).click();
   const saved = page.waitForResponse(
@@ -189,15 +189,15 @@ try {
   await page.reload();
   await host.waitFor();
   assert.equal(await host.inputValue(), brokerOrigin);
-  assert.equal(getRuntimeOauthSettings().gmailSignInHostUrl, brokerOrigin);
-  assert.equal(getRuntimeOauthSettings().gmailSignInUrl, "https://connect.genosyn.com");
+  assert.equal(getRuntimeOauthSettings().signInHostUrl, brokerOrigin);
+  assert.equal(getRuntimeOauthSettings().hostedSignInUrl, "https://connect.genosyn.com");
   assert.equal(getPublicUrl(), appOrigin);
   await fs.mkdir(path.join(root, "../output/playwright"), { recursive: true });
   await form.screenshot({
     path: path.join(root, "../output/playwright/shared-google-host-settings.png"),
   });
 
-  const start = await realFetch(`${brokerOrigin}/api/google-sign-in/start`, {
+  const start = await realFetch(`${brokerOrigin}/api/connect/google/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -212,7 +212,7 @@ try {
   // Redirected requests can bypass a route matched only against Google's URL.
   // Execute the real consent handler, inspect its Google redirect, then return
   // the mock code without making a browser request to an external service.
-  await context.route(`${brokerOrigin}/api/google-sign-in/authorize`, async (route) => {
+  await context.route(`${brokerOrigin}/api/connect/google/authorize`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     const response = await route.fetch({ maxRedirects: 0 });
     if (response.status() !== 303) return route.fulfill({ response });
@@ -222,7 +222,7 @@ try {
     assert.equal(consent.pathname, "/o/oauth2/v2/auth");
     assert.equal(
       consent.searchParams.get("redirect_uri"),
-      `${brokerOrigin}/api/google-sign-in/callback`,
+      `${brokerOrigin}/api/connect/google/callback`,
     );
     const callback = new URL(consent.searchParams.get("redirect_uri")!);
     callback.search = new URLSearchParams({
@@ -239,8 +239,8 @@ try {
   await proceed.waitFor();
   await popup.getByText(/Opened from your Genosyn installation/).waitFor();
   const flowCookies = (
-    await context.cookies(`${brokerOrigin}/api/google-sign-in/authorize`)
-  ).filter((cookie) => cookie.name.startsWith("genosyn_gmail_"));
+    await context.cookies(`${brokerOrigin}/api/connect/google/authorize`)
+  ).filter((cookie) => cookie.name.startsWith("genosyn_sign_in_google_"));
   assert.ok(flowCookies.length > 0, "Broker nonce cookie must be present on its own host");
   assert.ok(flowCookies.every((cookie) => cookie.domain === "localhost" && cookie.httpOnly));
   await proceed.click();
@@ -252,7 +252,7 @@ try {
       exact: true,
     })
     .waitFor();
-  const result = await realFetch(`${brokerOrigin}/api/google-sign-in/poll`, {
+  const result = await realFetch(`${brokerOrigin}/api/connect/google/poll`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ requestId: started.requestId, codeVerifier: verifier }),
@@ -266,7 +266,7 @@ try {
   assert.equal(consentHeaders[0].hasCookie, true);
   // The intercepted consent uses APIRequestContext, which may omit Fetch Metadata.
   assert.notEqual(consentHeaders[0].fetchSite, "cross-site");
-  assert.equal(googleCalls[0].get("redirect_uri"), `${brokerOrigin}/api/google-sign-in/callback`);
+  assert.equal(googleCalls[0].get("redirect_uri"), `${brokerOrigin}/api/connect/google/callback`);
   assert.ok(
     brokerCookies.every((cookie) => !cookie.includes("genosyn.sid")),
     "App session must stay on the App host",

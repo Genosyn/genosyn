@@ -8,18 +8,23 @@ import {
   type AuthFlowStateSnapshot,
 } from "./authFlowState.js";
 import { getPublicUrl } from "./publicUrl.js";
-import { getRuntimeOauthSettings, normalizeGmailSignInUrl } from "./runtimeSettings.js";
+import { getRuntimeOauthSettings, normalizeSignInUrl } from "./runtimeSettings.js";
 import type { GoogleHostedOauthConfig } from "../integrations/providers/google/auth.js";
+
+import {
+  discoverHostedSignInPath,
+  requestHostedSignIn,
+  resetHostedSignInDiscoveryForTests,
+  validateHostedSignInPath,
+} from "./hostedSignInTransport.js";
 
 const FLOW_KIND = "hosted-google-consumer";
 const FLOW_TTL_MS = 10 * 60_000;
-const REQUEST_TIMEOUT_MS = 10_000;
 const LEASE_MS = 30_000;
-const BROKER_PATH = "/api/google-sign-in";
 const UNAVAILABLE =
   "Google sign-in is unavailable. Try again later, or ask an instance admin to register a Google OAuth app at Admin → Integrations.";
 const RESTART = "This Google sign-in expired or was already used. Start again.";
-const availabilityCache = new Map<string, { expiresAt: number; result: Promise<boolean> }>();
+const LEGACY_BROKER_PATH = "/api/google-sign-in";
 
 const credentialSchema = z.object({
   clientId: z.string().min(1).max(512),
@@ -46,6 +51,7 @@ type HostedAttempt = {
   userId: string;
   label: string;
   tokenBrokerUrl: string;
+  tokenBrokerPath?: string;
   requestId: string;
   codeVerifier: string;
   existingConnectionId?: string;
@@ -65,71 +71,26 @@ export type HostedOauthPollResult = {
 };
 
 function brokerUrl(value: string): string {
-  const normalized = normalizeGmailSignInUrl(value);
+  const normalized = normalizeSignInUrl(value);
   if (!normalized) throw new Error(UNAVAILABLE);
   return normalized;
 }
 
-/** Only the saved issuer ever receives a Connection's refresh token. No
- * redirects, cookie forwarding, provider error body, or browser token path. */
-async function requestBroker(
-  issuer: string,
-  path: string,
-  payload?: Record<string, unknown>,
-  timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<unknown> {
-  const response = await fetch(`${brokerUrl(issuer)}${BROKER_PATH}${path}`, {
-    method: payload ? "POST" : "GET",
-    headers: payload
-      ? { "content-type": "application/json", accept: "application/json" }
-      : { accept: "application/json" },
-    ...(payload ? { body: JSON.stringify(payload) } : {}),
-    redirect: "error",
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(UNAVAILABLE);
-  }
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error(UNAVAILABLE);
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    length += chunk.value.byteLength;
-    if (length > 65_536) {
-      await reader.cancel();
-      throw new Error(UNAVAILABLE);
-    }
-    chunks.push(chunk.value);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-}
-
-/** A configured URL is not evidence that a hosted service is operational. */
+/** A configured URL is not evidence that the provider is operational. */
 export async function hostedGoogleSignInAvailable(): Promise<boolean> {
   const settings = getRuntimeOauthSettings();
-  if (!settings.gmailSignInEnabled) return false;
-  const issuer = normalizeGmailSignInUrl(settings.gmailSignInUrl);
+  if (!settings.hostedSignInEnabled) return false;
+  const issuer = normalizeSignInUrl(settings.hostedSignInUrl);
   if (!issuer) return false;
-  const cached = availabilityCache.get(issuer);
-  if (cached && cached.expiresAt > Date.now()) return cached.result;
-  const result = requestBroker(issuer, "/status", undefined, 2000)
-    .then(
-      (raw) =>
-        z.object({ version: z.literal(1), available: z.literal(true) }).safeParse(raw).success,
-    )
-    .catch(() => false);
-  // Bound memory when a master admin changes the configured URL repeatedly.
-  availabilityCache.clear();
-  availabilityCache.set(issuer, { expiresAt: Date.now() + 30_000, result });
-  return result;
+  try {
+    return (await discoverHostedSignInPath(issuer, "google")) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function resetHostedGoogleAvailabilityForTests(): void {
-  availabilityCache.clear();
+  resetHostedSignInDiscoveryForTests();
 }
 
 export async function startHostedGoogleOauth(args: {
@@ -141,10 +102,11 @@ export async function startHostedGoogleOauth(args: {
   installationOrigin?: string;
   /** Reconnects stay with the issuer that originally issued this grant. */
   tokenBrokerUrl?: string;
+  tokenBrokerPath?: string;
 }): Promise<OauthStartResult> {
   const settings = getRuntimeOauthSettings();
-  if (!settings.gmailSignInEnabled) throw new Error(UNAVAILABLE);
-  const issuer = brokerUrl(args.tokenBrokerUrl ?? settings.gmailSignInUrl);
+  if (!settings.hostedSignInEnabled) throw new Error(UNAVAILABLE);
+  const issuer = brokerUrl(args.tokenBrokerUrl ?? settings.hostedSignInUrl);
   const codeVerifier = crypto.randomBytes(32).toString("base64url");
   const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
   // Independent browser proof binds the broker interstitial to the browser
@@ -155,6 +117,12 @@ export async function startHostedGoogleOauth(args: {
     .update(hostedBrowserProof)
     .digest("base64url");
   try {
+    // Reconnects and existing credentials keep their original protocol as well
+    // as their issuer. Discovery never receives a credential.
+    const tokenBrokerPath = args.tokenBrokerUrl
+      ? validateHostedSignInPath("google", args.tokenBrokerPath ?? LEGACY_BROKER_PATH)
+      : await discoverHostedSignInPath(issuer, "google");
+    if (!tokenBrokerPath) throw new Error(UNAVAILABLE);
     const started = z
       .object({
         requestId: z.string().min(1).max(256),
@@ -162,14 +130,21 @@ export async function startHostedGoogleOauth(args: {
         expiresAt: z.number().finite().positive(),
       })
       .parse(
-        await requestBroker(issuer, "/start", {
+        await requestHostedSignIn(issuer, "google", tokenBrokerPath, "start", {
           codeChallenge,
           browserChallenge,
           installationOrigin: new URL(args.installationOrigin ?? getPublicUrl()).origin,
         }),
       );
     const authorize = new URL(started.authorizeUrl);
-    if (authorize.origin !== new URL(issuer).origin || authorize.username || authorize.password) {
+    if (
+      authorize.origin !== new URL(issuer).origin ||
+      authorize.username ||
+      authorize.password ||
+      authorize.pathname !== `${tokenBrokerPath}/authorize` ||
+      authorize.searchParams.get("requestId") !== started.requestId ||
+      authorize.hash
+    ) {
       throw new Error(UNAVAILABLE);
     }
     const expiresAt = Math.min(started.expiresAt, Date.now() + FLOW_TTL_MS);
@@ -179,6 +154,7 @@ export async function startHostedGoogleOauth(args: {
       userId: args.userId,
       label: args.label,
       tokenBrokerUrl: issuer,
+      tokenBrokerPath,
       requestId: started.requestId,
       codeVerifier,
       existingConnectionId: args.existingConnectionId,
@@ -240,10 +216,16 @@ export async function pollHostedGoogleOauth(args: {
   let result: z.infer<typeof pollSchema>;
   try {
     result = pollSchema.parse(
-      await requestBroker(lease.payload.tokenBrokerUrl, "/poll", {
-        requestId: lease.payload.requestId,
-        codeVerifier: lease.payload.codeVerifier,
-      }),
+      await requestHostedSignIn(
+        lease.payload.tokenBrokerUrl,
+        "google",
+        lease.payload.tokenBrokerPath ?? LEGACY_BROKER_PATH,
+        "poll",
+        {
+          requestId: lease.payload.requestId,
+          codeVerifier: lease.payload.codeVerifier,
+        },
+      ),
     );
   } catch {
     await compareAndSetAuthFlowState(FLOW_KIND, args.attempt, lease, snapshot.payload);
@@ -276,6 +258,7 @@ export async function pollHostedGoogleOauth(args: {
     ...credential,
     credentialSource: "hosted",
     tokenBrokerUrl: attempt.tokenBrokerUrl,
+    tokenBrokerPath: attempt.tokenBrokerPath ?? LEGACY_BROKER_PATH,
     scopeGroups: ["mail"],
   };
   try {
@@ -307,10 +290,16 @@ export async function refreshHostedGoogleToken(
 ): Promise<GoogleHostedOauthConfig> {
   try {
     const refreshed = refreshSchema.parse(
-      await requestBroker(config.tokenBrokerUrl, "/refresh", {
-        clientId: config.clientId,
-        refreshToken: config.refreshToken,
-      }),
+      await requestHostedSignIn(
+        config.tokenBrokerUrl,
+        "google",
+        config.tokenBrokerPath ?? LEGACY_BROKER_PATH,
+        "refresh",
+        {
+          clientId: config.clientId,
+          refreshToken: config.refreshToken,
+        },
+      ),
     );
     if (refreshed.expiresAt <= Date.now()) throw new Error(UNAVAILABLE);
     return { ...config, ...refreshed };

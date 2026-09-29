@@ -57,13 +57,17 @@ ingress:
     enabled: false
     # Name of a TLS secret in the release namespace (cert-manager or hand-fed).
     secretName: ""
-  # Optional Gmail sign-in hostname on this same Ingress and App Service.
-  # Only the six /api/google-sign-in endpoints are routed on this host; the
-  # main App public URL stays ingress.host. Requires ingress + TLS above.
-  gmailSignIn:
-    enabled: false
-    host: ""
-    tlsSecretName: ""
+  # Optional hosted sign-in hostname on this same Ingress and App Service.
+  # Routes /api/connect and the six legacy /api/google-sign-in endpoints only.
+  # The App public URL stays ingress.host. Requires ingress + TLS above.
+  # Effective defaults: enabled: false, host: "", tlsSecretName: "".
+  # Each supplied field overrides legacy ingress.gmailSignIn, including false
+  # or an empty string. Keep this empty map to preserve legacy upgrade values.
+  connect: {}
+  # connect:
+  #   enabled: true
+  #   host: connect.example.com
+  #   tlsSecretName: connect-tls
   # WebSockets and streamed replies share port 8471 with regular HTTP. Configure
   # the chosen ingress controller's upgrade support, timeouts, and buffering
   # through its supported annotations or controller configuration. Kubernetes

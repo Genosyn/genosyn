@@ -51,8 +51,8 @@ jobs:
           mkdir -p Helm/Values
           for environment in test prod; do
             test ! -e "Helm/Values/${environment}.values.yaml"
-            gmail_sign_in=false
-            if [ "$environment" = prod ]; then gmail_sign_in=true; fi
+            hosted_sign_in=false
+            if [ "$environment" = prod ]; then hosted_sign_in=true; fi
             cat > "Helm/Values/${environment}.values.yaml" <<YAML
           ingress:
             enabled: true
@@ -62,8 +62,8 @@ jobs:
             tls:
               enabled: true
               secretName: ci-${environment}-tls
-            gmailSignIn:
-              enabled: ${gmail_sign_in}
+            connect:
+              enabled: ${hosted_sign_in}
               host: connect.example.com
               tlsSecretName: ci-connect-tls
           YAML
@@ -88,68 +88,8 @@ jobs:
           npm run --silent template-deploy-test > /dev/null
           npm run --silent template-deploy-prod > /dev/null
 
-      - name: Verify the shared Gmail sign-in ingress
-        run: |
-          for environment in test prod; do
-            helm template genosyn Helm/genosyn \
-              -f "Helm/Values/${environment}.values.yaml" \
-              --set config.bootstrapMasterAdminEmail=ops@example.com \
-              -s templates/ingress.yaml > "${environment}-ingress.yaml"
-          done
-          helm template genosyn Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set ingress.enabled=true --set ingress.host=chart-default.example.com \
-            -s templates/ingress.yaml > default-ingress.yaml
-          node <<'NODE'
-          const assert = require("node:assert/strict");
-          const fs = require("node:fs");
-          function ingress(environment) {
-            // Inspect this chart's fixed output; no external YAML dependency.
-            const text = fs.readFileSync(`${environment}-ingress.yaml`, "utf8");
-            assert.equal((text.match(/^kind: Ingress$/gm) || []).length, 1);
-            const rules = text.split("\n  rules:\n")[1].split(/(?=^    - host: )/m).filter(block => block.trim());
-            return { text, rules: rules.map(block => ({
-              host: JSON.parse(/^    - host: (.+)$/m.exec(block)[1]),
-              paths: [...block.matchAll(/^          - path: (.+)$/gm)].map(match => match[1]),
-              pathTypes: [...block.matchAll(/^            pathType: (.+)$/gm)].map(match => match[1]),
-              services: [...block.matchAll(/^                name: (.+)$/gm)].map(match => match[1]),
-              ports: [...block.matchAll(/^                  number: (.+)$/gm)].map(match => match[1]),
-            })) };
-          }
-          const prod = ingress("prod");
-          assert.deepEqual(prod.rules.map(rule => rule.host), ["prod.example.com", "connect.example.com"]);
-          const [app, connect] = prod.rules;
-          assert.deepEqual(app.paths, ["/"]);
-          assert.deepEqual(connect.paths, ["status", "start", "authorize", "callback", "poll", "refresh"].map(path => `/api/google-sign-in/${path}`));
-          assert.deepEqual(connect.pathTypes, Array(6).fill("Exact"));
-          assert.deepEqual(connect.services, Array(6).fill(app.services[0]));
-          assert.deepEqual(connect.ports, Array(6).fill(app.ports[0]));
-          assert.match(prod.text, /- hosts:\n        - "connect\.example\.com"\n      secretName: "ci-connect-tls"/);
-          assert.match(prod.text, /- hosts:\n        - "prod\.example\.com"\n      secretName: "ci-prod-tls"/);
-          for (const environment of ["test", "default"]) {
-            const rendered = ingress(environment);
-            assert.equal(rendered.rules.length, 1, `${environment}: Gmail host must be opt-in`);
-            assert.deepEqual(rendered.rules[0].paths, ["/"]);
-            assert(!rendered.text.includes("/api/google-sign-in/"));
-          }
-          NODE
-          if helm template genosyn Helm/genosyn -f Helm/Values/prod.values.yaml \
-            --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set ingress.gmailSignIn.host=prod.example.com > /dev/null 2> gmail-host-collision.err; then
-            echo "Gmail sign-in host must not collide with the main App host" >&2
-            exit 1
-          fi
-          grep -q "ingress.gmailSignIn.host must differ from ingress.host" gmail-host-collision.err
-          for invalid in ingress.enabled=false ingress.tls.enabled=false \
-            ingress.gmailSignIn.host=https://connect.example.com \
-            ingress.gmailSignIn.host=127.0.0.1 ingress.gmailSignIn.tlsSecretName=; do
-            if helm template genosyn Helm/genosyn -f Helm/Values/prod.values.yaml \
-              --set config.bootstrapMasterAdminEmail=ops@example.com \
-              --set "$invalid" > /dev/null 2>&1; then
-              echo "Expected Gmail ingress validation to reject $invalid" >&2
-              exit 1
-            fi
-          done
+      - name: Verify Connect ingress and legacy upgrade values
+        run: bash Helm/test-connect-ingress.sh
 
       # The default posture is multi-tenant SaaS, which requires the bootstrap
       # admin email — lint renders templates, so it needs it too. SMTP is no

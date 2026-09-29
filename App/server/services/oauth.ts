@@ -153,7 +153,7 @@ export async function startOauth(args: {
   if (!clientId || !clientSecret) {
     if (!suppliedId && !suppliedSecret && args.provider === "google" &&
         args.scopeGroups.length === 1 && args.scopeGroups[0] === "mail" &&
-        getRuntimeOauthSettings().gmailSignInEnabled) {
+        getRuntimeOauthSettings().hostedSignInEnabled) {
       return startHostedGoogleOauth(args);
     }
     throw new Error(
@@ -327,6 +327,7 @@ export async function startOauthReconnect(args: {
     scopeGroups?: string[];
     credentialSource?: string;
     tokenBrokerUrl?: string;
+    tokenBrokerPath?: string;
   };
   if (cfg.credentialSource !== "hosted" && (!cfg.clientId || !cfg.clientSecret)) {
     throw new Error(
@@ -368,6 +369,7 @@ export async function startOauthReconnect(args: {
       existingConnectionId: conn.id,
       linkMailbox: !!linkedMailbox,
       tokenBrokerUrl: cfg.tokenBrokerUrl,
+      tokenBrokerPath: cfg.tokenBrokerPath,
       installationOrigin: args.installationOrigin,
     });
   }

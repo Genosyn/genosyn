@@ -145,7 +145,8 @@ export function Kubernetes() {
           <Code>genosyn-prod</Code>, TLS Secret <Code>genosyn-prod-tls</Code>, and a single-node
           Postgres database with a 100Gi volume. The same App and Ingress serve{" "}
           <Code>connect.genosyn.com</Code> using <Code>genosyn-connect-tls</Code>; that host exposes
-          only the six Gmail sign-in paths. Both domains share one address.
+          only the <Code>/api/connect</Code> namespace and six legacy Gmail sign-in paths. Both
+          domains share one address.
         </LI>
       </UL>
       <P>
@@ -192,11 +193,22 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         <Code>billing</Code> values initialize Stripe on first setup; see{" "}
         <DocLink to="/docs/plans-billing#operators">billing setup</DocLink>. Edit saved settings at{" "}
         <Code>Admin → Billing</Code>. Keep the public URL at <Code>https://app.genosyn.com</Code>.
-        For hosted Gmail, set{" "}
-        <Strong>Admin → Runtime → Gmail sign-in → Hosted sign-in address</Strong> to{" "}
-        <Code>https://connect.genosyn.com</Code> before enabling hosting. Register its Google
-        callback alongside the App&apos;s ordinary Google redirect URI. Test leaves the extra host
-        off. See <DocLink to="/docs/saas-hosting">shared SaaS setup</DocLink> for these final steps.
+        For hosted sign-in, set{" "}
+        <Strong>Admin → Runtime → Hosted sign-in → Hosted sign-in address</Strong> to{" "}
+        <Code>https://connect.genosyn.com</Code> before enabling hosting. Register Google&apos;s new{" "}
+        <Code>https://connect.genosyn.com/api/connect/google/callback</Code> alongside the
+        App&apos;s ordinary Google redirect URI; retain the legacy{" "}
+        <Code>/api/google-sign-in/callback</Code> for older installations. Test leaves the extra
+        host off. See <DocLink to="/docs/saas-hosting">shared SaaS setup</DocLink> for these final steps.
+      </P>
+      <P>
+        New profiles use <Code>ingress.connect.enabled</Code>, <Code>host</Code>, and{" "}
+        <Code>tlsSecretName</Code>. Existing <Code>ingress.gmailSignIn</Code> values remain
+        supported; each supplied <Code>connect</Code> field overrides its legacy counterpart,
+        including <Code>enabled: false</Code>. Unspecified fields inherit the legacy value.
+        The Connect host shares the App Service and requires its own TLS Secret and a distinct
+        hostname. Its <Code>/api/connect</Code> prefix accommodates future providers without
+        ingress changes, while App and administration pages remain on the primary host.
       </P>
 
       <H2 id="architecture">Architecture</H2>

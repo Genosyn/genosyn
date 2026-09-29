@@ -16,11 +16,18 @@ const requestId = "b".repeat(43);
 const browserProof = "p".repeat(43);
 type State = {
   complete: boolean;
+  legacyProtocol: boolean;
   startError: boolean;
   pollError: boolean;
   calls: Array<{ path: string; body: Record<string, unknown> }>;
 };
-const fixture = (): State => ({ complete: false, startError: false, pollError: false, calls: [] });
+const fixture = (): State => ({
+  complete: false,
+  legacyProtocol: false,
+  startError: false,
+  pollError: false,
+  calls: [],
+});
 let state = fixture();
 const unexpected: string[] = [];
 
@@ -64,9 +71,9 @@ const server = await createServer({
             res.end(`<!doctype html><html><button disabled>Complete consent</button><script>
             const button=document.querySelector("button");
             window.addEventListener("message",event=>{
-              if(event.source===window.opener && event.origin===${JSON.stringify(origin)} && event.data?.source==="genosyn-google-sign-in-launch" && event.data.requestId===${JSON.stringify(requestId)} && event.data.proof===${JSON.stringify(browserProof)}) button.disabled=false;
+              if(event.source===window.opener && event.origin===${JSON.stringify(origin)} && event.data?.source===${JSON.stringify(state.legacyProtocol ? "genosyn-google-sign-in-launch" : "genosyn-sign-in-launch")} && event.data.requestId===${JSON.stringify(requestId)} && event.data.proof===${JSON.stringify(browserProof)}) button.disabled=false;
             });
-            window.opener.postMessage({source:"genosyn-google-sign-in-ready",requestId:${JSON.stringify(requestId)}},${JSON.stringify(origin)});
+            window.opener.postMessage({source:${JSON.stringify(state.legacyProtocol ? "genosyn-google-sign-in-ready" : "genosyn-sign-in-ready")},requestId:${JSON.stringify(requestId)}},${JSON.stringify(origin)});
             window.opener.postMessage({source:"genosyn-oauth",ok:true},${JSON.stringify(origin)});
             button.onclick=async()=>{await fetch("/__complete_modal_consent",{method:"POST"});button.textContent="Consent complete";};
           </script></html>`);
@@ -224,6 +231,14 @@ cases.push({
     assert.equal(started.body.clientId, undefined);
     assert.equal(started.body.clientSecret, undefined);
     assert.deepEqual(started.body.scopeGroups, ["mail"]);
+  },
+});
+
+cases.push({
+  name: "legacy hosted popup protocol still completes through authenticated polling",
+  run: async (page) => {
+    state.legacyProtocol = true;
+    await completeHosted(page);
   },
 });
 

@@ -14,10 +14,10 @@ Git-ignored files `Helm/Values/test.values.yaml` and
 `Helm/Values/prod.values.yaml`. The
 [environment guide](../Values/README.md) covers Kubernetes contexts, namespaces, TLS,
 database Secrets, offline previews, and public URL initialization.
-Production routes `connect.genosyn.com` to the same App through six exact
-Gmail sign-in paths. Set its separate **Hosted sign-in address** at
-**Admin → Runtime → Gmail sign-in** while retaining `app.genosyn.com` as the
-App's public URL; see the [Gmail sign-in guide](../../App/GMAIL_SIGN_IN.md).
+Production routes `connect.genosyn.com` to the same App through `/api/connect`
+and the six legacy Gmail sign-in paths. Set its separate **Hosted sign-in address** at
+**Admin → Runtime → Hosted sign-in** while retaining `app.genosyn.com` as the
+App's public URL; see the [hosted sign-in guide](../../App/HOSTED_SIGN_IN.md).
 
 The chart's **default posture is production multi-tenant SaaS**: `multiTenant`
 on, Postgres, the bubblewrap sandbox granted, chart-generated strong secrets.
@@ -125,7 +125,7 @@ OpenCode and Repository commands inside the App container without an OS sandbox.
 | `replicaCount` | `1` | Keep at 1 unless running multi-tenant with Postgres + RWX storage. |
 | `strategy` | `Recreate` | Required for RWO volumes; `RollingUpdate` only for multi-replica RWX. |
 | `ingress.enabled` / `ingress.host` | `false` / `""` | Front the app. WebSockets pass through a plain Ingress rule on nginx/Traefik. |
-| `ingress.gmailSignIn.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` | Add a separate TLS hostname on the same Ingress and Service for the six exact Gmail sign-in paths. Configure the hosting address and Google app in the dashboard before enabling hosting. |
+| `ingress.connect.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` (effective) | Add a separate TLS hostname on the same Ingress and Service for hosted sign-in. Configure the hosting address and OAuth apps in the dashboard before enabling hosting. Legacy `ingress.gmailSignIn` fields remain supported. |
 | `ingress.className` | Empty | Installed IngressClass to use; empty leaves selection to the cluster's default. |
 | `ingress.annotations` | `{}` | Controller-specific settings passed through to the Ingress. |
 | `service.annotations` | `{}` | Optional settings passed through to the App Service for the chosen cluster/load balancer. |
@@ -160,6 +160,39 @@ mode. Password and encryption-key changes require a separate migration.
 `postgres.password` applies only to the bundled database and is rejected when
 `postgres.enabled=false`; an external production database still uses
 `config.db.postgresUrlSecret`.
+
+## Hosted sign-in ingress
+
+Add a Connect hostname when this installation hosts sign-in for other installs:
+
+```yaml
+ingress:
+  enabled: true
+  host: app.example.com
+  tls:
+    enabled: true
+    secretName: app-tls
+  connect:
+    enabled: true
+    host: connect.example.com
+    tlsSecretName: connect-tls
+```
+
+Both hosts use the same Ingress and App Service. The Connect host exposes only
+the `/api/connect` path prefix and the six legacy exact paths
+`/api/google-sign-in/{status,start,authorize,callback,poll,refresh}`. It does
+not route the App, administration pages, or `/api/health`. Provider routes
+under `/api/connect` need no further ingress changes; Google is the current
+hosted sign-in provider. Use `/api/connect/google/callback` for its new OAuth
+callback and retain `/api/google-sign-in/callback` for older installations.
+
+`ingress.connect` defaults to an empty object, with effective defaults of
+disabled, empty hostname, and empty TLS Secret name. Existing
+`ingress.gmailSignIn` values still work. Each explicitly supplied `connect`
+field takes precedence over the corresponding legacy field, including
+`enabled: false` or an empty string. Unspecified fields inherit their legacy
+values; remove the legacy block after migration. An enabled Connect host must
+be a distinct DNS hostname, and both hosts must have TLS configured.
 
 ## Stripe billing bootstrap
 

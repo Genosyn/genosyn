@@ -18,8 +18,9 @@ its checks and does not use these private files.
 | `npm run deploy-prod` | `prod.values.yaml` | `GENOSYN_PROD_KUBE_CONTEXT` | `genosyn-prod` | `https://app.genosyn.com` |
 
 Production also serves `https://connect.genosyn.com` from the same Ingress,
-App containers, database, and secrets. That host forwards only the six Gmail
-sign-in endpoints. It does not create a second App deployment.
+App containers, database, and secrets. That host forwards only the
+`/api/connect` namespace and six legacy Gmail sign-in endpoints. It does not
+expose App pages or create a second App deployment.
 
 Set the environment's context variable, or override it for one command with
 `GENOSYN_KUBE_CONTEXT`. Live deployments require an explicit context and
@@ -111,7 +112,7 @@ Create a webhook endpoint for each environment:
 Subscribe to `checkout.session.completed`, `customer.subscription.created`,
 `customer.subscription.updated`, and `customer.subscription.deleted`.
 Configure the Stripe customer portal so Members can manage their subscriptions.
-The `connect.genosyn.com` host serves Gmail sign-in only.
+The `connect.genosyn.com` host serves hosted sign-in only.
 
 Helm passes the billing payload through a Kubernetes Secret. On first setup,
 the App encrypts the credentials into its existing billing settings. If a
@@ -159,13 +160,23 @@ After deployment, register and verify the configured operator. Until SMTP is
 configured, the verification link is in the private App log. Configure
 **Admin → Email transport**, verify **Admin → Billing** for Cloud Edition, and
 **Admin → Integrations** for OAuth apps before onboarding customers.
-For hosted Gmail sign-in, keep **Admin → General → Public URL** at
-`https://app.genosyn.com`. Set **Admin → Runtime → Gmail sign-in → Hosted
-sign-in address** to `https://connect.genosyn.com`, register both Google
-callback URLs, and complete Google configuration before enabling hosting.
-The [Gmail sign-in guide](../../App/GMAIL_SIGN_IN.md) covers these steps.
-The test profile leaves `ingress.gmailSignIn.enabled` off; it can use its own
+For hosted sign-in, keep **Admin → General → Public URL** at
+`https://app.genosyn.com`. Set **Admin → Runtime → Hosted sign-in → Hosted
+sign-in address** to `https://connect.genosyn.com`. Register Google's new
+`https://connect.genosyn.com/api/connect/google/callback` alongside the App's
+ordinary Google redirect URI, and retain the legacy hosted callback
+`https://connect.genosyn.com/api/google-sign-in/callback` for older installs.
+Complete Google configuration before enabling hosting.
+The [hosted sign-in guide](../../App/HOSTED_SIGN_IN.md) covers these steps.
+The test profile leaves `ingress.connect.enabled` off; it can use its own
 hostname and TLS Secret when hosted sign-in needs a test environment.
+
+Use `ingress.connect.enabled`, `host`, and `tlsSecretName` in new profiles.
+Legacy `ingress.gmailSignIn` fields remain supported. Each explicitly supplied
+`connect` field overrides its legacy counterpart, including `enabled: false`;
+unspecified fields inherit legacy values. Remove the legacy block once migrated.
+The shared `/api/connect` route accommodates future providers without changing
+the ingress; Google is the current hosted sign-in provider.
 
 Run `npm run test:deploy` to check the deployment commands using stubbed Helm
 and kubectl commands; it does not deploy either environment.

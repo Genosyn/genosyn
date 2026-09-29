@@ -157,7 +157,7 @@ SECRET
       upgrade) exit "$MOCK_UPGRADE_EXIT" ;;
       get)
         node - <<'VALUES'
-console.log(JSON.stringify({ ingress: { enabled: true, host: process.env.MOCK_GET_HOST, tls: { enabled: process.env.MOCK_GET_TLS_ENABLED === "true", secretName: process.env.MOCK_GET_TLS_SECRET }, gmailSignIn: { enabled: Boolean(process.env.MOCK_SECONDARY_HOST), host: process.env.MOCK_SECONDARY_HOST, tlsSecretName: "secondary-tls" } }, secretData: "must-not-appear-in-deploy-output" }));
+console.log(JSON.stringify({ ingress: { enabled: true, host: process.env.MOCK_GET_HOST, tls: { enabled: process.env.MOCK_GET_TLS_ENABLED === "true", secretName: process.env.MOCK_GET_TLS_SECRET }, connect: { enabled: Boolean(process.env.MOCK_SECONDARY_HOST), host: process.env.MOCK_SECONDARY_HOST, tlsSecretName: "secondary-tls" } }, secretData: "must-not-appear-in-deploy-output" }));
 VALUES
         ;;
       *) echo "Unexpected mock Helm command" >&2; exit 99 ;;
@@ -363,7 +363,7 @@ esac
     assert(!command(result, "helm", "upgrade"));
     assert(!command(result, "kubectl", "exec"));
   });
-  test("a second Gmail sign-in host never replaces the main App public URL", () => {
+  test("a second hosted sign-in host never replaces the main App public URL", () => {
     const result = run(["prod"], {
       MOCK_TEMPLATE_HOST: "app.genosyn.com",
       MOCK_GET_HOST: "effective.app.genosyn.com",

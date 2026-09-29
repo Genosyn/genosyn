@@ -86,14 +86,14 @@ export type RuntimeMailSettings = {
   backfillDays: number;
 };
 
-/** Hosted Gmail sign-in; explicit Google OAuth credentials take precedence. */
+/** Shared sign-in service; explicit Integration OAuth credentials take precedence. */
 export type RuntimeOauthSettings = {
-  gmailSignInEnabled: boolean;
-  gmailSignInUrl: string;
+  hostedSignInEnabled: boolean;
+  hostedSignInUrl: string;
   /** Only enabled on the installation operating the public sign-in service. */
-  hostGmailSignIn: boolean;
+  hostSignIn: boolean;
   /** Empty uses the installation's public URL. */
-  gmailSignInHostUrl: string;
+  signInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription (M42/M44). */
@@ -203,10 +203,10 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     backfillDays: 0,
   },
   oauth: {
-    gmailSignInEnabled: true,
-    gmailSignInUrl: "https://connect.genosyn.com",
-    hostGmailSignIn: false,
-    gmailSignInHostUrl: "",
+    hostedSignInEnabled: true,
+    hostedSignInUrl: "https://connect.genosyn.com",
+    hostSignIn: false,
+    signInHostUrl: "",
   },
   meetings: {
     enabled: true,
@@ -441,7 +441,7 @@ export function parseMailSettings(raw: unknown): RuntimeMailSettings {
 }
 
 /** A sign-in service is an origin, never a credential-bearing or path URL. */
-export function normalizeGmailSignInUrl(value: string): string | null {
+export function normalizeSignInUrl(value: string): string | null {
   try {
     const url = new URL(value.trim());
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
@@ -453,36 +453,57 @@ export function normalizeGmailSignInUrl(value: string): string | null {
   }
 }
 
+/** Compatibility for callers upgrading from the Gmail-only service. */
+export const normalizeGmailSignInUrl = normalizeSignInUrl;
+
+/** Map old saved fields without allowing them to override an explicit new value. */
+export function normalizeOauthSettingNames(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const normalized = { ...raw } as Record<string, unknown>;
+  for (const [canonical, legacy] of [
+    ["hostedSignInEnabled", "gmailSignInEnabled"],
+    ["hostedSignInUrl", "gmailSignInUrl"],
+    ["hostSignIn", "hostGmailSignIn"],
+    ["signInHostUrl", "gmailSignInHostUrl"],
+  ]) {
+    if (!Object.hasOwn(normalized, canonical) && Object.hasOwn(normalized, legacy)) {
+      normalized[canonical] = normalized[legacy];
+    }
+    delete normalized[legacy];
+  }
+  return normalized;
+}
+
 export function parseOauthSettings(raw: unknown): RuntimeOauthSettings {
-  const o = asRecord(raw);
+  const o = asRecord(normalizeOauthSettingNames(raw));
   const d = RUNTIME_SETTINGS_DEFAULTS.oauth;
-  const candidate = stringField(o, "oauth", "gmailSignInUrl", d.gmailSignInUrl, 2048);
-  const gmailSignInUrl = normalizeGmailSignInUrl(candidate);
-  if (!gmailSignInUrl) {
+  const candidate = stringField(o, "oauth", "hostedSignInUrl", d.hostedSignInUrl, 2048);
+  const hostedSignInUrl = normalizeSignInUrl(candidate);
+  if (!hostedSignInUrl) {
     warnOnce(
-      "oauth.gmailSignInUrl",
-      "oauth.gmailSignInUrl must be an HTTPS origin; using the default",
+      "oauth.hostedSignInUrl",
+      "oauth.hostedSignInUrl must be an HTTPS origin; using the default",
     );
   }
-  const hostCandidate = o.gmailSignInHostUrl;
-  let gmailSignInHostUrl: string | null = null;
+  const hostCandidate = o.signInHostUrl;
+  let signInHostUrl: string | null = null;
   if (hostCandidate === undefined) {
-    gmailSignInHostUrl = d.gmailSignInHostUrl;
+    signInHostUrl = d.signInHostUrl;
   } else if (typeof hostCandidate === "string" && hostCandidate.length <= 2048) {
-    gmailSignInHostUrl = hostCandidate.trim() ? normalizeGmailSignInUrl(hostCandidate) : "";
+    signInHostUrl = hostCandidate.trim() ? normalizeSignInUrl(hostCandidate) : "";
   }
-  if (gmailSignInHostUrl === null) {
+  if (signInHostUrl === null) {
     warnOnce(
-      "oauth.gmailSignInHostUrl",
-      "oauth.gmailSignInHostUrl must be empty or an HTTPS origin; hosting is disabled",
+      "oauth.signInHostUrl",
+      "oauth.signInHostUrl must be empty or an HTTPS origin; hosting is disabled",
     );
   }
   return {
-    gmailSignInEnabled: boolField(o, "oauth", "gmailSignInEnabled", d.gmailSignInEnabled),
-    gmailSignInUrl: gmailSignInUrl ?? d.gmailSignInUrl,
-    hostGmailSignIn:
-      boolField(o, "oauth", "hostGmailSignIn", d.hostGmailSignIn) && gmailSignInHostUrl !== null,
-    gmailSignInHostUrl: gmailSignInHostUrl ?? d.gmailSignInHostUrl,
+    hostedSignInEnabled: boolField(o, "oauth", "hostedSignInEnabled", d.hostedSignInEnabled),
+    hostedSignInUrl: hostedSignInUrl ?? d.hostedSignInUrl,
+    hostSignIn:
+      boolField(o, "oauth", "hostSignIn", d.hostSignIn) && signInHostUrl !== null,
+    signInHostUrl: signInHostUrl ?? d.signInHostUrl,
   };
 }
 
@@ -645,6 +666,14 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 /** Test-only overlay. Wins over the cache without touching the database. */
 type RuntimeSettingsOverrides = {
   [G in RuntimeSettingsGroup]?: Partial<RuntimeSettings[G]>;
+};
+type RuntimeSettingsTestPatch = Omit<RuntimeSettingsOverrides, "oauth"> & {
+  oauth?: Partial<RuntimeOauthSettings> & {
+    gmailSignInEnabled?: boolean;
+    gmailSignInUrl?: string;
+    hostGmailSignIn?: boolean;
+    gmailSignInHostUrl?: string;
+  };
 };
 let testOverrides: RuntimeSettingsOverrides = {};
 
@@ -813,7 +842,7 @@ export async function resetRuntimeSettingsGroup<G extends RuntimeSettingsGroup>(
  * Force fields on for a test without a database round-trip. Successive calls
  * accumulate; pass `null` to drop every override.
  */
-export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsOverrides | null): void {
+export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsTestPatch | null): void {
   if (patch === null) {
     testOverrides = {};
     return;
@@ -821,6 +850,13 @@ export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsOverrides 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const value = patch[group];
     if (!value) continue;
+    if (group === "oauth") {
+      testOverrides.oauth = {
+        ...testOverrides.oauth,
+        ...(normalizeOauthSettingNames(value) as Partial<RuntimeOauthSettings>),
+      };
+      continue;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (testOverrides as any)[group] = { ...(testOverrides[group] ?? {}), ...value };
   }

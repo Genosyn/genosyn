@@ -1,16 +1,14 @@
 import { z } from "zod";
+import { SignInBrokerError } from "./signInBrokerTypes.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
-export class GoogleSignInUpstreamError extends Error {
-  constructor(
-    message = "Google sign-in could not be completed. Please try again.",
-    public readonly status = 502,
-  ) {
-    super(message);
+export class GoogleSignInUpstreamError extends SignInBrokerError {
+  constructor(message = "Google sign-in could not be completed. Please try again.", status = 502) {
+    super(message, status);
     this.name = "GoogleSignInUpstreamError";
   }
 }

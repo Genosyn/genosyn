@@ -146,7 +146,7 @@ export function SelfHosting() {
               <>
                 <Strong>Web tools</Strong> (on/off, search provider, result and document limits),{" "}
                 <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
-                <Strong>Gmail sign-in</Strong> (hosted sign-in and service URL),{" "}
+                <Strong>Hosted sign-in</Strong> (shared sign-in and service URL),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
@@ -359,11 +359,11 @@ export function SelfHosting() {
         Email content never passes through the sign-in service.
       </P>
       <P>
-        <Code>Admin → Runtime → Gmail sign-in</Code> controls hosted sign-in. The default service is
+        <Code>Admin → Runtime → Hosted sign-in</Code> controls hosted sign-in. The default service is
         {" "}<Code>https://connect.genosyn.com</Code>; it must be deployed and available before sign-in
-        works. Turning off <Strong>Use hosted Gmail sign-in</Strong> prevents new hosted sign-ins
+        works. Turning off <Strong>Use hosted sign-in</Strong> prevents new hosted sign-ins
         without revoking existing Connections. Existing Connections continue renewing through their
-        original service even if you change the URL. Leave <Strong>Host Gmail sign-in on this
+        original service even if you change the URL. Leave <Strong>Host shared sign-in on this
         installation</Strong> off; that setting is for the operator of the dedicated public service.
       </P>
       <P>

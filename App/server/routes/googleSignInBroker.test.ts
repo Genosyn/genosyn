@@ -57,7 +57,7 @@ beforeEach(async () => {
   resetRuntimeSettingsCacheForTests();
   await setPublicUrl(BROKER_ORIGIN);
   await saveOauthApp("google", { clientId: "broker-client", clientSecret: "broker-secret" });
-  overrideRuntimeSettingsForTests({ oauth: { hostGmailSignIn: true } });
+  overrideRuntimeSettingsForTests({ oauth: { hostSignIn: true } });
   googleCalls = [];
   tokenStatus = 200;
   tokenResponse = {
@@ -145,7 +145,7 @@ async function callback(state: string, cookie: string, query = "code=google-code
 }
 
 test("host mode is opt-in and requires actual credentials plus a secure configured origin", async () => {
-  overrideRuntimeSettingsForTests({ oauth: { hostGmailSignIn: false } });
+  overrideRuntimeSettingsForTests({ oauth: { hostSignIn: false } });
   assert.deepEqual(await (await realFetch(`${baseUrl}/status`)).json(), {
     version: 1,
     available: false,
@@ -156,7 +156,7 @@ test("host mode is opt-in and requires actual credentials plus a secure configur
     installationOrigin: "http://localhost:3000",
   });
   assert.equal(denied.status, 503);
-  overrideRuntimeSettingsForTests({ oauth: { hostGmailSignIn: true } });
+  overrideRuntimeSettingsForTests({ oauth: { hostSignIn: true } });
   await setPublicUrl("http://broker.example.com");
   assert.equal(
     ((await (await realFetch(`${baseUrl}/status`)).json()) as { available: boolean }).available,
@@ -213,10 +213,10 @@ test("a separate broker host completes consent and refresh without changing the 
   await setPublicUrl(appOrigin);
   overrideRuntimeSettingsForTests({
     oauth: {
-      hostGmailSignIn: true,
-      gmailSignInHostUrl: BROKER_ORIGIN,
+      hostSignIn: true,
+      signInHostUrl: BROKER_ORIGIN,
       // Choosing a service as a consumer must not change this broker's identity.
-      gmailSignInUrl: "https://another-service.example.com",
+      hostedSignInUrl: "https://another-service.example.com",
     },
   });
   const flow = await start();
@@ -285,7 +285,7 @@ test("flow cookies follow the broker protocol independently of the App public UR
   ]) {
     await setPublicUrl(appOrigin);
     overrideRuntimeSettingsForTests({
-      oauth: { hostGmailSignIn: true, gmailSignInHostUrl: brokerOrigin },
+      oauth: { hostSignIn: true, signInHostUrl: brokerOrigin },
     });
     const flow = await start();
     assert.equal(new URL(flow.authorizeUrl).origin, brokerOrigin);

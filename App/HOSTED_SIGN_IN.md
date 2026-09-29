@@ -1,6 +1,9 @@
-# Operating hosted Gmail sign-in
+# Operating the shared sign-in service
 
-Genosyn includes a Gmail sign-in service inside the **App** server. The default
+Genosyn includes a provider-neutral sign-in service inside the **App** server.
+Google for Gmail is the first supported provider. New sign-in providers can share
+this host, deployment, settings, and security flow through dedicated adapters;
+this does not enable additional providers or change Member login by itself. The default
 customer setting points to `https://connect.genosyn.com`, but shipping the code
 does not deploy that service or register a Google app. Until it is online and
 configured, customers need their own Google OAuth app.
@@ -9,8 +12,8 @@ configured, customers need their own Google OAuth app.
 
 The production Helm profile serves both `app.genosyn.com` and
 `connect.genosyn.com` through the same Ingress, App Service, containers,
-database, and instance secrets. `connect.genosyn.com` exposes only the six
-Gmail sign-in paths listed below. It does not expose the App UI or admin
+database, and instance secrets. `connect.genosyn.com` exposes the shared `/api/connect` namespace and the six
+legacy Google sign-in paths listed below. It does not expose the App UI or admin
 routes. Both names use the same load-balancer address; provision the
 `genosyn-prod-tls` and `genosyn-connect-tls` certificates in `genosyn-prod`.
 With `GENOSYN_PROD_KUBE_CONTEXT` set to your existing Kubernetes context,
@@ -20,7 +23,7 @@ for both hosts. No separate connect release,
 database, or container is needed.
 
 Keep **Admin → General → Public URL** at `https://app.genosyn.com`. In
-**Admin → Runtime → Gmail sign-in**, set **Hosted sign-in address** to
+**Admin → Runtime → Hosted sign-in**, set **Hosted sign-in address** to
 `https://connect.genosyn.com`. This separate address controls the hosted
 authorization page, its browser-origin checks, and Google's callback. Leaving
 it blank uses the App's public URL, which supports an existing dedicated host.
@@ -28,10 +31,10 @@ it blank uses the App's public URL, which supports an existing dedicated host.
 this installation as a customer; it does not configure the hosting address.
 
 Register the Google app and complete the launch steps below before enabling
-**Host Gmail sign-in on this installation**. The Helm profile configures
+**Host shared sign-in on this installation**. The Helm profile configures
 routing, while these settings and OAuth credentials remain in the dashboard.
 The two domains share capacity, upgrades, and outages. The test profile leaves
-the extra host off; opt in with `ingress.gmailSignIn` and a separate test
+the extra host off; opt in with `ingress.connect` and a separate test
 hostname/certificate when testing hosted sign-in.
 
 ## Optional dedicated deployment
@@ -60,7 +63,10 @@ secrets and the data volume.
 
 For this dedicated topology, the chart's ordinary ingress exposes the whole App. Keep
 `ingress.enabled: false` and configure a dedicated TLS ingress or reverse proxy
-for `connect.genosyn.com` that permits only these exact public paths:
+for `connect.genosyn.com` that permits the `/api/connect` path prefix and these exact legacy public paths.
+Each supported provider uses `/api/connect/<provider>/status`, `/start`,
+`/authorize`, `/callback`, `/poll`, and `/refresh`, with the methods below.
+Unknown providers and routes return 404; the rest of the App stays private:
 
 | Path                            | Methods   |
 | ------------------------------- | --------- |
@@ -75,7 +81,7 @@ Forward to the App service on port 8471 (the Helm Service exposes port 80),
 without rewriting the path. Keep all other App paths private, including
 registration, administration, internal APIs, and `/api/health`. The chart's
 existing internal readiness and liveness probes use `/api/health`; monitor
-`/api/google-sign-in/status` separately. Its `available: true` means the local
+`/api/connect/google/status` separately. Its `available: true` means the local
 configuration is present, so a real consent and refresh check is still required.
 
 Give operators private access to the full UI through a tunnel or restricted
@@ -104,7 +110,7 @@ HTTPS to Google and never needs to contact customer installation addresses.
 1. Deploy the production SaaS profile with both domains, or the optional
    dedicated topology above. On a shared deployment, keep **Admin → General
    → Public URL** at `https://app.genosyn.com` and set **Admin → Runtime
-   → Gmail sign-in → Hosted sign-in address** to `https://connect.genosyn.com`.
+   → Hosted sign-in → Hosted sign-in address** to `https://connect.genosyn.com`.
    On a dedicated installation, its public URL can be `https://connect.genosyn.com`
    with the hosting address left blank. The marketing site's Cloudflare Worker
    does not provide these endpoints.
@@ -112,7 +118,11 @@ HTTPS to Google and never needs to contact customer installation addresses.
    branding and consent screen. Register a **Web application** OAuth client with
    this exact authorized redirect URI:
 
-   `https://connect.genosyn.com/api/google-sign-in/callback`
+   `https://connect.genosyn.com/api/connect/google/callback`
+
+   Keep `https://connect.genosyn.com/api/google-sign-in/callback` registered too
+   for older installations and in-flight sign-ins. The two URLs are served
+   directly, without redirects. Add the new URL before upgrading customer clients.
 
    Customer installation URLs are not registered as Google redirect URIs.
    A shared SaaS App also uses its locally registered Google app for its own
@@ -133,8 +143,8 @@ HTTPS to Google and never needs to contact customer installation addresses.
    [restricted-scope verification requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
    and [Gmail scope list](https://developers.google.com/workspace/gmail/api/auth/scopes)
    are the authoritative references.
-5. After configuration and verification, open **Admin → Runtime → Gmail
-   sign-in**, enable **Host Gmail sign-in on this installation**, and save.
+5. After configuration and verification, open **Admin → Runtime → Hosted
+   sign-in**, enable **Host shared sign-in on this installation**, and save.
    Ordinary customer installations leave this setting off. This opens the
    sign-in and token-renewal endpoints to other Genosyn installations.
 6. Verify the browser flow from a separate installation: **Email → enter Gmail
@@ -178,19 +188,44 @@ existing Connections renew again; revoked credentials require reconnecting.
 
 ## Customer controls
 
-The default **Use hosted Gmail sign-in** setting needs no customer OAuth app
+The default **Use hosted sign-in** setting needs no customer OAuth app
 when the Genosyn service is available. An operator may replace the service URL
 with another trusted service; it must be an HTTPS origin without credentials,
 a path, query, or fragment. This changes where **new** Connections authenticate.
 Existing Connections retain their original issuer for refresh, so changing the
 default cannot redirect an existing credential to a different service.
 
-Disabling **Use hosted Gmail sign-in** prevents new hosted sign-ins without
+Disabling **Use hosted sign-in** prevents new hosted sign-ins without
 revoking existing Connections or blocking their refresh. Disconnect the
 Connection and revoke its access in Google to withdraw access.
 
 A locally registered Google OAuth app, or explicit credentials on a
 Connection, takes precedence over hosted Gmail sign-in. This preserves the
-independent installation path. Hosted sign-in supports Gmail only; Drive,
+independent installation path. The Google adapter currently supports Gmail only; Drive,
 Calendar, Analytics, Search Console, Ads, and the other Google products still
 need an independently registered app.
+
+
+## Adding another sign-in provider
+
+The shared router at `server/routes/connectSignIn.ts` dispatches only registered
+providers beneath `/api/connect/<provider>`. A provider adapter owns its OAuth
+registration, fixed upstream endpoints, allowed scopes, consent copy, and token
+validation. The common broker owns browser proof, encrypted one-time handoff,
+expiry, CSRF checks, and throttling. Adding a provider must include its consumer
+flow, callback registration, token validation, and tests; adding an OAuth app in
+the dashboard alone does not expose it through Connect. Future Member sign-in
+also needs an explicit account identity and account-linking flow.
+
+New Google Connections save both their issuer and the protocol path. Older
+Connections and in-flight attempts without a saved path continue using
+`/api/google-sign-in`. New clients discover the provider through a public status
+request; only a 404 permits checking an older Google host. Credential requests
+never follow redirects or fall back to a different path. The browser opener
+supports both protocol generations, while tokens stay server-side.
+
+Existing `runtime.oauth` Gmail-named fields and `ingress.gmailSignIn` values
+remain readable for upgrades. New saves use the neutral runtime fields
+`hostedSignInEnabled`, `hostedSignInUrl`, `hostSignIn`, and `signInHostUrl`;
+new Helm profiles use `ingress.connect`. An explicitly supplied new field takes
+precedence over its old name, including `false` or an empty hosting address.

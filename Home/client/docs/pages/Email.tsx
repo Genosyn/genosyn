@@ -72,7 +72,7 @@ export function Email() {
         when needed to renew access. Email content does not pass through that service.
       </P>
       <P>
-        If Google sign-in is unavailable, an instance admin can check <Strong>Gmail sign-in</Strong>
+        If Google sign-in is unavailable, an instance admin can check <Strong>Hosted sign-in</Strong>
         {" "}at <Strong>Admin → Runtime</Strong>, or register an independent Google OAuth app at{" "}
         <Strong>Admin → Integrations</Strong>. A locally registered app takes precedence. Hosted
         sign-in covers Gmail only; other Google products need your own app. See{" "}
