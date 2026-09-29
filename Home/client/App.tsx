@@ -73,7 +73,7 @@ function Landing() {
         <HowItWorks />
         <Features />
         <CliShowcase />
-        <InstallCta sheet="09 / Install" />
+        <InstallCta sheet="09 / Get started" />
         <Colophon sheet="10 / Colophon" />
       </main>
       <Footer />

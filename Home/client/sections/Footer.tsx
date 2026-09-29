@@ -1,6 +1,6 @@
-import { ArrowRight, Terminal } from "lucide-react";
+import { ArrowRight, Cloud } from "lucide-react";
 import { Reveal } from "@/components/Reveal";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, SIGN_UP_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 import { Band, Container, Field, Note, Rail, Sheet } from "@/sections/Kit";
@@ -32,8 +32,11 @@ const RESOURCE_LINKS = [
   ["Enterprise", "/enterprise"],
 ] as const;
 
-/** Shared closing action. Callers may provide their own section label. */
-export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
+/**
+ * Shared closing action: start on Genosyn Cloud, or install the same software.
+ * Callers may provide their own section label.
+ */
+export function InstallCta({ sheet = "Get started" }: { sheet?: string } = {}) {
   return (
     <Band id="install" tone="ground" open="l" close="s">
       <Container>
@@ -52,24 +55,32 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
           </div>
           <div>
             <div className="mb-5 flex items-center gap-3 text-sm text-slate-300">
-              <Terminal aria-hidden className="h-5 w-5 text-indigo-300" />
-              Self-hosted. Open source. Yours to run.
+              <Cloud aria-hidden className="h-5 w-5 text-indigo-300" />
+              Free on Genosyn Cloud. Open source to self-host.
             </div>
-            <Link
-              href="/docs/install"
+            <a
+              href={SIGN_UP_URL}
               className="motion-button flex min-h-12 items-center justify-between gap-4 rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-900 hover:bg-indigo-50"
             >
-              Install Genosyn <ArrowRight aria-hidden className="h-4 w-4" />
-            </Link>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-4 inline-flex items-center gap-2 text-sm text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white"
-            >
-              Read the source on GitHub
-              <span className="sr-only">(opens in a new tab)</span>
+              Start free on Genosyn Cloud <ArrowRight aria-hidden className="h-4 w-4" />
             </a>
+            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+              <Link
+                href="/docs/install"
+                className="inline-flex items-center gap-2 text-sm text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white"
+              >
+                Install it on your own hardware
+              </Link>
+              <a
+                href={GITHUB_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white"
+              >
+                Read the source on GitHub
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+            </div>
           </div>
         </Reveal>
       </Container>
@@ -117,7 +128,8 @@ export function Footer() {
           <div>
             <Logo className="text-[15px] text-ink" />
             <p className="mt-5 max-w-sm text-[0.9375rem] leading-[1.7] text-ink2">
-              Open source, self-hosted software for running a company with AI Employees.
+              Open source software for running a company with AI Employees, on Genosyn Cloud or
+              your own hardware.
             </p>
           </div>
 

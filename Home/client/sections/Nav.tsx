@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, SIGN_IN_URL, SIGN_UP_URL } from "@/lib/constants";
 import { Logo, LogoMark } from "@/components/Logo";
 import { Link, usePathname } from "@/lib/router";
 
@@ -81,11 +81,25 @@ export function Nav() {
             GitHub
             <span className="sr-only">{"(opens in a new tab)"}</span>
           </a>
-          <a
-            href="/#install"
-            className="motion-button hidden min-h-10 items-center rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700 sm:inline-flex"
+          {/* Install only fits beside the full link row from xl up; below that
+              it lives in the menu, and the landing hero carries the command. */}
+          <Link
+            href="/docs/install"
+            className="hidden rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900 xl:inline-flex"
           >
             Install
+          </Link>
+          <a
+            href={SIGN_IN_URL}
+            className="hidden rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900 sm:inline-flex"
+          >
+            Sign in
+          </a>
+          <a
+            href={SIGN_UP_URL}
+            className="motion-button hidden min-h-10 items-center whitespace-nowrap rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700 sm:inline-flex"
+          >
+            Sign up
           </a>
           <button
             ref={toggle}
@@ -127,23 +141,38 @@ export function Nav() {
                   {link.label}
                 </Link>
               ))}
-              <div className="mt-1 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2 sm:hidden">
+              {/* Sign in, Sign up and GitHub are in the header from sm up, so
+                  the menu repeats them only below it. Install is in the header
+                  from xl, which is wider than the menu is ever shown. */}
+              <div className="mt-1 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
+                <a
+                  href={SIGN_IN_URL}
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 sm:hidden"
+                >
+                  Sign in
+                </a>
+                <a
+                  href={SIGN_UP_URL}
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700 sm:hidden"
+                >
+                  Sign up
+                </a>
                 <a
                   href={GITHUB_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50"
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 sm:hidden"
                 >
                   GitHub
                   <span className="sr-only">{"(opens in a new tab)"}</span>
                 </a>
-                <a
-                  href="/#install"
+                <Link
+                  href="/docs/install"
                   onClick={() => setOpen(false)}
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700"
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 sm:col-span-2"
                 >
                   Install
-                </a>
+                </Link>
               </div>
             </div>
           </nav>

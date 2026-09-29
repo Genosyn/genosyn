@@ -1,7 +1,7 @@
 import { ArrowRight, BookHeart, CalendarClock, Sparkles } from "lucide-react";
 import { Link } from "@/lib/router";
 import { Callout, Code, DocLink, ExtLink, H2, P, PageHeader, Strong, UL, LI } from "@/docs/Prose";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, SIGN_UP_URL } from "@/lib/constants";
 
 export function Introduction() {
   return (
@@ -11,9 +11,9 @@ export function Introduction() {
         title="Build an autonomous company."
         lead={
           <>
-            Genosyn is an open-source, self-hostable platform for running a company with{" "}
-            <Strong>AI Employees</Strong>. Each one has a written soul, a set of skills, and
-            routines on a schedule. They wake up on their own, do the job, and report what they
+            Genosyn is an open-source platform for running a company with{" "}
+            <Strong>AI Employees</Strong>, on Genosyn Cloud or on your own hardware. Each AI
+            Employee has a written soul, a set of skills, and routines on a schedule. They wake up on their own, do the job, and report what they
             shipped — and only the decisions that need a person come back to you.
           </>
         }
@@ -228,7 +228,7 @@ export function Introduction() {
         it — that&apos;s what it&apos;s there for.
       </Callout>
 
-      <div className="mt-12">
+      <div className="mt-12 flex flex-wrap items-center gap-3">
         <Link
           href="/docs/install"
           className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink2"
@@ -236,6 +236,13 @@ export function Introduction() {
           Install Genosyn
           <ArrowRight className="h-4 w-4" />
         </Link>
+        <a
+          href={SIGN_UP_URL}
+          className="inline-flex items-center gap-2 border border-rule px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-slate-50"
+        >
+          Start on Genosyn Cloud
+          <ArrowRight className="h-4 w-4" />
+        </a>
       </div>
     </>
   );

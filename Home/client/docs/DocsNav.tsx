@@ -1,4 +1,4 @@
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, SIGN_IN_URL } from "@/lib/constants";
 import { Logo, LogoMark } from "@/components/Logo";
 import { Link } from "@/lib/router";
 import { Container } from "@/sections/Kit";
@@ -54,6 +54,12 @@ export function DocsNav({
           >
             Install
           </Link>
+          <a
+            href={SIGN_IN_URL}
+            className="hidden rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900 md:inline-flex"
+          >
+            Sign in
+          </a>
           <a
             href={GITHUB_URL}
             target="_blank"

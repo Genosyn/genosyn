@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useReveal } from "@/components/Reveal";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, SIGN_UP_URL } from "@/lib/constants";
 import {
   Band,
   Body,
@@ -45,8 +45,8 @@ import {
  *    is a shop telling you which shelf to look at.
  *
  * 3. **One ink object per band, and it is always that band's human action.**
- *    The install control in 01, the Cloud access cell in 02, the command you
- *    paste in 03. Nothing else on the page is black, so on five bands of paper
+ *    The sign-up control in 01, the sign-up cell in 02, the command you paste
+ *    in 03. Nothing else on the page is black, so on five bands of paper
  *    the eye finds exactly five things and every one of them is a thing you do.
  *    That is the machine-in-colour / human-in-black inversion doing its job on
  *    a page with no machine colour to invert against.
@@ -65,7 +65,6 @@ import {
  * carries the real install command.
  */
 
-const CLOUD_ACCESS_HREF = "mailto:cloud@genosyn.com?subject=Genosyn%20Cloud%20early%20access";
 const ENTERPRISE_HREF = "mailto:enterprise@genosyn.com?subject=Genosyn%20Enterprise";
 
 /** The command in `client/public/install.sh` and in the install guide, verbatim. */
@@ -81,6 +80,8 @@ type Plan = {
   price: string;
   /** The meter the price is charged against, if there is one. */
   meter?: string;
+  /** The annual price per month, as the App's Billing page shows it. */
+  annual?: string;
   /** Quota values the software actually enforces. One line each. */
   limits: string[];
 };
@@ -91,7 +92,7 @@ const CLOUD_PLANS: Plan[] = [
     host: "Genosyn Cloud",
     gets: "Hire one AI Employee, give it a Soul and two Routines, and let it run on a schedule. It costs $0 in month one and $0 in month twelve.",
     price: "$0",
-    limits: ["1 AI EMPLOYEE", "2 ROUTINES", "1 BASE", "3 CHANNELS", "1 PROJECT", "20 TODOS"],
+    limits: ["1 AI EMPLOYEE", "2 ROUTINES", "1 BASE, 1 TABLE", "3 CHANNELS", "1 PROJECT", "20 TODOS"],
   },
   {
     name: "Growth",
@@ -99,6 +100,7 @@ const CLOUD_PLANS: Plan[] = [
     gets: "Every limit above comes off. Support is email, answered by the people who wrote the code.",
     price: "$19",
     meter: "PER AI EMPLOYEE / MO",
+    annual: "$17.10 / MO BILLED ANNUALLY",
     limits: ["UNLIMITED AI EMPLOYEES", "UNLIMITED ROUTINES"],
   },
   {
@@ -107,6 +109,7 @@ const CLOUD_PLANS: Plan[] = [
     gets: "Everything in Growth, plus single sign-on and the audit log for the whole company. This is the plan an IT review asks for.",
     price: "$49",
     meter: "PER AI EMPLOYEE / MO",
+    annual: "$44.10 / MO BILLED ANNUALLY",
     limits: ["SSO", "AUDIT LOG"],
   },
 ];
@@ -208,7 +211,7 @@ const QUESTIONS: Question[] = [
   },
   {
     q: "Can I switch plans?",
-    a: "Any time. Upgrades and downgrades take effect through Stripe with per-AI-Employee proration, and hiring or letting go of an AI Employee adjusts your billed quantity automatically.",
+    a: "Any time, and between monthly and annual billing too. Upgrades and downgrades take effect through Stripe with per-AI-Employee proration, and hiring or letting go of an AI Employee adjusts your billed quantity automatically.",
   },
   {
     q: "What happens if I go over a Free plan limit?",
@@ -251,20 +254,23 @@ function PricingHead() {
             <Sheet>01 / Pricing</Sheet>
             <Fields items={["APACHE-2.0", `v${__APP_VERSION__}`, "USD"]} className="mt-3" />
 
-            <Display className="mt-5 max-w-[20ch]">Genosyn is free on your own hardware.</Display>
+            <Display className="mt-5 max-w-[20ch]">
+              Start free, on Genosyn Cloud or your own hardware.
+            </Display>
 
             <Lede className="mt-7">
-              Download it, run it, and hire as many AI Employees as you want. Genosyn Cloud is the
-              same software with us operating it, charged per AI Employee hired.
+              Sign up and hire your first AI Employee on the Free plan, or install the same software
+              on a machine you own and hire as many as you want. Paid Cloud plans are charged per AI
+              Employee hired.
             </Lede>
 
             {/* The one black object in this band. A control is a human action,
-                so it is ink; the paid path beside it is a text link, because
-                the honest hierarchy of an Apache-2.0 product is that the free
-                thing is the product. */}
+                so it is ink. Both paths start at $0, and signing up is the one
+                that needs no hardware, so it is the control; the install path
+                is a text link here because band 03 carries its command. */}
             <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-4">
-              <Button href="/docs/install">Install it on your own hardware</Button>
-              <TextLink href={CLOUD_ACCESS_HREF}>Request Genosyn Cloud access</TextLink>
+              <Button href={SIGN_UP_URL}>Start free on Genosyn Cloud</Button>
+              <TextLink href="/docs/install">Install it on your own hardware</TextLink>
             </div>
           </div>
 
@@ -334,19 +340,20 @@ function CloudPlans() {
 
         <TileStrip className="mt-12 sm:grid-cols-2 lg:grid-cols-4">
           {CLOUD_PLANS.map((plan) => (
-            <PlanTile key={plan.name} plan={plan} />
+            <PlanTile key={plan.name} plan={plan} reserveAnnual />
           ))}
 
           {/* The fourth cell is you — the same move the landing wall makes with
               its eighth cell. It carries no price, so it cannot be misread as
               a plan, and it is the only thing in the strip with no border and
-              no paper under it. */}
+              no paper under it. Every account starts on Free, so the cell is
+              sign-up rather than a choice between the three tiles. */}
           <ActionTile
-            eyebrow="Rolling out now"
-            title="Genosyn Cloud access"
-            body="Send one line about what you want an AI Employee to do and we will onboard you."
-            href={CLOUD_ACCESS_HREF}
-            label="cloud@genosyn.com"
+            eyebrow="Free plan"
+            title="Start on Genosyn Cloud"
+            body="Create an account, verify your email and hire your first AI Employee. Upgrade at Settings / Billing when you need more."
+            href={SIGN_UP_URL}
+            label="Create your account"
           />
         </TileStrip>
       </Container>
@@ -594,9 +601,18 @@ function TileStrip({ className = "", children }: { className?: string; children:
  * reason a page this dense can afford to shout. The meter line under it is
  * height-reserved: Free has no meter, and letting its body copy ride 20px
  * higher than its neighbours' would make four deliberate tiles look like four
- * accidents.
+ * accidents. The annual line is reserved the same way, but only in a strip
+ * where some plan has one.
  */
-function PlanTile({ plan, tone = "surface" }: { plan: Plan; tone?: "surface" | "ground" }) {
+function PlanTile({
+  plan,
+  tone = "surface",
+  reserveAnnual = false,
+}: {
+  plan: Plan;
+  tone?: "surface" | "ground";
+  reserveAnnual?: boolean;
+}) {
   return (
     <div
       className={`flex min-w-0 flex-col rounded-xl border border-slate-200 p-5 shadow-sm ${
@@ -610,6 +626,9 @@ function PlanTile({ plan, tone = "surface" }: { plan: Plan; tone?: "surface" | "
 
       <Figure className="mt-6 !text-[clamp(2.75rem,4.6vw,4.25rem)]">{plan.price}</Figure>
       <div className="mt-2 min-h-[1.125rem]">{plan.meter && <Sheet>{plan.meter}</Sheet>}</div>
+      {(reserveAnnual || plan.annual) && (
+        <div className="mt-1 min-h-[1.125rem]">{plan.annual && <Sheet>{plan.annual}</Sheet>}</div>
+      )}
 
       <Rule className="mt-5" />
       <Body className="mt-4 !text-[14px]">{plan.gets}</Body>

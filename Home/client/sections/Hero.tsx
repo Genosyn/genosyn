@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, Check, Copy, Github, Server, ShieldCheck } from "lucide-react";
 import { Reveal } from "@/components/Reveal";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, SIGN_UP_URL } from "@/lib/constants";
 import { Claims } from "@/sections/Claims";
 import { Button, Container } from "@/sections/Kit";
 import { Wall } from "@/sections/Wall";
@@ -48,8 +48,8 @@ export function Hero() {
                 with you in control.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
-                <Button href="/docs/install" className="min-h-12 px-6">
-                  Get started <ArrowRight aria-hidden className="h-4 w-4" />
+                <Button href={SIGN_UP_URL} className="min-h-12 px-6">
+                  Start free <ArrowRight aria-hidden className="h-4 w-4" />
                 </Button>
                 <Button href="#roles" variant="secondary" className="min-h-12 px-6">
                   Meet your AI Employees <ArrowDown aria-hidden className="h-4 w-4" />
@@ -61,7 +61,7 @@ export function Hero() {
               <ul className="mt-7 flex flex-wrap justify-center gap-x-5 gap-y-3 text-xs text-slate-500 lg:justify-start">
                 <li className="inline-flex items-center gap-2">
                   <Server aria-hidden className="h-3.5 w-3.5" />
-                  Self-hosted. Your data.
+                  Genosyn Cloud or self-hosted
                 </li>
                 <li className="inline-flex items-center gap-2">
                   <Github aria-hidden className="h-3.5 w-3.5" />
@@ -85,7 +85,7 @@ export function Hero() {
         <Reveal className="mt-10 grid gap-6 rounded-xl border border-slate-200 bg-white/90 p-5 sm:mt-12 sm:p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:gap-10">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900">
-              Your infrastructure. One command away.
+              Prefer your own infrastructure? One command away.
             </p>
             <p className="mt-1 text-sm leading-6 text-slate-500">
               Install Genosyn and give your first AI Employee a role.
