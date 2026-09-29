@@ -160,39 +160,39 @@ const GROUPS: GroupSpec[] = [
   },
   {
     group: "oauth",
-    title: "Gmail sign-in",
+    title: "Hosted sign-in",
     icon: <Mailbox size={16} className="text-indigo-500" />,
-    blurb: "Let companies connect Gmail through a hosted sign-in service. Mail goes directly between this installation and Google.",
+    blurb: "Connect supported Integrations through a shared sign-in service. Currently supports Google for Gmail; other providers must be added separately. This does not change how Members log into Genosyn.",
     fields: [
       {
         kind: "boolean",
-        path: "gmailSignInEnabled",
-        label: "Use hosted Gmail sign-in",
-        help: "Use the service below when no Google OAuth app is configured here. Turning this off stops new hosted sign-ins; existing Connections keep refreshing through their original service.",
+        path: "hostedSignInEnabled",
+        label: "Use hosted sign-in",
+        help: "Use the service below when no local OAuth app is configured for a supported Integration. Turning this off stops new hosted sign-ins; existing Connections keep refreshing through their original service.",
       },
       {
         kind: "text",
-        path: "gmailSignInUrl",
+        path: "hostedSignInUrl",
         label: "Sign-in service URL (advanced)",
         maxLength: 2048,
         placeholder: "https://connect.genosyn.com",
         mono: true,
-        help: "Only change this to a service you operate or trust with Google credentials. It handles sign-in and token renewal, not email content. Use an HTTPS origin with no path; HTTP loopback is allowed for development. The service must be online before companies can connect.",
+        help: "Only change this to a service you operate or trust with Integration credentials. It handles sign-in and token renewal. Gmail reads and sends go directly between this installation and Google. Use an HTTPS origin with no path; HTTP loopback is allowed for development. The service must be online before companies can connect.",
       },
       {
         kind: "boolean",
-        path: "hostGmailSignIn",
-        label: "Host Gmail sign-in on this installation",
-        help: "For the operator of the public sign-in service only. This exposes sign-in and token-renewal endpoints for other installations. Set a public HTTPS URL, register a Google app at Admin → Integrations, and complete Google production verification before enabling. Ordinary self-hosted installations leave this off.",
+        path: "hostSignIn",
+        label: "Host shared sign-in on this installation",
+        help: "For the operator of the public sign-in service only. This exposes sign-in and token-renewal endpoints for other installations. Currently Google only: set a public HTTPS URL, register a Google app at Admin → Integrations, and complete Google production verification before enabling. Ordinary self-hosted installations leave this off.",
       },
       {
         kind: "text",
-        path: "gmailSignInHostUrl",
+        path: "signInHostUrl",
         label: "Hosted sign-in address",
         maxLength: 2048,
         placeholder: "https://connect.genosyn.com",
         mono: true,
-        help: "Leave blank to use the App address. Set https://connect.genosyn.com when the sign-in service shares the SaaS deployment. Route this address to the App and register its /api/google-sign-in/callback URL with Google. Hosting still needs to be enabled above.",
+        help: "Leave blank to use the App address. Set https://connect.genosyn.com when the sign-in service shares the SaaS deployment. Route this address to the App and register its /api/connect/google/callback URL with Google. The existing /api/google-sign-in/callback remains compatible. Hosting still needs to be enabled above.",
       },
     ],
   },
@@ -654,13 +654,13 @@ function GroupCard({
     }
     if (
       spec.group === "oauth" &&
-      built.value.hostGmailSignIn === true &&
-      readPath(value, "hostGmailSignIn") !== true
+      built.value.hostSignIn === true &&
+      readPath(value, "hostSignIn") !== true
     ) {
       const confirmed = await dialog.confirm({
-        title: "Host the public Gmail sign-in service?",
+        title: "Host the shared sign-in service?",
         message:
-          "Other installations will send Google sign-in and token-renewal requests here. Enable this after configuring the public sign-in address and Google OAuth app, registering that address with /api/google-sign-in/callback, and completing Google production verification. This setting is not needed to connect your own Gmail mailbox.",
+          "Other installations will send sign-in and token-renewal requests here. Currently only Google for Gmail is supported. Configure the public sign-in address and Google OAuth app, register that address with /api/connect/google/callback, and complete Google production verification before enabling. This does not enable other providers or change Member login.",
         confirmLabel: "Enable hosting",
       });
       if (!confirmed) return;

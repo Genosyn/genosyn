@@ -32,7 +32,8 @@ import {
 } from "../services/customJavaScript.js";
 import {
   getRuntimeSettingsSnapshot,
-  normalizeGmailSignInUrl,
+  normalizeOauthSettingNames,
+  normalizeSignInUrl,
   resetRuntimeSettingsGroup,
   saveRuntimeSettingsGroup,
 } from "../services/runtimeSettings.js";
@@ -329,27 +330,30 @@ const runtimeGroupSchemas = {
     backfillPassSeconds: z.number().int().min(1).max(600),
     backfillDays: z.number().int().min(0).max(36_500),
   }),
-  oauth: z.object({
-    gmailSignInEnabled: z.boolean(),
-    gmailSignInUrl: z
-      .string()
-      .trim()
-      .max(2048)
-      .refine(
-        (value) => normalizeGmailSignInUrl(value) !== null,
-        "Use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
-      ),
-    hostGmailSignIn: z.boolean(),
-    gmailSignInHostUrl: z
-      .string()
-      .trim()
-      .max(2048)
-      .refine(
-        (value) => value === "" || normalizeGmailSignInUrl(value) !== null,
-        "Leave blank or use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
-      )
-      .default(""),
-  }),
+  oauth: z.preprocess(
+    normalizeOauthSettingNames,
+    z.object({
+      hostedSignInEnabled: z.boolean(),
+      hostedSignInUrl: z
+        .string()
+        .trim()
+        .max(2048)
+        .refine(
+          (value) => normalizeSignInUrl(value) !== null,
+          "Use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
+        ),
+      hostSignIn: z.boolean(),
+      signInHostUrl: z
+        .string()
+        .trim()
+        .max(2048)
+        .refine(
+          (value) => value === "" || normalizeSignInUrl(value) !== null,
+          "Leave blank or use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
+        )
+        .default(""),
+    }).strict(),
+  ),
   meetings: z.object({
     enabled: z.boolean(),
     syncIntervalSeconds: z.number().int().min(60).max(86_400),

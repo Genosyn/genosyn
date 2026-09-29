@@ -9,12 +9,13 @@ import { ensureFreshGoogleToken } from "../integrations/providers/google/auth.js
 import type { IntegrationRuntimeContext } from "../integrations/types.js";
 import { listCatalog } from "../integrations/index.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { readAuthFlowState } from "./authFlowState.js";
+import { createAuthFlowState, readAuthFlowState } from "./authFlowState.js";
 import {
   cancelHostedGoogleOauth,
   hostedGoogleSignInAvailable,
   pollHostedGoogleOauth,
   resetHostedGoogleAvailabilityForTests,
+  refreshHostedGoogleToken,
   startHostedGoogleOauth,
 } from "./hostedGoogleOauth.js";
 import {
@@ -71,16 +72,19 @@ beforeEach(async () => {
       body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
       init,
     });
-    if (url === `${issuer}/api/google-sign-in/status`)
+    if (url === `${issuer}/api/connect/google/status`)
       return reply({ version: 1, available: true });
-    if (url === `${issuer}/api/google-sign-in/start`)
+    if (url === `${issuer}/api/connect/google/start`)
       return reply({
         requestId: "remote-request",
-        authorizeUrl: `${issuer}/api/google-sign-in/authorize?requestId=remote-request`,
+        authorizeUrl: `${issuer}/api/connect/google/authorize?requestId=remote-request`,
         expiresAt: Date.now() + 600_000,
       });
-    if (url === `${issuer}/api/google-sign-in/poll`) return reply(remoteResult);
-    if (url === `${issuer}/api/google-sign-in/refresh`)
+    if (url === `${issuer}/api/connect/google/poll`) return reply(remoteResult);
+    if (
+      url === `${issuer}/api/google-sign-in/refresh` ||
+      url === `${issuer}/api/connect/google/refresh`
+    )
       return reply({
         accessToken: "refreshed-access",
         refreshToken: "rotated-refresh",
@@ -131,12 +135,12 @@ test("fresh Gmail sign-in keeps the verifier encrypted and off browser and start
   );
   assert.ok(state);
   assert.equal(
-    calls[0].body.codeChallenge,
+    calls.find((call) => call.url.endsWith("/start"))!.body.codeChallenge,
     crypto.createHash("sha256").update(state.payload.codeVerifier).digest("base64url"),
   );
   assert.ok(result.hostedBrowserProof);
   assert.equal(
-    calls[0].body.browserChallenge,
+    calls.find((call) => call.url.endsWith("/start"))!.body.browserChallenge,
     crypto.createHash("sha256").update(result.hostedBrowserProof).digest("base64url"),
   );
   assert.notEqual(result.hostedBrowserProof, state.payload.codeVerifier);
@@ -171,7 +175,7 @@ test("wrong Member or company cannot poll or cancel another sign-in or consume i
     cancelHostedGoogleOauth({ ...base, companyId: "other-company", attempt }),
     /different Member/,
   );
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.deepEqual(await pollHostedGoogleOauth({ ...base, attempt }), { status: "pending" });
   assert.ok(await readAuthFlowState("hosted-google-consumer", attempt));
 });
@@ -187,6 +191,7 @@ test("one completed poll persists local credentials with no shared secret and ca
   assert.equal(config.credentialSource, "hosted");
   assert.equal(config.clientSecret, undefined);
   assert.equal(config.tokenBrokerUrl, issuer);
+  assert.equal(config.tokenBrokerPath, "/api/connect/google");
   assert.equal(config.refreshToken, "google-refresh-secret");
   assert.equal(connection.encryptedConfig.includes("google-refresh-secret"), false);
   const serialized = serializeConnection(connection);
@@ -287,6 +292,7 @@ test("hosted reconnect pins issuer and protects an existing mailbox's identity a
     ...credential(),
     credentialSource: "hosted",
     tokenBrokerUrl: issuer,
+    tokenBrokerPath: "/api/connect/google",
     scopeGroups: ["mail"],
   };
   const connection = await insert(IntegrationConnection, {
@@ -355,13 +361,19 @@ test("unsafe broker origins and authorization redirects are refused before crede
     /unavailable/,
   );
   assert.equal(calls.length, 0);
-  globalThis.fetch = async () =>
-    reply({
-      requestId: "id",
-      authorizeUrl: "https://evil.example/steal",
-      expiresAt: Date.now() + 600_000,
-    });
-  await assert.rejects(startHostedGoogleOauth(base), /unavailable/);
+  for (const authorizeUrl of [
+    "https://evil.example/steal",
+    `${issuer}/api/admin?requestId=id`,
+    `${issuer}/api/connect/github/authorize?requestId=id`,
+    `${issuer}/api/connect/google/authorize?requestId=wrong`,
+  ]) {
+    resetHostedGoogleAvailabilityForTests();
+    globalThis.fetch = async (input) =>
+      String(input).endsWith("/status")
+        ? reply({ version: 1, available: true })
+        : reply({ requestId: "id", authorizeUrl, expiresAt: Date.now() + 600_000 });
+    await assert.rejects(startHostedGoogleOauth(base), /unavailable/);
+  }
   assert.equal(await AppDataSource.getRepository(AuthFlowState).count(), 0);
 });
 
@@ -381,4 +393,98 @@ test("a direct OAuth callback must match the provider saved in the original stat
     /callback does not match/,
   );
   assert.equal(calls.length, 0);
+});
+
+test("canonical refresh keeps its saved provider path after the service default changes", async () => {
+  overrideRuntimeSettingsForTests({
+    oauth: {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://changed.example",
+    },
+  });
+  const refreshed = await refreshHostedGoogleToken({
+    ...credential(),
+    credentialSource: "hosted",
+    tokenBrokerUrl: issuer,
+    tokenBrokerPath: "/api/connect/google",
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `${issuer}/api/connect/google/refresh`);
+  assert.equal(refreshed.tokenBrokerPath, "/api/connect/google");
+  assert.equal(refreshed.refreshToken, "rotated-refresh");
+});
+
+test("attempts saved before the Connect namespace still poll the legacy issuer path", async () => {
+  const attempt = await createAuthFlowState(
+    "hosted-google-consumer",
+    {
+      companyId: base.companyId,
+      userId: base.userId,
+      label: base.label,
+      tokenBrokerUrl: issuer,
+      requestId: "old-request",
+      codeVerifier: "v".repeat(43),
+      linkMailbox: false,
+    },
+    600_000,
+  );
+  globalThis.fetch = async (input) => {
+    assert.equal(String(input), `${issuer}/api/google-sign-in/poll`);
+    return reply({ status: "complete", credential: credential() });
+  };
+  assert.deepEqual(await pollHostedGoogleOauth({ ...base, attempt }), { status: "complete" });
+  const [connection] = await AppDataSource.getRepository(IntegrationConnection).find();
+  assert.equal(decryptConnectionConfig(connection).tokenBrokerPath, "/api/google-sign-in");
+});
+
+test("new clients can connect and renew against an older Google host", async () => {
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), init });
+    if (url === `${issuer}/api/connect/google/status`) return new Response(null, { status: 404 });
+    if (url === `${issuer}/api/google-sign-in/status`)
+      return reply({ version: 1, available: true });
+    if (url === `${issuer}/api/google-sign-in/start`)
+      return reply({
+        requestId: "old-host-request",
+        authorizeUrl: `${issuer}/api/google-sign-in/authorize?requestId=old-host-request`,
+        expiresAt: Date.now() + 600_000,
+      });
+    if (url === `${issuer}/api/google-sign-in/poll`)
+      return reply({ status: "complete", credential: credential() });
+    if (url === `${issuer}/api/google-sign-in/refresh`)
+      return reply({ accessToken: "renewed", expiresAt: Date.now() + 3_600_000 });
+    throw new Error("Unexpected request");
+  };
+  const result = await startHostedGoogleOauth(base);
+  assert.deepEqual(await pollHostedGoogleOauth({ ...base, attempt: result.hostedAttempt! }), {
+    status: "complete",
+  });
+  const [connection] = await AppDataSource.getRepository(IntegrationConnection).find();
+  const config = decryptConnectionConfig(connection);
+  assert.equal(config.tokenBrokerPath, "/api/google-sign-in");
+  const context: IntegrationRuntimeContext = {
+    authMode: "oauth2",
+    config: { ...config, expiresAt: 1 },
+  };
+  await ensureFreshGoogleToken(context);
+  assert.equal(context.config.accessToken, "renewed");
+  assert.equal(calls.at(-1)?.url, `${issuer}/api/google-sign-in/refresh`);
+});
+
+test("reconnecting credentials without a saved protocol stays on the legacy endpoint", async () => {
+  globalThis.fetch = async (input) => {
+    assert.equal(String(input), `${issuer}/api/google-sign-in/start`);
+    return reply({
+      requestId: "legacy-reconnect",
+      authorizeUrl: `${issuer}/api/google-sign-in/authorize?requestId=legacy-reconnect`,
+      expiresAt: Date.now() + 600_000,
+    });
+  };
+  const result = await startHostedGoogleOauth({ ...base, tokenBrokerUrl: issuer });
+  const attempt = await readAuthFlowState<{ tokenBrokerPath: string }>(
+    "hosted-google-consumer",
+    result.hostedAttempt!,
+  );
+  assert.equal(attempt?.payload.tokenBrokerPath, "/api/google-sign-in");
 });

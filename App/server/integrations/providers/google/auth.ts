@@ -102,6 +102,8 @@ type GoogleOauthTokens = {
 export type GoogleHostedOauthConfig = GoogleOauthTokens & {
   credentialSource: "hosted";
   tokenBrokerUrl: string;
+  /** Missing on credentials issued through the original Google broker. */
+  tokenBrokerPath?: string;
   clientSecret?: never;
 };
 

@@ -133,6 +133,35 @@ Never put a supplied or stored value in a failure message.
 {{- end -}}
 
 {{/*
+Resolve the provider-neutral Connect host. Empty defaults let a reused legacy
+gmailSignIn block work, while every explicit connect field (even false/empty)
+takes precedence. Neither setting ever creates a second App Service.
+*/}}
+{{- define "genosyn.connectIngress" -}}
+{{- $connect := dict "enabled" false "host" "" "tlsSecretName" "" -}}
+{{- range $name := list "gmailSignIn" "connect" -}}
+{{- if hasKey $.Values.ingress $name -}}
+{{- $settings := get $.Values.ingress $name -}}
+{{- if not (kindIs "map" $settings) -}}
+{{- fail (printf "ingress.%s must be a settings object" $name) -}}
+{{- end -}}
+{{- range $field := list "enabled" "host" "tlsSecretName" -}}
+{{- if hasKey $settings $field -}}
+{{- $_ := set $connect $field (get $settings $field) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not (kindIs "bool" $connect.enabled) -}}
+{{- fail "ingress.connect.enabled must be a boolean (legacy ingress.gmailSignIn is also supported)" -}}
+{{- end -}}
+{{- if or (not (kindIs "string" $connect.host)) (not (kindIs "string" $connect.tlsSecretName)) -}}
+{{- fail "ingress.connect.host and ingress.connect.tlsSecretName must be strings (legacy ingress.gmailSignIn is also supported)" -}}
+{{- end -}}
+{{- toYaml $connect -}}
+{{- end -}}
+
+{{/*
 Fail fast — at template time, aggregated — when the configuration cannot boot.
 Genosyn's multi-tenant startup validation (App/server/services/runtimeSecurity.ts)
 refuses to boot a shared SaaS below its baseline; catching the chart-supplied
@@ -201,20 +230,20 @@ Included from deployment.yaml so it runs on every render.
 {{- $problems = append $problems "postgres.password cannot be combined with postgres.passwordSecret.name" -}}
 {{- end -}}
 {{- end -}}
-{{- $gmailSignIn := default dict .Values.ingress.gmailSignIn -}}
-{{- if $gmailSignIn.enabled -}}
+{{- $connect := include "genosyn.connectIngress" . | fromYaml -}}
+{{- if $connect.enabled -}}
 {{- if or (not .Values.ingress.enabled) (not .Values.ingress.tls.enabled) -}}
-{{- $problems = append $problems "ingress.gmailSignIn.enabled requires ingress.enabled=true and ingress.tls.enabled=true" -}}
+{{- $problems = append $problems "ingress.connect.enabled requires ingress.enabled=true and ingress.tls.enabled=true" -}}
 {{- end -}}
-{{- $signInHost := default "" $gmailSignIn.host -}}
+{{- $signInHost := $connect.host -}}
 {{- if or (gt (len $signInHost) 253) (not (regexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$" $signInHost)) (regexMatch "^[0-9]+(\\.[0-9]+){3}$" $signInHost) -}}
-{{- $problems = append $problems "ingress.gmailSignIn.host must be a valid lowercase DNS hostname without a scheme, port, path, wildcard, or IP address" -}}
+{{- $problems = append $problems "ingress.connect.host must be a valid lowercase DNS hostname without a scheme, port, path, wildcard, or IP address" -}}
 {{- end -}}
 {{- if eq (lower $signInHost) (lower (default "" .Values.ingress.host)) -}}
-{{- $problems = append $problems "ingress.gmailSignIn.host must differ from ingress.host" -}}
+{{- $problems = append $problems "ingress.connect.host must differ from ingress.host" -}}
 {{- end -}}
-{{- if not (default "" $gmailSignIn.tlsSecretName | trim) -}}
-{{- $problems = append $problems "ingress.gmailSignIn.tlsSecretName is required when ingress.gmailSignIn.enabled" -}}
+{{- if not ($connect.tlsSecretName | trim) -}}
+{{- $problems = append $problems "ingress.connect.tlsSecretName is required when ingress.connect.enabled" -}}
 {{- end -}}
 {{- end -}}
 {{- if .Values.config.multiTenant -}}

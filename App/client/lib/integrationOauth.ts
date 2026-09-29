@@ -59,7 +59,7 @@ export function connectWithOauth(args: {
     const abort = () => finish(new DOMException("Cancelled", "AbortError"));
     const message = (event: MessageEvent) => {
       // Prove which installation opened this broker window before it can
-      // start Google consent. The server-held claim verifier stays private.
+      // start provider consent. The server-held claim verifier stays private.
       if (
         hostedAttempt &&
         hostedOrigin &&
@@ -69,12 +69,16 @@ export function connectWithOauth(args: {
       ) {
         const ready = event.data as { source?: string; requestId?: string } | null;
         if (
-          ready?.source === "genosyn-google-sign-in-ready" &&
+          (ready?.source === "genosyn-sign-in-ready" ||
+            ready?.source === "genosyn-google-sign-in-ready") &&
           ready.requestId === hostedRequestId
         ) {
           popup.postMessage(
             {
-              source: "genosyn-google-sign-in-launch",
+              source:
+                ready.source === "genosyn-sign-in-ready"
+                  ? "genosyn-sign-in-launch"
+                  : "genosyn-google-sign-in-launch",
               requestId: hostedRequestId,
               proof: hostedBrowserProof,
             },
@@ -112,18 +116,18 @@ export function connectWithOauth(args: {
         } | null;
         if (settled) return;
         if (!response.ok)
-          throw new Error(data?.error || "Gmail sign-in could not finish. Please try again.");
+          throw new Error(data?.error || "Sign-in could not finish. Please try again.");
         if (data?.status === "complete") return finish();
         if (data?.status === "denied")
-          throw new Error(data.detail || "Google sign-in was cancelled. Please try again.");
+          throw new Error(data.detail || "Sign-in was cancelled. Please try again.");
         if (data?.status !== "pending")
-          throw new Error("Gmail sign-in returned an unexpected response. Please try again.");
+          throw new Error("Sign-in returned an unexpected response. Please try again.");
         pollTimer = window.setTimeout(() => {
           void poll();
         }, 1500);
       } catch (error) {
         if (!settled)
-          finish(error instanceof Error ? error : new Error("Gmail sign-in could not finish."));
+          finish(error instanceof Error ? error : new Error("Sign-in could not finish."));
       }
     };
 
@@ -137,7 +141,7 @@ export function connectWithOauth(args: {
           hostedOrigin = authorize.origin;
           hostedRequestId = authorize.searchParams.get("requestId");
           if (!hostedBrowserProof || !hostedRequestId)
-            throw new Error("Gmail sign-in could not start. Please try again.");
+            throw new Error("Sign-in could not start. Please try again.");
         }
         if (settled) {
           cancelAttempt();
@@ -154,7 +158,7 @@ export function connectWithOauth(args: {
         popup.location.replace(result.authorizeUrl);
         args.onWaiting?.();
         if (hostedAttempt) {
-          // Google can isolate a window with COOP, making `closed` appear true
+          // Providers can isolate a window with COOP, making `closed` appear true
           // while consent is still open. The server, deadline, or Cancel decides.
           void poll();
         } else {

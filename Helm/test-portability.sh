@@ -64,6 +64,7 @@ try {
   const file = path.join(oldChart, 'values.yaml');
   const oldValues = fs.readFileSync(file, 'utf8')
     .replace(/^service:\n(?:  .*\n|\n)*/m, block => block.replace(/^  annotations: \{\}\n/m, ''))
+    .replace(/^  connect: \{\}\n/m, '')
     .replace(/^  gmailSignIn:\n(?:    .*\n)*/m, '');
   fs.writeFileSync(file, oldValues);
   standardResources(render({}, oldChart));
@@ -71,7 +72,8 @@ try {
     tls: { enabled: true, secretName: 'ci-app-tls' } } }, oldChart), 'Ingress');
   assert.equal((oldIngress.match(/^    - host:/gm) || []).length, 1, 'older values retain only the App host');
   assert(!oldIngress.includes('/api/google-sign-in/'));
-  process.stdout.write('ok - older reused values need no new Service annotations or Gmail sign-in block\n');
+  assert(!oldIngress.includes('/api/connect'));
+  process.stdout.write('ok - older reused values need no new Service annotations or hosted sign-in block\n');
   process.stdout.write('3 Kubernetes portability checks passed\n');
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 NODE

@@ -111,11 +111,11 @@ export function Integrations() {
         token renewal sends the refresh credential to the original sign-in service.
       </P>
       <P>
-        An instance admin manages this at <Strong>Admin → Runtime → Gmail sign-in</Strong>. Turning
-        off <Strong>Use hosted Gmail sign-in</Strong> stops new hosted sign-ins without revoking
+        An instance admin manages this at <Strong>Admin → Runtime → Hosted sign-in</Strong>. Turning
+        off <Strong>Use hosted sign-in</Strong> stops new hosted sign-ins without revoking
         existing Connections. Changing the service URL affects new Connections; existing ones keep
         using the service that issued their credentials. Only use a replacement service you trust
-        with those credentials. Hosted sign-in covers Gmail only.
+        with those credentials. The shared service is designed for additional sign-in providers; currently it supports Google for Gmail. This does not change Member login.
       </P>
       <P>
         For independent Gmail sign-in or other OAuth integrations, register an app{" "}

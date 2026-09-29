@@ -10,7 +10,10 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { requireTrustedOrigin } from "../middleware/httpSecurity.js";
-import { startHostedGoogleOauth } from "../services/hostedGoogleOauth.js";
+import {
+  resetHostedGoogleAvailabilityForTests,
+  startHostedGoogleOauth,
+} from "../services/hostedGoogleOauth.js";
 import { encryptConnectionConfig } from "../services/integrations.js";
 import { overrideRuntimeSettingsForTests } from "../services/runtimeSettings.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -68,10 +71,12 @@ beforeEach(async () => {
   await insert(Membership, { companyId: company.id, userId: member.id, role: "member" });
   actingUserId = owner.id;
   remoteCalls = 0;
+  resetHostedGoogleAvailabilityForTests();
   remoteStarts = [];
   overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: true, gmailSignInUrl: issuer } });
   globalThis.fetch = async (input, init) => {
     if (!String(input).startsWith(issuer)) return nativeFetch(input, init);
+    if (String(input).endsWith("/status")) return Response.json({ version: 1, available: true });
     remoteCalls++;
     if (String(input).endsWith("/start")) {
       remoteStarts.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
@@ -79,7 +84,7 @@ beforeEach(async () => {
     const value = String(input).endsWith("/start")
       ? {
           requestId: "request",
-          authorizeUrl: `${issuer}/api/google-sign-in/authorize?requestId=request`,
+          authorizeUrl: `${String(input).replace(/\/start$/, "/authorize")}?requestId=request`,
           expiresAt: Date.now() + 600_000,
         }
       : { status: "pending" };
@@ -116,6 +121,7 @@ async function start() {
     label: "Gmail",
   });
   remoteCalls = 0;
+  resetHostedGoogleAvailabilityForTests();
   return result.hostedAttempt!;
 }
 

@@ -3737,10 +3737,10 @@ export type RuntimeMailSettings = {
 };
 
 export type RuntimeOauthSettings = {
-  gmailSignInEnabled: boolean;
-  gmailSignInUrl: string;
-  hostGmailSignIn: boolean;
-  gmailSignInHostUrl: string;
+  hostedSignInEnabled: boolean;
+  hostedSignInUrl: string;
+  hostSignIn: boolean;
+  signInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription. */
