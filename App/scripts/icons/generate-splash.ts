@@ -2,6 +2,10 @@
  * Regenerate iOS launch images and their links in client/index.html:
  *   npx tsx scripts/icons/generate-splash.ts
  *
+ * Each image uses the app background with a soft logo, matching
+ * components/SplashScreen.tsx, in a light and a dark set that iOS picks
+ * between by the system appearance.
+ *
  * Requires local Chrome or Playwright Chromium. GENOSYN_SPLASH_BROWSER can
  * name another Chromium executable. PNGs are committed and need no browser
  * at build time. The app's Logo is rendered without network fonts, matching
@@ -64,11 +68,17 @@ if (!executablePath || !existsSync(executablePath)) {
   throw new Error("Install Chrome/Chromium or set GENOSYN_SPLASH_BROWSER to its executable.");
 }
 
+// slate-50 / slate-400 and slate-900 / slate-600, as in SplashScreen.tsx.
+const appearances = [
+  { scheme: "light", suffix: "", background: "#f8fafc", color: "#94a3b8" },
+  { scheme: "dark", suffix: "-dark", background: "#0f172a", color: "#475569" },
+] as const;
+
 const logo = renderToStaticMarkup(createElement(Logo));
-const html = `<!doctype html>
+const launchHtml = (background: string, color: string) => `<!doctype html>
 <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: ${background}; color: ${color}; }
   body { display: flex; align-items: center; justify-content: center; }
   svg { display: block; width: 240px; max-width: calc(100% - 64px); height: auto; }
 </style></head><body>${logo}</body></html>`;
@@ -76,32 +86,35 @@ const html = `<!doctype html>
 await fs.mkdir(output, { recursive: true });
 const links: string[] = [];
 const browser = await chromium.launch({ executablePath, headless: true });
-const pages = new Map<number, Page>();
 try {
-  for (const [width, height, scale] of screens) {
-    for (const orientation of ["portrait", "landscape"] as const) {
-      const viewport = orientation === "portrait"
-        ? { width, height }
-        : { width: height, height: width };
-      let page = pages.get(scale);
-      if (!page) {
-        const context = await browser.newContext({ viewport, deviceScaleFactor: scale });
-        page = await context.newPage();
-        await page.setContent(html);
-        await page.evaluate(() => document.fonts.ready);
-        pages.set(scale, page);
+  for (const { scheme, suffix, background, color } of appearances) {
+    const html = launchHtml(background, color);
+    const pages = new Map<number, Page>();
+    for (const [width, height, scale] of screens) {
+      for (const orientation of ["portrait", "landscape"] as const) {
+        const viewport = orientation === "portrait"
+          ? { width, height }
+          : { width: height, height: width };
+        let page = pages.get(scale);
+        if (!page) {
+          const context = await browser.newContext({ viewport, deviceScaleFactor: scale });
+          page = await context.newPage();
+          await page.setContent(html);
+          await page.evaluate(() => document.fonts.ready);
+          pages.set(scale, page);
+        }
+        await page.setViewportSize(viewport);
+        const filename = `genosyn${suffix}-${viewport.width * scale}x${viewport.height * scale}.png`;
+        await page.screenshot({ path: path.join(output, filename), animations: "disabled" });
+        const media = `screen and (prefers-color-scheme: ${scheme}) and (device-width: ${width}px) and (device-height: ${height}px) and (-webkit-device-pixel-ratio: ${scale}) and (orientation: ${orientation})`;
+        links.push(
+          "    <link",
+          '      rel="apple-touch-startup-image"',
+          `      href="/splash/${filename}"`,
+          `      media="${media}"`,
+          "    />",
+        );
       }
-      await page.setViewportSize(viewport);
-      const filename = `genosyn-${viewport.width * scale}x${viewport.height * scale}.png`;
-      await page.screenshot({ path: path.join(output, filename), animations: "disabled" });
-      const media = `screen and (device-width: ${width}px) and (device-height: ${height}px) and (-webkit-device-pixel-ratio: ${scale}) and (orientation: ${orientation})`;
-      links.push(
-        "    <link",
-        '      rel="apple-touch-startup-image"',
-        `      href="/splash/${filename}"`,
-        `      media="${media}"`,
-        "    />",
-      );
     }
   }
 } finally {
@@ -124,4 +137,6 @@ if (start >= 0) {
   updated = index.replace(iconLink, `${iconLink}\n${block}`);
 }
 await fs.writeFile(indexPath, updated);
-console.log(`Generated ${screens.length * 2} iOS launch images and updated client/index.html.`);
+console.log(
+  `Generated ${screens.length * 2 * appearances.length} iOS launch images and updated client/index.html.`,
+);
