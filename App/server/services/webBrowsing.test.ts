@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import dns from "node:dns/promises";
 import { afterEach, describe, test } from "node:test";
 
 import { overrideRuntimeSettingsForTests } from "./runtimeSettings.js";
@@ -10,6 +11,7 @@ import {
   parseDuckDuckGoResults,
   searchWeb,
 } from "./webBrowsing.js";
+import { EMPTY_SEARCH_PAGE, SEARCH_CHALLENGE_PAGE } from "../test/webSearchFixtures.js";
 
 /**
  * The web tools.
@@ -73,7 +75,10 @@ describe("parsing search results", () => {
   });
 
   test("markup we do not recognize yields no results rather than junk", () => {
-    assert.deepEqual(parseDuckDuckGoResults("<html><body><p>nothing here</p></body></html>", 5), []);
+    assert.deepEqual(
+      parseDuckDuckGoResults("<html><body><p>nothing here</p></body></html>", 5),
+      [],
+    );
     assert.deepEqual(parseDuckDuckGoResults("", 5), []);
   });
 
@@ -81,6 +86,112 @@ describe("parsing search results", () => {
     const html = '<a class="result__a" href="https://example.com/x"> </a>';
 
     assert.deepEqual(parseDuckDuckGoResults(html, 5), []);
+  });
+
+  test("reads result attributes in either order with single, double or unquoted values", () => {
+    const html = `<div class='result'>
+      <a href='https://example.com/first' data-label='a > b' class='extra result__a'>First</a>
+      <a href='https://example.com/first' class='result__snippet extra'>First snippet</a>
+    </div><div class=result>
+      <a href=https://example.com/second class=result__a>Second</a>
+      <a class=result__snippet>Second snippet</a>
+    </div>`;
+    assert.deepEqual(parseDuckDuckGoResults(html, 5), [
+      { title: "First", url: "https://example.com/first", snippet: "First snippet" },
+      { title: "Second", url: "https://example.com/second", snippet: "Second snippet" },
+    ]);
+  });
+
+  test("pairs snippets within their result, including skipped ads, duplicates and missing snippets", () => {
+    const html = `<div class="result result--ad">
+      <a class="result__a" href="//duckduckgo.com/y.js?ad_provider=x">Ad</a>
+      <a class="result__snippet">Ad snippet</a>
+    </div><div class="result"><div class="result__body">
+      <a class="result__a" href="https://example.com/one">One</a>
+    </div></div><div class="result">
+      <a class="result__a" href="https://example.com/one">Duplicate</a>
+      <a class="result__snippet">Duplicate snippet</a>
+    </div><div class="result"><div>
+      <a class="result__a" href="https://example.com/two">Two</a>
+      <a class="result__snippet">Two snippet</a>
+    </div></div><a class="result__snippet">Outside any result</a>`;
+    assert.deepEqual(parseDuckDuckGoResults(html, 5), [
+      { title: "One", url: "https://example.com/one", snippet: "" },
+      { title: "Two", url: "https://example.com/two", snippet: "Two snippet" },
+    ]);
+  });
+
+  test("does not mistake similar class names or commented links for results", () => {
+    const html = `<div class="result">
+      <a class="not-result__a" href="https://example.com/wrong">Wrong</a>
+      <!-- <a class="result__a" href="https://example.com/comment">Comment</a> -->
+    </div>`;
+    assert.deepEqual(parseDuckDuckGoResults(html, 5), []);
+  });
+});
+
+describe("search responses distinguish unavailable from empty", () => {
+  for (const [label, body, status, contentType] of [
+    ["captured HTTP 202 bot challenge", SEARCH_CHALLENGE_PAGE, 202, "text/html"],
+    ["HTTP 200 bot challenge", SEARCH_CHALLENGE_PAGE, 200, "text/html"],
+    [
+      "unrecognized HTML",
+      "<html><body>Service temporarily unavailable</body></html>",
+      200,
+      "text/html",
+    ],
+    ["empty response", "", 200, "text/html"],
+    ["non-HTML response", '{"message":"try later"}', 200, "application/json"],
+  ] as const) {
+    test(`${label} is a tool error rather than evidence of no matches`, async (t) => {
+      t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+      const fetch = t.mock.method(
+        globalThis,
+        "fetch",
+        async () => new Response(body, { status, headers: { "content-type": contentType } }),
+      );
+      await assert.rejects(
+        () => searchWeb("forms", 5),
+        (error: unknown) => {
+          assert.ok(error instanceof WebToolError);
+          assert.equal(error.status, 502);
+          assert.match(error.message, /search is unavailable/i);
+          assert.match(error.message, /does not mean.*no matching/i);
+          return true;
+        },
+      );
+      assert.equal(fetch.mock.callCount(), 1, "does not repeatedly attempt a challenge");
+    });
+  }
+
+  test("preserves explicit genuine empty results", async (t) => {
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () => new Response(EMPTY_SEARCH_PAGE, { headers: { "content-type": "text/html" } }),
+    );
+    assert.deepEqual(await searchWeb("no matching pages", 5), []);
+  });
+
+  test("a challenge takes precedence over an empty-results marker", async (t) => {
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () => new Response(SEARCH_CHALLENGE_PAGE + EMPTY_SEARCH_PAGE),
+    );
+    await assert.rejects(() => searchWeb("forms", 5), /challenge/i);
+  });
+
+  test("normal results remain usable and obey the requested limit", async (t) => {
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    t.mock.method(globalThis, "fetch", async (url: URL) => {
+      assert.equal(url.origin, "https://html.duckduckgo.com");
+      assert.equal(url.searchParams.get("q"), "forms");
+      return new Response(RESULT_PAGE, { headers: { "content-type": "text/html" } });
+    });
+    assert.deepEqual(await searchWeb(" forms ", 1), parseDuckDuckGoResults(RESULT_PAGE, 1));
   });
 });
 
@@ -105,12 +216,15 @@ describe("refusals happen before any request goes out", () => {
   test("search can be disabled while direct fetches keep working", async () => {
     overrideRuntimeSettingsForTests({ web: { searchProvider: "disabled" } });
 
-    await assert.rejects(() => searchWeb("w-9 form", 3), (error: unknown) => {
-      assert.ok(error instanceof WebToolError);
-      assert.equal(error.status, 403);
-      assert.match(error.message, /fetch_web_page/, "the refusal names what still works");
-      return true;
-    });
+    await assert.rejects(
+      () => searchWeb("w-9 form", 3),
+      (error: unknown) => {
+        assert.ok(error instanceof WebToolError);
+        assert.equal(error.status, 403);
+        assert.match(error.message, /fetch_web_page/, "the refusal names what still works");
+        return true;
+      },
+    );
   });
 
   test("an empty query is refused rather than searched for nothing", async () => {
@@ -132,11 +246,14 @@ describe("refusals happen before any request goes out", () => {
     // The outbound guard is what makes these tools safe to hand an AI a link
     // out of a stranger's email; this is that guard, reached through the tool.
     for (const url of ["http://127.0.0.1:8471/admin", "http://169.254.169.254/latest/meta-data/"]) {
-      await assert.rejects(() => fetchWebPage(url), (error: unknown) => {
-        assert.ok(error instanceof WebToolError);
-        assert.match(error.message, /non-public address/);
-        return true;
-      });
+      await assert.rejects(
+        () => fetchWebPage(url),
+        (error: unknown) => {
+          assert.ok(error instanceof WebToolError);
+          assert.match(error.message, /non-public address/);
+          return true;
+        },
+      );
     }
   });
 
@@ -164,7 +281,10 @@ describe("choosing a filename for a download", () => {
   });
 
   test("appends an extension from the content type when there is none", () => {
-    assert.equal(chooseFilename(undefined, "https://example.com/download", "application/pdf"), "download.pdf");
+    assert.equal(
+      chooseFilename(undefined, "https://example.com/download", "application/pdf"),
+      "download.pdf",
+    );
     assert.equal(chooseFilename(undefined, "https://example.com/page", "text/html"), "page.html");
   });
 
@@ -173,11 +293,17 @@ describe("choosing a filename for a download", () => {
       chooseFilename('../../etc/pa"sswd', "https://example.com/x", "text/plain"),
       "passwd.txt",
     );
-    assert.equal(chooseFilename("..", "https://example.com/x.bin", "application/octet-stream"), "download");
+    assert.equal(
+      chooseFilename("..", "https://example.com/x.bin", "application/octet-stream"),
+      "download",
+    );
   });
 
   test("falls back to a usable name for a URL with no path", () => {
-    assert.equal(chooseFilename(undefined, "https://example.com/", "application/pdf"), "download.pdf");
+    assert.equal(
+      chooseFilename(undefined, "https://example.com/", "application/pdf"),
+      "download.pdf",
+    );
   });
 
   test("decodes a percent-encoded segment", () => {

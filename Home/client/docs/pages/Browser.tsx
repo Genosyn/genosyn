@@ -67,6 +67,13 @@ export function Browser() {
         default, so no API key or account is involved.
       </P>
       <P>
+        A search backend challenge, unexpected page, or empty response is reported as unavailable.
+        It is not evidence that no matching pages exist. Only a recognized empty-results page
+        returns an empty search. The employee can continue with a known primary-source URL or an
+        existing authorized browser when available; search does not solve or bypass challenges. Each
+        result keeps the snippet from its own result, even when ads or duplicate links are skipped.
+      </P>
+      <P>
         Everything below is about the heavier capability: a real browser that holds a session,
         clicks, and fills forms.
       </P>
@@ -95,11 +102,11 @@ export function Browser() {
 
       <H2 id="tools">The tools</H2>
       <P>
-        If an unattended browser closes after inactivity, or the employee closes its page and
-        later needs it again in the same Run, <Code>browser_open</Code> starts a fresh session and
+        If an unattended browser closes after inactivity, or the employee closes its page and later
+        needs it again in the same Run, <Code>browser_open</Code> starts a fresh session and
         rechecks current access. Closed sessions keep their own recordings. This recovery only
-        repeats the requested navigation; it never repeats a click, form submission or Approval.
-        A browser you close manually, revoked access or a finished Run remains closed.
+        repeats the requested navigation; it never repeats a click, form submission or Approval. A
+        browser you close manually, revoked access or a finished Run remains closed.
       </P>
       <P>
         When enabled, the employee&apos;s tool list grows by the <Code>browser</Code> set. Every
@@ -200,8 +207,7 @@ export function Browser() {
       </P>
       <P>
         Events the employee could not otherwise see — a JavaScript dialog that was auto-dismissed, a
-        popup tab that was adopted, a selector that matched more than one element — are surfaced as
-        {" "}
+        popup tab that was adopted, a selector that matched more than one element — are surfaced as{" "}
         <Code>NOTE:</Code> lines at the top of the next snapshot.
       </P>
       <P>
@@ -244,8 +250,7 @@ export function Browser() {
         A granted <DocLink to="/docs/vault">Vault</DocLink> login removes the need to paste a
         password or current authenticator code into Chat or type it during take-over. The employee
         first calls <Code>list_vault_items</Code> for safe metadata, opens the saved website, then
-        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>
-        {" "}
+        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>{" "}
         field. The App resolves the current item-level Grant, generates a fresh code when needed,
         and types the value directly into Chrome. The tool result only confirms that the field was
         filled.
@@ -296,8 +301,7 @@ export function Browser() {
 
       <H2 id="approvals">Approval-gated submits</H2>
       <P>
-        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>
-        {" "}
+        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>{" "}
         does not fire. It queues an Approval — visible in the company Approvals inbox with the page
         URL and a one-line summary of what the employee is trying to do — and the employee is told
         the submission is pending. Once you approve, the employee re-fires it with{" "}
@@ -349,11 +353,11 @@ export function Browser() {
       <P>
         Live view is ephemeral in Chat. A <DocLink to="/docs/routines">Routine Run</DocLink> that
         actually uses a browser is different: Genosyn automatically saves a silent visual MP4 of
-        each Run-linked browser session. Open the Run log to watch the browser live while it records;
-        the panel switches to playback and download controls when the recording is ready. Merely
-        giving the employee Browser access does not create a recording; capture starts only when the
-        session opens the browser. Parallel delegated browser work produces separate recordings, and
-        none of them contain page audio.
+        each Run-linked browser session. Open the Run log to watch the browser live while it
+        records; the panel switches to playback and download controls when the recording is ready.
+        Merely giving the employee Browser access does not create a recording; capture starts only
+        when the session opens the browser. Parallel delegated browser work produces separate
+        recordings, and none of them contain page audio.
       </P>
       <Callout kind="warn" title="A recording shows the whole screen">
         Visual recording captures everything rendered in the browser viewport, including a login
@@ -431,8 +435,7 @@ export function Browser() {
         it. A sign-in page watches for exactly that, and a field that fills in a single
         keystroke-free burst from a pointer that never moved is read as automation even when the
         browser itself is an honest Chrome — which is why an employee gets challenged from the same
-        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>
-        {" "}
+        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>{" "}
         with small randomized gaps and <Strong>approach a control with the pointer</Strong> before
         clicking. This changes only how the input arrives, never what: a{" "}
         <DocLink to="/docs/vault">Vault</DocLink> credential is typed into the same field and is not
