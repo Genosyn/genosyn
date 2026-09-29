@@ -129,21 +129,25 @@ export function registerRoutine(routine: Routine): void {
 }
 
 /**
- * Return a recent Run that still owns this routine's execution window.
- * Reconciliation and this guard share the same timeout-plus-grace boundary,
- * so a row is never simultaneously considered live here and crash debris
- * there.
+ * A terminal verdict does not release runtime/assessment cleanup ownership.
+ * Keep retries behind that claim as well as recent legacy running rows.
  */
 async function findInFlightRun(routine: Routine, now: Date = new Date()): Promise<Run | null> {
   const inFlightSince = new Date(
     now.getTime() - (Math.max(1, routine.timeoutSec) * 1000 + ORPHAN_GRACE_MS),
   );
   return AppDataSource.getRepository(Run).findOne({
-    where: {
-      routineId: routine.id,
-      status: "running",
-      startedAt: MoreThan(inFlightSince),
-    },
+    where: [
+      {
+        routineId: routine.id,
+        status: "running",
+        startedAt: MoreThan(inFlightSince),
+      },
+      {
+        routineId: routine.id,
+        queueActiveEmployeeId: Not(IsNull()),
+      },
+    ],
   });
 }
 

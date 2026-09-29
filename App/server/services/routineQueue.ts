@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { IsNull, LessThanOrEqual, Like, Not } from "typeorm";
+import { IsNull, LessThanOrEqual, Like, Not, type Repository } from "typeorm";
+import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -19,6 +20,8 @@ const waiters = new Map<
   { resolve: (run: Run) => void; reject: (error: unknown) => void }
 >();
 const workers = new Map<string, Promise<void>>();
+const activeClaims = new Map<string, string>();
+const admittingRoutines = new Set<string>();
 const requested = new Set<string>();
 let dispatchEnabled = true;
 let dispatchGeneration = 0;
@@ -68,7 +71,13 @@ function requestRunDispatch(runId: string): void {
           const next = await claimRun(runId, lease.assertHeld, canClaim);
           if (!next) return;
           // Each Run owns its lifecycle independently, including assessment and cleanup.
-          await processRun(next.run, next.routine);
+          const claim = next.run.queueActiveEmployeeId!;
+          activeClaims.set(runId, claim);
+          try {
+            await processRun(next.run, next.routine);
+          } finally {
+            if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
+          }
         });
       } while (canClaim() && requested.has(runId));
     })
@@ -137,41 +146,107 @@ async function claimRun(
     );
     return null;
   }
-  assertHeld();
-  // The legacy column now identifies this Run's claim, never an employee slot.
-  // The conditional status transition fences competing dispatchers even if a
-  // scheduler lease expires while its owner is waiting on the database. A fresh
-  // token also fences late cleanup after this occurrence is deferred and reclaimed.
-  const claimId = `run:${run.id}:${randomUUID()}`;
-  const claimed = await repo.update(
-    { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
-    {
-      routineId: run.routineId,
-      status: "running",
-      queueActiveEmployeeId: claimId,
-      startedAt: new Date(),
-    },
-  );
-  if (claimed.affected !== 1) return null;
-  if (!canClaim()) {
-    // A stop may arrive during the claim's database round trip. Restore
-    // its pending state before returning whenever the connection remains open.
-    if (AppDataSource.isInitialized) {
-      await repo.update(
-        { id: run.id, status: "running", queueActiveEmployeeId: claimId },
-        {
-          routineId: run.routineId,
-          status: "queued",
-          queueActiveEmployeeId: null,
-          startedAt: run.startedAt,
-        },
-      );
+  return withRoutineAdmission(routine.id, async (claims) => {
+    // A terminal verdict can precede runtime/assessment cleanup. Every origin,
+    // including a fresh manual Run, must wait for that exact ownership to end.
+    if (
+      await claims.existsBy({
+        routineId: routine.id,
+        id: Not(run.id),
+        queueActiveEmployeeId: Not(IsNull()),
+      })
+    )
+      return null;
+    if (!canClaim()) return null;
+    assertHeld();
+    // The legacy column now identifies this Run's claim, never an employee slot.
+    // The conditional status transition fences competing dispatchers even if a
+    // scheduler lease expires while its owner is waiting on the database. A fresh
+    // token also fences late cleanup after this occurrence is deferred and reclaimed.
+    const claimId = `run:${run.id}:${randomUUID()}`;
+    const startedAt = new Date();
+    // Queue time consumes no new occurrence allowance. Publish its actual
+    // deadline with ownership, before preparation can await another service.
+    // Automatic continuations retain their inherited absolute deadline.
+    const continuationDeadlineAt =
+      run.continuationCount > 0
+        ? run.continuationDeadlineAt
+        : new Date(startedAt.getTime() + Math.max(1, routine.timeoutSec) * 1000);
+    const claimed = await claims.update(
+      { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
+      {
+        routineId: run.routineId,
+        status: "running",
+        queueActiveEmployeeId: claimId,
+        startedAt,
+        continuationDeadlineAt,
+      },
+    );
+    if (claimed.affected !== 1) return null;
+    if (!canClaim()) {
+      // A stop may arrive during the claim's database round trip. Restore
+      // its pending state before returning whenever the connection remains open.
+      if (AppDataSource.isInitialized) {
+        await claims.update(
+          { id: run.id, status: "running", queueActiveEmployeeId: claimId },
+          {
+            routineId: run.routineId,
+            status: "queued",
+            queueActiveEmployeeId: null,
+            startedAt: run.startedAt,
+            continuationDeadlineAt: run.continuationDeadlineAt,
+          },
+        );
+      }
+      return null;
     }
-    return null;
+    run.status = "running";
+    run.startedAt = startedAt;
+    run.continuationDeadlineAt = continuationDeadlineAt;
+    run.queueActiveEmployeeId = claimId;
+    return { run, routine };
+  });
+}
+
+/** Keep the sibling-claim check and write indivisible across dispatchers. */
+async function withRoutineAdmission<T>(
+  routineId: string,
+  claim: (repo: Repository<Run>) => Promise<T>,
+): Promise<T | null> {
+  if (admittingRoutines.has(routineId)) return null;
+  admittingRoutines.add(routineId);
+  try {
+    if (config.db.driver !== "postgres") return await claim(AppDataSource.getRepository(Run));
+    return await AppDataSource.transaction("READ COMMITTED", async (manager) => {
+      // All Runs of this Routine lock the same row. An expiring lease alone
+      // would not fence a stalled sibling-check/write across different Runs.
+      // The next statement must see claims committed while this lock waited.
+      const routine = await manager.getRepository(Routine).findOne({
+        where: { id: routineId },
+        select: { id: true },
+        lock: { mode: "pessimistic_write" },
+      });
+      return routine ? claim(manager.getRepository(Run)) : null;
+    });
+  } finally {
+    admittingRoutines.delete(routineId);
   }
-  run.status = "running";
-  run.queueActiveEmployeeId = claimId;
-  return { run, routine };
+}
+
+/** Exact ownership, rather than a dispatch request still waiting for its lease. */
+export function ownsRoutineRunClaim(runId: string, claim: string | null): boolean {
+  return claim !== null && activeClaims.get(runId) === claim;
+}
+
+export async function hasLiveRoutineRunLease(run: Run, now: Date): Promise<boolean> {
+  if (!run.queueActiveEmployeeId) return false;
+  const lease = await AppDataSource.getRepository(SchedulerLease).findOneBy({
+    // Employee-valued claims and their leases may remain after an upgrade.
+    name: run.queueActiveEmployeeId.startsWith("run:")
+      ? `routine-run:${run.id}`
+      : `routine-queue:${run.queueActiveEmployeeId}`,
+  });
+  return !!lease?.expiresAt && lease.expiresAt > now;
 }
 
 async function skipQueuedRun(run: Run, reason: string): Promise<void> {
@@ -311,22 +386,17 @@ export async function releaseOrphanedQueueSlots(
   for (const run of rows) {
     if (run.status === "running") continue;
     if (workers.has(run.id)) continue;
-    const lease = await AppDataSource.getRepository(SchedulerLease).findOneBy({
-      // Employee-valued claims and their leases may remain after an upgrade.
-      name: run.queueActiveEmployeeId!.startsWith("run:")
-        ? `routine-run:${run.id}`
-        : `routine-queue:${run.queueActiveEmployeeId}`,
-    });
     // A terminal verdict precedes assessment and reflection. A live owner still
     // holds this claim, however old the Routine's original timeout has become.
-    if (!singleProcessBoot && lease?.expiresAt && lease.expiresAt > now) continue;
+    if (!singleProcessBoot && (await hasLiveRoutineRunLease(run, now))) continue;
     const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: run.routineId });
     // Grading and reflection each have a two-minute runtime ceiling. Even a
     // lost renewal must not release the claim while either turn can still run.
     const postRunDeadline = (run.finishedAt?.getTime() ?? 0) + 4 * 60_000;
     const cutoff =
       Math.max(
-        run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? 3600) * 1000,
+        run.continuationDeadlineAt?.getTime() ??
+          run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? 3600) * 1000,
         postRunDeadline,
       ) + ORPHAN_GRACE_MS;
     if (!singleProcessBoot && now.getTime() <= cutoff) continue;

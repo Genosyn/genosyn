@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { Request } from "express";
 import { Client } from "pg";
@@ -44,6 +45,18 @@ function deadline<T>(work: Promise<T>, label: string, timeoutMs = CHILD_TIMEOUT_
       stop.signal.removeEventListener("abort", interrupted);
     });
   });
+}
+
+async function waitUntil(check: () => boolean | Promise<boolean>, label: string): Promise<void> {
+  await deadline(
+    (async () => {
+      while (!(await check())) {
+        stop.signal.throwIfAborted();
+        await delay(10, undefined, { signal: stop.signal });
+      }
+    })(),
+    label,
+  );
 }
 
 function configure(url: URL, dataDir: string): void {
@@ -104,14 +117,18 @@ async function childMain(mode: string): Promise<void> {
         await release;
         signal?.throwIfAborted();
       });
-    } else if (mode === "drain-routine-queue") {
+    } else if (mode === "drain-routine-queue" || mode === "exercise-routine-admission") {
       const { Run } = await import("../db/entities/Run.js");
       const { agentRuntime } = await import("../services/agent/runtime.js");
-      const { dispatchQueuedRoutineRuns, waitForRoutineQueueIdle } =
+      const { dispatchQueuedRoutineRuns, registerQueuedRun, waitForRoutineQueueIdle } =
         await import("../services/routineQueue.js");
       const employeeId = process.env.GENOSYN_TEST_EMPLOYEE_ID;
       assert.ok(employeeId);
       const { Routine } = await import("../db/entities/Routine.js");
+      const selectedIds: unknown = JSON.parse(process.env.GENOSYN_TEST_RUN_IDS ?? "[]");
+      assert.ok(Array.isArray(selectedIds) && selectedIds.every((id) => typeof id === "string"));
+      const selected = new Set<string>(selectedIds);
+      if (mode === "exercise-routine-admission") assert.ok(selected.size > 0);
       // Real dispatch and Run lifecycles coordinate through Postgres; hold only
       // the model turns so the parent can inspect concurrent claim ownership.
       agentRuntime.run = async (params) => {
@@ -126,21 +143,38 @@ async function childMain(mode: string): Promise<void> {
           employeeId,
           name,
         });
-        const active = await AppDataSource.getRepository(Run).findOneByOrFail({
-          employeeId,
-          routineId: routine.id,
-          status: "running",
-        });
-        const finish = parentMessage(`finish-run:${active.id}`);
-        process.send!({ kind: "routine-started", runId: active.id });
+        const active = (
+          await AppDataSource.getRepository(Run).findBy({
+            employeeId,
+            routineId: routine.id,
+            status: "running",
+          })
+        ).filter((run) => selected.size === 0 || selected.has(run.id));
+        assert.equal(active.length, 1, "Each child must identify its exact Run");
+        const finish = parentMessage(`finish-run:${active[0].id}`);
+        process.send!({ kind: "routine-started", runId: active[0].id });
         await finish;
         return { finalText: "Done", steps: 1, stopReason: "end_turn" };
       };
-      const start = parentMessage("start");
+      const rounds = mode === "exercise-routine-admission" ? 2 : 1;
+      let start = parentMessage("start");
       process.send("ready");
-      await start;
-      await dispatchQueuedRoutineRuns();
-      await waitForRoutineQueueIdle();
+      for (let round = 1; round <= rounds; round++) {
+        await start;
+        // Register the next listener before acknowledging this round, so an
+        // immediate parent dispatch cannot be lost between IPC listeners.
+        if (round < rounds) start = parentMessage(`dispatch:${round + 1}`);
+        if (selected.size) {
+          for (const id of selected) {
+            const run = await AppDataSource.getRepository(Run).findOneByOrFail({ id });
+            if (run.status === "queued") void registerQueuedRun(run);
+          }
+        } else {
+          await dispatchQueuedRoutineRuns();
+        }
+        await waitForRoutineQueueIdle();
+        process.send({ kind: "queue-drained", round });
+      }
     } else {
       throw new Error("Unknown smoke child mode");
     }
@@ -150,7 +184,13 @@ async function childMain(mode: string): Promise<void> {
   }
 }
 
-function spawnChild(mode: string, url: URL, dataDir: string, employeeId = "") {
+function spawnChild(
+  mode: string,
+  url: URL,
+  dataDir: string,
+  employeeId = "",
+  runIds: string[] = [],
+) {
   stop.signal.throwIfAborted();
   const child = fork(fileURLToPath(import.meta.url), [mode], {
     execArgv: ["--import", "tsx"],
@@ -159,6 +199,7 @@ function spawnChild(mode: string, url: URL, dataDir: string, employeeId = "") {
       GENOSYN_TEST_POSTGRES_URL: url.toString(),
       GENOSYN_TEST_DATA_DIR: dataDir,
       GENOSYN_TEST_EMPLOYEE_ID: employeeId,
+      GENOSYN_TEST_RUN_IDS: JSON.stringify(runIds),
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
@@ -645,6 +686,170 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     }
     console.log(
       "PASS cross-process Routine dispatch: durable recovery, concurrent starts and one owner per Run",
+    );
+
+    const [sharedRoutine, unrelatedRoutine, cleanupRoutine] = await Promise.all(
+      ["Shared admission", "Unrelated admission", "Held cleanup"].map((name, index) =>
+        routines.save(
+          routines.create({
+            employeeId: queueEmployee.id,
+            name,
+            slug: `admission-${index}`,
+            cronExpr: "0 9 * * *",
+            timeoutSec: 60,
+            body: "Complete this Routine.",
+          }),
+        ),
+      ),
+    );
+    const [sharedOne, sharedTwo, unrelated, afterCleanup] = await Promise.all(
+      [sharedRoutine, sharedRoutine, unrelatedRoutine, cleanupRoutine].map((routine) =>
+        runs.save(
+          runs.create({
+            employeeId: queueEmployee.id,
+            routineId: routine.id,
+            status: "queued",
+            triggerKind: "manual",
+            queueOptionsJson: JSON.stringify({ triggerKind: "manual" }),
+            startedAt: new Date(),
+          }),
+        ),
+      ),
+    );
+    const heldClaim = "run:postgres-smoke:cleanup";
+    const cleaning = await runs.save(
+      runs.create({
+        employeeId: queueEmployee.id,
+        routineId: cleanupRoutine.id,
+        status: "error",
+        errorKind: "timeout",
+        startedAt: new Date(Date.now() - 120_000),
+        finishedAt: new Date(),
+        queueActiveEmployeeId: heldClaim,
+      }),
+    );
+    const admissionPeers = [
+      spawnChild("exercise-routine-admission", url, dataDir, queueEmployee.id, [
+        sharedOne.id,
+        unrelated.id,
+        afterCleanup.id,
+      ]),
+      spawnChild("exercise-routine-admission", url, dataDir, queueEmployee.id, [sharedTwo.id]),
+    ];
+    const admissionStarts: { runId: string; child: ChildProcess }[] = [];
+    const drained = new Set<ChildProcess>();
+    for (const peer of admissionPeers) {
+      peer.child.on("message", (message: unknown) => {
+        if (typeof message !== "object" || message === null || !("kind" in message)) return;
+        if (
+          message.kind === "routine-started" &&
+          "runId" in message &&
+          typeof message.runId === "string"
+        ) {
+          admissionStarts.push({ runId: message.runId, child: peer.child });
+        } else if (message.kind === "queue-drained" && "round" in message && message.round === 1) {
+          drained.add(peer.child);
+        }
+      });
+    }
+    const sharedIds = new Set([sharedOne.id, sharedTwo.id]);
+    const finishAdmission = (runId: string) => {
+      const started = admissionStarts.find((entry) => entry.runId === runId);
+      assert.ok(started, `Run ${runId} did not reach the model`);
+      started.child.send(`finish-run:${runId}`);
+    };
+    await Promise.all(admissionPeers.map((peer) => peer.ready));
+    const rowLock = AppDataSource.createQueryRunner();
+    await rowLock.connect();
+    await rowLock.startTransaction();
+    try {
+      await rowLock.manager.getRepository(Routine).findOneOrFail({
+        where: { id: sharedRoutine.id },
+        lock: { mode: "pessimistic_write" },
+      });
+      for (const peer of admissionPeers) peer.child.send("start");
+      await waitUntil(async () => {
+        assert.ok(
+          admissionStarts.every(({ runId }) => runId === unrelated.id),
+          "The shared Routine must wait for its database lock, and terminal cleanup must block admission",
+        );
+        const blocked: { pid: number }[] = await AppDataSource.query(
+          "SELECT pid FROM pg_stat_activity WHERE datname = current_database() " +
+            "AND wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'",
+        );
+        return blocked.length === 2 && admissionStarts.some(({ runId }) => runId === unrelated.id);
+      }, "Both processes contend for the Routine lock while unrelated work starts");
+    } finally {
+      await rowLock.rollbackTransaction();
+      await rowLock.release();
+    }
+    await waitUntil(
+      () => admissionStarts.some(({ runId }) => sharedIds.has(runId)),
+      "First shared Routine Run starts after the row lock is released",
+    );
+    finishAdmission(unrelated.id);
+    await waitUntil(() => drained.size > 0, "Losing process finishes its admission attempt");
+    const sharedRunning = await runs.findBy({ routineId: sharedRoutine.id, status: "running" });
+    assert.equal(sharedRunning.length, 1, "Different processes must not overlap one Routine");
+    assert.equal(await runs.countBy({ routineId: sharedRoutine.id, status: "queued" }), 1);
+    assert.equal(
+      admissionStarts.filter(({ runId }) => sharedIds.has(runId)).length,
+      1,
+      "Only one of the competing shared Runs may reach the model",
+    );
+    const blockedManual = await runs.findOneByOrFail({ id: afterCleanup.id });
+    assert.equal(blockedManual.status, "queued");
+    assert.equal(blockedManual.triggerKind, "manual");
+    assert.equal(blockedManual.queueActiveEmployeeId, null);
+    assert.equal(
+      admissionStarts.some(({ runId }) => runId === afterCleanup.id),
+      false,
+    );
+    assert.equal(
+      (await runs.findOneByOrFail({ id: cleaning.id })).queueActiveEmployeeId,
+      heldClaim,
+    );
+    finishAdmission(sharedRunning[0].id);
+    await waitUntil(() => drained.size === 2, "First admission round cleans up in both processes");
+    assert.equal(
+      (await runs.findOneByOrFail({ id: sharedRunning[0].id })).queueActiveEmployeeId,
+      null,
+    );
+    await runs.update(
+      { id: cleaning.id, queueActiveEmployeeId: heldClaim },
+      { queueActiveEmployeeId: null },
+    );
+    for (const peer of admissionPeers) peer.child.send("dispatch:2");
+    await waitUntil(
+      () => admissionStarts.length >= 4,
+      "Deferred Runs start after cleanup releases ownership",
+    );
+    const previouslyQueued = [sharedOne, sharedTwo].find((run) => run.id !== sharedRunning[0].id)!;
+    const secondRound = await Promise.all(
+      [previouslyQueued, afterCleanup].map((run) => runs.findOneByOrFail({ id: run.id })),
+    );
+    assert.ok(secondRound.every((run) => run.status === "running"));
+    for (const run of secondRound) finishAdmission(run.id);
+    await Promise.all(admissionPeers.map((peer) => peer.exited()));
+    const admittedRuns = [sharedOne, sharedTwo, unrelated, afterCleanup];
+    assert.equal(admissionStarts.length, admittedRuns.length);
+    assert.deepEqual(
+      new Set(admissionStarts.map(({ runId }) => runId)),
+      new Set(admittedRuns.map((run) => run.id)),
+    );
+    for (const run of admittedRuns) {
+      const finished = await runs.findOneByOrFail({ id: run.id });
+      assert.equal(finished.status, "completed");
+      assert.equal(finished.queueActiveEmployeeId, null);
+      assert.equal(
+        await AppDataSource.getRepository(SchedulerLease).countBy({
+          name: `routine-run:${run.id}`,
+        }),
+        0,
+      );
+    }
+    console.log(
+      "PASS cross-process Routine admission: same-Routine serialization, terminal cleanup exclusion and unrelated concurrency",
     );
 
     const { createUserSession, resolveUserSession, revokeCurrentUserSession } =

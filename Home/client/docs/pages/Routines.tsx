@@ -846,6 +846,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         judge the work itself.
       </P>
       <P>
+        Recovery distinguishes a confirmed restart from an overdue Run whose outcome was never
+        saved. An overdue record alone does not prove the server restarted. If this process still
+        owns the Run and its deadline has passed, recovery requests cancellation and records a
+        timeout. Another Run of the same Routine waits until the earlier Run finishes cleanup;
+        this also applies to manual retries. Independent Routines can continue working.
+      </P>
+      <P>
         When Genosyn marks an initial scheduled Run on an enabled routine interrupted, it also
         records a durable recovery retry. At the default <Strong>1 attempt</Strong>, exactly one
         recovery attempt becomes due an hour later. Raising Attempts lets later interruptions in

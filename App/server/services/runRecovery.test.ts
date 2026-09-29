@@ -213,7 +213,12 @@ describe("Routine Run crash recovery", () => {
 
     const result = await reconcileOrphanedRuns({ boot: true, now: NOW });
 
-    assert.deepEqual(result, { interrupted: 1, retriesScheduled: 1, leasesCleared: 1 });
+    assert.deepEqual(result, {
+      interrupted: 1,
+      timedOut: 0,
+      retriesScheduled: 1,
+      leasesCleared: 1,
+    });
     const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
     assert.equal(recovered.status, "error");
     assert.equal(recovered.errorKind, "interrupted");
@@ -332,7 +337,12 @@ describe("Routine Run crash recovery", () => {
     const recovery = await reconcileOrphanedRuns({ boot: true, now: NOW });
     const dispatch = await dispatchDueRetries(NOW);
 
-    assert.deepEqual(recovery, { interrupted: 0, retriesScheduled: 0, leasesCleared: 0 });
+    assert.deepEqual(recovery, {
+      interrupted: 0,
+      timedOut: 0,
+      retriesScheduled: 0,
+      leasesCleared: 0,
+    });
     assert.equal(dispatch.started, 0);
     const unchanged = await AppDataSource.getRepository(Run).findOneByOrFail({
       id: historical.id,
@@ -542,7 +552,12 @@ describe("Routine Run crash recovery", () => {
 
     const second = await reconcileOrphanedRuns({ boot: true, now: new Date(NOW.getTime() + 1) });
     const unchanged = await repo.findOneByOrFail({ id: run.id });
-    assert.deepEqual(second, { interrupted: 0, retriesScheduled: 0, leasesCleared: 0 });
+    assert.deepEqual(second, {
+      interrupted: 0,
+      timedOut: 0,
+      retriesScheduled: 0,
+      leasesCleared: 0,
+    });
     assert.equal(unchanged.retryAt, null);
     assert.equal(unchanged.logContent.split(ORPHAN_LOG_MARKER).length - 1, 1);
     assert.equal(await AppDataSource.getRepository(JournalEntry).countBy({ runId: run.id }), 1);
@@ -565,7 +580,12 @@ describe("Routine Run crash recovery", () => {
 
     const result = await reconcileOrphanedRuns({ boot: true, now: NOW });
 
-    assert.deepEqual(result, { interrupted: 3, retriesScheduled: 0, leasesCleared: 1 });
+    assert.deepEqual(result, {
+      interrupted: 3,
+      timedOut: 0,
+      retriesScheduled: 0,
+      leasesCleared: 1,
+    });
     for (const id of [disabledRun.id, gatedRun.id, deletedRun.id]) {
       const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id });
       assert.equal(recovered.status, "error");

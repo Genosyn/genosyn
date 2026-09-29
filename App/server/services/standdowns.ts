@@ -356,6 +356,11 @@ export function unregisterRunInterrupter(runId: string): void {
   runInterrupters.delete(runId);
 }
 
+/** Recovery may stop a locally owned Run that exceeded its original deadline. */
+export function interruptRun(runId: string): void {
+  runInterrupters.get(runId)?.abort();
+}
+
 function coversRun(standdown: Standdown, ctx: RunInterrupter["ctx"]): boolean {
   if (standdown.companyId !== ctx.companyId) return false;
   if (standdown.scope === "company") return true;

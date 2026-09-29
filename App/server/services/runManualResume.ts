@@ -46,6 +46,8 @@ export function manualResumeEligibility(
   else if (run.status !== "failed" || run.errorKind)
     reason = "Only failed Runs with saved unfinished work can be resumed.";
   else if (!run.finishedAt) reason = "Wait for the Run to finish before resuming it.";
+  else if (run.queueActiveEmployeeId)
+    reason = "Wait for the Run's cleanup to finish before resuming it.";
   else if (run.retryAt) reason = "A follow-up is already queued or starting for this Run.";
   else if (readRunCheckpoint(run)?.state !== "continue")
     reason = "This Run has no actionable saved progress to resume.";
@@ -89,6 +91,8 @@ export async function assertManualResumeSource(run: Run, routine: Routine): Prom
     );
   if (await repo.existsBy({ routineId: routine.id, status: "running" }))
     throw new RunManualResumeError("This Routine already has a Run in progress.");
+  if (await repo.existsBy({ routineId: routine.id, queueActiveEmployeeId: Not(IsNull()) }))
+    throw new RunManualResumeError("Wait for this Routine's earlier Run cleanup to finish.");
   if (await repo.existsBy({ routineId: routine.id, retryAt: Not(IsNull()) }))
     throw new RunManualResumeError("This Routine already has a follow-up queued or starting.");
   if (

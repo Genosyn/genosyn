@@ -14,6 +14,7 @@ import { startRoutineRun } from "./runner.js";
 import {
   dispatchQueuedRoutineRuns,
   releaseOrphanedQueueSlots,
+  ownsRoutineRunClaim,
   resumeRoutineQueue,
   stopRoutineQueue,
   waitForRoutineQueueIdle,
@@ -42,6 +43,103 @@ function barrier() {
   });
   return { promise, resolve };
 }
+
+test(
+  "simultaneous manual Runs of one Routine wait for the existing claim",
+  { timeout: 20_000 },
+  async (t) => {
+    const { routine } = await fixture();
+    const source = await routine("One occurrence at a time");
+    const started = barrier();
+    const release = barrier();
+    const runs = AppDataSource.getRepository(Run);
+    let calls = 0;
+    t.mock.method(agentRuntime, "run", async () => {
+      calls++;
+      started.resolve();
+      await release.promise;
+      return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+    });
+    const pending = await Promise.all([startRoutineRun(source), startRoutineRun(source)]);
+    try {
+      await started.promise;
+      await Promise.all(Array.from({ length: 4 }, () => dispatchQueuedRoutineRuns()));
+      const current = await runs.findBy({ routineId: source.id });
+      assert.equal(current.filter((run) => run.status === "running").length, 1);
+      assert.equal(current.filter((run) => run.status === "queued").length, 1);
+      const owned = current.find((run) => run.status === "running")!;
+      assert.equal(ownsRoutineRunClaim(owned.id, owned.queueActiveEmployeeId), true);
+      assert.equal(ownsRoutineRunClaim(owned.id, "a different claim"), false);
+      assert.equal(calls, 1);
+    } finally {
+      release.resolve();
+      await waitForRoutineQueueIdle();
+      await dispatchQueuedRoutineRuns();
+      await Promise.all(pending.map((run) => run.completion));
+    }
+    assert.equal(calls, 2);
+    for (const run of await runs.findBy({ routineId: source.id })) {
+      assert.equal(run.queueActiveEmployeeId, null);
+      assert.equal(ownsRoutineRunClaim(run.id, "any old claim"), false);
+    }
+  },
+);
+
+test("a rejected admission write does not poison later Routine dispatch", async (t) => {
+  const { routine } = await fixture();
+  const source = await routine("Retry admission");
+  const runs = AppDataSource.getRepository(Run);
+  const update = runs.update.bind(runs);
+  let rejectOnce = true;
+  t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+    if (rejectOnce && args[1].status === "running") {
+      rejectOnce = false;
+      throw new Error("Synthetic admission outage");
+    }
+    return update(...args);
+  });
+  t.mock.method(agentRuntime, "run", async () => ({
+    finalText: "Done",
+    steps: 1,
+    stopReason: "end_turn",
+  }));
+  const pending = await startRoutineRun(source);
+  await waitForRoutineQueueIdle();
+  assert.equal((await runs.findOneByOrFail({ id: pending.run.id })).status, "queued");
+  await dispatchQueuedRoutineRuns();
+  assert.equal((await pending.completion).status, "completed");
+});
+
+test("a failed claim cleanup does not leave stale local ownership", async (t) => {
+  const { routine } = await fixture();
+  const source = await routine("Cleanup failure");
+  const runs = AppDataSource.getRepository(Run);
+  const update = runs.update.bind(runs);
+  let claimed: string | null = null;
+  let failCleanup = true;
+  t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+    if (args[1].status === "running" && typeof args[1].queueActiveEmployeeId === "string")
+      claimed = args[1].queueActiveEmployeeId;
+    if (failCleanup && args[1].status === undefined && args[1].queueActiveEmployeeId === null) {
+      failCleanup = false;
+      throw new Error("Synthetic cleanup outage");
+    }
+    return update(...args);
+  });
+  t.mock.method(agentRuntime, "run", async () => ({
+    finalText: "Done",
+    steps: 1,
+    stopReason: "end_turn",
+  }));
+  const pending = await startRoutineRun(source);
+  await waitForRoutineQueueIdle();
+  assert.ok(claimed);
+  assert.equal(ownsRoutineRunClaim(pending.run.id, claimed), false);
+  assert.equal((await runs.findOneByOrFail({ id: pending.run.id })).queueActiveEmployeeId, claimed);
+  await releaseOrphanedQueueSlots(false, new Date(Date.now() + 6 * 60_000));
+  await dispatchQueuedRoutineRuns();
+  assert.equal((await pending.completion).queueActiveEmployeeId, null);
+});
 
 async function fixture(name = "Jamie", company?: Company) {
   company ??= await insert(Company, { name: "Queue Co", slug: "queue-co", ownerId: "owner" });

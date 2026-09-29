@@ -206,7 +206,7 @@ async function prepareRoutineRun(
   // The Routine's timeout is an absolute wall-clock budget, not merely an
   // agent-loop timer. Capture it before model resolution, lease acquisition,
   // and every other start prerequisite, then persist this exact boundary.
-  const startedAt = new Date();
+  const startedAt = queued?.startedAt ?? new Date();
   const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
   const runRepo = AppDataSource.getRepository(Run);
   const empRepo = AppDataSource.getRepository(AIEmployee);
@@ -308,10 +308,11 @@ async function prepareRoutineRun(
           "manual",
       ),
     continuationDeadlineAt:
-      continuationParent && !manualResume
+      queued?.continuationDeadlineAt ??
+      (continuationParent && !manualResume
         ? (continuationParent.continuationDeadlineAt ??
           new Date(continuationParent.startedAt.getTime() + timeoutMs))
-        : new Date(startedAt.getTime() + timeoutMs),
+        : new Date(startedAt.getTime() + timeoutMs)),
     continuationTokensUsed:
       continuationParent && !manualResume
         ? (continuationParent.continuationTokensUsed ?? 0) +
@@ -1062,6 +1063,9 @@ async function prepareRoutineRun(
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
       unregisterRunInterrupter(saved.id);
+      // Recovery may have won before the normal terminal finalizer. Its early
+      // return still owns this log timer and must drain it before queue cleanup.
+      await log.stopCheckpointing();
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);

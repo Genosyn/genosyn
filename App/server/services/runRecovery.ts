@@ -23,7 +23,12 @@ import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
 import { notifyRunFailure } from "./runAlerts.js";
 import { readRunDiagnostics } from "./runDiagnostics.js";
 import { readRunCheckpoint } from "./runContinuation.js";
-import { releaseOrphanedQueueSlots } from "./routineQueue.js";
+import {
+  hasLiveRoutineRunLease,
+  ownsRoutineRunClaim,
+  releaseOrphanedQueueSlots,
+} from "./routineQueue.js";
+import { interruptRun } from "./standdowns.js";
 
 /**
  * Crash recovery for Runs.
@@ -35,17 +40,17 @@ import { releaseOrphanedQueueSlots } from "./routineQueue.js";
  * stuck without ever clearing it. This startup pass also cleans abandoned
  * chat-reply leases, which a dead process cannot release itself.
  *
- * The predicate for "this row is debris" is deliberately the same one the
- * scheduler's overlap guard already uses to decide it may fire again: a run
- * cannot outlive its own timeout because the runner aborts it. So reconciling
- * can never mark a run dead that the scheduler still considers alive.
+ * Expiry alone does not prove a crash: cancellation can still be draining a
+ * live runtime. Exact local ownership lets us record its timeout truthfully,
+ * while retaining the claim until cleanup settles. Another replica's live
+ * lease is never reclassified or released by this process.
  *
  * On sqlite the process is the only executor — `withSchedulerLease` degrades
  * to a passthrough for exactly that reason — so on the first heartbeat of a
  * fresh process every `running` row and chat-reply lease is debris regardless
  * of age, and we don't make an employee wait six hours for the obvious. On
- * Postgres another replica may legitimately own either, so only the age test
- * applies.
+ * Postgres another replica may legitimately own either, so recovery requires
+ * both expiry and no live ownership lease.
  *
  * This module must not import `services/cron.ts` — cron imports this. The
  * retry delay takes the routine as an argument instead.
@@ -54,9 +59,16 @@ import { releaseOrphanedQueueSlots } from "./routineQueue.js";
 export const ORPHAN_LOG_MARKER =
   "\n[interrupted] The server stopped while this run was executing. " +
   "Nothing is known about work done after the last line above.\n";
+export const STALE_RUN_LOG_MARKER =
+  "\n[interrupted] Recovery found this Run past its time limit without a live owner. " +
+  "A server restart is not confirmed. Work after the last durable line is unknown.\n";
+export const OVERDUE_RUN_LOG_MARKER =
+  "\n[timeout] The Run exceeded its original time limit. Cancellation was requested; " +
+  "another Run of this Routine must wait for its runtime cleanup to finish.\n";
 
 export type RunRecoveryResult = {
   interrupted: number;
+  timedOut: number;
   retriesScheduled: number;
   leasesCleared: number;
 };
@@ -154,13 +166,17 @@ export async function reconcileOrphanedRuns(opts?: {
   now?: Date;
 }): Promise<RunRecoveryResult> {
   const now = opts?.now ?? new Date();
-  // Only sound on sqlite: with Postgres a `running` row may belong to a live
-  // sibling replica, so age is the only safe evidence of death.
+  // Only sound on sqlite: a Postgres row may belong to a live sibling replica.
   const singleProcessBoot = opts?.boot === true && config.db.driver !== "postgres";
 
   const runRepo = AppDataSource.getRepository(Run);
   const routineRepo = AppDataSource.getRepository(Routine);
-  const result: RunRecoveryResult = { interrupted: 0, retriesScheduled: 0, leasesCleared: 0 };
+  const result: RunRecoveryResult = {
+    interrupted: 0,
+    timedOut: 0,
+    retriesScheduled: 0,
+    leasesCleared: 0,
+  };
 
   const running = await runRepo.find({ where: { status: "running" } });
   if (running.length > 0) {
@@ -173,22 +189,29 @@ export async function reconcileOrphanedRuns(opts?: {
       // A routine deleted out from under a live run leaves no timeout to reason
       // about; fall back to the column default rather than stranding the row.
       const timeoutSec = routine?.timeoutSec ?? 3600;
-      const continuationExpired =
-        run.continuationDeadlineAt !== null &&
-        run.continuationDeadlineAt.getTime() + ORPHAN_GRACE_MS < now.getTime();
-      if (
-        !singleProcessBoot &&
-        !continuationExpired &&
-        !isRunOrphaned(run.startedAt, timeoutSec, now)
-      ) {
-        continue;
-      }
+      // A Member may edit timeoutSec while this Run is active. Its captured
+      // absolute deadline stays authoritative, with an age fallback only for
+      // legacy rows that did not persist one.
+      const expired = run.continuationDeadlineAt
+        ? run.continuationDeadlineAt.getTime() + ORPHAN_GRACE_MS < now.getTime()
+        : isRunOrphaned(run.startedAt, timeoutSec, now);
+      const locallyOwned = ownsRoutineRunClaim(run.id, run.queueActiveEmployeeId);
+      // Boot/restore must not mistake a Run already started by this process
+      // for crash debris. Remote live leases retain their owner's lifecycle.
+      if (!expired && (!singleProcessBoot || locallyOwned)) continue;
+      if (!locallyOwned && !singleProcessBoot && (await hasLiveRoutineRunLease(run, now))) continue;
+      const marker = locallyOwned
+        ? OVERDUE_RUN_LOG_MARKER
+        : singleProcessBoot
+          ? ORPHAN_LOG_MARKER
+          : STALE_RUN_LOG_MARKER;
+      if (locallyOwned) interruptRun(run.id);
 
       run.status = "error";
-      run.errorKind = "interrupted";
+      run.errorKind = locallyOwned ? "timeout" : "interrupted";
       run.exitCode = null;
       run.finishedAt = now;
-      run.logContent = (run.logContent ?? "") + ORPHAN_LOG_MARKER;
+      run.logContent = (run.logContent ?? "") + marker;
 
       let retryDelayMs: number | null = null;
       const checkpoint = readRunCheckpoint(run);
@@ -202,8 +225,9 @@ export async function reconcileOrphanedRuns(opts?: {
         // ordinary crash-retry policy. Its last durable checkpoint survives
         // for inspection, but an interrupted chunk needs attention.
         run.retryAt = null;
-        run.continuationStopReason =
-          "The Run was interrupted before its next checkpoint could be safely continued.";
+        run.continuationStopReason = locallyOwned
+          ? "The original Routine time limit ended before its unfinished work completed."
+          : "The Run was interrupted before its next checkpoint could be safely continued.";
       }
       if (
         !continuationInterrupted &&
@@ -247,16 +271,25 @@ export async function reconcileOrphanedRuns(opts?: {
       // meanwhile; a still newer checkpoint wins this CAS and is revisited on
       // the next sweep rather than being erased by this stale snapshot.
       const latest = await runRepo.findOneBy({ id: run.id });
-      if (!latest || latest.status !== "running") {
+      if (
+        !latest ||
+        latest.status !== "running" ||
+        latest.queueActiveEmployeeId !== run.queueActiveEmployeeId ||
+        latest.checkpointJson !== run.checkpointJson ||
+        ownsRoutineRunClaim(run.id, latest.queueActiveEmployeeId) !== locallyOwned ||
+        (!locallyOwned && !singleProcessBoot && (await hasLiveRoutineRunLease(latest, now)))
+      ) {
         releaseBrowserRecordingRunFinalizing(run.id);
         continue;
       }
-      run.logContent = (latest.logContent ?? "") + ORPHAN_LOG_MARKER;
+      run.logContent = (latest.logContent ?? "") + marker;
       run.diagnosticsJson = latest.diagnosticsJson;
       const recovered = await runRepo.update(
         {
           id: run.id,
           status: "running",
+          queueActiveEmployeeId: latest.queueActiveEmployeeId ?? IsNull(),
+          checkpointJson: latest.checkpointJson ?? IsNull(),
           logContent: latest.logContent,
           diagnosticsJson: latest.diagnosticsJson ?? IsNull(),
         },
@@ -265,7 +298,8 @@ export async function reconcileOrphanedRuns(opts?: {
           errorKind: run.errorKind,
           diagnosticsJson: JSON.stringify(readRunDiagnostics(run)),
           routineId: run.routineId,
-          queueActiveEmployeeId: null,
+          // Only the lifecycle owner or the ownership-aware orphan sweep may
+          // release this claim. A terminal row can still have active cleanup.
           exitCode: run.exitCode,
           finishedAt: run.finishedAt,
           logContent: run.logContent,
@@ -285,14 +319,15 @@ export async function reconcileOrphanedRuns(opts?: {
       });
       releaseBrowserRecordingRunFinalizing(run.id);
       if (retryDelayMs !== null) result.retriesScheduled += 1;
-      result.interrupted += 1;
+      if (locallyOwned) result.timedOut += 1;
+      else result.interrupted += 1;
 
       if (routine) {
         const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
           id: routine.employeeId,
         });
         if (employee) await contractAutonomyOnBadRun({ run, employee });
-        await journalInterrupted(routine, run, retryDelayMs).catch((error) => {
+        await journalRecovery(routine, run, retryDelayMs, singleProcessBoot).catch((error) => {
           // The Run and its durable retry are already saved. A journal outage
           // must not abort reconciliation and strand later orphaned Runs.
           // eslint-disable-next-line no-console
@@ -335,10 +370,10 @@ export async function reconcileOrphanedRuns(opts?: {
   await releaseOrphanedQueueSlots(singleProcessBoot, now);
   result.leasesCleared = await clearLeases(singleProcessBoot, now);
 
-  if (result.interrupted || result.retriesScheduled || result.leasesCleared) {
+  if (result.interrupted || result.timedOut || result.retriesScheduled || result.leasesCleared) {
     // eslint-disable-next-line no-console
     console.log(
-      `[recovery] interrupted=${result.interrupted} retries=${result.retriesScheduled} leases=${result.leasesCleared}`,
+      `[recovery] interrupted=${result.interrupted} timedOut=${result.timedOut} retries=${result.retriesScheduled} leases=${result.leasesCleared}`,
     );
   }
   return result;
@@ -388,25 +423,40 @@ async function clearLeases(singleProcessBoot: boolean, now: Date): Promise<numbe
   return res.affected ?? 0;
 }
 
-async function journalInterrupted(
+async function journalRecovery(
   routine: Routine,
   run: Run,
   retryDelayMs: number | null,
+  singleProcessBoot: boolean,
 ): Promise<void> {
   const repo = AppDataSource.getRepository(JournalEntry);
+  const cause =
+    run.errorKind === "timeout"
+      ? "exceeded its original time limit"
+      : singleProcessBoot
+        ? "was interrupted by a server restart"
+        : "was recovered after losing its runtime owner";
+  const explanation =
+    run.errorKind === "timeout"
+      ? "The Run ended with a timeout Error. Cancellation was requested, and its cleanup claim remains until the runtime finishes stopping."
+      : singleProcessBoot
+        ? "The Run ended with an Error after a server interruption."
+        : "The Run ended with an Error after its time limit with no live owner. This does not confirm a server restart.";
   const body =
     retryDelayMs === null
-      ? !routine.enabled
-        ? "The Run ended with an Error after a server interruption. No recovery was scheduled because the routine is disabled."
-        : routine.requiresApproval
-          ? "The Run ended with an Error after a server interruption. No recovery was scheduled because the routine now requires approval."
-          : "The Run ended with an Error after a server interruption. Its automatic recovery attempt budget is exhausted."
-      : `A retry is scheduled in about ${Math.max(1, Math.round(retryDelayMs / 1000))}s (attempt ${run.attempt + 1} of ${automaticRetryLimit("interrupted", routine.maxAttempts)}).`;
+      ? run.continuationStopReason
+        ? `${explanation} ${run.continuationStopReason} Its saved progress is preserved; no automatic retry was scheduled.`
+        : !routine.enabled
+          ? `${explanation} No recovery was scheduled because the Routine is disabled.`
+          : routine.requiresApproval
+            ? `${explanation} No recovery was scheduled because the Routine now requires approval.`
+            : `${explanation} No automatic retry is permitted by this Run's trigger and retry policy.`
+      : `${explanation} A retry is scheduled in about ${Math.max(1, Math.round(retryDelayMs / 1000))}s (attempt ${run.attempt + 1} of ${automaticRetryLimit(run.status, routine.maxAttempts, run.errorKind)}), after cleanup releases the Run's claim.`;
   await repo.save(
     repo.create({
       employeeId: routine.employeeId,
       kind: "system",
-      title: `Routine "${routine.name}" was interrupted by a server restart`,
+      title: `Routine "${routine.name}" ${cause}`,
       body,
       routineId: routine.id,
       runId: run.id,
