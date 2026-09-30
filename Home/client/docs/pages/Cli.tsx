@@ -140,14 +140,14 @@ export function Cli() {
 chmod +x /usr/local/bin/genosyn`}</Pre>
 
       <H2 id="commands">Commands</H2>
-      <div className="mt-6 divide-y divide-ground overflow-hidden border border-hairline bg-white">
+      <div className="mt-6 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-paper-raised">
         {COMMANDS.map((c) => (
           <div key={c.name} className="px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="font-mono text-[13px] font-semibold text-ink">genosyn {c.name}</span>
-              {c.flags && <span className="font-mono text-[12.5px] text-muted">{c.flags}</span>}
+              {c.flags && <span className="font-mono text-[12.5px] text-ink-500">{c.flags}</span>}
             </div>
-            <p className="mt-1 text-[13.5px] leading-[1.6] text-ink2">{c.blurb}</p>
+            <p className="mt-1 text-[13.5px] leading-[1.6] text-ink-600">{c.blurb}</p>
           </div>
         ))}
       </div>

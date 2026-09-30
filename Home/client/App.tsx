@@ -1,15 +1,20 @@
 import { useEffect } from "react";
+import type { ReactNode } from "react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
-import { Roles, Roster } from "@/sections/Roles";
-import { Autonomy } from "@/sections/Autonomy";
-import { Primitives } from "@/sections/Primitives";
-import { Features } from "@/sections/Features";
-import { HowItWorks } from "@/sections/HowItWorks";
-import { CliShowcase } from "@/sections/CliShowcase";
-import { Colophon, Footer, InstallCta } from "@/sections/Footer";
+import { Integrations } from "@/sections/Integrations";
+import { Roster } from "@/sections/Roster";
+import { DayInLife } from "@/sections/DayInLife";
+import { Anatomy } from "@/sections/Anatomy";
+import { Shift } from "@/sections/Shift";
+import { Guardrails } from "@/sections/Guardrails";
+import { Platform } from "@/sections/Platform";
+import { OpenSource } from "@/sections/OpenSource";
+import { PricingTeaser } from "@/sections/PricingTeaser";
+import { ClosingCta, Footer } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
 import { Pricing } from "@/sections/Pricing";
+import { Button, Container, Em } from "@/sections/Kit";
 import { DocsApp } from "@/docs/DocsApp";
 import { ProductsIndex } from "@/products/ProductsIndex";
 import { ProductPage } from "@/products/ProductPage";
@@ -17,7 +22,6 @@ import { findProduct } from "@/products/data";
 import { RolesIndex } from "@/roles/RolesIndex";
 import { RolePage } from "@/roles/RolePage";
 import { findRole } from "@/roles/data";
-import { ActionStrip, Band, Container, Display, Lede, Rail } from "@/sections/Kit";
 import { usePathname } from "@/lib/router";
 import { applyHead } from "@/lib/head";
 import { findRouteHead } from "@/lib/siteMeta";
@@ -25,8 +29,8 @@ import { findRouteHead } from "@/lib/siteMeta";
 export function App() {
   const path = usePathname();
 
-  // The prerendered HTML ships correct head tags for the landing route; this
-  // keeps them truthful across client-side navigation.
+  // The prerendered HTML ships correct head tags for its route; this keeps
+  // them truthful across client-side navigation.
   useEffect(() => {
     const head = findRouteHead(path);
     if (head) {
@@ -41,11 +45,19 @@ export function App() {
   }
 
   if (path.startsWith("/enterprise")) {
-    return <EnterprisePage />;
+    return (
+      <Page>
+        <Enterprise />
+      </Page>
+    );
   }
 
   if (path.startsWith("/pricing")) {
-    return <PricingPage />;
+    return (
+      <Page>
+        <Pricing />
+      </Page>
+    );
   }
 
   if (path.startsWith("/products")) {
@@ -59,115 +71,84 @@ export function App() {
   return <Landing />;
 }
 
-/** The landing page follows the numbered story from product proof through installation. */
+/** The landing page tells one night, then shows how it was built. */
 function Landing() {
   return (
-    <div className="min-h-screen overflow-x-clip bg-slate-50 text-slate-900">
+    <Page>
+      <Hero />
+      <Integrations />
+      <Roster />
+      <DayInLife />
+      <Anatomy />
+      <Shift />
+      <Guardrails />
+      <Platform />
+      <OpenSource />
+      <PricingTeaser />
+      <ClosingCta />
+    </Page>
+  );
+}
+
+function Page({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-screen overflow-x-clip bg-paper text-ink">
       <Nav />
-      <main>
-        <Hero />
-        <Roles />
-        <Roster />
-        <Autonomy />
-        <Primitives />
-        <HowItWorks />
-        <Features />
-        <CliShowcase />
-        <InstallCta sheet="09 / Get started" />
-        <Colophon sheet="10 / Colophon" />
-      </main>
+      <main>{children}</main>
       <Footer />
     </div>
   );
 }
 
-function EnterprisePage() {
-  return (
-    <div className="min-h-screen bg-ground text-ink">
-      <Nav />
-      <main>
-        <Enterprise />
-      </main>
-      <Footer />
-    </div>
-  );
-}
-
-function PricingPage() {
-  return (
-    <div className="min-h-screen bg-ground text-ink">
-      <Nav />
-      <main>
-        <Pricing />
-      </main>
-      <Footer />
-    </div>
-  );
+function slugOf(path: string, prefix: string): string {
+  return path
+    .replace(new RegExp(`^/${prefix}/?`), "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }
 
 function ProductsRoute({ path }: { path: string }) {
-  const slug = path
-    .replace(/^\/products\/?/, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
-
-  if (!slug) {
-    return <ProductsIndex />;
-  }
-
+  const slug = slugOf(path, "products");
+  if (!slug) return <ProductsIndex />;
   const product = findProduct(slug);
-  if (!product) {
-    return <ProductNotFound />;
-  }
-
+  if (!product) return <NotFound kind="product" href="/products" cta="Browse every product" />;
   return <ProductPage product={product} />;
 }
 
 function RolesRoute({ path }: { path: string }) {
-  const slug = path
-    .replace(/^\/roles\/?/, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
-
-  if (!slug) {
-    return <RolesIndex />;
-  }
-
+  const slug = slugOf(path, "roles");
+  if (!slug) return <RolesIndex />;
   const role = findRole(slug);
-  if (!role) {
-    return <NotFound kind="role" href="/roles" cta="Browse every role" />;
-  }
-
+  if (!role) return <NotFound kind="role" href="/roles" cta="Browse every role" />;
   return <RolePage role={role} />;
-}
-
-function ProductNotFound() {
-  return <NotFound kind="product" href="/products" cta="Browse all products" />;
 }
 
 /** The in-app not-found panel for an unknown product or role slug. */
 function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string }) {
   return (
-    <div className="min-h-screen bg-ground text-ink">
-      <Nav />
-      <main>
-        <Band tone="ground" pad="l" rule={false}>
-          <Container>
-            <Rail sheet="404 / No such page" fields={["HTTP 404"]}>
-              <Display className="max-w-[20ch]">{`No ${kind} lives at this address.`}</Display>
-              <Lede className="mt-7">
-                The page does not exist. Everything Genosyn ships is one click away.
-              </Lede>
-              <div className="mt-10 max-w-[34rem]">
-                <ActionStrip href={href} trailing="Index">
-                  {cta}
-                </ActionStrip>
-              </div>
-            </Rail>
-          </Container>
-        </Band>
-      </main>
-      <Footer />
-    </div>
+    <Page>
+      <section className="py-28 sm:py-36">
+        <Container>
+          <p className="kicker inline-flex items-center gap-3 text-ink-500">
+            <span aria-hidden className="h-px w-6 bg-ink" />
+            404
+          </p>
+          <h1 className="mt-6 max-w-[16ch] text-balance font-display text-display-xl text-ink">
+            {`No ${kind} lives here.`} <Em>Yet.</Em>
+          </h1>
+          <p className="mt-7 max-w-[48ch] text-[1.125rem] leading-[1.6] text-ink-600">
+            The page does not exist. Everything Genosyn ships is one click away.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Button href={href} variant="ink" arrow>
+              {cta}
+            </Button>
+            <Button href="/" variant="outline">
+              Back to the start
+            </Button>
+          </div>
+        </Container>
+      </section>
+    </Page>
   );
 }

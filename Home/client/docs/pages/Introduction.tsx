@@ -231,14 +231,14 @@ export function Introduction() {
       <div className="mt-12 flex flex-wrap items-center gap-3">
         <Link
           href="/docs/install"
-          className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink2"
+          className="inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink-800"
         >
           Install Genosyn
           <ArrowRight className="h-4 w-4" />
         </Link>
         <a
           href={SIGN_UP_URL}
-          className="inline-flex items-center gap-2 border border-rule px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-paper-raised"
         >
           Start on Genosyn Cloud
           <ArrowRight className="h-4 w-4" />
@@ -250,14 +250,14 @@ export function Introduction() {
 
 function Primitive({ icon, tag, body }: { icon: React.ReactNode; tag: string; body: string }) {
   return (
-    <div className="border border-hairline bg-white p-4">
+    <div className="rounded-2xl border border-line bg-paper-raised p-4">
       <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center bg-ground text-ink2 ring-1 ring-ink/[0.08]">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-paper text-ink-600 ring-1 ring-ink/[0.08]">
           {icon}
         </span>
-        <span className="text-[11px] font-semibold uppercase text-muted">{tag}</span>
+        <span className="text-[11px] font-semibold uppercase text-ink-500">{tag}</span>
       </div>
-      <p className="mt-3 text-[13.5px] leading-[1.6] text-ink2">{body}</p>
+      <p className="mt-3 text-[13.5px] leading-[1.6] text-ink-600">{body}</p>
     </div>
   );
 }

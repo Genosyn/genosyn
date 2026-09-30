@@ -161,7 +161,7 @@ export function Employees() {
 
       <H2 id="working-directory">Working directory</H2>
       <P>Each employee gets their own folder on disk under the company:</P>
-      <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
+      <pre className="mt-4 overflow-x-auto rounded-2xl border border-line bg-paper-raised px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink-600">
         {`data/companies/<co-slug>/employees/<emp-slug>/
 └── ...   # files enabled coding tools read and write`}
       </pre>

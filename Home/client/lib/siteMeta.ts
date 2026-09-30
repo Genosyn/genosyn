@@ -168,7 +168,7 @@ export function allRoutes(): RouteHead[] {
   const routes: RouteHead[] = [
     {
       path: "/",
-      title: "Genosyn — work that finished before anyone signed in",
+      title: "Genosyn — open-source AI Employees that work while you sleep",
       description: SITE_DESCRIPTION,
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },

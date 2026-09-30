@@ -1,13 +1,19 @@
 import type { Config } from "tailwindcss";
 
 /**
- * The marketing site shares the product's visual contract: slate surfaces,
- * indigo actions, Inter typography, modest radii, and soft elevation.
+ * The marketing site's visual language: black and white. A neutral paper,
+ * near-black ink, and black night panels, set in Newsreader (display), Geist
+ * (text) and Geist Mono (anything the software emitted — clocks, cron lines,
+ * Run ids).
  *
- * The named colours and geometry below are compatibility aliases used across
- * the existing marketing, product, role, and documentation pages. Keep those
- * names until callers have migrated; their values deliberately resolve to the
- * same Tailwind palette the App uses.
+ * There is no accent hue. Emphasis is typographic (the italic turn in a
+ * headline, set a step lighter) and inversion: the one thing on a surface
+ * that needs a person is drawn solid — black on paper, white on the night.
+ * A Decision is a solid pill; an Approval is an outlined one.
+ *
+ * Product mock-ups (previews.tsx, ProductPrototype.tsx, CompanyPreview.tsx)
+ * picture the App, so they keep Tailwind's own slate and indigo, exactly as
+ * the App does. Nothing here remaps a built-in palette.
  */
 export default {
   content: ["./client/index.html", "./client/**/*.{ts,tsx}"],
@@ -15,70 +21,61 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Untouched docs/template call sites use zinc; keep them on the same
-        // neutral ramp instead of leaving a second visual skin in the bundle.
-        zinc: {
-          50: "#f8fafc",
-          100: "#f1f5f9",
-          200: "#e2e8f0",
-          300: "#cbd5e1",
-          400: "#94a3b8",
-          500: "#64748b",
-          600: "#475569",
-          700: "#334155",
-          800: "#1e293b",
-          900: "#0f172a",
-          950: "#020617",
+        paper: {
+          DEFAULT: "#F5F5F2",
+          raised: "#FFFFFF",
+          sunken: "#EDEDE9",
+          deep: "#E3E3DE",
         },
-
-        // Legacy neutral aliases, now mapped to the App's slate ramp.
-        ink: "#0f172a", // slate-900
-        ink2: "#334155", // slate-700
-        muted: "#64748b", // slate-500
-        rule: "#e2e8f0", // slate-200
-        hairline: "#f1f5f9", // slate-100
-        seam: "#e2e8f0", // slate-200
-        dim: "#94a3b8", // slate-400
-        ground: "#f8fafc", // slate-50
-        surface: "#ffffff",
-
-        // Semantic hues stay local to small markers, chips, and statuses.
+        ink: {
+          DEFAULT: "#0E0E0D",
+          50: "#F3F3F1",
+          100: "#E6E6E3",
+          200: "#D1D1CD",
+          300: "#B3B3AE",
+          400: "#8E8E89",
+          500: "#6B6B66",
+          600: "#51514D",
+          700: "#393936",
+          800: "#232321",
+          900: "#0E0E0D",
+        },
+        line: {
+          DEFAULT: "#E2E2DD",
+          strong: "#CDCDC7",
+        },
+        night: {
+          DEFAULT: "#0A0A0A",
+          raised: "#131313",
+          high: "#1C1C1C",
+          line: "#272727",
+          muted: "#A3A3A0",
+          faint: "#6B6B68",
+        },
+        moss: {
+          50: "#EEF6F0",
+          400: "#5DB585",
+          500: "#3C8F63",
+          600: "#2F7450",
+        },
+        // One hue per department, for dots and small markers only — never a
+        // surface, and never a warm orange: a hue means "this department",
+        // not "look here".
         dept: {
-          finance: "#059669", // emerald-600
-          repositories: "#7c3aed", // violet-600
-          marketing: "#c026d3", // fuchsia-600
-          workspace: "#4f46e5", // indigo-600
-          email: "#0284c7", // sky-600
-          revenue: "#ea580c", // orange-600
-          operations: "#d97706", // amber-600
-          people: "#e11d48", // rose-600
-          legal: "#64748b", // slate-500; retained for the autonomy preview
-        },
-        tint: {
-          finance: "#ecfdf5", // emerald-50
-          repositories: "#f5f3ff", // violet-50
-          marketing: "#fdf4ff", // fuchsia-50
-          workspace: "#eef2ff", // indigo-50
-          email: "#f0f9ff", // sky-50
-          revenue: "#fff7ed", // orange-50
-          operations: "#fffbeb", // amber-50
-          people: "#fff1f2", // rose-50
-          legal: "#f8fafc", // slate-50
+          finance: "#3C8F63",
+          repositories: "#7358D0",
+          marketing: "#C04A8F",
+          workspace: "#4467D6",
+          email: "#2388B6",
+          revenue: "#1E9486",
+          operations: "#6B7580",
+          people: "#D24D5E",
         },
       },
       fontFamily: {
-        display: [
-          "Inter",
-          "ui-sans-serif",
-          "system-ui",
-          "-apple-system",
-          "Segoe UI",
-          "Helvetica Neue",
-          "Arial",
-          "sans-serif",
-        ],
+        display: ["Newsreader", "ui-serif", "Georgia", "Cambria", "Times New Roman", "serif"],
         sans: [
-          "Inter",
+          "Geist",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
@@ -87,44 +84,64 @@ export default {
           "Arial",
           "sans-serif",
         ],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"],
+        mono: ["Geist Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "monospace"],
+      },
+      fontSize: {
+        // Display sizes are fluid: a phone gets a headline that fits two or
+        // three lines, a wide screen gets one that fills the measure.
+        "display-2xl": ["clamp(3rem, 8.2vw, 7.25rem)", { lineHeight: "0.95", letterSpacing: "-0.035em" }],
+        "display-xl": ["clamp(2.6rem, 6vw, 5.5rem)", { lineHeight: "0.98", letterSpacing: "-0.03em" }],
+        "display-lg": ["clamp(2.25rem, 4.6vw, 4rem)", { lineHeight: "1.02", letterSpacing: "-0.025em" }],
+        "display-md": ["clamp(1.85rem, 3.3vw, 2.85rem)", { lineHeight: "1.06", letterSpacing: "-0.02em" }],
+        "display-sm": ["clamp(1.45rem, 2.2vw, 1.9rem)", { lineHeight: "1.12", letterSpacing: "-0.015em" }],
       },
       letterSpacing: {
-        label: "0.08em",
-        field: "0.06em",
+        kicker: "0.14em",
       },
-      // Compatibility names only; standard Tailwind radii remain untouched.
       borderRadius: {
-        pane: "0.75rem",
-        control: "0.5rem",
-        chip: "0.375rem",
+        "4xl": "2rem",
+        "5xl": "2.5rem",
       },
-      // Compatibility names only; standard Tailwind shadows remain untouched.
       boxShadow: {
-        card: "0 1px 2px 0 rgb(15 23 42 / 0.05)",
-        lift: "0 4px 8px -2px rgb(15 23 42 / 0.08)",
-        raise: "0 10px 20px -8px rgb(15 23 42 / 0.16)",
-        float: "0 20px 40px -16px rgb(15 23 42 / 0.22)",
-        panel: "0 1px 2px 0 rgb(15 23 42 / 0.05)",
+        hairline: "0 0 0 1px rgb(14 14 13 / 0.08)",
+        soft: "0 1px 2px rgb(14 14 13 / 0.04), 0 4px 12px -2px rgb(14 14 13 / 0.06)",
+        lifted:
+          "0 1px 2px rgb(14 14 13 / 0.05), 0 12px 32px -12px rgb(14 14 13 / 0.18), 0 32px 64px -32px rgb(14 14 13 / 0.2)",
+        float:
+          "0 2px 4px rgb(0 0 0 / 0.25), 0 24px 48px -16px rgb(0 0 0 / 0.6), inset 0 1px 0 rgb(255 255 255 / 0.06)",
+        glow: "0 0 0 1px rgb(255 255 255 / 0.35), 0 0 18px rgb(255 255 255 / 0.35)",
+      },
+      maxWidth: {
+        site: "78rem",
       },
       keyframes: {
-        strip: {
-          from: { transform: "scaleX(0)" },
-          to: { transform: "scaleX(1)" },
+        marquee: {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(-50%)" },
         },
-        arrive: {
+        "rise-in": {
+          from: { opacity: "0", transform: "translateY(10px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-in": {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
-        wipe: {
-          from: { transform: "scaleY(0)" },
-          to: { transform: "scaleY(1)" },
+        pulse: {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.35" },
+        },
+        blink: {
+          "0%, 49%": { opacity: "1" },
+          "50%, 100%": { opacity: "0" },
         },
       },
       animation: {
-        strip: "strip 180ms cubic-bezier(0.16, 1, 0.3, 1) both",
-        arrive: "arrive 160ms ease-out both",
-        wipe: "wipe 160ms ease-out both",
+        marquee: "marquee 48s linear infinite",
+        "rise-in": "rise-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both",
+        "fade-in": "fade-in 400ms ease-out both",
+        "soft-pulse": "pulse 2.4s ease-in-out infinite",
+        blink: "blink 1.1s steps(1) infinite",
       },
     },
   },

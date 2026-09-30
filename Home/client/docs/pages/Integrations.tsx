@@ -327,10 +327,10 @@ export function Integrations() {
         {CATALOG.map((c) => (
           <div
             key={c.name}
-            className="flex items-center justify-between border border-hairline bg-white px-3 py-2 text-[13px]"
+            className="flex items-center justify-between rounded-2xl border border-line bg-paper-raised px-3 py-2 text-[13px]"
           >
             <span className="font-medium text-ink">{c.name}</span>
-            <span className="text-[11px] uppercase tracking-wider text-muted">{c.kind}</span>
+            <span className="text-[11px] uppercase tracking-wider text-ink-500">{c.kind}</span>
           </div>
         ))}
       </div>

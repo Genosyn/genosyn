@@ -142,8 +142,8 @@ export function ChatSurfaces() {
         able to POST to you, so their cards in the catalog stay disabled until{" "}
         <Strong>Admin → General → Public URL</Strong> is set.
       </P>
-      <div className="mt-6 overflow-hidden border border-hairline bg-white">
-        <div className="grid grid-cols-[1fr_1fr] gap-4 border-b border-ground px-5 py-3 text-[11px] font-semibold uppercase text-muted sm:grid-cols-[200px_1fr_150px]">
+      <div className="mt-6 overflow-hidden rounded-2xl border border-line bg-paper-raised">
+        <div className="grid grid-cols-[1fr_1fr] gap-4 border-b border-line px-5 py-3 text-[11px] font-semibold uppercase text-ink-500 sm:grid-cols-[200px_1fr_150px]">
           <span>Surface</span>
           <span className="hidden sm:block">How messages arrive</span>
           <span className="text-right sm:text-left">Needs</span>
@@ -151,11 +151,11 @@ export function ChatSurfaces() {
         {REACHABILITY.map((row) => (
           <div
             key={row.surface}
-            className="grid grid-cols-[1fr_1fr] gap-4 border-b border-ground px-5 py-3 text-[14px] last:border-b-0 sm:grid-cols-[200px_1fr_150px]"
+            className="grid grid-cols-[1fr_1fr] gap-4 border-b border-line px-5 py-3 text-[14px] last:border-b-0 sm:grid-cols-[200px_1fr_150px]"
           >
             <span className="font-medium text-ink">{row.surface}</span>
-            <span className="hidden text-ink2 sm:block">{row.how}</span>
-            <span className="text-right text-ink2 sm:text-left">{row.needs}</span>
+            <span className="hidden text-ink-600 sm:block">{row.how}</span>
+            <span className="text-right text-ink-600 sm:text-left">{row.needs}</span>
           </div>
         ))}
       </div>

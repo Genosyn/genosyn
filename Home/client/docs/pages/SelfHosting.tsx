@@ -264,7 +264,7 @@ export function SelfHosting() {
         App-private files there too. Souls, Skills, Routines, Run logs, model credentials, and
         Connection credentials live on encrypted/scoped database rows:
       </P>
-      <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
+      <pre className="mt-4 overflow-x-auto rounded-2xl border border-line bg-paper-raised px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink-600">
         {`data/
 ├── .instance-secrets.json
 ├── .instance-secrets.required

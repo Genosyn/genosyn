@@ -61,7 +61,7 @@ export function OpenSourceModels() {
         OpenAI-compatible HTTP API. You configure the endpoint in Genosyn; no separate OpenCode
         setup is needed. The runtime path is:
       </P>
-      <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
+      <pre className="mt-4 overflow-x-auto rounded-2xl border border-line bg-paper-raised px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink-600">
         {`Genosyn runner + chat
    └─ managed OpenCode runtime
         └─ HTTP to an OpenAI-compatible /v1/chat/completions endpoint

@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { ArrowRight, Github, Menu, X } from "lucide-react";
 import { GITHUB_URL, SIGN_IN_URL, SIGN_UP_URL } from "@/lib/constants";
-import { Logo, LogoMark } from "@/components/Logo";
+import { Logo } from "@/components/Logo";
 import { Link, usePathname } from "@/lib/router";
 
 const LINKS = [
   { href: "/roles", label: "Roles" },
   { href: "/products", label: "Products" },
-  { href: "/#autonomy", label: "Autonomy" },
-  { href: "/docs", label: "Docs" },
   { href: "/pricing", label: "Pricing" },
   { href: "/enterprise", label: "Enterprise" },
+  { href: "/docs", label: "Docs" },
 ];
 
-/** A compact, product-like application header with an accessible mobile menu. */
+function isActive(path: string, href: string): boolean {
+  return path === href || path.startsWith(`${href}/`);
+}
+
+/** The site header: quiet on paper, and a full-height menu below `lg`. */
 export function Nav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -21,7 +24,7 @@ export function Nav() {
   const path = usePathname();
 
   useEffect(() => {
-    const update = () => setScrolled(window.scrollY > 12);
+    const update = () => setScrolled(window.scrollY > 8);
     update();
     window.addEventListener("scroll", update, { passive: true });
     return () => window.removeEventListener("scroll", update);
@@ -31,6 +34,8 @@ export function Nav() {
 
   useEffect(() => {
     if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
@@ -38,145 +43,143 @@ export function Nav() {
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [open]);
+
+  const solid = scrolled || open;
 
   return (
     <header
-      className={`sticky top-0 z-50 border-b border-slate-200 bg-white transition-shadow duration-300 ${scrolled ? "shadow-sm" : ""}`}
+      className={`sticky top-0 z-50 transition-[background-color,border-color] duration-300 ${
+        solid ? "border-b border-line bg-paper" : "border-b border-transparent bg-paper"
+      }`}
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-5 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 w-full max-w-site items-center gap-6 px-5 sm:h-[4.5rem] sm:px-8 lg:px-10">
         <Link
           href="/"
-          className="shrink-0 text-slate-900 transition-opacity duration-150 hover:opacity-75"
+          className="shrink-0 text-ink transition-opacity duration-150 hover:opacity-70"
           aria-label="Genosyn home"
         >
-          <LogoMark className="h-7 w-7 sm:hidden" />
-          <Logo className="hidden text-[15px] sm:block" />
+          <Logo className="text-[14px] sm:text-[15px]" />
         </Link>
 
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary navigation">
-          {LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              aria-current={path === link.href ? "page" : undefined}
-              className={`rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 ${path === link.href ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
-            >
-              {link.label}
-            </Link>
-          ))}
+        <nav className="ml-4 hidden items-center gap-1 lg:flex" aria-label="Primary">
+          {LINKS.map((link) => {
+            const active = isActive(path, link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={active ? "page" : undefined}
+                className={`relative rounded-full px-3.5 py-2 text-[14.5px] transition-colors duration-150 ${
+                  active ? "text-ink" : "text-ink-500 hover:text-ink"
+                }`}
+              >
+                {link.label}
+                {active && (
+                  <span aria-hidden className="absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-ink" />
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
-          <span className="tabular whitespace-nowrap text-[11px] text-slate-500">
-            {`v${__APP_VERSION__}`}
-          </span>
+        <div className="ml-auto flex items-center gap-1 sm:gap-2">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="hidden rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900 sm:inline-flex"
+            className="hidden h-10 items-center gap-2 rounded-full px-3 text-[14.5px] text-ink-500 transition-colors hover:text-ink md:inline-flex"
           >
+            <Github aria-hidden className="h-4 w-4" />
             GitHub
             <span className="sr-only">{"(opens in a new tab)"}</span>
           </a>
-          {/* Install only fits beside the full link row from xl up; below that
-              it lives in the menu, and the landing hero carries the command. */}
-          <Link
-            href="/docs/install"
-            className="hidden rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900 xl:inline-flex"
-          >
-            Install
-          </Link>
           <a
             href={SIGN_IN_URL}
-            className="hidden rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900 sm:inline-flex"
+            className="hidden h-10 items-center rounded-full px-3 text-[14.5px] text-ink-500 transition-colors hover:text-ink sm:inline-flex"
           >
             Sign in
           </a>
           <a
             href={SIGN_UP_URL}
-            className="motion-button hidden min-h-10 items-center whitespace-nowrap rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700 sm:inline-flex"
+            className="press group ml-1 hidden h-10 items-center gap-1.5 rounded-full bg-ink px-4 text-[14px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.2)] hover:bg-ink-800 sm:inline-flex"
           >
-            Sign up
+            Start free
+            <ArrowRight aria-hidden className="nudge h-3.5 w-3.5" />
           </a>
           <button
             ref={toggle}
             type="button"
             onClick={() => setOpen((value) => !value)}
-            aria-label="Toggle navigation"
-            aria-controls="site-navigation"
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-controls="site-menu"
             aria-expanded={open}
-            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 lg:hidden"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-line-strong text-ink transition-colors hover:bg-paper-raised lg:hidden"
           >
-            {open ? (
-              <X aria-hidden className="h-4 w-4" />
-            ) : (
-              <Menu aria-hidden className="h-4 w-4" />
-            )}
-            {open ? "Close" : "Menu"}
+            {open ? <X aria-hidden className="h-4 w-4" /> : <Menu aria-hidden className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
-      <div className="site-menu grid lg:hidden" data-open={open}>
-        <div className="site-menu-clip">
-          <nav
-            id="site-navigation"
-            className="border-t border-slate-200 bg-white px-4 py-2 shadow-sm sm:px-6"
-            aria-label="Mobile navigation"
-            aria-hidden={!open}
-            {...(open ? {} : { inert: "" })}
-          >
-            <div className="mx-auto grid max-w-7xl gap-1">
-              {LINKS.map((link) => (
+      <div
+        id="site-menu"
+        className="site-menu fixed inset-x-0 bottom-0 top-16 overflow-y-auto bg-paper sm:top-[4.5rem] lg:hidden"
+        data-open={open}
+        aria-hidden={!open}
+        {...(open ? {} : { inert: "" })}
+      >
+        <nav aria-label="Mobile" className="mx-auto flex min-h-full max-w-site flex-col px-5 pb-10 pt-4 sm:px-8">
+          <ul className="border-t border-line">
+            {[{ href: "/", label: "Home" }, ...LINKS].map((link) => (
+              <li key={link.href} className="border-b border-line">
                 <Link
-                  key={link.href}
                   href={link.href}
                   onClick={() => setOpen(false)}
                   aria-current={path === link.href ? "page" : undefined}
-                  className="rounded-md px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-slate-900"
+                  className="group flex items-center justify-between py-4 font-display text-[1.9rem] leading-none text-ink"
                 >
                   {link.label}
+                  <ArrowRight aria-hidden className="nudge h-5 w-5 text-ink-400" />
                 </Link>
-              ))}
-              {/* Sign in, Sign up and GitHub are in the header from sm up, so
-                  the menu repeats them only below it. Install is in the header
-                  from xl, which is wider than the menu is ever shown. */}
-              <div className="mt-1 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
-                <a
-                  href={SIGN_IN_URL}
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 sm:hidden"
-                >
-                  Sign in
-                </a>
-                <a
-                  href={SIGN_UP_URL}
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700 sm:hidden"
-                >
-                  Sign up
-                </a>
-                <a
-                  href={GITHUB_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 sm:hidden"
-                >
-                  GitHub
-                  <span className="sr-only">{"(opens in a new tab)"}</span>
-                </a>
-                <Link
-                  href="/docs/install"
-                  onClick={() => setOpen(false)}
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 sm:col-span-2"
-                >
-                  Install
-                </Link>
-              </div>
-            </div>
-          </nav>
-        </div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-auto grid gap-2 pt-10 sm:grid-cols-2">
+            <a
+              href={SIGN_UP_URL}
+              className="inline-flex h-12 items-center justify-center rounded-full bg-ink text-[15px] font-medium text-white"
+            >
+              Start free on Genosyn Cloud
+            </a>
+            <a
+              href={SIGN_IN_URL}
+              className="inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-[15px] font-medium text-ink"
+            >
+              Sign in
+            </a>
+            <Link
+              href="/docs/install"
+              onClick={() => setOpen(false)}
+              className="inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-[15px] font-medium text-ink"
+            >
+              Install on your hardware
+            </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-line-strong text-[15px] font-medium text-ink"
+            >
+              <Github aria-hidden className="h-4 w-4" />
+              GitHub
+              <span className="sr-only">{"(opens in a new tab)"}</span>
+            </a>
+          </div>
+        </nav>
       </div>
     </header>
   );

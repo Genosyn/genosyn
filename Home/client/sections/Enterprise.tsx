@@ -1,58 +1,18 @@
 import type { ReactNode } from "react";
+import { Check, Minus } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
 import { GITHUB_URL } from "@/lib/constants";
 import {
-  Band,
-  Body,
   Button,
   Container,
-  Display,
-  Field,
-  Figure,
-  Head,
-  Lede,
-  Pane,
-  Plate,
-  Row,
-  Sheet,
+  Em,
+  NightPanel,
+  Section,
+  SectionHead,
   StateTag,
-  Subhead,
   TextLink,
 } from "@/sections/Kit";
-
-/**
- * /enterprise — HEADCOUNT, with no department to colour.
- *
- * This page has no hue and cannot have one. A department hue means one
- * department; a licence, a topology and a data volume are none of them, and
- * tinting "Enterprise" would turn the site's legend into decoration on the one
- * page whose reader is checking whether we are precise. So the whole thing is
- * built from ink, the six neutrals, density and type.
- *
- * The inversion still appears, and here it is the subject rather than a
- * layout device: the two black objects on the page are the Approval and the
- * Decision in band 02. Those are literally the two places a person stands in
- * front of the machine, and `StateTag` already draws them that way. A reader
- * scanning for "what stops it" finds the answer by looking for the black.
- *
- * The version this replaces was eight abstraction cards ("Control without * compromise", "Bound the autonomy") and a dark gradient slab with two blur
- * orbs on it. It was the purest instance of the site asserting rather than
- * demonstrating: every card named a property Genosyn has without printing a
- * single value a reader could check.
- *
- * The reader this page is actually for is doing a security review. They want
- * the port, the driver, the encryption at rest, the file mode on the secrets
- * file, the list of Approval kinds, the three Standdown scopes, the retention
- * rule, and the two features a license turns on. All of that exists and is
- * documented, so the page prints it. Nothing here is a claim that could not be
- * checked against `/docs`, the Helm chart, or the source.
- *
- * The architecture diagram is the one thing kept from the old page, because a
- * boundary is genuinely easier to draw than to describe. It is ruled boxes at
- * radius 0 with condensed uppercase labels, mounted on a `Plate` like every
- * other figure on the site, and it says something the prose cannot: the
- * license issuer sits OUTSIDE the box, with no line crossing to it.
- */
+import { PageHero } from "@/sections/PageHero";
 
 const CONTACT_EMAIL = "enterprise@genosyn.com";
 const CONTACT_SUBJECT = "Genosyn in our environment";
@@ -69,21 +29,99 @@ const CONTACT_BODY = [
   "",
   "Thanks,",
 ].join("\n");
+const CONTACT_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(CONTACT_SUBJECT)}&body=${encodeURIComponent(CONTACT_BODY)}`;
 
-/**
- * The only commercial path on the page. `mailto:` does not start with `/`, so
- * the router's `Link` leaves it alone and the browser hands it to the mail
- * client; it is deliberately NOT passed `external`, because a mail client is
- * not a new tab and announcing one would be a lie to a screen reader.
- */
-const CONTACT_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
-  CONTACT_SUBJECT,
-)}&body=${encodeURIComponent(CONTACT_BODY)}`;
+const EDITIONS: { label: string; community: ReactNode; enterprise: ReactNode }[] = [
+  { label: "AI Employees", community: "Unlimited", enterprise: "Unlimited" },
+  { label: "Routines", community: "Unlimited", enterprise: "Unlimited" },
+  { label: "Every product and Integration", community: <Yes />, enterprise: <Yes /> },
+  { label: "Single sign-on", community: <No />, enterprise: "Google or OIDC" },
+  { label: "Audit log", community: "Recorded", enterprise: "Readable" },
+  { label: "Support", community: "GitHub issues", enterprise: "Priority" },
+];
+
+const LICENCE: [string, ReactNode][] = [
+  ["Key", <>One string beginning <Code>genlic1.</Code>, signed with Ed25519 and checked against public keys compiled into the software.</>],
+  ["Network", <>No activation server and no phone-home. An air-gapped install validates the same key the open internet does.</>],
+  ["Activation", <>A master admin pastes it at <Code>Admin / License</Code>. No restart, no rebuild.</>],
+  ["Expiry", <>A paid key expires soft: features stay on past the date and a renewal warning appears. An evaluation key expires hard.</>],
+  ["Seats", <>Informational. Genosyn shows the count beside the number in use and never blocks a hire over it.</>],
+  ["Removal", <>Removing the key returns the install to Community. SSO and the audit log switch off; nothing is deleted.</>],
+];
+
+const DATA: [string, ReactNode][] = [
+  ["Souls, Skills, Routines, Run logs", <>Database rows on <Code>sqlite</Code> or <Code>postgres</Code>. Both drivers carry every entity and every migration.</>],
+  ["Model keys, Connection credentials, SSO secret", <>Encrypted at rest with <Code>AES-256-GCM</Code>, never returned to the browser once saved.</>],
+  ["Git checkouts, attachments, browser state", <>Files under <Code>/app/data</Code>, which the installer maps to the volume <Code>genosyn-data</Code>.</>],
+  ["Instance secrets", <><Code>data/.instance-secrets.json</Code> at mode <Code>0600</Code>, with a key ID in the database so a missing file stops startup instead of being replaced quietly.</>],
+];
+
+const TOPOLOGIES: { name: string; command: string; body: ReactNode }[] = [
+  {
+    name: "One Docker host",
+    command: "curl -fsSL https://genosyn.com/install.sh | bash",
+    body: (
+      <>
+        One replica, SQLite in the data volume, and the container on <Code>8471</Code> behind the
+        reverse proxy you already run. Coding tools run inside the App container by default;
+        bubblewrap isolation is available when you want it.
+      </>
+    ),
+  },
+  {
+    name: "Kubernetes",
+    command: "helm install genosyn oci://ghcr.io/genosyn/charts/genosyn",
+    body: (
+      <>
+        The official Helm chart: a <Code>20Gi</Code> volume at <Code>/app/data</Code>, external
+        Postgres when you want it, and your own Ingress. The pod turns Ready only after every
+        migration has run.
+      </>
+    ),
+  },
+  {
+    name: "Shared, on Postgres",
+    command: 'db: { driver: "postgres" }',
+    body: (
+      <>
+        Several replicas coordinate through Postgres leases and cross-replica realtime fan-out,
+        with a <Code>ReadWriteMany</Code> volume. API-key and custom models scale with the rest.
+      </>
+    ),
+  },
+];
+
+const SUPPORT: [string, string][] = [
+  ["Deployment", "The topology, database driver, volume sizing, ingress and upgrade path — read against the environment you already run."],
+  ["Security review", "A data-flow map for your controls: what is a row, what is encrypted at rest, what an employee token can write, and what the licence verifies offline."],
+  ["Identity", "SSO client registration, the callback URL from your public URL, and whether first sign-in creates accounts. Password login keeps working, so SSO cannot lock an operator out."],
+  ["Operations", "A restore rehearsal from data/Backup/, the per-driver migration stream, and your first upgrade, watched with you."],
+];
 
 export function Enterprise(): ReactNode {
   return (
     <>
-      <License />
+      <PageHero
+        kicker="Enterprise"
+        title={
+          <>
+            Your perimeter. <Em>Your identity provider.</Em>
+          </>
+        }
+        lede="Self-hosted Genosyn is the whole product under Apache 2.0. An Enterprise licence adds single sign-on, the readable audit log and priority support — and changes nothing else about the software you already run."
+        actions={
+          <>
+            <Button href={CONTACT_HREF} variant="ink" arrow>
+              Talk to us
+            </Button>
+            <Button href="/pricing" variant="outline">
+              Compare plans
+            </Button>
+          </>
+        }
+        aside={<Editions />}
+      />
+      <Licence />
       <Architecture />
       <Deployment />
       <Support />
@@ -92,775 +130,304 @@ export function Enterprise(): ReactNode {
   );
 }
 
-/* -------------------------------------------------------------------------
-   01 / Enterprise
-------------------------------------------------------------------------- */
-
-/** Capability, Community value, Enterprise value. Every value is a state the
- *  software itself reports, which is why the whole column is mono. */
-const EDITIONS: Array<[string, string, string]> = [
-  ["AI Employees", "UNLIMITED", "UNLIMITED"],
-  ["Routines", "UNLIMITED", "UNLIMITED"],
-  ["Single sign-on", "DISABLED", "GOOGLE | OIDC"],
-  ["Audit log", "RECORDED", "READABLE"],
-];
-
-const LICENSE_FACTS: Array<[string, ReactNode]> = [
-  [
-    "Key",
-    <>
-      One string beginning <Field>genlic1.</Field>, signed Ed25519 and checked against public keys
-      compiled into the software.
-    </>,
-  ],
-  [
-    "Network",
-    <>
-      There is no activation server and no phone-home. An air-gapped install validates the same key
-      the open internet does.
-    </>,
-  ],
-  [
-    "Activation",
-    <>
-      {/* A slash, matching /pricing. The product's own chrome writes this path
-          with U+2192, but that glyph is not in the served font subset and
-          falls back to a system face mid-line; `>` was a third spelling of one
-          path across two pages that link to each other. */}
-      A master admin pastes it at <Field>Admin / License</Field>. No restart and no rebuild.
-    </>,
-  ],
-  [
-    "Expiry",
-    <>
-      A paid key expires soft: the features stay on past the date and the status card shows a
-      renewal warning. An evaluation key expires hard.
-    </>,
-  ],
-  [
-    "Seats",
-    <>
-      The seat count is informational. Genosyn records it, shows it beside the number in use, and
-      never blocks a hire over it.
-    </>,
-  ],
-  [
-    "Removal",
-    <>
-      Removing the key returns the install to Community edition. SSO and the Audit log switch off
-      and nothing is deleted.
-    </>,
-  ],
-];
-
-/**
- * The masthead.
- *
- * The right column answers the page's only real question — what does the key
- * change — in one screen: a count, then the four capabilities it moves. The
- * `2` is a `Figure` because it is a count, and because on a page with no hue
- * scale is the only emphasis left that is not a lie.
- */
-function License() {
-  const introduction = useReveal<HTMLDivElement>(0, 55);
+function Editions() {
   return (
-    <Band tone="ground" pad="m" rule={false}>
-      <Container>
-        <div className="grid gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-          <div ref={introduction} className="min-w-0">
-            <Sheet>01 / Enterprise</Sheet>
-            <Fields items={["APACHE-2.0", `v${__APP_VERSION__}`]} className="mt-3" />
-
-            <Display className="mt-5 max-w-[20ch]">
-              Genosyn Enterprise adds SSO and the Audit log.
-            </Display>
-
-            <Lede className="mt-7">
-              A self-hosted install runs Community edition with unlimited AI Employees, unlimited
-              Routines, and no key to enter. An Enterprise license turns on two features. It changes
-              nothing else about the software you already have.
-            </Lede>
-
-            <Body className="mt-6 max-w-[58ch]">
-              Audit history is recorded on Community too. The pages that read it show an
-              available-in-Enterprise card instead of the trail, so nothing is missing on the day a
-              key is activated. On Genosyn Cloud the same two features arrive with the Scale plan.
-            </Body>
-          </div>
-
-          <div className="min-w-0 lg:pt-1">
-            <Pane
-              delay={180}
-              title="Community and Enterprise"
-              meta={`${EDITIONS.length} CAPABILITIES`}
-              className="overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
-            >
-              <div className="flex items-end gap-5 border-b border-hairline px-4 py-5">
-                <Figure className="!text-[clamp(3rem,5vw,4.5rem)]">2</Figure>
-                <p className="max-w-[24ch] pb-1 text-[14px] leading-[1.45] text-ink2">
-                  Features a signed key turns on. Nothing else about the software changes.
-                </p>
-              </div>
-
-              {/* The column heads are desktop-only; below `sm` each value
-                  carries its own inline label instead, because a three-column
-                  table at 375px is a three-column table nobody can read. */}
-              <div className="hidden items-baseline gap-x-4 border-b border-hairline px-4 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_6rem_6rem]">
-                <Sheet>Capability</Sheet>
-                <Sheet>Community</Sheet>
-                <Sheet>Enterprise</Sheet>
-              </div>
-
-              {EDITIONS.map(([capability, community, enterprise]) => (
-                <div
-                  key={capability}
-                  className="grid gap-x-4 gap-y-2 border-b border-hairline px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_6rem_6rem] sm:items-baseline"
-                >
-                  <Body className="!text-[14px] !text-ink">{capability}</Body>
-                  <EditionValue label="Community">{community}</EditionValue>
-                  <EditionValue label="Enterprise">{enterprise}</EditionValue>
-                </div>
-              ))}
-            </Pane>
-          </div>
-        </div>
-
-        <div className="mt-14 max-w-[52rem]">
-          <Sheet>The license itself</Sheet>
-          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            {LICENSE_FACTS.map(([term, definition]) => (
-              <Row
-                key={term}
-                className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
-              >
-                <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
-                  <Sheet>{term}</Sheet>
-                  <Body>{definition}</Body>
-                </div>
-              </Row>
-            ))}
-          </div>
-
-          <div className="mt-8">
-            <TextLink href="/docs/enterprise-license">License reference</TextLink>
-          </div>
-        </div>
-      </Container>
-    </Band>
-  );
-}
-
-function EditionValue({ label, children }: { label: string; children: string }) {
-  return (
-    <div className="flex items-baseline gap-3 sm:block">
-      <Sheet className="w-24 shrink-0 sm:hidden">{label}</Sheet>
-      <Field className="!text-ink">{children}</Field>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------
-   02 / Architecture
-------------------------------------------------------------------------- */
-
-const DATA_LOCATIONS: Array<[string, ReactNode]> = [
-  [
-    "Souls, Skills, Routines, Run logs",
-    <>
-      Database rows on <Field>sqlite</Field> or <Field>postgres</Field>. Both drivers carry every
-      entity and every migration.
-    </>,
-  ],
-  [
-    "Model keys, Connection credentials, SSO client secret",
-    <>
-      Encrypted at rest with <Field>AES-256-GCM</Field> and never returned to the browser after they
-      are saved.
-    </>,
-  ],
-  [
-    "Git checkouts, browser state, attachments",
-    <>
-      Files under <Field>/app/data</Field>, which the installer maps to the named volume{" "}
-      <Field>genosyn-data</Field>.
-    </>,
-  ],
-  [
-    "Browser recordings",
-    <>
-      Silent MP4 files under <Field>data/.private/browser-recordings</Field>, capped at{" "}
-      <Field>2 GiB</Field> each. They never enter an employee working tree.
-    </>,
-  ],
-  [
-    "Instance secrets",
-    <>
-      <Field>data/.instance-secrets.json</Field> at mode <Field>0600</Field>, with a matching key ID
-      in the database so a missing file stops startup instead of being replaced quietly.
-    </>,
-  ],
-];
-
-/**
- * The Approval kinds that ship.
- *
- * `lightning_payment` used to be listed here and was removed: M13 retired it
- * in 1.132.0. It survives as a valid `Approval.kind` so historical rows still
- * render, which is exactly why it read as current on a marketing page and had
- * to go — a kind nobody can trigger is not a kind that ships.
- */
-const APPROVAL_KINDS = [
-  "routine",
-  "browser_action",
-  "mcp_tool",
-  "ad_spend",
-  "autonomy_promotion",
-  "tainted_tool",
-];
-
-function Architecture() {
-  return (
-    <Band tone="ground" pad="m">
-      <Container>
-        {/* The third sentence used to be "Nothing else crosses the line you drew." That is the aphorism shape the copy rules forbid: an
-            abstraction as subject, a general truth, a closing flourish. It was
-            also not quite true — a Connection does make outbound calls. Two
-            concrete sentences say more and can be checked. */}
-        <Head
-          eyebrow="02 / Architecture"
-          title="Genosyn is one container listening on port 8471."
-          lede="Everything that has to survive a restart is either a database row or a file under /app/data. Model calls go to the endpoints you registered. Connections reach the accounts you authorized."
-          aside={<Fields items={["PORT 8471", "1 CONTAINER"]} />}
-        />
-
-        <div className="mt-12 grid gap-x-12 gap-y-12 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-          <Plate
-            figure="Fig. 1"
-            caption="One install, and the issuer sitting outside it with nothing crossing."
-          >
-            <BoundaryDiagram />
-          </Plate>
-
-          {/* The data table sits BESIDE the figure rather than under it. Five
-              rows of "what is stored where" is the reviewer's second question
-              and the diagram is their first, so the two belong on one screen;
-              stacking them put a 700px gap between a picture and its own
-              legend. */}
-          <div className="min-w-0">
-            <Sheet>Where the data sits</Sheet>
-            <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              {DATA_LOCATIONS.map(([artefact, place]) => (
-                <Row
-                  key={artefact}
-                  className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
-                >
-                  <div className="grid w-full gap-x-6 gap-y-2 xl:grid-cols-[16rem_minmax(0,1fr)]">
-                    <Body className="!text-ink">{artefact}</Body>
-                    <Body>{place}</Body>
-                  </div>
-                </Row>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* The three instruments, on a Pane rather than in the page's own
-            prose stack. This is a picture of the product's gates, and mounting
-            it on white is what lets the two ink StateTags read as the only
-            black things in the band — which is the whole inversion, on the one
-            page where it is also the subject matter. */}
-        <Pane
-          reveal={false}
-          className="mt-14 max-w-[64rem] overflow-hidden !rounded-xl !border-slate-200 shadow-sm"
-          title="What stops an AI Employee"
-          meta="3 INSTRUMENTS"
-        >
-          <Instrument tag={<StateTag state="approval">Approval</StateTag>} fields={APPROVAL_KINDS}>
-            The system interposing on an action the employee already attempted. A human ticks it and
-            the server replays that exact call from the snapshot on the row. Approving fires a
-            privileged side effect, so it is admin-gated and the payload is redacted at every
-            boundary. Six kinds ship today.
-          </Instrument>
-
-          <Instrument tag={<StateTag state="decision">Decision</StateTag>}>
-            The employee choosing to stop and ask. It writes the question and the options itself,
-            answering one performs no side effect, and an ordinary Member can answer it. Anything
-            privileged the employee does afterwards still meets its own Approval.
-          </Instrument>
-
-          <Instrument
-            tag={
-              <>
-                <StateTag state="standdown">Standdown</StateTag>
-                {/* The 45 degree out-of-service hatch, at rule size. It is the
-                    only place on this page a state is drawn rather than named,
-                    and it is drawn because "stopped" is the one state a
-                    reviewer looks for first. */}
-                <span aria-hidden className="hatch mt-3 block h-2.5 w-24" />
-              </>
-            }
-            fields={["company", "employee", "routine"]}
-          >
-            A revocable stop on all AI work at one scope, placed by an owner or admin.
-            Runs already moving finalize <Field>Error</Field> with an interruption reason.
-            Queued retries keep their due time and fire
-            after the lift. A slot that arrives during one is declined and the schedule advances, so
-            lifting an old Standdown produces no catch-up storm.
-          </Instrument>
-        </Pane>
-
-        <Body className="mt-6 max-w-[68ch]">
-          Under those three, sixteen Grant tables decide what one AI Employee can reach:
-          Connections, Repositories, mail accounts, calendars, Vault items, Member browsers, and ten
-          more. A Check is the machine-verifiable assertion a Run must pass before it finalizes
-          green, and the graded employee cannot author one. There is deliberately no tool that lets
-          the roster place a Standdown, and far more importantly, none that lets it lift one.
-        </Body>
-
-        <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4">
-          <TextLink href="/docs/standdowns">Standdowns</TextLink>
-          <TextLink href="/docs/autonomy">Autonomy and Waivers</TextLink>
-          <TextLink href="/docs/security">Security</TextLink>
-        </div>
-      </Container>
-    </Band>
-  );
-}
-
-/** One gate: its state tag in a fixed left column, its definition beside it,
- *  and the values it can take underneath in mono. */
-function Instrument({
-  tag,
-  fields,
-  children,
-}: {
-  tag: ReactNode;
-  fields?: string[];
-  children: ReactNode;
-}) {
-  return (
-    <div className="grid gap-x-6 gap-y-3 border-b border-hairline px-4 py-5 last:border-b-0 lg:grid-cols-[11rem_minmax(0,1fr)]">
-      <div>{tag}</div>
-      <div className="min-w-0">
-        <Body>{children}</Body>
-        {fields && (
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-            {fields.map((value) => (
-              <Field key={value}>{value}</Field>
-            ))}
-          </div>
-        )}
+    <div className="overflow-hidden rounded-3xl border border-line bg-paper-raised shadow-soft">
+      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-end gap-x-3 border-b border-line px-6 py-4 sm:grid-cols-[minmax(0,1fr)_8rem_8rem]">
+        <span className="kicker text-ink-400">Edition</span>
+        <span className="text-[14px] font-medium text-ink-600">Community</span>
+        <span className="text-[14px] font-medium text-ink">Enterprise</span>
       </div>
-    </div>
-  );
-}
-
-/**
- * The boundary, drawn.
- *
- * Hairlines and ruled boxes at radius 0, condensed uppercase labels, no
- * pastel node tiles and no icons. The whole picture is one argument: the App,
- * its database, its models and its files are inside a box you own, and the
- * license issuer is a separate box outside it with no line running between
- * them. A diagram that drew a connector there would be describing a product
- * that phones home, which this one does not.
- *
- * It is `aria-hidden` behind the sentence below it, because a box-and-line
- * drawing read out as a div tree is worse than the sentence.
- */
-function BoundaryDiagram() {
-  return (
-    <div className="rounded-xl bg-slate-50 p-4 sm:p-5">
-      <div aria-hidden>
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
-            <Sheet>Your network · your identity · your backups</Sheet>
+      <dl>
+        {EDITIONS.map((row) => (
+          <div
+            key={row.label}
+            className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center gap-x-3 border-b border-line px-6 py-3.5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_8rem_8rem]"
+          >
+            <dt className="text-[14px] text-ink">{row.label}</dt>
+            <dd className="text-[13.5px] text-ink-500">{row.community}</dd>
+            <dd className="text-[13.5px] font-medium text-ink">{row.enterprise}</dd>
           </div>
-
-          <div className="p-3">
-            <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                <Sheet className="!text-ink">Genosyn App</Sheet>
-                <Field className="!text-ink">:8471</Field>
-              </div>
-              {/* A Sheet, not a Field. Mono is a predicate on this site: it is
-                  for a string the software emitted or ingested, and "one stateless container" is a description. Setting a description
-                  in the data face is what made the old site's numbers look
-                  decorative. Same size, same colour, condensed face. */}
-              <div className="mt-1">
-                <Sheet>One stateless container</Sheet>
-              </div>
-            </div>
-
-            <span aria-hidden className="mx-auto block h-6 w-px bg-slate-200" />
-
-            {/* The three nodes meet on seams rather than sitting in a divided
-                border box: it is the same construction as the landing wall, at
-                figure scale, so a reader who has seen the home page recognises
-                "these are simultaneous parts of one system" without a caption
-                saying so. */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <DiagramNode label="Database" lines={["sqlite", "postgres"]} />
-              <DiagramNode label="AI Models" lines={["anthropic", "openai", "custom"]} />
-              <DiagramNode label="Connections" lines={["stripe", "slack", "google"]} />
-            </div>
-
-            <span aria-hidden className="mx-auto block h-6 w-px bg-slate-200" />
-
-            <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
-              <Sheet className="!text-ink">Volume</Sheet>
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                <Field>genosyn-data</Field>
-                <Field>/app/data</Field>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Outside, and unconnected. The gap is the point. */}
-        <div className="mt-6 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
-          <Sheet>Genosyn.com</Sheet>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-            <Sheet>License issuer</Sheet>
-            <Sheet>No connection</Sheet>
-          </div>
-        </div>
-      </div>
-
-      <p className="sr-only">
-        A diagram: a boundary labelled your network, holding the Genosyn App on port 8471, its
-        database on SQLite or Postgres, the AI Models you registered, the Connections your Grants
-        scope, and the data volume. The license issuer sits outside that boundary with no connection
-        to it.
-      </p>
-    </div>
-  );
-}
-
-function DiagramNode({ label, lines }: { label: string; lines: string[] }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
-      <Sheet className="!text-ink">{label}</Sheet>
-      <div className="mt-1.5 space-y-1">
-        {lines.map((line) => (
-          <Field key={line} className="block">
-            {line}
-          </Field>
         ))}
-      </div>
+      </dl>
     </div>
   );
 }
 
-/* -------------------------------------------------------------------------
-   03 / Deployment
-------------------------------------------------------------------------- */
-
-type Topology = {
-  index: string;
-  name: string;
-  command: string;
-  body: ReactNode;
-};
-
-const TOPOLOGIES: Topology[] = [
-  {
-    index: "01",
-    name: "One Docker host",
-    command: "curl -fsSL https://genosyn.com/install.sh | bash",
-    body: (
-      <>
-        One replica, SQLite in the data volume, the container on <Field>8471</Field> behind whatever
-        reverse proxy you already run for TLS. Bubblewrap isolates coding and repository work. Where
-        user namespaces are unavailable, boot falls back to disabled and everything except the
-        coding tools still runs.
-      </>
-    ),
-  },
-  {
-    index: "02",
-    name: "Kubernetes",
-    command: "helm install genosyn oci://ghcr.io/genosyn/charts/genosyn",
-    body: (
-      <>
-        Kubernetes <Field>1.27+</Field>, a <Field>20Gi</Field> <Field>ReadWriteOnce</Field> volume
-        at <Field>/app/data</Field>, external Postgres, and your own Ingress. The pod turns Ready
-        only after every migration has run: <Field>/api/health</Field> answers once boot completes,
-        so a pending probe in the first minute is normal.
-      </>
-    ),
-  },
-  {
-    index: "03",
-    name: "Shared, Postgres-backed",
-    command: 'db: { driver: "postgres" }',
-    body: (
-      <>
-        Several replicas coordinate through Postgres leases, database-backed auth flow state, and
-        cross-replica realtime fan-out. The volume becomes <Field>ReadWriteMany</Field>. ChatGPT
-        subscription access stays on one trusted single-tenant App process; API-key and custom
-        models scale with the rest.
-      </>
-    ),
-  },
-];
-
-const DEFAULTS: Array<[string, ReactNode]> = [
-  [
-    "Upgrade",
-    <>
-      CLI installs run <Field>genosyn upgrade</Field> daily at <Field>03:17</Field> local. The
-      previous container is kept until the new one is ready, and a failed start brings the old
-      version back on the current data volume.
-    </>,
-  ],
-  [
-    "Backups",
-    <>
-      Archives land in <Field>data/Backup/</Field>, and can be mirrored to an SMB or SFTP
-      destination whose credentials are encrypted with the same helper as model keys.
-    </>,
-  ],
-  [
-    "Retention",
-    <>
-      Off until you set a day count at <Field>Admin / Backups</Field>. Two things survive it
-      whatever their age: the newest completed archive, and any archive you uploaded yourself.
-      Copies already delivered off-box are never touched.
-    </>,
-  ],
-];
-
-function Deployment() {
-  const topologies = useReveal<HTMLDivElement>(0, 80);
+function Licence() {
+  const grid = useReveal<HTMLDListElement>(0, 60);
   return (
-    <Band id="deployment" tone="ground" pad="m">
+    <Section id="licence" tone="raised" space="md" rule>
       <Container>
-        <Head
-          eyebrow="03 / Deployment"
-          title="Three supported topologies start at one Docker host."
-          lede="Pick the one that matches what your team already operates. The database driver and the model authentication decide the rest of the shape."
-          aside={<Fields items={[`${TOPOLOGIES.length} TOPOLOGIES`, "K8S 1.27+"]} />}
-        />
-
-        {/* Three tiles on 1px seams rather than three stacked rows. Each one
-            is a whole choice — a command, a database, a volume shape — and
-            reading them as three columns is how you compare them; as rows you
-            can only read them in order. */}
-        <div ref={topologies} className="mt-12 grid gap-4 lg:grid-cols-3">
-          {TOPOLOGIES.map((topology) => (
-            <div
-              key={topology.index}
-              className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <div className="flex items-baseline gap-3">
-                <Field>{topology.index}</Field>
-                <Subhead className="!text-[1.125rem]">{topology.name}</Subhead>
-              </div>
-              <div className="mt-4">
-                <Command>{topology.command}</Command>
-              </div>
-              <Body className="mt-4 !text-[14px]">{topology.body}</Body>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-14 max-w-[64rem]">
-          <Sheet>Defaults you inherit</Sheet>
-          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            {DEFAULTS.map(([term, definition]) => (
-              <Row
-                key={term}
-                className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
-              >
-                <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
-                  <Sheet>{term}</Sheet>
-                  <Body>{definition}</Body>
-                </div>
-              </Row>
-            ))}
-          </div>
-
-          <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4">
-            <TextLink href="/docs/self-hosting">Configuration</TextLink>
-            <TextLink href="/docs/kubernetes">Kubernetes</TextLink>
-          </div>
-        </div>
-      </Container>
-    </Band>
-  );
-}
-
-/**
- * A command, kept to one line.
- *
- * The install line is 46 characters and the Helm line is 57, which at the mono
- * face's advance overflows a 375px viewport by a wide margin. A field never
- * wraps on this site, so the string scrolls inside its own rule-bounded strip
- * instead. This is the same treatment the hero gives the install command, for
- * the same reason.
- */
-function Command({ children }: { children: string }) {
-  return (
-    <div className="scrollbar-none overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-      <code>
-        <Field className="block !text-ink whitespace-nowrap">{children}</Field>
-      </code>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------
-   04 / Support
-------------------------------------------------------------------------- */
-
-const SUPPORT: Array<[string, ReactNode]> = [
-  [
-    "Deployment",
-    <>
-      The topology, the database driver, volume sizing, ingress, and the upgrade path, read against
-      the environment you already run rather than a reference one.
-    </>,
-  ],
-  [
-    "Security review",
-    <>
-      A data-flow map for your controls: what is a database row, what is <Field>AES-256-GCM</Field>{" "}
-      at rest, what never leaves <Field>/app/data</Field>, what an employee token can write, and
-      what the license verifies without a network.
-    </>,
-  ],
-  [
-    "Identity",
-    <>
-      SSO client registration, the callback URL derived from your public URL, and whether{" "}
-      <Field>Create accounts on first sign-in</Field> stays on. Password login keeps working either
-      way, so resetting SSO cannot lock an operator out.
-    </>,
-  ],
-  [
-    "Operations",
-    <>
-      A restore rehearsal from <Field>data/Backup/</Field>, the per-driver migration stream, the
-      verification settings for your operation, and the first upgrade watched with you.
-    </>,
-  ],
-];
-
-function Support() {
-  return (
-    <Band tone="ground" pad="m">
-      <Container>
-        {/* The mono fields carry counts and emitted values only. "PRIORITY" /
-            "GITHUB ISSUES" were adjectives in the data face. */}
-        <Head
-          eyebrow="04 / Support"
-          title="Priority support ships with the Enterprise license."
-          lede="Community support is GitHub Issues, read by the people who wrote the code, and it stays free. A license adds a direct line and four pieces of work you would otherwise do alone."
-          aside={<Fields items={[`${SUPPORT.length} AREAS`, "APACHE-2.0"]} />}
-        />
-
-        <div className="mt-10 max-w-[64rem] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          {SUPPORT.map(([term, definition]) => (
-            <Row
-              key={term}
-              className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
-            >
-              <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[11rem_minmax(0,1fr)]">
-                <Sheet>{term}</Sheet>
-                <Body>{definition}</Body>
-              </div>
-            </Row>
-          ))}
-        </div>
-
-        <Body className="mt-6 max-w-[62ch]">
-          None of it is a gate on the software. Every AI Employee, Routine, Integration and section
-          of the product is identical in Community, and the source is on GitHub under Apache 2.0 for
-          anyone who would rather read it than ask.
-        </Body>
-      </Container>
-    </Band>
-  );
-}
-
-/* -------------------------------------------------------------------------
-   05 / Contact
-------------------------------------------------------------------------- */
-
-const BRIEF: Array<[string, string]> = [
-  ["Environment", "One Docker host, a Kubernetes cluster, or a shared Postgres estate."],
-  ["Identity", "Google, an OIDC provider, or email and password for now."],
-  ["Data", "Where the volume lives, who backs it up, and what your retention window is."],
-  ["Scope", "Which roles the AI Employees would hold, and what a Run of theirs would touch."],
-];
-
-/**
- * The tail.
- *
- * What was here was a near-black gradient slab with a dot pattern, an indigo
- * blur orb, a white blur orb, centred text and two pill buttons. It is
- * replaced by the four things worth saying in a first email and the address to
- * send them to. The one ink control on the band is the mail client opening,
- * because that is the only place on this page where a person acts; `mailto:`
- * is the entire commercial funnel on this site and there is no form.
- */
-function Contact() {
-  return (
-    <Band tone="surface" pad="s">
-      <Container>
-        {/* "MAILTO" is the literal scheme on the href below, so it is a real
-            emitted string; "NO FORM" was not, and the count of lines asked for
-            is both true and the thing the body copy is about. */}
-        <Head
-          eyebrow="05 / Contact"
+        <SectionHead
+          kicker="The licence"
           title={
             <>
-              Enterprise questions go to <span className="break-all">enterprise@genosyn.com</span>.
+              One signed key. <Em>No phone-home.</Em>
             </>
           }
-          lede="Four lines are enough to get a useful answer back. You get a topology, the questions a security review usually asks, and a price if you want one."
-          aside={<Fields items={["MAILTO", `${BRIEF.length} LINES`]} />}
+          lede="The licence turns on two features and verifies without a network, so the same key works on an air-gapped cluster and on the open internet."
+          aside={<TextLink href="/docs/enterprise-license">Licence reference</TextLink>}
         />
-
-        <div className="mt-10 max-w-[52rem] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          {BRIEF.map(([term, prompt]) => (
-            <Row
-              key={term}
-              className="!mt-0 !rounded-none !border-x-0 !border-t-0 !border-b !border-slate-100 !px-4 !py-4 !shadow-none last:!border-b-0"
-            >
-              <div className="grid w-full gap-x-6 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
-                <Sheet>{term}</Sheet>
-                <Body>{prompt}</Body>
-              </div>
-            </Row>
+        <dl ref={grid} className="mt-14 grid gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+          {LICENCE.map(([term, definition]) => (
+            <div key={term} className="bg-paper-raised p-7">
+              <dt className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-400">{term}</dt>
+              <dd className="mt-4 text-[15px] leading-[1.65] text-ink-700">{definition}</dd>
+            </div>
           ))}
-        </div>
-
-        <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
-          <Button href={CONTACT_HREF}>Email {CONTACT_EMAIL}</Button>
-          <TextLink href="/pricing">Compare the five plans</TextLink>
-          <TextLink href={GITHUB_URL} external>
-            Read every line before you write
-          </TextLink>
-        </div>
+        </dl>
       </Container>
-    </Band>
+    </Section>
   );
 }
 
-/* -------------------------------------------------------------------------
-   Parts
-------------------------------------------------------------------------- */
-
-/** The mono line that used to live in the rail's gutter. Counts and emitted
- *  values only — never an adjective in the data face. */
-function Fields({ items, className = "" }: { items: string[]; className?: string }) {
+function Architecture() {
+  const rows = useReveal<HTMLDListElement>(0, 60);
   return (
-    <div className={`flex flex-wrap items-baseline gap-x-5 gap-y-1 ${className}`}>
-      {items.map((item) => (
-        <Field key={item}>{item}</Field>
-      ))}
+    <Section id="architecture" space="md">
+      <Container>
+        <SectionHead
+          kicker="Architecture"
+          title={
+            <>
+              One container. <Em>Everything inside your boundary.</Em>
+            </>
+          }
+          lede="Everything that must survive a restart is a database row or a file under /app/data. Model calls go only to the endpoints you registered; Connections reach only the accounts you authorised."
+        />
+        <div className="mt-14 grid gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:gap-14">
+          <Boundary />
+          <dl ref={rows} className="divide-y divide-line border-y border-line">
+            {DATA.map(([artefact, place]) => (
+              <div key={artefact} className="grid gap-2 py-6 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-6">
+                <dt className="text-[15px] font-medium text-ink">{artefact}</dt>
+                <dd className="text-[14.5px] leading-6 text-ink-600">{place}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <div className="mt-20 overflow-hidden rounded-3xl border border-line bg-paper-raised">
+          <div className="border-b border-line px-7 py-5">
+            <p className="font-display text-[1.6rem] leading-tight tracking-[-0.015em] text-ink">What stops an AI Employee</p>
+          </div>
+          <div className="grid divide-y divide-line lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+            <Instrument tag={<StateTag state="approval">Approval</StateTag>}>
+              The system interposing on an action the employee already attempted — a gated Routine, a
+              browser submit, a spend increase, an exact email. An admin ticks it and the server
+              replays that exact action. The payload is redacted at every boundary.
+            </Instrument>
+            <Instrument tag={<StateTag state="decision">Decision</StateTag>}>
+              The employee choosing to stop and ask. It writes the question and the options, any
+              Member can answer, and answering performs no side effect. Anything privileged
+              afterwards still meets its own Approval.
+            </Instrument>
+            <Instrument tag={<StateTag state="standdown">Standdown</StateTag>}>
+              A revocable stop on all AI work for a company, an employee or a Routine, placed by an
+              owner or admin. Runs in flight are stopped and queued work waits for the lift. No tool
+              lets the roster place one — or lift one.
+            </Instrument>
+          </div>
+        </div>
+        <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
+          <TextLink href="/docs/security">Security</TextLink>
+          <TextLink href="/docs/standdowns">Standdowns</TextLink>
+          <TextLink href="/docs/autonomy">Autonomy and Waivers</TextLink>
+        </div>
+      </Container>
+    </Section>
+  );
+}
+
+function Instrument({ tag, children }: { tag: ReactNode; children: ReactNode }) {
+  return (
+    <div className="p-7">
+      {tag}
+      <p className="mt-5 text-[14.5px] leading-6 text-ink-600">{children}</p>
     </div>
+  );
+}
+
+/** Your network, drawn: the App, what it talks to, and the issuer outside it. */
+function Boundary() {
+  return (
+    <figure className="relative isolate">
+      <div aria-hidden className="dot-paper absolute -inset-3 -z-10 rounded-[2rem] sm:-inset-5" />
+      <div aria-hidden className="rounded-3xl border border-dashed border-ink-300 bg-paper-raised/80 p-4 sm:p-5">
+        <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-400">
+          Your network · your identity · your backups
+        </p>
+        <div className="mt-4 rounded-2xl bg-ink p-5 text-white shadow-lifted">
+          <div className="flex items-baseline justify-between gap-4">
+            <span className="text-[15px] font-medium">Genosyn App</span>
+            <span className="font-mono text-[12px] text-white/60">:8471</span>
+          </div>
+          <p className="mt-1 text-[12.5px] text-white/50">One container</p>
+        </div>
+        <div className="mx-auto h-5 w-px bg-ink-300" />
+        <div className="grid gap-2 sm:grid-cols-3">
+          {[
+            ["Database", "sqlite · postgres"],
+            ["AI Models", "anthropic · openai · custom"],
+            ["Connections", "the ones you granted"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-[13.5px] font-medium text-ink">{label}</p>
+              <p className="mt-1 font-mono text-[11px] leading-4 text-ink-500">{value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mx-auto h-5 w-px bg-ink-300" />
+        <div className="rounded-2xl border border-line bg-white p-4">
+          <p className="text-[13.5px] font-medium text-ink">Volume</p>
+          <p className="mt-1 font-mono text-[11px] text-ink-500">genosyn-data → /app/data</p>
+        </div>
+      </div>
+      <div aria-hidden className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-line bg-paper px-4 py-3">
+        <span className="text-[13.5px] text-ink-600">genosyn.com · licence issuer</span>
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-400">No connection</span>
+      </div>
+      <figcaption className="sr-only">
+        A diagram: your network holds the Genosyn App on port 8471, its database, the AI Models you
+        registered, the Connections you granted, and the data volume. The licence issuer sits
+        outside with no connection to it.
+      </figcaption>
+    </figure>
+  );
+}
+
+function Deployment() {
+  const cards = useReveal<HTMLUListElement>(0, 70);
+  return (
+    <Section id="deployment" tone="raised" space="md" rule>
+      <Container>
+        <SectionHead
+          kicker="Deployment"
+          title={
+            <>
+              Three supported shapes, <Em>starting at one Docker host.</Em>
+            </>
+          }
+          lede="Pick the one that matches what your team already operates. The database driver and how you authenticate models decide the rest."
+          aside={
+            <div className="flex flex-wrap gap-x-8 gap-y-3">
+              <TextLink href="/docs/self-hosting">Configuration</TextLink>
+              <TextLink href="/docs/kubernetes">Kubernetes</TextLink>
+            </div>
+          }
+        />
+        <ul ref={cards} className="mt-14 grid gap-4 lg:grid-cols-3">
+          {TOPOLOGIES.map((topology, index) => (
+            <li key={topology.name} className="flex flex-col rounded-3xl border border-line bg-paper p-7">
+              <span className="font-mono text-[12px] text-ink-400">{`0${index + 1}`}</span>
+              <p className="mt-6 font-display text-[1.7rem] leading-tight tracking-[-0.015em] text-ink">{topology.name}</p>
+              <div className="mt-5 rounded-xl bg-ink px-4 py-3">
+                <code className="block break-all font-mono text-[12px] leading-5 text-white">{topology.command}</code>
+              </div>
+              <p className="mt-5 text-[14.5px] leading-6 text-ink-600">{topology.body}</p>
+            </li>
+          ))}
+        </ul>
+      </Container>
+    </Section>
+  );
+}
+
+function Support() {
+  const rows = useReveal<HTMLUListElement>(0, 60);
+  return (
+    <Section id="support" space="md">
+      <Container>
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-20">
+          <SectionHead
+            align="left"
+            size="md"
+            kicker="Support"
+            title={
+              <>
+                A direct line <Em>to the people who wrote it.</Em>
+              </>
+            }
+            lede="Community support is GitHub issues, and it stays free. A licence adds priority support and four pieces of work you would otherwise do alone."
+          />
+          <ul ref={rows} className="divide-y divide-line border-y border-line">
+            {SUPPORT.map(([area, body]) => (
+              <li key={area} className="grid gap-2 py-6 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6">
+                <p className="text-[15px] font-medium text-ink">{area}</p>
+                <p className="text-[14.5px] leading-6 text-ink-600">{body}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </Container>
+    </Section>
+  );
+}
+
+function Contact() {
+  return (
+    <div className="pb-2 pt-6">
+      <NightPanel id="contact" dawn={0.9}>
+        <div className="mx-auto grid max-w-site gap-12 px-5 py-20 sm:px-8 sm:py-24 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-center lg:px-12">
+          <div>
+            <p className="kicker inline-flex items-center gap-3 text-night-muted">
+              <span aria-hidden className="h-px w-6 bg-white/50" />
+              Contact
+            </p>
+            <h2 className="mt-6 max-w-[16ch] text-balance font-display text-display-lg text-white">
+              Tell us where it would run. <Em tone="night">We&apos;ll tell you how.</Em>
+            </h2>
+            <p className="mt-6 max-w-[48ch] text-[1.0625rem] leading-[1.6] text-night-muted">
+              Four lines are enough for a useful answer: a topology, the questions a security review
+              usually asks, and a price if you want one.
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <Button href={CONTACT_HREF} variant="paper" size="lg" arrow>
+                {`Email ${CONTACT_EMAIL}`}
+              </Button>
+              <Button href={GITHUB_URL} external variant="outline-night" size="lg">
+                Read the source first
+              </Button>
+            </div>
+          </div>
+          <ul className="divide-y divide-white/10 rounded-3xl border border-white/10 bg-white/[0.03]">
+            {[
+              ["Environment", "One Docker host, a Kubernetes cluster, or a shared Postgres estate."],
+              ["Identity", "Google, an OIDC provider, or email and password for now."],
+              ["Data", "Where the volume lives, who backs it up, and your retention window."],
+              ["Scope", "Which roles the AI Employees would hold, and what a Run would touch."],
+            ].map(([term, prompt]) => (
+              <li key={term} className="grid gap-1 px-6 py-5 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-4">
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/50">{term}</span>
+                <span className="text-[14.5px] leading-6 text-white/85">{prompt}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </NightPanel>
+    </div>
+  );
+}
+
+function Code({ children }: { children: ReactNode }) {
+  return <code className="rounded-md bg-ink/[0.06] px-1.5 py-0.5 font-mono text-[0.86em] text-ink">{children}</code>;
+}
+
+function Yes() {
+  return (
+    <>
+      <Check aria-hidden className="h-4 w-4 text-ink" strokeWidth={2} />
+      <span className="sr-only">Included</span>
+    </>
+  );
+}
+
+function No() {
+  return (
+    <>
+      <Minus aria-hidden className="h-4 w-4 text-ink-300" />
+      <span className="sr-only">Not included</span>
+    </>
   );
 }
