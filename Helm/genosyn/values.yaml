@@ -242,19 +242,6 @@ secrets:
   sessionSecret: ""
   encryptionSecret: ""
 
-# Optional first-boot import for paid plans. Keep credentials only in private,
-# untracked values files. These become an encrypted billing.settings row only
-# when no billing settings have been saved; Admin -> Billing owns later edits.
-# Disabling this block or changing its values never changes saved billing.
-billing:
-  enabled: false
-  secretKey: ""
-  webhookSecret: ""
-  growthMonthlyPriceId: ""
-  growthAnnualPriceId: ""
-  scaleMonthlyPriceId: ""
-  scaleAnnualPriceId: ""
-
 # Extra environment variables for the app container, verbatim pod-spec syntax
 # (name/value or valueFrom). Anything config.extraJs reads via process.env.*
 # gets injected here.

@@ -96,45 +96,6 @@ The chart defaults to one trusted HTTP proxy hop. Set
 to match your actual proxy chain. This keeps client-IP rate limits accurate;
 keep the App port private so requests cannot bypass the trusted proxies.
 
-## Stripe and paid Plans
-
-Both private profiles include a disabled `billing` block. Fill it using your
-Stripe account's values, then set `billing.enabled: true` before deploying:
-
-- `secretKey`: a server-side API key (`sk_test_…` or `rk_test_…` for test;
-  `sk_live_…` or `rk_live_…` for production). Restricted keys need access to
-  the customer, checkout, and subscription operations used by Genosyn, plus
-  write access to the customer portal.
-- `webhookSecret`: the endpoint's `whsec_…` signing secret.
-- `growthMonthlyPriceId` and `scaleMonthlyPriceId`: required recurring,
-  per-seat `price_…` IDs for the paid Plans.
-- `growthAnnualPriceId` and `scaleAnnualPriceId`: optional annual `price_…` IDs.
-
-Use keys, prices, and webhook endpoints from the same Stripe mode and account.
-These credentials must come from Stripe; they cannot be generated locally.
-See Stripe's [API key guide](https://docs.stripe.com/keys) and
-[webhook setup guide](https://docs.stripe.com/webhooks).
-
-Create a webhook endpoint for each environment:
-
-- Test: `https://test.genosyn.com/api/billing/stripe/webhook`
-- Production: `https://app.genosyn.com/api/billing/stripe/webhook`
-
-Subscribe to `checkout.session.completed`, `customer.subscription.created`,
-`customer.subscription.updated`, and `customer.subscription.deleted`.
-There is no customer portal to configure: the first time an owner clicks
-**Manage billing**, Genosyn creates its own portal configuration in that Stripe
-account (marked `genosyn_portal` in its metadata) and reuses it after that.
-The `connect.genosyn.com` host serves hosted sign-in only.
-
-Helm passes the billing payload through a Kubernetes Secret. On first setup,
-the App encrypts the credentials into its existing billing settings. If a
-`billing.settings` row already exists, it is preserved in full: values-file
-edits, key changes, and `billing.enabled: false` do not change stored billing.
-Use **Admin → Billing** for those later changes, including disabling billing.
-Deployment previews omit the Secret. No publishable key is needed because
-Genosyn creates Stripe-hosted checkout sessions on the server.
-
 ## Preview and deploy
 
 ```bash
@@ -172,8 +133,8 @@ an operator decision because App boot can apply database migrations.
 
 After deployment, register and verify the configured operator. Until SMTP is
 configured, the verification link is in the private App log. Configure
-**Admin → Email transport**, verify **Admin → Billing** for Cloud Edition, and
-**Admin → Integrations** for OAuth apps before onboarding customers.
+**Admin → Email transport** and **Admin → Integrations** for OAuth apps before
+onboarding customers.
 For hosted sign-in, keep **Admin → General → Public URL** at
 `https://app.genosyn.com`. Set **Admin → Runtime → Hosted sign-in → Hosted
 sign-in address** to `https://connect.genosyn.com`. Register Google's new

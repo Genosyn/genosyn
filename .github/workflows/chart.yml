@@ -75,9 +75,6 @@ jobs:
       - name: Verify inline secrets and upgrade preservation
         run: bash Helm/test-inline-secrets.sh
 
-      - name: Verify Stripe billing bootstrap
-        run: bash Helm/test-billing-bootstrap.sh
-
       - name: Verify portable Kubernetes resources
         run: bash Helm/test-portability.sh
 

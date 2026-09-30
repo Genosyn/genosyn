@@ -87,11 +87,6 @@ secrets.existingSecret is not set.
 {{- printf "%s-instance-secrets" (include "genosyn.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/* Keep the suffix even when fullnameOverride fills the DNS name limit. */}}
-{{- define "genosyn.billingBootstrapName" -}}
-{{- printf "%s-billing-bootstrap" (include "genosyn.fullname" . | trunc 45 | trimSuffix "-") }}
-{{- end }}
-
 {{/*
 Resolve Secret data after validation. The actual templates supply lookup's
 result; keeping resolution separate also lets offline checks exercise upgrades.
@@ -244,14 +239,6 @@ opens the same database with the same secrets.
     secretKeyRef:
       name: {{ $instanceSecret }}
       key: encryptionSecret
-{{- $billing := default dict .Values.billing }}
-{{- if $billing.enabled }}
-- name: GENOSYN_BILLING_BOOTSTRAP_JSON
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "genosyn.billingBootstrapName" . }}
-      key: settings.json
-{{- end }}
 {{- if .Values.config.db.postgresUrlSecret.name }}
 - name: GENOSYN_POSTGRES_URL
   valueFrom:
@@ -283,35 +270,6 @@ Included from deployment.yaml so it runs on every render.
 */}}
 {{- define "genosyn.validate" -}}
 {{- $problems := list -}}
-{{- if hasKey .Values "billing" -}}
-{{- $billing := .Values.billing -}}
-{{- if not (kindIs "map" $billing) -}}
-{{- $problems = append $problems "billing must be a settings object" -}}
-{{- else if and (hasKey $billing "enabled") (not (kindIs "bool" $billing.enabled)) -}}
-{{- $problems = append $problems "billing.enabled must be a boolean" -}}
-{{- else if $billing.enabled -}}
-{{- $patterns := dict "secretKey" "^(sk|rk)_(test|live)_[A-Za-z0-9]+$" "webhookSecret" "^whsec_[A-Za-z0-9]+$" "growthMonthlyPriceId" "^price_[A-Za-z0-9]+$" "growthAnnualPriceId" "^price_[A-Za-z0-9]+$" "scaleMonthlyPriceId" "^price_[A-Za-z0-9]+$" "scaleAnnualPriceId" "^price_[A-Za-z0-9]+$" -}}
-{{- $priceIds := list -}}
-{{- range $field, $pattern := $patterns -}}
-{{- $value := get $billing $field -}}
-{{- if not (kindIs "string" $value) -}}
-{{- $problems = append $problems (printf "billing.%s must be a string" $field) -}}
-{{- else -}}
-{{- $value = trim $value -}}
-{{- $optional := or (eq $field "growthAnnualPriceId") (eq $field "scaleAnnualPriceId") -}}
-{{- if and (or (not $optional) $value) (or (gt (len $value) 512) (not (regexMatch $pattern $value))) -}}
-{{- $problems = append $problems (printf "billing.%s must be a valid Stripe value of at most 512 characters when billing.enabled=true (secretKey: sk_/rk_ test/live; webhookSecret: whsec_; price IDs: price_; annual IDs may be blank)" $field) -}}
-{{- end -}}
-{{- if and (hasSuffix "PriceId" $field) $value -}}
-{{- if has $value $priceIds -}}
-{{- $problems = append $problems "Configured billing price IDs must be different for each plan and interval" -}}
-{{- end -}}
-{{- $priceIds = append $priceIds $value -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
 {{- $session := get .Values.secrets "sessionSecret" -}}
 {{- $encryption := get .Values.secrets "encryptionSecret" -}}
 {{- $password := get .Values.postgres "password" -}}

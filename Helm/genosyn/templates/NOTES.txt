@@ -88,12 +88,6 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    Paste that link into the browser to verify and claim the account, then set
    up SMTP from the dashboard.
 
-   Optional Stripe billing bootstrap is configured through the billing.*
-   values in your private values file. When enabled, credentials are passed
-   through a dedicated Kubernetes Secret and imported only if no billing
-   settings have been saved. Later changes belong at Admin -> Billing;
-   changing Helm values or restarting never overwrites saved settings.
-
 3. Command execution (the coding sandbox)
 {{- if .Values.sandbox.enabled }}
 

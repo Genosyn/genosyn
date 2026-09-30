@@ -24,7 +24,7 @@ on, Postgres, the bubblewrap sandbox granted, chart-generated strong secrets.
 A bare `helm install` fails fast at template time with one aggregated message
 listing everything missing — by design, only one value needs supplying.
 
-### Genosyn Cloud / production (default)
+### Production multi-tenant (default)
 
 ```bash
 helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
@@ -258,38 +258,6 @@ field takes precedence over the corresponding legacy field, including
 `enabled: false` or an empty string. Unspecified fields inherit their legacy
 values; remove the legacy block after migration. An enabled Connect host must
 be a distinct DNS hostname, and both hosts must have TLS configured.
-
-## Stripe billing bootstrap
-
-For paid plans, set these fields directly in a private, untracked values file.
-Enable `billing.enabled` once the Stripe credentials and both monthly price
-IDs are ready. Use a different price ID for each configured plan and interval.
-
-| Value | Default | Purpose |
-| --- | --- | --- |
-| `billing.enabled` | `false` | Import billing settings only when none have been saved. |
-| `billing.secretKey` | Empty | Stripe `sk_` or `rk_` test/live secret key. Required when enabled. |
-| `billing.webhookSecret` | Empty | Stripe `whsec_` webhook signing secret. Required when enabled. |
-| `billing.growthMonthlyPriceId` | Empty | Required Growth monthly Stripe `price_` ID. |
-| `billing.scaleMonthlyPriceId` | Empty | Required Scale monthly Stripe `price_` ID. |
-| `billing.growthAnnualPriceId` | Empty | Optional Growth annual Stripe `price_` ID. |
-| `billing.scaleAnnualPriceId` | Empty | Optional Scale annual Stripe `price_` ID. |
-
-The chart creates a separate `-billing-bootstrap` Secret whose `settings.json`
-key is injected through a Secret reference as `GENOSYN_BILLING_BOOTSTRAP_JSON`.
-Credentials are absent from the ConfigMap, pod annotations, and deployment
-notes. Direct `helm template` output still contains the Secret data, and Helm
-retains the values in its release record.
-
-At boot, the App atomically imports these settings into the encrypted
-`billing.settings` database row **only if that row does not exist**. An
-existing row always wins, including one with billing disabled. Use **Admin →
-Billing** for later edits: changing Helm values, restarting, or turning
-`billing.enabled` off does not replace or disable saved settings. This
-bootstrap Secret is managed normally by Helm and is not retained on
-uninstall; the database and its encryption key preserve the saved settings.
-The default disabled block renders neither the Secret nor the bootstrap
-environment variable.
 
 ## How config works
 

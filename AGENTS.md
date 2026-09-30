@@ -128,9 +128,6 @@ code, UI copy, commits, and docs.
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
 | **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
 | **Revision proposal** (a staged Soul/Skill/Routine edit awaiting a human — `RevisionProposal`) | Self-modification, Patch, Suggestion |
-| **Plan** (a Genosyn Cloud pricing tier — Free / Growth / Scale on `CompanyBilling.plan`) | Tier, Package, Subscription (in product copy) |
-| **Enterprise license** (a signed key unlocking enterprise features on a self-hosted install — `EnterpriseLicense` is the issuer registry) | License key (alone), Serial, Activation code |
-| **Edition** (community / enterprise / cloud — resolved by `services/entitlements.ts`, never a build flag) | Flavor, SKU, Variant |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |
@@ -282,17 +279,17 @@ answer "what did this employee do", and the differences are the whole reason
 there are three. A **Journal** entry is written *by the employee*, through an
 MCP tool, and is its own narration. The **audit log** is the company's whole
 history — every actor, all of time, raw metadata — which is why reading it is
-admin-gated and behind the `auditLog` entitlement. A **work timeline** is
-neither: it is assembled at read time over one employee and a bounded window
-from rows the server wrote itself (`runs`, `audit_events` as the effect ledger,
-and five tables audit provably misses), it stores nothing, and it is readable
-by any Member on any plan — for the same reason a Run's own **Effects** are,
-which `routes/routineChecks.ts` states at length. A Routine entry may preview a
-bounded, redacted final report from its persisted transcript, with the outcome
-assessment as a fallback. That preview is reported work, never independent
-verification: status, outcome and Check badges retain their own meaning, and
-the Run log retains the transcript and Effects. Do not give the timeline an
-entity, add Journal entries to its sources, or route it through `GET /audit`.
+admin-gated. A **work timeline** is neither: it is assembled at read time over
+one employee and a bounded window from rows the server wrote itself (`runs`,
+`audit_events` as the effect ledger, and five tables audit provably misses), it
+stores nothing, and it is readable by any Member — for the same reason a Run's
+own **Effects** are, which `routes/routineChecks.ts` states at length. A Routine
+entry may preview a bounded, redacted final report from its persisted
+transcript, with the outcome assessment as a fallback. That preview is reported
+work, never independent verification: status, outcome and Check badges retain
+their own meaning, and the Run log retains the transcript and Effects. Do not
+give the timeline an entity, add Journal entries to its sources, or route it
+through `GET /audit`.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container
@@ -364,12 +361,6 @@ file and restart a container to change how often a mailbox polls.
 | Global SMTP transport | **Admin → Email transport** | `smtp.global` |
 | Browser-facing public URL and custom JavaScript | **Admin → General** | `instance.publicUrl`, `instance.customJavaScript` |
 | OAuth app credentials | **Admin → Integrations** | `oauth.apps` |
-| Cloud Plans and Stripe billing | **Admin → Billing** | `billing.settings` |
-
-The Helm chart can initialize billing from private values on first setup via
-`GENOSYN_BILLING_BOOTSTRAP_JSON`. Boot inserts encrypted `billing.settings`
-only when no row exists, then discards the environment payload. Later changes
-belong at Admin → Billing; redeployment must never overwrite saved settings.
 
 `services/runtimeSettings.ts` owns every `runtime.*` group: types, defaults,
 tolerant per-field parsing, synchronous cached getters on a shared 30s refresh
