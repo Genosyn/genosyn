@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { Container, Em, Section, SectionHead } from "@/sections/Kit";
+import { Container, Section, SectionHead } from "@/sections/Kit";
 
 export type QA = { q: string; a: string };
 
@@ -51,7 +51,7 @@ export function FaqSection({
               title={
                 title ?? (
                   <>
-                    Asked, <Em>and answered.</Em>
+                    Questions, answered.
                   </>
                 )
               }

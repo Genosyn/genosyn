@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ROLES } from "@/roles/data";
 import { roleDept, roleInitials } from "@/roles/meta";
 import { DayReport, DayStrip, DayTimeline } from "@/roles/RoleDay";
-import { Avatar, Container, Em, Section, SectionHead, TextLink } from "@/sections/Kit";
+import { Avatar, Container, Section, SectionHead, TextLink } from "@/sections/Kit";
 
 /** Pick a role, read its Tuesday. */
 export function DayInLife() {
@@ -18,7 +18,7 @@ export function DayInLife() {
           kicker="A day in the life"
           title={
             <span key={role.slug} className={touched ? "settle block" : "block"}>
-              {`${role.person} ${role.shipped}`} <Em tone="muted">{`by ${last}.`}</Em>
+              {`${role.person} ${role.shipped} by ${last}.`}
             </span>
           }
           lede="Every line below is a Routine that fired on its own schedule, the product it worked in, and the one moment in the day it stopped and put a question in front of a person."

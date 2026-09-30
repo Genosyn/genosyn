@@ -267,7 +267,7 @@ function Compare() {
           kicker="Compared"
           title={
             <>
-              Five plans. <Em>One product.</Em>
+              Five plans, one product.
             </>
           }
           lede="Every plan runs the same software with every product and Integration in it. What changes is who hosts it, how many AI Employees it holds, and the controls an IT review asks for."

@@ -10,7 +10,6 @@ import {
   Avatar,
   Button,
   Container,
-  Em,
   FactRow,
   NightPanel,
   Section,
@@ -32,7 +31,7 @@ export function RolesIndex() {
           kicker="Roles"
           title={
             <>
-              {`${ROLES.length} roles,`} <Em>written hour by hour.</Em>
+              {`${ROLES.length} roles, written hour by hour.`}
             </>
           }
           lede="Every role is a Soul, a set of Skills and Routines on a schedule. Read one working day of each — what it did, where it did it, and the one moment it stopped for a person. Hire it as written, or write one only your company has."
@@ -84,7 +83,7 @@ function SideBySide() {
           kicker="Side by side"
           title={
             <>
-              Each works its own day, <Em>and stops once.</Em>
+              Each works its own day, and stops once.
             </>
           }
           lede="Every role runs unattended through its sample day and stops exactly once — for a Decision it writes itself, or an Approval the system holds for an admin."
@@ -175,7 +174,7 @@ function WriteYourOwn() {
             kicker="Write your own"
             title={
               <>
-                The next role is one <Em tone="night">only your company has.</Em>
+                The next role is one only your company has.
               </>
             }
             lede="These eight are worked examples, not the catalogue. Any role you can describe in four documents can be hired, and the AI Employee can help you write them."
@@ -192,7 +191,7 @@ function WriteYourOwn() {
                   <part.icon aria-hidden className="h-5 w-5 text-white" strokeWidth={1.6} />
                   <span className="font-mono text-[12px] text-white/35">{`0${index + 1}`}</span>
                 </div>
-                <p className="mt-8 font-display text-[1.6rem] leading-tight text-white">{part.name}</p>
+                <p className="mt-8 font-display text-[1.35rem] leading-tight tracking-[-0.03em] text-white">{part.name}</p>
                 <p className="mt-2.5 text-[14.5px] leading-6 text-night-muted">{part.body}</p>
               </li>
             ))}

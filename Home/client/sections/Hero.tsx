@@ -3,7 +3,6 @@ import { ArrowRight, Check, RotateCcw, Sunrise } from "lucide-react";
 import { SIGN_UP_URL } from "@/lib/constants";
 import {
   ARRIVAL,
-  ALL_EVENTS,
   COMPANY,
   LAST_OVERNIGHT_END,
   LANES,
@@ -12,8 +11,10 @@ import {
   runMinutes,
   spell,
   type FlatEvent,
+  type Lane,
+  type NightEvent,
 } from "@/lib/night";
-import { Avatar, Button, CopyCommand, DEPT_LABEL, NightPanel, StateTag, clock } from "@/sections/Kit";
+import { Avatar, Button, CopyCommand, DEPT_DOT, DEPT_LABEL, NightPanel, StateTag, clock } from "@/sections/Kit";
 
 export const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
@@ -105,7 +106,7 @@ export function Hero() {
   const dawn = 0.15 + 0.85 * Math.pow(progress, 1.6);
 
   return (
-    <NightPanel dawn={dawn} className="pb-6 sm:pb-8">
+    <NightPanel dawn={dawn} className="pb-6 sm:pb-8 lg:pb-12">
       <div ref={target} className="mx-auto w-full max-w-site px-5 pt-12 sm:px-8 sm:pt-16 lg:px-12 lg:pt-[4.5rem]">
         <div className="grid items-center gap-x-12 gap-y-14 lg:grid-cols-[minmax(0,1.14fr)_minmax(0,0.86fr)] xl:gap-x-16">
           <div className="min-w-0">
@@ -118,9 +119,10 @@ export function Hero() {
               <span className="normal-case tracking-[0.06em]">{`v${__APP_VERSION__}`}</span>
             </p>
 
-            <h1 className="mt-7 font-display text-[clamp(2.8rem,5.6vw,5.15rem)] leading-[0.97] tracking-[-0.035em] text-white">
-              Wake up to work <br className="hidden sm:block" />
-              <em className="italic">already&nbsp;done.</em>
+            <h1 className="mt-7 font-display text-[clamp(2.6rem,5.2vw,4.65rem)] leading-[0.98] tracking-[-0.048em] text-white">
+              Your company <br className="hidden sm:block" />
+              can now run <br className="hidden sm:block" />
+              automatically.
             </h1>
 
             <p className="mt-7 max-w-[34rem] text-pretty text-[1.0625rem] leading-[1.6] text-night-muted sm:text-[1.1875rem]">
@@ -148,7 +150,7 @@ export function Hero() {
           <Console now={now} phase={phase} onReplay={replay} />
         </div>
 
-        <Horizon now={now} />
+        <NightChart now={now} phase={phase} />
       </div>
     </NightPanel>
   );
@@ -286,9 +288,9 @@ function FeedRow({ event, now }: { event: FlatEvent; now: number }) {
 function Morning() {
   return (
     <div className="settle min-h-[21.5rem] px-5 pb-5 pt-6 sm:min-h-[22.5rem] sm:px-6">
-      <p className="font-display text-[1.9rem] leading-[1.08] tracking-[-0.02em] text-white sm:text-[2.2rem]">
+      <p className="font-display text-[1.7rem] leading-[1.1] tracking-[-0.035em] text-white sm:text-[1.95rem]">
         {`${capitalise(spell(OVERNIGHT.length))} Runs finished while you slept.`}{" "}
-        <em className="italic text-white/55">{`${capitalise(spell(WAITING.length))} need you.`}</em>
+        <span className="text-white/50">{`${capitalise(spell(WAITING.length))} need you.`}</span>
       </p>
       <ul className="mt-5 space-y-2">
         {WAITING.map((item) => (
@@ -308,10 +310,10 @@ function Morning() {
         ))}
       </ul>
       <a
-        href="#shift"
+        href="#guardrails"
         className="group mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-white/85 hover:text-white"
       >
-        See the whole shift
+        Why these three waited
         <ArrowRight aria-hidden className="nudge h-3.5 w-3.5" />
       </a>
     </div>
@@ -319,60 +321,215 @@ function Morning() {
 }
 
 /* -------------------------------------------------------------------------
-   The horizon: the same night as a 24-hour strip along the bottom edge.
+   The night chart: every lane of the same night, filling in as the clock
+   plays, with the morning — and what is waiting in it — to the right.
 ------------------------------------------------------------------------- */
 
-const pct = (hours: number) => `${(hours / 24) * 100}%`;
+/** The chart shows the night and the morning after it: 00:00 to 14:00. */
+const CHART_END = 14;
+const TICKS = [0, 2, 4, 6, 8, 10, 12, 14];
+const at = (hours: number) => `${(hours / CHART_END) * 100}%`;
 
-function Horizon({ now }: { now: number }) {
+type Hovered = { event: NightEvent; lane: Lane; row: number };
+
+function NightChart({ now, phase }: { now: number; phase: Phase }) {
+  const [hovered, setHovered] = useState<Hovered | null>(null);
+  const finished = OVERNIGHT.filter((event) => event.at + (event.hours ?? 0.25) <= now).length;
+  const playhead = Math.min(now, ARRIVAL);
+
   return (
-    <div aria-hidden className="relative mt-16 hidden select-none sm:block lg:mt-14">
-      <div className="relative h-14">
-        <div className="hour-grid hour-grid-night absolute inset-x-0 bottom-5 top-2" />
-        {/* Lanes collapse into one strip: each Run is a sliver at its start time. */}
-        {LANES.map((lane, laneIndex) =>
-          lane.events.map((event) => {
-            const reached = event.at <= now;
-            const top = 8 + laneIndex * 4;
-            if (event.state !== "run") {
-              return (
-                <span
-                  key={`${lane.person}-${event.at}`}
-                  className={`absolute h-2 w-2 -translate-x-1/2 rounded-full transition-opacity duration-500 ${
-                    event.state === "decision" ? "bg-white" : "border border-white bg-night"
-                  } ${now >= ARRIVAL ? "opacity-100" : "opacity-25"}`}
-                  style={{ left: pct(event.at), top: 18 }}
-                />
-              );
-            }
-            return (
-              <span
-                key={`${lane.person}-${event.at}`}
-                className={`absolute h-[3px] rounded-full transition-colors duration-500 ${
-                  reached ? "bg-white/85" : "bg-white/[0.12]"
-                }`}
-                style={{ left: pct(event.at), width: pct(event.hours ?? 0.25), top }}
-              />
-            );
-          }),
-        )}
-        {/* Now. */}
-        <span className="absolute bottom-5 top-0 w-px bg-white shadow-glow" style={{ left: pct(Math.min(now, ARRIVAL)) }} />
-        <span className="absolute bottom-5 top-0 w-px bg-white/30" style={{ left: pct(ARRIVAL) }} />
-        <div className="absolute inset-x-0 bottom-0 flex h-4 items-end justify-between font-mono text-[10px] text-night-faint">
-          {["00:00", "06:00", "12:00", "18:00", "24:00"].map((label) => (
-            <span key={label}>{label}</span>
+    <div
+      aria-hidden
+      className="relative mt-14 hidden select-none rounded-[1.6rem] border border-white/[0.08] bg-gradient-to-b from-white/[0.045] to-white/[0.015] p-5 md:block lg:mt-16 lg:p-7"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+        <div className="flex items-baseline gap-4">
+          <span className="text-[15px] font-semibold tracking-[-0.01em] text-white">{`The night at ${COMPANY}`}</span>
+          <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-night-faint">
+            {phase === "morning" ? `${OVERNIGHT.length} Runs · ${WAITING.length} waiting` : `${finished} of ${OVERNIGHT.length} Runs finished`}
+          </span>
+        </div>
+        <ul className="flex items-center gap-5 text-[12px] text-night-muted">
+          <li className="flex items-center gap-2">
+            <span className="h-2 w-5 rounded-full bg-white/85" />
+            Run
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="h-2 w-5 rounded-full border border-dashed border-white/35" />
+            Scheduled
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-white" />
+            Decision
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full border-[1.5px] border-white" />
+            Approval
+          </li>
+        </ul>
+      </div>
+
+      <div className="mt-6 grid grid-cols-[8.75rem_minmax(0,1fr)] gap-x-5">
+        {/* Lane labels */}
+        <div className="pt-8">
+          {LANES.map((lane) => (
+            <div key={lane.person} className="flex h-8 items-center gap-2.5">
+              <span className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-night-high font-mono text-[8px] text-white ring-1 ring-white/10">
+                {lane.initials}
+                <span className={`absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full ring-1 ring-night ${DEPT_DOT[lane.dept]}`} />
+              </span>
+              <span className="truncate text-[12.5px] text-white/85">{lane.person}</span>
+              <span className="truncate text-[11px] text-night-faint">{DEPT_LABEL[lane.dept]}</span>
+            </div>
           ))}
         </div>
-        <span
-          className="absolute -top-5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-white/70"
-          style={{ left: pct(ARRIVAL) }}
-        >
-          09:30 · You sign in
-        </span>
+
+        {/* Plot */}
+        <div className="relative pt-8" onMouseLeave={() => setHovered(null)}>
+          {/* Morning: everything after the first sign-in sits on a lighter ground. */}
+          <div
+            className="absolute bottom-0 right-0 top-8 rounded-r-lg bg-white/[0.035]"
+            style={{ left: at(ARRIVAL) }}
+          />
+          <span
+            className="absolute top-8 mt-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-night-faint"
+            style={{ right: "0.625rem" }}
+          >
+            Morning
+          </span>
+
+          {/* Hour lines */}
+          {TICKS.slice(1, -1).map((tick) => (
+            <span key={tick} className="absolute bottom-0 top-8 w-px bg-white/[0.05]" style={{ left: at(tick) }} />
+          ))}
+
+          {/* Lanes */}
+          {LANES.map((lane, row) => (
+            <div key={lane.person} className="relative h-8">
+              <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/[0.04]" />
+              {lane.events
+                .filter((event) => event.at < CHART_END)
+                .map((event) => (
+                  <Mark
+                    key={`${lane.person}-${event.at}`}
+                    event={event}
+                    now={now}
+                    morning={phase === "morning"}
+                    active={hovered?.event === event}
+                    onEnter={() => setHovered({ event, lane, row })}
+                  />
+                ))}
+            </div>
+          ))}
+
+          {/* The first sign-in */}
+          <span className="absolute bottom-0 top-8 w-px bg-white/25" style={{ left: at(ARRIVAL) }} />
+
+          {/* Now */}
+          <span
+            className="absolute bottom-0 top-2 w-px bg-white shadow-[0_0_12px_rgb(255_255_255/0.6)]"
+            style={{ left: at(playhead) }}
+          />
+          <span
+            className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-full bg-white px-2 py-[3px] font-mono text-[10px] font-medium leading-none text-ink"
+            style={{ left: at(playhead) }}
+          >
+            {phase === "morning" ? "09:30 · You sign in" : clock(now)}
+          </span>
+
+          {hovered && <Tooltip hovered={hovered} />}
+        </div>
+
+        {/* Axis */}
+        <div />
+        <div className="relative mt-3 h-4 font-mono text-[10px] text-night-faint">
+          {TICKS.map((tick, index) => (
+            <span
+              key={tick}
+              className={`absolute top-0 ${index === 0 ? "" : index === TICKS.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`}
+              style={{ left: at(tick) }}
+            >
+              {clock(tick)}
+            </span>
+          ))}
+        </div>
       </div>
-      <p className="mt-3 text-[11px] text-night-faint">
-        {`${ALL_EVENTS.filter((event) => event.state === "run").length} Runs across seven departments on one sample Tuesday. Each sliver starts when its Run did and lasts as long as it took.`}
+    </div>
+  );
+}
+
+/** One Run as a bar that fills while it runs, or one stop as a marker. */
+function Mark({
+  event,
+  now,
+  morning,
+  active,
+  onEnter,
+}: {
+  event: NightEvent;
+  now: number;
+  morning: boolean;
+  active: boolean;
+  onEnter: () => void;
+}) {
+  if (event.state !== "run") {
+    const lit = morning;
+    return (
+      <span
+        onMouseEnter={onEnter}
+        className={`absolute top-1/2 z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-default rounded-full transition-all duration-500 ${
+          event.state === "decision"
+            ? lit
+              ? "bg-white shadow-[0_0_0_4px_rgb(255_255_255/0.12)]"
+              : "bg-white/25"
+            : lit
+              ? "border-2 border-white bg-night shadow-[0_0_0_4px_rgb(255_255_255/0.08)]"
+              : "border-2 border-white/25 bg-night"
+        } ${active ? "scale-125" : ""}`}
+        style={{ left: at(event.at) }}
+      />
+    );
+  }
+
+  const length = Math.min(event.hours ?? 0.25, CHART_END - event.at);
+  const end = event.at + length;
+  const scheduled = event.at >= ARRIVAL;
+  const fill = scheduled ? 0 : Math.max(0, Math.min(1, (now - event.at) / length));
+  const running = fill > 0 && fill < 1;
+
+  return (
+    <span
+      onMouseEnter={onEnter}
+      className={`absolute top-1/2 h-2.5 min-w-[6px] -translate-y-1/2 cursor-default overflow-hidden rounded-full transition-colors duration-300 ${
+        scheduled ? "border border-dashed border-white/30" : "bg-white/[0.09]"
+      } ${active ? "ring-2 ring-white/40" : ""}`}
+      style={{ left: at(event.at), width: at(end - event.at) }}
+    >
+      {!scheduled && (
+        <span
+          className={`absolute inset-y-0 left-0 rounded-full ${running ? "bg-white shadow-[0_0_10px_rgb(255_255_255/0.7)]" : "bg-white/85"}`}
+          style={{ width: `${fill * 100}%` }}
+        />
+      )}
+    </span>
+  );
+}
+
+function Tooltip({ hovered }: { hovered: Hovered }) {
+  const { event, lane, row } = hovered;
+  const left = Math.min(Math.max(event.at / CHART_END, 0.12), 0.82) * 100;
+  const timing = event.hours
+    ? `${clock(event.at)}–${clock(event.at + event.hours)} · ${runMinutes(event)} min`
+    : clock(event.at);
+  return (
+    <div
+      className="pointer-events-none absolute z-20 w-64 rounded-xl border border-white/10 bg-night-high px-3.5 py-3 shadow-float"
+      style={{ left: `${left}%`, top: `calc(2rem + ${row * 2}rem - 0.5rem)`, transform: "translate(-50%, -100%)" }}
+    >
+      <p className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-night-faint">{timing}</p>
+      <p className="mt-1.5 text-[13px] leading-5 text-white">{event.label}</p>
+      <p className="mt-1 text-[11.5px] text-night-muted">
+        {`${lane.person} · ${event.state === "run" ? DEPT_LABEL[lane.dept] : event.state === "decision" ? "Decision" : "Approval"}`}
       </p>
     </div>
   );

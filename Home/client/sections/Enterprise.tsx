@@ -163,7 +163,7 @@ function Licence() {
           kicker="The licence"
           title={
             <>
-              One signed key. <Em>No phone-home.</Em>
+              One signed key, no phone-home.
             </>
           }
           lede="The licence turns on two features and verifies without a network, so the same key works on an air-gapped cluster and on the open internet."
@@ -191,7 +191,7 @@ function Architecture() {
           kicker="Architecture"
           title={
             <>
-              One container. <Em>Everything inside your boundary.</Em>
+              One container, inside your boundary.
             </>
           }
           lede="Everything that must survive a restart is a database row or a file under /app/data. Model calls go only to the endpoints you registered; Connections reach only the accounts you authorised."
@@ -210,7 +210,7 @@ function Architecture() {
 
         <div className="mt-20 overflow-hidden rounded-3xl border border-line bg-paper-raised">
           <div className="border-b border-line px-7 py-5">
-            <p className="font-display text-[1.6rem] leading-tight tracking-[-0.015em] text-ink">What stops an AI Employee</p>
+            <p className="font-display text-[1.35rem] leading-tight tracking-[-0.03em] text-ink">What stops an AI Employee</p>
           </div>
           <div className="grid divide-y divide-line lg:grid-cols-3 lg:divide-x lg:divide-y-0">
             <Instrument tag={<StateTag state="approval">Approval</StateTag>}>
@@ -306,7 +306,7 @@ function Deployment() {
           kicker="Deployment"
           title={
             <>
-              Three supported shapes, <Em>starting at one Docker host.</Em>
+              Three ways to deploy, starting with one Docker host.
             </>
           }
           lede="Pick the one that matches what your team already operates. The database driver and how you authenticate models decide the rest."
@@ -321,7 +321,7 @@ function Deployment() {
           {TOPOLOGIES.map((topology, index) => (
             <li key={topology.name} className="flex flex-col rounded-3xl border border-line bg-paper p-7">
               <span className="font-mono text-[12px] text-ink-400">{`0${index + 1}`}</span>
-              <p className="mt-6 font-display text-[1.7rem] leading-tight tracking-[-0.015em] text-ink">{topology.name}</p>
+              <p className="mt-6 font-display text-[1.4rem] leading-tight tracking-[-0.03em] text-ink">{topology.name}</p>
               <div className="mt-5 rounded-xl bg-ink px-4 py-3">
                 <code className="block break-all font-mono text-[12px] leading-5 text-white">{topology.command}</code>
               </div>
@@ -346,7 +346,7 @@ function Support() {
             kicker="Support"
             title={
               <>
-                A direct line <Em>to the people who wrote it.</Em>
+                A direct line to the people who wrote it.
               </>
             }
             lede="Community support is GitHub issues, and it stays free. A licence adds priority support and four pieces of work you would otherwise do alone."

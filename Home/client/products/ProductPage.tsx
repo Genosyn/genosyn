@@ -14,7 +14,6 @@ import {
   Container,
   DEPT_DOT,
   DEPT_LABEL,
-  Em,
   GridFill,
   NightPanel,
   Section,
@@ -155,7 +154,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
         <FaqSection
           title={
             <>
-              {`${product.name},`} <Em>asked and answered.</Em>
+              {`Questions about ${product.name}`}
             </>
           }
           items={product.faqs}
@@ -206,12 +205,17 @@ function Hero({ product, page }: { product: ProductDef; page: PageCopy }) {
               </span>
             </Reveal>
             <Reveal delay={90}>
-              <h1 className="mt-8 text-balance font-display text-[clamp(2.1rem,3.9vw,3.4rem)] leading-[1.04] tracking-[-0.025em] text-ink">
-                {product.tagline} <Em>{product.taglineAccent}</Em>
+              <h1 className="mt-8 text-balance font-display text-[clamp(2rem,3.4vw,2.9rem)] leading-[1.06] tracking-[-0.035em] text-ink">
+                {product.tagline}
               </h1>
             </Reveal>
-            <Reveal delay={140}>
-              <p className="mt-6 max-w-[58ch] text-pretty text-[1.0625rem] leading-[1.65] text-ink-600">{product.intro}</p>
+            <Reveal delay={120}>
+              <p className="mt-4 text-balance text-[1.2rem] font-medium leading-[1.4] tracking-[-0.01em] text-ink-500">
+                {product.taglineAccent}
+              </p>
+            </Reveal>
+            <Reveal delay={160}>
+              <p className="mt-5 max-w-[58ch] text-pretty text-[1rem] leading-[1.7] text-ink-600">{product.intro}</p>
             </Reveal>
             <Reveal delay={190} className="mt-8 flex flex-wrap gap-3">
               <Button href={SIGN_UP_URL} variant="ink" arrow>
@@ -326,7 +330,7 @@ function UseCases({ product }: { product: ProductDef }) {
           kicker="In practice"
           title={
             <>
-              {`How teams put ${product.name}`} <Em>to work.</Em>
+              {`How teams put ${product.name} to work.`}
             </>
           }
         />
@@ -342,7 +346,7 @@ function UseCases({ product }: { product: ProductDef }) {
                   <span className="block text-[12.5px] text-ink-500">{useCase.team}</span>
                 </span>
               </div>
-              <p className="mt-6 font-display text-[1.35rem] leading-[1.25] tracking-[-0.01em] text-ink">{useCase.objective}</p>
+              <p className="mt-6 text-[1.15rem] font-semibold leading-[1.35] tracking-[-0.015em] text-ink">{useCase.objective}</p>
               <ol className="mt-6 space-y-3 border-t border-line pt-6">
                 {useCase.steps.map((step, index) => (
                   <li key={step} className="flex gap-3 text-[14px] leading-5 text-ink-600">
@@ -373,7 +377,7 @@ function MoreProducts({ current }: { current: ProductDef }) {
           kicker="More products"
           title={
             <>
-              Same database, <Em>same permissions.</Em>
+              Same database, same permissions.
             </>
           }
           aside={<TextLink href="/products">{`All ${PRODUCTS.length} products`}</TextLink>}

@@ -16,7 +16,6 @@ import {
   Button,
   Container,
   DeptLabel,
-  Em,
   GridFill,
   Section,
   SectionHead,
@@ -38,7 +37,7 @@ export function RolePage({ role }: { role: RoleDef }) {
         <FaqSection
           title={
             <>
-              {`The ${role.name},`} <Em>asked and answered.</Em>
+              {`Questions about the ${role.name}`}
             </>
           }
           items={role.faqs}
@@ -79,14 +78,15 @@ function Hero({ role }: { role: RoleDef }) {
               </span>
             </Reveal>
             <Reveal delay={90}>
-              <h1 className="mt-8 text-balance font-display text-[clamp(2.1rem,3.9vw,3.4rem)] leading-[1.04] tracking-[-0.025em] text-ink">
-                {role.headline} <Em>{role.headlineMuted}</Em>
-              </h1>
+              <h1 className="mt-8 max-w-[18ch] text-balance font-display text-display-lg text-ink">{role.headline}</h1>
             </Reveal>
-            <Reveal delay={150}>
-              <p className="mt-7 max-w-[60ch] text-pretty text-[1.0625rem] leading-[1.65] text-ink-600 sm:text-[1.125rem]">
-                {role.intro}
+            <Reveal delay={120}>
+              <p className="mt-5 max-w-[44ch] text-balance text-[1.25rem] font-medium leading-[1.4] tracking-[-0.01em] text-ink-500 sm:text-[1.375rem]">
+                {role.headlineMuted}
               </p>
+            </Reveal>
+            <Reveal delay={170}>
+              <p className="mt-6 max-w-[60ch] text-pretty text-[1.0625rem] leading-[1.65] text-ink-600">{role.intro}</p>
             </Reveal>
             <Reveal delay={200} className="mt-9 flex flex-wrap gap-3">
               <Button href={SIGN_UP_URL} variant="ink" arrow>
@@ -102,7 +102,7 @@ function Hero({ role }: { role: RoleDef }) {
             <div className="overflow-hidden rounded-3xl border border-line bg-paper-raised shadow-soft">
               <div className="border-b border-line px-6 py-6">
                 <p className="kicker text-ink-400">What a person does today</p>
-                <p className="mt-4 font-display text-[1.35rem] italic leading-[1.4] text-ink-700">{`“${role.reclaims}”`}</p>
+                <p className="mt-4 text-[1.125rem] font-medium leading-[1.5] tracking-[-0.01em] text-ink-700">{`“${role.reclaims}”`}</p>
               </div>
               <dl className="divide-y divide-line">
                 <Fact label="Employee">{`${role.person} · ${role.name}`}</Fact>
@@ -147,7 +147,7 @@ function Day({ role }: { role: RoleDef }) {
           kicker={`The day · ${role.day.length} Runs · Tuesday`}
           title={
             <>
-              {`${role.person} ${role.shipped}`} <Em>{`by ${last}.`}</Em>
+              {`${role.person} ${role.shipped} by ${last}.`}
             </>
           }
           lede={
@@ -185,8 +185,7 @@ function Capabilities({ role }: { role: RoleDef }) {
           kicker="What it does unattended"
           title={
             <>
-              {`${role.capabilities.length} things ${role.person} takes off your plate,`}{" "}
-              <Em>on the records you already keep.</Em>
+              {`${role.capabilities.length} things ${role.person} takes off your plate.`}
             </>
           }
           lede="The work happens in the products your team already opens, on the same rows a Member edits. Nothing is exported and there is no second system of record."
@@ -246,7 +245,7 @@ function Setup({ role }: { role: RoleDef }) {
           kicker={`Setting it up · ${role.skills.length} Skills · ${role.routines.length} Routines · ${role.grants.length} Grants`}
           title={
             <>
-              {`Four documents decide how ${role.person} works.`} <Em>All of them editable.</Em>
+              {`Four documents decide how ${role.person} works.`}
             </>
           }
           lede={`Everything that makes this ${role.noun} rather than another role is plain text. Change the Soul and the next Run reads the new version.`}
@@ -254,7 +253,7 @@ function Setup({ role }: { role: RoleDef }) {
         <div ref={grid} className="mt-14 grid gap-4 lg:grid-cols-2">
           <Document label="Soul" caption="Who they are">
             <div className="flex h-full flex-col px-6 py-5">
-              <p className="font-display text-[1.25rem] leading-[1.45] text-ink-700">
+              <p className="text-[1.125rem] font-medium leading-[1.5] tracking-[-0.01em] text-ink-700">
                 {`One document says how ${role.person} judges: what to work on first, and when to stop and ask rather than guess. You rewrite it the way you would rewrite a job description.`}
               </p>
               <p className="mt-auto flex items-center gap-2 pt-6 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-400">
@@ -313,7 +312,7 @@ function Document({ label, caption, children }: { label: string; caption: string
   return (
     <div className="flex flex-col overflow-hidden rounded-3xl border border-line bg-paper [&>*:last-child]:flex-1">
       <div className="flex items-baseline justify-between gap-4 border-b border-line px-6 py-4">
-        <p className="font-display text-[1.5rem] leading-none tracking-[-0.015em] text-ink">{label}</p>
+        <p className="font-display text-[1.3rem] leading-none tracking-[-0.03em] text-ink">{label}</p>
         <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-400">{caption}</p>
       </div>
       {children}
@@ -332,7 +331,7 @@ function Products({ role }: { role: RoleDef }) {
           kicker="Where the work lands"
           title={
             <>
-              {`${role.person} works in ${products.length} products,`} <Em>one Grant at a time.</Em>
+              {`${role.person} works in ${products.length} products, one Grant at a time.`}
             </>
           }
         />
@@ -377,7 +376,7 @@ function OtherRoles({ current }: { current: string }) {
           kicker="The rest of the roster"
           title={
             <>
-              {`${others.length} more roles,`} <Em>each with its day written.</Em>
+              {`${others.length} more roles, each with its day written.`}
             </>
           }
           aside={<TextLink href="/roles">Compare every role</TextLink>}

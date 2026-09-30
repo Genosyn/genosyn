@@ -6,7 +6,6 @@ import { Integrations } from "@/sections/Integrations";
 import { Roster } from "@/sections/Roster";
 import { DayInLife } from "@/sections/DayInLife";
 import { Anatomy } from "@/sections/Anatomy";
-import { Shift } from "@/sections/Shift";
 import { Guardrails } from "@/sections/Guardrails";
 import { Platform } from "@/sections/Platform";
 import { OpenSource } from "@/sections/OpenSource";
@@ -14,7 +13,7 @@ import { PricingTeaser } from "@/sections/PricingTeaser";
 import { ClosingCta, Footer } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
 import { Pricing } from "@/sections/Pricing";
-import { Button, Container, Em } from "@/sections/Kit";
+import { Button, Container } from "@/sections/Kit";
 import { DocsApp } from "@/docs/DocsApp";
 import { ProductsIndex } from "@/products/ProductsIndex";
 import { ProductPage } from "@/products/ProductPage";
@@ -80,7 +79,6 @@ function Landing() {
       <Roster />
       <DayInLife />
       <Anatomy />
-      <Shift />
       <Guardrails />
       <Platform />
       <OpenSource />
@@ -134,7 +132,7 @@ function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string
             404
           </p>
           <h1 className="mt-6 max-w-[16ch] text-balance font-display text-display-xl text-ink">
-            {`No ${kind} lives here.`} <Em>Yet.</Em>
+            {`No ${kind} lives here.`}
           </h1>
           <p className="mt-7 max-w-[48ch] text-[1.125rem] leading-[1.6] text-ink-600">
             The page does not exist. Everything Genosyn ships is one click away.

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { BadgeCheck, CircleSlash2, Hand, KeyRound, MessageCircleQuestion, type LucideIcon } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
-import { Avatar, Container, Em, Section, SectionHead, StateTag, TextLink } from "@/sections/Kit";
+import { Avatar, Container, Section, SectionHead, StateTag, TextLink } from "@/sections/Kit";
 
 type Instrument = {
   icon: LucideIcon;
@@ -58,7 +58,7 @@ export function Guardrails() {
           kicker="Guardrails"
           title={
             <>
-              It stops for you <Em>only where it matters.</Em>
+              It stops for you only where it matters.
             </>
           }
           lede="Autonomy is not a leap of faith. Every AI Employee works inside Grants you chose, and every consequential step comes to a person first."
@@ -77,7 +77,7 @@ export function Guardrails() {
                 </span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="font-display text-[1.45rem] leading-tight tracking-[-0.01em] text-ink">
+                    <h3 className="font-display text-[1.25rem] leading-tight tracking-[-0.025em] text-ink">
                       {instrument.name}
                     </h3>
                     {instrument.tag}
@@ -118,7 +118,7 @@ function DecisionCard() {
 
         <div className="px-6 pb-6 pt-6">
           <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-400">Tuesday · 10:40</p>
-          <p className="mt-3 font-display text-[1.9rem] leading-[1.1] tracking-[-0.02em] text-ink sm:text-[2.2rem]">
+          <p className="mt-3 font-display text-[1.75rem] leading-[1.12] tracking-[-0.035em] text-ink sm:text-[2rem]">
             Write off a £42 discrepancy, or chase it?
           </p>
           <p className="mt-4 text-[14.5px] leading-6 text-ink-600">

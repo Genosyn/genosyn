@@ -49,7 +49,7 @@ export function Integrations() {
                 <li
                   key={`${name}-${index}`}
                   aria-hidden={index >= INTEGRATIONS.length}
-                  className="flex items-center whitespace-nowrap px-6 font-display text-[1.55rem] leading-none tracking-[-0.015em] text-ink-400 motion-reduce:[&:nth-child(n+22)]:hidden"
+                  className="flex items-center whitespace-nowrap px-6 text-[1.35rem] font-semibold leading-none tracking-[-0.03em] text-ink-300 motion-reduce:[&:nth-child(n+22)]:hidden"
                 >
                   {name}
                   <span aria-hidden className="ml-12 h-1 w-1 rounded-full bg-ink-200" />

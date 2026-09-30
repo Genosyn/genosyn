@@ -2,14 +2,14 @@ import type { Config } from "tailwindcss";
 
 /**
  * The marketing site's visual language: black and white. A neutral paper,
- * near-black ink, and black night panels, set in Newsreader (display), Geist
- * (text) and Geist Mono (anything the software emitted — clocks, cron lines,
+ * near-black ink, and black night panels, set in Mona Sans (headings and
+ * text) and Geist Mono (anything the software emitted — clocks, cron lines,
  * Run ids).
  *
- * There is no accent hue. Emphasis is typographic (the italic turn in a
- * headline, set a step lighter) and inversion: the one thing on a surface
- * that needs a person is drawn solid — black on paper, white on the night.
- * A Decision is a solid pill; an Approval is an outlined one.
+ * There is no accent hue and no italic. Emphasis is weight, a lighter grey
+ * for the second half of a few headlines, and inversion: the one thing on a
+ * surface that needs a person is drawn solid — black on paper, white on the
+ * night. A Decision is a solid pill; an Approval is an outlined one.
  *
  * Product mock-ups (previews.tsx, ProductPrototype.tsx, CompanyPreview.tsx)
  * picture the App, so they keep Tailwind's own slate and indigo, exactly as
@@ -73,9 +73,18 @@ export default {
         },
       },
       fontFamily: {
-        display: ["Newsreader", "ui-serif", "Georgia", "Cambria", "Times New Roman", "serif"],
+        display: [
+          "Mona Sans",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
         sans: [
-          "Geist",
+          "Mona Sans",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
@@ -89,11 +98,11 @@ export default {
       fontSize: {
         // Display sizes are fluid: a phone gets a headline that fits two or
         // three lines, a wide screen gets one that fills the measure.
-        "display-2xl": ["clamp(3rem, 8.2vw, 7.25rem)", { lineHeight: "0.95", letterSpacing: "-0.035em" }],
-        "display-xl": ["clamp(2.6rem, 6vw, 5.5rem)", { lineHeight: "0.98", letterSpacing: "-0.03em" }],
-        "display-lg": ["clamp(2.25rem, 4.6vw, 4rem)", { lineHeight: "1.02", letterSpacing: "-0.025em" }],
-        "display-md": ["clamp(1.85rem, 3.3vw, 2.85rem)", { lineHeight: "1.06", letterSpacing: "-0.02em" }],
-        "display-sm": ["clamp(1.45rem, 2.2vw, 1.9rem)", { lineHeight: "1.12", letterSpacing: "-0.015em" }],
+        "display-2xl": ["clamp(2.8rem, 6.4vw, 5.5rem)", { lineHeight: "0.98", letterSpacing: "-0.045em" }],
+        "display-xl": ["clamp(2.4rem, 5vw, 4.25rem)", { lineHeight: "1", letterSpacing: "-0.042em" }],
+        "display-lg": ["clamp(2rem, 3.7vw, 3.15rem)", { lineHeight: "1.04", letterSpacing: "-0.038em" }],
+        "display-md": ["clamp(1.65rem, 2.6vw, 2.25rem)", { lineHeight: "1.1", letterSpacing: "-0.03em" }],
+        "display-sm": ["clamp(1.3rem, 1.8vw, 1.6rem)", { lineHeight: "1.18", letterSpacing: "-0.02em" }],
       },
       letterSpacing: {
         kicker: "0.14em",

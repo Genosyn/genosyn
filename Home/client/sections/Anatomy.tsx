@@ -60,7 +60,7 @@ export function Anatomy() {
           kicker="Inside a role"
           title={
             <>
-              An AI Employee is <Em tone="muted">four documents you can read.</Em>
+              An AI Employee is four documents you can read.
             </>
           }
           lede="Nothing hidden and nothing proprietary. A Soul, its Skills, its Routines and its Grants are plain text on a database row: edited in place, read fresh on every Run."
@@ -82,8 +82,8 @@ export function Anatomy() {
                 {SOUL.map((line, index) => (
                   <li
                     key={line}
-                    className={`font-display text-[1.3rem] leading-[1.35] tracking-[-0.01em] sm:text-[1.45rem] ${
-                      index === SOUL.length - 1 ? "text-ink" : "text-ink-700"
+                    className={`text-[1.125rem] font-medium leading-[1.45] tracking-[-0.012em] sm:text-[1.25rem] ${
+                      index === SOUL.length - 1 ? "text-ink" : "text-ink-600"
                     }`}
                   >
                     {index === SOUL.length - 1 ? (
@@ -219,7 +219,7 @@ export function Anatomy() {
             {LADDER.map((rung, index) => (
               <li key={rung.step} className="relative rounded-3xl border border-line bg-paper-raised p-6">
                 <span className="font-mono text-[12px] text-ink-400">{`0${index + 1}`}</span>
-                <p className="mt-10 font-display text-[1.75rem] leading-tight tracking-[-0.015em] text-ink">{rung.step}</p>
+                <p className="mt-10 font-display text-[1.45rem] leading-tight tracking-[-0.03em] text-ink">{rung.step}</p>
                 <p className="mt-3 max-w-[38ch] text-[14.5px] leading-6 text-ink-600">{rung.body}</p>
                 {/* Rungs rise left to right. */}
                 <span
@@ -257,7 +257,7 @@ function Panel({
   return (
     <div className={`flex flex-col overflow-hidden rounded-3xl border border-line bg-paper-raised ${className}`}>
       <div className="flex items-baseline justify-between gap-4 px-6 pt-5">
-        <p className="font-display text-[1.6rem] leading-none tracking-[-0.015em] text-ink">{label}</p>
+        <p className="font-display text-[1.35rem] leading-none tracking-[-0.03em] text-ink">{label}</p>
         <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-400">{caption}</p>
       </div>
       <div className="mt-4 flex flex-1 flex-col border-t border-line">{children}</div>

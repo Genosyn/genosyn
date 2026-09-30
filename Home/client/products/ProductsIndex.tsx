@@ -8,7 +8,7 @@ import { PRODUCT_CATEGORIES, PRODUCTS, type ProductDef } from "@/products/data";
 import { PRODUCT_ICON, productDept, workedBy } from "@/products/meta";
 import { CompanyPreview } from "@/sections/CompanyPreview";
 import { ClosingCta, Footer } from "@/sections/Footer";
-import { Button, Container, DEPT_DOT, Em, FactRow, Section } from "@/sections/Kit";
+import { Button, Container, DEPT_DOT, FactRow, Section } from "@/sections/Kit";
 import { Nav } from "@/sections/Nav";
 import { PageHero } from "@/sections/PageHero";
 
@@ -21,7 +21,7 @@ export function ProductsIndex() {
           kicker="Products"
           title={
             <>
-              Everything the work needs, <Em>in one install.</Em>
+              Everything the work needs, in one install.
             </>
           }
           lede="An AI Employee works inside these the way a colleague works inside your tools. A Grant decides which records it reaches, and every Run leaves a trail you can read back."
@@ -72,7 +72,7 @@ function Catalogue() {
       <Container>
         <div className="flex flex-wrap items-end justify-between gap-6">
           <h2 className="font-display text-display-md text-ink">
-            The catalogue <Em>{`· ${PRODUCTS.length}`}</Em>
+            The catalogue
           </h2>
           <div role="group" aria-label="Filter by category" className="flex flex-wrap gap-2">
             {[null, ...categories].map((name) => {
@@ -132,7 +132,7 @@ function ProductCard({ product }: { product: ProductDef }) {
         </span>
         <ArrowUpRight aria-hidden className="nudge-up h-5 w-5 text-ink-300 group-hover:text-ink" />
       </span>
-      <span className="mt-6 font-display text-[1.3rem] leading-[1.25] tracking-[-0.01em] text-ink">{product.tagline}</span>
+      <span className="mt-6 text-[1.15rem] font-semibold leading-[1.35] tracking-[-0.015em] text-ink">{product.tagline}</span>
       <span className="mt-3 text-[14.5px] leading-6 text-ink-600">{product.summary}</span>
       <span className="mt-auto pt-6 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-400">
         {roles.length === 0

@@ -54,7 +54,7 @@ export function RoleCard({ role }: { role: RoleDef }) {
         <div className="flex min-w-0 items-center gap-3">
           <Avatar initials={roleInitials(role)} dept={roleDept(role)} size="md" />
           <div className="min-w-0">
-            <p className="truncate font-display text-[1.35rem] leading-tight tracking-[-0.01em] text-ink">
+            <p className="truncate font-display text-[1.2rem] leading-tight tracking-[-0.025em] text-ink">
               {role.person}
             </p>
             <p className="truncate text-[13px] text-ink-500">{role.name}</p>
@@ -64,7 +64,7 @@ export function RoleCard({ role }: { role: RoleDef }) {
       </div>
 
       <div className="mt-8">
-        <p className="font-display text-[3.1rem] leading-none tracking-[-0.03em] text-ink tabular">
+        <p className="font-display text-[3rem] leading-none tracking-[-0.045em] text-ink">
           {output.value}
         </p>
         <p className="mt-2 text-[14px] leading-5 text-ink-600">{output.label}</p>

@@ -3,9 +3,9 @@ import type { Dept } from "@/sections/Kit";
 /**
  * One Tuesday at Northstar Labs, a sample company running on Genosyn.
  *
- * The landing page tells this night three times — the hero's live console,
- * the whole-shift chart, and the 09:31 dashboard — and all three read this
- * module, so a Run cannot finish at 04:45 in one place and 04:50 in another.
+ * The landing page tells this night twice — the hero's live console and the
+ * 09:31 dashboard — and both read this module, so a Run cannot finish at 04:45
+ * in one place and 04:50 in another.
  *
  * Left to right is midnight to midnight: `at` is when a Run started, in hours
  * past midnight, and `hours` is how long it took. Decisions and Approvals are
@@ -136,10 +136,6 @@ export const OVERNIGHT: FlatEvent[] = ALL_EVENTS.filter(
 /** The only things that needed a person. */
 export const WAITING: FlatEvent[] = ALL_EVENTS.filter((event) => event.state !== "run");
 
-export const DECISIONS_WAITING = WAITING.filter((event) => event.state === "decision").length;
-export const APPROVALS_WAITING = WAITING.filter((event) => event.state === "approval").length;
-
-export const FIRST_RUN = OVERNIGHT[0].at;
 export const LAST_OVERNIGHT_END = Math.max(
   ...OVERNIGHT.map((event) => event.at + (event.hours ?? 0.25)),
 );

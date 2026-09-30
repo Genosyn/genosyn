@@ -140,7 +140,7 @@ export function Nav() {
                   href={link.href}
                   onClick={() => setOpen(false)}
                   aria-current={path === link.href ? "page" : undefined}
-                  className="group flex items-center justify-between py-4 font-display text-[1.9rem] leading-none text-ink"
+                  className="group flex items-center justify-between py-4 font-display text-[1.6rem] leading-none tracking-[-0.035em] text-ink"
                 >
                   {link.label}
                   <ArrowRight aria-hidden className="nudge h-5 w-5 text-ink-400" />

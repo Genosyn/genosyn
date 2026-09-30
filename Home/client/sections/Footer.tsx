@@ -3,7 +3,7 @@ import { Github } from "lucide-react";
 import { GITHUB_URL, SIGN_UP_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
-import { Button, Container, CopyCommand, Em, NightPanel, TextLink } from "@/sections/Kit";
+import { Button, Container, CopyCommand, NightPanel, TextLink } from "@/sections/Kit";
 
 const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
@@ -77,7 +77,7 @@ export function ClosingCta({
           <h2 className="mx-auto mt-7 max-w-[16ch] text-balance font-display text-display-xl text-white">
             {title ?? (
               <>
-                Give tomorrow <Em tone="night">a head start.</Em>
+                Give tomorrow a head start.
               </>
             )}
           </h2>
@@ -116,8 +116,8 @@ export function Footer() {
             <Link href="/" aria-label="Genosyn home" className="inline-block text-ink transition-opacity hover:opacity-70">
               <Logo className="text-[15px]" />
             </Link>
-            <p className="mt-6 font-display text-[1.45rem] leading-[1.25] tracking-[-0.01em] text-ink">
-              The open-source workplace for <Em>AI Employees</Em> and the people they work for.
+            <p className="mt-6 max-w-[26ch] text-[1.2rem] font-medium leading-[1.4] tracking-[-0.015em] text-ink">
+              The open-source workplace for AI Employees and the people they work for.
             </p>
             <a
               href={GITHUB_URL}

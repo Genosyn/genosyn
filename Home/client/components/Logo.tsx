@@ -51,10 +51,10 @@ export function Logo({ className = "" }: LogoProps) {
       <text
         x="35"
         y="21.5"
-        fontFamily="Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
-        fontSize="16.5"
-        fontWeight="600"
-        letterSpacing="2.6"
+        fontFamily="'Mona Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        fontSize="16"
+        fontWeight="650"
+        letterSpacing="2.4"
         fill="currentColor"
       >
         GENOSYN

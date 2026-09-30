@@ -5,20 +5,19 @@ The standalone marketing site for [Genosyn](https://github.com/Genosyn/genosyn).
 React 18 + Vite + TailwindCSS, served in production by a tiny Express process.
 
 The site is black and white. A neutral paper ground, near-black ink, and black
-"night" panels carry the structure; there is no accent hue. Emphasis is the
-italic turn in a Newsreader headline, and inversion: the one thing on a surface
-that needs a person is drawn solid (a Decision), and an Approval is outlined.
-Body text is Geist and anything the software emitted — clocks, cron lines,
-commands — is Geist Mono. Department hues appear only as small dots beside a
-label. Tokens live in `tailwind.config.ts`; shared surfaces, headings, buttons
+"night" panels carry the structure; there is no accent hue and no italic.
+Headings and text are set in Mona Sans, and anything the software emitted —
+clocks, cron lines, commands — in Geist Mono. Emphasis is weight, a lighter
+grey for the second half of a few headlines, and inversion: the one thing on a
+surface that needs a person is drawn solid (a Decision), and an Approval is
+outlined. Department hues appear only as small dots beside a label. Tokens live in `tailwind.config.ts`; shared surfaces, headings, buttons
 and tags live in `client/sections/Kit.tsx`.
 
 The landing page tells one sample night at a company on Genosyn. The hero plays
 the night forward from 04:05 to 09:30 on a console — Runs arriving, the horizon
 brightening — and then shows the morning: eighteen Runs finished, three things
-waiting for a person. The same data (`client/lib/night.ts`) draws the
-whole-shift chart and the 09:31 dashboard further down, so the three views
-cannot disagree. Product mock-ups picture the App and are illustrative, not
+waiting for a person. The same data (`client/lib/night.ts`) draws the 09:31
+dashboard further down, so the two views cannot disagree. Product mock-ups picture the App and are illustrative, not
 live records.
 
 Motion is brief and optional. Entrances run once through

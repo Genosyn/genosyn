@@ -69,7 +69,7 @@ export function Platform() {
                 One install · one permission model
               </span>
               <span className="flex items-end justify-between gap-6">
-                <span className="max-w-[26ch] font-display text-[1.75rem] leading-[1.1] tracking-[-0.015em]">
+                <span className="max-w-[24ch] font-display text-[1.5rem] leading-[1.15] tracking-[-0.035em]">
                   Every product, and the AI Employees that work in it.
                 </span>
                 <ArrowUpRight aria-hidden className="nudge-up h-5 w-5 shrink-0" />

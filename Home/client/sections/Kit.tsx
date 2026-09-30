@@ -7,10 +7,10 @@ import { Link } from "@/lib/router";
 /**
  * The marketing kit, in black and white.
  *
- * Paper and ink do the structural work. There is no accent hue: emphasis is
- * the italic turn in a headline, and inversion — the one thing on a surface
- * that needs a person is drawn solid. Department hues only ever appear as
- * small dots beside a label, never as a surface.
+ * Paper and ink do the structural work. There is no accent hue and no italic:
+ * emphasis is weight, a lighter grey for the second half of a few headlines,
+ * and inversion — the one thing on a surface that needs a person is drawn
+ * solid. Department hues only ever appear as small dots beside a label.
  */
 
 /* -------------------------------------------------------------------------
@@ -235,7 +235,10 @@ export function Title({
   );
 }
 
-/** The italic turn inside a headline, a step lighter than the rest of it. */
+/**
+ * The second half of a headline, set a step lighter. Used sparingly: a few
+ * headlines turn on a contrast ("14 products. One database."), most do not.
+ */
 export function Em({
   tone = "muted",
   className = "",
@@ -250,7 +253,7 @@ export function Em({
     muted: "text-ink-400",
     night: "text-white/55",
   }[tone];
-  return <em className={`font-display italic ${color} ${className}`}>{children}</em>;
+  return <span className={`${color} ${className}`}>{children}</span>;
 }
 
 export function Lede({

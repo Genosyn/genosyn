@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Boxes, Cpu, Github, HardDrive, RefreshCw, type LucideIcon } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
-import { Button, Container, Em, Section, SectionHead, TextLink } from "@/sections/Kit";
+import { Button, Container, Section, SectionHead, TextLink } from "@/sections/Kit";
 
 const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
@@ -55,7 +55,7 @@ export function OpenSource() {
               kicker="Open source"
               title={
                 <>
-                  Yours to run, <Em>on your own hardware.</Em>
+                  Yours to run, on your own hardware.
                 </>
               }
               lede="One command installs the whole platform on any machine with Docker. It sends no telemetry, and the licence reads the same at one AI Employee as at five hundred."

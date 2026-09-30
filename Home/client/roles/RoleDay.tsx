@@ -157,7 +157,7 @@ export function DayReport({ role }: { role: RoleDef }) {
         <dl className="mt-4 divide-y divide-line border-y border-line">
           {role.outputs.map((output) => (
             <div key={output.label} className="flex items-baseline gap-4 py-4">
-              <dt className="w-[5.5rem] shrink-0 font-display text-[2.1rem] leading-none tracking-[-0.03em] text-ink tabular">
+              <dt className="w-[5.5rem] shrink-0 font-display text-[2rem] leading-none tracking-[-0.04em] text-ink">
                 {output.value}
               </dt>
               <dd className="text-[14px] leading-5 text-ink-600">{output.label}</dd>
@@ -170,7 +170,7 @@ export function DayReport({ role }: { role: RoleDef }) {
         <ul className="mt-4 space-y-3">
           {role.decisions.map((question) => (
             <li key={question} className="border-l-2 border-ink pl-4">
-              <p className="font-display text-[1.15rem] italic leading-[1.35] text-ink">{`“${question}”`}</p>
+              <p className="text-[1rem] font-medium leading-[1.45] tracking-[-0.005em] text-ink">{`“${question}”`}</p>
             </li>
           ))}
         </ul>

@@ -21,7 +21,6 @@ html {
 html,
 body {
   @apply bg-paper font-sans text-ink antialiased;
-  font-feature-settings: "ss01" on;
   text-rendering: optimizeLegibility;
 }
 
@@ -46,17 +45,12 @@ body {
 ------------------------------------------------------------------------- */
 
 @layer components {
-  /* Newsreader carries an optical-size axis; let the browser pick the cut
-     that matches the rendered size so a 110px headline gets the display cut
-     and a 20px quote gets the text cut. */
+  /* Headings: Mona Sans at a firm weight, tracked in as it grows. The
+     `text-display-*` sizes carry their own tracking; this is the floor for
+     smaller headings set with an arbitrary size. */
   .font-display {
-    font-optical-sizing: auto;
-    font-weight: 400;
-  }
-
-  .font-display em,
-  .font-display i {
-    font-style: italic;
+    font-weight: 600;
+    letter-spacing: -0.02em;
   }
 
   /* Legacy data labels, still used by the product mock-ups. */
