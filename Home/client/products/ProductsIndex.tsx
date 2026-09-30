@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
-import { SIGN_UP_URL } from "@/lib/constants";
+import { INSTALL_DOCS_PATH } from "@/lib/constants";
 import { iconFor } from "@/lib/icons";
 import { Link } from "@/lib/router";
 import { PRODUCT_CATEGORIES, PRODUCTS, type ProductDef } from "@/products/data";
@@ -27,8 +27,8 @@ export function ProductsIndex() {
           lede="An AI Employee works inside these the way a colleague works inside your tools. A Grant decides which records it reaches, and every Run leaves a trail you can read back."
           actions={
             <>
-              <Button href={SIGN_UP_URL} variant="ink" arrow>
-                Start free
+              <Button href={INSTALL_DOCS_PATH} variant="ink" arrow>
+                Install Genosyn
               </Button>
               <Button href="/docs" variant="outline">
                 Read the docs

@@ -555,10 +555,6 @@ export function SelfHosting() {
       </P>
 
       <H3 id="sso">SSO</H3>
-      <Callout kind="info" title="Genosyn Enterprise feature.">
-        On a self-hosted install, enabling SSO requires an Enterprise license activated at{" "}
-        <Code>Admin → License</Code> — see <DocLink to="/docs/enterprise-license" />.
-      </Callout>
       <P>
         <Code>Admin → SSO</Code> adds single sign-on to the login page —{" "}
         <Strong>disabled by default</Strong>; a fresh install only offers email + password until a
@@ -591,6 +587,16 @@ export function SelfHosting() {
         provider admits get a Genosyn account automatically — turn it off to admit only people who
         already have an account or an invitation. Password login keeps working either way, so
         enabling (or later resetting) SSO can never lock an operator out.
+      </P>
+      <P>
+        Companies can also sign their Members in through their own identity provider, with their
+        own login URL, at <Strong>Settings → Single sign-on</Strong> — see{" "}
+        <DocLink to="/docs/security#company-sso">Company single sign-on</DocLink>. A master admin
+        allows that first with <Strong>Let companies use their own identity provider</Strong>{" "}
+        under <Strong>Company single sign-on</Strong> on the same page. It is off by default:
+        each company admin&apos;s provider can then sign that company&apos;s Members in to their
+        whole account, so turn it on only if you trust every company admin on the install with
+        that.
       </P>
 
       <H3 id="db-console">Database console</H3>

@@ -1,5 +1,5 @@
 import { ArrowRight, Github, Menu, X } from "lucide-react";
-import { GITHUB_URL, SIGN_IN_URL, SIGN_UP_URL } from "@/lib/constants";
+import { GITHUB_URL, INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 
@@ -44,19 +44,13 @@ export function DocsNav({
             GitHub
             <span className="sr-only">{"(opens in a new tab)"}</span>
           </a>
-          <a
-            href={SIGN_IN_URL}
-            className="hidden h-10 items-center rounded-full px-3 text-[14px] text-ink-500 transition-colors hover:text-ink sm:inline-flex"
-          >
-            Sign in
-          </a>
-          <a
-            href={SIGN_UP_URL}
+          <Link
+            href={INSTALL_DOCS_PATH}
             className="press group inline-flex h-10 items-center gap-1.5 rounded-full bg-ink px-4 text-[14px] font-medium text-white hover:bg-ink-800"
           >
-            Start free
+            Install Genosyn
             <ArrowRight aria-hidden className="nudge h-3.5 w-3.5" />
-          </a>
+          </Link>
         </div>
       </div>
     </header>

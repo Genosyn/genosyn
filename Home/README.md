@@ -58,7 +58,7 @@ Home/
 │   ├── components/            # Logo, Marks, and the Reveal entrance primitive
 │   ├── lib/                   # router, head manager, siteMeta (SEO), night.ts, icons
 │   ├── public/favicon.svg
-│   ├── sections/              # Kit, Nav, Hero and the landing bands, Pricing, Enterprise, Footer
+│   ├── sections/              # Kit, Nav, Hero and the landing bands, Footer
 │   ├── roles/                 # role registry + /roles and /roles/<slug> pages
 │   ├── products/              # product registry + /products pages
 │   └── docs/                  # /docs shell, nav, and pages

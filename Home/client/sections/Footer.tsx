@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Github } from "lucide-react";
-import { GITHUB_URL, SIGN_UP_URL } from "@/lib/constants";
+import { GITHUB_URL, INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 import { Button, Container, CopyCommand, NightPanel, TextLink } from "@/sections/Kit";
@@ -34,7 +34,7 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
     title: "Resources",
     links: [
       ["Documentation", "/docs"],
-      ["Install guide", "/docs/install"],
+      ["Install guide", INSTALL_DOCS_PATH],
       ["Self-hosting", "/docs/self-hosting"],
       ["Kubernetes", "/docs/kubernetes"],
       ["CLI reference", "/docs/cli"],
@@ -44,11 +44,11 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
   {
     title: "Company",
     links: [
-      ["Pricing", "/pricing"],
-      ["Enterprise", "/enterprise"],
       ["GitHub", GITHUB_URL],
       ["Releases", `${GITHUB_URL}/releases`],
       ["Issues", `${GITHUB_URL}/issues`],
+      ["Contributing", `${GITHUB_URL}/blob/main/CONTRIBUTING.md`],
+      ["Apache 2.0 license", `${GITHUB_URL}/blob/main/LICENSE`],
       ["install.sh", "/install.sh"],
     ],
   },
@@ -56,11 +56,11 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
 
 /**
  * The closing band on every marketing page: the night, once more, with the
- * two ways in.
+ * way in.
  */
 export function ClosingCta({
   title,
-  lede = "Hire one AI Employee, give it one Routine, and read what it did in the morning. Start on Genosyn Cloud for free, or run the same software on your own hardware.",
+  lede = "Hire one AI Employee, give it one Routine, and read what it did in the morning. The whole product installs on your own hardware with one command, free for everyone.",
 }: {
   title?: ReactNode;
   lede?: ReactNode;
@@ -85,20 +85,20 @@ export function ClosingCta({
             {lede}
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-            <Button href={SIGN_UP_URL} variant="paper" size="lg" arrow>
-              Start free on Cloud
+            <Button href={INSTALL_DOCS_PATH} variant="paper" size="lg" arrow>
+              Install Genosyn
             </Button>
-            <Button href="/pricing" variant="outline-night" size="lg">
-              See pricing
+            <Button href={GITHUB_URL} external variant="outline-night" size="lg">
+              Read the source
             </Button>
           </div>
           <CopyCommand command={INSTALL_COMMAND} night className="mx-auto mt-5 max-w-[32rem] text-left" />
           <div className="mt-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-            <TextLink href="/docs/install" night>
-              Read the install guide
+            <TextLink href="/docs/self-hosting" night>
+              Self-hosting guide
             </TextLink>
-            <TextLink href={GITHUB_URL} external night>
-              Read the source
+            <TextLink href="/docs/kubernetes" night>
+              Run it on Kubernetes
             </TextLink>
           </div>
         </div>

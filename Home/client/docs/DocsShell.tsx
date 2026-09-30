@@ -37,8 +37,6 @@ const PATH_TO_SOURCE: Record<string, string> = {
   "/docs/reactivity": "Reactivity.tsx",
   "/docs/vault": "Vault.tsx",
   "/docs/vault-sources": "VaultSources.tsx",
-  "/docs/plans-billing": "PlansBilling.tsx",
-  "/docs/enterprise-license": "EnterpriseLicense.tsx",
   "/docs/self-hosting": "SelfHosting.tsx",
   "/docs/saas-hosting": "SaasHosting.tsx",
   "/docs/cli": "Cli.tsx",
@@ -320,7 +318,6 @@ function DocsFooter() {
         <p className="text-[12.5px] text-ink-500">{`© ${__BUILD_YEAR__} HackerBay, Inc. · Genosyn v${__APP_VERSION__}`}</p>
         <nav aria-label="Site" className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <FooterLink href="/">Home</FooterLink>
-          <FooterLink href="/pricing">Pricing</FooterLink>
           <FooterLink href={GITHUB_URL} external>
             GitHub
           </FooterLink>

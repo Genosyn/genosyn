@@ -176,10 +176,10 @@ export function Pipelines() {
         that message in the log. Because the code carries company-wide authority, only a human can
         add or edit this step — an AI Employee authoring a Pipeline is refused it.
       </P>
-      <Callout kind="warn" title="Self-hosted installs only.">
-        The <Strong>Run JavaScript</Strong> step is unavailable on Genosyn Cloud and on any install
-        running in shared SaaS mode. The step isolates code well enough to keep an honest program
-        honest — fresh globals, no dynamic code generation, hard time and memory bounds — but it is
+      <Callout kind="warn" title="Single-tenant installs only.">
+        The <Strong>Run JavaScript</Strong> step is unavailable on any install running in shared
+        SaaS mode. The step isolates code well enough to keep an honest program honest — fresh
+        globals, no dynamic code generation, hard time and memory bounds — but it is
         not a boundary against someone deliberately trying to break out of it, and on shared
         infrastructure that boundary has to hold against every other tenant. The step is not offered
         in the palette, a Pipeline containing one reports an error, and a Run refuses it. Use{" "}

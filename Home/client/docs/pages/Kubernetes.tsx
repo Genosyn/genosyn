@@ -195,10 +195,8 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         database. It does not replace an existing different URL; change that at{" "}
         <Code>Admin → General</Code>. Verify DNS and HTTPS before opening registration, then verify
         the configured operator and set <Code>Admin → Email transport</Code> for verification and
-        recovery messages. OAuth apps belong at <Code>Admin → Integrations</Code>. Private{" "}
-        <Code>billing</Code> values initialize Stripe on first setup; see{" "}
-        <DocLink to="/docs/plans-billing#operators">billing setup</DocLink>. Edit saved settings at{" "}
-        <Code>Admin → Billing</Code>. Keep the public URL at <Code>https://app.genosyn.com</Code>.
+        recovery messages. OAuth apps belong at <Code>Admin → Integrations</Code>. Keep the public
+        URL at <Code>https://app.genosyn.com</Code>.
         For hosted sign-in, set{" "}
         <Strong>Admin → Runtime → Hosted sign-in → Hosted sign-in address</Strong> to{" "}
         <Code>https://connect.genosyn.com</Code> before enabling hosting. Register Google&apos;s new{" "}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, RotateCcw, Sunrise } from "lucide-react";
-import { SIGN_UP_URL } from "@/lib/constants";
+import { INSTALL_DOCS_PATH } from "@/lib/constants";
 import {
   ARRIVAL,
   COMPANY,
@@ -114,7 +114,7 @@ export function Hero() {
               <span aria-hidden className="h-px w-6 bg-white/50" />
               Open source
               <span aria-hidden className="hidden text-night-faint sm:inline">/</span>
-              <span className="hidden sm:inline">Self-host or Cloud</span>
+              <span className="hidden sm:inline">Apache 2.0</span>
               <span aria-hidden className="text-night-faint">/</span>
               <span className="normal-case tracking-[0.06em]">{`v${__APP_VERSION__}`}</span>
             </p>
@@ -131,8 +131,8 @@ export function Hero() {
             </p>
 
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <Button href={SIGN_UP_URL} variant="paper" size="lg" arrow>
-                Start free on Cloud
+              <Button href={INSTALL_DOCS_PATH} variant="paper" size="lg" arrow>
+                Install Genosyn
               </Button>
               <Button href="/docs" variant="outline-night" size="lg">
                 Read the docs
@@ -141,7 +141,7 @@ export function Hero() {
 
             <div className="mt-7 max-w-[33rem]">
               <p className="mb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-night-faint">
-                Or self-host in one command
+                Or install in one command
               </p>
               <CopyCommand command={INSTALL_COMMAND} night />
             </div>

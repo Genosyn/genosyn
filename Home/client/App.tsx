@@ -9,10 +9,7 @@ import { Anatomy } from "@/sections/Anatomy";
 import { Guardrails } from "@/sections/Guardrails";
 import { Platform } from "@/sections/Platform";
 import { OpenSource } from "@/sections/OpenSource";
-import { PricingTeaser } from "@/sections/PricingTeaser";
 import { ClosingCta, Footer } from "@/sections/Footer";
-import { Enterprise } from "@/sections/Enterprise";
-import { Pricing } from "@/sections/Pricing";
 import { Button, Container } from "@/sections/Kit";
 import { DocsApp } from "@/docs/DocsApp";
 import { ProductsIndex } from "@/products/ProductsIndex";
@@ -43,22 +40,6 @@ export function App() {
     return <DocsApp />;
   }
 
-  if (path.startsWith("/enterprise")) {
-    return (
-      <Page>
-        <Enterprise />
-      </Page>
-    );
-  }
-
-  if (path.startsWith("/pricing")) {
-    return (
-      <Page>
-        <Pricing />
-      </Page>
-    );
-  }
-
   if (path.startsWith("/products")) {
     return <ProductsRoute path={path} />;
   }
@@ -82,7 +63,6 @@ function Landing() {
       <Guardrails />
       <Platform />
       <OpenSource />
-      <PricingTeaser />
       <ClosingCta />
     </Page>
   );

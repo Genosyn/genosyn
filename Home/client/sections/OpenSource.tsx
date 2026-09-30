@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Boxes, Cpu, Github, HardDrive, RefreshCw, type LucideIcon } from "lucide-react";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Button, Container, Section, SectionHead, TextLink } from "@/sections/Kit";
 
 const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
@@ -25,7 +25,7 @@ const FACTS: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: Github,
     title: "Apache 2.0",
-    body: "Read every line, fork it, and run five hundred AI Employees without a licence key.",
+    body: "Read every line, fork it, and run five hundred AI Employees. Every product and Integration ships in the one release.",
   },
   {
     icon: HardDrive,
@@ -58,10 +58,10 @@ export function OpenSource() {
                   Yours to run, on your own hardware.
                 </>
               }
-              lede="One command installs the whole platform on any machine with Docker. It sends no telemetry, and the licence reads the same at one AI Employee as at five hundred."
+              lede="One command installs the whole platform on any machine with Docker. It sends no telemetry, and everyone gets the same software under the same licence, free."
             />
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <Button href="/docs/install" variant="ink" arrow>
+              <Button href={INSTALL_DOCS_PATH} variant="ink" arrow>
                 Read the install guide
               </Button>
               <Button href={GITHUB_URL} external variant="outline">

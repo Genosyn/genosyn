@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Github, Menu, X } from "lucide-react";
-import { GITHUB_URL, SIGN_IN_URL, SIGN_UP_URL } from "@/lib/constants";
+import { GITHUB_URL, INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link, usePathname } from "@/lib/router";
 
 const LINKS = [
   { href: "/roles", label: "Roles" },
   { href: "/products", label: "Products" },
-  { href: "/pricing", label: "Pricing" },
-  { href: "/enterprise", label: "Enterprise" },
   { href: "/docs", label: "Docs" },
 ];
 
@@ -98,19 +96,13 @@ export function Nav() {
             GitHub
             <span className="sr-only">{"(opens in a new tab)"}</span>
           </a>
-          <a
-            href={SIGN_IN_URL}
-            className="hidden h-10 items-center rounded-full px-3 text-[14.5px] text-ink-500 transition-colors hover:text-ink sm:inline-flex"
-          >
-            Sign in
-          </a>
-          <a
-            href={SIGN_UP_URL}
+          <Link
+            href={INSTALL_DOCS_PATH}
             className="press group ml-1 hidden h-10 items-center gap-1.5 rounded-full bg-ink px-4 text-[14px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.2)] hover:bg-ink-800 sm:inline-flex"
           >
-            Start free
+            Install Genosyn
             <ArrowRight aria-hidden className="nudge h-3.5 w-3.5" />
-          </a>
+          </Link>
           <button
             ref={toggle}
             type="button"
@@ -149,22 +141,10 @@ export function Nav() {
             ))}
           </ul>
           <div className="mt-auto grid gap-2 pt-10 sm:grid-cols-2">
-            <a
-              href={SIGN_UP_URL}
-              className="inline-flex h-12 items-center justify-center rounded-full bg-ink text-[15px] font-medium text-white"
-            >
-              Start free on Genosyn Cloud
-            </a>
-            <a
-              href={SIGN_IN_URL}
-              className="inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-[15px] font-medium text-ink"
-            >
-              Sign in
-            </a>
             <Link
-              href="/docs/install"
+              href={INSTALL_DOCS_PATH}
               onClick={() => setOpen(false)}
-              className="inline-flex h-12 items-center justify-center rounded-full border border-line-strong text-[15px] font-medium text-ink"
+              className="inline-flex h-12 items-center justify-center rounded-full bg-ink text-[15px] font-medium text-white"
             >
               Install on your hardware
             </Link>

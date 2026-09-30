@@ -1,6 +1,6 @@
 import { ArrowRight, BookHeart, CalendarClock, KeyRound, Sparkles } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
-import { SIGN_UP_URL } from "@/lib/constants";
+import { INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Link } from "@/lib/router";
 import { findProduct } from "@/products/data";
 import { ROLES } from "@/roles/data";
@@ -37,8 +37,8 @@ export function RolesIndex() {
           lede="Every role is a Soul, a set of Skills and Routines on a schedule. Read one working day of each — what it did, where it did it, and the one moment it stopped for a person. Hire it as written, or write one only your company has."
           actions={
             <>
-              <Button href={SIGN_UP_URL} variant="ink" arrow>
-                Start free
+              <Button href={INSTALL_DOCS_PATH} variant="ink" arrow>
+                Install Genosyn
               </Button>
               <Button href="/docs/employees" variant="outline">
                 How a role is written

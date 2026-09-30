@@ -28,12 +28,6 @@ export function SaasHosting() {
         }
       />
 
-      <Callout kind="info" title="Configure hosted billing separately.">
-        This switch enables tenant isolation and shared infrastructure. Configure plans and
-        checkout separately using <DocLink to="/docs/plans-billing">Plans and billing</DocLink>,
-        and verify your payment and customer support flows before launch.
-      </Callout>
-
       <H2 id="baseline">Required production baseline</H2>
       <P>
         Set the following values in <Code>App/config.ts</Code>. Use independently generated secrets;

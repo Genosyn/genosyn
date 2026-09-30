@@ -293,13 +293,8 @@ export function Vault() {
         event identifying the Member, Vault item, action, and time, without recording the secret
         itself. Creating, updating, deleting, sharing, granting, and AI use are audited too. Review
         the history under <Strong>Settings → Audit log</Strong> when investigating access or
-        rotating a credential.
+        rotating a credential — see <DocLink to="/docs/security#audit-log">the audit log</DocLink>.
       </P>
-      <Callout kind="info" title="The Audit log page is gated.">
-        Reading the Audit log needs the Scale plan on Genosyn Cloud, or a Genosyn Enterprise license
-        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and{" "}
-        <DocLink to="/docs/enterprise-license" />.
-      </Callout>
       <UL>
         <LI>Do not paste a Vault value into Chat; Grant the item and use a governed action.</LI>
         <LI>

@@ -421,9 +421,9 @@ export function Employees() {
         final report is unavailable. The employee&apos;s report does not prove the work succeeded:
         read the independent <DocLink to="/docs/verification">Checks and verdicts</DocLink> beside
         it, and open the run log for evidence. Timeline entries still come from recorded work;
-        writing a Journal entry does not create one. The work timeline is available on every plan to
-        every Member. The <DocLink to="/docs/plans-billing">audit log</DocLink> is the separate
-        admin tool for investigating every actor across all of history.
+        writing a Journal entry does not create one. The work timeline is available to every
+        Member. The <DocLink to="/docs/security#audit-log">audit log</DocLink> is the separate admin
+        tool for investigating every actor across all of history.
       </Callout>
     </>
   );

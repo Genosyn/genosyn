@@ -228,43 +228,6 @@ export function allRoutes(): RouteHead[] {
       ],
     },
     ...ROLES.map(roleRoute),
-    {
-      path: "/enterprise",
-      title: "Genosyn Enterprise: SSO, audit log, your perimeter",
-      description:
-        "Run an autonomous company inside your own environment: self-hosted AI Employees on your infrastructure, your model keys, your data. Apache 2.0 licensed with no vendor lock-in.",
-      jsonLd: [
-        ORGANIZATION,
-        WEBSITE,
-        breadcrumbs([
-          { name: "Home", path: "/" },
-          { name: "Enterprise", path: "/enterprise" },
-        ]),
-      ],
-    },
-    {
-      path: "/pricing",
-      title: "Pricing: free self-hosted, $19 per AI Employee · Genosyn",
-      description:
-        "Self-host the free Apache 2.0-licensed community edition, run on Genosyn Cloud plans starting at $0 and priced per AI Employee, or unlock SSO and audit logging with Genosyn Enterprise.",
-      jsonLd: [
-        ORGANIZATION,
-        WEBSITE,
-        breadcrumbs([
-          { name: "Home", path: "/" },
-          { name: "Pricing", path: "/pricing" },
-        ]),
-        {
-          "@context": "https://schema.org",
-          "@type": "WebPage",
-          name: "Pricing — Genosyn",
-          url: `${SITE_URL}/pricing`,
-          description:
-            "Genosyn pricing: free self-hosted community edition, Genosyn Cloud plans from $0 priced per AI Employee, and Genosyn Enterprise for self-hosted teams.",
-          isPartOf: { "@type": "WebSite", name: "Genosyn", url: SITE_URL },
-        },
-      ],
-    },
     ...DOCS_NAV.flatMap((section) =>
       section.pages.map((page) => ({
         path: page.path,
@@ -324,8 +287,6 @@ export function llmsTxt(): string {
     "",
     `- [GitHub repository](${GITHUB_URL}): source code and issues`,
     `- [Roles](${SITE_URL}/roles): what an AI Employee does all day, in eight worked examples`,
-    `- [Pricing](${SITE_URL}/pricing): free community edition, Genosyn Cloud plans, and Enterprise licensing`,
-    `- [Enterprise](${SITE_URL}/enterprise): running Genosyn in your own environment`,
     `- [llms-full.txt](${SITE_URL}/llms-full.txt): expanded product and platform reference for LLMs`,
     "",
   ];
@@ -400,7 +361,7 @@ export function llmsFullTxt(): string {
   lines.push(
     "## Self-hosting",
     "",
-    "Genosyn runs as one Docker container managed by the `genosyn` CLI (a bash wrapper around Docker). All runtime settings live in a single config.ts. Data lives under a configurable data directory; the database is the source of truth for Souls, Skills, Routines, Run transcripts, and encrypted model credentials. Backups, restore, and off-box destinations (NAS/SMB/SFTP) are built in. Kubernetes manifests are documented for cluster deployments.",
+    "Genosyn runs as one Docker container managed by the `genosyn` CLI (a bash wrapper around Docker). Every install gets the whole product, single sign-on and the audit log included, under Apache 2.0. All runtime settings live in a single config.ts. Data lives under a configurable data directory; the database is the source of truth for Souls, Skills, Routines, Run transcripts, and encrypted model credentials. Backups, restore, and off-box destinations (NAS/SMB/SFTP) are built in. Kubernetes manifests are documented for cluster deployments.",
     "",
     `Full docs: ${SITE_URL}/docs · Source: ${GITHUB_URL}`,
     "",

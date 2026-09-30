@@ -9,7 +9,8 @@ export function Security() {
         lead={
           <>
             Protect each human Member account with verified email, revocable sessions, and an
-            authenticator app, passwordless passkey, or FIDO2 USB security key such as YubiKey.
+            authenticator app, passwordless passkey, or FIDO2 USB security key such as YubiKey —
+            and give each company its own single sign-on and audit log.
           </>
         }
       />
@@ -20,8 +21,9 @@ export function Security() {
         that address before creating a company or accepting an invitation, and the signed-in address
         must exactly match the invitation recipient. New and reset passwords require at least 12
         characters. A password change invalidates every older signed-in session. A password reset
-        also revokes every personal API key because it is treated as account recovery after a
-        possible credential compromise.
+        also revokes every personal API key and unlinks any identity a company&apos;s single sign-on
+        linked, because it is treated as account recovery after a possible credential compromise.
+        That company&apos;s SSO asks for the new password once; install-wide SSO is unaffected.
       </P>
       <P>
         Every install — self-hosted included — shows the state of your own address at{" "}
@@ -177,6 +179,79 @@ export function Security() {
         an account only when the identity provider affirmatively reports a verified email address.
       </P>
 
+      <H2 id="company-sso">Company single sign-on</H2>
+      <P>
+        Each company can sign its Members in through its own identity provider, separately from the
+        install-wide SSO a master admin configures at <Code>Admin → SSO</Code> (see{" "}
+        <DocLink to="/docs/self-hosting#sso">Configuration</DocLink>). A company owner or admin
+        opens <Strong>Settings → Single sign-on</Strong>, picks <Strong>Google</Strong> or{" "}
+        <Strong>Custom OpenID Connect</Strong> (Okta, Keycloak, Microsoft Entra ID, Auth0, or
+        anything OIDC-compliant), then:
+      </P>
+      <Callout kind="info" title="A master admin allows it first.">
+        Company single sign-on is off on every install until a master admin turns on{" "}
+        <Strong>Let companies use their own identity provider</Strong> at{" "}
+        <Code>Admin → SSO</Code>. A company&apos;s provider can sign its Members in to their whole
+        Genosyn account, so that is the operator&apos;s call. Until then a company can save its
+        settings but not turn them on. An install where a company already has its own SSO turned
+        on keeps it allowed until a master admin decides.
+      </Callout>
+      <OL>
+        <LI>
+          Registers an OAuth client at the identity provider with the <Strong>Callback URL</Strong>{" "}
+          shown under <Strong>URLs</Strong> as its authorized redirect URI. Every company on the
+          install shares <Code>&lt;public URL&gt;/api/auth/sso/company/callback</Code>.
+        </LI>
+        <LI>
+          Pastes the <Strong>Client ID</Strong> and <Strong>Client secret</Strong>, plus the{" "}
+          <Strong>Issuer URL</Strong> for a custom provider. <Strong>Check issuer</Strong> verifies
+          the provider&apos;s discovery document first. The secret is stored encrypted and never
+          shown again; leave the field blank later to keep it.
+        </LI>
+        <LI>
+          Turns on <Strong>Enable SSO sign-in</Strong>, chooses <Strong>Save SSO settings</Strong>,
+          and shares the <Strong>Login URL</Strong> —{" "}
+          <Code>&lt;public URL&gt;/login/sso/&lt;company-slug&gt;</Code> — with the company&apos;s
+          Members.
+        </LI>
+      </OL>
+      <P>
+        Once any company on the install has enabled its own SSO, the ordinary login page also offers{" "}
+        <Strong>Sign in with your company&apos;s SSO</Strong>, which asks for the workspace name from
+        the company&apos;s Genosyn URL. Password login keeps working either way, and{" "}
+        <Strong>Reset</Strong> removes the stored configuration and turns company SSO off.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Auto-join on first sign-in</Strong> — anyone the identity provider vouches for
+          joins the company as a Member, and an unknown email gets a new Genosyn account. Turned
+          off, company SSO signs in existing Members only. Because any company can point SSO at a
+          provider it runs, a company&apos;s provider never counts as proof that someone owns an
+          address: an account it creates is sent a verification link, like a signup. While
+          sign-ups are disabled at <Code>Admin → Sign-ups</Code>, only people the company has
+          invited get a new account this way.
+        </LI>
+        <LI>
+          <Strong>Allowed email domains</Strong> — a comma-separated list. Only emails on these
+          domains can join or get an account through company SSO; Members already linked keep
+          signing in. The Google preset requires the list before auto-join can be enabled, because a
+          Google OAuth client signs in any Google account. Leave it blank with a custom provider to
+          trust whoever that provider vouches for.
+        </LI>
+        <LI>
+          <Strong>Existing accounts</Strong> — a company&apos;s identity provider never takes over
+          an existing Genosyn account silently. When it asserts an email that already has an
+          account, that account must already be a Member of the company — invite it first. The
+          confirmation names the company, its workspace name, and the provider&apos;s address,
+          and warns that the provider will be able to sign in to the whole account; the person
+          enters their password once and chooses{" "}
+          <Strong>Link and sign in</Strong>, and after that the provider&apos;s stable subject
+          identifies the account. A wrong password or a confirmation older than ten minutes means
+          starting the SSO sign-in again, and wrong passwords count toward the same lockout as the
+          login form.
+        </LI>
+      </UL>
+
       <H2 id="api-keys">Personal API keys</H2>
       <P>
         A personal API key is bound to exactly one company and is accepted only under that
@@ -252,6 +327,23 @@ export function Security() {
         browser session. Successful enrollment counts immediately, without another sign-in. That
         session can use the install-wide Admin APIs until it expires or is revoked; operator actions
         do not require a separate recent sign-in.
+      </P>
+
+      <H2 id="audit-log">Audit log</H2>
+      <P>
+        Every company keeps an append-only record of changes made by Members, AI Employees, the
+        scheduler, webhooks, and the system. Company owners and admins read it at{" "}
+        <Strong>Settings → Audit log</Strong>, newest first; expand an event to see its recorded
+        details, and follow <Strong>in a routine run</Strong> to open the Run an AI Employee made
+        the change from.
+      </P>
+      <P>
+        Narrow the log by actor kind, by one AI Employee, by action prefix —{" "}
+        <Code>invoice.</Code> matches every invoice change — or by start date, then choose{" "}
+        <Strong>Load older events</Strong> to page further back. Every Member can see one
+        employee&apos;s recorded work on its{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> and a Run&apos;s own
+        effects in its Run log.
       </P>
 
       <Callout kind="tip" title="SSO-only account?">

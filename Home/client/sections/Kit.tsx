@@ -415,8 +415,8 @@ export function Button({
       </a>
     );
   }
-  // Absolute URLs (Genosyn Cloud, mailto:) render as plain anchors; Link only
-  // intercepts the routes this app owns.
+  // Absolute URLs and mailto: render as plain anchors; Link only intercepts
+  // the routes this app owns.
   return (
     <Link href={href} className={classes}>
       {inner}

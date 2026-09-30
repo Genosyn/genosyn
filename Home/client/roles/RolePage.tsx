@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowUpRight, FileText } from "lucide-react";
 import { Reveal, useReveal } from "@/components/Reveal";
-import { SIGN_UP_URL } from "@/lib/constants";
+import { INSTALL_DOCS_PATH } from "@/lib/constants";
 import { iconFor } from "@/lib/icons";
 import { Link } from "@/lib/router";
 import { findProduct } from "@/products/data";
@@ -89,8 +89,8 @@ function Hero({ role }: { role: RoleDef }) {
               <p className="mt-6 max-w-[60ch] text-pretty text-[1.0625rem] leading-[1.65] text-ink-600">{role.intro}</p>
             </Reveal>
             <Reveal delay={200} className="mt-9 flex flex-wrap gap-3">
-              <Button href={SIGN_UP_URL} variant="ink" arrow>
-                {`Hire ${role.noun}`}
+              <Button href={INSTALL_DOCS_PATH} variant="ink" arrow>
+                Install Genosyn
               </Button>
               <Button href="#day" variant="outline">
                 {`Read ${role.person}'s day`}

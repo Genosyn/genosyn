@@ -1,6 +1,6 @@
 import { ArrowUpRight, Check } from "lucide-react";
 import { Reveal, useReveal } from "@/components/Reveal";
-import { SIGN_UP_URL } from "@/lib/constants";
+import { INSTALL_DOCS_PATH } from "@/lib/constants";
 import { iconFor } from "@/lib/icons";
 import { Link } from "@/lib/router";
 import { PRODUCTS, type ProductDef } from "@/products/data";
@@ -218,8 +218,8 @@ function Hero({ product, page }: { product: ProductDef; page: PageCopy }) {
               <p className="mt-5 max-w-[58ch] text-pretty text-[1rem] leading-[1.7] text-ink-600">{product.intro}</p>
             </Reveal>
             <Reveal delay={190} className="mt-8 flex flex-wrap gap-3">
-              <Button href={SIGN_UP_URL} variant="ink" arrow>
-                Start free
+              <Button href={INSTALL_DOCS_PATH} variant="ink" arrow>
+                Install Genosyn
               </Button>
               <Button href={product.docsPath ?? "/docs"} variant="outline">
                 {product.docsPath ? `Read the ${product.name} docs` : "Read the docs"}
