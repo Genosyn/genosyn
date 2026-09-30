@@ -20,8 +20,11 @@ export const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash
 
 /** The moment the prerendered page shows: the 04:05 reconciliation is running. */
 const START = 4.08;
-/** How long one hour of the night lasts on screen. */
-const HOUR_MS = 820;
+/**
+ * How long one hour of the night lasts on screen: ~11s from `START` to the
+ * morning, slow enough to read each Run as it lands in the feed.
+ */
+const HOUR_MS = 2000;
 const FEED_ROWS = 5;
 
 type Phase = "night" | "morning";
