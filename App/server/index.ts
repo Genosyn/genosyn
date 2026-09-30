@@ -128,8 +128,6 @@ import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { bootVaultSourceSync } from "./services/vaultSourceSync.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
-import { billingRouter } from "./routes/billing.js";
-import { billingWebhookRouter } from "./routes/billingWebhook.js";
 import { requireTrustedOrigin, securityHeaders } from "./middleware/httpSecurity.js";
 import { loopbackOnly } from "./middleware/loopbackOnly.js";
 import { appVersion } from "./lib/version.js";
@@ -150,16 +148,11 @@ import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
 import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
 import { rejectAiBrowserAppRequests } from "./services/browserRequestBoundary.js";
-import {
-  initializeBillingSettings,
-  takeBillingBootstrapJson,
-} from "./services/billing/billingBootstrap.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
-  const billingBootstrapJson = takeBillingBootstrapJson();
   // First, so nothing that follows can print a raw error object. Node's
   // default handler would dump the whole thing — bound SQL parameters and all
   // — and log retention makes that unfixable after the fact.
@@ -170,7 +163,6 @@ async function main() {
   installOutboundNetworkPolicy();
   await initDb();
   await bindInstanceSecretsToDatabase();
-  await initializeBillingSettings(billingBootstrapJson);
   await bootAuthFlowStateSweeper();
   await bootPublicUrl();
   await bootCustomJavaScript();
@@ -274,19 +266,14 @@ async function main() {
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, version: appVersion() });
   });
-  // Stripe webhook (M56). Mounted BEFORE express.json() because signature
-  // verification needs the raw request bytes (the router applies its own
-  // express.raw()), and before requireTrustedOrigin/session middleware because
-  // Stripe's servers send neither an Origin header nor a cookie — the signed
-  // payload is the credential.
-  app.use("/api/billing/stripe/webhook", billingWebhookRouter);
   // External chat surface webhooks (M59) — Microsoft Teams and WhatsApp POST
-  // here. Same two reasons as Stripe above, and they are the only credential
-  // this endpoint has: WhatsApp's signature is an HMAC over the exact bytes
-  // Meta sent, so the router applies its own express.raw() and must see them
-  // before any parser re-serializes them, and neither platform sends a cookie
-  // or an Origin header, so the session and trusted-origin middleware would
-  // reject every delivery.
+  // here. Mounted BEFORE express.json() and before requireTrustedOrigin/session
+  // middleware, because the signature is the only credential this endpoint
+  // has: WhatsApp's signature is an HMAC over the exact bytes Meta sent, so the
+  // router applies its own express.raw() and must see them before any parser
+  // re-serializes them, and neither platform sends a cookie or an Origin
+  // header, so the session and trusted-origin middleware would reject every
+  // delivery.
   app.use(CHAT_SURFACE_WEBHOOK_MOUNT, chatSurfaceWebhooksRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
@@ -475,9 +462,7 @@ async function main() {
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);
-  // Company billing (M56) — plan state, Stripe checkout/portal/sync.
-  app.use("/api/companies/:cid", billingRouter);
-  // Per-company SSO settings (M56 Phase B) — Scale-plan feature.
+  // Per-company SSO settings (M56 Phase B).
   app.use("/api/companies/:cid", companySsoRouter);
   app.use("/api/companies/:cid", usageRouter);
   // Per-user programmatic API keys (M14). Bearer tokens minted here

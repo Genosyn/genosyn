@@ -33,7 +33,6 @@ import {
 } from "../components/routines/RunViews";
 import { describeCronExpr } from "../lib/scheduleBuilder";
 import { RoutinesContext } from "./RoutinesLayout";
-import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders";
 import { filterRoutinesBySearch } from "../lib/routineSearch";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
@@ -317,18 +316,6 @@ export default function RoutinesIndex({ company }: { company: Company }) {
           </div>
         }
       />
-
-      {/* Plan-limit upsell (M56). The company-wide total is what the limit
-        counts, so this uses the full unscoped list. Informational only —
-        creation stays enabled and the server's 402 surfaces in the form. */}
-      {!loading &&
-        company.entitlements.maxRoutines !== null &&
-        routines.length >= company.entitlements.maxRoutines && (
-          <PlanLimitBanner
-            message={`Your Free plan includes ${company.entitlements.maxRoutines} Routine${company.entitlements.maxRoutines === 1 ? "" : "s"}.`}
-            company={company}
-          />
-        )}
 
       {folder && (
         <p className="-mt-2 mb-4 text-sm text-slate-500 dark:text-slate-400">

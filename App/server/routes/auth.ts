@@ -14,7 +14,6 @@ import { areSignupsDisabled } from "../services/signupSettings.js";
 import { findOpenSignupInvitation } from "../services/signupInvitations.js";
 import { PUBLIC_URL_SETUP_MESSAGE, publicUrlSetupRequired } from "../services/publicUrlSetup.js";
 import { revokeCurrentUserSession } from "../services/userSessions.js";
-import { billingEnabled } from "../services/billing/billingSettings.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import {
   avatarAbsPath,
@@ -41,6 +40,7 @@ import {
   verifyEmailToken,
 } from "../services/emailVerification.js";
 import { confirmEmailChangeToken, requestEmailChange } from "../services/emailChange.js";
+import { configuredInstanceSsoIssuer } from "../services/ssoSettings.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { IsNull } from "typeorm";
 
@@ -231,6 +231,7 @@ authRouter.post("/reset", validateBody(resetSchema), async (req, res) => {
   if (!(await throttleAllowed(throttleKeys, res))) return;
   const tokenHash = hashOneTimeToken(token);
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const instanceSsoIssuer = await configuredInstanceSsoIssuer();
   const reset = await AppDataSource.transaction(async (manager) => {
     const repo = manager.getRepository(User);
     const user =
@@ -245,6 +246,14 @@ authRouter.post("/reset", validateBody(resetSchema), async (req, res) => {
     user.resetToken = null;
     user.resetExpiresAt = null;
     user.sessionVersion += 1;
+    // A company IdP's pairing made before recovery is a credential too: that
+    // IdP may have bound it to an account its operator pre-created under this
+    // address. The owner re-links it with the new password. The pairing from
+    // the operator's own instance IdP stays.
+    if (user.ssoIssuer && user.ssoIssuer !== instanceSsoIssuer) {
+      user.ssoIssuer = null;
+      user.ssoSubject = null;
+    }
     await repo.save(user);
     // A recovery event is the point at which the account owner says existing
     // credentials may be compromised. Revoke personal API keys together with
@@ -275,9 +284,6 @@ authRouter.get("/me", requireAuth, requireBrowserSession, async (req, res) => {
     isMasterAdmin: u.isMasterAdmin,
     emailVerified: Boolean(u.emailVerifiedAt),
     emailVerificationRequired: emailVerificationRequired(u),
-    // Whether this install charges companies for Plans (M56) — the client
-    // shows or hides the whole billing surface on this flag.
-    billingEnabled: await billingEnabled(),
   });
 });
 

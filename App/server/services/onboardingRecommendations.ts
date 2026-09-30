@@ -10,7 +10,6 @@ import { listCatalog } from "../integrations/index.js";
 import type { IntegrationCatalogEntry } from "../integrations/types.js";
 import { toSlug } from "../lib/slug.js";
 import { nextRunFor } from "./cron.js";
-import { assertRoutineCapacity } from "./entitlements.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { EMPLOYEE_TEMPLATES } from "./templates.js";
 
@@ -1208,17 +1207,6 @@ export async function applyRoutineRecommendations(args: {
   }
   const resolved = definitions as RoutineRecommendationDefinition[];
   const context = recommendationContext(args.company, args.employee);
-
-  // Plan limit (M56): only the routines this apply would actually CREATE
-  // count — an already-existing match is idempotent and costs nothing. A
-  // selection over capacity throws PlanLimitError for the route to map to 402.
-  const preExisting = await AppDataSource.getRepository(Routine).find({
-    where: { employeeId: args.employee.id },
-  });
-  const creating = resolved.filter(
-    (definition) => !findMatchingRoutine(definition, preExisting),
-  ).length;
-  if (creating > 0) await assertRoutineCapacity(args.company.id, creating);
 
   return serializeSqliteRoutineApply(async () => {
     const writeSource = await routineWriteSource();

@@ -234,7 +234,7 @@ export function validateRuntimeSecurity(): void {
  * A shared multi-tenant install genuinely needs system SMTP: without it nobody
  * can verify an address or recover an account by email. This used to throw. It
  * no longer can — SMTP is configured at Admin → Email transport, and a fresh
- * cloud install has no row and no admin yet, so refusing to boot would lock the
+ * shared install has no row and no admin yet, so refusing to boot would lock the
  * operator out of the only screen that fixes it. The chicken-and-egg is broken
  * the way the rest of bootstrap is: the server comes up, `services/email.ts`
  * prints the verification and reset links to the console, the predeclared

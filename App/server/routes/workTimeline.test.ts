@@ -32,10 +32,10 @@ import { workTimelineRouter } from "./workTimeline.js";
  * that silently accepts `hours=999` is the difference between "a glance at
  * today" and "the whole history through a route that is not the audit log".
  *
- * The second is the entitlement asymmetry, which is the whole reason this
- * endpoint exists separately at all. `GET /audit` is admin-gated and behind a
- * paid feature; this is neither, and the test that proves it sits next to the
- * test that proves the audit log still is.
+ * The second is the role asymmetry, which is the whole reason this endpoint
+ * exists separately at all. `GET /audit` is admin-gated; this is not, and the
+ * test that proves it sits next to the test that proves the audit log still
+ * is.
  */
 
 let server: Server;
@@ -306,8 +306,8 @@ describe("work timeline authorization", () => {
 
   test("an ordinary member reads it, while the audit log still refuses them", async () => {
     // The asymmetry is the point. Browsing the company's whole history is an
-    // admin tool behind a paid feature; seeing what your own AI employees did
-    // today is the minimum needed to trust them, and is neither.
+    // admin tool; seeing what your own AI employees did today is the minimum
+    // needed to trust them, and is not.
     await seedRun();
     const timeline = await call<TimelineBody>("GET", "/work-timeline");
     assert.equal(timeline.status, 200);

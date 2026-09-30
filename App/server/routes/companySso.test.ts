@@ -6,24 +6,17 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
 
-import { AppSetting } from "../db/entities/AppSetting.js";
 import { Company } from "../db/entities/Company.js";
-import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import {
-  BILLING_SETTING_KEY,
-  invalidateBillingSettingsCache,
-} from "../services/billing/billingSettings.js";
-import { invalidateLicenseCache } from "../services/license.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { setCompanySsoAllowed } from "../services/ssoSettings.js";
 import { companySsoRouter } from "./companySso.js";
 
 /**
  * The Settings → Single sign-on endpoints over real HTTP: the admin role
- * gate, the Scale-plan feature gate on enabling, blank-keeps-stored secrets,
- * and the reset. The sign-in flow itself is covered in
+ * gate, blank-keeps-stored secrets, and the reset. The sign-in flow itself is covered in
  * `services/companySso.test.ts`.
  */
 
@@ -68,8 +61,6 @@ async function withRole(email: string, role: Role): Promise<User> {
 
 beforeEach(async () => {
   await resetTestDb();
-  invalidateBillingSettingsCache();
-  invalidateLicenseCache();
   const founder = await insert(User, {
     email: "f@example.com",
     name: "F",
@@ -77,26 +68,11 @@ beforeEach(async () => {
     sessionVersion: 0,
   });
   company = await insert(Company, { name: "Acme", slug: "acme", ownerId: founder.id });
+  await setCompanySsoAllowed(true);
   admin = await withRole("admin@example.com", "admin" as Role);
   member = await withRole("member@example.com", "member" as Role);
   actingUserId = admin.id;
-  // A Genosyn Cloud install: instance billing on. The company starts on Free.
-  await insert(AppSetting, {
-    key: BILLING_SETTING_KEY,
-    value: JSON.stringify({
-      enabled: true,
-      growthMonthlyPriceId: "price_growth",
-      scaleMonthlyPriceId: "price_scale",
-      encryptedSecretKey: "",
-      encryptedWebhookSecret: "",
-    }),
-  });
-  invalidateBillingSettingsCache();
 });
-
-async function putOnScale(): Promise<void> {
-  await insert(CompanyBilling, { companyId: company.id, plan: "scale", status: "active" });
-}
 
 async function call<T = Record<string, unknown>>(
   method: string,
@@ -135,6 +111,7 @@ describe("GET /sso", () => {
     assert.equal(got.body.allowedEmailDomains, "");
     assert.match(String(got.body.callbackUrl), /\/api\/auth\/sso\/company\/callback$/);
     assert.match(String(got.body.loginUrl), /\/login\/sso\/acme$/);
+    assert.equal(got.body.allowedByInstance, true);
   });
 
   test("requires the admin company role", async () => {
@@ -157,13 +134,7 @@ describe("GET /sso", () => {
 });
 
 describe("PUT /sso", () => {
-  test("refuses enabling without the sso feature (402), phrased for the cloud edition", async () => {
-    const got = await call("PUT", "/sso", { ...draft, enabled: true });
-    assert.equal(got.status, 402);
-    assert.deepEqual(got.body, { error: "SSO is available on the Scale plan." });
-  });
-
-  test("saving a disabled draft is never plan-gated", async () => {
+  test("saves a disabled draft", async () => {
     const got = await call("PUT", "/sso", draft);
     assert.equal(got.status, 200);
     assert.equal(got.body.enabled, false);
@@ -171,8 +142,7 @@ describe("PUT /sso", () => {
     assert.equal(got.body.configured, true);
   });
 
-  test("enables on the Scale plan, and a blank secret keeps the stored one", async () => {
-    await putOnScale();
+  test("enables, and a blank secret keeps the stored one", async () => {
     const enabled = await call("PUT", "/sso", {
       ...draft,
       enabled: true,
@@ -196,7 +166,6 @@ describe("PUT /sso", () => {
   });
 
   test("refuses enabling the Google preset with auto-join and no allowed domains", async () => {
-    await putOnScale();
     const got = await call("PUT", "/sso", { ...draft, enabled: true });
     assert.equal(got.status, 400);
     assert.equal(
@@ -206,7 +175,6 @@ describe("PUT /sso", () => {
   });
 
   test("normalizes the domain list and refuses an invalid domain", async () => {
-    await putOnScale();
     const saved = await call("PUT", "/sso", {
       ...draft,
       enabled: true,
@@ -220,8 +188,7 @@ describe("PUT /sso", () => {
     assert.match(String(bad.body.error), /is not a valid email domain/);
   });
 
-  test("refuses enabling while unconfigured even on Scale", async () => {
-    await putOnScale();
+  test("refuses enabling while unconfigured", async () => {
     const got = await call("PUT", "/sso", { ...draft, enabled: true, clientSecret: "", clientId: "" });
     assert.equal(got.status, 400);
     assert.match(String(got.body.error), /client ID and client secret/);
@@ -232,11 +199,20 @@ describe("PUT /sso", () => {
     const got = await call("PUT", "/sso", draft);
     assert.equal(got.status, 403);
   });
+
+  test("refuses enabling until a master admin allows company SSO", async () => {
+    await setCompanySsoAllowed(false);
+    const got = await call("PUT", "/sso", { ...draft, enabled: true });
+    assert.equal(got.status, 400);
+    assert.match(String(got.body.error), /not allowed on this install/);
+    const saved = await call("PUT", "/sso", draft);
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.allowedByInstance, false);
+  });
 });
 
 describe("DELETE /sso", () => {
   test("clears the stored configuration", async () => {
-    await putOnScale();
     await call("PUT", "/sso", { ...draft, enabled: true, allowedEmailDomains: "acme.com" });
     const got = await call("DELETE", "/sso");
     assert.equal(got.status, 200);

@@ -400,6 +400,8 @@ export function AdminSSO() {
           </CardBody>
         </Card>
 
+        <CompanySsoCard allowed={data.companySsoAllowed} onChanged={setData} />
+
         <Card>
           <CardHeader>
             <h2 className="text-sm font-semibold">Callback URL</h2>
@@ -428,6 +430,64 @@ export function AdminSSO() {
         </Card>
       </div>
     </>
+  );
+}
+
+/**
+ * Whether companies may sign Members in through their own identity provider
+ * (Settings → Single sign-on). A trust decision for the operator: every
+ * company admin's provider then vouches for its Members' whole accounts.
+ */
+function CompanySsoCard({
+  allowed,
+  onChanged,
+}: {
+  allowed: boolean;
+  onChanged: (data: SsoSettings) => void;
+}) {
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const setAllowed = async (next: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      onChanged(await api.put<SsoSettings>("/api/admin/sso/company", { allowed: next }));
+    } catch (err) {
+      setError(errorMessage(err, "Could not save the company SSO setting"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="text-sm font-semibold">Company single sign-on</h2>
+      </CardHeader>
+      <CardBody className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Let companies use their own identity provider
+            </div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Off by default. When on, a company&apos;s owners and admins can connect an identity
+              provider at Settings → Single sign-on, and that provider can sign the company&apos;s
+              Members in to their whole Genosyn account. Turn it on only if you trust every
+              company admin on this install with that.
+            </p>
+          </div>
+          <Toggle
+            checked={allowed}
+            disabled={saving}
+            onChange={setAllowed}
+            label="Let companies use their own identity provider"
+          />
+        </div>
+        <FormError message={error} />
+      </CardBody>
+    </Card>
   );
 }
 

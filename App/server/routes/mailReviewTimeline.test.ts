@@ -246,7 +246,7 @@ describe("mail review timeline HTTP boundaries", () => {
     for (const path of paths) assert.equal((await get(path)).status, 403);
   });
 
-  test("ordinary Members can read review status and evidence without the audit entitlement", async () => {
+  test("ordinary Members can read review status and evidence without audit log access", async () => {
     await becomeMember();
     await analysis();
     assert.equal((await view()).thread.aiReview.status, "reviewed");

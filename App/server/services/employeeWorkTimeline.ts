@@ -36,10 +36,10 @@ import type { MailAnalysisWorkDetails } from "./mail/analysisEvidence.js";
  *
  * Home could always say what was *waiting* on a human and never what the
  * workforce had *done*. The three nearest answers were each a different
- * question: the audit log is an admin-only, entitlement-gated investigation
- * tool spanning every actor; an employee's Journal is the employee narrating
- * itself; and the failed-routines alert shows only the runs that broke. A
- * company whose roster ran cleanly all night had no way to see the night.
+ * question: the audit log is an admin-only investigation tool spanning every
+ * actor; an employee's Journal is the employee narrating itself; and the
+ * failed-routines alert shows only the runs that broke. A company whose roster
+ * ran cleanly all night had no way to see the night.
  *
  * ## Assembled, never stored
  *

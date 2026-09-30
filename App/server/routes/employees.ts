@@ -71,8 +71,6 @@ import {
   removeAvatarFile,
   replaceAvatarFile,
 } from "../services/avatars.js";
-import { PlanLimitError, assertCanHireAiEmployee } from "../services/entitlements.js";
-import { syncSeatCount } from "../services/billing/companyBilling.js";
 import { hasCompanyDirection } from "../services/companyDirection.js";
 
 export const employeesRouter = Router({ mergeParams: true });
@@ -167,14 +165,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   if (await findEmployeeByName(co.id, body.name)) {
     return res.status(409).json({ error: "An employee with that name already exists" });
   }
-  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
-  // its headcount. 402 so the client can offer the upgrade path.
-  try {
-    await assertCanHireAiEmployee(co.id);
-  } catch (err) {
-    if (!(err instanceof PlanLimitError)) throw err;
-    return res.status(402).json({ error: err.message });
-  }
   const repo = AppDataSource.getRepository(AIEmployee);
   const slug = await uniqueEmpSlug(co.id, toSlug(body.name));
   const template = body.templateId ? findTemplate(body.templateId) : undefined;
@@ -222,9 +212,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
       await skillRepo.save(skillRow);
     }
   }
-
-  // Best-effort Stripe seat sync — never blocks the hire (M56).
-  void syncSeatCount(co.id);
 
   await recordAudit({
     companyId: co.id,
@@ -309,19 +296,13 @@ employeesRouter.post(
     if (!company) return res.status(404).json({ error: "Company not found" });
     if (!employee) return res.status(404).json({ error: "Not found" });
 
-    try {
-      const result = await applyRoutineRecommendations({
-        company,
-        employee,
-        recommendationIds: body.recommendationIds,
-        actorUserId: req.userId ?? null,
-      });
-      res.json(result);
-    } catch (err) {
-      // Plan limit (M56): the selection would exceed the Routine cap.
-      if (!(err instanceof PlanLimitError)) throw err;
-      res.status(402).json({ error: err.message });
-    }
+    const result = await applyRoutineRecommendations({
+      company,
+      employee,
+      recommendationIds: body.recommendationIds,
+      actorUserId: req.userId ?? null,
+    });
+    res.json(result);
   },
 );
 
@@ -603,8 +584,6 @@ employeesRouter.delete("/:eid", async (req, res) => {
     targetLabel: emp.name,
     metadata: { role: emp.role, slug: emp.slug },
   });
-  // Best-effort Stripe seat sync — never blocks the fire (M56).
-  void syncSeatCount(emp.companyId);
   res.json({ ok: true });
 });
 

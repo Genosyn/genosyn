@@ -18,7 +18,6 @@ const company = {
   slug: "company",
   name: "Acme",
   role: "member",
-  entitlements: { maxRoutines: null },
 } as Company;
 
 function OpenedRoute() {

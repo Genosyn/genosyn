@@ -166,9 +166,6 @@ export type Me = {
   isMasterAdmin: boolean;
   emailVerified: boolean;
   emailVerificationRequired: boolean;
-  /** True when the operator turned on per-company Plans at Admin → Billing
-   *  (Genosyn Cloud). Gates the Settings → Billing sidebar entry. */
-  billingEnabled: boolean;
 };
 export type TwoFactorLoginMethods = {
   enabled: boolean;
@@ -224,9 +221,6 @@ export type Company = {
    */
   financeAccess: FinanceAccess;
   requireTwoFactor: boolean;
-  /** Resolved edition/plan facts for this company — see "Billing & editions"
-   *  below. Present on every /api/companies row. */
-  entitlements: CompanyEntitlements;
 };
 export type Employee = {
   id: string;
@@ -3854,12 +3848,15 @@ export type SsoSettings = {
   autoProvision: boolean;
   configured: boolean;
   callbackUrl: string;
+  /** Whether companies may sign Members in through their own identity
+   *  provider. Set with PUT /api/admin/sso/company. */
+  companySsoAllowed: boolean;
 };
 export type SsoPublicStatus = {
   enabled: boolean;
   buttonLabel: string | null;
-  /** True iff instance billing is enabled — the login page uses it to offer
-   *  company SSO sign-in (company SSO itself ships in a later phase). */
+  /** True iff at least one company on this install has its own SSO enabled —
+   *  the login page uses it to offer company SSO sign-in. */
   companySso: boolean;
 };
 export type SsoIssuerCheck = {
@@ -3870,10 +3867,10 @@ export type SsoIssuerCheck = {
 };
 
 // ───────────────────────── Company SSO ──────────────────────────────────────
-// Per-company single sign-on on a Genosyn Cloud install (M56 Phase B) — a
-// Scale-plan feature configured at Settings → Single sign-on and served by
-// /api/companies/:cid/sso. Members sign in at /login/sso/<companySlug>; the
-// public probe is /api/auth/sso/company/:companySlug/status.
+// Per-company single sign-on, configured at Settings → Single sign-on and
+// served by /api/companies/:cid/sso. Members sign in at
+// /login/sso/<companySlug>; the public probe is
+// /api/auth/sso/company/:companySlug/status.
 export type CompanySsoSettings = {
   enabled: boolean;
   provider: SsoProvider;
@@ -3892,6 +3889,8 @@ export type CompanySsoSettings = {
   callbackUrl: string;
   /** The page members bookmark to sign in through this company's IdP. */
   loginUrl: string;
+  /** Whether a master admin allows company SSO on this install at all. */
+  allowedByInstance: boolean;
 };
 export type CompanySsoPublicStatus = {
   enabled: boolean;
@@ -3902,131 +3901,12 @@ export type CompanySsoPublicStatus = {
 export type CompanySsoLinkResponse =
   | { ok: true; requiresTwoFactor?: undefined }
   | { requiresTwoFactor: true; methods: TwoFactorLoginMethods };
-
-// ───────────────────────── Billing & editions ───────────────────────────────
-// Editions, plans & billing (M56). Three deployment shapes, one codebase:
-// self-hosted Community (no license), self-hosted Enterprise (a signed
-// license activated at Admin → License), and Genosyn Cloud (instance billing
-// enabled at Admin → Billing; per-company Plans billed through Stripe).
-
-/** A Genosyn Cloud pricing tier. */
-export type PlanId = "free" | "growth" | "scale";
-
-/** How a paid Plan is billed. Annual is twelve months less 10% (M56). */
-export type BillingInterval = "month" | "year";
-
-/** Resolved server-side facts about what a company may use — carried on every
- *  /api/companies row and on GET /api/companies/:cid. */
-export type CompanyEntitlements = {
-  edition: "cloud" | "community" | "enterprise";
-  /** Null when instance billing is disabled (self-hosted). */
-  plan: PlanId | null;
-  /** Company-wide totals; null = unlimited. */
-  maxAiEmployees: number | null;
-  maxRoutines: number | null;
-  maxBases: number | null;
-  /** Non-archived tables, counted across all of the company's Bases. */
-  maxBaseTables: number | null;
-  /** Public + private channels only — DMs never count, nor do archived ones. */
-  maxChannels: number | null;
-  maxProjects: number | null;
-  /** All Todo rows across the company's Projects, regardless of status. */
-  maxTodos: number | null;
-  features: { sso: boolean; auditLog: boolean };
-};
-
-/** GET /api/companies/:cid/billing — the Settings → Billing page's whole
- *  world in one response. Also returned by POST /billing/sync. */
-export type BillingSummary = {
-  /** Instance billing enabled (Genosyn Cloud). */
-  enabled: boolean;
-  plan: PlanId;
-  /** Which interval the live subscription bills on; null on Free. */
-  interval: BillingInterval | null;
-  /** Raw Stripe subscription status; null when none. */
-  status: string | null;
-  /** Billed quantity; null when no subscription. */
-  seatCount: number | null;
-  aiEmployeeCount: number;
-  routineCount: number;
-  /** ISO timestamp; null when no subscription. */
-  currentPeriodEnd: string | null;
-  limits: {
-    maxAiEmployees: number | null;
-    maxRoutines: number | null;
-    maxBases: number | null;
-    maxBaseTables: number | null;
-    maxChannels: number | null;
-    maxProjects: number | null;
-    maxTodos: number | null;
-  };
-  features: { sso: boolean; auditLog: boolean };
-  /** Per-seat amount in cents for each Plan on each interval — monthly
-   *  1900 / 4900, annual 20520 / 52920. `configured` is whether the operator
-   *  pasted a Stripe price id for that combination; annual is optional. */
-  prices: {
-    currency: "usd";
-    growth: Record<BillingInterval, { unitAmount: number; configured: boolean }>;
-    scale: Record<BillingInterval, { unitAmount: number; configured: boolean }>;
-  };
-  /** Secret key + both monthly price ids present on the instance. */
-  stripeConfigured: boolean;
-  /** The company has a Stripe customer, so POST /billing/portal will work. */
-  portalAvailable: boolean;
-};
-
-/** GET/PUT /api/admin/billing — instance-wide Stripe wiring. Secrets follow
- *  the blank-keeps-stored pattern; only their presence is reported. */
-export type AdminBillingSettings = {
-  enabled: boolean;
-  /** One Stripe price id per paid Plan per interval. The annual pair may be
-   *  blank — an install that only sells monthly simply doesn't offer it. */
-  growthMonthlyPriceId: string;
-  growthAnnualPriceId: string;
-  scaleMonthlyPriceId: string;
-  scaleAnnualPriceId: string;
-  hasSecretKey: boolean;
-  hasWebhookSecret: boolean;
-};
-
-/** GET/PUT /api/admin/license — this install's enterprise license.
- *  "expired" on a paid license means features remain enabled (soft expiry);
- *  an expired evaluation license reports "expired" with features off. */
-export type AdminLicenseStatus = {
-  status: "none" | "valid" | "expired" | "invalid";
-  companyName: string | null;
-  email: string | null;
-  expiresAt: string | null;
-  seats: number | null;
-  evaluation: boolean;
-  /** Instance-wide AI Employee count, for the seat meter. */
-  aiEmployeeCount: number;
-};
-
-/** One row of the issuer's registry at GET /api/admin/licenses. Only a masked
- *  keyPreview is stored — the full key appears once, in the POST response. */
-export type AdminEnterpriseLicense = {
-  id: string;
+/** POST /api/auth/sso/company/link/describe — the company whose SSO is asking
+ *  to link, for the confirm page. The account's email stays server-side. */
+export type CompanySsoLinkDescription = {
   companyName: string;
-  email: string | null;
-  expiresAt: string;
-  seats: number | null;
-  evaluation: boolean;
-  keyPreview: string;
-  createdAt: string;
-};
-
-/** GET /api/admin/licenses — the issuer surface (Admin → Enterprise
- *  Licenses). Issuing needs the Ed25519 signing private key configured. */
-export type AdminEnterpriseLicenses = {
-  signingConfigured: boolean;
-  licenses: AdminEnterpriseLicense[];
-};
-
-/** POST /api/admin/licenses — `key` is shown once and never stored. */
-export type AdminEnterpriseLicenseIssued = {
-  license: AdminEnterpriseLicense;
-  key: string;
+  companySlug: string;
+  issuerHost: string;
 };
 
 // ───────────────────── Admin directory (Users + Companies) ───────────────────

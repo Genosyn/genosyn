@@ -8,14 +8,13 @@ import {
 } from "typeorm";
 
 /**
- * Per-company single sign-on on a Genosyn Cloud install (M56 Phase B).
+ * Per-company single sign-on (M56 Phase B).
  *
- * A company on the Scale plan configures its own identity provider at
- * Settings → Single sign-on; members then sign in from
- * `/login/sso/<companySlug>`. Separate from the instance-wide `sso.settings`
- * AppSetting, which is the operator's own sign-in — this row exists per
- * company and only takes effect while the company's entitlements include the
- * `sso` feature (see `services/entitlements.ts`).
+ * A company configures its own identity provider at Settings → Single
+ * sign-on; members then sign in from `/login/sso/<companySlug>`. Separate from
+ * the instance-wide `sso.settings` AppSetting, which is the operator's own
+ * sign-in — this row exists per company and takes effect while `enabled` is
+ * on.
  *
  * The client secret is encrypted with the company-scoped key
  * (`encryptSecret(secret, "company:<companyId>")` — the IntegrationConnection

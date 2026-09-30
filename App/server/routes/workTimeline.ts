@@ -16,22 +16,19 @@ import {
  *
  * ## Why this reads `audit_events` on its own path
  *
- * `routes/audit.ts` is admin-gated *and* behind the `auditLog` entitlement
- * (Scale plan / Enterprise licence), and this endpoint deliberately is neither.
+ * `routes/audit.ts` is admin-gated, and this endpoint deliberately is not.
  * Browsing the company's whole history — every actor, every action, unbounded
- * back in time, with the raw metadata blob — is an investigation tool, and
- * charging for it is a defensible product line. Seeing what your own AI
- * employees did today is not that: it is the minimum a company needs to trust
- * a workforce it is being asked to leave unattended, and a Community install
- * that can see "the routine completed" but not "and here is what it changed"
- * is back in the position M58 exists to end.
+ * back in time, with the raw metadata blob — is an admin's investigation tool.
+ * Seeing what your own AI employees did today is not that: it is the minimum a
+ * company needs to trust a workforce it is being asked to leave unattended,
+ * and a member who can see "the routine completed" but not "and here is what
+ * it changed" is back in the position M58 exists to end.
  *
- * The precedent is exact. `routes/routineChecks.ts` exempts one Run's own
- * effects from the same entitlement on the same argument. This is that
- * argument at the employee's scope, and the window keeps it honest: one
- * employee at a time, a bounded number of hours, no metadata JSON, no action
- * filter, no paging into history. Anyone who wants the investigation tool
- * still buys the audit log.
+ * The precedent is exact. `routes/routineChecks.ts` opens one Run's own
+ * effects to every member on the same argument. This is that argument at the
+ * employee's scope, and the window keeps it honest: one employee at a time, a
+ * bounded number of hours, no metadata JSON, no action filter, no paging into
+ * history. Anyone who needs the investigation tool uses the audit log.
  */
 export const workTimelineRouter = Router({ mergeParams: true });
 workTimelineRouter.use(requireAuth);

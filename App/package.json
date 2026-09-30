@@ -32,7 +32,6 @@
     "migration:run": "npm run typeorm -- migration:run -d ormconfig.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d ormconfig.ts",
     "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts",
-    "license:keygen": "tsx server/scripts/licenseKeygen.ts",
     "setup:public-url": "tsx server/scripts/setupPublicUrl.ts",
     "test:work-session-models": "tsx scripts/test-work-session-models.ts",
     "test:repository-settings": "tsx scripts/test-repository-settings.ts",

@@ -531,7 +531,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "models",
           "config",
           "api keys",
-          "billing",
         ],
       },
     ],

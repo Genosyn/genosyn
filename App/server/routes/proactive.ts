@@ -14,7 +14,6 @@ import {
   setProactiveAutomaticSetup,
   ProactiveSetupError,
 } from "../services/proactive/setup.js";
-import { PlanLimitError } from "../services/entitlements.js";
 
 export const proactiveRouter = Router({ mergeParams: true });
 proactiveRouter.use(requireAuth, requireCompanyMember);
@@ -55,7 +54,6 @@ proactiveRouter.post(
     } catch (error) {
       if (error instanceof ProactiveSetupError)
         return res.status(error.status).json({ error: error.message });
-      if (error instanceof PlanLimitError) return res.status(402).json({ error: error.message });
       throw error;
     }
   },

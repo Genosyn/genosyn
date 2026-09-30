@@ -8,7 +8,6 @@ import {
   type ProactiveMailbox,
   type ProactiveRecipe,
 } from "../../../shared/proactive.js";
-import { PlanLimitError } from "../entitlements.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { workBlocked } from "../standdowns.js";
 import { initializeProactiveDefaults } from "./defaultsState.js";
@@ -179,10 +178,9 @@ export function reconcileProactiveDefaults(
       try {
         await dependencies.install(companyId, null, input, { automatic: true });
       } catch (error) {
-        // Missing live prerequisites, a paused scope, or plan capacity are
-        // pending setup, not incidents. A later reconciliation can try again.
-        if (!(error instanceof ProactiveSetupError) && !(error instanceof PlanLimitError))
-          throw error;
+        // Missing live prerequisites or a paused scope are pending setup, not
+        // incidents. A later reconciliation can try again.
+        if (!(error instanceof ProactiveSetupError)) throw error;
       }
     }
   })().finally(() => {

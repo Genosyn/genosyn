@@ -16,8 +16,6 @@ import { Run } from "../db/entities/Run.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import { invalidateBillingSettingsCache } from "../services/billing/billingSettings.js";
-import { invalidateLicenseCache } from "../services/license.js";
 import { MAX_CHECKS_PER_ROUTINE } from "../services/routineChecks.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { auditRouter } from "./audit.js";
@@ -28,9 +26,9 @@ import { routineChecksRouter } from "./routineChecks.js";
  *
  * The audit router is mounted alongside deliberately: the one thing this file
  * has to prove that no single-router test could is the asymmetry between the
- * company's whole history (a paid feature) and one Run's own ledger (not),
- * and that only means something if both are asked in the same process, of the
- * same company, by the same person.
+ * company's whole history (admin-only) and one Run's own ledger (every
+ * member), and that only means something if both are asked in the same
+ * process, of the same company, by the same person.
  */
 
 let server: Server;
@@ -74,8 +72,6 @@ after(async () => {
 
 beforeEach(async () => {
   await resetTestDb();
-  invalidateBillingSettingsCache();
-  invalidateLicenseCache();
 
   const founder = await insert(User, {
     email: "founder@example.com",
@@ -464,7 +460,7 @@ describe("a Run's own evidence", () => {
     assert.equal((await call("GET", `/routines/runs/${nowhere}/effects`)).status, 404);
   });
 
-  test("one Run's effects are readable without the auditLog entitlement; the company's history is not", async () => {
+  test("one Run's effects are readable by every member; the company's history is admin-only", async () => {
     const run = await makeRun();
     const repo = AppDataSource.getRepository(AuditEvent);
     await repo.save(
@@ -480,12 +476,11 @@ describe("a Run's own evidence", () => {
       }),
     );
 
-    // Same company, same admin, same process — the only difference is which
-    // question is being asked. Browsing everything is the paid feature (M56);
-    // reading what one Run did is part of trusting the Run at all, and M58's
-    // whole thesis collapses on a Community install if it is not.
-    const history = await call<{ error: string }>("GET", "/audit");
-    assert.equal(history.status, 402);
+    // Same company, same process — the only difference is which question is
+    // being asked, and by whom. The owner can browse everything.
+    const history = await call<{ items: unknown[] }>("GET", "/audit");
+    assert.equal(history.status, 200);
+    assert.equal(history.body.items.length, 1);
 
     const evidence = await call<{ effects: unknown[]; total: number }>(
       "GET",
@@ -494,8 +489,9 @@ describe("a Run's own evidence", () => {
     assert.equal(evidence.status, 200);
     assert.equal(evidence.body.total, 1);
 
-    // And it stays reachable for an ordinary Member, who could never read the
-    // company-wide log even on a plan that included it.
+    // And it stays reachable for an ordinary Member, who cannot read the
+    // company-wide log: reading what one Run did is part of trusting the Run
+    // at all, and M58's whole thesis collapses if it is not.
     actingUserId = viewer.id;
     assert.equal((await call("GET", `/routines/runs/${run.id}/effects`)).status, 200);
     assert.equal((await call("GET", "/audit")).status, 403);

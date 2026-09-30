@@ -320,16 +320,13 @@ const effectsQuerySchema = z
 /**
  * What one Run actually changed, from the server's own ledger.
  *
- * **Not behind `requireCompanyFeature("auditLog")`, and that asymmetry is
- * deliberate.** Browsing the company's whole history is the paid feature
- * (M56): it is an investigation tool, it spans every Run and every Member, and
- * charging for it is a defensible product line. Reading what *one* Run did is
- * a different thing entirely — it is the only account of that Run the model
- * did not write, and the milestone's whole argument is that a Run's outcome
- * means nothing without it. A Community install that can see "completed" but
- * not "and here is what it changed" is back in the position M58 exists to end,
- * so putting this evidence behind a plan would sell the fix for the problem
- * while shipping the problem.
+ * **Readable by every member, unlike the admin-only company audit log, and
+ * that asymmetry is deliberate.** Browsing the company's whole history is an
+ * investigation tool that spans every Run and every Member. Reading what *one*
+ * Run did is a different thing entirely — it is the only account of that Run
+ * the model did not write, and the milestone's whole argument is that a Run's
+ * outcome means nothing without it. A member who can see "completed" but not
+ * "and here is what it changed" is back in the position M58 exists to end.
  */
 routineChecksRouter.get(
   "/routines/runs/:runId/effects",

@@ -18,7 +18,6 @@ import { RoutineTrigger } from "../../db/entities/RoutineTrigger.js";
 import { effectiveActiveId } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { recordAudit } from "../audit.js";
-import { assertRoutineCapacity, PlanLimitError } from "../entitlements.js";
 import { nextRunFor } from "../cron.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { broadcastToCompany } from "../realtime.js";
@@ -290,14 +289,6 @@ export async function installProactiveStarter(
           .getRepository(Company)
           .update({ id: companyId }, { proactiveDefaultsJson: JSON.stringify(defaults) });
         return false;
-      }
-      if (recipe.kind === "routine") {
-        try {
-          await assertRoutineCapacity(companyId);
-        } catch (error) {
-          if (error instanceof PlanLimitError) return error;
-          throw error;
-        }
       }
       if (recipe.kind === "email") {
         await manager.getRepository(MailRule).insert({

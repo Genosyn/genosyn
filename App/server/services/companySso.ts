@@ -1,13 +1,16 @@
 import bcrypt from "bcrypt";
+import { IsNull, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { CompanySso } from "../db/entities/CompanySso.js";
+import { Invitation } from "../db/entities/Invitation.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
-import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
+import { createAuthFlowState, consumeAuthFlowState, readAuthFlowState } from "./authFlowState.js";
 import { recordAudit } from "./audit.js";
-import { getCompanyEntitlements } from "./entitlements.js";
+import { sendEmailVerification } from "./emailVerification.js";
+import { areSignupsDisabled } from "./signupSettings.js";
 import { getPublicUrl } from "./publicUrl.js";
 import {
   completeOidcCodeExchange,
@@ -17,15 +20,14 @@ import {
   startOidcHandshake,
   type OidcClientConfig,
 } from "./ssoLogin.js";
-import { GOOGLE_ISSUER, type SsoProvider } from "./ssoSettings.js";
+import { GOOGLE_ISSUER, isCompanySsoAllowed, type SsoProvider } from "./ssoSettings.js";
 
 /**
- * Per-company single sign-on (M56 Phase B) — a company on Genosyn Cloud's
- * Scale plan configures its own identity provider and members sign in at
- * `/login/sso/<companySlug>`. Reuses the instance OIDC machinery in
- * `ssoLogin.ts` (discovery, PKCE, single-use encrypted state, verified-email
- * userinfo); this module owns the per-company persistence, eligibility, and
- * the account-resolution rules.
+ * Per-company single sign-on (M56 Phase B) — a company configures its own
+ * identity provider and members sign in at `/login/sso/<companySlug>`. Reuses
+ * the instance OIDC machinery in `ssoLogin.ts` (discovery, PKCE, single-use
+ * encrypted state, verified-email userinfo); this module owns the per-company
+ * persistence, eligibility, and the account-resolution rules.
  *
  * The resolution rules are security-critical. A company-configured IdP
  * asserting an email must NEVER silently take over an existing Genosyn
@@ -33,7 +35,20 @@ import { GOOGLE_ISSUER, type SsoProvider } from "./ssoSettings.js";
  * no authority over. Sign-in therefore matches on the exact
  * `{ssoIssuer, ssoSubject}` pair; an email-only match instead goes through a
  * short-lived link-confirmation step where the person proves the account's
- * password before the pair is bound.
+ * password before the pair is bound — offered only when that account is
+ * already a Member of the company, so a company cannot put a password prompt
+ * in front of anyone else's account.
+ *
+ * A master admin must allow company SSO at all (`isCompanySsoAllowed`): each
+ * company admin's IdP then vouches for sign-ins to its Members' accounts,
+ * which is a trust decision for whoever runs the install.
+ *
+ * For the same reason a company IdP's email claim is never proof of the
+ * mailbox. Any company admin can point one at an issuer they control, so an
+ * account it creates starts unverified and verifies through the emailed link
+ * like a signup, and no company-SSO sign-in or link marks an email verified.
+ * A verified email is what claims the operator role and accepts invitations
+ * on a shared install; an unproven claim must reach neither.
  */
 
 export const COMPANY_SSO_STATE_KIND = "company-sso";
@@ -43,6 +58,8 @@ const LINK_STATE_TTL_MS = 10 * 60 * 1000;
 const NOT_AVAILABLE_MESSAGE = "SSO sign-in is not available for this workspace.";
 const NOT_A_MEMBER_MESSAGE = "You are not a member of this company yet";
 const DOMAIN_NOT_ALLOWED_MESSAGE = "Your email domain is not allowed for this company's SSO.";
+const SIGNUPS_CLOSED_MESSAGE =
+  "Sign-ups are disabled on this instance. Ask this company's administrator for an invitation.";
 
 /** A bare domain like "acme.com" — lowercase, with a real TLD. */
 const EMAIL_DOMAIN_PATTERN = /^[a-z0-9.-]+\.[a-z]{2,}$/;
@@ -73,6 +90,8 @@ export type CompanySsoDescriptor = {
   configured: boolean;
   callbackUrl: string;
   loginUrl: string;
+  /** Whether a master admin allows company SSO on this install at all. */
+  allowedByInstance: boolean;
 };
 
 /** Payload the settings form submits. Blank secret keeps the stored one. */
@@ -154,7 +173,11 @@ function emptyRow(companyId: string): CompanySso {
   });
 }
 
-function describeRow(row: CompanySso, companySlug: string): CompanySsoDescriptor {
+function describeRow(
+  row: CompanySso,
+  companySlug: string,
+  allowedByInstance: boolean,
+): CompanySsoDescriptor {
   return {
     enabled: row.enabled,
     provider: normalizeProvider(row.provider),
@@ -167,6 +190,7 @@ function describeRow(row: CompanySso, companySlug: string): CompanySsoDescriptor
     configured: isConfigured(row),
     callbackUrl: companySsoCallbackUrl(),
     loginUrl: companySsoLoginUrl(companySlug),
+    allowedByInstance,
   };
 }
 
@@ -175,7 +199,7 @@ export async function describeCompanySso(
   companySlug: string,
 ): Promise<CompanySsoDescriptor> {
   const row = (await findRow(companyId)) ?? emptyRow(companyId);
-  return describeRow(row, companySlug);
+  return describeRow(row, companySlug, await isCompanySsoAllowed());
 }
 
 /**
@@ -205,6 +229,12 @@ export async function updateCompanySso(
   if (row.provider === "oidc" && row.issuer && !/^https:\/\//.test(row.issuer)) {
     throw new Error("Issuer URL must start with https://");
   }
+  const allowedByInstance = await isCompanySsoAllowed();
+  if (row.enabled && !allowedByInstance) {
+    throw new Error(
+      "Company single sign-on is not allowed on this install. A master admin can allow it at Admin → SSO.",
+    );
+  }
   if (row.enabled && !isConfigured(row)) {
     throw new Error(
       row.provider === "oidc" && !row.issuer
@@ -222,7 +252,7 @@ export async function updateCompanySso(
     );
   }
   await repo.save(row);
-  return describeRow(row, companySlug);
+  return describeRow(row, companySlug, allowedByInstance);
 }
 
 /** Remove the stored settings entirely — back to the disabled default. */
@@ -247,12 +277,9 @@ type ResolvedCompanySso = {
 
 async function resolveForCompany(company: Company | null): Promise<ResolvedCompanySso | null> {
   if (!company) return null;
+  if (!(await isCompanySsoAllowed())) return null;
   const row = await findRow(company.id);
   if (!row || !row.enabled || !isConfigured(row)) return null;
-  // A company keeps its saved configuration when it drops off Scale, but the
-  // runtime goes dark: the entitlements resolver is the single source of truth.
-  const entitlements = await getCompanyEntitlements(company.id);
-  if (!entitlements.features.sso) return null;
   let clientSecret = "";
   try {
     clientSecret = decryptSecret(row.encryptedClientSecret);
@@ -290,9 +317,18 @@ async function resolveById(companyId: string): Promise<ResolvedCompanySso | null
 }
 
 /**
+ * Whether any company on this install has turned its own SSO on — the
+ * generic login page uses it to decide whether to offer company SSO sign-in.
+ */
+export async function anyCompanySsoEnabled(): Promise<boolean> {
+  if (!(await isCompanySsoAllowed())) return false;
+  return AppDataSource.getRepository(CompanySso).existsBy({ enabled: true });
+}
+
+/**
  * Public probe for the login page. Deliberately leaks nothing about an
- * unknown slug, a disabled row, or a plan below Scale — they are all the
- * same `{ enabled: false }`.
+ * unknown slug or a disabled row — they are both the same
+ * `{ enabled: false }`.
  */
 export async function getCompanySsoPublicStatus(
   companySlug: string,
@@ -330,6 +366,15 @@ type LinkState = {
   issuer: string;
   subject: string;
 };
+
+async function hasOpenInvitation(companyId: string, email: string): Promise<boolean> {
+  const address = email.trim().toLowerCase();
+  const open = await AppDataSource.getRepository(Invitation).find({
+    where: { companyId, acceptedAt: IsNull(), expiresAt: MoreThan(new Date()) },
+    select: { email: true },
+  });
+  return open.some((invitation) => invitation.email.trim().toLowerCase() === address);
+}
 
 async function findMembership(companyId: string, userId: string): Promise<Membership | null> {
   return AppDataSource.getRepository(Membership).findOneBy({ companyId, userId });
@@ -376,8 +421,8 @@ export async function finishCompanySsoLogin(args: {
   if (!companyId) {
     throw new SsoLoginError("The sign-in attempt expired or was already used — try again.");
   }
-  // Re-check eligibility at redemption: the row may have been disabled, or
-  // the plan changed, while the person was away at the identity provider.
+  // Re-check eligibility at redemption: the row may have been disabled while
+  // the person was away at the identity provider.
   const resolved = await resolveById(companyId);
   if (!resolved) throw new SsoLoginError(NOT_AVAILABLE_MESSAGE);
   const claims = await completeOidcCodeExchange({
@@ -394,12 +439,6 @@ export async function finishCompanySsoLogin(args: {
     ssoSubject: claims.subject,
   });
   if (paired) {
-    if (!paired.emailVerifiedAt) {
-      paired.emailVerifiedAt = new Date();
-      paired.emailVerificationTokenHash = null;
-      paired.emailVerificationExpiresAt = null;
-      await userRepo.save(paired);
-    }
     if (!(await findMembership(companyId, paired.id))) {
       if (!resolved.autoJoin) throw new SsoLoginError(NOT_A_MEMBER_MESSAGE);
       if (!emailDomainAllowed(resolved.allowedEmailDomains, claims.email)) {
@@ -420,14 +459,24 @@ export async function finishCompanySsoLogin(args: {
   const byEmail = await userRepo.findOneBy({ email: claims.email });
 
   // 2. Nobody has this email — a brand-new person, provisioned when the
-  //    company allows auto-join.
+  //    company allows auto-join. With sign-ups closed at Admin → Sign-ups,
+  //    only someone this company invited gets an account, as on the signup
+  //    form.
   if (!byEmail) {
     if (!resolved.autoJoin) throw new SsoLoginError(NOT_A_MEMBER_MESSAGE);
     if (!emailDomainAllowed(resolved.allowedEmailDomains, claims.email)) {
       throw new SsoLoginError(DOMAIN_NOT_ALLOWED_MESSAGE);
     }
-    const user = await provisionSsoUser({ issuer: resolved.client.issuer, claims });
+    if ((await areSignupsDisabled()) && !(await hasOpenInvitation(companyId, claims.email))) {
+      throw new SsoLoginError(SIGNUPS_CLOSED_MESSAGE);
+    }
+    const user = await provisionSsoUser({
+      issuer: resolved.client.issuer,
+      claims,
+      emailVerified: false,
+    });
     await createMembership(companyId, user.id);
+    await sendEmailVerification(user);
     await recordAudit({
       companyId,
       actorUserId: user.id,
@@ -440,9 +489,15 @@ export async function finishCompanySsoLogin(args: {
 
   // 3. Email-only match (including an account bound to a DIFFERENT pair).
   //    Never bind here — the person proves the password first. Starting the
-  //    link-confirmation is itself gated on the domain allowlist.
+  //    link-confirmation is gated on the domain allowlist and on the account
+  //    already being a Member: any company admin can point SSO at an IdP they
+  //    run, and a password prompt for a stranger's account would be a
+  //    phishing page on this install's own domain.
   if (!emailDomainAllowed(resolved.allowedEmailDomains, claims.email)) {
     throw new SsoLoginError(DOMAIN_NOT_ALLOWED_MESSAGE);
+  }
+  if (!(await findMembership(companyId, byEmail.id))) {
+    throw new SsoLoginError(NOT_A_MEMBER_MESSAGE);
   }
   const token = await createAuthFlowState(
     COMPANY_SSO_LINK_STATE_KIND,
@@ -461,12 +516,42 @@ export type CompanySsoLinkOutcome =
   | { status: "invalid-password" }
   | { status: "linked"; user: User; companyId: string };
 
+/** What the link-confirmation page and its password throttle need to know
+ *  about an unredeemed token, without consuming it. Null once it expired or
+ *  was used. */
+export async function describeCompanySsoLink(token: string): Promise<{
+  companyName: string;
+  companySlug: string;
+  issuerHost: string;
+  accountEmail: string;
+} | null> {
+  const snapshot = await readAuthFlowState<LinkState>(COMPANY_SSO_LINK_STATE_KIND, token);
+  if (!snapshot) return null;
+  const [company, user] = await Promise.all([
+    AppDataSource.getRepository(Company).findOneBy({ id: snapshot.payload.companyId }),
+    AppDataSource.getRepository(User).findOneBy({ id: snapshot.payload.userId }),
+  ]);
+  if (!company || !user) return null;
+  let issuerHost = snapshot.payload.issuer;
+  try {
+    issuerHost = new URL(snapshot.payload.issuer).host;
+  } catch {
+    // Stored issuers are validated https URLs; fall back to the raw value.
+  }
+  return {
+    companyName: company.name,
+    companySlug: company.slug,
+    issuerHost,
+    accountEmail: user.email,
+  };
+}
+
 /**
  * Redeem a link-confirmation token with the account's password. The token is
  * single-use — a wrong password burns it, and the person restarts the SSO
  * sign-in (deliberate: the token embodies one IdP round-trip's claims).
- * On success the `{ssoIssuer, ssoSubject}` pair is (re)bound to the account
- * and a Membership is created when the company allows auto-join.
+ * On success the `{ssoIssuer, ssoSubject}` pair is (re)bound to the account,
+ * which must still be a Member of the company that minted the token.
  */
 export async function confirmCompanySsoLink(args: {
   token: string;
@@ -483,16 +568,17 @@ export async function confirmCompanySsoLink(args: {
   if (!user) {
     throw new SsoLoginError("That account no longer exists — start the SSO sign-in again.");
   }
+  // Re-check eligibility at redemption, as the callback does: the company or
+  // a master admin may have turned company SSO off since the token was minted.
+  if (!(await resolveById(state.companyId))) throw new SsoLoginError(NOT_AVAILABLE_MESSAGE);
+  if (!(await findMembership(state.companyId, user.id))) {
+    throw new SsoLoginError(NOT_A_MEMBER_MESSAGE);
+  }
   const ok = await bcrypt.compare(args.password, user.passwordHash);
   if (!ok) return { status: "invalid-password" };
 
   user.ssoIssuer = state.issuer;
   user.ssoSubject = state.subject;
-  if (!user.emailVerifiedAt) {
-    user.emailVerifiedAt = new Date();
-    user.emailVerificationTokenHash = null;
-    user.emailVerificationExpiresAt = null;
-  }
   await userRepo.save(user);
   await recordAudit({
     companyId: state.companyId,
@@ -501,10 +587,5 @@ export async function confirmCompanySsoLink(args: {
     targetType: "user",
     targetId: user.id,
   });
-
-  const row = await findRow(state.companyId);
-  if (row?.autoJoin && !(await findMembership(state.companyId, user.id))) {
-    await createMembership(state.companyId, user.id);
-  }
   return { status: "linked", user, companyId: state.companyId };
 }

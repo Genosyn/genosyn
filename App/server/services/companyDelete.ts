@@ -208,11 +208,7 @@ import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
-import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { CompanySso } from "../db/entities/CompanySso.js";
-import { getStripeSecrets } from "./billing/billingSettings.js";
-import { ACTIVE_SUBSCRIPTION_STATUSES } from "./billing/companyBilling.js";
-import { cancelSubscription } from "./billing/stripe.js";
 
 /**
  * Hard-delete a company and every row that hangs off it.
@@ -244,12 +240,6 @@ export async function deleteCompanyCascade(args: {
     console.warn(
       `[companyDelete] failed to stop browser recordings for ${companyId}: ${(err as Error).message}`,
     );
-  });
-
-  // Captured before the cascade so the post-commit Stripe seat sync below
-  // still knows the subscription this company was billed on.
-  const billingRowBeforeDelete = await AppDataSource.getRepository(CompanyBilling).findOneBy({
-    companyId,
   });
 
   await AppDataSource.transaction(async (m) => {
@@ -613,34 +603,10 @@ export async function deleteCompanyCascade(args: {
     await m.delete(AIEmployee, { companyId });
     await m.delete(Invitation, { companyId });
     await m.delete(Membership, { companyId });
-    await m.delete(CompanyBilling, { companyId });
     await m.delete(CompanySso, { companyId });
     await m.delete(Company, { id: companyId });
   });
   emitMembershipAuthorizationChange(companyId);
-
-  // ── Stripe cancellation (best-effort, M56) ───────────────────────────
-  // The company is gone but its subscription may still be live at Stripe —
-  // and with the Company, Membership, and CompanyBilling rows deleted, no
-  // route can ever mint a billing-portal session for this customer again.
-  // Cancel the subscription outright so the card on file stops being charged
-  // for a company that no longer exists.
-  if (
-    billingRowBeforeDelete?.stripeSubscriptionId &&
-    billingRowBeforeDelete.status &&
-    ACTIVE_SUBSCRIPTION_STATUSES.includes(billingRowBeforeDelete.status)
-  ) {
-    try {
-      const { secretKey } = await getStripeSecrets();
-      if (secretKey) {
-        await cancelSubscription(secretKey, billingRowBeforeDelete.stripeSubscriptionId);
-      }
-    } catch (err) {
-      console.warn(
-        `[companyDelete] Stripe subscription cancel failed for ${companyId}: ${(err as Error).message}`,
-      );
-    }
-  }
 
   // ── 4. Filesystem (best-effort) ──────────────────────────────────────
   try {

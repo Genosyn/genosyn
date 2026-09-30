@@ -1,8 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
+import { CompanySso } from "../db/entities/CompanySso.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
-import { billingEnabled } from "./billing/billingSettings.js";
-import { getInstanceLicense } from "./license.js";
 import { getPublicUrl } from "./publicUrl.js";
 
 /**
@@ -24,6 +23,35 @@ import { getPublicUrl } from "./publicUrl.js";
  */
 
 export const SSO_SETTING_KEY = "sso.settings";
+export const COMPANY_SSO_ALLOWED_KEY = "sso.companyAllowed";
+
+/**
+ * Whether companies on this install may sign Members in through their own
+ * identity provider. A master admin decides at Admin → SSO, because any
+ * company admin can point company SSO at an issuer they run, and that issuer
+ * then vouches for sign-ins to its Members' whole accounts. Off by default;
+ * an install where a company already signs in through its own SSO keeps it
+ * on until a master admin decides.
+ */
+export async function isCompanySsoAllowed(): Promise<boolean> {
+  const row = await AppDataSource.getRepository(AppSetting).findOneBy({
+    key: COMPANY_SSO_ALLOWED_KEY,
+  });
+  if (row) return row.value === "true";
+  return AppDataSource.getRepository(CompanySso).existsBy({ enabled: true });
+}
+
+export async function setCompanySsoAllowed(allowed: boolean): Promise<void> {
+  const repo = AppDataSource.getRepository(AppSetting);
+  const value = allowed ? "true" : "false";
+  const existing = await repo.findOneBy({ key: COMPANY_SSO_ALLOWED_KEY });
+  if (existing) {
+    existing.value = value;
+    await repo.save(existing);
+  } else {
+    await repo.save(repo.create({ key: COMPANY_SSO_ALLOWED_KEY, value }));
+  }
+}
 
 /** Google's fixed OIDC issuer — filled in automatically when the provider is
  *  "google" so operators don't need to know the discovery URL. */
@@ -71,6 +99,9 @@ export type SsoDescriptor = {
   configured: boolean;
   /** The redirect URI operators must register with their identity provider. */
   callbackUrl: string;
+  /** Whether companies may use their own identity provider — see
+   *  {@link isCompanySsoAllowed}. */
+  companySsoAllowed: boolean;
 };
 
 /** Payload the admin form submits. */
@@ -151,6 +182,14 @@ function decryptStoredSecret(encrypted: string): string {
   }
 }
 
+/** The issuer of the install-wide SSO a master admin configured, or "" when
+ *  none is. Its pairings are the operator's own trust, unlike those a
+ *  company-configured IdP made. */
+export async function configuredInstanceSsoIssuer(): Promise<string> {
+  const stored = await readStoredSso();
+  return isConfigured(stored) ? effectiveIssuer(stored) : "";
+}
+
 function isConfigured(stored: StoredSso): boolean {
   return Boolean(effectiveIssuer(stored) && stored.clientId && stored.encryptedClientSecret);
 }
@@ -158,18 +197,8 @@ function isConfigured(stored: StoredSso): boolean {
 /**
  * Resolve settings for the login handshake. Returns null unless SSO is both
  * enabled and fully configured — callers treat null as "SSO is off".
- *
- * On a self-hosted install (billing disabled) SSO is an Enterprise feature
- * (M56): without a feature-valid license the runtime resolves to null, which
- * hides the login button and disables `/start`, even if settings were saved
- * while a license was active. Billing-enabled installs are Genosyn Cloud —
- * the instance SSO there is the operator's own and stays ungated.
  */
 export async function resolveSsoRuntime(): Promise<ResolvedSso | null> {
-  if (!(await billingEnabled())) {
-    const license = await getInstanceLicense();
-    if (!license.featureValid) return null;
-  }
   const stored = await readStoredSso();
   if (!stored.enabled || !isConfigured(stored)) return null;
   const clientSecret = decryptStoredSecret(stored.encryptedClientSecret);
@@ -209,6 +238,7 @@ export async function describeSso(): Promise<SsoDescriptor> {
     autoProvision: stored.autoProvision,
     configured: isConfigured(stored),
     callbackUrl: ssoCallbackUrl(),
+    companySsoAllowed: await isCompanySsoAllowed(),
   };
 }
 
