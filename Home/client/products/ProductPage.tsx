@@ -377,7 +377,7 @@ function MoreProducts({ current }: { current: ProductDef }) {
           kicker="More products"
           title={
             <>
-              Same database, same permissions.
+              One shared context, one permission model.
             </>
           }
           aside={<TextLink href="/products">{`All ${PRODUCTS.length} products`}</TextLink>}

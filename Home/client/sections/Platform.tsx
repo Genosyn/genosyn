@@ -6,7 +6,7 @@ import { Link } from "@/lib/router";
 import { CompanyPreview } from "@/sections/CompanyPreview";
 import { Container, DEPT_DOT, Em, Section, SectionHead } from "@/sections/Kit";
 
-/** Where the work happens: one install, fourteen products, one database. */
+/** Where the work happens: one install, fourteen products, one shared context. */
 export function Platform() {
   const frame = useReveal<HTMLDivElement>(60);
   const tiles = useReveal<HTMLUListElement>(0, 35);
@@ -18,10 +18,10 @@ export function Platform() {
           kicker="Where the work happens"
           title={
             <>
-              {`${PRODUCTS.length} products.`} <Em>One database.</Em>
+              {`${PRODUCTS.length} products.`} <Em>One context for every AI Employee.</Em>
             </>
           }
-          lede="An AI Employee works where the records are: the same rows a Member edits, reached one Grant at a time. Nothing to sync, and no second system of record."
+          lede="Every product shares one company context, so an AI Employee works with what a Member sees: the same records, reached one Grant at a time. Nothing to sync, and no second system of record."
         />
 
         <div ref={frame} className="relative isolate mt-14">

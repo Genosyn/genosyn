@@ -40,7 +40,7 @@ export function ProductsIndex() {
               items={[
                 `${PRODUCTS.length} products`,
                 `${PRODUCT_CATEGORIES.length} categories`,
-                "1 database",
+                "1 shared context",
                 "Apache 2.0",
               ]}
             />

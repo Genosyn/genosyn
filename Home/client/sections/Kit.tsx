@@ -237,7 +237,8 @@ export function Title({
 
 /**
  * The second half of a headline, set a step lighter. Used sparingly: a few
- * headlines turn on a contrast ("14 products. One database."), most do not.
+ * headlines turn on a contrast ("14 products. One context for every AI
+ * Employee."), most do not.
  */
 export function Em({
   tone = "muted",
