@@ -79,9 +79,11 @@ function requestRunDispatch(runId: string): void {
           // because its deadline starts at the claim, waiting costs it nothing.
           const target = await queuedRunModel(runId);
           if (!canClaim()) return;
+          let started = false;
           const slot = await withModelRunSlot(target?.capacity ?? null, async () => {
             const next = await claimRun(runId, lease.assertHeld, canClaim);
             if (!next) return;
+            started = true;
             // Each Run owns its lifecycle independently, including assessment and cleanup.
             const claim = next.run.queueActiveEmployeeId!;
             activeClaims.set(runId, claim);
@@ -92,10 +94,13 @@ function requestRunDispatch(runId: string): void {
             }
           });
           if (!slot.admitted && target) await noteWaitingForModel(runId, target);
-          // Offer a freed slot to the next waiting Run now, not at the next
-          // heartbeat — and before this worker ends, so anyone awaiting an
-          // idle queue sees the next Run. A failure here waits for the heartbeat.
-          if (slot.admitted && target?.capacity.limit != null)
+          // Offer the slot this Run used to the next waiting Run now, not at
+          // the next heartbeat — and before this worker ends, so anyone
+          // awaiting an idle queue sees the next Run. A Run whose claim was
+          // refused for another reason (an earlier Run still cleaning up, a
+          // Standdown) used nothing: re-dispatching would only offer it the
+          // same slot again, forever. A failure here waits for the heartbeat.
+          if (started && target?.capacity.limit != null)
             await dispatchQueuedRoutineRuns().catch(() => undefined);
         });
       } while (canClaim() && requested.has(runId));

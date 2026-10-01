@@ -103,6 +103,16 @@ function blockFirstTurn(t: TestContext) {
   return { firstStarted, release, started };
 }
 
+/** Fail instead of hanging when a Run ends before its model turn begins. */
+async function reachesModel(started: Promise<void>, completion: Promise<Run>): Promise<void> {
+  await Promise.race([
+    started,
+    completion.then((run) =>
+      assert.fail(`The Run ended as ${run.status} before reaching the model: ${run.logContent}`),
+    ),
+  ]);
+}
+
 async function runOf(routine: Routine): Promise<Run> {
   return AppDataSource.getRepository(Run).findOneOrFail({
     where: { routineId: routine.id },
@@ -118,10 +128,7 @@ test("a second Routine waits for a busy local model without spending its time li
   const model = blockFirstTurn(t);
 
   const busy = await startRoutineRun(busyRoutine, { triggerKind: "schedule" });
-  await Promise.race([
-    model.firstStarted.promise,
-    busy.completion.then(() => assert.fail("The busy Run finished before reaching the model")),
-  ]);
+  await reachesModel(model.firstStarted.promise, busy.completion);
   const waiting = await startRoutineRun(waitingRoutine, { triggerKind: "schedule" });
   await dispatchQueuedRoutineRuns();
   await dispatchQueuedRoutineRuns();
@@ -156,7 +163,7 @@ test("AI Employees pointed at one model server share its limit", async (t) => {
   const model = blockFirstTurn(t);
 
   const first = await startRoutineRun(await routineFor(alex, "alex-review"));
-  await model.firstStarted.promise;
+  await reachesModel(model.firstStarted.promise, first.completion);
   const samRoutine = await routineFor(sam, "sam-review");
   const second = await startRoutineRun(samRoutine);
   await dispatchQueuedRoutineRuns();
@@ -205,7 +212,7 @@ test("raising a model's limit admits a waiting Run without another heartbeat", a
   const employee = await employeeWithModel(co, "jamie");
   const model = blockFirstTurn(t);
   const busy = await startRoutineRun(await routineFor(employee, "busy"));
-  await model.firstStarted.promise;
+  await reachesModel(model.firstStarted.promise, busy.completion);
   const waitingRoutine = await routineFor(employee, "waiting");
   const waiting = await startRoutineRun(waitingRoutine);
   await dispatchQueuedRoutineRuns();
@@ -220,6 +227,45 @@ test("raising a model's limit admits a waiting Run without another heartbeat", a
   assert.equal(model.started.length, 2, "the second Run ran while the first still held the model");
   model.release.resolve();
   assert.equal((await busy.completion).status, "completed");
+});
+
+test("a Run refused for another reason frees the slot without retrying in a loop", async (t) => {
+  const co = await company();
+  const employee = await employeeWithModel(co, "jamie");
+  const routine = await routineFor(employee, "cleaning-up");
+  // An earlier Run of this Routine still owns its cleanup, so a new Run of it
+  // cannot start yet — whatever the model's capacity.
+  const cleaning = await insert(Run, {
+    routineId: routine.id,
+    employeeId: employee.id,
+    status: "error",
+    errorKind: "timeout",
+    triggerKind: "schedule",
+    startedAt: new Date(Date.now() - 180_000),
+    finishedAt: new Date(),
+    queueActiveEmployeeId: "run:earlier:cleanup",
+  });
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async () => {
+    calls++;
+    return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+  });
+  const pending = await startRoutineRun(routine);
+  let idle = false;
+  await Promise.race([
+    waitForRoutineQueueIdle().then(() => {
+      idle = true;
+    }),
+    new Promise((resolve) => setTimeout(resolve, 5_000)),
+  ]);
+  assert.equal(idle, true, "a refused claim must not keep re-offering itself the slot");
+  assert.equal((await runOf(routine)).status, "queued");
+  assert.equal(calls, 0);
+
+  await AppDataSource.getRepository(Run).update(cleaning.id, { queueActiveEmployeeId: null });
+  await dispatchQueuedRoutineRuns();
+  assert.equal((await pending.completion).status, "completed");
+  assert.equal(calls, 1);
 });
 
 test("a started Run's log says how long it waited in the queue", () => {
