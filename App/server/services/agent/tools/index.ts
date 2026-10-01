@@ -6,7 +6,7 @@ import { loadGenosynTools } from "./genosyn.js";
 import { connectMcpServer, type BridgedServer } from "./mcpBridge.js";
 import { DISCOVERY_TOOL_NAMES, discoveryTools } from "./discovery.js";
 import { domainOf } from "./toolIndex.js";
-import { buildRegistry, type ToolRegistry } from "./toolRegistry.js";
+import { buildRegistry, unprefixedToolName, type ToolRegistry } from "./toolRegistry.js";
 import {
   browserServerSpec,
   loadBrowserConfig,
@@ -251,10 +251,13 @@ export async function gatherEmployeeTools(params: {
   // array is filled in below, before any dispatch, so the forward reference is
   // safe; capturing it here also makes call_tool's self-call guard reachable.
   const meta: AgentTool[] = [];
-  const resolveAny = (name: string): AgentTool | undefined =>
+  const resolveExact = (name: string): AgentTool | undefined =>
     tools.find((t) => t.name === name) ??
     meta.find((t) => t.name === name) ??
     genosyn.aliases.find((a) => a.name === name);
+  // A model running under OpenCode sees and repeats the `genosyn_` wire name.
+  const resolveAny = (name: string): AgentTool | undefined =>
+    resolveExact(name) ?? resolveExact(unprefixedToolName(name));
 
   // The revert path is one branch rather than a flag threaded through the
   // partition: everything goes resident and there are no meta-tools. The model

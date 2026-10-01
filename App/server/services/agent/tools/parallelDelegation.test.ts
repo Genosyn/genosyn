@@ -131,6 +131,27 @@ describe("delegate_parallel_work input", () => {
     assert.equal(result.isError, undefined);
   });
 
+  test("required tools named as OpenCode shows them resolve to the real tool names", async () => {
+    const seen: DelegatedBrief[] = [];
+    const tool = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      runBrief: async (value) => {
+        seen.push(value);
+        return completed();
+      },
+    });
+    await tool.run({
+      tasks: [
+        {
+          label: "Research a channel",
+          instruction: "Open the channel page and summarize its audience.",
+          requiredTools: ["genosyn_browser_open", " browser_snapshot ", "genosyn_browser_open"],
+        },
+      ],
+    });
+    assert.deepEqual(seen[0].requiredTools, ["browser_open", "browser_snapshot"]);
+  });
+
   test("rejects malformed batches without spending budget or starting a worker", async () => {
     const invalid: Array<{ name: string; input: Record<string, unknown>; message: RegExp }> = [
       { name: "missing tasks", input: {}, message: /tasks.*array/ },

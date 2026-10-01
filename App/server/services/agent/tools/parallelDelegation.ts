@@ -1,5 +1,6 @@
 import type { AgentTool } from "../types.js";
 import { createParallelResultStore, type ParallelResultStore } from "./parallelWorkerResults.js";
+import { unprefixedToolName } from "./toolRegistry.js";
 
 export {
   createParallelResultStore,
@@ -339,7 +340,14 @@ function parseInput(
       label: label.trim(),
       instruction: instruction.trim(),
       ...(Array.isArray(requiredTools)
-        ? { requiredTools: [...new Set(requiredTools.map((name: string) => name.trim()))] }
+        ? {
+            // Checked against the registry and its Grant rules by real name,
+            // whether the model wrote the name it was briefed with or the
+            // `genosyn_` form OpenCode showed it.
+            requiredTools: [
+              ...new Set(requiredTools.map((name: string) => unprefixedToolName(name.trim()))),
+            ],
+          }
         : {}),
     });
   }
