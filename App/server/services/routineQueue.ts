@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { IsNull, LessThanOrEqual, Like, Not, type Repository } from "typeorm";
+import {
+  Between,
+  IsNull,
+  LessThanOrEqual,
+  Like,
+  MoreThanOrEqual,
+  Not,
+  type Repository,
+} from "typeorm";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -12,7 +20,7 @@ import { StanddownError, workBlockedForRoutine } from "./standdowns.js";
 import { browserRunCreationBlocked } from "./browserRecordings.js";
 import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
-import { creditedQueueWaitMs } from "./runContinuation.js";
+import { creditedQueueWaitMs, readRunCheckpoint } from "./runContinuation.js";
 import {
   modelRunCapacity,
   modelRunSlotsInUse,
@@ -80,6 +88,10 @@ function requestRunDispatch(runId: string): void {
           // because its deadline starts at the claim, waiting costs it nothing.
           const target = await queuedRunModel(runId);
           if (!canClaim()) return;
+          if (target && !target.continuation && (await slotHeldForContinuation(target))) {
+            await noteWaitingForContinuation(runId, target);
+            return;
+          }
           let started = false;
           const slot = await withModelRunSlot(target?.capacity ?? null, async () => {
             const next = await claimRun(runId, lease.assertHeld, canClaim);
@@ -426,22 +438,77 @@ export async function dispatchQueuedRoutineRuns(): Promise<void> {
   for (const run of [...continuing, ...fresh]) requestRunDispatch(run.id);
 }
 
-type QueuedRunModel = { capacity: ModelRunCapacity; label: string };
+type QueuedRunModel = { capacity: ModelRunCapacity; label: string; continuation: boolean };
 
 /** The model a queued Run will use, read the same way its start will read it. */
 async function queuedRunModel(runId: string): Promise<QueuedRunModel | null> {
   const run = await AppDataSource.getRepository(Run).findOne({
     where: { id: runId, status: "queued" },
-    select: { id: true, routineId: true },
+    select: { id: true, routineId: true, continuationCount: true },
   });
   if (!run) return null;
+  const capacity = await routineModelCapacity(run.routineId);
+  return capacity && { ...capacity, continuation: run.continuationCount > 0 };
+}
+
+async function routineModelCapacity(
+  routineId: string,
+): Promise<Omit<QueuedRunModel, "continuation"> | null> {
   const routine = await AppDataSource.getRepository(Routine).findOne({
-    where: { id: run.routineId },
+    where: { id: routineId },
     select: { id: true, employeeId: true, modelId: true },
   });
   if (!routine) return null;
   const { model } = await resolveRoutineModel(routine);
   return model ? { capacity: modelRunCapacity(model), label: model.model } : null;
+}
+
+/** Long enough for the heartbeat to queue a handed-off continuation, short enough never to starve. */
+export const CONTINUATION_SLOT_HOLD_MS = 2 * 60_000;
+
+/**
+ * A Run that hands its unfinished work to a continuation frees its model slot
+ * seconds before the heartbeat queues that continuation, and a fresh Run that
+ * can take hours would otherwise claim the slot first. Until the continuation
+ * is queued, a fresh Run leaves one slot per pending continuation free. The
+ * hold ends once the continuation exists, and two minutes after the handoff
+ * whatever happens.
+ */
+async function slotHeldForContinuation(target: QueuedRunModel): Promise<boolean> {
+  const limit = target.capacity.limit;
+  if (limit == null) return false;
+  const now = Date.now();
+  const handoffs = await AppDataSource.getRepository(Run).find({
+    where: {
+      status: "failed",
+      errorKind: IsNull(),
+      continuationStopReason: IsNull(),
+      retryAt: Between(
+        new Date(now - CONTINUATION_SLOT_HOLD_MS),
+        new Date(now + CONTINUATION_SLOT_HOLD_MS),
+      ),
+      finishedAt: MoreThanOrEqual(new Date(now - CONTINUATION_SLOT_HOLD_MS)),
+    },
+    select: { id: true, routineId: true, checkpointJson: true },
+  });
+  let pending = 0;
+  for (const parent of handoffs) {
+    if (readRunCheckpoint(parent)?.state !== "continue") continue;
+    if ((await routineModelCapacity(parent.routineId))?.capacity.key === target.capacity.key)
+      pending++;
+  }
+  return pending > 0 && (await modelRunSlotsInUse(target.capacity)) + pending >= limit;
+}
+
+async function noteWaitingForContinuation(runId: string, target: QueuedRunModel): Promise<void> {
+  await AppDataSource.getRepository(Run).update(
+    { id: runId, status: "queued" },
+    {
+      logContent:
+        `[queue] Waiting for the AI Model ${target.label}: another Routine's unfinished work continues there first. ` +
+        `This Run starts as soon as a slot is free; waiting does not count against its time limit.\n`,
+    },
+  );
 }
 
 /** Say why a queued Run has not started, where a Member opening its log will look. */

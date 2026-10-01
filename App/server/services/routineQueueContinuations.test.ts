@@ -12,8 +12,10 @@ import { agentRuntime } from "./agent/runtime.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
 import { saveRunCheckpoint, type RunCheckpoint } from "./runContinuation.js";
+import { stopCron, tickCron } from "./cron.js";
 import { startRoutineRun } from "./runner.js";
 import {
+  CONTINUATION_SLOT_HOLD_MS,
   dispatchQueuedRoutineRuns,
   resumeRoutineQueue,
   waitForRoutineQueueIdle,
@@ -22,6 +24,7 @@ import { liftStanddown, placeStanddown, stopStanddowns } from "./standdowns.js";
 
 before(initTestDb);
 beforeEach(async () => {
+  stopCron();
   await waitForRoutineQueueIdle();
   stopStanddowns();
   resetModelRunSlotsForTests();
@@ -109,10 +112,16 @@ function handedOff(routine: Routine, deadline: Date) {
 
 /** Finish a continuation the way the model would: save a complete checkpoint. */
 async function finishContinuation(params: Parameters<typeof agentRuntime.run>[0]) {
-  const run = await AppDataSource.getRepository(Run).findOneBy({
-    status: "running",
-    triggerKind: "continuation",
-  });
+  await saveCheckpoint(params, { status: "running", triggerKind: "continuation" }, complete);
+}
+
+/** Save a checkpoint for the running Run that matches, the way the model's tool call would. */
+async function saveCheckpoint(
+  params: Parameters<typeof agentRuntime.run>[0],
+  where: Partial<Pick<Run, "status" | "triggerKind" | "routineId">>,
+  value: RunCheckpoint,
+) {
+  const run = await AppDataSource.getRepository(Run).findOneBy(where);
   if (!run) return;
   const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: run.routineId });
   const employee = await AppDataSource.getRepository(AIEmployee).findOneByOrFail({
@@ -124,7 +133,7 @@ async function finishContinuation(params: Parameters<typeof agentRuntime.run>[0]
     runId: run.id,
   });
   try {
-    const saved = await saveRunCheckpoint(token, complete);
+    const saved = await saveRunCheckpoint(token, value);
     params.callbacks?.onToolResult?.("save_run_checkpoint", {
       content: JSON.stringify({ ok: true, state: saved.state, checkpoint: saved }),
     });
@@ -315,4 +324,117 @@ test("a continuation deferred by a Standdown at its claim is credited its wait o
     left > 9 * 60_000 && left <= 10 * 60_000 + 5_000,
     `the continuation keeps the ten minutes its parent left, not ${left}ms`,
   );
+});
+
+function routineNamed(params: Parameters<typeof agentRuntime.run>[0]): string {
+  const first = params.messages[0]?.content[0];
+  return /^## Routine: (.+)$/m.exec(first && "text" in first ? first.text : "")?.[1] ?? "?";
+}
+
+// 2026-10-01: Daily Reddit Community Help handed off at 22:07; before the
+// heartbeat queued its continuation, a fresh prospecting Run took the only
+// slot on the local model, so the continuation would wait for all of it.
+test("a Run that hands off keeps its model's next slot for its continuation", async (t) => {
+  const employee = await localEmployee();
+  const replies = await routineFor(employee, "Reddit Community Help");
+  const prospecting = await routineFor(employee, "Enterprise Prospecting");
+  const firstStarted = barrier();
+  const release = barrier();
+  t.after(release.resolve);
+  const started: string[] = [];
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    if (params.maxSteps !== null) return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+    const name = routineNamed(params);
+    started.push(name);
+    if (name === "Reddit Community Help" && started.length === 1) {
+      firstStarted.resolve();
+      await release.promise;
+      await saveCheckpoint(params, { status: "running", routineId: replies.id }, unfinished);
+      return { finalText: "Picked the threads; replies remain.", steps: 3, stopReason: "end_turn" };
+    }
+    if (name === "Reddit Community Help") await finishContinuation(params);
+    return { finalText: "Done.", steps: 2, stopReason: "end_turn" };
+  });
+
+  const first = await startRoutineRun(replies, { triggerKind: "schedule" });
+  await firstStarted.promise;
+  await startRoutineRun(prospecting, { triggerKind: "manual" });
+  release.resolve();
+  const parent = await first.completion;
+  assert.equal(parent.status, "failed", parent.logContent);
+  assert.ok(parent.retryAt, "the unfinished work is handed to a continuation");
+  await waitForRoutineQueueIdle();
+  const held = await runOf(prospecting, "manual");
+  assert.equal(held.status, "queued", "the fresh Run leaves the slot to the continuation");
+  assert.match(held.logContent, /another Routine's unfinished work continues there first/);
+
+  // The heartbeat queues the continuation once it is due; it takes the slot.
+  await AppDataSource.getRepository(Run).update(parent.id, {
+    retryAt: new Date(Date.now() - 1_000),
+  });
+  await tickCron();
+  await waitForRoutineQueueIdle();
+  assert.deepEqual(started, [
+    "Reddit Community Help",
+    "Reddit Community Help",
+    "Enterprise Prospecting",
+  ]);
+  assert.equal((await runOf(replies, "continuation")).status, "completed");
+  assert.equal((await runOf(prospecting, "manual")).status, "completed");
+});
+
+test("a handoff holds no slot once its hold has run out or on another model", async (t) => {
+  const employee = await localEmployee();
+  const replies = await routineFor(employee, "Reddit Community Help");
+  const prospecting = await routineFor(employee, "Enterprise Prospecting");
+  const other = await insert(AIEmployee, {
+    companyId: employee.companyId,
+    name: "Robin",
+    slug: "robin",
+    role: "Community",
+  });
+  await insert(AIModel, {
+    employeeId: other.id,
+    provider: "custom",
+    model: "Qwen/Qwen3.8-27B",
+    authMode: "customEndpoint",
+    isActive: true,
+    connectedAt: new Date(),
+    configJson: JSON.stringify({
+      baseURLEncrypted: encryptSecret("http://127.0.0.1:11435/v1"),
+      modelId: "Qwen/Qwen3.8-27B",
+    }),
+  });
+  const elsewhere = await routineFor(other, "Robin Replies");
+  t.mock.method(agentRuntime, "run", async () => ({
+    finalText: "Done.",
+    steps: 2,
+    stopReason: "end_turn",
+  }));
+  // A handoff whose continuation never got queued, older than the hold.
+  const now = Date.now();
+  await insert(Run, {
+    routineId: replies.id,
+    employeeId: employee.id,
+    status: "failed",
+    triggerKind: "schedule",
+    startedAt: new Date(now - CONTINUATION_SLOT_HOLD_MS - 600_000),
+    finishedAt: new Date(now - CONTINUATION_SLOT_HOLD_MS - 1_000),
+    checkpointJson: JSON.stringify(unfinished),
+    retryAt: new Date(now - 30_000),
+  });
+  // A fresh handoff on another AI Employee's model.
+  await insert(Run, {
+    routineId: elsewhere.id,
+    employeeId: other.id,
+    status: "failed",
+    triggerKind: "schedule",
+    startedAt: new Date(now - 600_000),
+    finishedAt: new Date(now - 1_000),
+    checkpointJson: JSON.stringify(unfinished),
+    retryAt: new Date(now + 4_000),
+  });
+  const run = await (await startRoutineRun(prospecting, { triggerKind: "manual" })).completion;
+  assert.equal(run.status, "completed", run.logContent);
+  assert.doesNotMatch(run.logContent, /continues there first/);
 });

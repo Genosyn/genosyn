@@ -311,7 +311,9 @@ llama-server \\
         <LI>
           <Strong>Started work finishes first.</Strong> A continuation of unfinished work starts
           ahead of Runs that have not begun, and its wait for the model does not count against the
-          time its earlier Run left.
+          time its earlier Run left. When a Run hands its work to a continuation, the model&apos;s
+          slot waits the few seconds until that continuation is queued instead of going to the
+          next Run.
         </LI>
         <LI>
           <Strong>No backlog of the same Routine.</Strong> When a Routine&apos;s next scheduled
