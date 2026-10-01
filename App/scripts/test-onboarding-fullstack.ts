@@ -284,6 +284,25 @@ try {
   record("Skill created for the AI Employee");
 
   if (!continuationOnly && !standdownOnly) {
+    // A model server on this machine serves one Routine at a time unless told
+    // otherwise. This exercise is about one employee running two Routines at
+    // once, so lift the model's limit the way an operator would.
+    const [localModel] = await read<
+      Array<{ id: string; effectiveMaxConcurrentRuns: number | null; concurrencySource: string }>
+    >(`${employeeBase}/models`);
+    assert.equal(localModel.effectiveMaxConcurrentRuns, 1);
+    assert.equal(localModel.concurrencySource, "local-default");
+    const unlimited = await page.request.put(
+      `${origin}${employeeBase}/models/${localModel.id}/run-concurrency`,
+      { data: { maxConcurrentRuns: 0 } },
+    );
+    assert.equal(unlimited.status(), 200, await unlimited.text());
+    assert.equal(
+      ((await unlimited.json()) as { effectiveMaxConcurrentRuns: number | null })
+        .effectiveMaxConcurrentRuns,
+      null,
+    );
+    record("A local AI Model serves one Routine at a time by default and accepts No limit");
     const concurrentRuns: Array<{ routineApi: string; runId: string; marker: string }> = [];
     for (const marker of ["qa-concurrent-routine-one", "qa-concurrent-routine-two"]) {
       const created = await page.request.post(`${origin}${employeeBase}/routines`, {

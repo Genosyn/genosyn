@@ -151,6 +151,35 @@ async function childMain(mode: string): Promise<void> {
           process.send!({ kind: "manual-run-accepted", routineId: routine.id, runId: run.id });
         }),
       );
+    } else if (mode === "drain-model-capacity") {
+      const { Run } = await import("../db/entities/Run.js");
+      const { agentRuntime } = await import("../services/agent/runtime.js");
+      const { dispatchQueuedRoutineRuns, waitForRoutineQueueIdle } = await import(
+        "../services/routineQueue.js"
+      );
+      const employeeId = process.env.GENOSYN_TEST_EMPLOYEE_ID;
+      assert.ok(employeeId);
+      agentRuntime.run = async () => {
+        const [running] = await AppDataSource.getRepository(Run).findBy({
+          employeeId,
+          status: "running",
+        });
+        assert.ok(running, "A started Run must be visible to every process");
+        const finish = parentMessage(`finish-run:${running.id}`);
+        process.send!({ kind: "routine-started", runId: running.id });
+        await finish;
+        return { finalText: "Done", steps: 1, stopReason: "end_turn" };
+      };
+      const start = parentMessage("start");
+      process.send!("ready");
+      await start;
+      // Keep offering queued work, as the heartbeat would, until none remains.
+      while (await AppDataSource.getRepository(Run).existsBy({ employeeId, status: "queued" })) {
+        await dispatchQueuedRoutineRuns();
+        await waitForRoutineQueueIdle();
+        await delay(250);
+      }
+      await waitForRoutineQueueIdle();
     } else if (mode === "drain-routine-queue" || mode === "exercise-routine-admission") {
       const { Run } = await import("../db/entities/Run.js");
       const { agentRuntime } = await import("../services/agent/runtime.js");
@@ -651,6 +680,8 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
         authMode: "customEndpoint",
         isActive: true,
         connectedAt: new Date(),
+        // Cross-process dispatch, not model capacity, is under test here.
+        maxConcurrentRuns: 0,
         configJson: JSON.stringify({
           baseURLEncrypted: encryptSecret("http://127.0.0.1:19999/v1"),
           modelId: "postgres-queue-test",
@@ -749,6 +780,114 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     }
     console.log(
       "PASS cross-process Routine dispatch: durable recovery, concurrent starts and one owner per Run",
+    );
+
+    // A model server on this machine serves one Routine Run at a time by
+    // default; that limit must hold across every App process sharing Postgres.
+    const capacityEmployee = await employees.save(
+      employees.create({
+        companyId: formsCompany.id,
+        name: "Model Capacity",
+        slug: "model-capacity",
+        role: "Operations",
+      }),
+    );
+    await models.save(
+      models.create({
+        employeeId: capacityEmployee.id,
+        provider: "custom",
+        model: "postgres-capacity-test",
+        authMode: "customEndpoint",
+        isActive: true,
+        connectedAt: new Date(),
+        configJson: JSON.stringify({
+          baseURLEncrypted: encryptSecret("http://127.0.0.1:19998/v1"),
+          modelId: "postgres-capacity-test",
+        }),
+      }),
+    );
+    const capacityRuns: InstanceType<typeof Run>[] = [];
+    for (let index = 0; index < 3; index++) {
+      const routine = await routines.save(
+        routines.create({
+          employeeId: capacityEmployee.id,
+          name: `Capacity Routine ${index + 1}`,
+          slug: `capacity-routine-${index + 1}`,
+          cronExpr: "0 9 * * *",
+          timeoutSec: 60,
+          body: "Complete this Routine.",
+        }),
+      );
+      capacityRuns.push(
+        await runs.save(
+          runs.create({
+            employeeId: capacityEmployee.id,
+            routineId: routine.id,
+            status: "queued",
+            triggerKind: "manual",
+            queueOptionsJson: JSON.stringify({ triggerKind: "manual" }),
+            startedAt: new Date(Date.now() - 60_000 + index),
+            createdAt: new Date(Date.now() - 60_000 + index),
+          }),
+        ),
+      );
+    }
+    const capacityPeers = [
+      spawnChild("drain-model-capacity", url, dataDir, capacityEmployee.id),
+      spawnChild("drain-model-capacity", url, dataDir, capacityEmployee.id),
+    ];
+    const capacityStarts: { runId: string; child: ChildProcess }[] = [];
+    let capacityWake: (() => void) | undefined;
+    for (const peer of capacityPeers) {
+      peer.child.on("message", (message: unknown) => {
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "kind" in message &&
+          message.kind === "routine-started" &&
+          "runId" in message &&
+          typeof message.runId === "string"
+        ) {
+          capacityStarts.push({ runId: message.runId, child: peer.child });
+          capacityWake?.();
+        }
+      });
+    }
+    await Promise.all(capacityPeers.map((peer) => peer.ready));
+    for (const peer of capacityPeers) peer.child.send("start");
+    for (let started = 1; started <= capacityRuns.length; started++) {
+      while (capacityStarts.length < started) {
+        await deadline(
+          new Promise<void>((resolve) => {
+            capacityWake = resolve;
+          }),
+          "Model capacity start",
+        );
+        capacityWake = undefined;
+      }
+      // Give the other process every chance to overreach before checking.
+      await delay(1_000);
+      assert.equal(capacityStarts.length, started, "No second Run may start on a busy model");
+      assert.equal(
+        await runs.countBy({ employeeId: capacityEmployee.id, status: "running" }),
+        1,
+        "A local model serves one Routine Run at a time across processes",
+      );
+      const current = capacityStarts[started - 1];
+      current.child.send(`finish-run:${current.runId}`);
+    }
+    await Promise.all(capacityPeers.map((peer) => peer.exited()));
+    assert.deepEqual(
+      new Set(capacityStarts.map(({ runId }) => runId)),
+      new Set(capacityRuns.map((run) => run.id)),
+      "Every waiting Run starts once a slot frees",
+    );
+    assert.equal(
+      await runs.countBy({ employeeId: capacityEmployee.id, status: "completed" }),
+      capacityRuns.length,
+    );
+    console.log(
+      "PASS cross-process model capacity: one Run at a time on a local model, waiting Runs start as slots free",
     );
 
     const [sharedRoutine, unrelatedRoutine, cleanupRoutine] = await Promise.all(
