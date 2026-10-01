@@ -72,7 +72,9 @@ jobs:
 
   chat-browser-test:
     name: Browser regressions
-    timeout-minutes: 10
+    # Its 16 browser suites take 8-9 minutes; a 10-minute ceiling cancelled
+    # healthy runs on slower runners.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     defaults:
       run:
