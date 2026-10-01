@@ -2859,15 +2859,26 @@ browserRpcRouter.post("/scroll", validateBody(scrollSchema), async (req: Browser
   }
 });
 
+/**
+ * Go back one history entry and say whether the tab moved. A single-page app
+ * such as Primal changes views with the History API, and Playwright's goBack
+ * resolves to null for that exactly as it does when there is no earlier
+ * entry, so where the tab ended up is what tells the two apart.
+ */
+export async function goBackInPage(page: Pick<Page, "goBack" | "url">): Promise<boolean> {
+  const before = page.url();
+  const response = await page.goBack({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+  return response !== null || page.url() !== before;
+}
+
 browserRpcRouter.post("/back", async (req: BrowserRpcReq, res) => {
   const sessionId = req.browserSession!.id;
   try {
     const page = await bumpAndAcquire(req);
-    const result = await page.goBack({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
-    if (result === null) {
-      pushSessionNotice(sessionId, "There is no earlier page in this tab's history — staying put.");
-    } else {
+    if (await goBackInPage(page)) {
       await settle(page);
+    } else {
+      pushSessionNotice(sessionId, "There is no earlier page in this tab's history — staying put.");
     }
     res.json({ snapshot: await pageSnapshot(page, sessionId) });
   } catch (err) {
