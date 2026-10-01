@@ -13,8 +13,12 @@ import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
 import { saveRunCheckpoint, type RunCheckpoint } from "./runContinuation.js";
 import { startRoutineRun } from "./runner.js";
-import { resumeRoutineQueue, waitForRoutineQueueIdle } from "./routineQueue.js";
-import { stopStanddowns } from "./standdowns.js";
+import {
+  dispatchQueuedRoutineRuns,
+  resumeRoutineQueue,
+  waitForRoutineQueueIdle,
+} from "./routineQueue.js";
+import { liftStanddown, placeStanddown, stopStanddowns } from "./standdowns.js";
 
 before(initTestDb);
 beforeEach(async () => {
@@ -244,4 +248,71 @@ test("a continuation dispatched at once keeps its parent's exact deadline", asyn
   assert.equal(continued.status, "completed", continued.logContent);
   assert.equal(continued.continuationDeadlineAt?.getTime(), deadline.getTime());
   assert.doesNotMatch(continued.logContent, /\[queue\] Waited/);
+});
+
+test("a continuation deferred by a Standdown at its claim is credited its wait once", async (t) => {
+  const employee = await localEmployee();
+  const outreach = await routineFor(employee, "Stripe Qualification");
+  const replies = await routineFor(employee, "Nostr Helpful Replies");
+  const model = busyModel(t);
+
+  const busy = await startRoutineRun(outreach, { triggerKind: "schedule" });
+  await model.firstStarted.promise;
+  const parent = await handedOff(replies, new Date(Date.now() + 10 * 60_000));
+  await startRoutineRun(replies, { triggerKind: "continuation", continuationFromRunId: parent.id });
+  const waiting = await runOf(replies, "continuation");
+  const runs = AppDataSource.getRepository(Run);
+  const queuedAt = new Date(Date.now() - 2 * 60 * 60_000);
+  const parentDeadline = new Date(queuedAt.getTime() + 10 * 60_000);
+  await runs.update(parent.id, { continuationDeadlineAt: parentDeadline });
+  await runs.update(waiting.id, {
+    createdAt: queuedAt,
+    startedAt: queuedAt,
+    continuationDeadlineAt: parentDeadline,
+  });
+
+  // A Member stands the Routine down while its continuation is being claimed.
+  const company = await AppDataSource.getRepository(Company).findOneByOrFail({});
+  const update = runs.update.bind(runs);
+  let standdown: Awaited<ReturnType<typeof placeStanddown>> | undefined;
+  const deferred = barrier();
+  t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
+    const result = await update(...args);
+    const where = args[0] as { id?: string };
+    if (where.id === waiting.id && args[1].status === "running" && !standdown) {
+      standdown = await placeStanddown({
+        companyId: company.id,
+        scope: "routine",
+        scopeId: replies.id,
+        reason: "Pause the replies for a moment.",
+      });
+    } else if (where.id === waiting.id && args[1].status === "queued") {
+      deferred.resolve();
+    }
+    return result;
+  });
+
+  model.release.resolve();
+  await busy.completion;
+  await deferred.promise;
+  await waitForRoutineQueueIdle();
+  const held = await runs.findOneByOrFail({ id: waiting.id });
+  assert.equal(held.status, "queued");
+  assert.equal(
+    held.continuationDeadlineAt?.getTime(),
+    parentDeadline.getTime(),
+    "the deferral gives back the wait its claim credited",
+  );
+
+  assert.ok(standdown);
+  await liftStanddown({ standdown });
+  await dispatchQueuedRoutineRuns();
+  await waitForRoutineQueueIdle();
+  const continued = await runs.findOneByOrFail({ id: waiting.id });
+  assert.equal(continued.status, "completed", continued.logContent);
+  const left = continued.continuationDeadlineAt!.getTime() - continued.startedAt.getTime();
+  assert.ok(
+    left > 9 * 60_000 && left <= 10 * 60_000 + 5_000,
+    `the continuation keeps the ten minutes its parent left, not ${left}ms`,
+  );
 });

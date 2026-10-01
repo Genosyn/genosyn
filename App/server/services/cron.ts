@@ -251,6 +251,8 @@ async function foldIntoWaitingRun(
     .createQueryBuilder("run")
     .addSelect("run.queueOptionsJson")
     .where("run.routineId = :routineId", { routineId: routine.id })
+    // A Run left behind by a reassigned Routine is skipped, not started.
+    .andWhere("run.employeeId = :employeeId", { employeeId: routine.employeeId })
     .andWhere("run.status = :status", { status: "queued" })
     .andWhere("run.triggerKind = :triggerKind", { triggerKind: "schedule" })
     .andWhere("run.queueActiveEmployeeId IS NULL")

@@ -227,3 +227,51 @@ test("a slot that folds while the queue is claiming the Run still reaches its br
   assert.equal(briefs.length, 1);
   assert.match(briefs[0], /it also stands in for 1 scheduled occurrence\(s\)/);
 });
+
+test("a slot never folds into a Run its reassigned Routine left behind", async (t) => {
+  const jamie = await localEmployee();
+  const following = await routineFor(jamie, "devops-following");
+  t.mock.method(agentRuntime, "run", async () => ({
+    finalText: "Followed the conversations.",
+    steps: 2,
+    stopReason: "end_turn",
+  }));
+  const leftBehind = await insert(Run, {
+    routineId: following.id,
+    employeeId: jamie.id,
+    status: "queued",
+    triggerKind: "schedule",
+    startedAt: new Date(),
+    queueOptionsJson: JSON.stringify({ triggerKind: "schedule" }),
+  });
+  const robin = await insert(AIEmployee, {
+    companyId: jamie.companyId,
+    name: "Robin",
+    slug: "robin",
+    role: "Community",
+  });
+  await insert(AIModel, {
+    employeeId: robin.id,
+    provider: "custom",
+    model: "Qwen/Qwen3.8-27B",
+    authMode: "customEndpoint",
+    isActive: true,
+    connectedAt: new Date(),
+    maxConcurrentRuns: 0,
+    configJson: JSON.stringify({
+      baseURLEncrypted: encryptSecret("http://127.0.0.1:11435/v1"),
+      modelId: "Qwen/Qwen3.8-27B",
+    }),
+  });
+  await AppDataSource.getRepository(Routine).update(following.id, { employeeId: robin.id });
+
+  await tickRoutine(following.id, { missedSlots: 0 }, held);
+  await waitForRoutineQueueIdle();
+  const runs = await runsOf(following);
+  assert.equal(runs.length, 2, "the slot gets a Run of its own for the new owner");
+  const kept = runs.find((run) => run.id === leftBehind.id)!;
+  assert.equal(kept.missedSlots, 0);
+  const own = runs.find((run) => run.id !== leftBehind.id)!;
+  assert.equal(own.employeeId, robin.id);
+  assert.equal(own.status, "completed", own.logContent);
+});

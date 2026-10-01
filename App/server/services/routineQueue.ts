@@ -321,6 +321,15 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
           status: "queued",
           queueActiveEmployeeId: null,
           startedAt: run.createdAt,
+          // Return the wait this claim credited, so the next claim credits the
+          // whole time since the continuation queued exactly once.
+          ...(run.continuationCount > 0 && run.continuationDeadlineAt
+            ? {
+                continuationDeadlineAt: new Date(
+                  run.continuationDeadlineAt.getTime() - creditedQueueWaitMs(run),
+                ),
+              }
+            : {}),
         },
       );
     } else {
