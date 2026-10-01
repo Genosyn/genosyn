@@ -3050,6 +3050,38 @@ function serializeDealRow(d: HydratedDeal) {
   };
 }
 
+/** Characters of a Deal's next step an inventory row keeps; get_deal returns it whole. */
+const INVENTORY_NEXT_STEP_CHARS = 160;
+
+/**
+ * One Deal per row for an inventory pass: what ranks and triages it, without
+ * the related-record IDs or the full next step. A 600-Deal pipeline listed in
+ * full filled most of a local model's context window before review began.
+ */
+function serializeDealInventoryRow(d: HydratedDeal) {
+  const nextStep =
+    d.nextStep && d.nextStep.length > INVENTORY_NEXT_STEP_CHARS
+      ? `${d.nextStep.slice(0, INVENTORY_NEXT_STEP_CHARS)}…`
+      : d.nextStep;
+  const row = {
+    id: d.id,
+    title: d.title,
+    status: d.status,
+    stageName: d.stageName,
+    amountCents: d.amountCents || null,
+    currency: d.amountCents ? d.currency : null,
+    customerName: d.customerName,
+    contactName: d.contactName,
+    expectedCloseDate: d.expectedCloseDate,
+    nextStep,
+    nextFollowUpAt: d.nextFollowUpAt,
+    followUpReminderAt: d.followUpReminderAt,
+    lastActivityAt: d.lastActivityAt,
+    archived: d.archivedAt ? true : null,
+  };
+  return Object.fromEntries(Object.entries(row).filter(([, value]) => value != null && value !== ""));
+}
+
 function serializeDealFull(d: HydratedDeal) {
   return {
     ...serializeDealRow(d),
@@ -3294,6 +3326,7 @@ const listDealsSchema = z
     includeArchived: z.boolean().optional(),
     limit: z.number().int().min(1).max(200).optional(),
     offset: z.number().int().min(0).optional(),
+    compact: z.boolean().optional(),
   })
   .strict();
 
@@ -3316,7 +3349,7 @@ mcpInternalRouter.post(
       limit: body.limit,
       offset: body.offset,
     });
-    res.json({ deals: rows.map(serializeDealRow), total });
+    res.json({ deals: rows.map(body.compact ? serializeDealInventoryRow : serializeDealRow), total });
   },
 );
 

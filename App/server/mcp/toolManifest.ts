@@ -5577,6 +5577,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         includeArchived: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
+        compact: {
+          type: "boolean",
+          description:
+            "Inventory rows for discovery passes: id, title, status, stage, amount, customer, contact, dates and the first 160 characters of the next step, with empty fields left out. get_deal reads one in full.",
+        },
       },
       additionalProperties: false,
     },
