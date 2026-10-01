@@ -35,7 +35,8 @@ import {
   RetryPreflightError,
   type RetryCapabilityRecorder,
 } from "./retryPreflight.js";
-import { residentOnlyRegistry } from "./tools/toolRegistry.js";
+import { residentOnlyRegistry, type ToolRegistry } from "./tools/toolRegistry.js";
+import type { RunDeadlineNotice } from "../runDeadlineNotice.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
 import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
@@ -111,6 +112,11 @@ export type EmployeeAgentParams = {
    * {@link ToolScope}.
    */
   toolScope?: ToolScope;
+  /**
+   * A Routine Run's time check, shown beside tool results as its deadline
+   * nears. Delegated workers inherit it because they share that deadline.
+   */
+  toolResultNotice?: RunDeadlineNotice;
 };
 
 export type EmployeeAgentResult =
@@ -175,6 +181,21 @@ function trimToProviderCap(
     dropped: tools.slice(limit).map((t) => t.name),
   });
   return kept;
+}
+
+/**
+ * Show a Run's time check beside tool results. Only the top-level Run can save
+ * its own checkpoint; a delegated worker is told to record its evidence instead.
+ */
+function attachResultNotice(
+  registry: ToolRegistry,
+  params: Pick<EmployeeAgentParams, "toolResultNotice" | "delegationDepth">,
+): void {
+  const notice = params.toolResultNotice;
+  if (!notice) return;
+  const canCheckpoint =
+    (params.delegationDepth ?? 0) === 0 && Boolean(registry.resolve("save_run_checkpoint"));
+  registry.resultNotice = () => notice({ canCheckpoint });
 }
 
 export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
@@ -330,6 +351,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     params.model.provider === "openai" ? (nativeCoding ? 112 : 128) : null,
     params.callbacks,
   );
+  attachResultNotice(gathered.registry, params);
   diagnostics.setRegistry(gathered.registry);
 
   try {
@@ -513,6 +535,7 @@ async function runSubscriptionEmployeeAgent(
       128,
       params.callbacks,
     );
+    attachResultNotice(gathered.registry, params);
     diagnostics.setRegistry(gathered.registry);
 
     const recorder = await prepareRetryCapabilities({

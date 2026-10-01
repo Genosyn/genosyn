@@ -8,7 +8,7 @@ import {
   ListToolsRequestSchema,
   type RequestId,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { ToolRegistry } from "./tools/toolRegistry.js";
+import { registryResultNotice, type ToolRegistry } from "./tools/toolRegistry.js";
 import type { StreamCallbacks, ToolResult } from "./types.js";
 
 /** OpenCode adds genosyn_ to MCP names; OpenAI's complete name limit is 64. */
@@ -124,6 +124,7 @@ export async function serveOpenCodeTools(args: {
           };
         }
         args.callbacks?.onToolResult?.(described.name, result, callId);
+        const notice = registryResultNotice(args.registry);
         return {
           isError: result.isError,
           content: [
@@ -133,6 +134,7 @@ export async function serveOpenCodeTools(args: {
               mimeType: img.mimeType,
               data: img.data,
             })),
+            ...(notice ? [{ type: "text" as const, text: notice }] : []),
           ],
         };
       });

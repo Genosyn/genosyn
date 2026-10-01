@@ -149,6 +149,9 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
       403,
     );
   }
+  if (Date.now() < searchChallengedUntil) {
+    throw searchUnavailable("the search backend is still challenging this server", true);
+  }
   const capped = Math.max(1, Math.min(limit, web.maxSearchResults));
   const endpoint = new URL("https://html.duckduckgo.com/html/");
   endpoint.searchParams.set("q", trimmed);
@@ -162,7 +165,8 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
       attributes.get("id") === "challenge-form" ||
       classes.some((name) => name === "anomaly-modal" || name.startsWith("anomaly-modal__"))
     ) {
-      throw searchUnavailable("the search backend returned a bot challenge");
+      searchChallengedUntil = Date.now() + SEARCH_CHALLENGE_COOLDOWN_MS;
+      throw searchUnavailable("the search backend returned a bot challenge", true);
     }
     if (classes.includes("no-results") || classes.includes("no-results__message"))
       emptyResults = true;
@@ -175,9 +179,22 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
   throw searchUnavailable("the search backend returned an unrecognized or empty page");
 }
 
-function searchUnavailable(reason: string): WebToolError {
+/**
+ * A search engine that has challenged this server keeps doing so for a while.
+ * Each retry meanwhile costs an employee a model step — minutes on a local
+ * model — and fails the same way, so answer at once until it may have cleared.
+ */
+const SEARCH_CHALLENGE_COOLDOWN_MS = 15 * 60_000;
+let searchChallengedUntil = 0;
+
+/** Test seam: forget a remembered bot challenge. */
+export function resetSearchChallengeForTests(): void {
+  searchChallengedUntil = 0;
+}
+
+function searchUnavailable(reason: string, challenged = false): WebToolError {
   return new WebToolError(
-    `Web search is unavailable because ${reason}. This does not mean there are no matching pages. Use fetch_web_page for a known primary-source URL or an existing authorized browser, if available.`,
+    `Web search is unavailable because ${reason}.${challenged ? " Searching again will not work for a while, so do not retry search in this Run." : ""} This does not mean there are no matching pages. Use fetch_web_page for a known primary-source URL or an existing authorized browser, if available.`,
     502,
   );
 }

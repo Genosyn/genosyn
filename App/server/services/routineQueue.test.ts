@@ -156,6 +156,9 @@ async function fixture(name = "Jamie", company?: Company) {
     authMode: "customEndpoint",
     isActive: true,
     connectedAt: new Date(),
+    // These tests are about queue ownership, not model capacity: let every
+    // Routine reach the (mocked) model at once, as a hosted API would.
+    maxConcurrentRuns: 0,
     configJson: JSON.stringify({
       baseURLEncrypted: encryptSecret("http://127.0.0.1:19999/v1"),
       modelId: "queue-test",

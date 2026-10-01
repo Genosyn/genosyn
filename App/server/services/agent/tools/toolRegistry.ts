@@ -44,6 +44,12 @@ export type ToolRegistry = {
   visibility(name: string): ToolVisibility | undefined;
   resolve(name: string): AgentTool | undefined;
   stats: ToolDeferralInfo;
+  /**
+   * Server-written text a runtime shows the model beside a tool's own output,
+   * such as a Run's time check. It never enters the result callbacks receive,
+   * which the runner logs and parses verbatim.
+   */
+  resultNotice?: () => string | null;
 };
 
 export function buildRegistry(params: {
@@ -104,4 +110,13 @@ export function residentOnlyRegistry(tools: AgentTool[]): ToolRegistry {
     domains: [],
     fromSkills: [],
   });
+}
+
+/** The registry's current note, if any. A failing note never fails a tool call. */
+export function registryResultNotice(registry: ToolRegistry): string | null {
+  try {
+    return registry.resultNotice?.() || null;
+  } catch {
+    return null;
+  }
 }

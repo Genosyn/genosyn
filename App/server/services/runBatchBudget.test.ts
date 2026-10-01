@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RUN_BATCH_TOKEN_TARGET, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
-import { MAX_RUN_CONTINUATIONS, type RunCheckpoint } from "./runContinuation.js";
+import {
+  MAX_RUN_CONTINUATIONS,
+  minContinuationWindowMs,
+  type RunCheckpoint,
+} from "./runContinuation.js";
 
 const checkpoint: RunCheckpoint = {
   state: "continue",
@@ -317,5 +321,28 @@ test("prompt clarification preserves the final-Run and five-second handoff bound
         count < MAX_RUN_CONTINUATIONS && remainingMs > 5000,
       );
     }
+  }
+});
+
+test("a batch handoff keeps working instead of handing a fresh Run too little time", () => {
+  const advanced = resultFor({
+    ...checkpoint,
+    progressKey: "deal-6",
+    completed: "Reviewed Deal 6.",
+  });
+  const minWindowMs = minContinuationWindowMs(3600);
+  for (const remainingMs of [minWindowMs + 1, minWindowMs, 60_000, 5_001]) {
+    assert.equal(
+      shouldYieldRunBatch({
+        ...boundary,
+        previousCheckpoint: checkpoint,
+        result: advanced,
+        tokensThisRun: 15_000_000,
+        deadlineAtMs: remainingMs,
+        minWindowMs,
+      }),
+      remainingMs > minWindowMs,
+      `${remainingMs}ms left`,
+    );
   }
 });

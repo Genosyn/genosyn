@@ -24,6 +24,11 @@ export function shouldYieldRunBatch(args: {
   canContinue: boolean;
   /** Undefined for an initial Run; a continuation must advance its parent's checkpoint. */
   previousCheckpoint?: RunCheckpoint | null;
+  /**
+   * The shared time a fresh Run needs to be worth starting; see
+   * `minContinuationWindowMs`. Defaults to the bare scheduling delay.
+   */
+  minWindowMs?: number;
   now?: number;
 }): boolean {
   if (
@@ -32,7 +37,8 @@ export function shouldYieldRunBatch(args: {
     args.result.isError ||
     args.tokensThisRun < RUN_BATCH_TOKEN_TARGET ||
     args.continuationCount >= MAX_RUN_CONTINUATIONS ||
-    args.deadlineAtMs <= (args.now ?? Date.now()) + CONTINUATION_DELAY_MS
+    args.deadlineAtMs <=
+      (args.now ?? Date.now()) + Math.max(CONTINUATION_DELAY_MS, args.minWindowMs ?? 0)
   )
     return false;
   try {

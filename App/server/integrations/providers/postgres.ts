@@ -248,32 +248,8 @@ export const postgresProvider: IntegrationProvider = {
         }
 
         case "describe_table": {
-          const schema = typeof a.schema === "string" && a.schema.trim() ? a.schema.trim() : "public";
-          const table = mustStr(a.table, "table");
-          const cols = await client.query(
-            `SELECT column_name, data_type, is_nullable, column_default, character_maximum_length
-               FROM information_schema.columns
-              WHERE table_schema = $1 AND table_name = $2
-              ORDER BY ordinal_position`,
-            [schema, table],
-          );
-          if (cols.rowCount === 0) {
-            throw new Error(`Table ${schema}.${table} not found or not visible to this role`);
-          }
-          const pk = await client.query(
-            `SELECT a.attname AS column_name
-               FROM pg_index i
-               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-              WHERE i.indrelid = ($1::text || '.' || $2::text)::regclass
-                AND i.indisprimary`,
-            [schema, table],
-          );
-          return {
-            schema,
-            table,
-            columns: cols.rows,
-            primaryKey: pk.rows.map((r: { column_name: string }) => r.column_name),
-          };
+          const schema = typeof a.schema === "string" && a.schema.trim() ? a.schema : "public";
+          return describePostgresTable(client, schema, mustStr(a.table, "table"));
         }
 
         case "query": {
@@ -296,6 +272,95 @@ export const postgresProvider: IntegrationProvider = {
     });
   },
 };
+
+type PostgresQueryable = {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>;
+};
+
+/**
+ * Accept a name the way people and models write it: a bare `Project`, a
+ * quoted `"Project"`, or a case-folded `project` for a table really named
+ * `Project`. Only the first two are exact; the last is a fallback when it
+ * identifies exactly one table.
+ */
+function unquoteIdentifier(name: string): string {
+  const trimmed = name.trim();
+  return trimmed.length > 1 && trimmed.startsWith('"') && trimmed.endsWith('"')
+    ? trimmed.slice(1, -1).replace(/""/g, '"')
+    : trimmed;
+}
+
+/**
+ * Describe one table's columns and primary key.
+ *
+ * Names are matched as data, never parsed as SQL identifiers: a
+ * `'public.Project'::regclass` cast folds unquoted text to lower case, so it
+ * resolved `public.project` and failed for every mixed-case table even after
+ * the column lookup had found it.
+ */
+export async function describePostgresTable(
+  client: PostgresQueryable,
+  schemaInput: string,
+  tableInput: string,
+): Promise<{
+  schema: string;
+  table: string;
+  columns: unknown[];
+  primaryKey: string[];
+}> {
+  const requestedSchema = unquoteIdentifier(schemaInput) || "public";
+  const requestedTable = unquoteIdentifier(tableInput);
+  if (!requestedTable) throw new Error("table is required");
+  const candidates = await client.query(
+    `SELECT table_schema, table_name
+       FROM information_schema.tables
+      WHERE lower(table_schema) = lower($1) AND lower(table_name) = lower($2)
+      ORDER BY table_schema, table_name`,
+    [requestedSchema, requestedTable],
+  );
+  const matches = candidates.rows as Array<{ table_schema: string; table_name: string }>;
+  const exact = matches.find(
+    (row) => row.table_schema === requestedSchema && row.table_name === requestedTable,
+  );
+  if (!exact && matches.length > 1) {
+    throw new Error(
+      `Table name ${requestedSchema}.${requestedTable} matches several tables that differ only by case: ${matches
+        .map((row) => `${row.table_schema}."${row.table_name}"`)
+        .join(", ")}. Pass the exact name.`,
+    );
+  }
+  const resolved = exact ?? matches[0];
+  if (!resolved) {
+    throw new Error(
+      `Table ${requestedSchema}.${requestedTable} not found or not visible to this role. Call list_tables to see the exact names.`,
+    );
+  }
+  const schema = resolved.table_schema;
+  const table = resolved.table_name;
+  const cols = await client.query(
+    `SELECT column_name, data_type, is_nullable, column_default, character_maximum_length
+       FROM information_schema.columns
+      WHERE table_schema = $1 AND table_name = $2
+      ORDER BY ordinal_position`,
+    [schema, table],
+  );
+  const pk = await client.query(
+    `SELECT a.attname AS column_name
+       FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE n.nspname = $1 AND c.relname = $2 AND i.indisprimary
+      ORDER BY array_position(i.indkey::int2[], a.attnum)`,
+    [schema, table],
+  );
+  return {
+    schema,
+    table,
+    columns: cols.rows,
+    primaryKey: (pk.rows as Array<{ column_name: string }>).map((r) => r.column_name),
+  };
+}
 
 function shortVersion(versionString: string): string {
   // version() returns "PostgreSQL 16.2 on x86_64-pc-linux-gnu, compiled by ..."

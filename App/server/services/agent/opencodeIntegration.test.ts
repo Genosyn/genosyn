@@ -16,7 +16,9 @@ import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
-type ToolCall = { name: string; input: Record<string, unknown> };
+type ToolCall = { name: string; input: Record<string, unknown>; rawArguments?: string };
+/** Text the provider stops early, the way a server ends a response at max_tokens. */
+type TruncatedReply = { truncated: string };
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const imageMessages: AgentMessage[] = [
@@ -62,7 +64,10 @@ function assertWireImage(body: Record<string, unknown>, provider: OpenCodeModel[
     );
 }
 async function fakeProvider(
-  script: (request: Record<string, unknown>, index: number) => string | ToolCall | "hang",
+  script: (
+    request: Record<string, unknown>,
+    index: number,
+  ) => string | ToolCall | TruncatedReply | "hang",
 ) {
   const requests: { url: string; auth?: string; body: Record<string, unknown> }[] = [];
   const server = createServer(async (req, res) => {
@@ -103,7 +108,7 @@ async function fakeProvider(
     },
   };
 }
-function chatResponse(res: ServerResponse, value: string | ToolCall) {
+function chatResponse(res: ServerResponse, value: string | ToolCall | TruncatedReply) {
   const send = (
     delta: Record<string, unknown>,
     finish: string | null = null,
@@ -116,6 +121,9 @@ function chatResponse(res: ServerResponse, value: string | ToolCall) {
     send({ role: "assistant", content: value === "hang" ? "Working" : value });
     if (value === "hang") return;
     send({}, "stop", { prompt_tokens: 29, completion_tokens: 5, total_tokens: 34 });
+  } else if ("truncated" in value) {
+    send({ role: "assistant", content: value.truncated });
+    send({}, "length", { prompt_tokens: 29, completion_tokens: 8192, total_tokens: 8221 });
   } else {
     send({
       role: "assistant",
@@ -124,7 +132,7 @@ function chatResponse(res: ServerResponse, value: string | ToolCall) {
           index: 0,
           id: "tool-fixture",
           type: "function",
-          function: { name: value.name, arguments: JSON.stringify(value.input) },
+          function: { name: value.name, arguments: value.rawArguments ?? JSON.stringify(value.input) },
         },
       ],
     });
@@ -556,6 +564,107 @@ test(
       }
       assert.equal(new Set(ports).size, 2);
       assert.equal(fixture.requests.length, 2);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+const customFixtureModel = (baseURL: string): OpenCodeModel => ({
+  id: "fixture",
+  provider: "custom",
+  apiKey: "private",
+  baseURL,
+  contextWindow: 32000,
+});
+
+function echoTool(calls: Array<Record<string, unknown>>): AgentTool {
+  return {
+    name: "fixture_echo",
+    description: "Verify actual tool execution",
+    inputSchema: {
+      type: "object",
+      properties: { value: { type: "string" } },
+      required: ["value"],
+    },
+    async run(input) {
+      calls.push(input);
+      return { content: "Actual tool confirmed" };
+    },
+  };
+}
+
+// Small models get tool calls wrong in two ways OpenCode can repair: a name it
+// does not know (Genosyn's prompts say `call_tool`; OpenCode says
+// `genosyn_call_tool`) and arguments that are not JSON. Both must come back to
+// the model as an explanation it can act on.
+for (const mistake of [
+  {
+    label: "an unprefixed tool name",
+    call: { name: "fixture_echo", input: { value: "actual tool" } },
+    mentions: "unavailable tool 'fixture_echo'",
+  },
+  {
+    label: "unparseable tool arguments",
+    call: { name: "genosyn_fixture_echo", input: {}, rawArguments: '{"value": "unterminated' },
+    mentions: "genosyn_fixture_echo",
+  },
+])
+  test(
+    `pinned OpenCode explains ${mistake.label} back to the model`,
+    { timeout: 180_000 },
+    async () => {
+      const calls: Array<Record<string, unknown>> = [];
+      const fixture = await fakeProvider((_body, index) => (index === 0 ? mistake.call : "Recovered"));
+      try {
+        const result = await realTurn(customFixtureModel(fixture.baseURL), [echoTool(calls)]);
+        assert.equal(result.finalText, "Recovered");
+        assert.equal(calls.length, 0, "a malformed call never runs a Genosyn tool");
+        assert.equal(fixture.requests.length, 2);
+        const followUp = JSON.stringify(fixture.requests[1].body);
+        assert.match(followUp, /The arguments provided to the tool are invalid/);
+        assert.ok(followUp.includes(mistake.mentions), followUp);
+        assert.doesNotMatch(followUp, /unavailable tool 'invalid'/);
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+
+test(
+  "pinned OpenCode shows a Run's time check beside a Genosyn tool result",
+  { timeout: 180_000 },
+  async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fixture = await fakeProvider((_body, index) =>
+      index === 0 ? { name: "genosyn_fixture_echo", input: { value: "actual tool" } } : "Verified",
+    );
+    try {
+      const registry = residentOnlyRegistry([echoTool(calls)]);
+      registry.resultNotice = () =>
+        "[Time check] Under 3 minutes remain before this Run's hard deadline (13:00 UTC).";
+      const result = await realTurn(customFixtureModel(fixture.baseURL), [], { registry });
+      assert.equal(result.finalText, "Verified");
+      assert.equal(calls.length, 1);
+      const followUp = JSON.stringify(fixture.requests[1].body);
+      assert.ok(followUp.includes("Actual tool confirmed"));
+      assert.ok(followUp.includes("[Time check] Under 3 minutes remain"));
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode reports a response cut off at its output limit as a length stop",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({ truncated: "First I will check the ledger and" }));
+    try {
+      const result = await realTurn(customFixtureModel(fixture.baseURL), []);
+      assert.equal(result.stopReason, "length");
+      assert.equal(fixture.requests.length, 1, "OpenCode does not continue a truncated reply");
+      assert.equal(fixture.requests[0].body.max_tokens, 8000, "a quarter of the 32K window");
     } finally {
       await fixture.close();
     }

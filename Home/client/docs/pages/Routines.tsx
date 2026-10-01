@@ -244,7 +244,9 @@ export function Routines() {
                 Hard timeout in seconds. The runner aborts the active runtime after this long and
                 marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to{" "}
                 <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) from the routine
-                editor — raise it for long jobs, lower it to fail fast.
+                editor — raise it for long jobs, lower it to fail fast. Time spent waiting in the
+                queue does not count. Near the end, tool results tell the employee how many
+                minutes remain so it can save progress and report before it is stopped.
               </>
             ),
           },
@@ -437,11 +439,20 @@ Post it to the #morning channel.`}</Pre>
         wait until their due time, and a Standdown defers affected work until it is lifted.
       </P>
       <P>
+        The exception is an AI Model with a <Strong>Concurrent Routine Runs</Strong> limit. A model
+        server on this machine or a private network serves one Routine at a time by default, and
+        you can set a limit on any model. Runs beyond it wait in the queue — the Run log says which
+        model they are waiting for — and start when a Run on that model finishes, oldest first,
+        with their whole time limit. See{" "}
+        <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
+      </P>
+      <P>
         On <Strong>Home</Strong>, choose an AI Employee&apos;s bubble to see the{" "}
         <Strong>Routine Runs</Strong> above their daily calendar: concurrent Routines and any
         pending work, including delayed retries, continuations, and Standdown reasons. Both update
         automatically. Changing the calendar date does not change the current work. Pending Runs
-        have no employee queue position and do not wait for other Routines to finish.
+        have no employee queue position; they wait only for their AI Model&apos;s concurrent-Run
+        limit, never for the employee&apos;s other Routines.
       </P>
       <P>
         Starting a Routine does not make its AI Employee unavailable for Chat. Conversations are
@@ -646,8 +657,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           <Strong>Error</Strong> means a model request or runtime problem stopped the Run: a request
-          timeout, an unavailable AI Model, or an interrupted server. The Run log retains the cause.
-          Older timeout and interrupted Runs also display Error.
+          timeout, an unavailable AI Model, a response cut off at the model&apos;s output limit, or
+          an interrupted server. The Run log retains the cause. Older timeout and interrupted Runs
+          also display Error.
         </LI>
         <LI>
           <Strong>Failed</Strong> means the intended work was not completed. An AI Employee can call{" "}
@@ -917,8 +929,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         total model token limit. Individual AI Model context and response limits still apply. Token
         usage includes repeated and cached input across model calls; it is not just the text the
         employee writes. Automatic continuation stops when the saved checkpoint does not advance,
-        the employee reports a blocker, the time limit expires, or all three continuations have run;
-        the Run shows the reason. Current Grants, delivery limits, and Standdowns still apply, and
+        the employee reports a blocker, too little of the time limit remains for another Run to do
+        useful work (five minutes, or a quarter of a shorter limit), or all three continuations
+        have run; the Run shows the reason. Current Grants, delivery limits, and Standdowns still apply, and
         approval-gated work is never replayed automatically. The final continuation can keep working
         within the remaining shared time: saving a checkpoint does not require ending that Run. It
         should finish when its work is complete, a real blocker prevents further useful work, or it

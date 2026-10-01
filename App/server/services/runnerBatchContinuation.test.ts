@@ -94,7 +94,8 @@ function priorRun(routine: Routine, values: Partial<Run> = {}) {
     startedAt: new Date(Date.now() - 60_000),
     finishedAt: new Date(Date.now() - 30_000),
     checkpointJson: JSON.stringify(unfinished),
-    continuationDeadlineAt: new Date(Date.now() + 120_000),
+    // Enough of the shared window left for a continuation to be worth starting.
+    continuationDeadlineAt: new Date(Date.now() + 10 * 60_000),
     ...values,
   });
 }

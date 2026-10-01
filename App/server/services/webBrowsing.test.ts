@@ -9,6 +9,7 @@ import {
   downloadWebFile,
   fetchWebPage,
   parseDuckDuckGoResults,
+  resetSearchChallengeForTests,
   searchWeb,
 } from "./webBrowsing.js";
 import { EMPTY_SEARCH_PAGE, SEARCH_CHALLENGE_PAGE } from "../test/webSearchFixtures.js";
@@ -31,6 +32,7 @@ import { EMPTY_SEARCH_PAGE, SEARCH_CHALLENGE_PAGE } from "../test/webSearchFixtu
  */
 afterEach(() => {
   overrideRuntimeSettingsForTests(null);
+  resetSearchChallengeForTests();
 });
 
 const RESULT_PAGE = `
@@ -163,6 +165,34 @@ describe("search responses distinguish unavailable from empty", () => {
       assert.equal(fetch.mock.callCount(), 1, "does not repeatedly attempt a challenge");
     });
   }
+
+  test("after a bot challenge, searches answer at once until the challenge may have cleared", async (t) => {
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    let now = Date.parse("2026-10-01T10:00:00.000Z");
+    t.mock.method(Date, "now", () => now);
+    const fetch = t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(SEARCH_CHALLENGE_PAGE, { status: 202, headers: { "content-type": "text/html" } }),
+    );
+    await assert.rejects(() => searchWeb("forms", 5), /do not retry search in this Run/);
+    now += 60_000;
+    await assert.rejects(
+      () => searchWeb("other forms", 5),
+      (error: unknown) => {
+        assert.ok(error instanceof WebToolError);
+        assert.equal(error.status, 502);
+        assert.match(error.message, /still challenging this server.*do not retry search/);
+        assert.match(error.message, /does not mean there are no matching pages/);
+        return true;
+      },
+    );
+    assert.equal(fetch.mock.callCount(), 1, "a remembered challenge is not fetched again");
+    now += 15 * 60_000;
+    await assert.rejects(() => searchWeb("forms", 5), /bot challenge/);
+    assert.equal(fetch.mock.callCount(), 2, "the backend is asked again once the cooldown passes");
+  });
 
   test("preserves explicit genuine empty results", async (t) => {
     t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);

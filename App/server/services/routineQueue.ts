@@ -11,6 +11,13 @@ import { withSchedulerLease } from "./schedulerLeases.js";
 import { StanddownError, workBlockedForRoutine } from "./standdowns.js";
 import { browserRunCreationBlocked } from "./browserRecordings.js";
 import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.js";
+import { resolveRoutineModel } from "./models.js";
+import {
+  modelRunCapacity,
+  modelRunSlotsInUse,
+  withModelRunSlot,
+  type ModelRunCapacity,
+} from "./modelRunCapacity.js";
 
 export class QueuedRoutineIneligibleError extends Error {}
 
@@ -68,16 +75,25 @@ function requestRunDispatch(runId: string): void {
         await withSchedulerLease(`routine-run:${runId}`, 90_000, async (lease) => {
           if (!canClaim()) return;
           lease.assertHeld();
-          const next = await claimRun(runId, lease.assertHeld, canClaim);
-          if (!next) return;
-          // Each Run owns its lifecycle independently, including assessment and cleanup.
-          const claim = next.run.queueActiveEmployeeId!;
-          activeClaims.set(runId, claim);
-          try {
-            await processRun(next.run, next.routine);
-          } finally {
-            if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
-          }
+          // A saturated model admits no more Runs. This one stays queued, and
+          // because its deadline starts at the claim, waiting costs it nothing.
+          const target = await queuedRunModel(runId);
+          if (!canClaim()) return;
+          const slot = await withModelRunSlot(target?.capacity ?? null, async () => {
+            const next = await claimRun(runId, lease.assertHeld, canClaim);
+            if (!next) return;
+            // Each Run owns its lifecycle independently, including assessment and cleanup.
+            const claim = next.run.queueActiveEmployeeId!;
+            activeClaims.set(runId, claim);
+            try {
+              await processRun(next.run, next.routine);
+            } finally {
+              if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
+            }
+          });
+          if (!slot.admitted && target) await noteWaitingForModel(runId, target);
+          // Offer a freed slot to the next waiting Run now, not at the next heartbeat.
+          if (slot.admitted && target?.capacity.limit != null) void dispatchQueuedRoutineRuns();
         });
       } while (canClaim() && requested.has(runId));
     })
@@ -364,11 +380,46 @@ export async function dispatchQueuedRoutineRuns(): Promise<void> {
     await settleWaiter(runId);
   }
   if (!canDispatch()) return;
+  // Oldest first, so a Run waiting for a busy AI Model is offered a freed slot
+  // before Runs queued after it.
   const rows = await AppDataSource.getRepository(Run).find({
     where: { status: "queued", employeeId: Not(IsNull()) },
     select: { id: true },
+    order: { createdAt: "ASC" },
   });
   for (const run of rows) requestRunDispatch(run.id);
+}
+
+type QueuedRunModel = { capacity: ModelRunCapacity; label: string };
+
+/** The model a queued Run will use, read the same way its start will read it. */
+async function queuedRunModel(runId: string): Promise<QueuedRunModel | null> {
+  const run = await AppDataSource.getRepository(Run).findOne({
+    where: { id: runId, status: "queued" },
+    select: { id: true, routineId: true },
+  });
+  if (!run) return null;
+  const routine = await AppDataSource.getRepository(Routine).findOne({
+    where: { id: run.routineId },
+    select: { id: true, employeeId: true, modelId: true },
+  });
+  if (!routine) return null;
+  const { model } = await resolveRoutineModel(routine);
+  return model ? { capacity: modelRunCapacity(model), label: model.model } : null;
+}
+
+/** Say why a queued Run has not started, where a Member opening its log will look. */
+async function noteWaitingForModel(runId: string, target: QueuedRunModel): Promise<void> {
+  const limit = target.capacity.limit ?? 0;
+  const inUse = Math.max(limit, await modelRunSlotsInUse(target.capacity));
+  await AppDataSource.getRepository(Run).update(
+    { id: runId, status: "queued" },
+    {
+      logContent:
+        `[queue] Waiting for the AI Model ${target.label}: ${inUse} Run${inUse === 1 ? " is" : "s are"} already using it, ` +
+        `and it serves ${limit} at a time. This Run starts as soon as one finishes; its time limit starts then.\n`,
+    },
+  );
 }
 
 /** Test/restore seam: await work already owned by this process, without creating new work. */

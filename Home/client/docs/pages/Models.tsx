@@ -250,6 +250,16 @@ export function Models() {
         previous value. Subscription model cards omit these controls.
       </P>
 
+      <H2 id="concurrent-runs">Concurrent Routine Runs</H2>
+      <P>
+        The model card&apos;s <Strong>Concurrent Routine Runs</Strong> sets how many Routine Runs
+        may use the model at once. Runs beyond the limit wait in the queue and start when one
+        finishes; their time limit starts then. A <Code>Custom</Code> endpoint on this machine or a
+        private network defaults to one at a time, and everything else to no limit. Employees that
+        point at the same endpoint share its limit. See{" "}
+        <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
+      </P>
+
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
         API-key and custom-endpoint models run through OpenCode; an OpenAI subscription model runs

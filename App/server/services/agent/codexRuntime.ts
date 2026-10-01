@@ -10,7 +10,7 @@ import {
 import { CodexAppServer, CodexAppServerError } from "./codexAppServer.js";
 import { toolResultCap } from "./toolResultBudget.js";
 import { contextUsage } from "./contextUsage.js";
-import type { ToolRegistry } from "./tools/toolRegistry.js";
+import { registryResultNotice, type ToolRegistry } from "./tools/toolRegistry.js";
 import type { AgentMessage, AgentTool, StreamCallbacks, ToolResult, TurnUsage } from "./types.js";
 
 type JsonObject = Record<string, unknown>;
@@ -426,6 +426,8 @@ async function invokeRegistryTool(
       imageUrl: `data:${image.mimeType};base64,${image.data}`,
     });
   }
+  const notice = registryResultNotice(registry);
+  if (notice) contentItems.push({ type: "inputText", text: notice });
   return { contentItems, success: !result.isError };
 }
 

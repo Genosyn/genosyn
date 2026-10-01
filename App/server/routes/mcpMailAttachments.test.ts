@@ -31,6 +31,7 @@ import { companyDir } from "../services/paths.js";
 import { recordAttachmentBytes } from "../services/uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { EMPTY_SEARCH_PAGE, SEARCH_CHALLENGE_PAGE } from "../test/webSearchFixtures.js";
+import { resetSearchChallengeForTests } from "../services/webBrowsing.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 /**
@@ -433,6 +434,8 @@ describe("attaching a file to outgoing mail", () => {
 });
 
 describe("web tools", () => {
+  // Each case stands alone; a challenge must not leave the next one cooling down.
+  beforeEach(resetSearchChallengeForTests);
   for (const [label, html, backendStatus, expectedStatus] of [
     ["a bot challenge", SEARCH_CHALLENGE_PAGE, 202, 502],
     ["unrecognized markup", "<html><body>Temporarily unavailable</body></html>", 200, 502],

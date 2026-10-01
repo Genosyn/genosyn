@@ -1498,6 +1498,9 @@ function ModelCard({
         {connected && model.authMode !== "subscription" && (
           <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />
         )}
+        {connected && model.authMode !== "subscription" && (
+          <RunConcurrencyPanel company={company} emp={emp} model={model} onChanged={onChanged} />
+        )}
 
         <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
           <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
@@ -1695,6 +1698,101 @@ function ContextWindowPanel({
           </p>
         </form>
       )}
+    </div>
+  );
+}
+
+const RUN_CONCURRENCY_CHOICES = [1, 2, 3, 4, 6, 8];
+
+/**
+ * How many Routine Runs may use this model at once.
+ *
+ * A local model server is usually one GPU: Runs served in parallel slow each
+ * other down, and each one's time limit keeps running while it waits for the
+ * model. Runs beyond this limit wait in the queue instead and start, with
+ * their whole time limit, when another finishes. The limit is shared by every
+ * AI Employee that points at the same endpoint.
+ */
+function RunConcurrencyPanel({
+  company,
+  emp,
+  model,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
+  const value = model.maxConcurrentRuns === null ? "default" : String(model.maxConcurrentRuns);
+  const choices =
+    model.maxConcurrentRuns && !RUN_CONCURRENCY_CHOICES.includes(model.maxConcurrentRuns)
+      ? [...RUN_CONCURRENCY_CHOICES, model.maxConcurrentRuns].sort((a, b) => a - b)
+      : RUN_CONCURRENCY_CHOICES;
+
+  async function save(next: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.put(`${base}/run-concurrency`, {
+        maxConcurrentRuns: next === "default" ? null : Number(next),
+      });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const limit = model.effectiveMaxConcurrentRuns;
+  const source =
+    model.concurrencySource === "local-default"
+      ? "default for a model server on this machine or a private network"
+      : model.concurrencySource === "configured"
+        ? "set by hand"
+        : "default for a hosted model";
+
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
+            Concurrent Routine Runs
+          </div>
+          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <span className="tabular-nums text-slate-700 dark:text-slate-200">
+              {limit === null ? "No limit" : `${limit} at a time`}
+            </span>{" "}
+            · {source}
+          </div>
+          <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+            Routines beyond the limit wait in the queue and start when a Run on this model
+            finishes; their time limit starts then. Lower it when a local model slows down under
+            parallel work.
+          </div>
+        </div>
+        <div className="w-36 shrink-0">
+          <Select
+            aria-label="Concurrent Routine Runs"
+            value={value}
+            disabled={busy}
+            onChange={(e) => save(e.target.value)}
+          >
+            <option value="default">Default</option>
+            {choices.map((n) => (
+              <option key={n} value={String(n)}>
+                {n} at a time
+              </option>
+            ))}
+            <option value="0">No limit</option>
+          </Select>
+        </div>
+      </div>
+      <FormError message={error} className="mt-2" />
     </div>
   );
 }

@@ -6,7 +6,12 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { AssistantMessage, Event, Part } from "@opencode-ai/sdk/v2";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
-import { buildOpenCodeConfig, openCodePromptParts } from "./opencodeConfig.js";
+import {
+  buildOpenCodeConfig,
+  CUSTOM_MODEL_OUTPUT_LIMIT,
+  OPENCODE_REPAIR_TOOL,
+  openCodePromptParts,
+} from "./opencodeConfig.js";
 import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
 import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
@@ -42,7 +47,7 @@ test("long MCP tool names stay inside the provider limit without collisions", ()
 test("OpenCode config confines scoped turns and keeps coding tools an explicit choice", () => {
   const cfg = configuration();
   assert.deepEqual(cfg.enabled_providers, ["genosyn-model"]);
-  assert.deepEqual(cfg.permission, { "*": "deny", "genosyn_*": "allow" });
+  assert.deepEqual(cfg.permission, { "*": "deny", invalid: "allow", "genosyn_*": "allow" });
   assert.equal(cfg.agent?.genosyn?.steps, 8);
   assert.equal(cfg.agent?.general?.disable, true);
   assert.equal(cfg.agent?.title?.disable, true);
@@ -54,6 +59,32 @@ test("OpenCode config confines scoped turns and keeps coding tools an explicit c
   assert.equal((native.permission as Record<string, string>).bash, "ask");
   assert.equal((native.permission as Record<string, string>).task, undefined);
   assert.equal((native.permission as Record<string, string>).question, undefined);
+});
+
+/**
+ * OpenCode 1.18.31 drops a tool when the last permission rule matching its name
+ * is a `"*"` pattern with action `"deny"` (rules apply in insertion order and
+ * `*` matches any run of characters). Mirror that rule to prove its tool-call
+ * repair target stays registered while every unlisted tool stays removed.
+ */
+function openCodeDisablesTool(permission: Record<string, string>, tool: string): boolean {
+  const matches = (name: string, pattern: string) =>
+    new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(name);
+  const rule = Object.entries(permission)
+    .reverse()
+    .find(([pattern]) => matches(tool, pattern));
+  return rule?.[1] === "deny";
+}
+
+test("OpenCode keeps its tool-call repair target while unlisted tools stay removed", () => {
+  for (const nativeCoding of [false, true]) {
+    const permission = configuration(nativeCoding).permission as Record<string, string>;
+    assert.equal(openCodeDisablesTool(permission, OPENCODE_REPAIR_TOOL), false);
+    assert.equal(openCodeDisablesTool(permission, "genosyn_find_tools"), false);
+    for (const tool of ["task", "question", "webfetch", "skill", "call_tool"])
+      assert.equal(openCodeDisablesTool(permission, tool), true, tool);
+    assert.equal(openCodeDisablesTool(permission, "bash"), !nativeCoding);
+  }
 });
 
 test("unlimited turns omit OpenCode's native step ceiling", () => {
@@ -129,6 +160,21 @@ test("unknown context stays unknown and legacy Anthropic models keep their outpu
     context: 0,
     output: 4096,
   });
+});
+
+test("custom endpoints with a known window leave reasoning models room to think", () => {
+  const limitFor = (contextWindow: number | null, provider: "custom" | "anthropic" = "custom") =>
+    buildOpenCodeConfig({
+      model: { ...model, provider, id: "qwen", contextWindow },
+      maxSteps: null,
+      nativeCoding: false,
+      mcp: { url: "", token: "" },
+    }).provider?.["genosyn-model"].models?.qwen.limit;
+  assert.deepEqual(limitFor(262144), { context: 262144, output: CUSTOM_MODEL_OUTPUT_LIMIT });
+  assert.deepEqual(limitFor(65536), { context: 65536, output: 16384 }, "a quarter of the window");
+  assert.deepEqual(limitFor(32000), { context: 32000, output: 8000 });
+  assert.deepEqual(limitFor(null), { context: 0, output: 8192 }, "an unknown window stays small");
+  assert.deepEqual(limitFor(262144, "anthropic"), { context: 262144, output: 8192 });
 });
 
 test("child environment excludes ambient credentials and repository configuration", () => {
@@ -478,6 +524,50 @@ test("MCP serves resident tools, dispatches deferred tools, and preserves images
     assert.equal(failure.isError, true);
     assert.equal(seen[0], "observe");
     assert.equal(seen[2], "failure");
+  } finally {
+    await client.close();
+    await endpoint.close();
+  }
+});
+
+test("a Run's time check reaches the model beside the tool output, never inside it", async () => {
+  const checkpoint = JSON.stringify({ ok: true, state: "continue" });
+  const registry = residentOnlyRegistry([
+    {
+      name: "save_run_checkpoint",
+      description: "Save progress.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => ({ content: checkpoint }),
+    },
+  ]);
+  const notices = ["[Time check] About 9 minutes remain.", null];
+  registry.resultNotice = () => notices.shift() ?? null;
+  const recorded: string[] = [];
+  const endpoint = await serveOpenCodeTools({
+    registry,
+    callbacks: { onToolResult: (_name, result) => recorded.push(result.content) },
+  });
+  const client = new Client({ name: "fixture", version: "1" });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(endpoint.url), {
+        requestInit: { headers: { Authorization: `Bearer ${endpoint.token}` } },
+      }),
+    );
+    const withNotice = await client.callTool({ name: "save_run_checkpoint", arguments: {} });
+    assert.deepEqual(withNotice.content, [
+      { type: "text", text: checkpoint },
+      { type: "text", text: "[Time check] About 9 minutes remain." },
+    ]);
+    const quiet = await client.callTool({ name: "save_run_checkpoint", arguments: {} });
+    assert.deepEqual(quiet.content, [{ type: "text", text: checkpoint }]);
+    assert.deepEqual(recorded, [checkpoint, checkpoint], "the runner parses the tool's own output");
+
+    registry.resultNotice = () => {
+      throw new Error("a broken note");
+    };
+    const unaffected = await client.callTool({ name: "save_run_checkpoint", arguments: {} });
+    assert.deepEqual(unaffected.content, [{ type: "text", text: checkpoint }]);
   } finally {
     await client.close();
     await endpoint.close();

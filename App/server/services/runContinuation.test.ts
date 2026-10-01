@@ -15,7 +15,10 @@ import { stopStanddowns } from "./standdowns.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import {
   checkpointAdvanced,
+  CONTINUATION_DELAY_MS,
   continuationEligibility,
+  MIN_CONTINUATION_WINDOW_MS,
+  minContinuationWindowMs,
   readRunCheckpoint,
   runCheckpointSchema,
   saveRunCheckpoint,
@@ -382,4 +385,32 @@ test("event-origin continuations retain their review scope", async (t) => {
   assert.equal(child.continuationOriginTriggerKind, "event");
   assert.equal(child.status, "reviewed");
   assert.deepEqual(scopes, [true, true]);
+});
+
+test("a continuation is queued only with enough of the shared time limit left to work", async () => {
+  assert.equal(minContinuationWindowMs(3600), MIN_CONTINUATION_WINDOW_MS);
+  assert.equal(minContinuationWindowMs(600), 150_000, "a quarter of a short budget");
+  assert.equal(minContinuationWindowMs(10), CONTINUATION_DELAY_MS);
+  const { routine } = await fixture({ timeoutSec: 3600 });
+  // The 2026-09-30 "Daily X" parent finished at 18:57 with three minutes of its
+  // 19:00 deadline left; its child could only start, then end as a timeout Error.
+  const parent = await insert(Run, {
+    routineId: routine.id,
+    startedAt: new Date("2026-09-30T18:00:00.000Z"),
+    continuationDeadlineAt: new Date("2026-09-30T19:00:00.000Z"),
+    status: "failed",
+    triggerKind: "schedule",
+    checkpointJson: JSON.stringify(first),
+  });
+  const late = continuationEligibility(parent, routine, new Date("2026-09-30T18:57:00.000Z"));
+  assert.equal(late.eligible, false);
+  assert.equal(
+    late.reason,
+    "The original Routine time limit leaves too little time for another continuation.",
+  );
+  assert.equal(
+    continuationEligibility(parent, routine, new Date("2026-09-30T18:54:59.000Z")).eligible,
+    true,
+    "more than five minutes left still continues",
+  );
 });

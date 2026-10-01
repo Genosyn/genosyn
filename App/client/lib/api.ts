@@ -1159,6 +1159,12 @@ export type AIModel = {
   contextWindowSource: "probed" | "manual" | null;
   /** False when the provider can't be asked at all (OpenAI reports no window). */
   contextWindowProbeable: boolean;
+  /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
+  maxConcurrentRuns: number | null;
+  /** How many Routine Runs may use this model at once; null means no limit. */
+  effectiveMaxConcurrentRuns: number | null;
+  /** Why that limit applies. */
+  concurrencySource: "configured" | "local-default" | "unlimited";
 };
 export type FinanceAccess = "none" | "read" | "full";
 

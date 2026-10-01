@@ -137,6 +137,15 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\
         MCP tool use to work — without them, vLLM will return tool calls as raw text and the agent
         will treat them as a normal message.
       </P>
+      <Callout kind="warn" title="Hybrid models need prefix caching switched on.">
+        Every step of a Routine resends the whole conversation so far — often 50k–130k tokens.
+        With prefix caching the server only reads what is new; without it, each step re-reads
+        everything and a GPU spends most of its time doing so. vLLM caches by default for ordinary
+        models but not for hybrid linear-attention ones (Qwen3.5 and later, Qwen3-Next). Add{" "}
+        <Code>--enable-prefix-caching --mamba-cache-mode align</Code> (with the CLI:{" "}
+        <Code>VLLM_EXTRA_ARGS</Code> in <Code>~/.genosyn/vllm/.env</Code>), then watch{" "}
+        <Code>Prefix cache hit rate</Code> in the server log climb above zero once a Routine runs.
+      </Callout>
 
       <H3 id="llama-cpp">llama.cpp (most portable)</H3>
       <P>
@@ -267,6 +276,45 @@ llama-server \\
         employee and the encrypted row is deleted.
       </Callout>
 
+      <H2 id="busy-model">When the model is busy</H2>
+      <P>
+        A local model server is usually one GPU. Routines that share it at the same time slow each
+        other down, and every Run&apos;s time limit keeps counting while it waits for the model —
+        so a busy afternoon used to end as a row of timeout Errors. Genosyn handles this for you:
+      </P>
+      <UL>
+        <LI>
+          <Strong>One Run at a time by default.</Strong> A <Code>Custom</Code> endpoint on this
+          machine or a private network (<Code>localhost</Code>, <Code>host.docker.internal</Code>,
+          a LAN or Tailscale address, a single-word Docker service name) serves one Routine Run at
+          a time. Others wait in the queue and start as soon as it finishes; a waiting Run&apos;s
+          time limit starts when it does, and its log says what it is waiting for.
+        </LI>
+        <LI>
+          <Strong>Shared across employees.</Strong> Every AI Employee pointed at the same base URL
+          and model id shares the limit, because they share the hardware.
+        </LI>
+        <LI>
+          <Strong>Change it on the model card.</Strong> <Strong>Concurrent Routine Runs</Strong>{" "}
+          takes <Code>Default</Code>, a number, or <Code>No limit</Code>. Raise it for a server that
+          batches well (vLLM with memory to spare); set it to 1 for a self-hosted server on a
+          public address, which Genosyn cannot tell apart from a hosted gateway. Hosted models and
+          other endpoints have no limit unless you set one.
+        </LI>
+        <LI>
+          <Strong>Time checks near the deadline.</Strong> In the last part of a Run&apos;s time
+          limit, tool results carry a short note with the minutes left, so a slow model saves its
+          progress and writes its report instead of being cut off mid-step. Unfinished work is
+          continued automatically only while enough of the shared time limit remains for the
+          continuation to do something.
+        </LI>
+      </UL>
+      <P>
+        If Routines still run out of time, the model is doing more work than one hour of its
+        throughput allows: raise the Routine&apos;s time limit, split it into smaller Routines, or
+        give the server more GPU.
+      </P>
+
       <H2 id="docker-networking">Docker networking</H2>
       <P>
         If you installed Genosyn through <Code>genosyn install</Code>, the app runs inside a Docker
@@ -360,14 +408,23 @@ llama-server \\
           the initial request itself exceeds the window.
         </LI>
         <LI>
+          <Strong>&quot;The AI Model&apos;s response was cut off at its output limit.&quot;</Strong>{" "}
+          A reasoning model can think past its response allowance before calling a tool. With a
+          known context window, a <Code>Custom</Code> model may answer with up to 32K tokens (at
+          most a quarter of the window); with an unknown window it gets 8K. Set the window on the
+          model card.
+        </LI>
+        <LI>
           <Strong>Employee forgets what a tool told it earlier.</Strong> Long sessions may require
           OpenCode to compact earlier history. Give the model a longer context, trim the Skills that
           accompany each turn, or save durable findings in a Workstream.
         </LI>
         <LI>
-          <Strong>Slow.</Strong> Quantize down (q8 → q5), enable batching on vLLM, or pin the layers
-          to GPU (<Code>--n-gpu-layers</Code> in llama.cpp). If your GPU is saturated, the answer is
-          more hardware, not more tuning.
+          <Strong>Slow, or Routines end as timeout Errors.</Strong> First check that the server
+          reuses prompts (the prefix-caching note under vLLM above) and that Routines are not all
+          sharing the GPU at once (<a href="#busy-model">When the model is busy</a>). Then quantize
+          down (q8 → q5) or pin the layers to GPU (<Code>--n-gpu-layers</Code> in llama.cpp). If
+          your GPU is still saturated, the answer is more hardware, not more tuning.
         </LI>
       </UL>
 

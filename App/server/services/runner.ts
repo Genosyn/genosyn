@@ -15,6 +15,7 @@ import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
 import { selfReviewToolScope } from "./proactive/reviewPolicy.js";
+import { createRunDeadlineNotice } from "./runDeadlineNotice.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
@@ -70,6 +71,7 @@ import {
   continuationEligibility,
   readRunCheckpoint,
   CONTINUATION_DELAY_MS,
+  minContinuationWindowMs,
 } from "./runContinuation.js";
 import { QueuedRoutineIneligibleError, registerQueuedRun } from "./routineQueue.js";
 import { findAcceptedManualRoutineRun, persistManualRoutineRun } from "./routineManualStart.js";
@@ -467,6 +469,7 @@ async function prepareRoutineRun(
       ...(missedSlots > 0
         ? [`missed=${missedSlots} scheduled occurrence(s) while the server was unavailable`]
         : []),
+      ...queueWaitLine(saved),
       "",
     ].join("\n") + "\n",
   );
@@ -797,6 +800,10 @@ async function prepareRoutineRun(
                 })
               : undefined,
             toolScope: selfReviewToolScope(routine.selfReviewOnly),
+            toolResultNotice: createRunDeadlineNotice({
+              deadlineAtMs,
+              budgetMs: Math.max(1, routine.timeoutSec) * 1000,
+            }),
             signal: controller.signal,
             callbacks: {
               onBackgroundWork: (pendingGroups) => {
@@ -837,6 +844,7 @@ async function prepareRoutineRun(
                     tokensThisRun: saved.tokensIn + saved.tokensOut,
                     continuationCount: saved.continuationCount,
                     deadlineAtMs,
+                    minWindowMs: minContinuationWindowMs(routine.timeoutSec),
                     previousCheckpoint:
                       saved.triggerKind === "continuation"
                         ? continuationParent
@@ -928,6 +936,16 @@ async function prepareRoutineRun(
         log.line("\n[failed] The AI Model stopped before the work finished.");
         saved.status = "failed";
         diagnostics.fail("The AI Model stopped before the work finished.", "work");
+        saved.exitCode = null;
+      } else if (result.stopReason === "length") {
+        // The provider cut the response off at its output ceiling, so the
+        // tool call or report it was writing never happened. That is a model
+        // limit, not finished work, however quiet the transcript looks.
+        if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
+        log.line(`\n[error] ${OUTPUT_LIMIT_STOP}`);
+        saved.status = "error";
+        saved.errorKind = "runtime";
+        diagnostics.fail(OUTPUT_LIMIT_STOP, "model");
         saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
@@ -1572,6 +1590,10 @@ async function runCheckPhase(args: {
               })
             : undefined,
         toolScope: selfReviewToolScope(args.routine.selfReviewOnly),
+        toolResultNotice: createRunDeadlineNotice({
+          deadlineAtMs: args.deadlineAtMs,
+          budgetMs: Math.max(1, args.routine.timeoutSec) * 1000,
+        }),
         signal: controller.signal,
         callbacks: {
           onText: (delta) => log.write(delta),
@@ -1602,7 +1624,7 @@ async function runCheckPhase(args: {
         args.diagnostics.fail(result.error, "model");
         log.line(`\n[checks] remediation turn failed: ${result.error}`);
         log.line(workSummaryLogLine(""));
-      } else if (result.stopReason !== "max_steps" && result.stopReason !== "aborted") {
+      } else if (!["max_steps", "aborted", "length"].includes(result.stopReason ?? "")) {
         log.line(workSummaryLogLine(result.finalText));
       } else {
         incomplete = true;
@@ -1810,4 +1832,29 @@ function composeRoutineMessage(
         ]
       : []),
   ].join("\n");
+}
+
+const OUTPUT_LIMIT_STOP =
+  "The AI Model's response was cut off at its output limit before the work finished. Reasoning models can spend that allowance thinking; if this repeats, set the model's context window on its card (a known window allows longer responses) or ask for less in one Run.";
+
+/**
+ * How long an accepted Run waited before it was claimed — usually for its AI
+ * Model to finish other Runs. The wait never counts against its time limit.
+ */
+export function queueWaitLine(
+  run: Pick<Run, "createdAt" | "startedAt" | "continuationCount">,
+): string[] {
+  if (!run.createdAt || !run.startedAt) return [];
+  const waitedMs = run.startedAt.getTime() - run.createdAt.getTime();
+  if (waitedMs < 60_000) return [];
+  const minutes = Math.round(waitedMs / 60_000);
+  const waited =
+    minutes < 60
+      ? `${minutes}m`
+      : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+  return [
+    run.continuationCount > 0
+      ? `[queue] Waited ${waited} in the queue before starting; a continuation keeps its original deadline.`
+      : `[queue] Waited ${waited} in the queue before starting; the time limit started when this Run did.`,
+  ];
 }

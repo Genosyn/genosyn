@@ -11,6 +11,21 @@ import { resolveMcpToken } from "./mcpTokens.js";
 // changing their ordinary retry policy or limiting steps within a Run.
 export const MAX_RUN_CONTINUATIONS = 3;
 export const CONTINUATION_DELAY_MS = 5_000;
+/**
+ * The least shared time worth handing to a continuation. A child Run spends
+ * its first minute starting up, and a slow local model can need several more
+ * for one step; one started with seconds left could only end as a timeout
+ * Error that hides the parent's honest unfinished-work report.
+ */
+export const MIN_CONTINUATION_WINDOW_MS = 5 * 60_000;
+
+/** A quarter of short budgets, never less than the scheduling delay itself. */
+export function minContinuationWindowMs(timeoutSec: number): number {
+  return Math.min(
+    MIN_CONTINUATION_WINDOW_MS,
+    Math.max(CONTINUATION_DELAY_MS, Math.floor((Math.max(1, timeoutSec) * 1000) / 4)),
+  );
+}
 
 export const runCheckpointSchema = z
   .object({
@@ -80,9 +95,9 @@ export function continuationEligibility(
   else if (
     (run.continuationDeadlineAt?.getTime() ??
       run.startedAt.getTime() + routine.timeoutSec * 1000) <=
-    now.getTime() + CONTINUATION_DELAY_MS
+    now.getTime() + minContinuationWindowMs(routine.timeoutSec)
   ) {
-    reason = "The original Routine time limit leaves no time for another continuation.";
+    reason = "The original Routine time limit leaves too little time for another continuation.";
   }
   return { eligible: reason === null, reason };
 }
