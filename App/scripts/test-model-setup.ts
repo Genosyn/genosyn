@@ -287,6 +287,9 @@ try {
       contextWindow: 8192,
       contextWindowSource: "manual",
       contextWindowProbeable: false,
+      maxConcurrentRuns: null,
+      effectiveMaxConcurrentRuns: null,
+      concurrencySource: "unlimited",
     },
   ];
   page = await open("?section");
