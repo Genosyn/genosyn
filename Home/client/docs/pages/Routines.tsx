@@ -1021,7 +1021,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         The retry itself is no longer blind about it. Attempt 2 opens with the{" "}
         <DocLink to="/docs/verification#effects">Effects</DocLink> the server recorded during every
         earlier attempt in the chain — the emails that went out, the rows that moved — and is told
-        to verify each one before doing it again. Deliberately &quot;verify before redoing&quot;
+        to verify each one before doing it again. It repeats the scheduled work with that
+        attempt&apos;s tools and limits: a retry is not new proactive work, so it is not narrowed to
+        preparation, and a Routine with an email delivery ceiling keeps it. Deliberately &quot;verify before redoing&quot;
         rather than &quot;skip&quot;: the ledger proves an action was recorded, not that whatever it
         touched downstream actually landed.
       </P>

@@ -300,6 +300,16 @@ async function prepareRoutineRun(
     }
   }
 
+  // A retry repeats the attempt it follows, so it keeps at least that
+  // attempt's review scope; it is never wider than the work being repeated.
+  const retriedAttempt =
+    !queued && opts.triggerKind === "retry" && opts.parentRunId
+      ? await runRepo.findOne({
+          where: { id: opts.parentRunId, routineId: routine.id },
+          select: { id: true, continuationReviewOnly: true },
+        })
+      : null;
+
   const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
     ...(queued ? { id: queued.id, createdAt: queued.createdAt } : { createdAt: startedAt }),
@@ -327,6 +337,7 @@ async function prepareRoutineRun(
     continuationReviewOnly:
       !!queued?.continuationReviewOnly ||
       !!continuationParent?.continuationReviewOnly ||
+      !!retriedAttempt?.continuationReviewOnly ||
       routineNeedsWorkReview(
         routine,
         continuationParent?.continuationOriginTriggerKind ??

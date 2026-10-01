@@ -96,8 +96,11 @@ test("automatic starters and events have review authority independently of routi
   assert.equal(routineNeedsWorkReview(normal, "manual"), false);
   assert.equal(routineNeedsWorkReview(normal, "event"), true);
   assert.equal(routineNeedsWorkReview(normal, "webhook"), true);
-  assert.equal(routineNeedsWorkReview(normal, "retry"), true);
+  // A retry repeats scheduled work with the scope that work had.
+  assert.equal(routineNeedsWorkReview(normal, "retry"), false);
+  assert.equal(routineNeedsWorkReview(normal, "schedule"), false);
   assert.equal(routineNeedsWorkReview({ ...normal, mailDeliveryMode: "draft" }, "schedule"), true);
+  assert.equal(routineNeedsWorkReview({ ...normal, mailDeliveryMode: "draft" }, "retry"), true);
   assert.equal(routineDeliveryPolicy(normal, true).allowPrivilegedToolSources, false);
   assert.equal(routineNeedsWorkReview({ ...normal, selfReviewOnly: true }, "schedule"), false);
 });

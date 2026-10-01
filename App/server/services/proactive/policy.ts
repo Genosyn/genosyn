@@ -29,12 +29,20 @@ export function routineDeliveryPolicy(
   };
 }
 
-/** Existing starters retain their server marker; custom event work is covered too. */
+/**
+ * Existing starters retain their server marker; custom event work is covered too.
+ *
+ * A retry is not new proactive work. Only scheduled Runs are retried, and a
+ * retry repeats that scheduled occurrence with its Effects in view, so it runs
+ * with the scope the attempt before it had. Reviewing it instead could never
+ * finish that work, and the retry preflight refused it outright whenever the
+ * earlier attempt had used native coding or any tool outside preparation.
+ */
 export function routineNeedsWorkReview(
   routine: Pick<Routine, "mailDeliveryMode" | "selfReviewOnly">,
   triggerKind: RunTrigger,
 ): boolean {
   // Own-work reviews already have a stricter, suggestion-only surface.
   if (routine.selfReviewOnly) return false;
-  return routine.mailDeliveryMode != null || ["event", "webhook", "retry"].includes(triggerKind);
+  return routine.mailDeliveryMode != null || ["event", "webhook"].includes(triggerKind);
 }
