@@ -219,10 +219,11 @@ export class Run {
   retryAt!: Date | null;
 
   /**
-   * Scheduled occurrences that elapsed while the server was unavailable and
-   * are collapsed into this one catch-up run. 0 normally. Non-zero is the only
-   * durable record that work was skipped — the scheduler advances `nextRunAt`
-   * from *now* after an outage, so the missed slots leave no other trace.
+   * Scheduled occurrences collapsed into this one catch-up run: slots that
+   * elapsed while the server was unavailable, and slots that came due while
+   * this scheduled Run was still waiting to start. 0 normally. Non-zero is the
+   * only durable record that those occurrences got no Run of their own — the
+   * scheduler advances `nextRunAt` from *now*, so they leave no other trace.
    */
   @Column({ type: "integer", default: 0 })
   missedSlots!: number;

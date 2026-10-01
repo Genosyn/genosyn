@@ -1299,7 +1299,7 @@ function RunsTab({
                     {(r.missedSlots ?? 0) > 0 && (
                       <span
                         className="text-[10px] text-amber-600 dark:text-amber-400"
-                        title="Scheduled occurrences missed while the server was unavailable"
+                        title="More scheduled occurrences this Run covers: missed while the server was unavailable, or due while it waited to start"
                       >
                         +{r.missedSlots} missed
                       </span>

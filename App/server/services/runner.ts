@@ -478,7 +478,7 @@ async function prepareRoutineRun(
           ]
         : []),
       ...(missedSlots > 0
-        ? [`missed=${missedSlots} scheduled occurrence(s) while the server was unavailable`]
+        ? [`missed=${missedSlots} more scheduled occurrence(s) covered by this run`]
         : []),
       ...queueWaitLine(saved),
       "",
@@ -1837,9 +1837,10 @@ function composeRoutineMessage(
     ...(missedSlots > 0
       ? [
           "",
-          `This run is catching up: ${missedSlots} scheduled occurrence(s) were missed while ` +
-            "the server was unavailable. Cover the whole period since the last run rather than " +
-            "only the most recent interval, and say so in your output.",
+          `This run is catching up: it also stands in for ${missedSlots} scheduled ` +
+            "occurrence(s) that did not get their own run, because the server was unavailable " +
+            "or they came due while this run waited to start. Cover the whole period since the " +
+            "last run rather than only the most recent interval, and say so in your output.",
         ]
       : []),
   ].join("\n");

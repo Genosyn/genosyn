@@ -127,8 +127,8 @@ const Run = z
       .number()
       .int()
       .describe(
-        "Scheduled occurrences that elapsed while the server was unavailable and are " +
-          "collapsed into this catch-up run. 0 normally.",
+        "Scheduled occurrences collapsed into this catch-up run: slots missed while the " +
+          "server was unavailable, or that came due while this Run waited to start. 0 normally.",
       ),
   })
   .openapi("Run");

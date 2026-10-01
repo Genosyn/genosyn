@@ -598,7 +598,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="runs">Runs</H2>
       <P>
-        Every accepted scheduled occurrence creates a <Code>Run</Code> row. <Strong>Run now</Strong>{" "}
+        Every accepted scheduled occurrence creates a <Code>Run</Code> row, unless the Routine
+        already has a scheduled Run waiting to start: that Run then covers the new occurrence too
+        (see <a href="#missed-slots">missed slots</a>). <Strong>Run now</Strong>{" "}
         opens the Routine&apos;s existing queued or running Run when there is one, including while a
         stopped Run is still finishing cleanup. This also prevents a repeated click after a lost
         response from starting duplicate work. Once that work has fully ended, a fresh click creates
@@ -898,6 +900,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         run records how many occurrences it stands in for — you&apos;ll see <Code>+11 missed</Code>{" "}
         on the run row — and its brief tells the employee to cover the whole period rather than just
         the last interval.
+      </P>
+      <P>
+        The same happens when an occurrence comes due while the Routine&apos;s previous scheduled
+        Run is still waiting to start, for example behind a busy local model. The waiting Run takes
+        the new occurrence and shows <Code>+1 missed</Code>, so the queue never holds two Runs of
+        the same scheduled work. A Run that has already started is never extended this way, and a
+        Run someone started with <Strong>Run now</Strong> keeps its own occurrence: the scheduled
+        one still gets a Run of its own.
       </P>
       <P>
         Set <Strong>After downtime</Strong> to <Strong>Skip</Strong> in the routine&apos;s Settings

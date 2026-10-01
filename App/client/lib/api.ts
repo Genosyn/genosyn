@@ -999,7 +999,7 @@ export type Run = {
   continuationStopReason?: string | null;
   /** Same-Routine follow-up metadata; undefined until relationships have been loaded. */
   followUpRun?: RunFollowUp | null;
-  /** Occurrences missed during downtime that this run stands in for. */
+  /** More scheduled occurrences this run stands in for: missed during downtime or due while it waited. */
   missedSlots?: number;
   /** How the run measured against its Routine's acceptance criteria. */
   outcomeVerdict?: RunOutcomeVerdict | null;

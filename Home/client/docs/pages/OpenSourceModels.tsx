@@ -308,6 +308,13 @@ llama-server \\
           continued automatically only while enough of the shared time limit remains for the
           continuation to do something.
         </LI>
+        <LI>
+          <Strong>No backlog of the same Routine.</Strong> When a Routine&apos;s next scheduled
+          time arrives while its last scheduled Run is still waiting for the model, that waiting Run
+          covers both occurrences instead of a second Run queueing behind it. The Run shows{" "}
+          <Code>+1 missed</Code> and its brief asks the employee to cover the whole period since
+          the last Run.
+        </LI>
       </UL>
       <P>
         If Routines still run out of time, the model is doing more work than one hour of its

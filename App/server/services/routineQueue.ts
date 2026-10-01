@@ -207,6 +207,17 @@ async function claimRun(
       },
     );
     if (claimed.affected !== 1) return null;
+    // A due occurrence may have folded into this Run after it was read above.
+    const current = await claims
+      .createQueryBuilder("run")
+      .select(["run.id", "run.missedSlots"])
+      .addSelect("run.queueOptionsJson")
+      .where("run.id = :runId", { runId: run.id })
+      .getOne();
+    if (current) {
+      run.missedSlots = current.missedSlots;
+      run.queueOptionsJson = current.queueOptionsJson;
+    }
     if (!canClaim()) {
       // A stop may arrive during the claim's database round trip. Restore
       // its pending state before returning whenever the connection remains open.

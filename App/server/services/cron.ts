@@ -197,6 +197,7 @@ export async function tickRoutine(
     );
     return;
   }
+  if (await foldIntoWaitingRun(fresh, meta.missedSlots, assertLeaseHeld)) return;
   // Persist each occurrence and dispatch it independently, even while another
   // Routine is running. Per-Run claims prevent duplicate starts across replicas.
   const { completion } = await startRoutineRun(fresh, {
@@ -230,6 +231,55 @@ export async function tickRoutine(
     // eslint-disable-next-line no-console
     console.error(`[cron] routine ${fresh.id} failed after starting:`, err);
   });
+}
+
+/**
+ * Let this Routine's scheduled Run that is still waiting to start also cover a
+ * newly due occurrence. A busy local AI Model can hold a Run in the queue past
+ * the Routine's next slot; a second Run queued behind it would only repeat the
+ * same work. The waiting Run instead records the occurrence the way a catch-up
+ * Run records slots missed during downtime, so its brief covers the whole
+ * period and a saturated model never accumulates a backlog of one Routine.
+ */
+async function foldIntoWaitingRun(
+  routine: Routine,
+  missedSlots: number,
+  assertLeaseHeld: () => void,
+): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Run);
+  const waiting = await repo
+    .createQueryBuilder("run")
+    .addSelect("run.queueOptionsJson")
+    .where("run.routineId = :routineId", { routineId: routine.id })
+    .andWhere("run.status = :status", { status: "queued" })
+    .andWhere("run.triggerKind = :triggerKind", { triggerKind: "schedule" })
+    .andWhere("run.queueActiveEmployeeId IS NULL")
+    .orderBy("run.createdAt", "ASC")
+    .getOne();
+  if (!waiting) return false;
+  let options: StartRunOptions;
+  try {
+    options = JSON.parse(waiting.queueOptionsJson ?? "{}") as StartRunOptions;
+  } catch {
+    return false;
+  }
+  const covered = waiting.missedSlots + missedSlots + 1;
+  assertLeaseHeld();
+  // Only a Run that is still unclaimed can take the occurrence; the queue
+  // re-reads it after claiming, so a fold that wins this race is never lost.
+  const folded = await repo.update(
+    {
+      id: waiting.id,
+      status: "queued",
+      queueActiveEmployeeId: IsNull(),
+      missedSlots: waiting.missedSlots,
+    },
+    {
+      missedSlots: covered,
+      queueOptionsJson: JSON.stringify({ ...options, missedSlots: covered }),
+    },
+  );
+  return folded.affected === 1;
 }
 
 function onDispatchError(routineId: string) {
