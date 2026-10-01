@@ -12,6 +12,7 @@ import { StanddownError, workBlockedForRoutine } from "./standdowns.js";
 import { browserRunCreationBlocked } from "./browserRecordings.js";
 import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
+import { creditedQueueWaitMs } from "./runContinuation.js";
 import {
   modelRunCapacity,
   modelRunSlotsInUse,
@@ -189,12 +190,16 @@ async function claimRun(
     // token also fences late cleanup after this occurrence is deferred and reclaimed.
     const claimId = `run:${run.id}:${randomUUID()}`;
     const startedAt = new Date();
-    // Queue time consumes no new occurrence allowance. Publish its actual
-    // deadline with ownership, before preparation can await another service.
-    // Automatic continuations retain their inherited absolute deadline.
+    // Queue time consumes no allowance. Publish the actual deadline with
+    // ownership, before preparation can await another service. An automatic
+    // continuation keeps its inherited deadline, moved by any credited wait.
     const continuationDeadlineAt =
       run.continuationCount > 0
-        ? run.continuationDeadlineAt
+        ? run.continuationDeadlineAt &&
+          new Date(
+            run.continuationDeadlineAt.getTime() +
+              creditedQueueWaitMs({ createdAt: run.createdAt, startedAt }),
+          )
         : new Date(startedAt.getTime() + Math.max(1, routine.timeoutSec) * 1000);
     const claimed = await claims.update(
       { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
@@ -400,13 +405,16 @@ export async function dispatchQueuedRoutineRuns(): Promise<void> {
   }
   if (!canDispatch()) return;
   // Oldest first, so a Run waiting for a busy AI Model is offered a freed slot
-  // before Runs queued after it.
+  // before Runs queued after it. Continuations go ahead of fresh work: they
+  // finish an occurrence that has already started.
   const rows = await AppDataSource.getRepository(Run).find({
     where: { status: "queued", employeeId: Not(IsNull()) },
-    select: { id: true },
+    select: { id: true, continuationCount: true },
     order: { createdAt: "ASC" },
   });
-  for (const run of rows) requestRunDispatch(run.id);
+  const continuing = rows.filter((run) => run.continuationCount > 0);
+  const fresh = rows.filter((run) => run.continuationCount <= 0);
+  for (const run of [...continuing, ...fresh]) requestRunDispatch(run.id);
 }
 
 type QueuedRunModel = { capacity: ModelRunCapacity; label: string };
@@ -436,7 +444,7 @@ async function noteWaitingForModel(runId: string, target: QueuedRunModel): Promi
     {
       logContent:
         `[queue] Waiting for the AI Model ${target.label}: ${inUse} Run${inUse === 1 ? " is" : "s are"} already using it, ` +
-        `and it serves ${limit} at a time. This Run starts as soon as one finishes; its time limit starts then.\n`,
+        `and it serves ${limit} at a time. This Run starts as soon as one finishes; waiting does not count against its time limit.\n`,
     },
   );
 }

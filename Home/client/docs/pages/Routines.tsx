@@ -443,7 +443,8 @@ Post it to the #morning channel.`}</Pre>
         server on this machine or a private network serves one Routine at a time by default, and
         you can set a limit on any model. Runs beyond it wait in the queue — the Run log says which
         model they are waiting for — and start when a Run on that model finishes, oldest first,
-        with their whole time limit. See{" "}
+        with their whole time limit. Continuations of unfinished work start ahead of new work, and
+        their wait does not count against the time their earlier Run left. See{" "}
         <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
       </P>
       <P>
@@ -935,7 +936,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Each occurrence permits up to three continuation Runs after the initial Run. They share the
-        original Routine time limit. Runs have no fixed limit on model steps or tool calls, and no
+        original Routine time limit; time a continuation spends waiting for a busy AI Model moves
+        that deadline by the same amount, so the wait never uses up its working time. Runs have no
+        fixed limit on model steps or tool calls, and no
         total model token limit. Individual AI Model context and response limits still apply. Token
         usage includes repeated and cached input across model calls; it is not just the text the
         employee writes. Automatic continuation stops when the saved checkpoint does not advance,

@@ -27,6 +27,20 @@ export function minContinuationWindowMs(timeoutSec: number): number {
   );
 }
 
+/** A shorter wait is dispatch overhead, not a busy AI Model, and keeps the exact deadline. */
+export const QUEUE_WAIT_CREDIT_MIN_MS = 60_000;
+
+/**
+ * How long a claimed Run waited in the queue, when that wait is long enough to
+ * give back. Queue time never consumes a Run's time limit: a fresh occurrence's
+ * limit starts at its claim, and an automatic continuation's inherited deadline
+ * moves later by this much, so it keeps the working time its parent left.
+ */
+export function creditedQueueWaitMs(run: Pick<Run, "createdAt" | "startedAt">): number {
+  const waitedMs = run.startedAt.getTime() - run.createdAt.getTime();
+  return waitedMs >= QUEUE_WAIT_CREDIT_MIN_MS ? waitedMs : 0;
+}
+
 export const runCheckpointSchema = z
   .object({
     state: z.enum(["continue", "blocked", "complete"]),

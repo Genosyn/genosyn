@@ -69,6 +69,7 @@ import {
   checkpointAdvanced,
   continuationBrief,
   continuationEligibility,
+  creditedQueueWaitMs,
   readRunCheckpoint,
   CONTINUATION_DELAY_MS,
   minContinuationWindowMs,
@@ -290,11 +291,14 @@ async function prepareRoutineRun(
     )
       throw new RunManualResumeError("This Run cannot resume unfinished work.");
   } else if (opts.triggerKind === "continuation" || opts.continuationFromRunId) {
+    // A queued continuation is judged as of when it joined the queue: its wait
+    // for a busy AI Model does not spend the time its parent left.
+    const judgedAt = new Date(Date.now() - (queued ? creditedQueueWaitMs(queued) : 0));
     if (
       !continuationParent ||
       opts.triggerKind !== "continuation" ||
       proactiveApproval ||
-      !continuationEligibility(continuationParent, routine).eligible
+      !continuationEligibility(continuationParent, routine, judgedAt).eligible
     ) {
       throw new Error("This Run cannot start an automatic continuation.");
     }
@@ -474,7 +478,7 @@ async function prepareRoutineRun(
         ? [
             manualResume
               ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh time window and no total model-token limit; deadline ${new Date(deadlineAtMs).toISOString()}.`
-              : `[continuation] Resuming ${continuationParent.id}; original deadline ${new Date(deadlineAtMs).toISOString()}.`,
+              : `[continuation] Resuming ${continuationParent.id}; shared deadline ${new Date(deadlineAtMs).toISOString()}.`,
           ]
         : []),
       ...(missedSlots > 0
@@ -1866,7 +1870,7 @@ export function queueWaitLine(
       : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
   return [
     run.continuationCount > 0
-      ? `[queue] Waited ${waited} in the queue before starting; a continuation keeps its original deadline.`
+      ? `[queue] Waited ${waited} in the queue before starting; the shared deadline moved by the same time.`
       : `[queue] Waited ${waited} in the queue before starting; the time limit started when this Run did.`,
   ];
 }

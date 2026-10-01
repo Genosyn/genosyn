@@ -281,6 +281,6 @@ test("a started Run's log says how long it waited in the queue", () => {
   );
   assert.deepEqual(
     queueWaitLine({ createdAt, startedAt: new Date("2026-10-01T10:30:00.000Z"), continuationCount: 2 }),
-    ["[queue] Waited 1h 30m in the queue before starting; a continuation keeps its original deadline."],
+    ["[queue] Waited 1h 30m in the queue before starting; the shared deadline moved by the same time."],
   );
 });
