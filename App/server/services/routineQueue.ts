@@ -92,8 +92,11 @@ function requestRunDispatch(runId: string): void {
             }
           });
           if (!slot.admitted && target) await noteWaitingForModel(runId, target);
-          // Offer a freed slot to the next waiting Run now, not at the next heartbeat.
-          if (slot.admitted && target?.capacity.limit != null) void dispatchQueuedRoutineRuns();
+          // Offer a freed slot to the next waiting Run now, not at the next
+          // heartbeat — and before this worker ends, so anyone awaiting an
+          // idle queue sees the next Run. A failure here waits for the heartbeat.
+          if (slot.admitted && target?.capacity.limit != null)
+            await dispatchQueuedRoutineRuns().catch(() => undefined);
         });
       } while (canClaim() && requested.has(runId));
     })
