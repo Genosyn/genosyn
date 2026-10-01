@@ -55,7 +55,8 @@ export const runCheckpointSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["remaining"],
-        message: "Work with remaining items is not complete.",
+        message:
+          "A complete checkpoint leaves remaining empty. If this Run's work is done, move follow-ups for a later Run into resume; if work is still unfinished, use state continue or blocked.",
       });
     }
   });

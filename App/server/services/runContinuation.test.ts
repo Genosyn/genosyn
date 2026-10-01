@@ -81,7 +81,23 @@ async function fixture(values: Partial<Routine> = {}) {
 }
 
 test("checkpoints require actionable resumable state and never equate remaining work with completion", () => {
-  assert.equal(runCheckpointSchema.safeParse({ ...first, state: "complete" }).success, false);
+  const completeWithRemaining = runCheckpointSchema.safeParse({ ...first, state: "complete" });
+  assert.equal(completeWithRemaining.success, false);
+  // 2026-10-01: a daily Run finished its window, listed holds for tomorrow in
+  // remaining, and spent a step on the rejection before retrying.
+  assert.match(
+    completeWithRemaining.error?.issues[0]?.message ?? "",
+    /leaves remaining empty.*follow-ups for a later Run into resume.*continue or blocked/,
+  );
+  assert.equal(
+    runCheckpointSchema.safeParse({
+      ...first,
+      state: "complete",
+      remaining: "",
+      resume: "Next daily Run: re-check the 23 held deletions.",
+    }).success,
+    true,
+  );
   assert.equal(runCheckpointSchema.safeParse({ ...first, resume: " " }).success, false);
   assert.equal(readRunCheckpoint({ checkpointJson: "broken" }), null);
   assert.equal(checkpointAdvanced({ ...first, progressKey: "EVENT-71 " }, first), false);

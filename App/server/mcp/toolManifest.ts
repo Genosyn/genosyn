@@ -928,7 +928,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         remaining: {
           type: "string",
           maxLength: 2000,
-          description: "Unfinished items or exact blocker. Empty only when complete.",
+          description:
+            "Unfinished items or exact blocker. Empty when complete; follow-ups for a later Run go in resume.",
         },
         resume: {
           type: "string",
