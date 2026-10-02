@@ -55,6 +55,14 @@ image tags carry no `v` prefix, so appVersion is usable verbatim.
 {{- end }}
 
 {{/*
+The ConfigMap carrying config.js. The upgrade guard in genosyn.validate looks
+up a release's existing one by this same name.
+*/}}
+{{- define "genosyn.configName" -}}
+{{- printf "%s-config" (include "genosyn.fullname" .) }}
+{{- end }}
+
+{{/*
 Effective database driver: the bundled Postgres implies postgres.
 */}}
 {{- define "genosyn.dbDriver" -}}
@@ -187,13 +195,19 @@ renders "true" or nothing, so it can be used directly in `if`.
 {{- if and .Values.ingress.enabled (or .Values.ingress.tls.enabled (include "genosyn.gke.managedCertificate" .)) }}true{{ end -}}
 {{- end -}}
 
-{{/* The public HTTPS origin the post-install Job stores, or nothing. */}}
+{{/*
+The public HTTPS origin the post-install Job stores, or nothing. The Job
+reaches only the database, so SQLite installs, whose database lives on the
+App's volume, go without it.
+*/}}
 {{- define "genosyn.publicUrl" -}}
+{{- if eq (include "genosyn.dbDriver" .) "postgres" -}}
 {{- $explicit := default "" .Values.config.publicUrl | trim | trimSuffix "/" -}}
 {{- if $explicit -}}
 {{- $explicit -}}
 {{- else if and (include "genosyn.ingressTls" .) .Values.ingress.host -}}
 {{- printf "https://%s" .Values.ingress.host -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
@@ -206,17 +220,47 @@ address and its own to X-Forwarded-For; config.extraJs can still override.
 {{- end -}}
 
 {{/*
-AppArmor profile type for the sandboxed App container, or nothing to omit it.
-An empty string omits it. A missing key, which is also what Helm leaves for
-null or for values reused from an older release, keeps the requirement.
+The config.js in lookup's copy of a release's ConfigMap, or nothing for a
+fresh install and for offline renders.
 */}}
-{{- define "genosyn.appArmorProfile" -}}
-{{- if .Values.sandbox.enabled -}}
-{{- if hasKey .Values.sandbox "appArmorProfile" -}}
-{{- with .Values.sandbox.appArmorProfile }}{{ . }}{{ end -}}
-{{- else -}}
-Unconfined
+{{- define "genosyn.existingConfigJs" -}}
+{{- get (default dict (get (default dict .) "data")) "config.js" | toString -}}
 {{- end -}}
+
+{{/*
+The chart runs Genosyn single-tenant: one organization per install. Older
+charts defaulted to shared multi-tenant mode, so upgrading such a release
+needs an explicit config.multiTenant=false once. genosyn.validate passes
+lookup's copy of the release's ConfigMap as `existing`; keeping this separate
+lets offline checks exercise upgrades. Renders one problem, or nothing.
+*/}}
+{{- define "genosyn.tenancyProblem" -}}
+{{- $setting := index .config "multiTenant" -}}
+{{- $confirmed := and (kindIs "bool" $setting) (not $setting) -}}
+{{- $existingJs := include "genosyn.existingConfigJs" .existing -}}
+{{- if and (regexMatch "(?m)^\\s*multiTenant:\\s*true\\b" $existingJs) (not $confirmed) -}}
+This release ran in shared multi-tenant mode, and this chart runs Genosyn single-tenant (one organization per install): AI Employee commands run in the App container with access to every company's data in this install. If one organization uses this install, set config.multiTenant=false once to confirm. If it serves several unrelated organizations, give each its own install instead.
+{{- else if and (not (kindIs "invalid" $setting)) (not $confirmed) -}}
+Shared multi-tenant mode is not supported: the chart runs Genosyn single-tenant only (one organization per install) — fix: remove config.multiTenant
+{{- end -}}
+{{- end -}}
+
+{{/*
+Bubblewrap isolation was removed, and the chart never moves a release onto
+host execution unasked: values that still enable the sandbox, or a release
+whose ConfigMap ran it, need an explicit sandbox.enabled=false once. A
+multi-tenant release is genosyn.tenancyProblem's case. Every other sandbox key
+is ignored. Takes the same `existing` as genosyn.tenancyProblem; renders one
+problem, or nothing.
+*/}}
+{{- define "genosyn.sandboxProblem" -}}
+{{- $sandbox := ternary .sandbox dict (kindIs "map" .sandbox) -}}
+{{- $enabled := index $sandbox "enabled" -}}
+{{- $confirmed := and (kindIs "bool" $enabled) (not $enabled) -}}
+{{- $existingJs := include "genosyn.existingConfigJs" .existing -}}
+{{- $ranSandbox := and (regexMatch "(?m)^\\s*executionMode:\\s*\"bubblewrap\"" $existingJs) (not (regexMatch "(?m)^\\s*multiTenant:\\s*true\\b" $existingJs)) -}}
+{{- if and (or (not (kindIs "invalid" $enabled)) $ranSandbox) (not $confirmed) -}}
+Bubblewrap isolation was removed: AI Employee commands now run in the App container without an OS sandbox, with the App user's filesystem and network access — fix: set sandbox.enabled=false once to confirm
 {{- end -}}
 {{- end -}}
 
@@ -260,16 +304,22 @@ opens the same database with the same secrets.
 {{- end -}}
 
 {{/*
-Fail fast — at template time, aggregated — when the configuration cannot boot.
-Genosyn's multi-tenant startup validation (App/server/services/runtimeSecurity.ts)
-refuses to boot a shared SaaS below its baseline; catching the chart-supplied
-parts here turns a CrashLoopBackOff twenty minutes in into one actionable
-`helm install` error. Every problem is collected before failing so a bare
-install reports EVERYTHING missing at once, not one error per attempt.
-Included from deployment.yaml so it runs on every render.
+Fail fast — at template time, aggregated — when the configuration cannot be
+deployed as intended. Catching chart-supplied mistakes here turns a
+CrashLoopBackOff or a failed hook into one actionable `helm install` error.
+Every problem is collected before failing so one attempt reports EVERYTHING
+wrong at once, not one error per attempt. Included from deployment.yaml so it
+runs on every render.
 */}}
 {{- define "genosyn.validate" -}}
 {{- $problems := list -}}
+{{- $existingConfig := lookup "v1" "ConfigMap" .Release.Namespace (include "genosyn.configName" .) -}}
+{{- with include "genosyn.tenancyProblem" (dict "config" .Values.config "existing" $existingConfig) -}}
+{{- $problems = append $problems . -}}
+{{- end -}}
+{{- with include "genosyn.sandboxProblem" (dict "sandbox" .Values.sandbox "existing" $existingConfig) -}}
+{{- $problems = append $problems . -}}
+{{- end -}}
 {{- $session := get .Values.secrets "sessionSecret" -}}
 {{- $encryption := get .Values.secrets "encryptionSecret" -}}
 {{- $password := get .Values.postgres "password" -}}
@@ -336,35 +386,19 @@ Included from deployment.yaml so it runs on every render.
 {{- $problems = append $problems "ingress.tls.certManager.issuerRef needs a name, or leave it empty to use the chart's own Issuer" -}}
 {{- end -}}
 {{- end -}}
-{{- $appArmor := include "genosyn.appArmorProfile" . -}}
-{{- if and $appArmor (not (has $appArmor (list "Unconfined" "RuntimeDefault"))) -}}
-{{- $problems = append $problems "sandbox.appArmorProfile must be Unconfined, RuntimeDefault, or an empty string to omit it" -}}
-{{- end -}}
+{{- /*
+The public URL Job hands config.publicUrl to the App's setup script on every
+install and upgrade, so a malformed value would fail each of them after the
+fact. HTTPS keeps the App's "auto" Secure session cookies on.
+*/ -}}
 {{- $publicUrl := default "" .Values.config.publicUrl | trim -}}
-{{- if and .Values.config.multiTenant $publicUrl (not (regexMatch "^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?/?$" $publicUrl)) -}}
+{{- if and $publicUrl (not (regexMatch "^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?/?$" $publicUrl)) -}}
 {{- $problems = append $problems "config.publicUrl must be an https:// origin with a lowercase host and no path, e.g. https://genosyn.example.com" -}}
-{{- end -}}
-{{- if .Values.config.multiTenant -}}
-{{- if not (default "" .Values.config.bootstrapMasterAdminEmail | trim) -}}
-{{- $problems = append $problems "config.bootstrapMasterAdminEmail is required (multi-tenant bootstrap predeclares the only email allowed to claim the first master admin) — fix: --set config.bootstrapMasterAdminEmail=you@example.com" -}}
-{{- end -}}
-{{/*
-No SMTP check: the system mail transport is configured after boot at
-Admin → Email transport (stored encrypted in the database), not in values.
-Boot warns loudly until it is set and mails the verification link to the pod
-log in the meantime, which is how the bootstrap master admin gets in.
-*/}}
-{{- if not .Values.sandbox.enabled -}}
-{{- $problems = append $problems "sandbox.enabled must be true (multi-tenant boot refuses without a working bubblewrap sandbox) — fix: --set sandbox.enabled=true" -}}
-{{- end -}}
-{{- if ne (include "genosyn.dbDriver" .) "postgres" -}}
-{{- $problems = append $problems "config.db.driver must be postgres (multi-tenant mode refuses SQLite) — fix: --set config.db.driver=postgres" -}}
-{{- end -}}
 {{- end -}}
 {{- if and (eq (include "genosyn.dbDriver" .) "postgres") (not .Values.postgres.enabled) (not .Values.config.db.postgresUrlSecret.name) -}}
 {{- $problems = append $problems "config.db.driver=postgres needs a database — fix: --set postgres.enabled=true (bundled, evaluation only) or point config.db.postgresUrlSecret.name/key at a Secret holding the connection URL" -}}
 {{- end -}}
 {{- if gt (len $problems) 0 -}}
-{{- fail (printf "\n\nGenosyn cannot boot with this configuration:\n\n- %s\n\nThe chart default is production multi-tenant SaaS. For a single-tenant self-host install, use: helm install ... -f values-selfhost.yaml" (join "\n\n- " $problems)) -}}
+{{- fail (printf "\n\nGenosyn cannot be deployed with this configuration:\n\n- %s\n" (join "\n\n- " $problems)) -}}
 {{- end -}}
 {{- end }}

@@ -1,9 +1,5 @@
-{{- /* Aggregated template-time boot validation — see _helpers.tpl. */ -}}
+{{- /* Aggregated template-time validation — see _helpers.tpl. */ -}}
 {{- include "genosyn.validate" . -}}
-{{- $appArmor := include "genosyn.appArmorProfile" . -}}
-{{- /* The appArmorProfile field is GA from Kubernetes 1.30; older API servers
-     reject it, and read the per-container annotation instead. */ -}}
-{{- $appArmorField := semverCompare ">=1.30-0" .Capabilities.KubeVersion.Version -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,8 +9,8 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   # Recreate by default: an RWO data volume can only attach to one pod, so the
-  # old pod must terminate before the new one schedules. RollingUpdate is only
-  # valid on multi-replica RWX installs.
+  # old pod must terminate before the new one schedules — and the App expects
+  # a single process (see replicaCount in values.yaml).
   strategy:
     type: {{ .Values.strategy }}
   # The `component: app` label keeps this selector disjoint from the bundled
@@ -35,9 +31,6 @@ spec:
       annotations:
         # Roll the pod when the rendered config.js changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- if and $appArmor (not $appArmorField) }}
-        container.apparmor.security.beta.kubernetes.io/app: {{ ternary "unconfined" "runtime/default" (eq $appArmor "Unconfined") }}
-        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -51,15 +44,6 @@ spec:
       # mounts it.
       securityContext:
         fsGroup: 1000
-      {{- if .Values.sandbox.enabled }}
-      {{- if not (kindIs "invalid" .Values.sandbox.hostUsers) }}
-      # Newer Kubernetes (1.31+, ProcMountType beta) only honors
-      # procMount: Unmasked inside a user-namespaced pod — hostUsers: false,
-      # which itself needs the UserNamespacesSupport feature gate. Clusters
-      # without that gate can set sandbox.hostUsers to null to omit the field.
-      hostUsers: {{ .Values.sandbox.hostUsers }}
-      {{- end }}
-      {{- end }}
       # The server drains in-flight work in about 6 seconds on SIGTERM; 15
       # leaves headroom without stalling Recreate rollouts.
       terminationGracePeriodSeconds: 15
@@ -70,25 +54,6 @@ spec:
           ports:
             - name: http
               containerPort: 8471
-          {{- if .Values.sandbox.enabled }}
-          # The bubblewrap coding sandbox creates a user namespace and mounts
-          # its own /proc — the default seccomp profile rejects the namespace
-          # flags, and the runtime's masked /proc entries block the nested
-          # mount. These two fields are the cluster equivalents of the Docker
-          # options the genosyn CLI passes. procMount: Unmasked additionally
-          # needs the ProcMountType feature gate; Pod Security admission
-          # permits neither field below the `privileged` level.
-          securityContext:
-            seccompProfile:
-              type: Unconfined
-            procMount: Unmasked
-            {{- if and $appArmor $appArmorField }}
-            # The runtime's default AppArmor profile denies the mounts
-            # bubblewrap makes inside its own namespaces (sandbox.appArmorProfile).
-            appArmorProfile:
-              type: {{ $appArmor }}
-            {{- end }}
-          {{- end }}
           env:
             {{- include "genosyn.appEnv" . | nindent 12 }}
           volumeMounts:
@@ -132,7 +97,7 @@ spec:
         {{- end }}
         - name: config
           configMap:
-            name: {{ include "genosyn.fullname" . }}-config
+            name: {{ include "genosyn.configName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

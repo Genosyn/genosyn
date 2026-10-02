@@ -1,9 +1,10 @@
 # genosyn Helm chart
 
 The official chart for [Genosyn](https://genosyn.com) — one container, one
-volume, Postgres. Defaults to production multi-tenant SaaS, with a one-file
-off-ramp to a single-tenant self-host (`values-selfhost.yaml`). Published as
-an OCI artifact alongside every release, and listed on
+volume, Postgres. It runs Genosyn single-tenant: one organization per install
+(see [One organization per install](#one-organization-per-install)), with a
+one-file SQLite variant (`values-selfhost.yaml`). Published as an OCI artifact
+alongside every release, and listed on
 [Artifact Hub](https://artifacthub.io/packages/search?ts_query_web=genosyn).
 
 ## Quickstart
@@ -19,12 +20,9 @@ and the six legacy Gmail sign-in paths. Set its separate **Hosted sign-in addres
 **Admin → Runtime → Hosted sign-in** while retaining `app.genosyn.com` as the
 App's public URL; see the [hosted sign-in guide](../../App/HOSTED_SIGN_IN.md).
 
-The chart's **default posture is production multi-tenant SaaS**: `multiTenant`
-on, Postgres, the bubblewrap sandbox granted, chart-generated strong secrets.
-A bare `helm install` fails fast at template time with one aggregated message
-listing everything missing — by design, only one value needs supplying.
-
-### Production multi-tenant (default)
+A bare `helm install` works: bundled Postgres, one replica, a 20Gi data
+volume, and chart-generated strong secrets. For real use, front it with an
+HTTPS Ingress and name the operator:
 
 ```bash
 helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
@@ -36,20 +34,28 @@ helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
   --set ingress.tls.secretName=genosyn-tls
 ```
 
-The one `config.*` flag is the multi-tenant minimum (the bootstrap admin
-email). The Ingress with TLS is not optional garnish: multi-tenant mode
-forces Secure session cookies, so the **first login must already happen over
-HTTPS**. The default install runs the **bundled evaluation Postgres**; real
-production should operate its own (managed instance, CloudNativePG, an
-operator) and point `config.db.postgresUrlSecret` at it with
-`postgres.enabled=false`.
+The pod becomes Ready once every migration has run (`/api/health` answers
+only after boot completes). The default install runs the **bundled evaluation
+Postgres**; real production should operate its own (managed instance,
+CloudNativePG, an operator) and point `config.db.postgresUrlSecret` at it
+with `postgres.enabled=false`.
 
-Multi-tenant installs accept registrations only once the database stores their
-public HTTPS URL. The chart does this itself: a post-install and post-upgrade
-Job stores `https://<ingress.host>` (or `config.publicUrl`) with the App's
-first-write-only setup script. An origin later changed at **Admin → General** is
-kept, and the upgrade continues. Without an HTTPS Ingress or `config.publicUrl`
-no Job runs; initialize it from the running container instead:
+**The first master admin.** Register the `config.bootstrapMasterAdminEmail`
+address and open its verification link: it becomes master admin at once.
+Without that value, no account is promoted until the App restarts. Either
+way, every App start with no master admin promotes the earliest registered
+account, and sign-ups are open by default — so claim the account before
+sharing the address.
+
+**The public URL.** Email links, OAuth callbacks, and Secure session cookies
+follow the public URL stored in the database. On Postgres, a post-install and
+post-upgrade Job stores `https://<ingress.host>` (or `config.publicUrl`) with
+the App's first-write-only setup script; an origin later changed at
+**Admin → General** is kept, and the upgrade continues. Session cookies are
+then Secure, so sign in through the Ingress, not a plain `http://`
+port-forward. Without an HTTPS Ingress or `config.publicUrl`, or on SQLite,
+the first master admin's sign-in records its browser origin. To set it from
+the container instead:
 
 ```bash
 kubectl -n genosyn exec deploy/genosyn -c app -- \
@@ -59,7 +65,7 @@ kubectl -n genosyn exec deploy/genosyn -c app -- \
 **System SMTP is not a chart value.** Configure the mail transport after boot
 at **Admin → Email transport**, where it is stored encrypted in the database.
 Until it is set, boot prints a warning and every system mail — including the
-bootstrap master admin's own verification link — goes to the pod log:
+master admin's own verification link — goes to the pod log:
 
 ```bash
 kubectl logs -n genosyn deploy/genosyn
@@ -68,10 +74,11 @@ kubectl logs -n genosyn deploy/genosyn
 Paste that link into the browser to verify and claim the master-admin
 account, then set SMTP up from the dashboard.
 
-### Single-tenant self-host
+### SQLite instead of Postgres
 
-The old default shape — SQLite, no bundled Postgres, no securityContext
-demands — lives in [`values-selfhost.yaml`](./values-selfhost.yaml):
+[`values-selfhost.yaml`](./values-selfhost.yaml) keeps the database in SQLite
+on the data volume, with no bundled Postgres — the shape of the one-line
+Docker installer:
 
 ```bash
 helm pull oci://ghcr.io/genosyn/charts/genosyn --untar
@@ -80,9 +87,18 @@ helm install genosyn ./genosyn \
   -f genosyn/values-selfhost.yaml
 ```
 
-The pod becomes Ready once every migration has run (`/api/health` answers
-only after boot completes). Create the first account in the browser, then
-review the public URL at **Admin → General**.
+## One organization per install
+
+AI Employee commands run inside the App container as the App user (`node`,
+uid 1000), with that user's filesystem and network authority. There is no OS
+sandbox, so commands can reach every company's data in the install. Give each
+unrelated organization its own install. The chart refuses
+`config.multiTenant=true` and `sandbox.enabled=true`.
+
+Keep `replicaCount` at 1. Repository work (its Git lock and running work
+sessions), ChatGPT subscription models, and Member browsers each depend on
+state held in one App process, so more than one replica is not supported for
+them.
 
 ## Cluster compatibility
 
@@ -113,12 +129,8 @@ and `postgres.persistence.storageClass` for the cluster's storage, or leave
 them empty to use its default StorageClass. An existing App PVC is also
 supported through `persistence.existingClaim`.
 
-Compatible clusters must support the selected workload's security posture.
-Shared SaaS requires a working bubblewrap sandbox, the relevant kernel and
-Kubernetes features, and admission policy permitting the security settings
-described below. Restricted clusters that forbid them cannot run this SaaS
-mode. The trusted single-tenant `values-selfhost.yaml` profile instead runs
-OpenCode and Repository commands inside the App container without an OS sandbox.
+The App pod requests no special security settings, only `fsGroup: 1000` so
+the unprivileged `node` user can write the data volume.
 
 ### GKE
 
@@ -141,9 +153,6 @@ gke:
     enabled: true
   # Optional: a reserved global address keeps DNS stable if the Ingress is recreated.
   # staticIpName: genosyn
-# Container-Optimized OS nodes run the sandbox; see sandbox.appArmorProfile.
-nodeSelector:
-  cloud.google.com/gke-os-distribution: cos
 ```
 
 Point every hostname at the Ingress address with DNS only (not through a
@@ -181,8 +190,8 @@ that depend on them.
 | Value | Default | What it does |
 | --- | --- | --- |
 | `image.tag` | chart `appVersion` | Pin the app version. Tags carry no `v` prefix (`1.155.0`, not `v1.155.0`). |
-| `replicaCount` | `1` | Keep at 1 unless running multi-tenant with Postgres + RWX storage. |
-| `strategy` | `Recreate` | Required for RWO volumes; `RollingUpdate` only for multi-replica RWX. |
+| `replicaCount` | `1` | Keep at 1; see [One organization per install](#one-organization-per-install). |
+| `strategy` | `Recreate` | Keep it: RWO volumes need it, and a rollout never overlaps two App processes. |
 | `ingress.enabled` / `ingress.host` | `false` / `""` | Front the app. WebSockets pass through a plain Ingress rule on nginx/Traefik. |
 | `ingress.connect.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` (effective) | Add a separate TLS hostname on the same Ingress and Service for hosted sign-in. Configure the hosting address and OAuth apps in the dashboard before enabling hosting. Legacy `ingress.gmailSignIn` fields remain supported. |
 | `ingress.className` | Empty | Installed IngressClass to use; empty leaves selection to the cluster's default. |
@@ -192,20 +201,17 @@ that depend on them.
 | `gke.enabled` | `false` | Configure GKE's built-in Ingress: BackendConfig, HTTPS redirect, annotations and two proxy hops. See [GKE](#gke). |
 | `gke.managedCertificate.enabled` / `name` | `false` / `""` | Google-managed certificate for the Ingress hostnames, instead of `ingress.tls`. |
 | `gke.backendConfig.timeoutSec` / `gke.staticIpName` | `3600` / `""` | Load balancer request and WebSocket timeout; optional reserved global static IP. |
-| `config.publicUrl` | `""` | Public HTTPS origin the post-install Job stores; empty derives it from an HTTPS `ingress.host`. |
+| `config.publicUrl` | `""` | Public HTTPS origin the post-install Job stores on Postgres; empty derives it from an HTTPS `ingress.host`. |
 | `persistence.storageClass` / `postgres.persistence.storageClass` | Empty | App and bundled database StorageClasses; empty uses the cluster default. |
-| `persistence.size` | `20Gi` | The `/app/data` volume. Holds checkouts, browser state, uploads — and the managed instance secrets. |
+| `persistence.size` | `20Gi` | The `/app/data` volume. Holds checkouts, browser state, and uploads; the instance secrets live in a Kubernetes Secret. |
 | `persistence.existingClaim` | `""` | Use a PVC you manage instead of the chart's. |
-| `config.db.driver` | `postgres` | `sqlite` for single-tenant self-host (`values-selfhost.yaml` sets it). |
+| `config.db.driver` | `postgres` | `sqlite` keeps the database on the data volume (`values-selfhost.yaml` sets it). |
 | `config.db.postgresUrlSecret` | `{}` | Secret + key holding a full `postgresql://…` URL — the production database. |
 | `postgres.enabled` | `true` | Bundled single-node Postgres, evaluation only. Turn off when using `postgresUrlSecret`. |
 | `postgres.password` | `""` | Optional inline bundled-Postgres password in a private values file. Use only letters, digits, `.`, `_`, `~`, or `-`. Cannot be combined with `postgres.passwordSecret.name`. |
-| `sandbox.enabled` | `true` | Grant the securityContext the bubblewrap coding sandbox needs (see below). |
-| `sandbox.appArmorProfile` | `Unconfined` | AppArmor profile for the sandboxed App container; an empty string omits it. |
 | `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). Empty lets the chart manage a kept `-instance-secrets` Secret. |
 | `secrets.sessionSecret` / `secrets.encryptionSecret` | `""` / `""` | Optional inline instance secrets in a private values file. Supply both, at least 32 characters each and distinct. Cannot be combined with `secrets.existingSecret`. |
-| `config.multiTenant` | `true` | Shared SaaS mode — the default; read the checklist below. |
-| `config.bootstrapMasterAdminEmail` | `""` | The only email allowed to claim the first master admin. Required when `multiTenant`. |
+| `config.bootstrapMasterAdminEmail` | `""` | Recommended. The address that claims the master-admin account once verified; see [Quickstart](#quickstart). |
 | `config.extraJs` | `""` | Extra `key: value,` lines spliced into the generated `config.js`. |
 | `env` | `[]` | Extra container env vars (verbatim pod-spec syntax). |
 
@@ -269,7 +275,7 @@ secrets injected as `GENOSYN_*` environment variables that the file reads via
 
 That file is deliberately short. It carries **boot configuration only**: the
 data directory, database coordinates, the port, the session secret, the whole
-`security` block, and the two agent isolation switches. Everything an
+`security` block, and the agent execution settings. Everything an
 operator can safely change while the app runs lives in the database and is
 edited in the dashboard, not in values:
 
@@ -284,7 +290,9 @@ Upgrading from an older chart is safe: a ConfigMap still rendering the fat
 old shape stays harmless (nothing enumerates config keys, so stale ones are
 never read), and on the first boot after the upgrade the server copies each
 surviving block into its database row once, so the install keeps its
-behavior. Adding those keys back to `config.extraJs` does nothing.
+behavior. Adding those keys back to `config.extraJs` does nothing. A release
+that ran multi-tenant or in the sandbox needs one confirmation; see
+[Upgrading a multi-tenant or sandboxed release](#upgrading-a-multi-tenant-or-sandboxed-release).
 
 Anything the chart does not parameterize goes through `config.extraJs`,
 spliced verbatim before the closing brace of the config object. A duplicate
@@ -302,8 +310,7 @@ config:
 needs a values edit and a rollout: the same list is editable under **Outbound
 network** at **Admin → Runtime**, and the two are combined, so a self-hosted
 Forgejo or an in-cluster model endpoint can be allowed in the dashboard while
-the file stays as it is. Shared multi-tenant installs ignore the dashboard list
-and still refuse to boot with a non-empty one in values.
+the file stays as it is.
 
 Anything `extraJs` reads via `process.env.*` is injected through `env`:
 
@@ -313,80 +320,6 @@ env:
     valueFrom:
       secretKeyRef: { name: my-secret, key: value }
 ```
-
-## The coding sandbox (`sandbox.enabled`)
-
-With sandbox isolation enabled, Genosyn runs coding commands inside bubblewrap, which
-needs to create a user namespace and mount its own `/proc`. A stock pod
-allows neither, so `sandbox.enabled=true` sets on the container:
-
-```yaml
-securityContext:
-  seccompProfile: { type: Unconfined }
-  procMount: Unmasked
-  appArmorProfile: { type: Unconfined }
-```
-
-The container runtime's default AppArmor profile (containerd's, on GKE, Ubuntu
-and Container-Optimized OS nodes) denies the mounts bubblewrap makes inside its
-own namespaces, so `sandbox.appArmorProfile` defaults to `Unconfined`. On
-Kubernetes before 1.30 the chart sets the equivalent pod annotation instead;
-an empty string omits both. Ubuntu 24.04 nodes additionally block the
-sandbox's nested user namespace through
-`kernel.apparmor_restrict_unprivileged_userns=1`, so schedule the App onto
-other nodes with `nodeSelector` (on GKE, Container-Optimized OS).
-
-`procMount: Unmasked` needs the cluster's `ProcMountType` feature gate and,
-on newer Kubernetes (1.31+), a user-namespaced pod: the chart therefore also
-renders pod-spec `hostUsers: false` (from `sandbox.hostUsers`, default
-`false`), which needs the `UserNamespacesSupport` feature gate — set
-`sandbox.hostUsers` to `null` on clusters without that gate to omit the
-field. Pod Security admission rejects these fields below the `privileged`
-level. Disabled (`--set sandbox.enabled=false`, which `values-selfhost.yaml`
-does), the trusted single-tenant configuration uses host coding: OpenCode and
-Repository commands run inside the App container without an OS sandbox. No
-special namespace permissions are required. Shared SaaS retains its isolation
-requirement, so the chart refuses `multiTenant` + `sandbox.enabled=false` at
-template time.
-
-## Multi-tenant (shared SaaS) mode
-
-`config.multiTenant: true` — the chart default — makes boot validation refuse
-anything below the shared-SaaS baseline. The chart pre-validates its share at
-**template time** and reports every missing value in one aggregated error, so
-`helm install` fails in one round instead of one CrashLoopBackOff per missing
-value. The checklist, mapped to chart values:
-
-1. **Postgres** — `config.db.driver: postgres` (default) + either
-   `postgres.enabled: true` (default, evaluation only) or
-   `config.db.postgresUrlSecret` pointing at a database you operate.
-2. **Explicit strong secrets** — satisfied out of the box: the chart
-   generates a `<fullname>-instance-secrets` Secret with distinct 48-char
-   values, preserved across upgrades and `helm uninstall`
-   (`helm.sh/resource-policy: keep`). Or bring your own via
-   `secrets.existingSecret` (distinct `sessionSecret` / `encryptionSecret`,
-   ≥ 32 characters each), or the paired inline fields in a private values
-   file. Managed on-disk secrets are refused in this mode.
-3. **Working sandbox** — `sandbox.enabled: true` (default), on a cluster
-   that actually honors the fields; multi-tenant boot probes bubblewrap and
-   refuses on failure instead of degrading.
-4. **Bootstrap admin** — `config.bootstrapMasterAdminEmail`, the only email
-   allowed to claim the first master-admin account. Required; template-time
-   failure when empty.
-5. **System SMTP** — not a chart value and not a boot requirement any more:
-   set it at **Admin → Email transport** once the pod is up. Boot warns
-   loudly until it is configured, and system mail (verification, invites,
-   password resets) goes to the pod log in the meantime — which is how the
-   bootstrap master admin claims the account on a fresh install:
-   `kubectl logs -n genosyn deploy/genosyn`. Configure it before inviting
-   anyone else; a shared install without a working transport cannot verify
-   accounts or recover passwords.
-6. **HTTPS** — serve through the Ingress with TLS. Secure cookies are forced
-   in this mode, so even the first login must happen over HTTPS.
-
-The chart already renders the remaining requirements for you when
-`config.multiTenant` is true (member browsers off, in-process browser off,
-sandbox network access off, private-host allowlist empty).
 
 ## Upgrading
 
@@ -407,6 +340,36 @@ helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn -n genosyn --reuse-val
   the password must match the surviving `pgdata` volume, and rotating the
   encryption secret would orphan every encrypted row.
 - Upgrading from a pre-release install of this same unreleased chart needs a delete+install: the workload selectors gained `app.kubernetes.io/component` and selector fields are immutable.
+- The pod no longer requests seccomp, AppArmor, `procMount`, or
+  user-namespace settings.
+
+### Upgrading a multi-tenant or sandboxed release
+
+Earlier charts defaulted to shared multi-tenant mode with the bubblewrap
+command sandbox. This chart runs Genosyn single-tenant, and AI Employee
+commands run in the App container without an OS sandbox, with access to every
+company's data in the install. So `helm upgrade` stops before changing
+anything until you confirm:
+
+- **Multi-tenant** — the release's ConfigMap still renders `multiTenant: true`.
+  If one organization uses this install, set `config.multiTenant=false` once.
+  If it serves several unrelated organizations, give each its own install
+  instead.
+- **Sandboxed** — a single-tenant release ran commands in bubblewrap (its
+  ConfigMap renders `executionMode: "bubblewrap"`), or your values still set
+  `sandbox.enabled: true`. Set `sandbox.enabled=false` once.
+
+```bash
+helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn -n genosyn \
+  --reuse-values --set config.multiTenant=false --set sandbox.enabled=false
+```
+
+An explicit `false` for either value is always accepted; other leftover
+`sandbox` keys are ignored. `--reuse-values` renders this upgrade with the
+previous chart's defaults, which set both `multiTenant: true` and
+`sandbox.enabled: true`, so it needs both flags even if your own values never
+mentioned them. Without it, a multi-tenant release needs only
+`config.multiTenant=false`.
 
 ## Backups
 
