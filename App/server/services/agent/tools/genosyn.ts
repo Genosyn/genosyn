@@ -200,7 +200,7 @@ async function callInternal(
         ? (parsed as { error: unknown }).error
         : `HTTP ${response.status}`;
     const text = typeof detail === "string" ? detail : JSON.stringify(detail, null, 2);
-    return { content: text + formatIssues(parsed), isError: true };
+    return { content: text + formatIssues(parsed, args), isError: true };
   }
 
   // Internal handlers return the MCP result envelope. Flatten its text content;
@@ -221,19 +221,52 @@ async function callInternal(
  * so per-op requirements are now enforced here, at call time, rather than by the
  * schema the model reads. This is the message that closes that loop.
  */
-function formatIssues(parsed: unknown): string {
+export function formatIssues(parsed: unknown, args?: unknown): string {
   if (!parsed || typeof parsed !== "object" || !("issues" in parsed)) return "";
   const issues = (parsed as { issues: unknown }).issues;
   if (!Array.isArray(issues) || issues.length === 0) return "";
   const lines = issues
     .map((i) => {
       if (!i || typeof i !== "object") return "";
-      const { path, message } = i as { path?: unknown; message?: unknown };
+      const { path, message, validation } = i as {
+        path?: unknown;
+        message?: unknown;
+        validation?: unknown;
+      };
       const where = Array.isArray(path) && path.length > 0 ? path.join(".") : "(root)";
-      return typeof message === "string" ? `${where}: ${message}` : "";
+      if (typeof message !== "string") return "";
+      const hint =
+        validation === "uuid" && Array.isArray(path) ? idHint(valueAt(args, path)) : "";
+      return `${where}: ${message}${hint}`;
     })
     .filter(Boolean);
   return lines.length > 0 ? ` — ${lines.join("; ")}` : "";
+}
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * Say what was wrong with a rejected id. A model copies ids from its own notes
+ * and checkpoints, where they are often shortened to the first eight
+ * characters or run together with the word before them ("session4835a9ff-…"),
+ * and then retried the same value or gave up on the record.
+ */
+function idHint(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const embedded = UUID.exec(value)?.[0];
+  if (embedded) return ` (the id inside it is ${embedded})`;
+  if (/^[0-9a-f-]{4,35}$/i.test(value))
+    return ` ('${value}' is only the start of an id; pass the full 36-character id, which the matching list or search tool returns)`;
+  return "";
+}
+
+function valueAt(args: unknown, path: unknown[]): unknown {
+  let value = args;
+  for (const key of path) {
+    if (!value || typeof value !== "object") return undefined;
+    value = (value as Record<string, unknown>)[String(key)];
+  }
+  return value;
 }
 
 /**

@@ -9,7 +9,11 @@ import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import { loadGenosynTools, withArgumentHint } from "../services/agent/tools/genosyn.js";
+import {
+  formatIssues,
+  loadGenosynTools,
+  withArgumentHint,
+} from "../services/agent/tools/genosyn.js";
 import type { AgentTool } from "../services/agent/types.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -99,6 +103,36 @@ test("a rejected value keeps its own message without an argument list", async ()
   assert.equal(result.isError, true);
   assert.match(result.content, /limit: Number must be less than or equal to 200/);
   assert.doesNotMatch(result.content, /Accepted arguments/);
+});
+
+// 2026-10-02: a Qwen audit Run passed get_workstream {"workstreamId":"f66c733f"}
+// and get_repository_work_session {"sessionId":"4835a9ff"}, the first eight
+// characters its own earlier notes had kept of each id.
+test("a shortened id is answered with how to pass the full one", async () => {
+  const result = await (await tool("get_workstream")).run({ workstreamId: "f66c733f" });
+  assert.equal(result.isError, true);
+  assert.match(
+    result.content,
+    /workstreamId: Invalid uuid \('f66c733f' is only the start of an id; pass the full 36-character id/,
+  );
+});
+
+test("an id run together with other text is answered with the id inside it", () => {
+  const issues = {
+    issues: [
+      { validation: "uuid", code: "invalid_string", message: "Invalid uuid", path: ["sessionId"] },
+      { validation: "uuid", code: "invalid_string", message: "Invalid uuid", path: ["refs", 1] },
+      { code: "invalid_type", message: "Required", path: ["limit"] },
+    ],
+  };
+  assert.equal(
+    formatIssues(issues, {
+      sessionId: "session4835a9ff-d834-4e5d-9a7c-50005101547f",
+      refs: ["ok", "Jamie's note"],
+    }),
+    " — sessionId: Invalid uuid (the id inside it is 4835a9ff-d834-4e5d-9a7c-50005101547f); " +
+      "refs.1: Invalid uuid; limit: Required",
+  );
 });
 
 const describeTable = {
