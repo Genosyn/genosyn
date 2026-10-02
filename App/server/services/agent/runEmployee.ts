@@ -76,6 +76,8 @@ export type EmployeeAgentParams = {
   bashTimeoutMs: number;
   /** Max model turns before we stop; null leaves the turn bounded by its caller's deadline. */
   maxSteps: number | null;
+  /** Wait out a self-hosted model server's restart; defaults to unbounded turns. */
+  waitForModel?: boolean;
   routineId?: string;
   conversationId?: string;
   runId?: string;
@@ -380,6 +382,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       messages: params.messages,
       registry: gathered.registry,
       maxSteps: params.maxSteps,
+      waitForModel: params.waitForModel,
       cwd: params.cwd,
       toolEnv: params.toolEnv,
       bashTimeoutMs: params.bashTimeoutMs,

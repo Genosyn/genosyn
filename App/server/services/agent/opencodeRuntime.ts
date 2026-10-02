@@ -40,6 +40,12 @@ export type OpenCodeTurnParams = {
   bashTimeoutMs?: number;
   nativeCoding?: boolean;
   authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
+  /**
+   * Wait out a self-hosted model server that stops answering instead of
+   * failing the turn. Defaults to unbounded work turns; a chat or other short
+   * turn still fails promptly, so nobody watches it hang.
+   */
+  waitForModel?: boolean;
 };
 export type OpenCodeTurnResult = { finalText: string; steps: number; stopReason: string };
 
@@ -52,6 +58,13 @@ export const SILENT_STOP_NUDGES = 1;
 export const SILENT_STOP_NUDGE =
   "Your last message had no reply and no tool call, so the work stopped. If any work remains, continue it with your tools. If the work is done, write your final report now, beginning with one or two short sentences saying what you accomplished.";
 
+/** Whether a turn waits out a self-hosted model server's restart; see `waitForModel`. */
+export function turnWaitsForModel(
+  params: Pick<OpenCodeTurnParams, "waitForModel" | "maxSteps">,
+): boolean {
+  return params.waitForModel ?? params.maxSteps === null;
+}
+
 /** OpenCode owns model calls, tool sequencing, retries and context compaction. */
 export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenCodeTurnResult> {
   if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
@@ -62,10 +75,8 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
   let server: OpenCodeServer | undefined;
   try {
     bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
-    // A work turn waits out a self-hosted model server's restart. A chat or
-    // other short turn still fails promptly, so nobody watches it hang.
     proxy = await serveOpenCodeModel(model, params.signal, {
-      holdOutages: params.maxSteps === null,
+      holdOutages: turnWaitsForModel(params),
       onOutage: (outage) => params.callbacks?.onModelOutage?.(outage),
     });
     server = await startOpenCodeServer({

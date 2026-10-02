@@ -206,7 +206,7 @@ type ChatBaseOptions = {
    */
   activity?: Pick<
     StreamCallbacks,
-    "onText" | "onToolUse" | "onToolResult" | "onCompact" | "onModelRetry"
+    "onText" | "onToolUse" | "onToolResult" | "onCompact" | "onModelRetry" | "onModelOutage"
   >;
   /**
    * Ceiling on model turns for this call. Chat's default suits a reply; a
@@ -224,6 +224,12 @@ type ChatBaseOptions = {
    * would refuse anyway. See `agent/tools/index.ts` for the scope.
    */
   workSurface?: "repository";
+  /**
+   * Wait out a self-hosted model server that stops answering instead of
+   * failing the turn. For background work such as a Repository work session;
+   * a Member waiting on a chat reply is better told promptly.
+   */
+  waitForModel?: boolean;
   /**
    * Receives how full the model's context window is after every model turn.
    * Unlike `onProgress` this is not a control the employee can reach — it is
@@ -887,6 +893,7 @@ export async function streamChatWithEmployee(
         genosynToken: mcpToken,
         bashTimeoutMs: 5 * 60 * 1000,
         maxSteps: options.maxSteps ?? CHAT_MAX_STEPS,
+        waitForModel: options.waitForModel,
         skillToolset: [
           ...residentNamesForSkills(effectiveSkills, unavailableSkillTools),
           ...(contextAccess.extraSystem ? (options.extraToolset ?? []) : []),
@@ -908,6 +915,7 @@ export async function streamChatWithEmployee(
             );
             options.activity?.onModelRetry?.(retry);
           },
+          onModelOutage: options.activity?.onModelOutage,
           onToolUse: options.activity?.onToolUse,
           onToolResult: options.activity?.onToolResult,
           onCompact: options.activity?.onCompact,

@@ -931,6 +931,30 @@ describe("a session that does work", () => {
     assert.deepEqual((await repositoryStatus(repository)).changes, []);
   });
 
+  // 2026-10-02: restarting the self-hosted model server ended every turn
+  // working on it. A session's turn now waits for the server and says so.
+  test("waits out a model server restart and records the wait in its feed", async () => {
+    let waitForModel: boolean | undefined;
+    const session = await start((async (...args: Parameters<typeof chatWithEmployee>) => {
+      waitForModel = args[4]?.waitForModel;
+      args[4]?.activity?.onModelOutage?.({ state: "waiting", waitedMs: 0 });
+      args[4]?.activity?.onModelOutage?.({ state: "answered", waitedMs: 330_000 });
+      return stubChat(() => {})(...args);
+    }) as typeof chatWithEmployee);
+    assert.equal(waitForModel, true);
+    const events = await AppDataSource.getRepository(RepositoryWorkSessionEvent).find({
+      where: { sessionId: session.id, kind: "retry" },
+      order: { ordinal: "ASC" },
+    });
+    assert.deepEqual(
+      events.map((event) => event.summary),
+      [
+        "The AI Model's server stopped answering; the session waits for it",
+        "The AI Model's server answered again after 6 min; continuing",
+      ],
+    );
+  });
+
   test("records an empty outcome when the employee commits nothing", async () => {
     const session = await start(stubChat(() => {}));
     assert.equal(session.status, "empty");

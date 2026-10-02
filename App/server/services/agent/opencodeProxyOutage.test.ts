@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import type { OpenCodeModel } from "./opencodeConfig.js";
 import { sendThroughOutage, serveOpenCodeModel } from "./opencodeProxy.js";
+import { turnWaitsForModel } from "./opencodeRuntime.js";
 import type { ModelOutage } from "./types.js";
 
 // 2026-10-02: restarting the vLLM server behind a self-hosted Qwen model ended
@@ -253,4 +254,11 @@ test("stopping the turn ends a held request", async () => {
   } finally {
     await proxy.close();
   }
+});
+
+test("work turns and work sessions wait for the model; chat turns fail promptly", () => {
+  assert.equal(turnWaitsForModel({ maxSteps: null }), true, "a Routine's work turn");
+  assert.equal(turnWaitsForModel({ maxSteps: 100 }), false, "a chat reply");
+  assert.equal(turnWaitsForModel({ maxSteps: 400, waitForModel: true }), true, "a work session");
+  assert.equal(turnWaitsForModel({ maxSteps: null, waitForModel: false }), false);
 });

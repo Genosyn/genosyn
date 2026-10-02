@@ -877,6 +877,9 @@ export async function runRepositoryWorkSession(
           repositoryWorkSessionId: session.id,
           workSurface: "repository",
           maxSteps: WORK_SESSION_MAX_STEPS,
+          // A session's turn can run for an hour; a self-hosted model server
+          // restarting meanwhile should pause it, not end it.
+          waitForModel: true,
           extraSystem: composeWorkSystemPrompt(repo, session.id, {
             revision: turn.ordinal > 1,
             agentsGuide: guide?.body ?? null,
@@ -893,6 +896,7 @@ export async function runRepositoryWorkSession(
               recorder.toolResult(name, toolResult, callId),
             onCompact: (info) => recorder.compact(info),
             onModelRetry: (info) => recorder.retry(info),
+            onModelOutage: (outage) => recorder.modelOutage(outage),
           },
         },
       );
