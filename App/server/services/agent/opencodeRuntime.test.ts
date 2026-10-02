@@ -11,6 +11,7 @@ import {
   CUSTOM_MODEL_OUTPUT_LIMIT,
   OPENCODE_REPAIR_TOOL,
   openCodePromptParts,
+  SELF_HOSTED_RESPONSE_WAIT_MS,
 } from "./opencodeConfig.js";
 import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
 import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
@@ -74,7 +75,9 @@ test("OpenCode config confines scoped turns and keeps coding tools an explicit c
  */
 function openCodeDisablesTool(permission: Record<string, string>, tool: string): boolean {
   const matches = (name: string, pattern: string) =>
-    new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(name);
+    new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(
+      name,
+    );
   const rule = Object.entries(permission)
     .reverse()
     .find(([pattern]) => matches(tool, pattern));
@@ -134,6 +137,23 @@ test("provider mapping preserves Responses, Anthropic effort and endpoint model 
       }),
     /default effort/,
   );
+});
+
+// 2026-10-02: a saturated vLLM took over five minutes to start answering Routine
+// steps, and OpenCode abandoned each one at five minutes and sent it again.
+test("a custom endpoint gets longer to start answering than a hosted API", () => {
+  const options = (provider: "custom" | "anthropic") =>
+    buildOpenCodeConfig({
+      model: { ...model, provider },
+      maxSteps: 4,
+      nativeCoding: false,
+      mcp: { url: "http://localhost/mcp", token: "secret" },
+    }).provider?.["genosyn-model"]?.options;
+  assert.ok(SELF_HOSTED_RESPONSE_WAIT_MS > 5 * 60_000, "longer than OpenCode's own five minutes");
+  assert.equal(options("custom")?.headerTimeout, SELF_HOSTED_RESPONSE_WAIT_MS);
+  assert.equal(options("custom")?.chunkTimeout, SELF_HOSTED_RESPONSE_WAIT_MS);
+  assert.equal(options("anthropic")?.headerTimeout, undefined);
+  assert.equal(options("anthropic")?.chunkTimeout, undefined);
 });
 
 test("OpenAI limits inherit published output caps and reserve input for small windows", () => {

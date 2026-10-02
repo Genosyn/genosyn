@@ -706,7 +706,7 @@ export async function streamChatWithEmployee(
     const parallelDelegationAvailable =
       privilegedToolSourcesAllowed &&
       !options.mailDeliveryMode &&
-      supportsParallelDelegation(model.authMode);
+      supportsParallelDelegation(model);
     const unavailableCodingTools =
       !privilegedToolSourcesAllowed ||
       Boolean(options.mailDeliveryMode) ||

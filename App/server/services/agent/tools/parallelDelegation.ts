@@ -1,3 +1,5 @@
+import type { AIModel } from "../../../db/entities/AIModel.js";
+import { modelRunCapacity } from "../../modelRunCapacity.js";
 import type { AgentTool } from "../types.js";
 import { createParallelResultStore, type ParallelResultStore } from "./parallelWorkerResults.js";
 import { unprefixedToolName } from "./toolRegistry.js";
@@ -26,12 +28,23 @@ export type DelegationBudget = { remaining: number };
  * one model lock. A parent cannot wait on a delegated copy that is waiting for
  * that same lock. Temporary workers also pass a non-zero depth so delegation
  * remains one level deep.
+ *
+ * A model that serves a limited number of Runs at once (a server on this
+ * machine or a private network by default) gets no workers either. The limit
+ * is how many long conversations its server holds well, and each worker is
+ * one more. A Weekly Customer Expansion Run on Qwen with two workers put four
+ * conversations on a GPU whose cache held about three: each evicted the cached
+ * prompt of the next one to run, and every step read 110K tokens from scratch.
  */
 export function supportsParallelDelegation(
-  authMode: "apikey" | "subscription" | "customEndpoint",
+  model: Pick<AIModel, "id" | "provider" | "authMode" | "configJson" | "maxConcurrentRuns">,
   delegationDepth = 0,
 ): boolean {
-  return authMode !== "subscription" && delegationDepth === 0;
+  return (
+    model.authMode !== "subscription" &&
+    delegationDepth === 0 &&
+    modelRunCapacity(model).limit === null
+  );
 }
 
 /** Build a worker prompt without claiming that one-level delegation is recursive. */

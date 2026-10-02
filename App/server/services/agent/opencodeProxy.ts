@@ -3,9 +3,10 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { OpenCodeModel } from "./opencodeConfig.js";
+import { SELF_HOSTED_RESPONSE_WAIT_MS, type OpenCodeModel } from "./opencodeConfig.js";
 import type { ModelOutage } from "./types.js";
 import { endpointAnswers } from "../modelAvailability.js";
+import { outboundAgent } from "../outboundNetworkPolicy.js";
 import { listServedModels, type ServedModel } from "../servedModels.js";
 
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
@@ -13,9 +14,9 @@ const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
 /**
  * How long one forwarded request waits for a self-hosted model server that has
  * stopped answering. OpenCode abandons a request that has no response headers
- * after five minutes, so the wait ends first, with a 503 asking for an
- * immediate retry; the retry waits again. With OpenCode's five retries, a
- * work turn rides out an outage of about 25 minutes.
+ * after SELF_HOSTED_RESPONSE_WAIT_MS, so the wait ends first, with a 503 asking
+ * for an immediate retry; the retry waits again. With OpenCode's five retries,
+ * a work turn rides out an outage of about 25 minutes.
  */
 export const OUTAGE_HOLD_MS = 4 * 60_000;
 /** How often a held request asks whether the server answers again. */
@@ -107,6 +108,8 @@ export async function serveOpenCodeModel(
     onServedModelChange?: (change: { from: string; to: ServedModel }) => void;
     holdMs?: number;
     probeMs?: number;
+    /** Tests only: overrides SELF_HOSTED_RESPONSE_WAIT_MS. */
+    responseWaitMs?: number;
   } = {},
 ): Promise<{
   model: OpenCodeModel;
@@ -121,6 +124,16 @@ export async function serveOpenCodeModel(
   let outageSince: number | null = null;
   // The model the server serves now, once it no longer serves `model.id`.
   let servedId: string | null = null;
+  // A self-hosted server may take longer than undici's five minutes to start
+  // answering (see SELF_HOSTED_RESPONSE_WAIT_MS); hosted APIs keep the default.
+  const dispatcher =
+    model.provider === "custom"
+      ? outboundAgent({
+          pipelining: 0,
+          headersTimeout: options.responseWaitMs ?? SELF_HOSTED_RESPONSE_WAIT_MS,
+          bodyTimeout: options.responseWaitMs ?? SELF_HOSTED_RESPONSE_WAIT_MS,
+        })
+      : undefined;
   const upstreamBase =
     model.baseURL ??
     (model.provider === "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
@@ -188,14 +201,17 @@ export async function serveOpenCodeModel(
           headers["anthropic-beta"] = req.headers["anthropic-beta"];
       } else if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
       let outgoing = servedId ? withModel(body, servedId) : body;
-      const send = () =>
-        fetch(`${upstreamBase}${endpoint}`, {
+      const send = () => {
+        const init = {
           method: "POST",
           headers,
           body: outgoing,
           signal: controller.signal,
-          redirect: "manual",
-        });
+          redirect: "manual" as const,
+          ...(dispatcher ? { dispatcher } : {}),
+        };
+        return fetch(`${upstreamBase}${endpoint}`, init);
+      };
       let response = holdOutages
         ? await sendThroughOutage({
             send,
@@ -278,6 +294,7 @@ export async function serveOpenCodeModel(
       for (const controller of controllers) controller.abort();
       http.closeAllConnections();
       await new Promise<void>((resolve) => http.close(() => resolve()));
+      await dispatcher?.destroy().catch(() => {});
     },
   };
 }

@@ -626,7 +626,7 @@ async function prepareRoutineRun(
       }
 
       const parallelDelegationAvailable =
-        deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model.authMode);
+        deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model);
       const unavailableCodingTools =
         !deliveryPolicy.allowPrivilegedToolSources || !codingRuntimeAvailability().available
           ? [...CODING_TOOL_NAMES]

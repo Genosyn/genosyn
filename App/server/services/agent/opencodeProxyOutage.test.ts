@@ -287,14 +287,20 @@ function swappedServer(current: string, seen: string[]): Server {
     if (requested !== current) {
       res.writeHead(404, { "Content-Type": "application/json" }).end(
         JSON.stringify({
-          error: { message: `The model \`${requested}\` does not exist.`, param: "model", code: 404 },
+          error: {
+            message: `The model \`${requested}\` does not exist.`,
+            param: "model",
+            code: 404,
+          },
         }),
       );
       return;
     }
-    res
-      .writeHead(200, { "Content-Type": "application/json" })
-      .end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "on the new model" } }] }));
+    res.writeHead(200, { "Content-Type": "application/json" }).end(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "on the new model" } }],
+      }),
+    );
   });
 }
 
@@ -326,7 +332,10 @@ test("a work turn moves to the one model a restarted server now serves", async (
   const request = () =>
     fetch(`${proxy.model.baseURL}/chat/completions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${proxy.model.apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${proxy.model.apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ model: "Qwen/Qwen3.8-27B", messages: [] }),
     });
   try {
@@ -357,7 +366,10 @@ test("a chat turn moves too; a 404 from a server that still serves the model pas
   try {
     const response = await fetch(`${proxy.model.baseURL}/chat/completions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${proxy.model.apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${proxy.model.apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ model: "Qwen/Qwen3.8-27B", messages: [] }),
     });
     assert.equal(response.status, 200, "a turn without the outage hold is moved as well");
@@ -386,5 +398,52 @@ test("a chat turn moves too; a 404 from a server that still serves the model pas
   } finally {
     await held.close();
     await close(listed);
+  }
+});
+
+// 2026-10-02: a saturated vLLM took over five minutes to start answering Routine
+// steps. Node's fetch gave up on each at five minutes, and OpenCode sent it again
+// from the start, discarding a prompt the server had nearly read.
+test("a self-hosted server gets the long wait to start answering; hosted APIs keep the default", async () => {
+  // Answers after 1.5s. The proxy's wait is shortened around that to fit a test;
+  // undici checks it about once a second.
+  const slow = createServer((req, res) => {
+    req.resume();
+    setTimeout(() => {
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "late" } }] }));
+    }, 1_500);
+  });
+  await new Promise<void>((resolve) => slow.listen(0, "127.0.0.1", resolve));
+  const { port } = slow.address() as AddressInfo;
+  try {
+    for (const [model, responseWaitMs, status] of [
+      [customModel(port), 100, 502],
+      [customModel(port), 5_000, 200],
+      [{ ...customModel(port), provider: "openai" as const }, 100, 200],
+    ] as const) {
+      const proxy = await serveOpenCodeModel(model, undefined, { responseWaitMs });
+      try {
+        const response = await fetch(
+          `${proxy.model.baseURL}${model.provider === "openai" ? "/responses" : "/chat/completions"}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${proxy.model.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ model: "fixture", messages: [] }),
+          },
+        );
+        assert.equal(response.status, status, `${model.provider} waiting ${responseWaitMs}ms`);
+        await response.text();
+      } finally {
+        await proxy.close();
+      }
+    }
+  } finally {
+    slow.closeAllConnections();
+    await new Promise<void>((resolve) => slow.close(() => resolve()));
   }
 });

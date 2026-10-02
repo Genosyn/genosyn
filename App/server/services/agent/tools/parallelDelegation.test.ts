@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { encryptSecret } from "../../../lib/secret.js";
 import { toolsBriefing } from "../systemPrompt.js";
 import {
   createParallelDelegationTool,
@@ -45,12 +46,58 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   assert.fail("Timed out waiting for delegated work to reach the expected state.");
 }
 
+const hostedModel = {
+  id: "hosted",
+  provider: "openai" as const,
+  authMode: "apikey" as const,
+  configJson: "{}",
+  maxConcurrentRuns: null,
+};
+
+function customModel(baseURL: string, maxConcurrentRuns: number | null) {
+  return {
+    id: "custom",
+    provider: "custom" as const,
+    authMode: "customEndpoint" as const,
+    configJson: JSON.stringify({
+      baseURLEncrypted: encryptSecret(baseURL),
+      modelId: "Qwen/Qwen3.8-27B",
+    }),
+    maxConcurrentRuns,
+  };
+}
+
 test("subscription turns do not advertise delegation that would wait on their model lock", () => {
-  assert.equal(supportsParallelDelegation("subscription"), false);
-  assert.equal(supportsParallelDelegation("apikey"), true);
-  assert.equal(supportsParallelDelegation("customEndpoint"), true);
-  assert.equal(supportsParallelDelegation("apikey", 1), false);
-  assert.equal(supportsParallelDelegation("customEndpoint", 1), false);
+  assert.equal(supportsParallelDelegation({ ...hostedModel, authMode: "subscription" }), false);
+  assert.equal(supportsParallelDelegation(hostedModel), true);
+  assert.equal(supportsParallelDelegation(hostedModel, 1), false);
+  assert.equal(supportsParallelDelegation(customModel("https://llm.example.com/v1", null)), true);
+  assert.equal(
+    supportsParallelDelegation(customModel("https://llm.example.com/v1", null), 1),
+    false,
+  );
+});
+
+// 2026-10-02: a Weekly Customer Expansion Run on Qwen ran two workers beside its
+// own conversation and another Run's, four long conversations on a GPU whose
+// cache held about three; none of their cached prompts survived.
+test("a model that serves a limited number of Runs at once gets no parallel workers", () => {
+  assert.equal(
+    supportsParallelDelegation(customModel("https://gpu.example.com/v1", 2)),
+    false,
+    "Concurrent Routine Runs is set",
+  );
+  assert.equal(
+    supportsParallelDelegation(customModel("http://127.0.0.1:8000/v1", null)),
+    false,
+    "a server on this machine serves one Run at a time by default",
+  );
+  assert.equal(
+    supportsParallelDelegation(customModel("http://127.0.0.1:8000/v1", 0)),
+    true,
+    "No limit",
+  );
+  assert.equal(supportsParallelDelegation({ ...hostedModel, maxConcurrentRuns: 3 }), false);
 });
 
 test("a temporary worker's inherited briefing does not promise recursive delegation", () => {

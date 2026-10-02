@@ -239,7 +239,8 @@ docker run -d --name vllm --restart unless-stopped --gpus all --ipc=host -p 8000
         <LI>
           <Strong>Concurrent Routine Runs</Strong>: no more than the startup log&apos;s{" "}
           <Code>Maximum concurrency for 262,144 tokens per request</Code> — how many full
-          conversations fit in the cache at once. For the setup above it reads 1.97x, so 2. See{" "}
+          conversations fit in the cache at once. For the setup above it reads 1.97x, so 2. A
+          model with this limit runs no parallel workers, so each Run is one conversation. See{" "}
           <a href="#busy-model">When the model is busy</a>.
         </LI>
       </UL>
@@ -452,6 +453,20 @@ llama-server \\
           batches well (vLLM with memory to spare); set it to 1 for a self-hosted server on a
           public address, which Genosyn cannot tell apart from a hosted gateway. Hosted models and
           other endpoints have no limit unless you set one.
+        </LI>
+        <LI>
+          <Strong>No parallel workers on a limited model.</Strong> A model with a Concurrent
+          Routine Runs limit, which a local server has by default, does not offer{" "}
+          <Code>delegate_parallel_work</Code>; a Run does that work itself. Each worker is one more
+          long conversation on the same GPU, and the limit is how many the server holds well. Four
+          conversations on a cache that held about three evicted each other&apos;s cached prompts,
+          and every step read its whole conversation again.
+        </LI>
+        <LI>
+          <Strong>Slow answers are waited for.</Strong> A busy server can take minutes to start
+          answering a long conversation. A <Code>Custom</Code> endpoint gets 15 minutes to start
+          answering, and between the parts of an answer, instead of the usual five. A request given
+          up at five minutes is sent again from the start, adding to the load.
         </LI>
         <LI>
           <Strong>Time checks near the deadline.</Strong> In the last part of a Run&apos;s time

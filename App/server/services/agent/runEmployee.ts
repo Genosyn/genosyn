@@ -262,7 +262,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   if (
     allowPrivileged &&
     !params.toolScope?.surfaceOnly &&
-    supportsParallelDelegation(params.model.authMode, delegationDepth)
+    supportsParallelDelegation(params.model, delegationDepth)
   ) {
     const recoveryScope = await resolveRecoveryScope(params.genosynToken);
     const resultStore: ParallelResultStore = recoveryScope

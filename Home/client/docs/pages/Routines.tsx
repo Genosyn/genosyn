@@ -475,6 +475,12 @@ Post it to the #morning channel.`}</Pre>
         before it writes the final answer or takes follow-up action. Each worker uses the same Soul,
         Skills, AI Model, Grants, secrets, and timeout as its parent.
       </P>
+      <P>
+        An AI Model with a <Strong>Concurrent Routine Runs</Strong> limit, which a local model
+        server has by default, does not include it: each worker would be one more long conversation
+        on the same GPU. See{" "}
+        <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
+      </P>
       <Callout kind="info" title="Subscription turns run one at a time per AI Model">
         OpenAI subscription turns do not include parallel delegation. Managed ChatGPT credentials
         may rotate during a Run, so Genosyn serializes subscription work on that AI Model to keep

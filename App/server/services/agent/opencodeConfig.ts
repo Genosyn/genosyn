@@ -36,6 +36,19 @@ export const OPENCODE_NATIVE_PERMISSIONS = [
  */
 export const CUSTOM_MODEL_OUTPUT_LIMIT = 32_768;
 
+/**
+ * How long a custom endpoint may take to start answering, and between the
+ * parts of an answer. OpenCode and Node's fetch both give up after five
+ * minutes, and OpenCode then sends the request again from the start. A busy
+ * self-hosted server queues requests and reads a long conversation at a few
+ * thousand tokens a second, so it can need longer than that: on 2026-10-02 a
+ * saturated vLLM took over five minutes to answer Routine steps, and each
+ * retry threw away the prompt it had nearly read and queued it again. A server
+ * that has stopped is still caught, by the outage hold in `opencodeProxy.ts`
+ * or by the Run's time limit.
+ */
+export const SELF_HOSTED_RESPONSE_WAIT_MS = 15 * 60_000;
+
 export type OpenCodeModel = {
   id: string;
   provider: "anthropic" | "openai" | "custom";
@@ -185,7 +198,16 @@ export function buildOpenCodeConfig(args: {
             : model.provider === "openai"
               ? "@ai-sdk/openai"
               : "@ai-sdk/openai-compatible",
-        options: { apiKey: model.apiKey, ...(model.baseURL ? { baseURL: model.baseURL } : {}) },
+        options: {
+          apiKey: model.apiKey,
+          ...(model.baseURL ? { baseURL: model.baseURL } : {}),
+          ...(model.provider === "custom"
+            ? {
+                headerTimeout: SELF_HOSTED_RESPONSE_WAIT_MS,
+                chunkTimeout: SELF_HOSTED_RESPONSE_WAIT_MS,
+              }
+            : {}),
+        },
         models: {
           [model.id]: {
             id: model.id,
