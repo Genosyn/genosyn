@@ -19,7 +19,7 @@
 #   GENOSYN_VOLUME   data volume name     (default: genosyn-data)
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
 #   GENOSYN_SANDBOX  give the container what bubblewrap needs to start
-#                    (default: 1; set to 0 to run without command execution)
+#                    (default: 0; set to 1 for optional bubblewrap support)
 #   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
 #                        (default: 1; set to 0 to opt out)
 #   GENOSYN_BACKUP_DIR   host directory for optional pre-upgrade backups
