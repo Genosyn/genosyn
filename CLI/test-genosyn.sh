@@ -263,6 +263,74 @@ cmd_upgrade --no-self-upgrade --backup >/dev/null 2>&1
 check "--backup creates one verified data backup" \
   "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '1'
 
+echo "upgrade lets running Routine Runs finish first"
+: >"${upgrade_log}"
+cmd_upgrade --no-self-upgrade >/dev/null 2>&1
+check "upgrade drains Routine Runs before it stops the container" \
+  "$(grep -E 'drainRoutines|docker stop' "${upgrade_log}")" \
+  "$(printf '%s\n' \
+    'docker exec genosyn-test test -f /app/dist/server/admin/drainRoutines.js' \
+    'docker exec -w /app genosyn-test node dist/server/admin/drainRoutines.js --minutes 60' \
+    'docker stop genosyn-test')"
+
+: >"${upgrade_log}"
+cmd_upgrade --no-self-upgrade --drain-minutes 15 >/dev/null 2>&1
+check "--drain-minutes sets how long running Routine Runs get" \
+  "$(grep -F -- '--minutes' "${upgrade_log}")" \
+  'docker exec -w /app genosyn-test node dist/server/admin/drainRoutines.js --minutes 15'
+
+: >"${upgrade_log}"
+cmd_upgrade --no-self-upgrade --now >/dev/null 2>&1
+check "--now restarts without waiting for Routine Runs" \
+  "$(grep -Fc 'drainRoutines' "${upgrade_log}" || true)" '0'
+check "--now still upgrades" \
+  "$(grep -Fc 'docker stop genosyn-test' "${upgrade_log}" || true)" '1'
+
+bad_drain_rc=0
+(cmd_upgrade --no-self-upgrade --drain-minutes soon >/dev/null 2>&1) || bad_drain_rc=$?
+check "--drain-minutes refuses anything but whole minutes" "${bad_drain_rc}" "1"
+
+docker() {
+  case "${1:-} ${2:-}" in
+    'inspect --format') printf '%s\n' 'sha256:old' ;;
+    'image inspect') printf '%s\n' 'sha256:new' ;;
+    *)
+      printf 'docker %s\n' "$*" >>"${upgrade_log}"
+      # An image from before draining has no drain script.
+      [ "${1:-} ${3:-}" != "exec test" ] || return 1
+      ;;
+  esac
+  return 0
+}
+: >"${upgrade_log}"
+cmd_upgrade --no-self-upgrade >/dev/null 2>&1
+check "an image without the drain script restarts as before" \
+  "$(grep -Fc 'drainRoutines.js --minutes' "${upgrade_log}" || true)" '0'
+check "an image without the drain script still upgrades" \
+  "$(grep -Fc 'docker stop genosyn-test' "${upgrade_log}" || true)" '1'
+
+docker() {
+  case "${1:-} ${2:-}" in
+    'inspect --format') printf '%s\n' 'sha256:old' ;;
+    'image inspect') printf '%s\n' 'sha256:new' ;;
+    *)
+      printf 'docker %s\n' "$*" >>"${upgrade_log}"
+      # Runs were still going when the wait ended.
+      [ "${1:-} ${2:-} ${6:-}" != "exec -w dist/server/admin/drainRoutines.js" ] || return 3
+      ;;
+  esac
+  return 0
+}
+: >"${upgrade_log}"
+drain_output="$(cmd_upgrade --no-self-upgrade 2>&1 >/dev/null || true)"
+check "Runs still running when the wait ends are reported and the upgrade goes on" \
+  "$(grep -Fc 'docker stop genosyn-test' "${upgrade_log}" || true)" '1'
+case "${drain_output}" in
+  *"still running after 60 min"*) drain_warned=yes ;;
+  *) drain_warned=no ;;
+esac
+check "the warning says how long Runs had" "${drain_warned}" "yes"
+
 install_log="${test_root}/install.log"
 require_docker() { return 0; }
 container_exists() { return 0; }

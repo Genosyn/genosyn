@@ -29,6 +29,7 @@ import {
   releaseOrphanedQueueSlots,
 } from "./routineQueue.js";
 import { interruptRun } from "./standdowns.js";
+import { releaseRoutineQueue } from "./routineQueueHold.js";
 
 /**
  * Crash recovery for Runs.
@@ -346,6 +347,9 @@ export async function reconcileOrphanedRuns(opts?: {
   }
 
   if (opts?.boot === true) {
+    // An upgrade held the queue so running Runs could finish before this
+    // restart. The restart has happened; queued Runs may start.
+    await releaseRoutineQueue();
     // A process can die after the Run's terminal compare-and-set but before
     // its fragmented recording is promoted. Those Runs are no longer in the
     // `running` query above, so retry their artifact recovery idempotently on

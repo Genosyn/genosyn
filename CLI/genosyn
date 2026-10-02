@@ -17,12 +17,14 @@
 #                    (default: 0; set to 1 for optional sandbox support)
 #   GENOSYN_BACKUP_DIR   host directory for optional pre-upgrade backups
 #                        (default: ~/.genosyn/backups)
+#   GENOSYN_DRAIN_MINUTES  how long an upgrade lets running Routine Runs
+#                          finish before restarting (default: 60; 0 skips)
 #   GENOSYN_VLLM_DIR working dir for the `vllm` command's compose + .env
 #                    (default: ~/.genosyn/vllm)
 
 set -euo pipefail
 
-CLI_VERSION="0.6.0"
+CLI_VERSION="0.7.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -33,6 +35,7 @@ VLLM_DIR="${GENOSYN_VLLM_DIR:-${HOME}/.genosyn/vllm}"
 SANDBOX="${GENOSYN_SANDBOX:-0}"
 AUTO_UPDATE_DIR="${GENOSYN_STATE_DIR:-${HOME}/.genosyn}"
 UPGRADE_BACKUP_DIR="${GENOSYN_BACKUP_DIR:-${HOME}/.genosyn/backups}"
+DRAIN_MINUTES="${GENOSYN_DRAIN_MINUTES:-60}"
 
 # ---------- output helpers ----------
 
@@ -377,6 +380,29 @@ container_named_exists() {
   docker ps -a --format '{{.Names}}' | grep -qx "$1"
 }
 
+# Let running Routine Runs finish before the container stops, so an upgrade
+# does not cut them off. The app holds its Routine queue meanwhile: queued and
+# newly scheduled Runs wait and start in the upgraded container, which releases
+# the hold. Images without the drain script restart as they always did.
+drain_routine_runs() {
+  local minutes="$1"
+  local entry="dist/server/admin/drainRoutines.js"
+  [ "${minutes}" -gt 0 ] 2>/dev/null || return 0
+  docker exec "${NAME}" test -f "/app/${entry}" >/dev/null 2>&1 || return 0
+
+  step "Letting running Routine Runs finish first (up to ${minutes} min; --now skips this)"
+  # Cancelling the wait must not leave the queue held until the hold expires.
+  trap 'docker exec -w /app "${NAME}" node "'"${entry}"'" --release >/dev/null 2>&1 || true; trap - INT TERM; die "Upgrade cancelled; Routines are running again."' INT TERM
+  local rc=0
+  docker exec -w /app "${NAME}" node "${entry}" --minutes "${minutes}" || rc=$?
+  trap - INT TERM
+  if [ "${rc}" = "3" ]; then
+    warn "Routine Runs were still running after ${minutes} min; the restart interrupts them."
+  elif [ "${rc}" != "0" ]; then
+    warn "Could not wait for running Routine Runs; upgrading anyway."
+  fi
+}
+
 upgrade_backup_path() {
   mkdir -p "${UPGRADE_BACKUP_DIR}"
   chmod 0700 "${UPGRADE_BACKUP_DIR}" 2>/dev/null || true
@@ -708,6 +734,7 @@ cmd_upgrade() {
   local original_args=("$@")
   local skip_self=0
   local take_backup=0
+  local drain_minutes="${DRAIN_MINUTES}"
   parse_common_flags "$@"
   set -- ${REMAINING[@]+"${REMAINING[@]}"}
   while [ $# -gt 0 ]; do
@@ -715,6 +742,11 @@ cmd_upgrade() {
       ""               ) shift ;;
       --backup          ) take_backup=1; shift ;;
       --no-self-upgrade) skip_self=1; shift ;;
+      --now            ) drain_minutes=0; shift ;;
+      --drain-minutes  )
+        [ $# -ge 2 ] || die "--drain-minutes needs a number of minutes."
+        case "$2" in ''|*[!0-9]*) die "--drain-minutes needs a whole number of minutes." ;; esac
+        drain_minutes="$2"; shift 2 ;;
       *) die "Unknown argument to upgrade: $1" ;;
     esac
   done
@@ -779,6 +811,7 @@ cmd_upgrade() {
   local was_running=0
   if container_running; then
     was_running=1
+    drain_routine_runs "${drain_minutes}"
     if [ "${take_backup}" = "1" ]; then
       step "Stopping '${NAME}' for a consistent backup"
     else
@@ -2028,6 +2061,9 @@ ${C_BOLD}Commands:${C_RESET}
                        until ready. Pass --backup to create a verified data
                        backup and restore it on failure; backup is off by
                        default. Pass --no-self-upgrade to skip the script update.
+                       Running Routine Runs get up to 60 minutes to finish
+                       first while new ones wait; --drain-minutes N changes
+                       that and --now restarts without waiting.
   self-upgrade         Update only the genosyn CLI script in place.
   auto-update <action> Manage daily upgrades: on, off, or status.
   start                Start a stopped container.

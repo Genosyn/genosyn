@@ -23,6 +23,7 @@ import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.
 import { resolveRoutineModel } from "./models.js";
 import { creditedQueueWaitMs, readRunCheckpoint } from "./runContinuation.js";
 import { modelAnswersForQueue, suspectModelOutage } from "./modelAvailability.js";
+import { routineQueueHeldUntil } from "./routineQueueHold.js";
 import { isModelServiceUnavailable } from "./agent/modelError.js";
 import {
   modelRunCapacity,
@@ -87,6 +88,12 @@ function requestRunDispatch(runId: string): void {
         await withSchedulerLease(`routine-run:${runId}`, 90_000, async (lease) => {
           if (!canClaim()) return;
           lease.assertHeld();
+          // An upgrade is about to restart Genosyn. This Run starts in the
+          // upgraded process instead of being cut off by the restart.
+          if (await routineQueueHeldUntil()) {
+            await noteHeldForUpgrade(runId);
+            return;
+          }
           // A saturated model admits no more Runs. This one stays queued, and
           // because its deadline starts at the claim, waiting costs it nothing.
           const target = await queuedRunModel(runId);
@@ -502,6 +509,17 @@ async function suspectOutageAfterModelFailure(runId: string, target: QueuedRunMo
 }
 
 /** Say why a queued Run waits while its model server does not answer. */
+async function noteHeldForUpgrade(runId: string): Promise<void> {
+  await AppDataSource.getRepository(Run).update(
+    { id: runId, status: "queued" },
+    {
+      logContent:
+        "[queue] Waiting for Genosyn to restart for an upgrade. This Run starts after the restart; " +
+        "waiting does not count against its time limit.\n",
+    },
+  );
+}
+
 async function noteModelNotAnswering(runId: string, target: QueuedRunModel): Promise<void> {
   await AppDataSource.getRepository(Run).update(
     { id: runId, status: "queued" },
