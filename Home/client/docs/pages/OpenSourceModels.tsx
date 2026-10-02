@@ -150,12 +150,15 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\
         A Routine spends most of its time waiting for the model to write, one token at a time.
         Models that ship multi-token prediction weights (Qwen3.5 and later) can propose several
         tokens per step, and the server keeps only those the full model agrees with. Add{" "}
-        <Code>{`--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`}</Code>; on one
-        A100 serving two Routines it raised generation from about 49 to about 80 tokens a second. If
-        the server then runs out of GPU memory while starting, add <Code>--max-num-seqs 32</Code>:
-        by default it reserves room for far more simultaneous requests than a few Routines make. The
-        server log&apos;s <Code>SpecDecoding metrics</Code> line shows how many proposed tokens it
-        accepts.
+        <Code>{`--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`}</Code>; with
+        vLLM 0.30 on one A100 serving two Routines it raised generation from about 49 to 80–90
+        tokens a second. On vLLM 0.24 the same setting crashed a Qwen3.8 server with prefix caching
+        about every half hour (<Code>device-side assert triggered</Code> in its log); Runs wait out
+        such a restart, but upgrading vLLM avoids it. If the server runs out of GPU memory while
+        starting, add{" "}
+        <Code>--max-num-seqs 32</Code>: by default it reserves room for far more simultaneous
+        requests than a few Routines make. The server log&apos;s <Code>SpecDecoding metrics</Code>{" "}
+        line shows how many proposed tokens it accepts.
       </Callout>
 
       <H3 id="llama-cpp">llama.cpp (most portable)</H3>
