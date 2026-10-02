@@ -80,7 +80,12 @@ export async function loadGenosynTools(
     description: t.description,
     inputSchema: t.inputSchema,
     ...(t.readOnly ? { readOnly: true } : {}),
-    run: (input) => callInternal(token, `/tools/${t.name}`, input, signal, t.inputSchema),
+    run: async (input) =>
+      withArgumentHint(
+        input,
+        t.inputSchema,
+        await callInternal(token, `/tools/${t.name}`, input, signal),
+      ),
   }));
 
   const mayReportRunFailure = canReportRunFailure(resolveMcpToken(token));
@@ -104,16 +109,20 @@ export async function loadGenosynTools(
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
-    run: (input) =>
-      callInternal(
-        token,
-        "/integrations/invoke",
-        {
-          connectionId: t.connectionId,
-          toolName: t.providerToolName,
-          args: input,
-        },
-        signal,
+    run: async (input) =>
+      withArgumentHint(
+        input,
+        t.inputSchema,
+        await callInternal(
+          token,
+          "/integrations/invoke",
+          {
+            connectionId: t.connectionId,
+            toolName: t.providerToolName,
+            args: input,
+          },
+          signal,
+        ),
       ),
   }));
 
@@ -158,7 +167,6 @@ async function callInternal(
   endpoint: string,
   args: unknown,
   signal?: AbortSignal,
-  inputSchema?: Record<string, unknown>,
 ): Promise<ToolResult> {
   let response: Response;
   try {
@@ -192,10 +200,7 @@ async function callInternal(
         ? (parsed as { error: unknown }).error
         : `HTTP ${response.status}`;
     const text = typeof detail === "string" ? detail : JSON.stringify(detail, null, 2);
-    return {
-      content: text + formatIssues(parsed) + acceptedArguments(parsed, inputSchema),
-      isError: true,
-    };
+    return { content: text + formatIssues(parsed), isError: true };
   }
 
   // Internal handlers return the MCP result envelope. Flatten its text content;
@@ -232,33 +237,41 @@ function formatIssues(parsed: unknown): string {
 }
 
 /**
- * Name the arguments a tool takes when a call guessed the wrong ones.
+ * Name the arguments a tool takes when a failed call guessed the wrong ones.
  *
- * A small model reaching a deferred tool by name often guesses an argument it
- * does not have, such as `query` on `list_journal`. "Unrecognized key(s)" alone
- * cost it a `find_tools` step to re-read the schema; the accepted names let it
- * retry at once. Other rejections already name their field and its bound.
+ * A small model reaching a tool by name often guesses an argument it does not
+ * have, such as `query` on `list_journal` or `tableName` on a Postgres
+ * Connection's `describe_table`. The rejection alone cost it a step to
+ * re-read the schema; the accepted names let it retry at once. Integration
+ * providers word their own errors, so the call's arguments are compared with
+ * the schema instead of reading the error. A rejected value keeps its message
+ * alone: it already names its field and bound.
  */
-function acceptedArguments(parsed: unknown, inputSchema?: Record<string, unknown>): string {
-  if (!inputSchema || !parsed || typeof parsed !== "object" || !("issues" in parsed)) return "";
-  const issues = (parsed as { issues: unknown }).issues;
-  if (!Array.isArray(issues) || !issues.some(isArgumentNameIssue)) return "";
+export function withArgumentHint(
+  input: Record<string, unknown>,
+  inputSchema: Record<string, unknown>,
+  result: ToolResult,
+): ToolResult {
+  if (!result.isError) return result;
   const properties = inputSchema.properties;
-  const names =
-    properties && typeof properties === "object" ? Object.keys(properties as object) : [];
-  if (names.length === 0) return " This tool takes no arguments.";
-  const required = new Set(Array.isArray(inputSchema.required) ? inputSchema.required : []);
-  const listed = names.map((name) => (required.has(name) ? `${name} (required)` : name));
-  return ` Accepted arguments: ${listed.join(", ")}.`;
-}
-
-/** An unknown top-level argument, or a required one left out. */
-function isArgumentNameIssue(issue: unknown): boolean {
-  if (!issue || typeof issue !== "object") return false;
-  const { code, path, received } = issue as { code?: unknown; path?: unknown; received?: unknown };
-  if (!Array.isArray(path)) return false;
-  if (code === "unrecognized_keys") return path.length === 0;
-  return code === "invalid_type" && received === "undefined" && path.length === 1;
+  if (!properties || typeof properties !== "object") return result;
+  const names = Object.keys(properties as object);
+  const required = Array.isArray(inputSchema.required)
+    ? inputSchema.required.filter((name): name is string => typeof name === "string")
+    : [];
+  const guessed =
+    Object.keys(input).some((name) => !names.includes(name)) ||
+    required.some((name) => !(name in input));
+  if (!guessed) return result;
+  const listed = names.map((name) => (required.includes(name) ? `${name} (required)` : name));
+  return {
+    ...result,
+    content: `${result.content}${
+      names.length === 0
+        ? " This tool takes no arguments."
+        : ` Accepted arguments: ${listed.join(", ")}.`
+    }`,
+  };
 }
 
 function flattenMcpResult(parsed: unknown): string {

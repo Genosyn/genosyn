@@ -9,7 +9,7 @@ import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import { loadGenosynTools } from "../services/agent/tools/genosyn.js";
+import { loadGenosynTools, withArgumentHint } from "../services/agent/tools/genosyn.js";
 import type { AgentTool } from "../services/agent/types.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -99,4 +99,48 @@ test("a rejected value keeps its own message without an argument list", async ()
   assert.equal(result.isError, true);
   assert.match(result.content, /limit: Number must be less than or equal to 200/);
   assert.doesNotMatch(result.content, /Accepted arguments/);
+});
+
+const describeTable = {
+  type: "object",
+  properties: {
+    schema: { type: "string", description: "Schema. Defaults to 'public'." },
+    table: { type: "string", description: "Table name." },
+  },
+  required: ["table"],
+};
+
+// 2026-10-02: an enterprise prospecting Run called a Postgres Connection's
+// describe_table with tableName and its query tool with query; the provider
+// answered "table is required" and "sql is required" in its own words.
+test("a failed integration call that guessed an argument lists the accepted ones", () => {
+  const failed = withArgumentHint({ tableName: "Project" }, describeTable, {
+    content: "table is required",
+    isError: true,
+  });
+  assert.equal(failed.content, "table is required Accepted arguments: schema, table (required).");
+  assert.equal(failed.isError, true);
+});
+
+test("an argument hint is added only to a failed call that guessed an argument", () => {
+  const rejectedValue = { content: 'relation "Project" does not exist', isError: true };
+  assert.deepEqual(
+    withArgumentHint({ table: "Project" }, describeTable, rejectedValue),
+    rejectedValue,
+  );
+  const succeeded = { content: "columns: id, name" };
+  assert.deepEqual(withArgumentHint({ tableName: "Project" }, describeTable, succeeded), succeeded);
+  const unknownSchema = { content: "failed", isError: true };
+  assert.deepEqual(
+    withArgumentHint({ tableName: "Project" }, { type: "object" }, unknownSchema),
+    unknownSchema,
+  );
+  assert.equal(
+    withArgumentHint(
+      { limit: 5 },
+      { type: "object", properties: {} },
+      { content: "failed", isError: true },
+    ).content,
+    "failed This tool takes no arguments.",
+  );
 });
