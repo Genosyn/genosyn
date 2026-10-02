@@ -1,4 +1,9 @@
-import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2";
+import {
+  createOpencodeClient,
+  type Event,
+  type FilePartInput,
+  type TextPartInput,
+} from "@opencode-ai/sdk/v2";
 import { Agent } from "undici";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import type { ModelEffort } from "../../../shared/modelEffort.js";
@@ -37,6 +42,15 @@ export type OpenCodeTurnParams = {
   authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
 };
 export type OpenCodeTurnResult = { finalText: string; steps: number; stopReason: string };
+
+/**
+ * A reasoning model can think, then end its turn with no reply and no tool
+ * call. A Run that stops that way has neither finished nor reported, so a work
+ * turn gets one prompt in the same session to carry on before it ends.
+ */
+export const SILENT_STOP_NUDGES = 1;
+export const SILENT_STOP_NUDGE =
+  "Your last message had no reply and no tool call, so the work stopped. If any work remains, continue it with your tools. If the work is done, write your final report now, beginning with one or two short sentences saying what you accomplished.";
 
 /** OpenCode owns model calls, tool sequencing, retries and context compaction. */
 export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenCodeTurnResult> {
@@ -249,41 +263,55 @@ async function runOpenCodeSessionWithClient(
     ]);
     if (streamError) throw streamError;
     if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
-    const response = await Promise.race([
-      client.session
-        .prompt(
-          {
-            sessionID,
-            agent: OPENCODE_AGENT,
-            model: { providerID, modelID: modelId },
-            system: `${params.system}\n\nGenosyn company tool names have a genosyn_ prefix in this runtime. When the instructions name a Genosyn tool such as find_tools or repository_read_file, call genosyn_find_tools or genosyn_repository_read_file. Arguments to call_tool still use the original unprefixed tool name. Conversation history is supplied as labelled records; continue the current request without replaying recorded actions.${params.nativeCoding ? "\nFor native coding, older Skills may name read_file, write_file, edit_file, or list_dir. Their OpenCode equivalents are read (filePath), write (filePath, content), edit (filePath, oldString, newString), and list (path). Native glob and grep use pattern and an optional path; bash uses command and description. Follow each available tool's actual schema. These native tools have no genosyn_ prefix." : ""}`,
-            parts: openCodePromptParts(params.messages),
-          },
-          { signal: promptController.signal },
-        )
-        .catch((error: unknown) =>
-          recoverOpenCodePrompt({
-            session: client.session,
-            sessionID,
-            error,
-            signal: params.signal
-              ? AbortSignal.any([params.signal, promptController.signal])
-              : promptController.signal,
-            callbacks: params.callbacks,
-          }),
-        ),
-      server.exited,
-    ]);
-    if (response.data) {
-      events.accept({
-        id: "final",
-        type: "message.updated",
-        properties: { sessionID, info: response.data.info },
-      });
-      for (const part of response.data.parts) events.part(part);
+    const system = `${params.system}\n\nGenosyn company tool names have a genosyn_ prefix in this runtime. When the instructions name a Genosyn tool such as find_tools or repository_read_file, call genosyn_find_tools or genosyn_repository_read_file. Arguments to call_tool still use the original unprefixed tool name. Conversation history is supplied as labelled records; continue the current request without replaying recorded actions.${params.nativeCoding ? "\nFor native coding, older Skills may name read_file, write_file, edit_file, or list_dir. Their OpenCode equivalents are read (filePath), write (filePath, content), edit (filePath, oldString, newString), and list (path). Native glob and grep use pattern and an optional path; bash uses command and description. Follow each available tool's actual schema. These native tools have no genosyn_ prefix." : ""}`;
+    const prompt = async (parts: Array<TextPartInput | FilePartInput>): Promise<void> => {
+      const response = await Promise.race([
+        client.session
+          .prompt(
+            {
+              sessionID,
+              agent: OPENCODE_AGENT,
+              model: { providerID, modelID: modelId },
+              system,
+              parts,
+            },
+            { signal: promptController.signal },
+          )
+          .catch((error: unknown) =>
+            recoverOpenCodePrompt({
+              session: client.session,
+              sessionID,
+              error,
+              signal: params.signal
+                ? AbortSignal.any([params.signal, promptController.signal])
+                : promptController.signal,
+              callbacks: params.callbacks,
+            }),
+          ),
+        server.exited,
+      ]);
+      if (response.data) {
+        events.accept({
+          id: "final",
+          type: "message.updated",
+          properties: { sessionID, info: response.data.info },
+        });
+        for (const part of response.data.parts) events.part(part);
+      }
+      if (streamError) throw streamError;
+      if (events.error) throw events.error;
+    };
+    await prompt(openCodePromptParts(params.messages));
+    const stoppedSilently = () =>
+      params.maxSteps === null &&
+      !limited &&
+      !params.signal?.aborted &&
+      events.stopReason === "end_turn" &&
+      !events.finalText.trim();
+    for (let nudge = 0; nudge < SILENT_STOP_NUDGES && stoppedSilently(); nudge++) {
+      params.callbacks?.onSilentStop?.();
+      await prompt([{ type: "text", text: SILENT_STOP_NUDGE }]);
     }
-    if (streamError) throw streamError;
-    if (events.error) throw events.error;
     return {
       finalText: events.finalText,
       steps: events.steps,

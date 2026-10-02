@@ -890,6 +890,7 @@ async function prepareRoutineRun(
                 log.line(usageLine(u, model.contextWindow));
               },
               onCompact: (c) => log.line(compactLine(c)),
+              onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
             },
@@ -961,6 +962,13 @@ async function prepareRoutineRun(
         saved.status = "error";
         saved.errorKind = "runtime";
         diagnostics.fail(OUTPUT_LIMIT_STOP, "model");
+        saved.exitCode = null;
+      } else if (!result.finalText.trim()) {
+        // The model ended its turn with no reply, even after being asked to
+        // continue or report. Nothing says the work was done, so it was not.
+        log.line(`\n[failed] ${NO_REPORT_STOP}`);
+        saved.status = "failed";
+        diagnostics.fail(NO_REPORT_STOP, "work");
         saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
@@ -1624,6 +1632,7 @@ async function runCheckPhase(args: {
             tokensIn += u.inputTokens;
             tokensOut += u.outputTokens;
           },
+          onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
         },
       });
       if (
@@ -1849,6 +1858,11 @@ function composeRoutineMessage(
       : []),
   ].join("\n");
 }
+
+const SILENT_STOP_LINE =
+  "The AI Model stopped without a reply or a tool call; asked it to continue the work or report.";
+const NO_REPORT_STOP =
+  "The AI Model ended its turn without a final report, so this Run cannot show the work was done.";
 
 const OUTPUT_LIMIT_STOP =
   "The AI Model's response was cut off at its output limit before the work finished. Reasoning models can spend that allowance thinking; if this repeats, set the model's context window on its card (a known window allows longer responses) or ask for less in one Run.";

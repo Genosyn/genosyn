@@ -13,12 +13,19 @@ import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
 import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
-import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
+import {
+  runOpenCodeSession,
+  SILENT_STOP_NUDGE,
+  SILENT_STOP_NUDGES,
+  type OpenCodeTurnParams,
+} from "./opencodeRuntime.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
 type ToolCall = { name: string; input: Record<string, unknown>; rawArguments?: string };
 /** Text the provider stops early, the way a server ends a response at max_tokens. */
 type TruncatedReply = { truncated: string };
+/** A reply that is all reasoning, the way vLLM's reasoning parser returns a silent stop. */
+type ReasoningOnlyReply = { reasoningOnly: string };
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const imageMessages: AgentMessage[] = [
@@ -67,7 +74,7 @@ async function fakeProvider(
   script: (
     request: Record<string, unknown>,
     index: number,
-  ) => string | ToolCall | TruncatedReply | "hang",
+  ) => string | ToolCall | TruncatedReply | ReasoningOnlyReply | "hang",
 ) {
   const requests: { url: string; auth?: string; body: Record<string, unknown> }[] = [];
   const server = createServer(async (req, res) => {
@@ -108,7 +115,10 @@ async function fakeProvider(
     },
   };
 }
-function chatResponse(res: ServerResponse, value: string | ToolCall | TruncatedReply) {
+function chatResponse(
+  res: ServerResponse,
+  value: string | ToolCall | TruncatedReply | ReasoningOnlyReply,
+) {
   const send = (
     delta: Record<string, unknown>,
     finish: string | null = null,
@@ -121,6 +131,9 @@ function chatResponse(res: ServerResponse, value: string | ToolCall | TruncatedR
     send({ role: "assistant", content: value === "hang" ? "Working" : value });
     if (value === "hang") return;
     send({}, "stop", { prompt_tokens: 29, completion_tokens: 5, total_tokens: 34 });
+  } else if ("reasoningOnly" in value) {
+    send({ role: "assistant", reasoning_content: value.reasoningOnly });
+    send({}, "stop", { prompt_tokens: 29, completion_tokens: 18334, total_tokens: 18363 });
   } else if ("truncated" in value) {
     send({ role: "assistant", content: value.truncated });
     send({}, "length", { prompt_tokens: 29, completion_tokens: 8192, total_tokens: 8221 });
@@ -132,7 +145,10 @@ function chatResponse(res: ServerResponse, value: string | ToolCall | TruncatedR
           index: 0,
           id: "tool-fixture",
           type: "function",
-          function: { name: value.name, arguments: value.rawArguments ?? JSON.stringify(value.input) },
+          function: {
+            name: value.name,
+            arguments: value.rawArguments ?? JSON.stringify(value.input),
+          },
         },
       ],
     });
@@ -615,7 +631,9 @@ for (const mistake of [
     { timeout: 180_000 },
     async () => {
       const calls: Array<Record<string, unknown>> = [];
-      const fixture = await fakeProvider((_body, index) => (index === 0 ? mistake.call : "Recovered"));
+      const fixture = await fakeProvider((_body, index) =>
+        index === 0 ? mistake.call : "Recovered",
+      );
       try {
         const result = await realTurn(customFixtureModel(fixture.baseURL), [echoTool(calls)]);
         assert.equal(result.finalText, "Recovered");
@@ -667,6 +685,60 @@ test(
       assert.equal(fixture.requests[0].body.max_tokens, 8000, "a quarter of the 32K window");
     } finally {
       await fixture.close();
+    }
+  },
+);
+
+// 2026-10-02: a YouTube prospecting Run on Qwen thought for 18,334 tokens,
+// then ended its turn with no reply and no tool call, and was recorded as
+// Completed with nothing done.
+test(
+  "pinned OpenCode asks a work turn that stopped silently to continue in the same session",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider((_body, index) =>
+      index === 0
+        ? { reasoningOnly: "Next I should research the channels." }
+        : "Researched 4 channels.",
+    );
+    try {
+      const silentStops: number[] = [];
+      const result = await realTurn(customFixtureModel(fixture.baseURL), [], {
+        maxSteps: null,
+        callbacks: { onSilentStop: () => silentStops.push(fixture.requests.length) },
+      });
+      assert.equal(result.finalText, "Researched 4 channels.");
+      assert.equal(result.stopReason, "end_turn");
+      assert.deepEqual(silentStops, [1]);
+      assert.equal(fixture.requests.length, 2);
+      const nudge = JSON.stringify(fixture.requests[1].body);
+      assert.ok(nudge.includes(SILENT_STOP_NUDGE.slice(0, 60)));
+      assert.ok(nudge.includes("Verify the fixture"), "the nudge continues the same conversation");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode asks a silent work turn once and leaves a bounded turn alone",
+  { timeout: 180_000 },
+  async () => {
+    const silent = await fakeProvider(() => ({ reasoningOnly: "Still thinking." }));
+    try {
+      const result = await realTurn(customFixtureModel(silent.baseURL), [], { maxSteps: null });
+      assert.equal(result.finalText, "");
+      assert.equal(silent.requests.length, 1 + SILENT_STOP_NUDGES);
+    } finally {
+      await silent.close();
+    }
+    const bounded = await fakeProvider(() => ({ reasoningOnly: "Noted." }));
+    try {
+      const result = await realTurn(customFixtureModel(bounded.baseURL), [], { maxSteps: 4 });
+      assert.equal(result.finalText, "");
+      assert.equal(bounded.requests.length, 1, "a bounded turn such as grading is not nudged");
+    } finally {
+      await bounded.close();
     }
   },
 );

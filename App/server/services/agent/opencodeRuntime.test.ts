@@ -1157,6 +1157,13 @@ test("unlimited external sessions continue beyond the former 100-step ceiling", 
       );
     }
     await waitFor(() => observedSteps === 125);
+    const report: Part = {
+      id: "report",
+      sessionID: "session",
+      messageID: "assistant",
+      type: "text",
+      text: "Finished after 125 tool steps.",
+    };
     const finish: Part = {
       id: "finish",
       sessionID: "session",
@@ -1166,7 +1173,7 @@ test("unlimited external sessions continue beyond the former 100-step ceiling", 
       cost: 0,
       tokens: assistant().tokens,
     };
-    return { info: assistant(), parts: [finish] };
+    return { info: assistant(), parts: [report, finish] };
   });
   try {
     const result = await runOpenCodeSession(runtime.connection, "fixture", {
@@ -1176,6 +1183,8 @@ test("unlimited external sessions continue beyond the former 100-step ceiling", 
     });
     assert.equal(result.stopReason, "end_turn");
     assert.equal(result.steps, 126);
+    assert.equal(result.finalText, "Finished after 125 tool steps.");
+    assert.equal(runtime.prompts, 1, "a turn that reports is not asked again");
     assert.equal(runtime.aborts, 0);
   } finally {
     await runtime.close();

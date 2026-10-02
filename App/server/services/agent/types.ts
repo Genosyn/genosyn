@@ -105,6 +105,11 @@ export type StreamCallbacks = {
   /** Fired before retrying a transient model-service or transport failure. */
   onModelRetry?: (info: ModelRetryInfo) => void;
   /**
+   * Fired when a work turn stopped with no reply and no tool call, just before
+   * the runtime asks the model in the same session to continue or report.
+   */
+  onSilentStop?: () => void;
+  /**
    * Fired when the model decides to call a tool (before we execute it).
    *
    * `callId` identifies this call within the turn, so recorded activity can

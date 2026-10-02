@@ -82,3 +82,21 @@ test("a response that ends normally still completes", async (t) => {
   const run = await (await startRoutineRun(backfill, { triggerKind: "schedule" })).completion;
   assert.equal(run.status, "completed");
 });
+
+// 2026-10-02: a YouTube prospecting Run ended its turn with no reply, even
+// before the runtime learned to ask again, and was recorded as Completed.
+test("a turn that ends without a final report is unfinished, not completed", async (t) => {
+  const backfill = await routine();
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    if (params.maxSteps !== null) return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+    params.callbacks?.onSilentStop?.();
+    params.callbacks?.onUsage?.({ inputTokens: 86_183, outputTokens: 18_334 });
+    return { finalText: "", steps: 9, stopReason: "end_turn" };
+  });
+  const run = await (await startRoutineRun(backfill, { triggerKind: "manual" })).completion;
+  assert.equal(run.status, "failed");
+  assert.equal(run.errorKind, null);
+  assert.match(run.logContent, /\[nudge\] The AI Model stopped without a reply or a tool call/);
+  assert.match(run.logContent, /\[failed\] The AI Model ended its turn without a final report/);
+  assert.doesNotMatch(run.logContent, /\[work-summary\]/);
+});
