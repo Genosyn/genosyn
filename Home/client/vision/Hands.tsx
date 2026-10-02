@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Check, Clock3, MessageSquareText, Tag, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, Check, Clock3, ShieldCheck, Tag, type LucideIcon } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
 import { Container, Em, Section, SectionHead } from "@/sections/Kit";
 import {
@@ -16,7 +16,7 @@ const COLUMNS: { status: WorkStatus; name: string; hint: string }[] = [
   { status: "paid", name: "Done and paid", hint: "Verified, then paid" },
 ];
 
-const COMMITMENT_ICON: LucideIcon[] = [Tag, Clock3, ArrowLeftRight, MessageSquareText];
+const COMMITMENT_ICON: LucideIcon[] = [Tag, Clock3, ArrowLeftRight, ShieldCheck];
 
 /**
  * The physical world, and the people the company hires to work in it. An open
@@ -37,7 +37,7 @@ export function Hands() {
               Software cannot climb a roof. <Em>So it hires someone who can.</Em>
             </>
           }
-          lede="An autonomous company still has a physical world to run. It posts the work, books people qualified to do it, verifies the result, and pays them from its own treasury, at the rate it published, usually within hours."
+          lede="An autonomous company still has a physical world to run. It posts the work, books people qualified to do it, verifies the result, and pays them from its checking account, at the rate it published, usually within hours."
         />
 
         <dl className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-3">

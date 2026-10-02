@@ -71,7 +71,7 @@ export function Letters() {
         <SectionHead
           kicker="The board letter"
           title="Once a month, it writes to you."
-          lede="No dashboard to babysit and no status meeting. On the first of every month the AI CEO writes to the board: what happened, what it got wrong, where the money went, and the few Decisions only owners should make. Twenty minutes to read. A minute to answer."
+          lede="No dashboard to babysit, no status meeting, and almost nothing to decide. On the first of every month the AI CEO writes to the board: what happened, what it got wrong, and where the money went. Twenty minutes to read. Once in a long while, a question only an owner can answer."
         />
 
         <div ref={frame} className="mt-14">
@@ -427,7 +427,7 @@ function DecisionForBoard({
       <p role="status" className="mt-4 min-h-[1.5rem] text-[13.5px] leading-6 text-ink-600">
         {answer
           ? `Recorded: "${answer}". ${CEO.person} plans around the board's answer and reports on it in the next letter.`
-          : `Any director can answer. The answer moves nothing by itself: ${CEO.person} acts on it, inside the board's Policies.`}
+          : "Only an owner can answer this one. The company decides everything else on its own."}
       </p>
     </div>
   );

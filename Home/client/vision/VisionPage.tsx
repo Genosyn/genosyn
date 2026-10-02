@@ -1,11 +1,19 @@
-import { ArrowUpRight, BookHeart, CircleSlash2, KeyRound, MessageCircleQuestion, ScrollText, Target, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, Mail, Power, Target, Vault, type LucideIcon } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
 import { Link } from "@/lib/router";
 import { ClosingCta, Footer } from "@/sections/Footer";
 import { Container, Em, NightPanel, Section, SectionHead, TextLink } from "@/sections/Kit";
 import { Nav } from "@/sections/Nav";
 import { Charter } from "@/vision/Charter";
-import { BIG_IDEAS, FUTURE_COMPANIES, POWERS, ROAD, type Power } from "@/vision/data";
+import {
+  BIG_IDEAS,
+  BOARD_KEEPS,
+  COMPANY_DECIDES,
+  FUTURE_COMPANIES,
+  LETTERS,
+  ROAD,
+  type Keep,
+} from "@/vision/data";
 import { Hands } from "@/vision/Hands";
 import { Letters } from "@/vision/Letters";
 import { Prologue, Shift } from "@/vision/Shift";
@@ -35,7 +43,7 @@ export function VisionPage() {
         <Treasury />
         <Hands />
         <Letters />
-        <Powers />
+        <Governance />
         <Bigger />
         <Road />
         <ClosingCta
@@ -52,59 +60,103 @@ export function VisionPage() {
    Governance
 ------------------------------------------------------------------------- */
 
-const POWER_ICON: Record<Power["icon"], LucideIcon> = {
+const KEEP_ICON: Record<Keep["icon"], LucideIcon> = {
   goal: Target,
-  policy: ScrollText,
-  decision: MessageCircleQuestion,
-  soul: BookHeart,
-  keys: KeyRound,
-  standdown: CircleSlash2,
+  vault: Vault,
+  letter: Mail,
+  switch: Power,
 };
 
-function Powers() {
-  const grid = useReveal<HTMLUListElement>(0, 60);
+/**
+ * The board keeps four things and decides almost nothing. The company's side
+ * is drawn on the night, because on this site the night is where work happens
+ * with nobody watching.
+ */
+function Governance() {
+  const keeps = useReveal<HTMLUListElement>(0, 60);
+  const decides = useReveal<HTMLDivElement>(120);
+  const lastLetter = LETTERS[LETTERS.length - 1];
+
   return (
     <Section id="governance" space="md">
       <Container>
         <SectionHead
           kicker="Governance"
           title="Autonomous is not unaccountable."
-          lede="A company that runs itself still answers to its owners. The board keeps six powers, and Genosyn is built so the company can never take them back: a bar the company could rewrite would not be a bar."
+          lede="The board does not run the company, sign off on its plans, or watch its spending. It keeps four things, the least that owning a company takes, and the company decides everything else on its own."
         />
-        <ul
-          ref={grid}
-          className="mt-14 grid gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3"
-        >
-          {POWERS.map((power) => {
-            const Icon = POWER_ICON[power.icon];
-            return (
-              <li key={power.name} className="flex flex-col bg-paper-raised p-6 sm:p-7">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-paper">
-                    <Icon aria-hidden className="h-[18px] w-[18px] text-ink" strokeWidth={1.6} />
-                  </span>
-                  {power.docsPath ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[10.5px] uppercase leading-none tracking-[0.08em] text-ink-600">
-                      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-moss-500" />
-                      Ships today
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-ink-300 px-2.5 py-1 font-mono text-[10.5px] uppercase leading-none tracking-[0.08em] text-ink-500">
-                      On the road
-                    </span>
-                  )}
-                </div>
-                <h3 className="mt-6 font-display text-[1.3rem] leading-tight tracking-[-0.025em] text-ink">{power.name}</h3>
-                <p className="mt-2.5 text-[14.5px] leading-6 text-ink-600">{power.body}</p>
-                {power.docsPath && (
-                  <TextLink href={power.docsPath} className="mt-auto pt-6 !text-[14px]">
-                    How it works today
-                  </TextLink>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+
+        <div className="mt-14 grid gap-x-4 gap-y-10 lg:grid-cols-2">
+          <div className="flex min-w-0 flex-col">
+            <p className="kicker inline-flex items-center gap-3 text-ink-500">
+              <span aria-hidden className="h-px w-6 bg-ink" />
+              What the board keeps
+            </p>
+            <ul
+              ref={keeps}
+              className="mt-5 grid flex-1 gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-2"
+            >
+              {BOARD_KEEPS.map((keep) => {
+                const Icon = KEEP_ICON[keep.icon];
+                return (
+                  <li key={keep.name} className="flex flex-col bg-paper-raised p-6">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-paper">
+                        <Icon aria-hidden className="h-[18px] w-[18px] text-ink" strokeWidth={1.6} />
+                      </span>
+                      {keep.docsPath ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[10.5px] uppercase leading-none tracking-[0.08em] text-ink-600">
+                          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-moss-500" />
+                          Ships today
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full border border-dashed border-ink-300 px-2.5 py-1 font-mono text-[10.5px] uppercase leading-none tracking-[0.08em] text-ink-500">
+                          On the road
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="mt-6 font-display text-[1.3rem] leading-tight tracking-[-0.025em] text-ink">{keep.name}</h3>
+                    <p className="mt-2.5 text-[14.5px] leading-6 text-ink-600">{keep.body}</p>
+                    {keep.docsPath && (
+                      <TextLink href={keep.docsPath} className="mt-auto pt-5 !text-[14px]">
+                        How it works today
+                      </TextLink>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <div ref={decides} className="flex min-w-0 flex-col">
+            <p className="kicker inline-flex items-center gap-3 text-ink-500">
+              <span aria-hidden className="h-px w-6 bg-ink" />
+              What the company decides on its own
+            </p>
+            <div className="night-sky grain on-night relative mt-5 flex flex-1 flex-col overflow-hidden rounded-3xl p-7 text-white sm:p-9">
+              <p className="font-display text-[3.4rem] font-light leading-none tracking-[-0.05em] tabular sm:text-[4.25rem]">
+                {lastLetter.decidedWithoutYou.toLocaleString("en-US")}
+              </p>
+              <p className="mt-3 max-w-[36ch] text-[15px] leading-6 text-night-muted">
+                {`decisions a month by ${lastLetter.period.toLowerCase()}. Almost none of them ever reach the board.`}
+              </p>
+              <ul className="mt-8 flex flex-wrap gap-2">
+                {COMPANY_DECIDES.map((item) => (
+                  <li
+                    key={item}
+                    className="rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-1.5 text-[13.5px] text-white/90"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-auto pt-8 text-[13.5px] leading-6 text-night-muted">
+                And everything else the board does not keep. The board hears about all of it in the
+                letter, and is asked about almost none of it.
+              </p>
+            </div>
+          </div>
+        </div>
       </Container>
     </Section>
   );

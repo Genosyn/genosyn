@@ -198,9 +198,15 @@ describe("vision", () => {
     }
   });
 
-  test("keeps board Decisions as choices, never approvals", () => {
+  // The vision is a company that runs itself, so the board is asked rarely: a
+  // board with a question in every letter is a manager by another name.
+  test("asks the board rarely, and only as choices, never approvals", () => {
     const decisions = LETTERS.flatMap((letter) => (letter.decision ? [letter.decision] : []));
-    assert.ok(decisions.length >= 3, "a board that is never asked anything");
+    assert.ok(decisions.length >= 1, "no letter shows what an owner is still asked");
+    assert.ok(
+      decisions.length <= Math.floor(LETTERS.length / 2),
+      `${decisions.length} of ${LETTERS.length} letters ask the board something`,
+    );
     for (const decision of decisions) {
       assert.ok(decision.options.length >= 2 && decision.options.length <= 4);
       for (const text of [decision.question, ...decision.options.map((option) => option.label)]) {
@@ -217,8 +223,8 @@ describe("vision", () => {
     const copy = JSON.stringify(VISION);
     assert.doesNotMatch(copy, /\b(agents?|bots?|assistants?|tasks?|pipelines?|OKRs?|KPIs?)\b/i);
     const docs = new Set(DOCS_FLAT.map((page) => page.path));
-    for (const power of VISION.POWERS) {
-      if (power.docsPath) assert.ok(docs.has(power.docsPath), `${power.name}: ${power.docsPath}`);
+    for (const keep of VISION.BOARD_KEEPS) {
+      if (keep.docsPath) assert.ok(docs.has(keep.docsPath), `${keep.name}: ${keep.docsPath}`);
     }
     for (const stage of VISION.ROAD) {
       for (const item of stage.items) {

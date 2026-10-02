@@ -44,12 +44,9 @@ const CHORES = [
   "Approve the send",
 ];
 
-/** The month on the board: the letter on the 1st, one Decision on the 2nd. */
+/** The month on the board: the letter on the 1st, and nothing else asked of you. */
 const MONTH_DAYS = 31;
-const BOARD_DAYS: Record<number, { kind: "letter" | "decision"; label: string }> = {
-  1: { kind: "letter", label: "Letter" },
-  2: { kind: "decision", label: "Decision" },
-};
+const LETTER_DAY = 1;
 
 const CONTRAST = [
   {
@@ -65,7 +62,7 @@ const CONTRAST = [
   {
     q: "Who decides",
     manager: "You do, at every step.",
-    board: "The executive team, up to a line the board drew. Above it, you.",
+    board: "The company does. The board decides only what an owner must.",
   },
   {
     q: "While you sleep",
@@ -166,7 +163,7 @@ function Month() {
     <figure className="flex flex-col rounded-[1.75rem] border border-ink bg-paper-raised p-5 shadow-lifted sm:p-7">
       <figcaption className="flex items-baseline justify-between gap-4">
         <span className="text-[15.5px] font-medium text-ink">Your month, on the board</span>
-        <span className="font-mono text-[12px] text-ink">35 minutes</span>
+        <span className="font-mono text-[12px] text-ink">20 minutes</span>
       </figcaption>
       <div aria-hidden className="mt-6 grid grid-cols-7 gap-1.5">
         {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
@@ -177,21 +174,17 @@ function Month() {
         {Array.from({ length: 35 }, (_, index) => {
           const date = index + 1;
           if (date > MONTH_DAYS) return <span key={date} />;
-          const seat = BOARD_DAYS[date];
+          const letter = date === LETTER_DAY;
           return (
             <span
               key={date}
               className={`relative flex h-11 flex-col justify-between rounded-md p-1.5 sm:h-12 ${
-                seat?.kind === "letter"
-                  ? "bg-ink text-white"
-                  : seat?.kind === "decision"
-                    ? "border border-ink text-ink"
-                    : "border border-line text-ink-300"
+                letter ? "bg-ink text-white" : "border border-line text-ink-300"
               }`}
             >
               <span className="font-mono text-[10px] leading-none">{date}</span>
-              {seat ? (
-                <span className="truncate text-[9.5px] font-medium leading-none sm:text-[10.5px]">{seat.label}</span>
+              {letter ? (
+                <span className="truncate text-[9.5px] font-medium leading-none sm:text-[10.5px]">Letter</span>
               ) : (
                 <span className="h-1 w-1 rounded-full bg-moss-500/70" />
               )}
@@ -205,12 +198,8 @@ function Month() {
           The 1st: read the letter. Twenty-five minutes.
         </li>
         <li className="flex items-center gap-2.5">
-          <span aria-hidden className="h-3 w-3 shrink-0 rounded-[3px] border border-ink" />
-          The 2nd: answer one Decision. Ten minutes.
-        </li>
-        <li className="flex items-center gap-2.5">
           <span aria-hidden className="ml-1 mr-1 h-1 w-1 shrink-0 rounded-full bg-moss-500" />
-          Every day: the company ran, 18,400 Runs in all, without you.
+          Every other day: nothing for you. The company ran 18,400 Runs on its own.
         </li>
       </ul>
     </figure>

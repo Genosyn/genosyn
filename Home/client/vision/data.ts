@@ -23,8 +23,14 @@ import type { Dept } from "@/sections/Kit";
  *     by, so nothing on the page implies a price for it.
  *   - The treasury card, the ledger and the work orders are all a day in year
  *     three, so they match Letter No. 36.
- *   - The Decision in No. 36 (start owning roofs) is the one the board took,
- *     which is why No. 120 reports on what it cost and what it earned.
+ *
+ * The board is deliberately idle. Money is split the way the vision splits
+ * control: the AI CFO runs a checking account the directors granted it, and
+ * the reserves sit in a bitcoin vault whose every key is a director's. The
+ * company decides everything else itself, so buying an installer (No. 12) and
+ * starting to own roofs (No. 36) are reported, not asked. Only two letters
+ * carry a Decision, and both are ones only an owner can make: whether to sell
+ * the company, and what the next Goal is.
  *
  * Vocabulary follows AGENTS.md §3. In particular a board Decision is a choice
  * between options the executive team wrote, never "approve / reject" — the
@@ -130,12 +136,12 @@ export const FIRST_MONTH: Milestone[] = [
   {
     day: 0,
     title: "The board signs the charter",
-    body: "Three directors, one Goal, and 3.00 BTC to start.",
+    body: "Three directors, one Goal, a vault of 3.00 BTC, and $250,000 in checking.",
   },
   {
     day: 0,
-    title: "Ada is hired as AI CEO",
-    body: "Its Soul opens with the Goal. Five executives are hired before the hour is out.",
+    title: "Genosyn hires an AI CEO",
+    body: "Ada's Soul opens with the Goal. It hires five executives before the hour is out.",
   },
   {
     day: 2,
@@ -193,13 +199,13 @@ export const LETTERS: Letter[] = [
     period: "Month 1",
     revenue: 192_000,
     growth: null,
-    reserves: "2.60 BTC",
+    reserves: "3.00 BTC",
     peoplePaid: 9,
     decidedWithoutYou: 214,
     body: [
       "Sunwise exists. In thirty days we found 400 good roofs in Tucson, hired six installers, an electrician, a roofer and a surveyor, and switched on our first twelve homes. Every person was paid on the day of their job.",
       "The plan was wrong in one place. We expected permits to take a week, and the county took nearly three. Otto now files for a permit the day a homeowner signs, not the day a crew is free, and the queue has cleared.",
-      "We spent 0.40 BTC of the 3.00 the board deposited, most of it on panels for next month. Nothing this month needed your vote.",
+      "We spent $180,000 of the $250,000 the board put into checking, most of it on panels for next month. The vault is untouched, and nothing this month needed you.",
     ],
   },
   {
@@ -213,21 +219,8 @@ export const LETTERS: Letter[] = [
     body: [
       "One year in. Sunwise has put solar on 1,100 roofs in Tucson and Phoenix, installs 150 a month, and closed the year at $2.4 million of revenue a month. From here on, the Goal has a year to measure against.",
       "Our first real test was July. A batch of inverters from one supplier began failing in the heat. Theo's monitoring caught the first within the hour, Vera paid for every replacement before a homeowner had to ask, and every affected roof was producing again within two days. We now buy from two suppliers.",
-      "The executive team made 1,904 decisions this month without you. One needs the board.",
+      "In March a Phoenix installer with forty crews closed its doors. We bought its trucks from the checking account and hired sixty of its people that same week. Nothing this year needed your vote.",
     ],
-    decision: {
-      question: "Buy a regional installer, or keep building our own crews?",
-      context:
-        "A Phoenix installer with 40 crews is closing. Buying it doubles our capacity overnight, and spends half of our reserves.",
-      options: [
-        { label: "Buy it", detail: "5.6 BTC from reserves. Forty crews on day one." },
-        {
-          label: "Keep building our own",
-          detail: "Slower and cheaper, with every crew trained to our standards.",
-        },
-        { label: "Partner instead", detail: "Book its crews through work orders, and own nothing." },
-      ],
-    },
   },
   {
     number: 36,
@@ -240,21 +233,8 @@ export const LETTERS: Letter[] = [
     body: [
       "Year three closed at 41% growth against a Goal of 40%. We install in three states, put up 300 roofs a month, and 6,200 homes now make their own power.",
       "Our largest mistake came in March. Juno's quotes assumed a utility rate that changed in January, and for six weeks we promised 140 homeowners savings they will not see. We told every one of them, paid each the difference for a year, and every quote now re-checks the rate before it is sent. It cost 1.2 BTC.",
-      "The question for the next decade is whether to keep selling roofs or to start keeping them. That is the Decision below.",
+      "We have started keeping some of the roofs we install and selling their power for less than the grid, so one sale becomes twenty-five years of revenue. It will slow growth next year and may cost us the Goal while it takes hold. We are paying for it by sweeping less into the vault, not by asking you for anything.",
     ],
-    decision: {
-      question: "Keep selling roofs, or start owning them?",
-      context:
-        "If Sunwise owns the roofs it installs and sells their power for less than the grid, one sale becomes twenty-five years of revenue. It would also slow growth for two years, and may cost us the Goal while it does.",
-      options: [
-        { label: "Start owning them", detail: "One in ten new roofs at first, paid for from reserves." },
-        { label: "Keep selling them", detail: "Stay fast, simple, and on the Goal." },
-        {
-          label: "Partner with a fund",
-          detail: "A fund owns the roofs, and we install and run them for a fee.",
-        },
-      ],
-    },
   },
   {
     number: 120,
@@ -266,13 +246,13 @@ export const LETTERS: Letter[] = [
     decidedWithoutYou: 41_200,
     body: [
       "Ten years. Sunwise has put solar on 110,000 roofs in nine countries, and owns 48,000 of them, selling their power for less than the grid. Revenue grew 42% this year. We have met the Goal in eight of the last nine years.",
-      "The year we missed it was year five, by choice. In year four the board chose to start owning roofs, and revenue grew 31% while that choice took hold. Owned roofs now earn $5.3 million a month that no sale could.",
+      "The year we missed it was year five, as we told you it might be. Revenue grew 31% while owned roofs took hold, and they now earn $5.3 million a month that no sale could.",
       "In year six we spun our battery business out as its own company, with its own Goal and its own board (you sit on it too). It now stores power in 90,000 homes, two-thirds of them not ours.",
     ],
     decision: {
       question: "A national utility has offered to buy Sunwise. How should we answer?",
       context:
-        "The offer values Sunwise at eleven times this year's revenue. Whether owners should sell is not a question the executive team should answer, which is exactly why it is here.",
+        "The offer values Sunwise at eleven times this year's revenue. Selling the company is an owner's decision, not ours, which is why it is the only question in this letter.",
       options: [
         { label: "Decline", detail: "Keep compounding toward the Goal." },
         { label: "Open talks", detail: "Ada negotiates, and the terms come back to the board." },
@@ -316,32 +296,49 @@ export const LETTERS: Letter[] = [
    The treasury — a day in year three
 ------------------------------------------------------------------------- */
 
+/**
+ * Two kinds of money, two kinds of control. The checking account is the
+ * company's to run, through access the directors granted the AI CFO. The vault
+ * holds the reserves in bitcoin, and every key to it is a director's.
+ */
 export const TREASURY = {
-  reserves: "44.02",
-  operating: "$6.1M",
-  addedThisMonth: "1.8 BTC",
+  checking: "$6.1M",
+  inThisMonth: "$4.8M",
+  outThisMonth: "$4.3M",
+  vault: "44.02",
+  sweptThisMonth: "1.8 BTC",
 };
 
-export type KeyHolder = { name: string; role: string; ai: boolean };
+/** The directors, and nobody else, hold the vault's keys. Any two move it. */
+export const VAULT_KEYS = ["You", "Dana", "Kenji"];
 
-/** Two keys of three move the reserves: the AI CFO's and one director's. */
-export const VAULT_KEYS: KeyHolder[] = [
-  { name: "Vera", role: "AI CFO", ai: true },
-  { name: "You", role: "Director", ai: false },
-  { name: "Dana", role: "Director", ai: false },
-];
+export type MoneyFlow = {
+  from: string;
+  to: string;
+  body: string;
+  /** The one movement that waits for people. */
+  board?: boolean;
+};
 
-/** Policies the board wrote. They bind every AI Employee at once. */
-export const TREASURY_POLICIES = [
-  "Keep at least 60% of reserves in bitcoin.",
-  "No payment over $250,000 without a director's key.",
-  "Pay every person within 24 hours of verified work.",
-  "Never sell a roof that costs its owner more than the grid.",
+export const MONEY_FLOWS: MoneyFlow[] = [
+  { from: "Customers", to: "Checking", body: "Every payment lands in the checking account." },
+  {
+    from: "Checking",
+    to: "People and suppliers",
+    body: "Vera pays them, inside the access the board granted. No one signs off.",
+  },
+  { from: "Checking", to: "Vault", body: "Surplus is swept in every night. Anyone can add to a vault." },
+  {
+    from: "Vault",
+    to: "Checking",
+    body: "Only two directors' keys can move money out. Since day 0, it has not been needed.",
+    board: true,
+  },
 ];
 
 export type LedgerEntry = {
   time: string;
-  kind: "Paid" | "Received" | "Moved";
+  kind: "Paid" | "Received" | "Swept";
   party: string;
   memo: string;
   amount: string;
@@ -351,7 +348,7 @@ export const LEDGER: LedgerEntry[] = [
   { time: "09:14", kind: "Paid", party: "M. Santos", memo: "Installer · 9 h", amount: "$405" },
   { time: "09:02", kind: "Received", party: "Roof 6,214", memo: "Mesa · paid in full", amount: "$15,800" },
   { time: "08:47", kind: "Paid", party: "Desert Panel Supply", memo: "340 panels", amount: "$61,200" },
-  { time: "08:31", kind: "Moved", party: "Reserve Policy", memo: "To the vault", amount: "0.40 BTC" },
+  { time: "08:31", kind: "Swept", party: "Nightly sweep", memo: "Surplus to the vault", amount: "0.40 BTC" },
   { time: "08:12", kind: "Paid", party: "J. Okafor", memo: "Electrician · 6 h", amount: "$480" },
   { time: "07:55", kind: "Received", party: "Roof 6,209", memo: "Tucson · paid in full", amount: "$17,200" },
   { time: "07:30", kind: "Paid", party: "R. Lindqvist", memo: "Roofer · 5 h", amount: "$300" },
@@ -454,8 +451,8 @@ export const COMMITMENTS = [
     body: "People rate the company exactly as the company rates them, and both sides see it.",
   },
   {
-    title: "A line to the board",
-    body: "Anyone the company hires can write to the board directly, and the board reads it.",
+    title: "Insured on every job",
+    body: "Every person is covered by the company's insurance from the minute a job starts, at no cost to them.",
   },
 ];
 
@@ -463,51 +460,56 @@ export const COMMITMENTS = [
    Governance
 ------------------------------------------------------------------------- */
 
-export type Power = {
+export type Keep = {
   name: string;
   body: string;
   /** Shipped today, with the page that documents it — or still on the road. */
   docsPath: string | null;
-  icon: "goal" | "policy" | "decision" | "soul" | "keys" | "standdown";
+  icon: "goal" | "vault" | "letter" | "switch";
 };
 
-export const POWERS: Power[] = [
+/** The least that owning a company takes. Everything else, the company decides. */
+export const BOARD_KEEPS: Keep[] = [
   {
-    name: "Set the Goal",
-    body: "Only the board writes it. Every AI Employee reads it before every piece of work, and none of them can change it.",
+    name: "The Goal",
+    body: "The board writes it once. Every AI Employee reads it before every piece of work, and none of them can change it.",
     docsPath: "/docs/goals",
     icon: "goal",
   },
   {
-    name: "Write the Policies",
-    body: "Rules that bind every employee at once: what may be spent, what must be asked, what is never done. Enforced by the platform, not just remembered.",
-    docsPath: "/docs/policies",
-    icon: "policy",
-  },
-  {
-    name: "Answer the Decisions",
-    body: "When a choice is beyond the executive team's authority, it stops, writes out the options, and waits for the board.",
-    docsPath: "/docs/decisions",
-    icon: "decision",
-  },
-  {
-    name: "Appoint the CEO",
-    body: "The board writes the CEO's Soul, chooses the AI Model it runs on, and can replace it outright.",
-    docsPath: "/docs/soul",
-    icon: "soul",
-  },
-  {
-    name: "Hold the keys",
-    body: "Reserves sit in a vault that takes two keys of three. The AI CFO holds one; directors hold the rest.",
+    name: "The vault",
+    body: "Every key to the reserves belongs to a director. The company can add to the vault; only the board can take anything out.",
     docsPath: null,
-    icon: "keys",
+    icon: "vault",
   },
   {
-    name: "Stand it down",
+    name: "The letter",
+    body: "The whole truth, once a month: what happened, what went wrong, and where the money went. Twenty minutes to read.",
+    docsPath: null,
+    icon: "letter",
+  },
+  {
+    name: "The switch",
     body: "One switch stops every AI Employee in the company, mid-Run. Only a person can lift it.",
     docsPath: "/docs/standdowns",
-    icon: "standdown",
+    icon: "switch",
   },
+];
+
+export const COMPANY_DECIDES = [
+  "Strategy",
+  "Prices",
+  "Who to hire",
+  "Who to let go, executives included",
+  "Every payment from checking",
+  "Suppliers",
+  "New markets",
+  "Products",
+  "Marketing",
+  "Its own Policies",
+  "Which companies to buy",
+  "What to sweep into the vault",
+  "Which mistakes to own, and how to fix them",
 ];
 
 /* -------------------------------------------------------------------------
@@ -587,7 +589,7 @@ export const ROAD: { stage: string; note: string; items: RoadItem[] }[] = [
     items: [
       { label: "AI executives that hire, coach and replace AI Employees" },
       { label: "The monthly letter to the board" },
-      { label: "Operating accounts and a bitcoin treasury" },
+      { label: "A checking account for the AI CFO, and a vault only directors hold keys to" },
       { label: "Work orders that hire people for physical work" },
     ],
   },

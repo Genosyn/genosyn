@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { KeyRound } from "lucide-react";
+import { ArrowEast } from "@/components/Marks";
 import { useReveal } from "@/components/Reveal";
 import { Container, Em, NightPanel, SectionHead } from "@/sections/Kit";
-import {
-  COMPANY,
-  LEDGER,
-  TREASURY,
-  TREASURY_POLICIES,
-  VAULT_KEYS,
-  type LedgerEntry,
-} from "@/vision/data";
+import { COMPANY, LEDGER, MONEY_FLOWS, TREASURY, VAULT_KEYS, type LedgerEntry } from "@/vision/data";
 
-/** The company's own money: a day in year three, matching Letter No. 36. */
+/**
+ * The company's money, split the way control is: a checking account the AI
+ * CFO runs through access the directors granted, and a bitcoin vault whose
+ * every key is a director's. A day in year three, matching Letter No. 36.
+ */
 export function Treasury() {
   const tiles = useReveal<HTMLDivElement>(0, 80);
 
@@ -25,16 +23,16 @@ export function Treasury() {
             kicker="The treasury"
             title={
               <>
-                It keeps its own money. <Em tone="night">Its reserves are in bitcoin.</Em>
+                The company runs the checking account. <Em tone="night">The board keeps the vault.</Em>
               </>
             }
-            lede="The company opens its own operating accounts and keeps its reserves in bitcoin: money that settles at any hour, and can be locked so that no single party, AI or human, can move it alone. Everyday spending flows inside the Policies the board wrote. Anything larger needs a director's key."
+            lede="Two kinds of money, and two kinds of control. Day-to-day money lives in a checking account the board grants the AI CFO access to: every invoice, payroll and purchase flows through it, and no one signs off. The reserves sit in a bitcoin vault whose keys belong to the directors alone. The company can add to the vault at any hour; only the board can take anything out."
           />
 
           <div ref={tiles} className="mt-14 grid gap-3 lg:grid-cols-2">
-            <Reserves />
+            <Checking />
             <Vault />
-            <Policies />
+            <Flows />
             <Ledger />
           </div>
 
@@ -50,7 +48,7 @@ export function Treasury() {
 function Tile({ label, aside, children }: { label: string; aside?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col rounded-[1.4rem] border border-white/[0.09] bg-gradient-to-b from-white/[0.05] to-white/[0.02] p-6 sm:p-7">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-night-muted">{label}</span>
         {aside}
       </div>
@@ -59,31 +57,50 @@ function Tile({ label, aside, children }: { label: string; aside?: ReactNode; ch
   );
 }
 
-function Reserves() {
-  const rows: [string, string][] = [
-    ["Operating accounts", TREASURY.operating],
-    ["Added to reserves this month", TREASURY.addedThisMonth],
-    ["Debt", "None"],
-  ];
+function Figure({ value, unit }: { value: string; unit?: string }) {
+  return (
+    <p className="mt-6 flex items-baseline gap-3">
+      <span className="font-display text-[3.6rem] font-light leading-none tracking-[-0.05em] text-white tabular sm:text-[4.75rem]">
+        {value}
+      </span>
+      {unit && <span className="font-mono text-[1.1rem] text-night-muted">{unit}</span>}
+    </p>
+  );
+}
+
+function Rows({ rows }: { rows: [string, string][] }) {
+  return (
+    <dl className="divide-y divide-white/[0.07]">
+      {rows.map(([term, value]) => (
+        <div key={term} className="flex items-baseline justify-between gap-4 py-2.5 text-[14px]">
+          <dt className="text-night-muted">{term}</dt>
+          <dd className="text-right font-mono text-white tabular">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Checking() {
   return (
     <Tile
-      label="Reserves"
-      aside={<span className="font-mono text-[11px] uppercase tracking-[0.12em] text-night-faint">Year 3</span>}
+      label="The checking account"
+      aside={<span className="font-mono text-[11px] uppercase tracking-[0.12em] text-night-faint">Run by Vera · AI CFO</span>}
     >
-      <p className="mt-6 flex items-baseline gap-3">
-        <span className="font-display text-[3.6rem] font-light leading-none tracking-[-0.05em] text-white tabular sm:text-[4.75rem]">
-          {TREASURY.reserves}
-        </span>
-        <span className="font-mono text-[1.1rem] text-night-muted">BTC</span>
-      </p>
-      <dl className="mt-auto divide-y divide-white/[0.07] pt-8">
-        {rows.map(([term, value]) => (
-          <div key={term} className="flex items-baseline justify-between gap-4 py-2.5 text-[14px]">
-            <dt className="text-night-muted">{term}</dt>
-            <dd className="font-mono text-white tabular">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <Figure value={TREASURY.checking} />
+      <div className="mt-auto pt-8">
+        <Rows
+          rows={[
+            ["In this month", TREASURY.inThisMonth],
+            ["Out this month", TREASURY.outThisMonth],
+            ["Access", "Granted by the board, day 0"],
+          ]}
+        />
+        <p className="mt-4 text-[13.5px] leading-6 text-night-muted">
+          Vera pays every person and supplier from here, and no one signs off. Any director can take
+          the access back.
+        </p>
+      </div>
     </Tile>
   );
 }
@@ -94,56 +111,64 @@ function Vault() {
       label="The vault"
       aside={
         <span className="rounded-full border border-white/20 px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-white">
-          Any 2 of 3 keys
+          {"Directors' keys only"}
         </span>
       }
     >
-      <ul className="mt-6 space-y-2">
-        {VAULT_KEYS.map((holder) => (
+      <Figure value={TREASURY.vault} unit="BTC" />
+      {/* Solid, because every one of these keys belongs to a person. */}
+      <ul className="mt-6 flex flex-wrap gap-2" aria-label="Who holds the vault's keys">
+        {VAULT_KEYS.map((director) => (
           <li
-            key={holder.name}
-            className="flex items-center gap-3.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-3.5"
+            key={director}
+            className="inline-flex items-center gap-2 rounded-full bg-white py-1.5 pl-2 pr-3.5 text-[13.5px] font-medium text-ink"
           >
-            <span
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                holder.ai ? "border border-white/25 text-white" : "bg-white text-ink"
-              }`}
-            >
-              <KeyRound aria-hidden className="h-4 w-4" strokeWidth={1.7} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14.5px] text-white">{holder.name}</span>
-              <span className="block text-[12.5px] text-night-muted">{holder.role}</span>
-            </span>
-            <span className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-night-faint">
-              {holder.ai ? "AI Employee" : "Person"}
-            </span>
+            <KeyRound aria-hidden className="h-3.5 w-3.5" strokeWidth={1.8} />
+            {director}
           </li>
         ))}
       </ul>
-      <p className="mt-5 text-[13.5px] leading-6 text-night-muted">
-        Any two keys move the reserves, so no one can move them alone: not Vera, and not any single
-        director either.
-      </p>
+      <div className="mt-auto pt-6">
+        <Rows
+          rows={[
+            ["Keys to move it", "Any 2 of 3"],
+            ["Swept in this month", TREASURY.sweptThisMonth],
+            ["Taken out since day 0", "Nothing"],
+          ]}
+        />
+        <p className="mt-4 text-[13.5px] leading-6 text-night-muted">
+          No AI Employee holds a key. The company can add to the vault at any hour; only the board can
+          take anything out.
+        </p>
+      </div>
     </Tile>
   );
 }
 
-function Policies() {
+/** The four ways money moves, and the one of them that waits for people. */
+function Flows() {
   return (
-    <Tile label="Policies the board wrote">
-      <ol className="mt-6 space-y-3">
-        {TREASURY_POLICIES.map((policy, index) => (
-          <li key={policy} className="flex gap-4 text-[15px] leading-6 text-white">
-            <span className="w-5 shrink-0 font-mono text-[12px] leading-6 text-night-faint">{`0${index + 1}`}</span>
-            {policy}
+    <Tile label="How the money moves">
+      <ol className="mt-6 space-y-2">
+        {MONEY_FLOWS.map((flow) => (
+          <li
+            key={`${flow.from}-${flow.to}`}
+            className={`rounded-2xl border px-4 py-3.5 ${
+              flow.board ? "border-white bg-white text-ink" : "border-white/[0.08] bg-white/[0.03] text-white"
+            }`}
+          >
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] uppercase tracking-[0.1em]">
+              {flow.from}
+              <ArrowEast className={`h-3 w-3 ${flow.board ? "text-ink" : "text-white/50"}`} />
+              <span className="sr-only">to</span>
+              {flow.to}
+            </span>
+            <span className={`mt-1.5 block text-[13.5px] leading-5 ${flow.board ? "text-ink-600" : "text-night-muted"}`}>
+              {flow.body}
+            </span>
           </li>
         ))}
       </ol>
-      <p className="mt-auto pt-6 text-[13.5px] leading-6 text-night-muted">
-        Each one binds every AI Employee at once, and the platform enforces it whether or not a model
-        remembers it.
-      </p>
     </Tile>
   );
 }
@@ -206,7 +231,7 @@ function Ledger() {
   return (
     <div ref={ref} className="min-w-0">
       <Tile
-        label="The ledger · today"
+        label="Checking · today"
         aside={
           <span className="inline-flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-night-muted">
             <span aria-hidden className="h-1.5 w-1.5 animate-soft-pulse rounded-full bg-white" />
