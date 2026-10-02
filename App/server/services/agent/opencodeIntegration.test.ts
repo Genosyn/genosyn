@@ -6,6 +6,7 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import os from "node:os";
 import path from "node:path";
+import { config } from "../../../config.js";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import type { AgentMessage, AgentTool, ModelOutage } from "./types.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
@@ -843,3 +844,57 @@ for (const repeated of [
     },
   );
 
+// 2026-10-02: an operator asked that Genosyn pick up a new model when vLLM is
+// restarted with one; the old id is answered "The model … does not exist".
+test(
+  "pinned OpenCode carries a turn onto the one model a restarted server now serves",
+  { timeout: 180_000 },
+  async () => {
+    const posted: string[] = [];
+    const upstream = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      if (req.method === "GET") {
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ object: "list", data: [{ id: "fixture-next", object: "model" }] }));
+        return;
+      }
+      const model = (JSON.parse(Buffer.concat(chunks).toString()) as { model: string }).model;
+      posted.push(model);
+      if (model !== "fixture-next") {
+        res.writeHead(404, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            error: { message: `The model \`${model}\` does not exist.`, param: "model", code: 404 },
+          }),
+        );
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      chatResponse(res, "Answered by the new model.");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const address = upstream.address();
+    assert.ok(address && typeof address !== "string");
+    const changes: string[] = [];
+    // The server's model list is read through the outbound address check.
+    const privateHosts = [...config.security.outboundPrivateHostAllowlist];
+    config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1");
+    try {
+      const result = await realTurn(
+        customFixtureModel(`http://127.0.0.1:${address.port}/v1`),
+        [],
+        {},
+        undefined,
+        { onServedModelChange: ({ from, to }) => changes.push(`${from} -> ${to.id}`) },
+      );
+      assert.equal(result.finalText, "Answered by the new model.");
+      assert.deepEqual(changes, ["fixture -> fixture-next"]);
+      assert.deepEqual(posted, ["fixture", "fixture-next"]);
+    } finally {
+      config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...privateHosts);
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  },
+);

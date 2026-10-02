@@ -110,6 +110,12 @@ export type StreamCallbacks = {
    */
   onModelOutage?: (outage: ModelOutage) => void;
   /**
+   * Fired when a self-hosted server that serves a single model rejected the
+   * configured one — it was restarted with another — and the turn moved to the
+   * model it serves. The AI Model's card follows.
+   */
+  onServedModelChange?: (change: { from: string; to: string }) => void;
+  /**
    * Fired when a work turn stopped with no reply and no tool call, just before
    * the runtime asks the model in the same session to continue or report.
    */

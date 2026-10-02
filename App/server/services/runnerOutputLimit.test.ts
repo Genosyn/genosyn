@@ -101,6 +101,23 @@ test("a turn that ends without a final report is unfinished, not completed", asy
   assert.doesNotMatch(run.logContent, /\[work-summary\]/);
 });
 
+// 2026-10-02: an operator asked that Genosyn pick up a new model when vLLM is
+// restarted with one. The Run log says when a turn moved to it.
+test("a Run that moved to the model its server now serves says so", async (t) => {
+  const backfill = await routine();
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    if (params.maxSteps !== null) return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+    params.callbacks?.onServedModelChange?.({ from: "Qwen/Qwen3.8-27B", to: "Qwen/Qwen3.9-32B" });
+    return { finalText: "Backfilled 3 leads.", steps: 6, stopReason: "end_turn" };
+  });
+  const run = await (await startRoutineRun(backfill, { triggerKind: "schedule" })).completion;
+  assert.equal(run.status, "completed");
+  assert.match(
+    run.logContent,
+    /\[model\] The AI Model's server now serves only Qwen\/Qwen3\.9-32B, not Qwen\/Qwen3\.8-27B; this AI Model uses Qwen\/Qwen3\.9-32B from now on\./,
+  );
+});
+
 // 2026-10-02: a restart of the self-hosted model server ended both Runs on it.
 // A work turn now waits for the server, and its log says so.
 test("a Run that waited out its model server's restart says so and completes", async (t) => {

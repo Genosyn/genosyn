@@ -898,6 +898,7 @@ async function prepareRoutineRun(
               onCompact: (c) => log.line(compactLine(c)),
               onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
               onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
+              onServedModelChange: (change) => log.line(`\n${servedModelLine(change)}`),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
             },
@@ -1871,6 +1872,11 @@ const SILENT_STOP_LINE =
   "The AI Model stopped without a reply or a tool call; asked it to continue the work or report.";
 const NO_REPORT_STOP =
   "The AI Model ended its turn without a final report, so this Run cannot show the work was done.";
+
+/** The log line for a self-hosted server that now serves a different model. */
+export function servedModelLine(change: { from: string; to: string }): string {
+  return `[model] The AI Model's server now serves only ${change.to}, not ${change.from}; this AI Model uses ${change.to} from now on.`;
+}
 
 /** The log line for a self-hosted AI Model's server stopping and answering again. */
 export function modelOutageLine(outage: ModelOutage): string {

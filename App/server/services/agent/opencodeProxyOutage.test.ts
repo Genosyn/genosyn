@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
+import { config } from "../../../config.js";
 import type { OpenCodeModel } from "./opencodeConfig.js";
 import { sendThroughOutage, serveOpenCodeModel } from "./opencodeProxy.js";
 import { turnWaitsForModel } from "./opencodeRuntime.js";
 import type { ModelOutage } from "./types.js";
+
+// The model list is read through the outbound address check; the fake servers
+// in this file listen on loopback.
+const privateHosts = [...config.security.outboundPrivateHostAllowlist];
+before(() => config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1"));
+after(() => config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...privateHosts));
 
 // 2026-10-02: restarting the vLLM server behind a self-hosted Qwen model ended
 // both Runs working on it within two minutes of the restart, with "The AI
@@ -173,8 +180,9 @@ test("a work turn's request waits for a restarting model server and then gets it
   const upstream = modelServer(seen);
   try {
     const pending = post(proxy);
-    await delay(150);
+    for (let i = 0; i < 250 && outages.length === 0; i++) await delay(20);
     assert.deepEqual(outages, [{ state: "waiting", waitedMs: 0 }]);
+    await delay(150);
     await new Promise<void>((resolve) => upstream.listen(port, "127.0.0.1", resolve));
     const response = await pending;
     assert.equal(response.status, 200);
@@ -261,4 +269,122 @@ test("work turns and work sessions wait for the model; chat turns fail promptly"
   assert.equal(turnWaitsForModel({ maxSteps: 100 }), false, "a chat reply");
   assert.equal(turnWaitsForModel({ maxSteps: 400, waitForModel: true }), true, "a work session");
   assert.equal(turnWaitsForModel({ maxSteps: null, waitForModel: false }), false);
+});
+
+/** A server that now serves only `current`, answering any other model id with vLLM's 404. */
+function swappedServer(current: string, seen: string[]): Server {
+  return createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    if (req.method === "GET" && req.url === "/v1/models") {
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ object: "list", data: [{ id: current, object: "model" }] }));
+      return;
+    }
+    const requested = (JSON.parse(Buffer.concat(chunks).toString()) as { model: string }).model;
+    seen.push(requested);
+    if (requested !== current) {
+      res.writeHead(404, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          error: { message: `The model \`${requested}\` does not exist.`, param: "model", code: 404 },
+        }),
+      );
+      return;
+    }
+    res
+      .writeHead(200, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "on the new model" } }] }));
+  });
+}
+
+async function listening(upstream: Server): Promise<number> {
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  return (upstream.address() as AddressInfo).port;
+}
+
+async function close(upstream: Server): Promise<void> {
+  upstream.closeAllConnections();
+  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+}
+
+// 2026-10-02: an operator asked that Genosyn pick up a new model when vLLM is
+// restarted with one. A Run waiting out that restart then sent the old id.
+test("a work turn moves to the one model a restarted server now serves", async () => {
+  const seen: string[] = [];
+  const upstream = swappedServer("Qwen/Qwen3.9-32B", seen);
+  const port = await listening(upstream);
+  const changes: Array<{ from: string; to: string }> = [];
+  const proxy = await serveOpenCodeModel(
+    { ...customModel(port), id: "Qwen/Qwen3.8-27B" },
+    undefined,
+    {
+      holdOutages: true,
+      onServedModelChange: ({ from, to }) => changes.push({ from, to: to.id }),
+    },
+  );
+  const request = () =>
+    fetch(`${proxy.model.baseURL}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${proxy.model.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "Qwen/Qwen3.8-27B", messages: [] }),
+    });
+  try {
+    const first = await request();
+    assert.equal(first.status, 200);
+    assert.match(await first.text(), /on the new model/);
+    assert.deepEqual(changes, [{ from: "Qwen/Qwen3.8-27B", to: "Qwen/Qwen3.9-32B" }]);
+    const second = await request();
+    assert.equal(second.status, 200);
+    await second.text();
+    assert.deepEqual(
+      seen,
+      ["Qwen/Qwen3.8-27B", "Qwen/Qwen3.9-32B", "Qwen/Qwen3.9-32B"],
+      "later requests in the turn go straight to the new model",
+    );
+    assert.equal(changes.length, 1);
+  } finally {
+    await proxy.close();
+    await close(upstream);
+  }
+});
+
+test("a chat turn moves too; a 404 from a server that still serves the model passes through", async () => {
+  const seen: string[] = [];
+  const upstream = swappedServer("Qwen/Qwen3.9-32B", seen);
+  const port = await listening(upstream);
+  const proxy = await serveOpenCodeModel({ ...customModel(port), id: "Qwen/Qwen3.8-27B" });
+  try {
+    const response = await fetch(`${proxy.model.baseURL}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${proxy.model.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "Qwen/Qwen3.8-27B", messages: [] }),
+    });
+    assert.equal(response.status, 200, "a turn without the outage hold is moved as well");
+    await response.text();
+  } finally {
+    await proxy.close();
+    await close(upstream);
+  }
+
+  // The server lists the requested model and still answers 404: not a swap.
+  const listed = createServer((req, res) => {
+    req.resume();
+    if (req.method === "GET") {
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ object: "list", data: [{ id: "fixture", object: "model" }] }));
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" }).end("{}");
+  });
+  const held = await serveOpenCodeModel(customModel(await listening(listed)), undefined, {
+    holdOutages: true,
+  });
+  try {
+    assert.equal((await post(held)).status, 404);
+  } finally {
+    await held.close();
+    await close(listed);
+  }
 });

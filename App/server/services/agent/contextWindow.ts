@@ -104,7 +104,7 @@ async function probeOpenAICompatible(model: AIModel): Promise<number | null> {
 }
 
 /** Try each known field on the card, then inside a `meta` sub-object (llama.cpp). */
-function readWindow(entry: unknown): number | null {
+export function readWindow(entry: unknown): number | null {
   for (const field of WINDOW_FIELDS) {
     const v = plausible(readNumber(entry, field));
     if (v !== null) return v;

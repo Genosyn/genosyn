@@ -2224,11 +2224,10 @@ function CustomEndpointPanel({
           required
         />
         <Input
-          label="Model id"
+          label="Model id (optional)"
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
-          placeholder="qwen2.5-coder:32b"
-          required
+          placeholder="Blank: the model the server serves"
         />
       </div>
       <Input
@@ -2244,11 +2243,12 @@ function CustomEndpointPanel({
       />
       <div className="text-xs text-slate-500 dark:text-slate-400">
         Point this employee at a self-hosted OpenAI-compatible server. Base URL + key are stored
-        encrypted at rest.
+        encrypted at rest. Leave the model id blank on a server that serves one model, such as
+        vLLM: Genosyn uses that model, and follows it if the server is restarted with another.
       </div>
       <FormError message={error} />
       <div>
-        <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
+        <Button type="submit" disabled={saving || baseURL.length === 0}>
           {saving ? "Testing connection…" : connected ? "Update endpoint" : "Save & connect"}
         </Button>
       </div>

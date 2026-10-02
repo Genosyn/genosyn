@@ -228,6 +228,11 @@ docker run -d --name vllm --restart unless-stopped --gpus all --ipc=host -p 8000
       <P>Then set the same numbers in Genosyn, on the AI Model&apos;s card:</P>
       <UL>
         <LI>
+          <Strong>Model id</Strong>: leave it blank. Genosyn uses the model vLLM serves and follows
+          it when you restart vLLM with another (
+          <a href="#follow-the-server">Change the model on the server</a>).
+        </LI>
+        <LI>
           <Strong>Context window</Strong>: the server&apos;s <Code>--max-model-len</Code>,{" "}
           <Code>262144</Code> above.
         </LI>
@@ -317,7 +322,9 @@ llama-server \\
         </LI>
         <LI>
           <Strong>Model id</Strong>: the raw model name your server exposes — e.g.{" "}
-          <Code>qwen2.5-coder:32b</Code>.
+          <Code>qwen2.5-coder:32b</Code>. Leave it blank for a server that serves one model, such
+          as vLLM: Genosyn uses that model and follows it when the server changes model (
+          <a href="#follow-the-server">Change the model on the server</a>).
         </LI>
         <LI>
           <Strong>API key</Strong>: leave blank for Ollama / vLLM / llama.cpp. Most local servers
@@ -332,6 +339,20 @@ llama-server \\
           it on save; if it reads <Strong>Unknown</Strong>, set it by hand — see below.
         </LI>
       </OL>
+
+      <H3 id="follow-the-server">Change the model on the server</H3>
+      <P>
+        A server that serves a single model, such as vLLM, decides which model your employees use.
+        Restart it with another <Code>--model</Code> and Genosyn moves to that model on its own:
+        when the server answers that the old model does not exist, the turn carries on with the
+        model it serves, and the AI Model&apos;s card switches to it, taking the new model&apos;s
+        context window from the server. A Run that was working through the restart waits for the
+        server and carries on with the new model. The Run log notes the change.
+      </P>
+      <P>
+        A server that lists several models (Ollama, LM Studio, a gateway) is never guessed at: an
+        id it no longer serves fails as before, and you choose the replacement on the card.
+      </P>
 
       <H3 id="context-window">Tell Genosyn your context window</H3>
       <P>

@@ -25,6 +25,7 @@ import { serveOpenCodeModel } from "./opencodeProxy.js";
 import { openCodeModelLimits, updateOpenCodeGlobalConfig } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 import { recoverOpenCodePrompt } from "./opencodeRecovery.js";
+import { adoptServedModel } from "../servedModels.js";
 
 export type OpenCodeTurnParams = {
   model: AIModel;
@@ -78,6 +79,11 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
     proxy = await serveOpenCodeModel(model, params.signal, {
       holdOutages: turnWaitsForModel(params),
       onOutage: (outage) => params.callbacks?.onModelOutage?.(outage),
+      onServedModelChange: ({ from, to }) => {
+        params.callbacks?.onServedModelChange?.({ from, to: to.id });
+        // The card follows the server, so the next turn starts on the new model.
+        void adoptServedModel(params.model, to).catch(() => false);
+      },
     });
     server = await startOpenCodeServer({
       config: buildOpenCodeConfig({

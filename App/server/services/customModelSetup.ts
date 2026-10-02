@@ -7,12 +7,14 @@ import { previewBaseURL, readCustomEndpoint } from "./customEndpoint.js";
 import { ModelSetupError } from "./modelCatalog.js";
 import { saveVerifiedModel, verifyOpenCodeModel } from "./modelSetup.js";
 import { createActiveModel } from "./models.js";
+import { soleServedModel } from "./servedModels.js";
 
 export type CustomModelSetup = {
   employeeId: string;
   companyId: string;
   baseURL: string;
-  modelId: string;
+  /** Blank uses the model the server serves, when it serves exactly one. */
+  modelId?: string;
   apiKey?: string;
 };
 
@@ -32,6 +34,19 @@ export async function connectCustomModel(
   if (previous && (previous.authMode !== "customEndpoint" || previous.provider !== "custom")) {
     throw new ModelSetupError("This AI Model is not configured for a custom endpoint.", 400);
   }
+  let modelId = options.modelId?.trim() ?? "";
+  if (!modelId) {
+    try {
+      modelId = (await soleServedModel(options.baseURL, options.apiKey ?? null)).id;
+    } catch (error) {
+      throw new ModelSetupError(
+        error instanceof Error && error.message.startsWith("The server")
+          ? error.message
+          : "Could not read the server's model list. Check the Base URL, or enter the Model id.",
+        400,
+      );
+    }
+  }
   const repo = AppDataSource.getRepository(AIModel);
   const candidate = previous
     ? Object.assign(new AIModel(), previous)
@@ -40,7 +55,7 @@ export async function connectCustomModel(
         employeeId: options.employeeId,
         provider: "custom",
         authMode: "customEndpoint",
-        model: options.modelId,
+        model: modelId,
         configJson: "{}",
         connectedAt: null,
         isActive: false,
@@ -49,7 +64,7 @@ export async function connectCustomModel(
   const config = JSON.parse(candidate.configJson || "{}") as Record<string, unknown>;
   config.baseURLEncrypted = encryptSecret(options.baseURL, options.companyId);
   config.baseURLPreview = previewBaseURL(options.baseURL);
-  config.modelId = options.modelId;
+  config.modelId = modelId;
   if (options.apiKey) {
     config.apiKeyEncrypted = encryptSecret(options.apiKey, options.companyId);
     config.apiKeyPreview = maskSecret(options.apiKey);
@@ -58,9 +73,9 @@ export async function connectCustomModel(
     delete config.apiKeyPreview;
   }
   candidate.configJson = JSON.stringify(config);
-  candidate.model = options.modelId;
+  candidate.model = modelId;
   const changedTarget =
-    !oldTarget || oldTarget.baseURL !== options.baseURL || oldTarget.modelId !== options.modelId;
+    !oldTarget || oldTarget.baseURL !== options.baseURL || oldTarget.modelId !== modelId;
   if (changedTarget) {
     candidate.contextWindow = null;
     candidate.contextWindowSource = null;

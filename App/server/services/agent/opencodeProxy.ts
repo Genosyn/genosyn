@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { OpenCodeModel } from "./opencodeConfig.js";
 import type { ModelOutage } from "./types.js";
 import { endpointAnswers } from "../modelAvailability.js";
+import { listServedModels, type ServedModel } from "../servedModels.js";
 
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
 
@@ -61,6 +62,29 @@ export async function sendThroughOutage(args: {
   }
 }
 
+/** The one model a server serves, when it is not `current`; null otherwise. */
+async function soleOtherServedModel(
+  baseURL: string,
+  apiKey: string,
+  current: string,
+): Promise<ServedModel | null> {
+  try {
+    const served = await listServedModels(baseURL, apiKey);
+    return served.length === 1 && served[0].id !== current ? served[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The request body with its model replaced; unreadable bodies are sent as they are. */
+function withModel(body: Buffer<ArrayBuffer>, id: string): Buffer<ArrayBuffer> {
+  try {
+    return Buffer.from(JSON.stringify({ ...(JSON.parse(body.toString()) as object), model: id }));
+  } catch {
+    return body;
+  }
+}
+
 /**
  * Forward provider wire traffic without exposing the real API key to native
  * coding commands. OpenCode still owns the provider SDK and complete model
@@ -69,6 +93,10 @@ export async function sendThroughOutage(args: {
  * With `holdOutages`, a request to a self-hosted (custom) endpoint waits while
  * that server is down instead of failing: a model server restarting for an
  * upgrade or after a crash would otherwise end every Run working on it.
+ *
+ * A custom endpoint that answers 404 for the model, while serving exactly one
+ * other model, has been restarted with that model; every turn moves to it
+ * rather than failing on the old id (see `services/servedModels.ts`).
  */
 export async function serveOpenCodeModel(
   model: OpenCodeModel,
@@ -76,6 +104,7 @@ export async function serveOpenCodeModel(
   options: {
     holdOutages?: boolean;
     onOutage?: (outage: ModelOutage) => void;
+    onServedModelChange?: (change: { from: string; to: ServedModel }) => void;
     holdMs?: number;
     probeMs?: number;
   } = {},
@@ -90,6 +119,8 @@ export async function serveOpenCodeModel(
   // OpenCode sends one model request at a time, and a held request is retried
   // as a new one, so the outage is tracked across requests.
   let outageSince: number | null = null;
+  // The model the server serves now, once it no longer serves `model.id`.
+  let servedId: string | null = null;
   const upstreamBase =
     model.baseURL ??
     (model.provider === "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
@@ -156,15 +187,16 @@ export async function serveOpenCodeModel(
         if (typeof req.headers["anthropic-beta"] === "string")
           headers["anthropic-beta"] = req.headers["anthropic-beta"];
       } else if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+      let outgoing = servedId ? withModel(body, servedId) : body;
       const send = () =>
         fetch(`${upstreamBase}${endpoint}`, {
           method: "POST",
           headers,
-          body,
+          body: outgoing,
           signal: controller.signal,
           redirect: "manual",
         });
-      const response = holdOutages
+      let response = holdOutages
         ? await sendThroughOutage({
             send,
             answers: () => endpointAnswers(upstreamBase, model.apiKey),
@@ -187,6 +219,17 @@ export async function serveOpenCodeModel(
       if (outageSince !== null) {
         options.onOutage?.({ state: "answered", waitedMs: Date.now() - outageSince });
         outageSince = null;
+      }
+      if (model.provider === "custom" && response.status === 404) {
+        const sent = servedId ?? model.id;
+        const next = await soleOtherServedModel(upstreamBase, model.apiKey, sent);
+        if (next) {
+          await response.body?.cancel().catch(() => {});
+          servedId = next.id;
+          outgoing = withModel(body, next.id);
+          options.onServedModelChange?.({ from: sent, to: next });
+          response = await send();
+        }
       }
       const responseHeaders: Record<string, string> = {
         "Content-Type": response.headers.get("content-type") ?? "application/json",

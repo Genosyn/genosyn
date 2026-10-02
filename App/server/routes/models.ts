@@ -644,7 +644,8 @@ modelsRouter.post(
 // customEndpoint authMode (provider "custom"). The base URL is required; the API
 // key is optional (most local LLMs don't enforce one). `modelId` is the model
 // name the upstream server exposes; we store it as the model row's `model` too
-// so the in-process client passes it straight through.
+// so the in-process client passes it straight through. Left blank, it is the
+// model the server serves, when it serves exactly one.
 const customEndpointSchema = z.object({
   baseURL: z
     .string()
@@ -659,7 +660,7 @@ const customEndpointSchema = z.object({
         return false;
       }
     }, "baseURL must be an http(s) URL"),
-  modelId: z.string().trim().min(1).max(200),
+  modelId: z.string().trim().max(200).optional(),
   apiKey: z.string().trim().min(1).max(500).optional(),
 });
 
@@ -734,7 +735,7 @@ modelsRouter.post(
       metadata: {
         provider: m.provider,
         host: previewBaseURL(baseURL),
-        modelId,
+        modelId: verified.model,
         hasApiKey: Boolean(apiKey),
       },
     });
