@@ -66,8 +66,11 @@ export type RuntimeWebSettings = {
    *  than disappear, so an employee can tell the human why. */
   enabled: boolean;
   /** "duckduckgo" reads the no-JavaScript HTML endpoint and needs no API key;
+   *  "searxng" asks a self-hosted SearXNG instance at `searxngUrl`;
    *  "disabled" turns search off and leaves fetch and download working. */
-  searchProvider: "duckduckgo" | "disabled";
+  searchProvider: "duckduckgo" | "searxng" | "disabled";
+  /** Base URL of a SearXNG instance with its JSON format enabled. */
+  searxngUrl: string;
   maxSearchResults: number;
   /** Bytes a page fetch or download may pull. */
   maxDocumentBytes: number;
@@ -192,6 +195,7 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
   web: {
     enabled: true,
     searchProvider: "duckduckgo",
+    searxngUrl: "",
     maxSearchResults: 8,
     maxDocumentBytes: 10 * 1024 * 1024,
     maxTextChars: 20_000,
@@ -408,7 +412,8 @@ export function parseWebSettings(raw: unknown): RuntimeWebSettings {
   const d = RUNTIME_SETTINGS_DEFAULTS.web;
   return {
     enabled: boolField(o, "web", "enabled", d.enabled),
-    searchProvider: choiceField(o, "web", "searchProvider", ["duckduckgo", "disabled"] as const, d.searchProvider),
+    searchProvider: choiceField(o, "web", "searchProvider", ["duckduckgo", "searxng", "disabled"] as const, d.searchProvider),
+    searxngUrl: stringField(o, "web", "searxngUrl", d.searxngUrl, 2048),
     maxSearchResults: intField(o, "web", "maxSearchResults", d.maxSearchResults, 1, 50),
     maxDocumentBytes: intField(
       o,

@@ -149,10 +149,11 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
       403,
     );
   }
+  const capped = Math.max(1, Math.min(limit, web.maxSearchResults));
+  if (web.searchProvider === "searxng") return searchSearxng(trimmed, capped, web.searxngUrl);
   if (Date.now() < searchChallengedUntil) {
     throw searchUnavailable("the search backend is still challenging this server", true);
   }
-  const capped = Math.max(1, Math.min(limit, web.maxSearchResults));
   const endpoint = new URL("https://html.duckduckgo.com/html/");
   endpoint.searchParams.set("q", trimmed);
   const doc = await fetchDocument(endpoint, "text/html,application/xhtml+xml");
@@ -177,6 +178,60 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
   const results = parseDuckDuckGoResults(html, capped);
   if (results.length > 0 || emptyResults) return results;
   throw searchUnavailable("the search backend returned an unrecognized or empty page");
+}
+
+/**
+ * Search through a self-hosted SearXNG instance. It asks several engines and
+ * answers in JSON, so search keeps working when one engine rate-limits or
+ * challenges a busy server, as DuckDuckGo does. The instance must have the
+ * json format enabled; its address is admin configuration, and a private one
+ * still has to be on the private host allow list like any other.
+ */
+async function searchSearxng(
+  query: string,
+  limit: number,
+  base: string,
+): Promise<WebSearchResult[]> {
+  if (!base.trim()) {
+    throw new WebToolError(
+      "Web search is set to SearXNG, but no SearXNG URL is configured. Ask an admin to set one under Admin → Runtime → Web tools.",
+      503,
+    );
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL("search", base.trim().replace(/\/*$/, "/"));
+  } catch {
+    throw searchUnavailable("the configured SearXNG URL is not valid");
+  }
+  endpoint.searchParams.set("q", query);
+  endpoint.searchParams.set("format", "json");
+  const doc = await fetchDocument(endpoint, "application/json");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(doc.body.toString("utf8"));
+  } catch {
+    throw searchUnavailable(
+      "the SearXNG instance did not answer in JSON (enable the json format in its settings.yml)",
+    );
+  }
+  const rows = (parsed as { results?: unknown } | null)?.results;
+  if (!Array.isArray(rows)) {
+    throw searchUnavailable("the SearXNG instance returned an unrecognized response");
+  }
+  const results: WebSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (results.length >= limit) break;
+    if (!row || typeof row !== "object") continue;
+    const { url, title, content } = row as { url?: unknown; title?: unknown; content?: unknown };
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    const name = typeof title === "string" ? title.trim() : "";
+    if (!name) continue;
+    seen.add(url);
+    results.push({ title: name, url, snippet: typeof content === "string" ? content.trim() : "" });
+  }
+  return results;
 }
 
 /**

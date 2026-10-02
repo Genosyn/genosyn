@@ -103,6 +103,7 @@ describe("defaults", () => {
     assert.deepEqual(getWebSettings(), {
       enabled: true,
       searchProvider: "duckduckgo",
+      searxngUrl: "",
       maxSearchResults: 8,
       maxDocumentBytes: 10 * 1024 * 1024,
       maxTextChars: 20_000,
@@ -232,6 +233,7 @@ describe("tolerant parse", () => {
       // Every bad value fell back; the one usable field survived.
       enabled: true,
       searchProvider: "duckduckgo",
+      searxngUrl: "",
       maxSearchResults: 3,
       maxDocumentBytes: 10 * 1024 * 1024,
       maxTextChars: 20_000,
@@ -663,6 +665,7 @@ describe("writing a group", () => {
     await saveRuntimeSettingsGroup("web", {
       enabled: false,
       searchProvider: "disabled",
+      searxngUrl: "",
       maxSearchResults: 1,
       maxDocumentBytes: 2048,
       maxTextChars: 600,

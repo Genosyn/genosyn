@@ -296,7 +296,15 @@ const runtimeGroupParams = z.object({
 const runtimeGroupSchemas = {
   web: z.object({
     enabled: z.boolean(),
-    searchProvider: z.enum(["duckduckgo", "disabled"]),
+    searchProvider: z.enum(["duckduckgo", "searxng", "disabled"]),
+    searxngUrl: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine((value) => value === "" || /^https?:\/\/[^/\s]+/i.test(value), {
+        message: "Use an http(s) URL such as http://searxng:8080",
+      })
+      .default(""),
     maxSearchResults: z.number().int().min(1).max(50),
     maxDocumentBytes: z
       .number()

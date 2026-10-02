@@ -67,6 +67,15 @@ export function Browser() {
         default, so no API key or account is involved.
       </P>
       <P>
+        DuckDuckGo can start challenging a busy server, which stops search for a while. A
+        self-hosted <Strong>SearXNG</Strong> instance avoids that by asking several engines: run
+        one, enable the <Code>json</Code> format under <Code>search.formats</Code> in its{" "}
+        <Code>settings.yml</Code>, then choose <Strong>SearXNG</Strong> as the search provider and
+        enter its address as <Strong>SearXNG URL</Strong>. A private address, such as a container
+        on the same host, must also be on the private host allow list under{" "}
+        <Code>Admin → Runtime → Network</Code>, like any other private destination.
+      </P>
+      <P>
         A search backend challenge, unexpected page, or empty response is reported as unavailable.
         It is not evidence that no matching pages exist. Only a recognized empty-results page
         returns an empty search. The employee can continue with a known primary-source URL or an

@@ -174,7 +174,10 @@ describe("search responses distinguish unavailable from empty", () => {
       globalThis,
       "fetch",
       async () =>
-        new Response(SEARCH_CHALLENGE_PAGE, { status: 202, headers: { "content-type": "text/html" } }),
+        new Response(SEARCH_CHALLENGE_PAGE, {
+          status: 202,
+          headers: { "content-type": "text/html" },
+        }),
     );
     await assert.rejects(() => searchWeb("forms", 5), /do not retry search in this Run/);
     now += 60_000;
@@ -341,5 +344,94 @@ describe("choosing a filename for a download", () => {
       chooseFilename(undefined, "https://example.com/New%20Supplier%20Form.pdf", "application/pdf"),
       "New Supplier Form.pdf",
     );
+  });
+});
+
+// 2026-10-02: DuckDuckGo kept answering this server with bot challenges, so
+// every prospecting Run lost web search; a self-hosted SearXNG avoids that.
+describe("searchWeb through SearXNG", () => {
+  const searxng = (searxngUrl: string) =>
+    overrideRuntimeSettingsForTests({ web: { searchProvider: "searxng", searxngUrl } });
+
+  test("asks the instance for JSON and returns titled web results once each", async (t) => {
+    searxng("https://search.example.com/");
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    const fetch = t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://oneuptime.com/",
+                title: "OneUptime",
+                content: " Open-source observability ",
+              },
+              { url: "https://oneuptime.com/", title: "OneUptime again", content: "duplicate" },
+              { url: "ftp://files.example.com/x", title: "Not the web", content: "" },
+              { url: "https://untitled.example.com/", title: "  ", content: "no title" },
+              { url: "https://github.com/OneUptime/oneuptime", title: "GitHub", content: "" },
+              { url: "https://example.org/third", title: "Third", content: "over the limit" },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const results = await searchWeb("open source observability", 2);
+    assert.deepEqual(results, [
+      { title: "OneUptime", url: "https://oneuptime.com/", snippet: "Open-source observability" },
+      { title: "GitHub", url: "https://github.com/OneUptime/oneuptime", snippet: "" },
+    ]);
+    const requested = new URL(String(fetch.mock.calls[0].arguments[0]));
+    assert.equal(requested.origin + requested.pathname, "https://search.example.com/search");
+    assert.equal(requested.searchParams.get("q"), "open source observability");
+    assert.equal(requested.searchParams.get("format"), "json");
+  });
+
+  test("an instance without the json format is a tool error, not an empty result", async (t) => {
+    searxng("https://search.example.com");
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response("<html><body>403 Forbidden</body></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+    );
+    await assert.rejects(
+      () => searchWeb("forms", 5),
+      (error: unknown) => {
+        assert.ok(error instanceof WebToolError);
+        assert.match(error.message, /did not answer in JSON.*json format/);
+        assert.match(error.message, /does not mean there are no matching pages/);
+        return true;
+      },
+    );
+  });
+
+  test("a SearXNG provider with no URL says what to configure before any request", async (t) => {
+    searxng("");
+    const fetch = t.mock.method(globalThis, "fetch", async () => new Response("{}"));
+    await assert.rejects(() => searchWeb("forms", 5), /no SearXNG URL is configured/);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  test("a DuckDuckGo challenge does not hold back SearXNG searches", async (t) => {
+    t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+    t.mock.method(globalThis, "fetch", async (input: unknown) =>
+      String(input).includes("duckduckgo")
+        ? new Response(SEARCH_CHALLENGE_PAGE, {
+            status: 202,
+            headers: { "content-type": "text/html" },
+          })
+        : new Response(JSON.stringify({ results: [] }), {
+            headers: { "content-type": "application/json" },
+          }),
+    );
+    await assert.rejects(() => searchWeb("forms", 5), /bot challenge/);
+    searxng("https://search.example.com");
+    assert.deepEqual(await searchWeb("forms", 5), []);
   });
 });

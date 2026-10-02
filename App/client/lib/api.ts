@@ -3722,7 +3722,8 @@ export type RuntimeSettingsGroup =
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
   enabled: boolean;
-  searchProvider: "duckduckgo" | "disabled";
+  searchProvider: "duckduckgo" | "searxng" | "disabled";
+  searxngUrl: string;
   maxSearchResults: number;
   maxDocumentBytes: number;
   maxTextChars: number;

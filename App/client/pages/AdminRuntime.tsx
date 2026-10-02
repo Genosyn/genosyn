@@ -133,9 +133,19 @@ const GROUPS: GroupSpec[] = [
         label: "Search provider",
         options: [
           { value: "duckduckgo", label: "DuckDuckGo (no API key)" },
+          { value: "searxng", label: "SearXNG (self-hosted)" },
           { value: "disabled", label: "Disabled" },
         ],
-        help: "Disabled turns search off and leaves page fetch and download working.",
+        help: "DuckDuckGo can start challenging a busy server, which stops search for a while. SearXNG asks several engines from your own instance. Disabled turns search off and leaves page fetch and download working.",
+      },
+      {
+        kind: "text",
+        path: "searxngUrl",
+        label: "SearXNG URL",
+        maxLength: 2048,
+        placeholder: "http://searxng:8080",
+        mono: true,
+        help: "Used when the provider is SearXNG. Enable the json format under search.formats in its settings.yml. A private address must also be on the private host allow list under Network.",
       },
       { kind: "int", path: "maxSearchResults", label: "Max search results", min: 1, max: 50 },
       {
