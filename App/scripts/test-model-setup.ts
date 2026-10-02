@@ -236,12 +236,15 @@ try {
   page = await open();
   await choose(page, "AI Model service", "Custom endpoint");
   await page.getByLabel("Base URL", { exact: true }).fill("https://models.example.test/v1");
-  await page.getByLabel("Model ID", { exact: true }).fill("custom-first");
+  await page.getByLabel("Model ID (optional)", { exact: true }).fill("custom-first");
   await page.getByLabel("API key (optional)", { exact: true }).fill("custom-test-key");
   customFailure = true;
   await page.getByRole("button", { name: "Connect AI Model" }).click();
   await page.getByRole("alert").filter({ hasText: "tool-use test" }).waitFor();
-  assert.equal(await page.getByLabel("Model ID", { exact: true }).inputValue(), "custom-first");
+  assert.equal(
+    await page.getByLabel("Model ID (optional)", { exact: true }).inputValue(),
+    "custom-first",
+  );
   checks++;
   assert.equal(
     await page.getByLabel("API key (optional)", { exact: true }).inputValue(),
@@ -298,13 +301,16 @@ try {
   assert.equal(await page.getByLabel("Base URL", { exact: true }).count(), 1);
   checks++;
   await page.getByLabel("Base URL", { exact: true }).fill("https://models.example.test/v1");
-  await page.getByLabel("Model id", { exact: true }).fill("custom-updated");
+  await page.getByLabel("Model id (optional)", { exact: true }).fill("custom-updated");
   customFailure = true;
   await page.getByRole("button", { name: "Update endpoint" }).click();
   await page.getByRole("alert").filter({ hasText: "tool-use test" }).waitFor();
   assert.equal(await page.getByText("custom · custom-original", { exact: true }).count(), 1);
   checks++;
-  assert.equal(await page.getByLabel("Model id", { exact: true }).inputValue(), "custom-updated");
+  assert.equal(
+    await page.getByLabel("Model id (optional)", { exact: true }).inputValue(),
+    "custom-updated",
+  );
   checks++;
   customFailure = false;
   await page.getByRole("button", { name: "Update endpoint" }).click();

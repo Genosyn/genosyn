@@ -221,7 +221,7 @@ try {
   await page.getByRole("option", { name: "Custom endpoint", exact: true }).click();
   const modelURL = serverLog.match(/\[fullstack-model-url\] (http:\/\/[^\s]+)/)![1];
   await page.getByLabel("Base URL", { exact: true }).fill(modelURL);
-  await page.getByLabel("Model ID", { exact: true }).fill("qa-local-model");
+  await page.getByLabel("Model ID (optional)", { exact: true }).fill("qa-local-model");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByText("Avery QA's models", { exact: true }).waitFor({ timeout: 150_000 });
   assert(serverLog.includes("[fullstack-model-probe] verified"));
