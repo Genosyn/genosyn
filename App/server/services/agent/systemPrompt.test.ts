@@ -43,7 +43,6 @@ function compose(args: {
     routineId: args.surface === "chat" ? undefined : "routine-id",
     parallelDelegationAvailable: false,
     codingToolsAvailable: false,
-    isolatedCodingTools: false,
   });
 }
 

@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "../../config.js";
 import { assertSafeGitRemoteUrl } from "./gitCredentialHelper.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
 import type { WorkspaceGitOptions } from "./workspaceGit.js";
@@ -167,9 +166,9 @@ export async function fetchWorkspaceGitRemote(
         });
       }
 
-      // This private root is mounted as the whole bubblewrap workspace, so an AI
-      // process cannot race checkout-local URL, proxy or TLS config into the only
-      // networked Git child.
+      // The networked fetch runs in this private root rather than the employee
+      // checkout, so checkout-local URL, proxy or TLS config written there never
+      // reaches the only networked Git child.
       await runRemoteGit(serverOwned, {
         workspaceRoot: privateRoot,
         cwd: fetchedRepo,
@@ -252,7 +251,7 @@ type PrivateNetwork = {
 
 function createPrivateGitRoot(workspaceRoot: string): string {
   // A sibling stays on the workspace volume (so object hard links and the
-  // final clone rename are cheap/atomic) but is outside the AI sandbox mount.
+  // final clone rename are cheap/atomic) but outside the employee workspace.
   const workspaceParent = path.dirname(workspaceRoot);
   if (workspaceParent === workspaceRoot) {
     throw new Error("Git workspace root must not be the filesystem root.");
@@ -293,26 +292,14 @@ export function buildPrivateFetchSshCommand(
   privateRoot: string,
   keyPath: string,
   knownHostsPath: string,
-  executionMode = config.agent.codingTools.executionMode,
 ): string {
-  const visibleKeyPath = privateWorkspacePath(keyPath, privateRoot, executionMode);
-  const visibleKnownHostsPath = privateWorkspacePath(knownHostsPath, privateRoot, executionMode);
+  assertContained(privateRoot, keyPath, "Private Git credential path");
+  assertContained(privateRoot, knownHostsPath, "Private Git credential path");
   return (
-    `ssh -i ${shellQuote(visibleKeyPath)} -o IdentitiesOnly=yes ` +
+    `ssh -i ${shellQuote(keyPath)} -o IdentitiesOnly=yes ` +
     "-o StrictHostKeyChecking=accept-new " +
-    `-o UserKnownHostsFile=${shellQuote(visibleKnownHostsPath)}`
+    `-o UserKnownHostsFile=${shellQuote(knownHostsPath)}`
   );
-}
-
-function privateWorkspacePath(
-  hostPath: string,
-  privateRoot: string,
-  executionMode: "host" | "bubblewrap" | "disabled",
-): string {
-  assertContained(privateRoot, hostPath, "Private Git credential path");
-  if (executionMode !== "bubblewrap") return hostPath;
-  const relative = path.relative(privateRoot, hostPath);
-  return `/workspace/${relative.split(path.sep).join("/")}`;
 }
 
 function shellQuote(value: string): string {

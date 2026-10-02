@@ -25,7 +25,7 @@ export const MAX_SCOPED_GUIDANCE_CONTEXT_BYTES = 6 * 1024;
 
 export type ContributorGuideOptions = {
   /** "available" supports runtime-native file readers with different tool names. */
-  readTool?: "repository_read_file" | "read_file" | "bash" | "available";
+  readTool?: "repository_read_file" | "read_file" | "available";
   /** The checkout's path relative to the coding surface, for continuation reads. */
   pathPrefix?: string;
   maxInlineBytes?: number;
@@ -234,11 +234,9 @@ function inlineGuide(raw: string, relative: string, options: ContributorGuideOpt
   const tool = options.readTool ?? "repository_read_file";
   const toolReference = tool === "available" ? "the available file-reading tool" : `\`${tool}\``;
   const continuation =
-    tool === "bash"
-      ? `Use \`bash\` to read ${JSON.stringify(reference)} from line ${offset} in bounded windows until the entire guide has been read.`
-      : tool === "available"
-        ? `Use ${toolReference} to read ${JSON.stringify(reference)} from line ${offset} in bounded windows until the entire guide has been read.`
-        : `Continue with \`${tool}\` using path=${JSON.stringify(reference)}, offset=${offset}, limit=200; keep reading until the entire guide has been read.`;
+    tool === "available"
+      ? `Use ${toolReference} to read ${JSON.stringify(reference)} from line ${offset} in bounded windows until the entire guide has been read.`
+      : `Continue with \`${tool}\` using path=${JSON.stringify(reference)}, offset=${offset}, limit=200; keep reading until the entire guide has been read.`;
   return `${kept}\n\n[Truncated. Read \`${reference}\` with ${toolReference} for the rest.]\n${continuation}\n`;
 }
 

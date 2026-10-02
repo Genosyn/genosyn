@@ -712,9 +712,7 @@ export async function streamChatWithEmployee(
       Boolean(options.mailDeliveryMode) ||
       !codingRuntimeAvailability().available
         ? [...CODING_TOOL_NAMES]
-        : config.agent.codingTools.executionMode === "bubblewrap"
-          ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-          : [];
+        : [];
     const unavailableSkillTools = [
       ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
       ...unavailableCodingTools,
@@ -789,7 +787,6 @@ export async function streamChatWithEmployee(
             surface: "chat",
             parallelDelegationAvailable,
             codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
-            isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
             opening:
               options.surface === "help"
                 ? `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate selected you in Genosyn Help to answer a question about Genosyn. Reply in your own voice, guided by your Soul and Skills, while treating the Help briefing and shipped source as authoritative.`

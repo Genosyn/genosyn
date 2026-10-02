@@ -656,12 +656,12 @@ describe("testing a Repository connection", () => {
  * The panel a Member reads when a repository will not sync. It runs one
  * `ls-remote` in a directory the server just created, so it is not the
  * command-execution surface the coding-runtime gate guards — and an install
- * whose sandbox could not start still clones, fetches and pushes the
+ * with command execution disabled still clones, fetches and pushes the
  * server-owned checkout. Leaving the diagnostic gated meant the heavier
  * credentialed operation ran while the question "is this URL and token right?"
- * answered with a paragraph about bubblewrap.
+ * answered with a paragraph about command execution.
  */
-test("connection testing survives an install with no usable sandbox", async () => {
+test("connection testing survives an install with command execution disabled", async () => {
   const codingTools = config.agent.codingTools as { executionMode: string };
   const original = codingTools.executionMode;
   codingTools.executionMode = "disabled";
@@ -781,7 +781,7 @@ describe("adopting a pre-rename checkout", () => {
 describe("bringing an employee checkout's trunk up to date", () => {
   const codingTools = config.agent.codingTools as {
     enabled: boolean;
-    executionMode: "host" | "bubblewrap" | "disabled";
+    executionMode: "host" | "disabled";
     allowUnsafeHostExecution: boolean;
   };
   const originalCodingTools = { ...codingTools };

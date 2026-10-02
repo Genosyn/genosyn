@@ -105,10 +105,9 @@ import { emitResourceChange } from "./resourceEvents.js";
  * credentials stay in the server-owned delivery path.
  *
  * repository_run_command follows the Repository command policy and the install's
- * execution mode. The default host mode is trusted execution as the App OS user;
- * a working directory is not an OS isolation boundary. Optional bubblewrap mode
- * confines commands to the worktree and excludes Git. Disabling commands leaves
- * the other repository operations available. See repositoryCommandPolicy.ts.
+ * execution mode. Host mode is trusted execution as the App OS user; a working
+ * directory is not an OS isolation boundary. Disabling commands leaves the
+ * other repository operations available. See repositoryCommandPolicy.ts.
  *
  * The separate per-employee checkout at `<employeeDir>/repositories/<slug>/`
  * is untouched by all of this. It still exists for open-ended chat and Routine

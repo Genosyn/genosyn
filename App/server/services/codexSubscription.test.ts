@@ -77,14 +77,6 @@ test("repository materialization follows the coding switch for subscription and 
     shouldMaterializeRepositoriesForTurnFor({
       authMode: "subscription",
       codingToolsEnabled: true,
-      codingToolsExecutionMode: "bubblewrap",
-    }),
-    true,
-  );
-  assert.equal(
-    shouldMaterializeRepositoriesForTurnFor({
-      authMode: "subscription",
-      codingToolsEnabled: true,
       codingToolsExecutionMode: "host",
     }),
     true,
@@ -220,70 +212,7 @@ test("a failed refreshing read surfaces its own error instead of a bare rejectio
   );
 });
 
-test("subscription auth accepts trusted host, disabled, and optional bubblewrap deployments", () => {
-  for (const codingToolsExecutionMode of ["disabled", "host", "bubblewrap"] as const) {
-    assert.match(
-      subscriptionUnavailableReasonFor({
-        multiTenant: true,
-        codingToolsEnabled: true,
-        codingToolsExecutionMode,
-        bubblewrapAvailable: true,
-      }) ?? "",
-      /self-hosted/,
-    );
-  }
-  assert.equal(
-    subscriptionUnavailableReasonFor({
-      multiTenant: false,
-      codingToolsEnabled: true,
-      codingToolsExecutionMode: "host",
-      bubblewrapAvailable: true,
-    }),
-    null,
-  );
-  assert.equal(
-    subscriptionUnavailableReasonFor({
-      multiTenant: false,
-      codingToolsEnabled: true,
-      codingToolsExecutionMode: "disabled",
-      bubblewrapAvailable: false,
-    }),
-    null,
-  );
-  assert.equal(
-    subscriptionUnavailableReasonFor({
-      multiTenant: false,
-      codingToolsEnabled: true,
-      codingToolsExecutionMode: "bubblewrap",
-      bubblewrapAvailable: true,
-    }),
-    null,
-  );
-  assert.match(
-    subscriptionUnavailableReasonFor({
-      multiTenant: false,
-      codingToolsEnabled: true,
-      codingToolsExecutionMode: "bubblewrap",
-      bubblewrapAvailable: false,
-    }) ?? "",
-    /working bubblewrap/,
-  );
-  assert.equal(
-    subscriptionUnavailableReasonFor({
-      multiTenant: false,
-      codingToolsEnabled: false,
-      codingToolsExecutionMode: "bubblewrap",
-      bubblewrapAvailable: false,
-    }),
-    null,
-  );
-  assert.equal(
-    subscriptionUnavailableReasonFor({
-      multiTenant: false,
-      codingToolsEnabled: false,
-      codingToolsExecutionMode: "host",
-      bubblewrapAvailable: false,
-    }),
-    null,
-  );
+test("subscription auth is limited to trusted self-hosted installs, in any execution mode", () => {
+  assert.match(subscriptionUnavailableReasonFor({ multiTenant: true }) ?? "", /self-hosted/);
+  assert.equal(subscriptionUnavailableReasonFor({ multiTenant: false }), null);
 });

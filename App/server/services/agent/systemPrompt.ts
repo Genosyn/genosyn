@@ -1,7 +1,6 @@
 import type { AIEmployee } from "../../db/entities/AIEmployee.js";
 import type { Company } from "../../db/entities/Company.js";
 import type { Skill } from "../../db/entities/Skill.js";
-import { config } from "../../../config.js";
 import { getAgentSettings } from "../runtimeSettings.js";
 import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
 import { composeStanddownContext } from "../standdowns.js";
@@ -57,8 +56,6 @@ export function composeEmployeeSystemPrompt(args: {
   parallelDelegationAvailable: boolean;
   /** Whether this turn receives any built-in coding tool. */
   codingToolsAvailable: boolean;
-  /** Bubblewrap mode keeps every coding operation inside its namespace. */
-  isolatedCodingTools: boolean;
   /** Per-skill declared toolsets, keyed by skill id, for the Skill headings. */
   skillToolsets?: Map<string, string[]>;
 }): string {
@@ -88,12 +85,7 @@ export function composeEmployeeSystemPrompt(args: {
     "Notice opportunities to improve your own work as you complete it. Use get_own_work_review to examine actual outcomes and prior review feedback. For a worthwhile durable improvement, read the current document and stage a concrete Revision proposal with source evidence and a measurable expected benefit. Reuse pending suggestions, respect rejections, and keep unchanged reviews quiet. Propose changes to your own Soul, Skills, or Routine brief for human review. Your successful Ask AI contributions also let you suggest a brief improvement to that exact Routine: read its current complete document with get_participating_routine, preserve the owner and cite finished target Runs. Participation never grants direct editing or authority over another employee's Soul, Skills, Checks or criteria; do not silently apply them or weaken Checks, acceptance criteria, or authority to make results look better. After a change is applied, compare later results before claiming it helped.",
   );
   parts.push(
-    toolsBriefing(
-      args.surface,
-      args.parallelDelegationAvailable,
-      args.codingToolsAvailable,
-      args.isolatedCodingTools,
-    ),
+    toolsBriefing(args.surface, args.parallelDelegationAvailable, args.codingToolsAvailable),
   );
   // The company's mission and vision are the topmost layer of intent — the
   // charter every employee steers by, with the Goals block carrying the
@@ -193,7 +185,6 @@ export function toolsBriefing(
   surface: PromptSurface,
   parallelDelegationAvailable: boolean,
   codingToolsAvailable = codingRuntimeAvailability().available,
-  isolatedCodingTools = config.agent.codingTools.executionMode === "bubblewrap",
 ): string {
   const isChat = surface === "chat";
   // When discovery is off (the revert flag), every tool is loaded and there is
@@ -257,13 +248,7 @@ export function toolsBriefing(
 
   lines.push(discovery ? "### Always loaded" : "### Your tools");
 
-  if (codingToolsAvailable && isolatedCodingTools) {
-    lines.push(
-      "- Coding: isolated `bash`, rooted at your working directory. Use shell commands for file " +
-        "reading and editing too; host-process file tools are intentionally unavailable across " +
-        "this bubblewrap deployment.",
-    );
-  } else if (codingToolsAvailable) {
+  if (codingToolsAvailable) {
     lines.push(
       "- Coding: use the coding tools supplied by your runtime to read, edit, and search files " +
         "and run commands when a command tool is available. Your working directory holds granted " +

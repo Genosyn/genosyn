@@ -392,15 +392,7 @@ export function filterCodingToolsForExecutionMode(
   tools: AgentTool[],
   executionMode = config.agent.codingTools.executionMode,
 ): AgentTool[] {
-  // The path-based file tools run in the App process. Their validate-then-open
-  // sequence cannot provide an atomic symlink boundary, so a concurrent
-  // sandboxed shell could race another turn's file tool into Codex's host-side
-  // credential temp directory. Bubblewrap mode therefore keeps *every* turn's
-  // coding operations inside the namespace, not only the subscription turn.
-  if (executionMode === "bubblewrap") {
-    return tools.filter((tool) => tool.name === "bash");
-  }
-  if (executionMode === "disabled") return [];
+  if (executionMode !== "host") return [];
   // Codex subscription turns retain these adapters; ordinary host turns use
   // OpenCode's native coding tools. Host execution is deliberately unsandboxed.
   return tools;

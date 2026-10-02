@@ -143,13 +143,15 @@ test("disabled coding remains disabled with OpenCode", async (t) => {
   assert.equal(seen[0].registry.resolve("bash"), undefined);
 });
 
-test("explicit bubblewrap keeps native host tools off", async (t) => {
+test("a retired execution mode exposes no coding tools at all", async (t) => {
   const seen = capture(t);
+  // Boot narrows a stale "bubblewrap" to disabled; a turn that still saw the
+  // raw value must get neither native tools nor the shell adapter.
   Object.assign(config.agent.codingTools, { executionMode: "bubblewrap" });
   await runEmployeeAgent(params);
   assert.equal(seen[0].nativeCoding, false);
   assert.equal(seen[0].registry.resolve("read_file"), undefined);
-  assert.ok(seen[0].registry.resolve("bash"));
+  assert.equal(seen[0].registry.resolve("bash"), undefined);
 });
 
 test("the live Member authorizer is forwarded to OpenCode native tool permission requests", async (t) => {

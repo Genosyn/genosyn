@@ -176,8 +176,8 @@ const legacyMigrationTails = new Map<string, Promise<void>>();
 
 /**
  * Move the legacy workspace-visible snapshot before any coding tool is built.
- * Temporary/torn legacy snapshots are deleted too, so bubblewrapped bash never
- * inherits an old cookie file after an upgrade.
+ * Temporary/torn legacy snapshots are deleted too, so no coding tool finds an
+ * old cookie file in the workspace after an upgrade.
  */
 export async function migrateLegacyBrowserStorage(
   companyId: string,

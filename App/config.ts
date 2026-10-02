@@ -105,18 +105,16 @@ export const config = {
   // AI Employee execution controls. OpenCode runs directly on the host by
   // default, with ordinary file and command access. This includes Repository
   // work-session commands and command Checks; no Linux namespace support or
-  // Docker security options are required for a self-hosted install.
-  // `disabled` exposes no coding tools and materializes no repositories.
-  // `bubblewrap` remains available for installs that explicitly require
-  // isolation; boot disables coding if that selected sandbox cannot start.
-  // Shared multi-tenant installs still require bubblewrap and no sandbox
-  // network access. ChatGPT subscription auth remains single-tenant only.
+  // Docker security options are required. There is no OS sandbox: commands run
+  // with the App process user's filesystem and network authority.
+  // `disabled` exposes no coding tools and materializes no repositories. A
+  // config that still selects the retired `bubblewrap` mode boots as
+  // `disabled`. Shared multi-tenant installs must use `disabled`, and ChatGPT
+  // subscription auth remains single-tenant only.
   agent: {
     codingTools: {
       enabled: true,
-      executionMode: "host" as "host" | "bubblewrap" | "disabled",
-      bubblewrapPath: "/usr/bin/bwrap",
-      allowNetwork: false,
+      executionMode: "host" as "host" | "disabled",
       // Retained for existing operator configurations. Set false to deny host
       // execution even when executionMode is host.
       allowUnsafeHostExecution: true,

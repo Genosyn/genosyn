@@ -20,7 +20,7 @@ import {
   testCompanyId,
   testId,
 } from "../test/dbHarness.js";
-import type { SandboxCommandResult } from "./agent/sandboxCommandRun.js";
+import type { CommandRunResult } from "./agent/commandRun.js";
 import {
   MAX_CHECKS_PER_ROUTINE,
   RoutineCheckError,
@@ -44,17 +44,17 @@ import {
  * The load-bearing assertions here are the negative ones. A Check exists so a
  * Run cannot finalize green on the strength of its own account of itself, so
  * every way a check could quietly *not* fail — a spec that no longer parses, a
- * command that never ran, a sandbox that is not there — is tested for the
+ * command that never ran, a shell that is not there — is tested for the
  * failure it is supposed to produce rather than the silence it used to.
  *
  * The command path is exercised through the `runCommand` seam. Spawning a real
- * bubblewrap child in a unit test would make the suite depend on the developer's
- * kernel; what is being tested here is the decision, not the namespace.
+ * shell in a unit test would make the suite depend on the developer's machine;
+ * what is being tested here is the decision, not the process.
  */
 
 const mutableCodingConfig = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingConfig = { ...mutableCodingConfig };
@@ -74,9 +74,10 @@ after(async () => {
 beforeEach(async () => {
   await resetTestDb();
   Object.assign(mutableCodingConfig, originalCodingConfig);
-  // The optional isolated path remains covered through the command seam.
+  // Commands are available; the command path itself runs through the seam.
   mutableCodingConfig.enabled = true;
-  mutableCodingConfig.executionMode = "bubblewrap";
+  mutableCodingConfig.executionMode = "host";
+  mutableCodingConfig.allowUnsafeHostExecution = true;
   companyId = testCompanyId();
   otherCompanyId = testCompanyId();
   employee = await insert(AIEmployee, {
@@ -144,7 +145,7 @@ function runChecks(over: Partial<Parameters<typeof runChecksForRun>[0]> = {}) {
 
 /** A stand-in for the sandbox: whatever exit code the test wants. */
 function fakeCommand(
-  result: Partial<SandboxCommandResult>,
+  result: Partial<CommandRunResult>,
   onCall?: (options: { timeoutMs: number; args: string[] }) => void,
 ): NonNullable<Parameters<typeof runChecksForRun>[0]["runCommand"]> {
   return async (options) => {

@@ -17,7 +17,7 @@ import { Run } from "../db/entities/Run.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import type { SandboxCommandResult } from "./agent/sandboxCommandRun.js";
+import type { CommandRunResult } from "./agent/commandRun.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { createCheck, runChecksForRun } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
@@ -362,7 +362,7 @@ describe("runChecksForRun — the boundary the runner calls across", () => {
     });
     const run = await makeRun(routine.id);
     const timeouts: number[] = [];
-    const runCommand = async (options: { timeoutMs?: number }): Promise<SandboxCommandResult> => {
+    const runCommand = async (options: { timeoutMs?: number }): Promise<CommandRunResult> => {
       timeouts.push(options.timeoutMs ?? -1);
       return { output: "", exitCode: 0, timedOut: false, aborted: false, truncated: false };
     };
@@ -395,7 +395,7 @@ describe("runChecksForRun — the boundary the runner calls across", () => {
     });
     const run = await makeRun(routine.id);
     let spawned = 0;
-    const runCommand = async (): Promise<SandboxCommandResult> => {
+    const runCommand = async (): Promise<CommandRunResult> => {
       spawned += 1;
       return { output: "", exitCode: 0, timedOut: false, aborted: false, truncated: false };
     };

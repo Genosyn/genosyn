@@ -2,14 +2,13 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 /**
- * Running one host or sandboxed command to completion and keeping its output.
+ * Running one command to completion and keeping its output.
  *
- * `sandboxShell.ts` is the sibling of this module and states the reason both
- * exist: two callers building the same child must not drift. That file owns
- * *what the child can reach* — the workspace root, the environment, which
- * values cross the bubblewrap boundary. This one owns *what happens to the
- * child once it is running* — the process group, the timeout, the abort, and
- * the bounded output that comes back.
+ * `shellInvocation.ts` is the sibling of this module and states the reason both
+ * exist: callers building the same child must not drift. That file owns *what
+ * the child receives* — the shell, the environment, `HOME`. This one owns
+ * *what happens to the child once it is running* — the process group, the
+ * timeout, the abort, and the bounded output that comes back.
  *
  * Two callers share it, and they are alike in the way that matters:
  *
@@ -33,7 +32,7 @@ export const DEFAULT_MAX_OUTPUT_BYTES = 120 * 1024;
 /** How much of that ceiling the head gets, by default. See {@link boundedOutput}. */
 export const DEFAULT_HEAD_OUTPUT_BYTES = 40 * 1024;
 
-export type SandboxCommandResult = {
+export type CommandRunResult = {
   output: string;
   exitCode: number | null;
   timedOut: boolean;
@@ -41,11 +40,11 @@ export type SandboxCommandResult = {
   truncated: boolean;
 };
 
-export type SandboxCommandOptions = {
+export type CommandRunOptions = {
   executable: string;
   args: string[];
   cwd: string;
-  /** The child's environment, already built by `buildSandboxShellInvocation`. */
+  /** The child's environment, already built by `buildShellInvocation`. */
   env: Record<string, string>;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -54,7 +53,7 @@ export type SandboxCommandOptions = {
   /** How much of it the head keeps. Defaults to {@link DEFAULT_HEAD_OUTPUT_BYTES}. */
   headOutputBytes?: number;
   /**
-   * What to say when {@link SandboxCommandOptions.signal} fires.
+   * What to say when {@link CommandRunOptions.signal} fires.
    *
    * The sentence belongs to the caller because only the caller knows why its
    * own signal aborted — a work session ending and a Run running out of
@@ -72,9 +71,9 @@ export type SandboxCommandOptions = {
  * render that case to a model or a human anyway, and an exception here would
  * only be caught and reshaped into exactly this.
  */
-export function spawnSandboxedCommand(
-  options: SandboxCommandOptions,
-): Promise<SandboxCommandResult> {
+export function runCommandToCompletion(
+  options: CommandRunOptions,
+): Promise<CommandRunResult> {
   return new Promise((resolve) => {
     if (options.signal?.aborted) {
       resolve({

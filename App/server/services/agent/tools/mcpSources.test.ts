@@ -6,7 +6,7 @@ import { specForMcpServerRow, userStdioMcpAvailableFor } from "./mcpSources.js";
 
 test("user stdio MCP is available only in trusted single-tenant host mode", () => {
   for (const multiTenant of [false, true]) {
-    for (const codingToolsExecutionMode of ["disabled", "host", "bubblewrap"] as const) {
+    for (const codingToolsExecutionMode of ["disabled", "host"] as const) {
       assert.equal(
         userStdioMcpAvailableFor({ multiTenant, codingToolsExecutionMode }),
         !multiTenant && codingToolsExecutionMode === "host",
@@ -32,7 +32,7 @@ test("MCP transport resolution honors the configured execution and tenant modes"
   try {
     for (const multiTenant of [false, true]) {
       Object.assign(config.security, { multiTenant });
-      for (const executionMode of ["disabled", "host", "bubblewrap"] as const) {
+      for (const executionMode of ["disabled", "host"] as const) {
         Object.assign(config.agent.codingTools, { executionMode });
         assert.deepEqual(specForMcpServerRow(http), {
           transport: "http",

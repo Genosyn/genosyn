@@ -4,9 +4,9 @@ import { config } from "../../../config.js";
 
 import {
   codingRuntimeAvailability,
-  codingSandboxRemediation,
-  noteCodingSandboxFallback,
+  noteRetiredExecutionMode,
   requireCodingRuntime,
+  type CodingExecutionMode,
 } from "./codingAvailability.js";
 
 test("the shipped OpenCode host default is available without sandbox setup", () => {
@@ -18,7 +18,7 @@ test("the shipped OpenCode host default is available without sandbox setup", () 
 test("coding runtime is unavailable when the install-level switch is off", () => {
   const availability = codingRuntimeAvailability({
     enabled: false,
-    executionMode: "bubblewrap",
+    executionMode: "host",
     allowUnsafeHostExecution: true,
   });
 
@@ -35,7 +35,7 @@ test("host mode is unavailable until the operator separately acknowledges it", (
   });
   assert.equal(unacknowledged.available, false);
   if (unacknowledged.available) assert.fail("expected host mode to be unavailable");
-  assert.match(unacknowledged.reason, /explicitly acknowledge/i);
+  assert.match(unacknowledged.reason, /allowUnsafeHostExecution/);
   assert.throws(
     () =>
       requireCodingRuntime({
@@ -43,7 +43,7 @@ test("host mode is unavailable until the operator separately acknowledges it", (
         executionMode: "host",
         allowUnsafeHostExecution: false,
       }),
-    /explicitly acknowledge/i,
+    /allowUnsafeHostExecution/,
   );
 
   assert.deepEqual(
@@ -56,22 +56,23 @@ test("host mode is unavailable until the operator separately acknowledges it", (
   );
 });
 
-test("bubblewrap mode does not require the unsafe-host acknowledgement", () => {
-  assert.deepEqual(
-    codingRuntimeAvailability({
-      enabled: true,
-      executionMode: "bubblewrap",
-      allowUnsafeHostExecution: false,
-    }),
-    { available: true, reason: null },
-  );
+test("an execution mode this build does not have fails closed", () => {
+  // Boot narrows a stale "bubblewrap" to disabled; any seam that still saw the
+  // raw value must refuse rather than run on the host.
+  const retired = "bubblewrap" as unknown as CodingExecutionMode;
+  const availability = codingRuntimeAvailability({
+    enabled: true,
+    executionMode: retired,
+    allowUnsafeHostExecution: true,
+  });
+  assert.equal(availability.available, false);
 });
 
-test("a host that could not start the sandbox says so instead of stating policy", () => {
+test("a retired mode that boot disabled says so instead of stating policy", () => {
   const settings = {
     enabled: true,
     executionMode: "disabled" as const,
-    allowUnsafeHostExecution: false,
+    allowUnsafeHostExecution: true,
   };
 
   // An operator who chose disabled themselves gets the plain statement.
@@ -80,44 +81,17 @@ test("a host that could not start the sandbox says so instead of stating policy"
   if (chosen.available) assert.fail("expected disabled mode to be unavailable");
   assert.equal(chosen.reason, "Command execution is disabled on this Genosyn installation.");
 
-  noteCodingSandboxFallback("no bubblewrap executable at /usr/bin/bwrap");
+  noteRetiredExecutionMode(
+    'the operator configuration selects the unsupported "bubblewrap" execution mode. Set config.agent.codingTools.executionMode to "host" to run commands.',
+  );
   try {
-    const fallen = codingRuntimeAvailability(settings);
-    assert.equal(fallen.available, false);
-    if (fallen.available) assert.fail("expected the fallback to stay unavailable");
-    assert.match(fallen.reason, /no bubblewrap executable at \/usr\/bin\/bwrap/);
-    assert.match(fallen.reason, /unprivileged user namespaces/);
-    assert.match(fallen.reason, /apt-get install bubblewrap/);
+    const narrowed = codingRuntimeAvailability(settings);
+    assert.equal(narrowed.available, false);
+    if (narrowed.available) assert.fail("expected the narrowed mode to stay unavailable");
+    assert.match(narrowed.reason, /^Command execution is disabled: /);
+    assert.match(narrowed.reason, /"bubblewrap"/);
+    assert.match(narrowed.reason, /executionMode to "host"/);
   } finally {
-    noteCodingSandboxFallback(null);
+    noteRetiredExecutionMode(null);
   }
-});
-
-test("the stock-container cause names the options that fix it", () => {
-  // The reason a Member actually reads on the Repository page. Docker's
-  // default profile is the most common cause and the least guessable one, so
-  // the message carries the exact options rather than a policy statement.
-  const denied =
-    "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.";
-  noteCodingSandboxFallback(denied);
-  try {
-    const fallen = codingRuntimeAvailability({
-      enabled: true,
-      executionMode: "disabled",
-      allowUnsafeHostExecution: false,
-    });
-    assert.equal(fallen.available, false);
-    if (fallen.available) assert.fail("expected the fallback to stay unavailable");
-    assert.match(fallen.reason, /seccomp=unconfined/);
-    assert.match(fallen.reason, /systempaths=unconfined/);
-    assert.match(fallen.reason, /genosyn upgrade/);
-  } finally {
-    noteCodingSandboxFallback(null);
-  }
-
-  // A missing executable is a different problem with a different fix, so it
-  // does not get the container advice.
-  const missing = codingSandboxRemediation("no bubblewrap executable at /usr/bin/bwrap");
-  assert.match(missing, /apt-get install bubblewrap/);
-  assert.doesNotMatch(missing, /seccomp/);
 });

@@ -42,7 +42,8 @@ import {
  * {@link resolveInCheckout}, every write through {@link writeFileInCheckout},
  * and nothing here needs command execution: the git calls are server-owned
  * plumbing over an App-owned worktree, exactly as `repository_commit` always
- * was. A session on an install with the sandbox off keeps all of this.
+ * was. A session on an install with command execution disabled keeps all of
+ * this.
  */
 
 /** The largest file a read may open, whole or sliced. */
@@ -649,9 +650,10 @@ export type SessionStatusResult = {
 /**
  * What `git status` and `git log base..HEAD` would say, in one report.
  *
- * The employee has no git inside its sandbox by design (see
- * `repositoryCommandRun.ts`), so this is how it learns what it has changed
- * and not yet committed, and what it has already recorded on its branch.
+ * Work sessions do not rely on the employee running `git` itself — the default
+ * command list leaves it out (see `repositoryCommandPolicy.ts`) — so this is
+ * how it learns what it has changed and not yet committed, and what it has
+ * already recorded on its branch.
  */
 export async function sessionStatus(
   repo: Repository,
