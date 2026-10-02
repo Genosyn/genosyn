@@ -62,7 +62,7 @@ function Tile({ label, aside, children }: { label: string; aside?: ReactNode; ch
 function Reserves() {
   const rows: [string, string][] = [
     ["Operating accounts", TREASURY.operating],
-    ["Costs covered by reserves", `${TREASURY.coveredMonths} months`],
+    ["Added to reserves this month", TREASURY.addedThisMonth],
     ["Debt", "None"],
   ];
   return (
@@ -210,7 +210,7 @@ function Ledger() {
         aside={
           <span className="inline-flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-night-muted">
             <span aria-hidden className="h-1.5 w-1.5 animate-soft-pulse rounded-full bg-white" />
-            Every movement, double-entry
+            Double-entry
           </span>
         }
       >

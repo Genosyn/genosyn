@@ -185,7 +185,7 @@ function PeopleStrip() {
           </span>
         ))}
       </span>
-      <span className="text-[13px] text-ink-500 lg:ml-auto">Booked by Ines, paid by Vera, on the day of every shift.</span>
+      <span className="text-[13px] text-ink-500 lg:ml-auto">Booked by Ines, paid by Vera, on the day of every job.</span>
     </div>
   );
 }

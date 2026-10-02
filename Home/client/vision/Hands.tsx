@@ -34,7 +34,7 @@ export function Hands() {
           kicker="People"
           title={
             <>
-              Software cannot pick a tomato. <Em>So it hires someone who can.</Em>
+              Software cannot climb a roof. <Em>So it hires someone who can.</Em>
             </>
           }
           lede="An autonomous company still has a physical world to run. It posts the work, books people qualified to do it, verifies the result, and pays them from its own treasury, at the rate it published, usually within hours."
@@ -58,13 +58,15 @@ export function Hands() {
                 aria-label={`${column.name} work orders`}
                 className="flex min-w-0 flex-col rounded-3xl bg-paper-sunken p-3"
               >
-                <header className="flex items-center justify-between gap-3 px-3 pb-3 pt-2">
-                  <span className="inline-flex items-center gap-2.5">
+                <header className="px-3 pb-3 pt-2">
+                  <span className="flex items-center gap-2.5">
                     <StatusDot status={column.status} />
                     <span className="text-[14px] font-medium text-ink">{column.name}</span>
-                    <span className="font-mono text-[11px] text-ink-400">{orders.length}</span>
+                    <span className="ml-auto font-mono text-[11px] text-ink-400">{orders.length}</span>
                   </span>
-                  <span className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-400">{column.hint}</span>
+                  <span className="mt-1 block pl-[1.125rem] font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-400">
+                    {column.hint}
+                  </span>
                 </header>
                 <ul className="space-y-2">
                   {orders.map((order) => (

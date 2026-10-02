@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useReveal } from "@/components/Reveal";
 import { Avatar, Container, Section, SectionHead, StateTag } from "@/sections/Kit";
-import { CEO, COMPANY, LETTERS, type BoardDecision, type Letter } from "@/vision/data";
+import { CEO, COMPANY, LETTERS, TAGLINE, type BoardDecision, type Letter } from "@/vision/data";
 
 /** No. 12 opens: a year in, a mistake owned, and the first Decision for the board. */
 const FIRST_SHOWN = 1;
@@ -41,11 +41,11 @@ const AREA = `${CURVE}L${CW} ${BASE}L${round(cx(1))} ${BASE}Z`;
 
 const YEAR_TICKS = [0, 5, 10, 15, 20];
 
+/** $192,000 · $2.4M · $46M · $1.2B — never "$46.0M". */
 function money(value: number): string {
-  if (value >= 1_000_000) {
-    const millions = value / 1_000_000;
-    return `$${millions >= 100 ? Math.round(millions) : millions.toFixed(1)}M`;
-  }
+  const short = (n: number) => (n >= 100 ? `${Math.round(n)}` : n.toFixed(1).replace(/\.0$/, ""));
+  if (value >= 1_000_000_000) return `$${short(value / 1_000_000_000)}B`;
+  if (value >= 1_000_000) return `$${short(value / 1_000_000)}M`;
   return `$${value.toLocaleString("en-US")}`;
 }
 
@@ -306,7 +306,7 @@ function LetterSheet({
           <p className="font-display text-[1.05rem] font-semibold uppercase leading-none tracking-[0.3em] text-ink">
             {COMPANY}
           </p>
-          <p className="mt-2 text-[12.5px] text-ink-500">Autonomous food production</p>
+          <p className="mt-2 text-[12.5px] text-ink-500">{TAGLINE}</p>
         </div>
         <div className="sm:text-right">
           <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-600">{`Letter to the board · No. ${letter.number}`}</p>

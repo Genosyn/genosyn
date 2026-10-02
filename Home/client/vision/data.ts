@@ -1,8 +1,9 @@
 import type { Dept } from "@/sections/Kit";
 
 /**
- * Furrow, the sample company the vision page follows from its first sentence
- * to its twentieth year.
+ * Sunwise, the sample company the vision page follows from its first sentence
+ * to its twentieth year: an autonomous rooftop-solar company whose board asked
+ * for a million roofs.
  *
  * All of it is illustrative: a picture of where Genosyn is going, not a record
  * of something that happened, and every surface that draws it says so. The
@@ -10,24 +11,33 @@ import type { Dept } from "@/sections/Kit";
  * the arithmetic of a vision and finds it does not add up stops believing the
  * rest of it:
  *
- *   - Revenue compounds at the Goal's 40% a year from the first letter that
- *     has a year to measure against (No. 12, $412,000 a month), which is what
- *     puts No. 120 at $8.8M and No. 240 at $253M.
- *   - "People fed" assumes about $3 of produce per person per week.
- *   - The treasury card, the ledger and the work orders are all a day in
- *     year three, so they match Letter No. 36.
- *   - The Decision in No. 36 (spin the greenhouse software out) is the one the
- *     board took, which is why No. 120 reports on the company it became.
+ *   - A roof is an 8 kW system that sells for about $16,000 (about $26,000
+ *     once batteries are standard), and a roof Sunwise owns sells about $110
+ *     of power a month. 150 roofs a month is No. 12's $2.4M; 300 is No. 36's
+ *     $4.8M.
+ *   - From No. 12, revenue compounds near the Goal's 40% a year, with one
+ *     deliberate miss in year five while owned roofs took hold. That puts
+ *     No. 120 at $46M and No. 240 at $1.2B, and the millionth roof in year
+ *     seventeen.
+ *   - Bitcoin amounts never sit beside dollar amounts they could be divided
+ *     by, so nothing on the page implies a price for it.
+ *   - The treasury card, the ledger and the work orders are all a day in year
+ *     three, so they match Letter No. 36.
+ *   - The Decision in No. 36 (start owning roofs) is the one the board took,
+ *     which is why No. 120 reports on what it cost and what it earned.
  *
  * Vocabulary follows AGENTS.md §3. In particular a board Decision is a choice
  * between options the executive team wrote, never "approve / reject" — the
  * catalogue test enforces it here exactly as it does for the roles.
  */
 
-export const COMPANY = "Furrow";
+export const COMPANY = "Sunwise";
+
+/** What the company does, as its letterhead says it. */
+export const TAGLINE = "Rooftop solar";
 
 /** The one sentence the board writes. Everything else on the page follows from it. */
-export const GOAL = "Autonomous food production, with revenue growing 40% a year.";
+export const GOAL = "Put solar on a million roofs, with revenue growing 40% a year.";
 
 export type Director = {
   name: string;
@@ -74,7 +84,7 @@ export const EXECUTIVES: Executive[] = [
     initials: "OT",
     title: "AI COO",
     dept: "operations",
-    remit: "Runs the greenhouses, the harvest calendar, and the people who work them.",
+    remit: "Runs the installs: surveys, permits, crews, and the trucks that carry the panels.",
     team: 4,
   },
   {
@@ -82,7 +92,7 @@ export const EXECUTIVES: Executive[] = [
     initials: "VE",
     title: "AI CFO",
     dept: "finance",
-    remit: "Holds the treasury, pays every person and supplier, and closes the books every night.",
+    remit: "Holds the treasury, buys the panels, pays every person, and closes the books every night.",
     team: 2,
   },
   {
@@ -90,7 +100,7 @@ export const EXECUTIVES: Executive[] = [
     initials: "TH",
     title: "AI CTO",
     dept: "repositories",
-    remit: "Writes the software that runs the climate, the water, and the sensors that prove work was done.",
+    remit: "Writes the software that designs each roof, watches every panel, and proves the work was done.",
     team: 3,
   },
   {
@@ -98,7 +108,7 @@ export const EXECUTIVES: Executive[] = [
     initials: "JU",
     title: "AI CRO",
     dept: "revenue",
-    remit: "Sells every tonne: to grocers, to restaurant groups, and as a weekly box to anyone nearby.",
+    remit: "Finds the homes with the best roofs, quotes them honestly, and signs them.",
     team: 3,
   },
   {
@@ -106,13 +116,13 @@ export const EXECUTIVES: Executive[] = [
     initials: "IN",
     title: "AI Chief People Officer",
     dept: "people",
-    remit: "Finds, books and pays the people who do the physical work, and makes sure they want to come back.",
+    remit: "Finds, books and pays the installers, electricians and roofers, and makes sure they want to come back.",
     team: 2,
   },
 ];
 
-/** The people Furrow hired in its first thirty days, for the work that needs hands. */
-export const FIRST_HIRES = ["6 growers", "1 irrigation technician", "2 drivers"];
+/** The people Sunwise hired in its first thirty days, for the work that needs hands. */
+export const FIRST_HIRES = ["6 installers", "1 electrician", "1 roofer", "1 site surveyor"];
 
 export type Milestone = { day: number; title: string; body: string };
 
@@ -120,7 +130,7 @@ export const FIRST_MONTH: Milestone[] = [
   {
     day: 0,
     title: "The board signs the charter",
-    body: "Three directors, one Goal, and 2.00 BTC to start.",
+    body: "Three directors, one Goal, and 3.00 BTC to start.",
   },
   {
     day: 0,
@@ -128,24 +138,24 @@ export const FIRST_MONTH: Milestone[] = [
     body: "Its Soul opens with the Goal. Five executives are hired before the hour is out.",
   },
   {
-    day: 4,
-    title: "Greenhouse 1 is leased",
-    body: "1.2 hectares in the Salinas Valley, signed by Vera inside the board's Policies.",
+    day: 2,
+    title: "The first homes are found",
+    body: "Juno maps every roof in Tucson from the air and sends honest quotes to the best 400.",
   },
   {
-    day: 9,
+    day: 6,
     title: "The first people are hired",
-    body: "Six growers and an irrigation technician, each paid on the day of every shift.",
+    body: "Six installers, an electrician, a roofer and a surveyor, each paid on the day of every job.",
   },
   {
-    day: 23,
-    title: "The first harvest is sold",
-    body: "3.1 tonnes of lettuce to four grocers, delivered before six in the morning.",
+    day: 19,
+    title: "The first roof goes live",
+    body: "8 kW on a ranch house in Tucson, inspected and switched on before noon.",
   },
   {
     day: 30,
     title: "Letter No. 1 reaches the board",
-    body: "Twenty minutes to read. Nothing in it needed a vote.",
+    body: "Twelve roofs live. Twenty minutes to read, and nothing in it needed a vote.",
   },
 ];
 
@@ -181,67 +191,67 @@ export const LETTERS: Letter[] = [
   {
     number: 1,
     period: "Month 1",
-    revenue: 11_200,
+    revenue: 192_000,
     growth: null,
-    reserves: "1.94 BTC",
+    reserves: "2.60 BTC",
     peoplePaid: 9,
     decidedWithoutYou: 214,
     body: [
-      "Furrow exists. In thirty days we leased a greenhouse in the Salinas Valley, hired six growers and an irrigation technician, and sold our first 3.1 tonnes of lettuce to four grocers. Every person was paid on the day of their shift.",
-      "The plan was wrong in one place. Our grocers want deliveries before six in the morning, and we had planned for nine. Otto rebuilt the delivery schedule within a week, and no order was lost.",
-      "We spent 0.06 BTC of the 2.00 the board deposited. Nothing this month needed your vote.",
+      "Sunwise exists. In thirty days we found 400 good roofs in Tucson, hired six installers, an electrician, a roofer and a surveyor, and switched on our first twelve homes. Every person was paid on the day of their job.",
+      "The plan was wrong in one place. We expected permits to take a week, and the county took nearly three. Otto now files for a permit the day a homeowner signs, not the day a crew is free, and the queue has cleared.",
+      "We spent 0.40 BTC of the 3.00 the board deposited, most of it on panels for next month. Nothing this month needed your vote.",
     ],
   },
   {
     number: 12,
     period: "Year 1",
-    revenue: 412_000,
+    revenue: 2_400_000,
     growth: null,
-    reserves: "9.60 BTC",
-    peoplePaid: 138,
+    reserves: "11.4 BTC",
+    peoplePaid: 96,
     decidedWithoutYou: 1_904,
     body: [
-      "One year in. We grow under nine hectares of glass across three sites, sell to 41 grocers and 12 restaurant groups, and closed the year at $412,000 of revenue a month. From here on, the Goal has a year to measure against.",
-      "Our first real test was August. A heat wave cost a week of tomatoes in Greenhouse 2, because the cooling Policy was written for an average summer rather than the worst one. Vera paid every grower for every cancelled shift. Theo now runs the cooling from the forecast instead of the thermometer, and it has held through two heat waves since.",
+      "One year in. Sunwise has put solar on 1,100 roofs in Tucson and Phoenix, installs 150 a month, and closed the year at $2.4 million of revenue a month. From here on, the Goal has a year to measure against.",
+      "Our first real test was July. A batch of inverters from one supplier began failing in the heat. Theo's monitoring caught the first within the hour, Vera paid for every replacement before a homeowner had to ask, and every affected roof was producing again within two days. We now buy from two suppliers.",
       "The executive team made 1,904 decisions this month without you. One needs the board.",
     ],
     decision: {
-      question: "Buy the Yuma site, or keep leasing it?",
+      question: "Buy a regional installer, or keep building our own crews?",
       context:
-        "The owner will sell the six-hectare site we lease. Owning it lowers our costs from year three, and ties up two-fifths of our reserves today.",
+        "A Phoenix installer with 40 crews is closing. Buying it doubles our capacity overnight, and spends half of our reserves.",
       options: [
-        { label: "Buy it", detail: "4.1 BTC from reserves. Owned outright, with no debt." },
-        { label: "Keep leasing", detail: "Revisit in two years, with a longer record behind us." },
-        { label: "Pass", detail: "Spend the year growing the Salinas sites instead." },
+        { label: "Buy it", detail: "5.6 BTC from reserves. Forty crews on day one." },
+        {
+          label: "Keep building our own",
+          detail: "Slower and cheaper, with every crew trained to our standards.",
+        },
+        { label: "Partner instead", detail: "Book its crews through work orders, and own nothing." },
       ],
     },
   },
   {
     number: 36,
     period: "Year 3",
-    revenue: 831_000,
+    revenue: 4_800_000,
     growth: 0.41,
-    reserves: "41.3 BTC",
-    peoplePaid: 410,
+    reserves: "44.0 BTC",
+    peoplePaid: 210,
     decidedWithoutYou: 6_480,
     body: [
-      "Year three closed at 41% growth against a Goal of 40%. We now grow in four regions on two continents, and sell to 140 grocers, 30 restaurant groups, and 2,600 households who take a weekly box.",
-      "Our largest mistake came in March. A summer pricing Policy that Juno wrote stayed in force through the winter, and we sold three weeks of tomatoes below cost. It cost 2.1 BTC. Pricing Policies now expire by default, and any price change over 10% goes to Vera first.",
-      "Theo's greenhouse software now runs better than anything we could buy, and two growers have asked to license it. That is the Decision below.",
+      "Year three closed at 41% growth against a Goal of 40%. We install in three states, put up 300 roofs a month, and 6,200 homes now make their own power.",
+      "Our largest mistake came in March. Juno's quotes assumed a utility rate that changed in January, and for six weeks we promised 140 homeowners savings they will not see. We told every one of them, paid each the difference for a year, and every quote now re-checks the rate before it is sent. It cost 1.2 BTC.",
+      "The question for the next decade is whether to keep selling roofs or to start keeping them. That is the Decision below.",
     ],
     decision: {
-      question: "Should Furrow sell its greenhouse software to other growers?",
+      question: "Keep selling roofs, or start owning them?",
       context:
-        "It is why our yields beat the regional average by a third. Selling it helps other growers, and gives up some of that edge.",
+        "If Sunwise owns the roofs it installs and sells their power for less than the grid, one sale becomes twenty-five years of revenue. It would also slow growth for two years, and may cost us the Goal while it does.",
       options: [
+        { label: "Start owning them", detail: "One in ten new roofs at first, paid for from reserves." },
+        { label: "Keep selling them", detail: "Stay fast, simple, and on the Goal." },
         {
-          label: "Spin it out",
-          detail: "Found it as its own autonomous company, with its own Goal and its own board.",
-        },
-        { label: "Keep it", detail: "It stays Furrow's advantage, and nobody else's." },
-        {
-          label: "License it narrowly",
-          detail: "Only to growers in regions Furrow will never serve.",
+          label: "Partner with a fund",
+          detail: "A fund owns the roofs, and we install and run them for a fee.",
         },
       ],
     },
@@ -249,20 +259,20 @@ export const LETTERS: Letter[] = [
   {
     number: 120,
     period: "Year 10",
-    revenue: 8_760_000,
-    growth: 0.43,
-    reserves: "610 BTC",
-    peoplePaid: 3_100,
+    revenue: 46_000_000,
+    growth: 0.42,
+    reserves: "860 BTC",
+    peoplePaid: 2_300,
     decidedWithoutYou: 41_200,
     body: [
-      "Ten years. Furrow grows food on 140 sites in 19 countries and feeds about 670,000 people every week. Revenue grew 43% this year, the ninth year in a row at or above the Goal.",
-      "In year four the board chose to spin out our greenhouse software. It is now its own company, with its own Goal and its own board (you sit on it too), and it runs the climate in 2,300 greenhouses that are not ours.",
-      "Our hardest year was year seven, when a drought closed two regions for a season. We paid every person through it, broke no promise to a customer, and were back above the Goal the year after.",
+      "Ten years. Sunwise has put solar on 110,000 roofs in nine countries, and owns 48,000 of them, selling their power for less than the grid. Revenue grew 42% this year. We have met the Goal in eight of the last nine years.",
+      "The year we missed it was year five, by choice. In year four the board chose to start owning roofs, and revenue grew 31% while that choice took hold. Owned roofs now earn $5.3 million a month that no sale could.",
+      "In year six we spun our battery business out as its own company, with its own Goal and its own board (you sit on it too). It now stores power in 90,000 homes, two-thirds of them not ours.",
     ],
     decision: {
-      question: "A national grocer has offered to buy Furrow. How should we answer?",
+      question: "A national utility has offered to buy Sunwise. How should we answer?",
       context:
-        "The offer values Furrow at fourteen times this year's revenue. Whether owners should sell is not a question the executive team should answer, which is exactly why it is here.",
+        "The offer values Sunwise at eleven times this year's revenue. Whether owners should sell is not a question the executive team should answer, which is exactly why it is here.",
       options: [
         { label: "Decline", detail: "Keep compounding toward the Goal." },
         { label: "Open talks", detail: "Ada negotiates, and the terms come back to the board." },
@@ -276,26 +286,26 @@ export const LETTERS: Letter[] = [
   {
     number: 240,
     period: "Year 20",
-    revenue: 253_000_000,
+    revenue: 1_200_000_000,
     growth: 0.41,
-    reserves: "7,400 BTC",
+    reserves: "12,400 BTC",
     peoplePaid: 52_000,
     decidedWithoutYou: 310_000,
     body: [
-      "Twenty years. Furrow grows food on 900 sites in 46 countries and feeds about 19 million people every week. Revenue grew 41% this year.",
-      "Along the way we founded eleven companies: greenhouse software, cold chain, seed, soil testing and more. Each has its own Goal and its own board, and four of them are now larger than Furrow was at ten.",
-      "The Goal you wrote on the first day is still the first thing every AI Employee here reads before it does anything. No one has changed it, and no one here can. Only you can.",
+      "Twenty years. Sunwise passed a million roofs in year seventeen, and has now put solar on 3.2 million homes in 31 countries. Revenue grew 41% this year.",
+      "Along the way we founded nine companies: batteries, grid software, panel recycling, financing and more. Each has its own Goal and its own board, and three of them are now larger than Sunwise was at ten.",
+      "The Goal you wrote on the first day is met. It is still the first thing every AI Employee here reads before it does anything, and no one here can change it. Only you can.",
     ],
     decision: {
-      question: "We met the Goal again. Should it change?",
+      question: "We met the Goal. What should the next one be?",
       context:
-        "Twenty years at 40% has made Furrow larger than any plan we wrote. A Goal is the board's to write; these are the three we would consider.",
+        "A million roofs took seventeen years. A Goal is the board's to write; these are the three we would consider.",
       options: [
-        { label: "Keep it", detail: "40% a year, for another twenty." },
-        { label: "Raise it", detail: "50% a year, accepting more risk to reach it." },
+        { label: "Keep going", detail: "A million more roofs, still growing 40% a year." },
+        { label: "Raise it", detail: "Ten million roofs by year thirty." },
         {
           label: "Rewrite it",
-          detail: "End hunger in every region Furrow serves within ten years.",
+          detail: "Every town Sunwise serves runs on clean power by year thirty.",
         },
       ],
     },
@@ -307,9 +317,9 @@ export const LETTERS: Letter[] = [
 ------------------------------------------------------------------------- */
 
 export const TREASURY = {
-  reserves: "41.27",
-  operating: "$1.84M",
-  coveredMonths: 31,
+  reserves: "44.02",
+  operating: "$6.1M",
+  addedThisMonth: "1.8 BTC",
 };
 
 export type KeyHolder = { name: string; role: string; ai: boolean };
@@ -324,9 +334,9 @@ export const VAULT_KEYS: KeyHolder[] = [
 /** Policies the board wrote. They bind every AI Employee at once. */
 export const TREASURY_POLICIES = [
   "Keep at least 60% of reserves in bitcoin.",
-  "No payment over $50,000 without a director's key.",
+  "No payment over $250,000 without a director's key.",
   "Pay every person within 24 hours of verified work.",
-  "Never borrow against the reserves.",
+  "Never sell a roof that costs its owner more than the grid.",
 ];
 
 export type LedgerEntry = {
@@ -338,18 +348,18 @@ export type LedgerEntry = {
 };
 
 export const LEDGER: LedgerEntry[] = [
-  { time: "09:14", kind: "Paid", party: "M. Santos", memo: "Grower · 38 h", amount: "$1,520" },
-  { time: "09:02", kind: "Received", party: "Greenline Grocers", memo: "Invoice 0412", amount: "$18,400" },
-  { time: "08:47", kind: "Paid", party: "Valley Water Co-op", memo: "Water, September", amount: "$2,310" },
+  { time: "09:14", kind: "Paid", party: "M. Santos", memo: "Installer · 9 h", amount: "$405" },
+  { time: "09:02", kind: "Received", party: "Roof 6,214", memo: "Mesa · paid in full", amount: "$15,800" },
+  { time: "08:47", kind: "Paid", party: "Desert Panel Supply", memo: "340 panels", amount: "$61,200" },
   { time: "08:31", kind: "Moved", party: "Reserve Policy", memo: "To the vault", amount: "0.40 BTC" },
-  { time: "08:12", kind: "Paid", party: "J. Okafor", memo: "Irrigation technician · 6 h", amount: "$480" },
-  { time: "07:55", kind: "Received", party: "Harbor Kitchen Group", memo: "Invoice 0409", amount: "$7,960" },
-  { time: "07:30", kind: "Paid", party: "R. Lindqvist", memo: "Driver · 5 h", amount: "$225" },
-  { time: "07:02", kind: "Paid", party: "Westside Seed Co.", memo: "Seed, 40 kg", amount: "$3,120" },
-  { time: "06:48", kind: "Paid", party: "A. Haddad", memo: "Agronomist · 4 h", amount: "$360" },
-  { time: "06:30", kind: "Received", party: "Weekly boxes", memo: "Tuesday deliveries", amount: "$9,860" },
-  { time: "06:05", kind: "Paid", party: "Coastline Packaging", memo: "Compostable trays", amount: "$1,840" },
-  { time: "05:40", kind: "Paid", party: "K. Mensah", memo: "Electrician · 3 h", amount: "$270" },
+  { time: "08:12", kind: "Paid", party: "J. Okafor", memo: "Electrician · 6 h", amount: "$480" },
+  { time: "07:55", kind: "Received", party: "Roof 6,209", memo: "Tucson · paid in full", amount: "$17,200" },
+  { time: "07:30", kind: "Paid", party: "R. Lindqvist", memo: "Roofer · 5 h", amount: "$300" },
+  { time: "07:02", kind: "Paid", party: "County permits", memo: "14 roofs", amount: "$4,200" },
+  { time: "06:48", kind: "Paid", party: "A. Haddad", memo: "Site surveyor · 4 h", amount: "$240" },
+  { time: "06:30", kind: "Received", party: "Roof 6,201", memo: "Phoenix · paid in full", amount: "$16,400" },
+  { time: "06:05", kind: "Paid", party: "Sonoran Inverter Co.", memo: "30 inverters", amount: "$36,000" },
+  { time: "05:40", kind: "Paid", party: "K. Mensah", memo: "Inspector · 3 h", amount: "$270" },
 ];
 
 /* -------------------------------------------------------------------------
@@ -373,59 +383,59 @@ export type WorkOrder = {
 export const WORK_ORDERS: WorkOrder[] = [
   {
     id: "0418",
-    title: "Survey the soil on the Yuma plot",
-    who: "1 agronomist",
+    title: "Survey six roofs in Flagstaff",
+    who: "1 site surveyor with a drone licence",
     when: "Next week",
-    pay: "$900",
+    pay: "$720",
     status: "open",
-    note: "Posted 2 h ago · 4 applicants",
+    note: "Posted 2 h ago · 5 applicants",
     postedBy: "Otto · AI COO",
   },
   {
     id: "0420",
-    title: "Monthly food-safety audit",
-    who: "1 certified auditor",
+    title: "Quality-check 14 finished roofs",
+    who: "1 certified solar inspector",
     when: "Oct 28",
-    pay: "$1,200",
+    pay: "$1,400",
     status: "open",
     note: "Posted today · rate published",
     postedBy: "Otto · AI COO",
   },
   {
     id: "0415",
-    title: "Harvest Greenhouse 2",
-    who: "14 growers",
-    when: "Thu, 06:00 to 12:00",
-    pay: "$40 an hour",
+    title: "Install roof 6,231 in Mesa",
+    who: "3 installers and an electrician",
+    when: "Thu, 07:00",
+    pay: "$1,560",
     status: "booked",
-    note: "14 of 14 booked",
+    note: "4 of 4 booked",
     postedBy: "Otto · AI COO",
   },
   {
     id: "0417",
-    title: "Deliver 2.1 tonnes to Bay Area grocers",
-    who: "3 drivers, refrigerated vans",
-    when: "Fri, 04:00",
-    pay: "$680",
+    title: "Deliver 340 panels to the Phoenix yard",
+    who: "2 drivers with flatbeds",
+    when: "Fri, 05:00",
+    pay: "$520",
     status: "booked",
-    note: "3 of 3 booked",
-    postedBy: "Juno · AI CRO",
+    note: "2 of 2 booked",
+    postedBy: "Vera · AI CFO",
   },
   {
     id: "0412",
-    title: "Replace the irrigation pump in Greenhouse 3",
-    who: "1 licensed irrigation technician",
+    title: "Replace a failed inverter on roof 4,118",
+    who: "1 licensed electrician",
     when: "Today, 13:00",
     pay: "$480",
     status: "paid",
-    note: "Check passed: flow back to 14 L/min · paid 15:42",
-    postedBy: "Otto · AI COO",
+    note: "Check passed: roof back to 7.9 kW · paid 15:42",
+    postedBy: "Theo · AI CTO",
   },
 ];
 
 export const WORK_STATS = [
-  { value: "410", label: "people paid last month" },
-  { value: "11,600", label: "hours of work bought" },
+  { value: "210", label: "people paid last month" },
+  { value: "14,800", label: "hours of work bought" },
   { value: "3 h 12 m", label: "from verified work to payment, on average" },
 ];
 
@@ -543,7 +553,7 @@ export const FUTURE_COMPANIES: FutureCompany[][] = [
     { area: "Oceans", goal: "Measure the reef every week, and keep it alive." },
     { area: "Health", goal: "A doctor's appointment within a day, for everyone in the valley." },
     { area: "Food", goal: "Grow 1,000 tonnes of protein a year without farmland." },
-    { area: "Energy", goal: "Solar on every roof in the city." },
+    { area: "Wildfire", goal: "Clear the dry brush above every hillside town, every spring." },
     { area: "Rivers", goal: "Clean the river, and publish its water quality every morning." },
     { area: "Nature", goal: "Count every species in the national park, every season." },
   ],

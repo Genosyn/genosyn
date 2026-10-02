@@ -14,7 +14,7 @@ outlined. Department hues appear only as small dots beside a label. Tokens live 
 and tags live in `client/sections/Kit.tsx`.
 
 The vision page (`client/vision/`) is the one route about direction rather
-than shipped behavior. It follows Furrow, a sample company, from the one
+than shipped behavior. It follows Sunwise, a sample rooftop-solar company, from the one
 sentence its board writes to its twentieth year, and ends by marking plainly
 which parts ship today. Its numbers are kept consistent with one another (see
 `client/vision/data.ts`), and the catalogue test checks the arithmetic.

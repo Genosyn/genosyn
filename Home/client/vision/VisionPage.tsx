@@ -20,7 +20,7 @@ import "./vision.css";
  * Genosyn is being built to make possible: one that runs itself toward a Goal
  * its board sets, keeps its own money, hires people for the physical world,
  * and writes to its owners once a month. It follows one sample company,
- * Furrow, from its first sentence to its twentieth year, and it ends by saying
+ * Sunwise, from its first sentence to its twentieth year, and it ends by saying
  * plainly which parts already ship and which are still on the road.
  */
 export function VisionPage() {
