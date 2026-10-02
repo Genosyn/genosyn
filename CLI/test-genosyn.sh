@@ -366,6 +366,27 @@ check "a rejected download is reported" \
 check "a rejected download does not stop the upgrade" \
   "$(grep -Fxc 'pull ghcr.io/genosyn/app:latest' "${test_root}/docker.log")" '1'
 
+# A replacement that cannot be written in full must leave the copy as it was,
+# and must not claim an update: here nothing can be created beside the copy.
+sed 's/^CLI_VERSION=.*/CLI_VERSION="9.9.11"/' "${HERE}/genosyn" >"${test_root}/published-next"
+cat >"${cron_bin}/mktemp" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *"${cron_state}"*) exit 1 ;; esac
+exec /usr/bin/mktemp "\$@"
+EOF
+chmod +x "${cron_bin}/mktemp"
+: >"${test_root}/docker.log"
+run_cron "${test_root}/published-next" || true
+rm -f "${cron_bin}/mktemp"
+check "a copy that cannot be replaced in full is kept as it was" \
+  "$(file_sha256 "${cron_copy}")" "$(file_sha256 "${published}")"
+check "a failed replacement does not claim an update" \
+  "$(last_cron_run | grep -Fc 'CLI updated.' || true)" '0'
+check "a failed replacement says so" \
+  "$(last_cron_run | grep -Fc 'Could not replace')" '1'
+check "a failed replacement does not stop the upgrade" \
+  "$(grep -Fxc 'pull ghcr.io/genosyn/app:latest' "${test_root}/docker.log")" '1'
+
 rm -f "${cron_copy}"
 run_installed ensure_auto_update_default >/dev/null || true
 check "the next upgrade restores a deleted copy" \
