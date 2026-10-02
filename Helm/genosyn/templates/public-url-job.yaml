@@ -1,13 +1,14 @@
 {{- /*
-Multi-tenant installs refuse sign-ups until the public HTTPS origin is stored
-in the database. This hook stores it with the App's own host-only setup
-script, which writes the setting once: an origin already changed at
-Admin -> General is kept, and the upgrade continues. It shares the App's
-environment but not its data volume, which a ReadWriteOnce claim would pin to
-the App's node; the script needs only the database.
+Email links, OAuth callbacks and Secure session cookies follow the public
+HTTPS origin stored in the database. This hook stores it with the App's own
+host-only setup script, which writes the setting once: an origin already
+changed at Admin -> General is kept, and the upgrade continues. It shares the
+App's environment but not its data volume, which a ReadWriteOnce claim would
+pin to the App's node; the script needs only the database, so
+genosyn.publicUrl is empty on SQLite.
 */ -}}
 {{- $publicUrl := include "genosyn.publicUrl" . }}
-{{- if and .Values.config.multiTenant $publicUrl }}
+{{- if $publicUrl }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -67,7 +68,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "genosyn.fullname" . }}-config
+            name: {{ include "genosyn.configName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

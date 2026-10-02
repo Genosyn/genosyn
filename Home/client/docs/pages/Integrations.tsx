@@ -93,12 +93,14 @@ export function Integrations() {
         Brand Writer doesn&apos;t. Both employees share the same company, but the MCP surface they
         see is different.
       </Callout>
-      <Callout kind="warn" title="Process and hosted restrictions">
-        Company-configured stdio MCP servers run only in trusted single-tenant host execution mode.
-        Disabled and bubblewrap modes omit those children. HTTP MCP servers remain available. In
-        shared SaaS, Connection URLs and hosts must resolve to public addresses, including at socket
-        connection time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP
-        Postgres and MySQL Connections stay disabled until an isolated egress worker is configured.
+      <Callout kind="warn" title="Process and network restrictions">
+        Company-configured stdio MCP servers run on the host in the default host execution mode,
+        with the App process user&apos;s authority, and are omitted when command execution is
+        disabled. HTTP MCP servers remain available in both modes. Connection URLs and HTTP MCP
+        servers go through the outbound network policy, so a host on a private network must be
+        allowed first; see{" "}
+        <DocLink to="/docs/self-hosting#private-hosts">Reaching something on your own network</DocLink>
+        .
       </Callout>
 
       <H2 id="instance-oauth-apps">Google sign-in and your own OAuth apps</H2>

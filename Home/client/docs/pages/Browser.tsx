@@ -16,11 +16,6 @@ export function Browser() {
         }
       />
 
-      <Callout kind="warn" title="Unavailable in shared SaaS mode">
-        The current browser runtime shares the App container and filesystem, so the fail-closed
-        hosted profile disables it. It remains available for single-tenant self-hosting. A hosted
-        browser needs a separately isolated worker before operators should enable it.
-      </Callout>
       <Callout kind="info" title="Genosyn Member sessions are isolated from AI Browser authority">
         If App-owned Chrome holds a Member&apos;s Genosyn session, every Genosyn App API request
         from that browser is refused. The session cannot mint API keys, change company roles, or

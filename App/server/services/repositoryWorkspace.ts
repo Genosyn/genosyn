@@ -1278,10 +1278,9 @@ export async function pushRepositoryBranch(
  * Materialize an SSH key for exactly one push and remove it afterwards.
  *
  * The key lands inside the repository's App-private workspace root — the same
- * directory the checkout lives in, which is why a bubblewrapped git can still
- * see it at `/workspace/...`. Nothing a model can reach is under `.private/`,
- * and the directory is removed in a `finally` whether the push succeeds or
- * not. HTTPS and anonymous repositories skip all of this.
+ * directory the checkout lives in. No model tool works under `.private/`, and
+ * the directory is removed in a `finally` whether the push succeeds or not.
+ * HTTPS and anonymous repositories skip all of this.
  */
 async function withPushSshMaterial(
   repo: Repository,

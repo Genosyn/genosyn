@@ -6,10 +6,9 @@ import test, { afterEach, beforeEach } from "node:test";
 import { config } from "../../config.js";
 import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
+import { codingRuntimeAvailability, noteRetiredExecutionMode } from "./agent/codingAvailability.js";
 import { resetGlobalSmtpCacheForTests, updateGlobalSmtpOverride } from "./globalEmailTransport.js";
 import {
-  bubblewrapProbeError,
-  resetBubblewrapProbeCacheForTests,
   resolveCodingExecutionMode,
   secureSessionCookies,
   validateRuntimeDependencies,
@@ -21,10 +20,10 @@ type MutableConfig = {
   agent: {
     browserEnabledInMultiTenant: boolean;
     codingTools: {
-      allowNetwork: boolean;
       allowUnsafeHostExecution: boolean;
-      bubblewrapPath: string;
-      executionMode: "host" | "bubblewrap" | "disabled";
+      // Wider than the config type on purpose: an old config.ts or chart
+      // overlay can still carry a mode this build no longer has.
+      executionMode: string;
     };
   };
   db: {
@@ -59,10 +58,8 @@ beforeEach(() => {
 afterEach(() => {
   mutable.dataDir = original.dataDir;
   mutable.agent.browserEnabledInMultiTenant = original.agent.browserEnabledInMultiTenant;
-  mutable.agent.codingTools.allowNetwork = original.agent.codingTools.allowNetwork;
   mutable.agent.codingTools.allowUnsafeHostExecution =
     original.agent.codingTools.allowUnsafeHostExecution;
-  mutable.agent.codingTools.bubblewrapPath = original.agent.codingTools.bubblewrapPath;
   mutable.agent.codingTools.executionMode = original.agent.codingTools.executionMode;
   mutable.db.driver = original.db.driver;
   mutable.db.postgresUrl = original.db.postgresUrl;
@@ -76,33 +73,9 @@ afterEach(() => {
   mutable.security.trustedProxyHops = original.security.trustedProxyHops;
   mutable.sessionSecret = original.sessionSecret;
   resetInstanceSecretsCacheForTests();
-  resetBubblewrapProbeCacheForTests();
+  noteRetiredExecutionMode(null);
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
-
-function fakeBubblewrap(name: string, body: string): string {
-  const executable = path.join(tempDir, name);
-  fs.writeFileSync(executable, `#!/bin/sh\nset -eu\n${body}\n`, { mode: 0o700 });
-  return executable;
-}
-
-/** A stand-in that satisfies the probe by writing its marker into the bind. */
-function workingFakeBubblewrap(name: string): string {
-  return fakeBubblewrap(
-    name,
-    `workspace=''
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = '--bind' ]; then
-    workspace="$2"
-    shift 3
-  else
-    shift
-  fi
-done
-[ -n "$workspace" ]
-printf '%s' 'genosyn-bubblewrap-probe-v1' > "$workspace/.genosyn-bubblewrap-probe"`,
-  );
-}
 
 function captureWarnings(run: () => void): string[] {
   const warnings: string[] = [];
@@ -116,6 +89,19 @@ function captureWarnings(run: () => void): string[] {
     console.warn = original;
   }
   return warnings;
+}
+
+/** Every shared-hosting requirement except the one a test is about. */
+function validSharedHosting(): void {
+  mutable.security.multiTenant = true;
+  mutable.security.secureCookies = true;
+  mutable.security.bootstrapMasterAdminEmail = "ops@example.com";
+  mutable.security.outboundPrivateHostAllowlist = [];
+  mutable.agent.browserEnabledInMultiTenant = false;
+  mutable.db.driver = "postgres";
+  mutable.db.postgresUrl = "postgresql://genosyn:secret@db.example.com:5432/genosyn";
+  mutable.sessionSecret = "s".repeat(24) + "-shared-session-secret";
+  mutable.security.encryptionSecret = "e".repeat(24) + "-shared-encryption-secret";
 }
 
 test("explicit cookie settings override automatic detection", () => {
@@ -150,132 +136,57 @@ test("self-hosted defaults remain bootable", () => {
   assert.doesNotThrow(validateRuntimeSecurity);
   assert.equal(config.agent.codingTools.executionMode, "host");
   assert.equal(config.agent.codingTools.allowUnsafeHostExecution, true);
-  assert.equal(config.agent.codingTools.allowNetwork, false);
 });
 
-test("the host default starts without a bubblewrap executable or probe", () => {
-  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
+test("host and disabled are settled modes that resolve silently", () => {
+  for (const mode of ["host", "disabled"]) {
+    mutable.agent.codingTools.executionMode = mode;
+    const warnings = captureWarnings(resolveCodingExecutionMode);
+    assert.equal(config.agent.codingTools.executionMode, mode);
+    assert.deepEqual(warnings, []);
+  }
+});
+
+test("a configuration that still selects bubblewrap boots with commands disabled", () => {
+  mutable.security.multiTenant = false;
+  mutable.agent.codingTools.executionMode = "bubblewrap";
+
   const warnings = captureWarnings(resolveCodingExecutionMode);
-  assert.equal(config.agent.codingTools.executionMode, "host");
-  assert.deepEqual(warnings, []);
+  assert.equal(config.agent.codingTools.executionMode, "disabled");
+  assert.match(warnings.join("\n"), /"bubblewrap" is not supported/);
+  assert.match(warnings.join("\n"), /set it to "host"/);
   assert.doesNotThrow(validateRuntimeSecurity);
+
+  // A Member reading the Repository page sees why, not a bare policy line.
+  const availability = codingRuntimeAvailability();
+  assert.equal(availability.available, false);
+  if (availability.available) assert.fail("expected command execution to stay off");
+  assert.match(availability.reason, /unsupported "bubblewrap" execution mode/);
 });
 
-test("a self-hosted install with a working sandbox keeps command execution on", () => {
-  mutable.security.multiTenant = false;
+test("a retired mode never widens to host execution", () => {
+  // The operator asked for confined commands. Host execution is a separate,
+  // explicit choice the narrowing must not make on their behalf.
   mutable.agent.codingTools.executionMode = "bubblewrap";
-  mutable.agent.codingTools.bubblewrapPath = workingFakeBubblewrap("resolve-working-bwrap");
-  resetBubblewrapProbeCacheForTests();
-
-  resolveCodingExecutionMode();
-  assert.equal(config.agent.codingTools.executionMode, "bubblewrap");
-});
-
-test("a self-hosted install without a usable sandbox falls back to disabled", () => {
-  mutable.security.multiTenant = false;
-  mutable.agent.codingTools.executionMode = "bubblewrap";
-  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
-  resetBubblewrapProbeCacheForTests();
-
-  const warnings = captureWarnings(resolveCodingExecutionMode);
-  assert.equal(config.agent.codingTools.executionMode, "disabled");
-  assert.match(warnings.join("\n"), /no bubblewrap executable at .*absent-bwrap/);
-
-  // Present but unable to enter a namespace is the container-runtime case, and
-  // it has to reach the same place as a missing executable.
-  mutable.agent.codingTools.executionMode = "bubblewrap";
-  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap(
-    "denied-bwrap",
-    `printf "%s" "user namespaces denied" >&2
-exit 17`,
-  );
-  resetBubblewrapProbeCacheForTests();
-
-  const denied = captureWarnings(resolveCodingExecutionMode);
-  assert.equal(config.agent.codingTools.executionMode, "disabled");
-  assert.match(denied.join("\n"), /user namespaces denied/);
-});
-
-test("the sandbox fallback never reaches for host execution or overrides an operator", () => {
-  mutable.security.multiTenant = false;
-  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
-  resetBubblewrapProbeCacheForTests();
-
-  // An acknowledged host install is the operator's decision, not a default to
-  // resolve — and a broken sandbox must never be an argument for host mode.
-  mutable.agent.codingTools.executionMode = "host";
   mutable.agent.codingTools.allowUnsafeHostExecution = true;
-  resolveCodingExecutionMode();
-  assert.equal(config.agent.codingTools.executionMode, "host");
+  captureWarnings(resolveCodingExecutionMode);
+  assert.notEqual(config.agent.codingTools.executionMode, "host");
+  assert.equal(codingRuntimeAvailability().available, false);
 });
 
-test("multi-tenant boots keep failing closed instead of silently degrading", () => {
-  mutable.security.multiTenant = true;
+test("shared hosting refuses command execution, since nothing confines it", () => {
+  validSharedHosting();
+  mutable.agent.codingTools.executionMode = "host";
+  assert.throws(validateRuntimeSecurity, /executionMode must be "disabled"/);
+
+  mutable.agent.codingTools.executionMode = "disabled";
+  assert.doesNotThrow(validateRuntimeSecurity);
+
+  // A shared install whose old config still says bubblewrap is narrowed to
+  // disabled before validation, so it boots with commands off.
   mutable.agent.codingTools.executionMode = "bubblewrap";
-  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
-  resetBubblewrapProbeCacheForTests();
-
-  resolveCodingExecutionMode();
-  assert.equal(config.agent.codingTools.executionMode, "bubblewrap");
-  assert.throws(validateRuntimeSecurity, /bubblewrap executable does not exist/);
-});
-
-test("bubblewrap probe verifies execution, diagnostics, and missing binaries", () => {
-  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap("ignored-bwrap", "exit 0");
-  resetBubblewrapProbeCacheForTests();
-  assert.match(bubblewrapProbeError() ?? "", /without running the isolated probe command/);
-
-  const failureLog = path.join(tempDir, "failed-probe-count.log");
-  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap(
-    "failing-bwrap",
-    `printf 'x' >> "${failureLog}"
-printf "%s" "user namespaces denied" >&2
-exit 17`,
-  );
-  resetBubblewrapProbeCacheForTests();
-  assert.equal(bubblewrapProbeError(), "user namespaces denied");
-  assert.equal(bubblewrapProbeError(), "user namespaces denied");
-  assert.equal(fs.readFileSync(failureLog, "utf8"), "x", "failed probes should be cached too");
-
-  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "missing-bwrap");
-  resetBubblewrapProbeCacheForTests();
-  assert.match(bubblewrapProbeError() ?? "", /ENOENT|no such file/i);
-});
-
-test("bubblewrap probe follows the runtime network posture and caches that exact shape", () => {
-  const invocationLog = path.join(tempDir, "bubblewrap-invocations.log");
-  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap(
-    "working-bwrap",
-    `printf '%s\\n' "$*" >> "${invocationLog}"
-workspace=''
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = '--bind' ]; then
-    workspace="$2"
-    shift 3
-  else
-    shift
-  fi
-done
-[ -n "$workspace" ]
-printf '%s' 'genosyn-bubblewrap-probe-v1' > "$workspace/.genosyn-bubblewrap-probe"`,
-  );
-
-  mutable.agent.codingTools.allowNetwork = false;
-  resetBubblewrapProbeCacheForTests();
-  assert.equal(bubblewrapProbeError(), null);
-  assert.equal(bubblewrapProbeError(), null);
-  let invocations = fs.readFileSync(invocationLog, "utf8").trim().split("\n");
-  assert.equal(invocations.length, 1, "same probe shape should use the cached result");
-  assert.match(invocations[0], /--unshare-net/);
-  const boundRoot = invocations[0].match(/--bind ([^ ]+) \/workspace/)?.[1];
-  assert.ok(boundRoot);
-  assert.equal(fs.existsSync(boundRoot), false, "probe workspaces must be removed after use");
-
-  mutable.agent.codingTools.allowNetwork = true;
-  assert.equal(bubblewrapProbeError(), null);
-  invocations = fs.readFileSync(invocationLog, "utf8").trim().split("\n");
-  assert.equal(invocations.length, 2, "network-policy changes must invalidate the probe cache");
-  assert.doesNotMatch(invocations[1], /--unshare-net/);
+  captureWarnings(resolveCodingExecutionMode);
+  assert.doesNotThrow(validateRuntimeSecurity);
 });
 
 test("self-hosted explicit weak secrets fail instead of bypassing managed defaults", () => {
@@ -291,7 +202,6 @@ test("unsafe shared hosting reports every actionable boundary at once", () => {
   mutable.security.bootstrapMasterAdminEmail = "";
   mutable.security.outboundPrivateHostAllowlist = ["localhost"];
   mutable.agent.browserEnabledInMultiTenant = true;
-  mutable.agent.codingTools.allowNetwork = true;
   mutable.agent.codingTools.executionMode = "host";
   mutable.db.driver = "sqlite";
   mutable.db.postgresUrl = "";
@@ -307,8 +217,7 @@ test("unsafe shared hosting reports every actionable boundary at once", () => {
       "config.sessionSecret must be a unique secret",
       "config.security.encryptionSecret must be a unique secret",
       "the session and encryption secrets must be different",
-      "config.agent.codingTools.executionMode must be bubblewrap",
-      "network access inside the coding sandbox must be disabled",
+      'config.agent.codingTools.executionMode must be "disabled"',
       "the in-process browser must be disabled",
       "config.security.bootstrapMasterAdminEmail is required",
       "config.security.outboundPrivateHostAllowlist must be empty",

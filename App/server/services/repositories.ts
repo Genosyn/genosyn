@@ -187,15 +187,6 @@ function httpsUsernameOf(repo: Repository): string {
   return u || "git";
 }
 
-function workspaceVisiblePath(workspaceRoot: string, hostPath: string): string {
-  if (config.agent.codingTools.executionMode !== "bubblewrap") return hostPath;
-  const relative = path.relative(path.resolve(workspaceRoot), path.resolve(hostPath));
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error("SSH key path escapes the employee workspace.");
-  }
-  return relative ? `/workspace/${relative.split(path.sep).join("/")}` : "/workspace";
-}
-
 /**
  * Build the `ssh` command git should use for a given key file: identities
  * pinned to our key only, host keys auto-accepted on first contact (no
@@ -647,7 +638,7 @@ export async function testRepositoryConnection(
       fs.writeFileSync(keyPath, key.endsWith("\n") ? key : key + "\n", {
         mode: 0o600,
       });
-      env.GIT_SSH_COMMAND = sshCommandFor(workspaceVisiblePath(tmp, keyPath));
+      env.GIT_SSH_COMMAND = sshCommandFor(keyPath);
     } else {
       // Match the App-owned clone/fetch/push path: a credential-free
       // Repository may reuse the Connection it was published with, or the sole
@@ -833,7 +824,7 @@ export async function composeRepositoriesContext(
     if (guideBudget <= 0) continue;
     const guide = await readContributorGuide(checkout.path, {
       pathPrefix: relativePath,
-      readTool: config.agent.codingTools.executionMode === "bubblewrap" ? "bash" : "available",
+      readTool: "available",
       maxInlineBytes: guideBudget,
     });
     if (!guide) continue;

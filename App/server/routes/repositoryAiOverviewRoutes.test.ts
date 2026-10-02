@@ -51,7 +51,7 @@ const originalDataDir = config.dataDir;
 let actingUserId: string | null = null;
 const codingTools = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...codingTools };
@@ -60,11 +60,9 @@ before(async () => {
   await initTestDb();
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-ai-overview-routes-"));
   (config as { dataDir: string }).dataDir = dataDir;
-  // Same reason the work-session route tests do this: no server boots here, so
-  // the shipped `bubblewrap` default would send every Git child through a
-  // sandbox this host may not have. Pin the mode `resolveCodingExecutionMode`
-  // settles on wherever bubblewrap cannot run, so this file pins the route
-  // contract rather than the host's user-namespace policy.
+  // Same reason the work-session route tests do this: the App-owned checkout
+  // must work with command execution off, so this file pins the route contract
+  // rather than the host's execution settings.
   codingTools.enabled = true;
   codingTools.executionMode = "disabled";
   codingTools.allowUnsafeHostExecution = false;

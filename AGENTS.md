@@ -23,11 +23,13 @@ autonomously with AI employees**.
   models run through pinned **OpenCode 1.18.31**, managed headlessly through
   its SDK. Genosyn owns the company context, Grants, Approvals, tool registry,
   and persisted work; OpenCode owns the model loop, native coding tools, and
-  context management. The self-hosted default executes directly on the host
-  (inside the App container when using Docker), with no OS sandbox. Bubblewrap
-  remains an optional execution mode. A trusted, single-tenant OpenAI model
-  may instead use ChatGPT subscription access through the official pinned
-  `@openai/codex` app-server.
+  context management. AI Employee commands execute directly on the host
+  (inside the App container when using Docker), with no OS sandbox; the only
+  other execution mode is `disabled`. Installs are single-tenant — one
+  organization per install, which may still run several Companies — and
+  neither the Docker installer nor the Helm chart offers a shared multi-tenant
+  mode. A trusted, single-tenant OpenAI model may instead use ChatGPT
+  subscription access through the official pinned `@openai/codex` app-server.
 
 Use this guide for vocabulary and architecture, and the documentation in
 `Home/client/docs/pages/` and product source for shipped behavior.
@@ -333,8 +335,8 @@ exists to prevent.
 
 - **Language:** TypeScript everywhere. No plain JS files.
 - **Backend:** Express. Do **not** introduce Nest, Fastify, tRPC, etc.
-- **ORM:** **TypeORM**. SQLite is the self-hosted default; shared SaaS uses
-  Postgres via config and the dedicated Postgres migration stream.
+- **ORM:** **TypeORM**. SQLite is the Docker default; Postgres (the Helm
+  chart's default) uses config and the dedicated Postgres migration stream.
   Do not add a second ORM or raw SQL query builder.
 - **Frontend:** React 18 + Vite + TailwindCSS + React Router + lucide-react.
   Do **not** introduce Next.js, Remix, Redux, MUI, Chakra, shadcn-as-a-dep
@@ -487,17 +489,16 @@ in a Work session instead of leaving them stranded as local commits.
     * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
       OpenCode's native coding tools in the default host mode. Subscription
       turns use Genosyn's coding wrappers through the official Codex runtime.
-      Commands run with the App
-      process user's filesystem and network authority: a working directory,
-      tool permission, or Grant is not an OS sandbox. Disabled mode exposes no
-      coding tools and materializes no repositories. Optional bubblewrap mode
-      uses Genosyn's scoped command tool; OpenCode's native coding tools are
-      disabled there so they cannot bypass the selected execution mode.
+      Commands run with the App process user's filesystem and network
+      authority: a working directory, tool permission, or Grant is not an OS
+      sandbox, and there is no optional one. Disabled mode exposes no coding
+      tools and materializes no repositories; a config that still selects the
+      retired `bubblewrap` mode boots as disabled rather than widening to host.
       Restricted turns also disable native coding. A **Repository work
       session** uses `repository_run_command` rooted at its worktree, applying
-      the Repository's `commandMode` and `allowedCommands` in host or optional
-      bubblewrap mode. Its worktree keeps changes separate from the Member
-      checkout, but host execution does not isolate the process. A session turn
+      the Repository's `commandMode` and `allowedCommands`. Its worktree keeps
+      changes separate from the Member checkout, but host execution does not
+      isolate the process. A session turn
       receives **only** the `repository_*` tools (`ToolScope` in
       `agent/tools/index.ts`, set by `ChatOptions.workSurface`): no employee-cwd
       `bash`, no browser, no company MCP servers, no delegation, no discovery
@@ -530,18 +531,17 @@ in a Work session instead of leaving them stranded as local commits.
       itself renders them;
 
     * any company-configured **MCP servers** (stdio/HTTP), which the agent
-      connects to as an MCP client. User-configured stdio servers are omitted
-      in disabled and bubblewrap modes; HTTP servers remain available. Host is
-      the only trusted single-tenant mode that permits user-configured stdio
-      children.
+      connects to as an MCP client. User-configured stdio servers run only in
+      host mode and are omitted in disabled mode; HTTP servers remain
+      available.
   The agent runtime lives in `server/services/agent/`. What stays on disk under
   the employee dir is only the working tree the coding tools operate on:
   materialized git repos and whatever the tools write into cwd. Browser state
   and Run recordings remain in the App-private paths above.
 - OpenAI subscription device sessions and managed refresh-token locks are
   process-local. The supported topology for this auth mode is one trusted,
-  single-tenant App process. The standard Docker installer uses host execution
-  without requiring Linux namespaces or extra Docker security options.
+  single-tenant App process. The standard Docker installer and the Helm chart
+  use host execution without Linux namespaces or extra security options.
   Subscription auth remains available in this trusted deployment. Horizontally
   scaled installs must use API-key models until the coordination primitives are
   ready. Subscription turns serialize on the per-model lock and do not expose

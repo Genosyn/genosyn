@@ -61,7 +61,7 @@ let dataDir: string;
 const originalDataDir = config.dataDir;
 const codingTools = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...codingTools };

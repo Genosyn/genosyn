@@ -33,7 +33,7 @@ function exec(command: "git", args: string[], options: { cwd?: string } = {}) {
 
 const mutableCodingTools = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...mutableCodingTools };
@@ -155,23 +155,20 @@ test("a failing Git credential helper cannot disclose a forge Connection token",
   );
 });
 
-test("private SSH fetch paths remain valid after the bubblewrap remount", () => {
+test("private SSH fetch paths stay inside the private fetch root", () => {
   const command = buildPrivateFetchSshCommand(
     "/private/fetch",
     "/private/fetch/ssh-key",
     "/private/fetch/known_hosts",
-    "bubblewrap",
   );
-  assert.match(command, /-i '\/workspace\/ssh-key'/);
-  assert.match(command, /UserKnownHostsFile='\/workspace\/known_hosts'/);
-  assert.doesNotMatch(command, /\/private\/fetch/);
+  assert.match(command, /-i '\/private\/fetch\/ssh-key'/);
+  assert.match(command, /UserKnownHostsFile='\/private\/fetch\/known_hosts'/);
   assert.throws(
     () =>
       buildPrivateFetchSshCommand(
         "/private/fetch",
         "/employee/ssh-key",
         "/private/fetch/known_hosts",
-        "bubblewrap",
       ),
     /escapes/,
   );

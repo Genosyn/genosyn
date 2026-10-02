@@ -322,18 +322,6 @@ describe("guide truncation and continuation", () => {
     assert.ok(!body?.includes("repository_read_file"));
   });
 
-  test("uses only the bash surface when that is the available coding tool", () => {
-    write("AGENTS.md", prose.repeat(100));
-    const body = readContributorGuide(checkout, {
-      readTool: "bash",
-      pathPrefix: "repositories/team",
-      maxInlineBytes: 30,
-    })?.body;
-    assert.match(body ?? "", /Read `repositories\/team\/AGENTS\.md` with `bash`/);
-    assert.match(body ?? "", /from line 3 in bounded windows/);
-    assert.ok(!body?.includes("read_file"));
-  });
-
   test("keeps native-runtime continuation independent of a particular file tool name", () => {
     write("AGENTS.md", prose.repeat(100));
     const body = readContributorGuide(checkout, {

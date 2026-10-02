@@ -11,16 +11,15 @@ import {
  * How a Check decides. Two kinds, chosen so that every install has at least
  * one usable one:
  *
- *  - `command` — a shell command run inside the same bubblewrap boundary the
- *    `bash` tool and `repository_run_command` use, rooted at the employee's
- *    working directory. Passes on exit 0. Only available where the sandbox can
- *    actually start, for the same reason `bash` is: host mode never gives an
- *    AI Employee a same-UID shell.
+ *  - `command` — a shell command run the way the `bash` tool and
+ *    `repository_run_command` run theirs, starting in the employee's working
+ *    directory. Passes on exit 0. Only available where command execution is,
+ *    for the same reason `bash` is.
  *  - `effect` — a declarative predicate over the Run's **effect ledger** (the
  *    AuditEvent rows the server wrote at each write seam while this Run held
- *    the token). Needs no shell, no model, and no sandbox, so it works on a
- *    stock `disabled`-mode install. This is what keeps Checks from being a
- *    bubblewrap-only luxury.
+ *    the token). Needs no shell and no model, so it works on an install with
+ *    command execution `disabled`. This is what keeps Checks from depending on
+ *    a shell.
  */
 export type RoutineCheckKind = "command" | "effect";
 

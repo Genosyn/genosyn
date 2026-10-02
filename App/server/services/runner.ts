@@ -630,9 +630,7 @@ async function prepareRoutineRun(
       const unavailableCodingTools =
         !deliveryPolicy.allowPrivilegedToolSources || !codingRuntimeAvailability().available
           ? [...CODING_TOOL_NAMES]
-          : config.agent.codingTools.executionMode === "bubblewrap"
-            ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-            : [];
+          : [];
       const unavailableSkillTools = [
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
@@ -687,7 +685,6 @@ async function prepareRoutineRun(
         routineId: routine.id,
         parallelDelegationAvailable,
         codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
-        isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
         opening:
           `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — ` +
           `your Soul, your Memory, and your Skills.`,

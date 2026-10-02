@@ -16,7 +16,7 @@ function template(ingress, source = chart) {
   const file = path.join(scratch, 'values.json');
   fs.writeFileSync(file, JSON.stringify({ ingress }), { mode: 0o600 });
   return spawnSync('helm', ['template', 'genosyn', source, '-f', file,
-    '--set', 'config.bootstrapMasterAdminEmail=ops@example.com', '-s', 'templates/ingress.yaml'], { encoding: 'utf8' });
+    '-s', 'templates/ingress.yaml'], { encoding: 'utf8' });
 }
 function render(ingress, source) {
   const result = template(ingress, source);

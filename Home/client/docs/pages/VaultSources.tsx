@@ -317,8 +317,9 @@ export function VaultSources() {
             term: "Unreachable",
             def: (
               <>
-                &quot;The Bitwarden server at … could not be reached.&quot; Check the URL, and on a
-                shared multi-tenant install check that the address is a public one.
+                &quot;The Bitwarden server at … could not be reached.&quot; Check the URL, and if
+                the server is on a private address, allow its hostname first — see{" "}
+                <DocLink to="/docs/vault-sources#self-hosted">Self-hosted Vaultwarden</DocLink>.
               </>
             ),
           },

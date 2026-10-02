@@ -55,7 +55,7 @@ test("unlimited subscription shutdown refuses a queued tool request delivered af
   const mutableConfig = config as unknown as {
     sessionSecret: string;
     security: { multiTenant: boolean; encryptionSecret: string };
-    agent: { codingTools: { executionMode: "host" | "bubblewrap" | "disabled" } };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
   };
   const original = {
     sessionSecret: mutableConfig.sessionSecret,
@@ -155,7 +155,7 @@ test("subscription turns exceed 100 tool calls only with an unlimited step polic
   const mutableConfig = config as unknown as {
     sessionSecret: string;
     security: { multiTenant: boolean; encryptionSecret: string };
-    agent: { codingTools: { executionMode: "host" | "bubblewrap" | "disabled" } };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
   };
   const original = {
     sessionSecret: mutableConfig.sessionSecret,
@@ -268,7 +268,7 @@ test("subscription tool results carry a Run's time check as a separate item", as
   const mutableConfig = config as unknown as {
     sessionSecret: string;
     security: { multiTenant: boolean; encryptionSecret: string };
-    agent: { codingTools: { executionMode: "host" | "bubblewrap" | "disabled" } };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
   };
   const original = {
     sessionSecret: mutableConfig.sessionSecret,

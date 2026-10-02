@@ -10,7 +10,6 @@ import { decryptSecret, encryptSecret } from "../lib/secret.js";
 import { CodexAppServer } from "./agent/codexAppServer.js";
 import { verifyCodexModel } from "./codexModelSetup.js";
 import { modelSetupFailure } from "./modelCatalog.js";
-import { bubblewrapProbeError } from "./runtimeSecurity.js";
 
 const AUTH_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const ACCOUNT_READ_TIMEOUT_MS = 30_000;
@@ -92,8 +91,8 @@ void sweepStaleCodexHomes();
  *
  * Codex receives only an empty scratch cwd. Genosyn's existing dynamic tools
  * remain the sole path to employee files, browser sessions, Connections and
- * other granted resources, so the product's own sandbox and approval policy
- * stay authoritative.
+ * other granted resources, so Genosyn's own Grants and approval policy stay
+ * authoritative.
  */
 export const CODEX_CONFIG_OVERRIDES = [
   'cli_auth_credentials_store="file"',
@@ -138,46 +137,15 @@ export const CODEX_CONFIG_OVERRIDES = [
   "allow_login_shell=false",
 ] as const;
 
-export function subscriptionUnavailableReasonFor(options: {
-  multiTenant: boolean;
-  codingToolsEnabled: boolean;
-  codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
-  bubblewrapAvailable: boolean;
-}): string | null {
+export function subscriptionUnavailableReasonFor(options: { multiTenant: boolean }): string | null {
   if (options.multiTenant) {
     return "ChatGPT subscription sign-in is limited to trusted self-hosted Genosyn installs.";
-  }
-  if (options.codingToolsExecutionMode !== "bubblewrap") return null;
-  if (!options.codingToolsEnabled) {
-    return null;
-  }
-  if (!options.bubblewrapAvailable) {
-    return "ChatGPT subscription auth requires a working bubblewrap executable and user namespaces.";
   }
   return null;
 }
 
 export function subscriptionUnavailableReason(): string | null {
-  // Preserve the cheap configuration checks on the normal host-mode path.
-  // The full namespace probe is synchronous and may take up to five seconds on
-  // a restrictive container, so run it only after the operator has explicitly
-  // selected bubblewrap.
-  const executionMode = config.agent.codingTools.executionMode;
-  const codingToolsEnabled = config.agent.codingTools.enabled;
-  if (config.security.multiTenant || executionMode !== "bubblewrap" || !codingToolsEnabled) {
-    return subscriptionUnavailableReasonFor({
-      multiTenant: config.security.multiTenant,
-      codingToolsEnabled,
-      codingToolsExecutionMode: executionMode,
-      bubblewrapAvailable: false,
-    });
-  }
-  return subscriptionUnavailableReasonFor({
-    multiTenant: false,
-    codingToolsEnabled,
-    codingToolsExecutionMode: executionMode,
-    bubblewrapAvailable: bubblewrapProbeError() === null,
-  });
+  return subscriptionUnavailableReasonFor({ multiTenant: config.security.multiTenant });
 }
 
 /**
@@ -188,7 +156,7 @@ export function subscriptionUnavailableReason(): string | null {
 export function shouldMaterializeRepositoriesForTurnFor(options: {
   authMode: AIModel["authMode"];
   codingToolsEnabled: boolean;
-  codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
+  codingToolsExecutionMode: "host" | "disabled";
 }): boolean {
   if (!options.codingToolsEnabled || options.codingToolsExecutionMode === "disabled") return false;
   return true;

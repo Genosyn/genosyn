@@ -56,8 +56,9 @@ endpoint and credentials from that kubeconfig.
    ingress address. External address allocation and any required load balancer
    are cluster infrastructure.
 3. Set `config.bootstrapMasterAdminEmail` to the real operator's email, or
-   supply `GENOSYN_BOOTSTRAP_ADMIN_EMAIL` when running a command. It is
-   required: validation stops before deployment until an operator is named.
+   supply `GENOSYN_BOOTSTRAP_ADMIN_EMAIL` when running a command. On a new
+   environment that address claims the master-admin account once its email is
+   verified; see the [chart README](../genosyn/README.md#quickstart).
 4. Each private profile contains independently generated
    `secrets.sessionSecret`, `secrets.encryptionSecret`, and `postgres.password`.
    Helm creates the instance and database Kubernetes Secrets from them;
@@ -65,16 +66,19 @@ endpoint and credentials from that kubeconfig.
    database, instance Secret, and App data volume together. Keep these values
    stable after the first deployment: the chart rejects changes that conflict
    with existing keys or an initialized database password.
-5. Use nodes that support the chart's bubblewrap sandbox and user namespaces.
-   Pod admission must permit `seccompProfile: Unconfined`, `procMount: Unmasked`,
-   and `hostUsers: false`. Both environments keep multi-tenant isolation on;
-   disabling the sandbox is not a SaaS workaround. See the
-   [chart's sandbox requirements](../genosyn/README.md#the-coding-sandbox-sandboxenabled).
+5. The chart runs Genosyn single-tenant: AI Employee commands run in the App
+   container, without an OS sandbox, with access to every company's data in
+   the install. A release deployed with an earlier chart ran in its
+   multi-tenant default, so the first deployment with this chart stops before
+   applying anything until the profile sets `config.multiTenant: false` (and
+   `sandbox.enabled: false`, if it still sets that to `true`). See
+   [Upgrading a multi-tenant or sandboxed release](../genosyn/README.md#upgrading-a-multi-tenant-or-sandboxed-release).
 
-One replica with a persistent ReadWriteOnce volume is the starting footprint in
-both environments. Each profile deploys its own single-node Postgres database:
-20Gi for test and 100Gi for production. More App replicas need shared ReadWriteMany storage and a
-matching rollout strategy. This profile does not provision HA or backups.
+One replica with a persistent ReadWriteOnce volume is the footprint in both
+environments; keep it at one (see the
+[chart README](../genosyn/README.md#one-organization-per-install)). Each
+profile deploys its own single-node Postgres database: 20Gi for test and 100Gi
+for production. This profile does not provision HA or backups.
 An external production database remains supported through
 `config.db.postgresUrlSecret`; disable bundled Postgres and remove
 `postgres.password` when choosing that setup.
@@ -134,7 +138,7 @@ an operator decision because App boot can apply database migrations.
 After deployment, register and verify the configured operator. Until SMTP is
 configured, the verification link is in the private App log. Configure
 **Admin → Email transport** and **Admin → Integrations** for OAuth apps before
-onboarding customers.
+inviting Members.
 For hosted sign-in, keep **Admin → General → Public URL** at
 `https://app.genosyn.com`. Set **Admin → Runtime → Hosted sign-in → Hosted
 sign-in address** to `https://connect.genosyn.com`. Register Google's new

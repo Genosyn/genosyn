@@ -548,28 +548,11 @@ describe("commands in a package directory", () => {
       path.join(directory, "App", "package.json"),
       JSON.stringify({ name: "guide-command-fixture", scripts: { lint: "cat marker.txt" } }),
     );
-    const shim = path.join(dataDir, "command-bwrap");
-    fs.writeFileSync(
-      shim,
-      [
-        "#!/bin/bash",
-        "while [ $# -gt 0 ]; do",
-        '  case "$1" in',
-        '    --setenv) export "$2"="$3"; shift 3 ;;',
-        "    --) shift; break ;;",
-        "    *) shift ;;",
-        "  esac",
-        "done",
-        'exec "$@"',
-        "",
-      ].join("\n"),
-      { mode: 0o755 },
-    );
     const originalCoding = { ...config.agent.codingTools };
     Object.assign(config.agent.codingTools, {
       enabled: true,
-      executionMode: "bubblewrap",
-      bubblewrapPath: shim,
+      executionMode: "host",
+      allowUnsafeHostExecution: true,
     });
     t.after(() => Object.assign(config.agent.codingTools, originalCoding));
     await AppDataSource.getRepository(Repository).update(repository.id, {

@@ -74,8 +74,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/models",
         title: "AI Models",
-        blurb:
-          "Connect API keys, a custom endpoint, or a trusted single-tenant OpenAI subscription.",
+        blurb: "Connect API keys, a custom endpoint, or an eligible ChatGPT subscription.",
       },
       {
         path: "/docs/tool-discovery",
@@ -338,11 +337,6 @@ export const DOCS_NAV: DocsSection[] = [
   {
     label: "Self-hosting",
     pages: [
-      {
-        path: "/docs/saas-hosting",
-        title: "Shared SaaS mode",
-        blurb: "Multi-tenant production requirements, isolation, and replica coordination.",
-      },
       {
         path: "/docs/self-hosting",
         title: "Configuration",

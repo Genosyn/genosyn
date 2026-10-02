@@ -1532,7 +1532,7 @@ export type RoutineCheck = {
 /**
  * Whether a `command` Check can run on this installation, and why not.
  *
- * Command Checks use the configured host or bubblewrap execution mode. The editor disables
+ * Command Checks use the configured execution mode. The editor disables
  * the option and shows this reason rather than letting somebody author a Check
  * that is guaranteed to fail.
  */

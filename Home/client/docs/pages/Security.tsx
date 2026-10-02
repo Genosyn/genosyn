@@ -17,19 +17,18 @@ export function Security() {
 
       <H2 id="email-verification">Email verification and passwords</H2>
       <P>
-        Shared SaaS mode sends a single-use verification link after signup. A Member must verify
-        that address before creating a company or accepting an invitation, and the signed-in address
-        must exactly match the invitation recipient. New and reset passwords require at least 12
-        characters. A password change invalidates every older signed-in session. A password reset
-        also revokes every personal API key and unlinks any identity a company&apos;s single sign-on
-        linked, because it is treated as account recovery after a possible credential compromise.
-        That company&apos;s SSO asks for the new password once; install-wide SSO is unaffected.
+        Genosyn sends a single-use verification link after signup. To accept an invitation, the
+        signed-in address must exactly match the invitation recipient. New and reset passwords
+        require at least 12 characters. A password change invalidates every older signed-in
+        session. A password reset also revokes every personal API key and unlinks any identity a
+        company&apos;s single sign-on linked, because it is treated as account recovery after a
+        possible credential compromise. That company&apos;s SSO asks for the new password once;
+        install-wide SSO is unaffected.
       </P>
       <P>
-        Every install — self-hosted included — shows the state of your own address at{" "}
-        <Strong>Account → Profile</Strong>, under the email field: a green <Strong>Verified</Strong>
-        {" "}
-        tag once the mailbox is proven, or an amber <Strong>Unverified</Strong> one with a{" "}
+        <Strong>Account → Profile</Strong> shows the state of your own address under the email
+        field: a green <Strong>Verified</Strong> tag once the mailbox is proven, or an amber{" "}
+        <Strong>Unverified</Strong> one with a{" "}
         <Strong>Resend verification email</Strong> button beside it. Each resend issues a new link
         and retires the previous one, so use the newest email you received. Links are valid for 24
         hours.
@@ -41,10 +40,10 @@ export function Security() {
         brings you back to <Strong>Accept invitation</Strong>; creating an account does not join
         the company automatically.
       </P>
-      <Callout kind="info" title="Self-hosted installs verify too.">
-        Instance administration is closed to an unverified account on every install, not only shared
-        SaaS — <Code>Admin</Code> answers &ldquo;Verify your email before using instance
-        administration&rdquo; until the mailbox is proven. Resend the link from{" "}
+      <Callout kind="info" title="Instance administration needs a verified email.">
+        Instance administration is closed to an unverified account — <Code>Admin</Code> answers
+        &ldquo;Verify your email before using instance administration&rdquo; until the mailbox is
+        proven. Resend the link from{" "}
         <Strong>Account → Profile</Strong>. If the instance has no email transport configured yet,
         the page says so rather than claiming the mail was sent, and the link is written to the
         server log — see <DocLink to="/docs/self-hosting">Configuration</DocLink> for how to read it
@@ -319,14 +318,7 @@ export function Security() {
         <Strong>Settings → Company</Strong> and turn on{" "}
         <Strong>Require two-factor authentication</Strong>. Members without a method must enroll one
         under <Strong>Account → Security</Strong> before they can access or join that company.
-        Genosyn then prevents them from removing their final method. See the full hosted baseline in{" "}
-        <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
-      </P>
-      <P>
-        Shared SaaS mode always requires master admins to enroll and complete 2FA in the current
-        browser session. Successful enrollment counts immediately, without another sign-in. That
-        session can use the install-wide Admin APIs until it expires or is revoked; operator actions
-        do not require a separate recent sign-in.
+        Genosyn then prevents them from removing their final method.
       </P>
 
       <H2 id="audit-log">Audit log</H2>

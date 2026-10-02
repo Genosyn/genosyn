@@ -22,7 +22,7 @@ function render(values = {}, source = chart) {
   const valuesFile = path.join(scratch, 'values.json');
   fs.writeFileSync(valuesFile, JSON.stringify(values), { mode: 0o600 });
   return spawnSync('helm', ['template', 'genosyn', source, '--namespace', 'ci-secrets',
-    '--set', 'config.bootstrapMasterAdminEmail=ops@example.com', '-f', valuesFile], { encoding: 'utf8' });
+    '-f', valuesFile], { encoding: 'utf8' });
 }
 function successful(values, source) {
   const result = render(values, source);
@@ -38,6 +38,7 @@ function rejected(values, expected, source) {
     assert(!result.stderr.includes(encode(value)), 'error must not disclose encoded Secret data');
   }
   assert.equal(result.stdout.trim(), '', 'failed rendering must not emit manifests');
+  return result.stderr;
 }
 function document(text, kind, name) {
   const found = text.split(/^---\s*$/m).find(block =>
@@ -177,7 +178,73 @@ data:
     assert.deepEqual(secretData(text, 'fixture-instance'), inline.secrets);
     assert.deepEqual(secretData(text, 'fixture-postgres'), { password });
   });
-  process.stdout.write(`${checks} inline-secret chart checks passed\n`);
+
+  // The tenancy and sandbox guards read the release's existing ConfigMap the
+  // same way: validate passes lookup's result to helpers this fixture feeds.
+  const helpers = fs.readFileSync(path.join(chart, 'templates/_helpers.tpl'), 'utf8');
+  assert(helpers.includes('$existingConfig := lookup "v1" "ConfigMap" .Release.Namespace (include "genosyn.configName" .)'));
+  assert(helpers.includes('include "genosyn.tenancyProblem" (dict "config" .Values.config "existing" $existingConfig)'));
+  assert(helpers.includes('include "genosyn.sandboxProblem" (dict "sandbox" .Values.sandbox "existing" $existingConfig)'));
+  assert(fs.readFileSync(path.join(chart, 'templates/configmap.yaml'), 'utf8').includes('name: {{ include "genosyn.configName" . }}'));
+  const tenancyChart = path.join(scratch, 'tenancy');
+  fs.mkdirSync(path.join(tenancyChart, 'templates'), { recursive: true });
+  for (const file of ['Chart.yaml', 'values.yaml', 'templates/_helpers.tpl']) {
+    fs.copyFileSync(path.join(chart, file), path.join(tenancyChart, file));
+  }
+  fs.writeFileSync(path.join(tenancyChart, 'templates/check.yaml'), `{{- $problems := list }}
+{{- with include "genosyn.tenancyProblem" (dict "config" .Values.config "existing" .Values.fixtureConfig) }}{{ $problems = append $problems . }}{{ end }}
+{{- with include "genosyn.sandboxProblem" (dict "sandbox" .Values.sandbox "existing" .Values.fixtureConfig) }}{{ $problems = append $problems . }}{{ end }}
+{{- if $problems }}{{ fail (join "\\n- " $problems) }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fixture-tenancy
+data: {}
+`);
+  // This chart's own config.js, and what older charts rendered: the sandbox on
+  // its own, and the old default of multi-tenant mode in the sandbox.
+  const rendered = spawnSync('helm', ['template', 'genosyn', chart, '-s', 'templates/configmap.yaml'], { encoding: 'utf8' });
+  assert.equal(rendered.status, 0);
+  const singleTenantJs = rendered.stdout.split('\n  config.js: |\n')[1].replace(/^    /gm, '');
+  const sandboxedJs = singleTenantJs.replace('  executionMode: "host",\n', '  executionMode: "bubblewrap",\n');
+  const multiTenantJs = sandboxedJs.replace('  multiTenant: false,\n', '  multiTenant: true,\n');
+  assert(singleTenantJs !== sandboxedJs && sandboxedJs !== multiTenantJs);
+  const previous = js => ({ fixtureConfig: { data: { 'config.js': js } } });
+  const upgradeGuard = /This release ran in shared multi-tenant mode.*access to every company's data in this install.*set config\.multiTenant=false once to confirm.*give each its own install instead/;
+  const unsupported = /the chart runs Genosyn single-tenant only \(one organization per install\) — fix: remove config\.multiTenant/;
+  const sandboxGuard = /Bubblewrap isolation was removed: AI Employee commands now run in the App container without an OS sandbox.*fix: set sandbox\.enabled=false once to confirm/;
+  const staleSandbox = { hostUsers: false, appArmorProfile: 'Unconfined' };
+  check('fresh and single-tenant releases need no tenancy setting, and reject multiTenant=true', () => {
+    for (const fixture of [{}, previous(singleTenantJs)]) {
+      successful(fixture, tenancyChart);
+      successful({ ...fixture, config: { multiTenant: false } }, tenancyChart);
+      rejected({ ...fixture, config: { multiTenant: true } }, unsupported, tenancyChart);
+    }
+  });
+  check('upgrading a multi-tenant release stops until config.multiTenant=false confirms it', () => {
+    for (const config of [{}, { multiTenant: true }, { multiTenant: 'false' }]) {
+      const stderr = rejected({ ...previous(multiTenantJs), config }, upgradeGuard, tenancyChart);
+      assert.doesNotMatch(stderr, sandboxGuard, 'the multi-tenant guard covers its sandbox too');
+    }
+    successful({ ...previous(multiTenantJs), config: { multiTenant: false } }, tenancyChart);
+  });
+  check('values enabling the sandbox, or a release that ran in it, stop until sandbox.enabled=false', () => {
+    for (const fixture of [{}, previous(singleTenantJs)]) {
+      successful({ ...fixture, sandbox: staleSandbox }, tenancyChart);
+      successful({ ...fixture, sandbox: { ...staleSandbox, enabled: false } }, tenancyChart);
+      for (const enabled of [true, 'false']) rejected({ ...fixture, sandbox: { enabled } }, sandboxGuard, tenancyChart);
+    }
+    for (const sandbox of [{}, staleSandbox, { enabled: true }]) {
+      const stderr = rejected({ ...previous(sandboxedJs), sandbox }, sandboxGuard, tenancyChart);
+      assert.doesNotMatch(stderr, upgradeGuard);
+    }
+    successful({ ...previous(sandboxedJs), sandbox: { enabled: false } }, tenancyChart);
+    // --reuse-values carries the old defaults, which also enabled the sandbox.
+    const reused = { ...previous(multiTenantJs), sandbox: { enabled: true } };
+    rejected({ ...reused, config: { multiTenant: false } }, sandboxGuard, tenancyChart);
+    successful({ ...reused, config: { multiTenant: false }, sandbox: { enabled: false } }, tenancyChart);
+  });
+  process.stdout.write(`${checks} inline-secret and upgrade guard checks passed\n`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

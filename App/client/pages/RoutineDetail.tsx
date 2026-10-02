@@ -2531,7 +2531,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
  *
  * The `command` option is disabled — with the server's own reason shown beside
  * it — wherever command execution is unavailable. Checks follow the configured
- * host or bubblewrap execution mode, so on disabled installs one could never pass,
+ * execution mode, so on disabled installs one could never pass,
  * and letting somebody author it would produce a Routine that fails forever
  * for a reason nothing on screen explains.
  */

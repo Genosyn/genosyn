@@ -175,7 +175,7 @@ async function main() {
   // The standdown cache before the scheduler: a heartbeat that ran with an
   // empty cache would dispatch work a human had already stopped.
   await bootStanddowns();
-  // Resolve any explicitly selected sandbox mode before validation reads it,
+  // Narrow a retired execution mode to `disabled` before validation reads it,
   // and before any tool registry, Run, or repository clone does.
   resolveCodingExecutionMode();
   validateRuntimeSecurity();

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Opt-in cluster integrations: GKE's Ingress, cert-manager issuance, the
-# sandbox's AppArmor profile, and the public URL Job. Renders synthetic values
-# only; no private profiles or cluster access.
+# Opt-in cluster integrations: GKE's Ingress, cert-manager issuance, and the
+# public URL Job. Renders synthetic values only; no private profiles or cluster
+# access.
 set -euo pipefail
 chart_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/genosyn"
 node - "$chart_dir" <<'NODE'
@@ -13,11 +13,10 @@ const { spawnSync } = require('node:child_process');
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'genosyn-integrations-'));
 const chart = process.argv[2];
 const app = { ingress: { enabled: true, host: 'app.example.com' } };
-function helm(values, { kubeVersion = '1.35.0', source = chart } = {}) {
+function helm(values, { source = chart } = {}) {
   const file = path.join(scratch, 'values.json');
   fs.writeFileSync(file, JSON.stringify(values), { mode: 0o600 });
-  return spawnSync('helm', ['template', 'genosyn', source, '--kube-version', kubeVersion,
-    '--set', 'config.bootstrapMasterAdminEmail=ops@example.com', '-f', file], { encoding: 'utf8' });
+  return spawnSync('helm', ['template', 'genosyn', source, '-f', file], { encoding: 'utf8' });
 }
 function render(values, options) {
   const result = helm(values, options);
@@ -137,21 +136,7 @@ try {
       'ingress.tls.certManager.issuerRef needs a name');
   });
 
-  check('the sandbox runs AppArmor-unconfined, as a field or on older clusters an annotation', () => {
-    const current = resource(render(app), 'Deployment');
-    assert.match(current, /appArmorProfile:\n\s+type: Unconfined/);
-    assert(!current.includes('container.apparmor.security.beta.kubernetes.io'));
-    const older = resource(render(app, { kubeVersion: '1.29.0' }), 'Deployment');
-    assert.match(older, /container.apparmor.security.beta.kubernetes.io\/app: unconfined/);
-    assert(!older.includes('appArmorProfile:'), 'Kubernetes 1.29 API servers reject the field');
-    assert.match(resource(render({ ...app, sandbox: { appArmorProfile: 'RuntimeDefault' } }), 'Deployment'), /type: RuntimeDefault/);
-    assert(!/apparmor/i.test(resource(render({ ...app, sandbox: { appArmorProfile: '' } }), 'Deployment')), 'an empty string omits the profile');
-    reject({ ...app, sandbox: { appArmorProfile: 'Localhost' } }, 'sandbox.appArmorProfile must be Unconfined, RuntimeDefault');
-    const selfHost = render({ config: { multiTenant: false, db: { driver: 'sqlite' } }, sandbox: { enabled: false }, postgres: { enabled: false } });
-    assert(!/apparmor/i.test(resource(selfHost, 'Deployment')), 'without the sandbox there is no profile');
-  });
-
-  check('a Job stores the HTTPS public URL once for multi-tenant installs', () => {
+  check('a Job stores the HTTPS public URL once on Postgres installs', () => {
     const documents = render({ ...app, ingress: { ...app.ingress, tls } });
     const job = resource(documents, 'Job', 'genosyn-public-url');
     assert.match(job, /helm.sh\/hook: post-install,post-upgrade/);
@@ -159,14 +144,20 @@ try {
     assert.match(job, /setupPublicUrl.js --url "\$GENOSYN_PUBLIC_URL"/);
     assert.match(job, /A different public URL is already stored"\*\)\n\s+echo .*\n\s+exit 0/, 'an origin changed in Admin must not fail upgrades');
     assert.match(job, /name: GENOSYN_POSTGRES_URL/);
+    assert.match(job, /name: config\n\s+configMap:\n\s+name: genosyn-config/);
     assert(!/persistentVolumeClaim/.test(job), 'the Job must not mount the App\'s ReadWriteOnce volume');
     const explicit = render({ ...app, config: { publicUrl: 'https://genosyn.example.com/' } });
     assert.match(resource(explicit, 'Job'), /value: "https:\/\/genosyn.example.com"/);
+    const external = render({ ...app, ingress: { ...app.ingress, tls }, postgres: { enabled: false },
+      config: { db: { postgresUrlSecret: { name: 'ci-database', key: 'url' } } } });
+    assert.match(resource(external, 'Job'), /name: GENOSYN_POSTGRES_URL\n\s+valueFrom:\n\s+secretKeyRef:\n\s+name: ci-database/);
     assert(!find(render(app), 'Job'), 'no HTTPS origin, no Job');
-    assert(!find(render({ ...app, ingress: { ...app.ingress, tls }, config: { multiTenant: false }, sandbox: { enabled: false } }), 'Job'),
-      'single-tenant installs never need the setup');
+    assert(!find(render({ ...app, ingress: { ...app.ingress, tls }, config: { publicUrl: 'https://genosyn.example.com',
+      db: { driver: 'sqlite' } }, postgres: { enabled: false } }), 'Job'), 'the Job cannot reach a SQLite database');
     reject({ ...app, config: { publicUrl: 'http://app.example.com' } }, 'config.publicUrl must be an https:// origin');
     reject({ ...app, config: { publicUrl: 'https://app.example.com/path' } }, 'config.publicUrl must be an https:// origin');
+    reject({ config: { publicUrl: 'https://User@app.example.com', db: { driver: 'sqlite' } }, postgres: { enabled: false } },
+      'config.publicUrl must be an https:// origin');
   });
 
   check('older reused values without the new blocks keep portable defaults', () => {
@@ -176,13 +167,12 @@ try {
     const oldValues = fs.readFileSync(file, 'utf8')
       .replace(/^gke:\n(?:  .*\n|\n)*/m, '')
       .replace(/^    certManager:\n(?:      .*\n)*/m, '')
-      .replace(/^  appArmorProfile: .*\n/m, '')
       .replace(/^  publicUrl: .*\n/m, '');
-    assert(!/^gke:|certManager:|appArmorProfile:|publicUrl:/m.test(oldValues), 'fixture removes every new block');
+    assert(!/^gke:|certManager:|publicUrl:/m.test(oldValues), 'fixture removes every new block');
     fs.writeFileSync(file, oldValues);
     const documents = render({ ...app, ingress: { ...app.ingress, tls } }, { source: oldChart });
     assert(!kinds(documents).some(kind => ['BackendConfig', 'FrontendConfig', 'ManagedCertificate', 'Issuer', 'Certificate'].includes(kind)));
-    assert.match(resource(documents, 'Deployment'), /appArmorProfile:\n\s+type: Unconfined/, 'the sandbox requirement survives');
+    assert(!/apparmor|seccompProfile|procMount|hostUsers/i.test(resource(documents, 'Deployment')));
     assert(find(documents, 'Job', 'genosyn-public-url'));
   });
   process.stdout.write(`${passed} integration checks passed\n`);

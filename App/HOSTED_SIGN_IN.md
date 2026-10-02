@@ -8,7 +8,7 @@ customer setting points to `https://connect.genosyn.com`, but shipping the code
 does not deploy that service or register a Google app. Until it is online and
 configured, customers need their own Google OAuth app.
 
-## Share the SaaS App deployment
+## Share the production App deployment
 
 The production Helm profile serves both `app.genosyn.com` and
 `connect.genosyn.com` through the same Ingress, App Service, containers,
@@ -46,16 +46,14 @@ release conventions are in [RELEASING.md](../RELEASING.md).
 
 For a separately operated service, the existing Helm chart's
 [`values-selfhost.yaml`](../Helm/genosyn/values-selfhost.yaml) provides one App
-replica, SQLite on a persistent volume, and no bundled Postgres or sandbox
-privileges. Keep `replicaCount: 1`, `strategy: Recreate`,
-`config.multiTenant: false`, persistence enabled, and a predeclared
+replica, SQLite on a persistent volume, and no bundled Postgres. Keep
+`replicaCount: 1`, `strategy: Recreate`, persistence enabled, and a predeclared
 `config.bootstrapMasterAdminEmail`. Before starting the App, use
-`config.extraJs` to replace the complete `agent` block: set
-`codingTools.enabled: false`, `codingTools.executionMode: "disabled"`,
-`codingTools.allowNetwork: false`, `codingTools.allowUnsafeHostExecution: false`,
-and `browserEnabledInMultiTenant: false`; retain `codingTools.bubblewrapPath`
-from the chart. This override is required because the self-host profile
-otherwise permits host command execution. This is an operator-only installation;
+`config.extraJs` to replace the complete `agent` block so commands never run:
+set `codingTools.enabled: false`, `codingTools.executionMode: "disabled"`, and
+`codingTools.allowUnsafeHostExecution: false`. This override is required
+because the chart otherwise runs AI Employee commands directly in the App
+container. This is an operator-only installation;
 do not create customer companies, AI Models, or AI Employees here. Disable
 Member browsers and meetings at **Admin → Runtime**. A managed Postgres
 database is also supported; it does not remove the need for durable instance
@@ -107,10 +105,11 @@ HTTPS to Google and never needs to contact customer installation addresses.
 
 ## Launch the Genosyn service
 
-1. Deploy the production SaaS profile with both domains, or the optional
-   dedicated topology above. On a shared deployment, keep **Admin → General
-   → Public URL** at `https://app.genosyn.com` and set **Admin → Runtime
-   → Hosted sign-in → Hosted sign-in address** to `https://connect.genosyn.com`.
+1. Deploy the production profile with both domains, or the optional
+   dedicated topology above. When the service shares the production App
+   deployment, keep **Admin → General → Public URL** at
+   `https://app.genosyn.com` and set **Admin → Runtime → Hosted sign-in →
+   Hosted sign-in address** to `https://connect.genosyn.com`.
    On a dedicated installation, its public URL can be `https://connect.genosyn.com`
    with the hosting address left blank. The marketing site's Cloudflare Worker
    does not provide these endpoints.
@@ -125,8 +124,9 @@ HTTPS to Google and never needs to contact customer installation addresses.
    directly, without redirects. Add the new URL before upgrading customer clients.
 
    Customer installation URLs are not registered as Google redirect URIs.
-   A shared SaaS App also uses its locally registered Google app for its own
-   Connections. Keep the ordinary redirect URI shown at **Admin → Integrations
+   When the service shares the production App deployment, that App also uses
+   its locally registered Google app for its own Connections. Keep the ordinary
+   redirect URI shown at **Admin → Integrations
    → Google** registered too:
    `https://app.genosyn.com/api/integrations/oauth/callback/google`.
 
@@ -180,7 +180,7 @@ request/response bodies as secrets. Do not record them in reverse-proxy logs,
 error-reporting payloads, analytics, support bundles, or request-body capture.
 Monitor availability and Google error counts without credential material.
 Back up the hosting App's database and instance secrets together; the shared
-topology uses the SaaS deployment's existing backup plan.
+topology uses the production deployment's existing backup plan.
 
 An outage affects new sign-ins and token renewal. Already issued access tokens
 work until they expire. Restoring the service with the same Google client lets

@@ -69,9 +69,8 @@ export function Introduction() {
         <LI>
           <Strong>Anyone</Strong> who prefers their tools open source, self-hosted, and
           bring-your-own-model: use Anthropic / OpenAI API keys, a custom OpenAI-compatible
-          endpoint, or eligible ChatGPT subscription access for OpenAI on a trusted single-tenant
-          install. The default executes coding work directly inside the App container; bubblewrap
-          isolation is optional.
+          endpoint, or eligible ChatGPT subscription access for OpenAI. Coding work runs directly
+          inside the App container, with no OS sandbox, and can be switched off.
         </LI>
       </UL>
 
@@ -92,9 +91,9 @@ export function Introduction() {
         <LI>
           <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You bring an Anthropic /
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
-          access for OpenAI on a trusted single-tenant install, then point each employee at the
-          model you choose. OpenCode is bundled, so there is no separate runtime to install. Claude
-          subscription credentials are not supported; see{" "}
+          access for OpenAI, then point each employee at the model you choose. OpenCode is
+          bundled, so there is no separate runtime to install. Claude subscription credentials
+          are not supported; see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
@@ -112,7 +111,7 @@ export function Introduction() {
           the screens stay live: a routine finishing, an employee moving a todo or leaving a
           comment, an invoice going out, a base record being written — the list or page you&apos;re
           looking at refreshes itself over a single WebSocket, no reload required. It works the same
-          across browser tabs and, in shared-SaaS mode, across replicas.
+          across browser tabs.
         </LI>
       </UL>
 

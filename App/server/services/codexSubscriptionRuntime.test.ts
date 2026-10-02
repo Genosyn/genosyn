@@ -15,7 +15,7 @@ import { CodexAppServer } from "./agent/codexAppServer.js";
 import { runCodexSubscriptionTurn } from "./agent/codexRuntime.js";
 import { residentOnlyRegistry } from "./agent/tools/toolRegistry.js";
 
-type ExecutionMode = "host" | "bubblewrap" | "disabled";
+type ExecutionMode = "host" | "disabled";
 
 type MutableConfig = {
   sessionSecret: string;
@@ -27,7 +27,6 @@ type MutableConfig = {
     codingTools: {
       enabled: boolean;
       executionMode: ExecutionMode;
-      bubblewrapPath: string;
     };
   };
 };
@@ -52,7 +51,6 @@ before(async () => {
   security.encryptionSecret = "codex-runtime-test-encryption-secret-2026";
   mutableConfig.sessionSecret = "codex-runtime-test-session-secret-2026";
   codingTools.executionMode = "disabled";
-  codingTools.bubblewrapPath = `/definitely-missing-bwrap-${randomUUID()}`;
   subscription = await import("./codexSubscription.js");
   await initTestDb();
 });
@@ -81,7 +79,6 @@ beforeEach(async (t) => {
   mutableConfig.sessionSecret = "codex-runtime-test-session-secret-2026";
   codingTools.enabled = true;
   codingTools.executionMode = "disabled";
-  codingTools.bubblewrapPath = `/definitely-missing-bwrap-${randomUUID()}`;
   for (const entry of await fs.readdir(tempRoot)) {
     await fs.rm(path.join(tempRoot, entry), { recursive: true, force: true });
   }

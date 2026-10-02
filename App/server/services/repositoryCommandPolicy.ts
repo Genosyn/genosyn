@@ -4,16 +4,17 @@ import type { Repository, RepositoryCommandMode } from "../db/entities/Repositor
  * Which commands an AI Employee may run in a Repository work session.
  *
  * This module is pure: it parses a command string and decides against a list
- * of patterns. Everything about actually spawning a process — the sandbox, the
- * timeout, the operator's execution mode — lives in `repositoryCommandRun.ts`.
+ * of patterns. Everything about actually spawning a process — the timeout, the
+ * output bounds, the operator's execution mode — lives in
+ * `repositoryCommandRun.ts`.
  *
  * The install's execution switch must allow commands before this policy is
  * consulted. `all` widens what Genosyn will agree to run, never where it runs.
  *
  * ## What this is, and what it is not
  *
- * It is **not** a security boundary. Host commands have ordinary process
- * access. Optional bubblewrap adds namespace isolation around the worktree.
+ * It is **not** a security boundary. Commands run on the host with ordinary
+ * process access, as the App OS user.
  *
  * Nor could it be the boundary, and pretending otherwise would be the failure
  * mode to avoid: a shell allowlist is porous by construction. `npm test` runs
@@ -25,10 +26,8 @@ import type { Repository, RepositoryCommandMode } from "../db/entities/Repositor
  * It is a **statement of intent**, and it is where the intent is enforced. A
  * session exists to change one repository; fetching a URL, opening an SSH
  * connection, or pushing a branch are not that, and a company should be able
- * to say so once on the Repository rather than hope. Where it stops being
- * merely a statement is an install that allows the sandbox network, which is
- * the one configuration in which what an employee reaches for can leave the
- * machine.
+ * to say so once on the Repository rather than hope. Commands share the App's
+ * network, so what an employee reaches for can leave the machine.
  *
  * ## Why the parsing is strict
  *
@@ -53,8 +52,8 @@ import type { Repository, RepositoryCommandMode } from "../db/entities/Repositor
  * It deliberately does allow build tooling that can run arbitrary project
  * code (`npm test` runs whatever the repository's package.json says). That is
  * not a hole in the list — running the repository's own code *is* the job, and
- * the sandbox is what makes it safe. The list is about the employee's reach,
- * not the repository's.
+ * an install that enables host execution has accepted it. The list is about
+ * the employee's reach, not the repository's.
  */
 export const DEFAULT_ALLOWED_COMMANDS: string[] = [
   // JavaScript / TypeScript
@@ -440,7 +439,7 @@ export function decideCommand(args: {
     };
   }
   // `all` is the whole point of `all`: no parsing, no matching, no refusal
-  // that a human did not intend. The sandbox is still there.
+  // that a human did not intend. The install's execution mode still applies.
   if (args.mode === "all") return { allowed: true };
 
   const parsed = parseCommandSegments(command);

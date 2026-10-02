@@ -11,8 +11,10 @@ import { config } from "../../config.js";
  * APIs in-process. What remains on disk under
  * `data/companies/<co>/employees/<emp>/` is the employee's model-visible
  * working directory: materialized git repos and chat/tool artifacts. Browser
- * storage state is App-private under `data/.private/browser-state/` so neither
- * host file tools nor bubblewrapped bash can read authenticated cookies.
+ * storage state is App-private under `data/.private/browser-state/`, outside
+ * that directory, so the path-scoped file tools cannot read authenticated
+ * cookies. Host shell commands run as the App user and are not confined by
+ * this layout.
  */
 
 export function dataRoot(): string {
@@ -77,8 +79,8 @@ export function browserRecordingFile(
  * Deliberately a sibling of {@link employeeBrowserStateFile} under
  * `.private/browser-state/<companyId>/`, for two reasons. It inherits the
  * company-delete sweep that already removes that tree, and it stays out of
- * `employeeDir()` — the workspace an employee's own coding tools and
- * bubblewrapped bash can read. A raw Chrome profile is the most sensitive
+ * `employeeDir()` — the workspace an employee's own coding tools work in. A
+ * raw Chrome profile is the most sensitive
  * artifact this app writes: the Cookies SQLite holds a live session for every
  * site the employee has ever signed into, and an employee that can read its own
  * profile can exfiltrate all of them.

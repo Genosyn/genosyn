@@ -67,7 +67,7 @@ WORKDIR /app
 # clear error if the binary is ever absent.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      bash bubblewrap ca-certificates curl ffmpeg git libatomic1 openssh-client \
+      bash ca-certificates curl ffmpeg git libatomic1 openssh-client \
       pulseaudio pulseaudio-utils smbclient \
     && rm -rf /var/lib/apt/lists/*
 
@@ -142,11 +142,9 @@ COPY --from=build /build/App/config.ts ./config.ts
 # Meet notetaker, then execs CMD.
 COPY --chmod=0755 App/docker-entrypoint.sh /usr/local/bin/genosyn-entrypoint
 
-# Host command execution is the default and needs no namespace privileges.
-# Keep bubblewrap installed for operators who explicitly select isolation.
-RUN command -v bwrap >/dev/null \
-    && bwrap --version >/dev/null \
-    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "host" || !config.agent.codingTools.allowUnsafeHostExecution) throw new Error("Expected stock host execution to be enabled");'
+# AI Employee commands run on the host in the stock image, with no namespace
+# privileges. Fail the build if the compiled config ever ships otherwise.
+RUN node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "host" || !config.agent.codingTools.allowUnsafeHostExecution) throw new Error("Expected stock host execution to be enabled");'
 
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing

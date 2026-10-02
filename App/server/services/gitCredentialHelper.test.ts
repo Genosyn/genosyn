@@ -133,7 +133,7 @@ test("credential helper survives a workspace path remap and reads the turn token
   );
   assert.equal(useHttpPath.trim(), "true");
 
-  // Bubblewrap exposes the same checkout at a different absolute path.
+  // The inline helper keeps working when the checkout moves to another path.
   const remounted = path.join(root, "workspace");
   fs.renameSync(path.dirname(original), remounted);
   const repo = path.join(remounted, "repo");

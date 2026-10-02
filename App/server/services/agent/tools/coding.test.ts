@@ -14,27 +14,21 @@ type CodingToolName = (typeof CODING_TOOL_NAMES)[number];
 type CleanupContext = { after: (fn: () => void | Promise<void>) => void };
 
 const mutableCodingConfig = config.agent.codingTools as {
-  executionMode: "host" | "bubblewrap" | "disabled";
-  bubblewrapPath: string;
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalExecutionMode = mutableCodingConfig.executionMode;
-const originalBubblewrapPath = mutableCodingConfig.bubblewrapPath;
 const originalAllowUnsafeHostExecution = mutableCodingConfig.allowUnsafeHostExecution;
 const exec = promisify(execFile);
 const CODING_MODULE_URL = new URL("./coding.ts", import.meta.url).href;
 
 before(() => {
-  // Process behavior is tested without depending on bubblewrap being installed
-  // on the developer machine. The namespace command itself has a separate
-  // pure-construction suite in ../bubblewrap.test.ts.
   mutableCodingConfig.executionMode = "host";
   mutableCodingConfig.allowUnsafeHostExecution = true;
 });
 
 after(() => {
   mutableCodingConfig.executionMode = originalExecutionMode;
-  mutableCodingConfig.bubblewrapPath = originalBubblewrapPath;
   mutableCodingConfig.allowUnsafeHostExecution = originalAllowUnsafeHostExecution;
 });
 
@@ -749,7 +743,7 @@ describe("bash", () => {
     mutableCodingConfig.allowUnsafeHostExecution = false;
     try {
       const result = await toolset(root).bash.run({ command: "touch should-not-exist" });
-      assertToolError(result, /unsafe host command execution is disabled/i);
+      assertToolError(result, /host command execution is disabled.*allowUnsafeHostExecution/i);
       assert.equal(await pathExists(path.join(root, "should-not-exist")), false);
     } finally {
       mutableCodingConfig.allowUnsafeHostExecution = true;
@@ -773,58 +767,6 @@ describe("bash", () => {
       assert.equal(inherited, "unset");
     } finally {
       delete process.env[parentKey];
-    }
-  });
-
-  test("keeps sandbox variables out of the host-side bubblewrap launcher", async (t) => {
-    if (process.platform === "win32") {
-      t.skip("executable scripts are POSIX-specific");
-      return;
-    }
-    const { root } = await makeWorkspace(t);
-    const launcher = path.join(root, "fake-bwrap");
-    await fs.writeFile(
-      launcher,
-      [
-        "#!/bin/sh",
-        "/usr/bin/env > launcher-env.txt",
-        "printf '%s\\n' \"$@\" > launcher-args.txt",
-        "",
-      ].join("\n"),
-      { mode: 0o700 },
-    );
-
-    mutableCodingConfig.executionMode = "bubblewrap";
-    mutableCodingConfig.bubblewrapPath = launcher;
-    try {
-      const result = await toolset(root, {
-        env: {
-          LD_PRELOAD: "/tmp/must-not-reach-launcher.so",
-          TOOL_SECRET: "turn-only-secret",
-        },
-      }).bash.run({ command: "true" });
-      assert.equal(result.isError, false);
-
-      const launcherEnv = await fs.readFile(path.join(root, "launcher-env.txt"), "utf8");
-      assert.doesNotMatch(launcherEnv, /^LD_PRELOAD=/m);
-      assert.doesNotMatch(launcherEnv, /^TOOL_SECRET=/m);
-      assert.match(launcherEnv, /^PATH=/m);
-
-      const args = (await fs.readFile(path.join(root, "launcher-args.txt"), "utf8"))
-        .trimEnd()
-        .split("\n");
-      const preload = args.indexOf("LD_PRELOAD");
-      assert.equal(args[preload - 1], "--setenv");
-      assert.equal(args[preload + 1], "/tmp/must-not-reach-launcher.so");
-      const secret = args.indexOf("TOOL_SECRET");
-      assert.equal(args[secret - 1], "--setenv");
-      assert.equal(args[secret + 1], "turn-only-secret");
-      const home = args.indexOf("HOME");
-      assert.equal(args[home - 1], "--setenv");
-      assert.equal(args[home + 1], "/workspace");
-    } finally {
-      mutableCodingConfig.executionMode = "host";
-      mutableCodingConfig.bubblewrapPath = originalBubblewrapPath;
     }
   });
 

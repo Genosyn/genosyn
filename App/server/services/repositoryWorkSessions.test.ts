@@ -84,7 +84,7 @@ let dataDir: string;
 const originalDataDir = config.dataDir;
 const codingTools = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...codingTools };
@@ -2271,10 +2271,12 @@ describe("the briefing an employee receives", () => {
  */
 describe("a session that can run commands", () => {
   beforeEach(() => {
-    codingTools.executionMode = "bubblewrap";
+    codingTools.executionMode = "host";
+    codingTools.allowUnsafeHostExecution = true;
   });
   after(() => {
     codingTools.executionMode = "disabled";
+    codingTools.allowUnsafeHostExecution = false;
   });
 
   test("tells the employee to verify its own work before committing", () => {

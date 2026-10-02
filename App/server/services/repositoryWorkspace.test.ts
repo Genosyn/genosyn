@@ -43,19 +43,18 @@ const exec = promisify(execFile);
 /**
  * End-to-end exercise of the App-owned repository checkout against real Git.
  *
- * These deliberately run with command execution switched off — the mode boot
- * resolves the shipped `bubblewrap` default to on a host whose sandbox cannot
- * start — because the single most important property of this feature is that
- * it works on an install where the model sandbox never comes up. If someone
- * reinstates the coding gate on server-owned Git, every test in this file
- * fails, which is exactly what should happen.
+ * These deliberately run with command execution switched off, because the
+ * single most important property of this feature is that it works on an
+ * install where AI Employees cannot run commands. If someone reinstates the
+ * coding gate on server-owned Git, every test in this file fails, which is
+ * exactly what should happen.
  */
 
 let dataDir: string;
 const originalDataDir = config.dataDir;
 const codingTools = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...codingTools };
@@ -63,7 +62,7 @@ const originalCodingTools = { ...codingTools };
 before(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-workspace-"));
   (config as { dataDir: string }).dataDir = dataDir;
-  // What a host without a usable sandbox resolves to: execution off entirely.
+  // Command execution off entirely.
   codingTools.enabled = true;
   codingTools.executionMode = "disabled";
   codingTools.allowUnsafeHostExecution = false;

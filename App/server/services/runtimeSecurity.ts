@@ -1,114 +1,31 @@
 import { config } from "../../config.js";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
 import { getPublicUrl, isPublicUrlConfigured } from "./publicUrl.js";
-import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
 import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "../lib/instanceSecrets.js";
-import {
-  codingSandboxRemediation,
-  noteCodingSandboxFallback,
-  type CodingExecutionMode,
-} from "./agent/codingAvailability.js";
-
-const BUBBLEWRAP_PROBE_MARKER = ".genosyn-bubblewrap-probe";
-const BUBBLEWRAP_PROBE_VALUE = "genosyn-bubblewrap-probe-v1";
-
-let bubblewrapProbeCache: {
-  path: string;
-  unshareNetwork: boolean;
-  error: string | null;
-} | null = null;
-
-export function bubblewrapProbeError(): string | null {
-  const unshareNetwork = !config.agent.codingTools.allowNetwork;
-  if (
-    bubblewrapProbeCache?.path === config.agent.codingTools.bubblewrapPath &&
-    bubblewrapProbeCache.unshareNetwork === unshareNetwork
-  ) {
-    return bubblewrapProbeCache.error;
-  }
-  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-bwrap-probe-"));
-  const markerPath = path.join(probeRoot, BUBBLEWRAP_PROBE_MARKER);
-  try {
-    const result = spawnSync(
-      config.agent.codingTools.bubblewrapPath,
-      buildBubblewrapCommandArgs({
-        workspaceRoot: probeRoot,
-        cwd: probeRoot,
-        executable: "/bin/sh",
-        args: [
-          "-c",
-          `printf '%s' '${BUBBLEWRAP_PROBE_VALUE}' > /workspace/${BUBBLEWRAP_PROBE_MARKER}`,
-        ],
-        env: {
-          PATH: "/usr/local/bin:/usr/bin:/bin",
-          HOME: "/workspace",
-          LANG: "C.UTF-8",
-        },
-        unshareNetwork,
-      }),
-      {
-        encoding: "utf8",
-        timeout: 5_000,
-        env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
-      },
-    );
-    let error: string | null;
-    if (result.error || result.status !== 0) {
-      error = (result.stderr || result.error?.message || `exit status ${result.status}`).trim();
-    } else if (
-      !fs.existsSync(markerPath) ||
-      fs.readFileSync(markerPath, "utf8") !== BUBBLEWRAP_PROBE_VALUE
-    ) {
-      error = "bubblewrap exited without running the isolated probe command";
-    } else {
-      error = null;
-    }
-    bubblewrapProbeCache = {
-      path: config.agent.codingTools.bubblewrapPath,
-      unshareNetwork,
-      error,
-    };
-    return error;
-  } finally {
-    fs.rmSync(probeRoot, { recursive: true, force: true });
-  }
-}
-
-/** Test-only seam for deterministic fake-executable probe coverage. */
-export function resetBubblewrapProbeCacheForTests(): void {
-  bubblewrapProbeCache = null;
-}
+import { noteRetiredExecutionMode } from "./agent/codingAvailability.js";
 
 /**
- * Probe an explicitly selected bubblewrap sandbox once before work starts.
- * The default host mode needs no probe. When an operator selected isolation,
- * an unusable sandbox still disables coding rather than changing that choice.
+ * Settle the coding execution mode once, before validation reads it and
+ * before any tool registry, Run, or repository clone does.
  *
- * This can only ever narrow. There is no path from an unusable sandbox to
- * host execution: that remains the operator's separate, acknowledged choice.
- * Multi-tenant installs are left alone deliberately — {@link
- * validateRuntimeSecurity} refuses to boot a shared SaaS whose sandbox does
- * not work, and a silent downgrade would turn that refusal into a surprise.
+ * Bubblewrap isolation was removed. A configuration that still selects it — an
+ * old config.ts, or a Kubernetes overlay rendered by an older chart — asked
+ * for confined commands, so it gets no commands rather than host execution it
+ * never chose. This can only ever narrow: host execution stays the operator's
+ * explicit choice.
  */
 export function resolveCodingExecutionMode(): void {
-  const codingTools = config.agent.codingTools as { executionMode: CodingExecutionMode };
-  if (codingTools.executionMode !== "bubblewrap") return;
-  if (config.security.multiTenant) return;
-
-  const unusable = !fs.existsSync(config.agent.codingTools.bubblewrapPath)
-    ? `no bubblewrap executable at ${config.agent.codingTools.bubblewrapPath}`
-    : bubblewrapProbeError();
-  if (!unusable) return;
+  const codingTools = config.agent.codingTools as { executionMode: string };
+  const selected = codingTools.executionMode;
+  if (selected === "host" || selected === "disabled") return;
 
   codingTools.executionMode = "disabled";
-  noteCodingSandboxFallback(unusable);
+  noteRetiredExecutionMode(
+    `the operator configuration selects the unsupported "${selected}" execution mode. Set config.agent.codingTools.executionMode to "host" to run commands.`,
+  );
   // eslint-disable-next-line no-console
   console.warn(
-    `[security] command execution is disabled: the selected coding sandbox cannot start (${unusable}). ${codingSandboxRemediation(unusable)}`,
+    `[security] command execution is disabled: config.agent.codingTools.executionMode "${selected}" is not supported. Bubblewrap isolation was removed; set it to "host" to run commands on the host, or "disabled" to keep them off.`,
   );
 }
 
@@ -157,27 +74,11 @@ export function validateRuntimeSecurity(): void {
     secretProblems.push("the session and encryption secrets must be different");
   }
   problems.push(...secretProblems);
-  if (config.agent.codingTools.executionMode !== "bubblewrap") {
-    problems.push("config.agent.codingTools.executionMode must be bubblewrap");
-  }
-  if (
-    config.agent.codingTools.executionMode === "bubblewrap" &&
-    !fs.existsSync(config.agent.codingTools.bubblewrapPath)
-  ) {
-    problems.push("the configured bubblewrap executable does not exist");
-  } else if (
-    config.security.multiTenant &&
-    config.agent.codingTools.executionMode === "bubblewrap"
-  ) {
-    const probeError = bubblewrapProbeError();
-    if (probeError) {
-      problems.push(
-        `bubblewrap cannot create the required namespaces (${probeError}); ${codingSandboxRemediation(probeError)}`,
-      );
-    }
-  }
-  if (config.agent.codingTools.allowNetwork) {
-    problems.push("network access inside the coding sandbox must be disabled");
+  // There is no command sandbox. A shared install that let AI Employees run
+  // commands would give one tenant's employee the App's authority over every
+  // other tenant's data.
+  if (config.agent.codingTools.enabled && config.agent.codingTools.executionMode !== "disabled") {
+    problems.push('config.agent.codingTools.executionMode must be "disabled"');
   }
   if (config.agent.browserEnabledInMultiTenant) {
     problems.push("the in-process browser must be disabled");

@@ -4,9 +4,8 @@ import { isIP } from "node:net";
  * Configure a repository-local Git credential helper that reads a token from
  * an environment variable supplied only for the current AI employee turn.
  *
- * The helper is inline on purpose. Employee workspaces are remounted at
- * `/workspace` in bubblewrap mode, so an absolute path written outside the
- * sandbox cannot be executed from inside it.
+ * The helper is inline on purpose, so no helper script has to be written to
+ * disk and kept executable.
  */
 
 type GitConfigRunner = (args: string[]) => Promise<unknown>;

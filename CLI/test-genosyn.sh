@@ -145,8 +145,6 @@ check "enable adds one cron entry" \
   "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
 check "wrapper captures the custom port" \
   "$(grep -Fxc 'export GENOSYN_PORT=9000' "$(auto_update_wrapper_path)")" '1'
-check "wrapper preserves the default ordinary container profile" \
-  "$(grep -Fxc 'export GENOSYN_SANDBOX=0' "$(auto_update_wrapper_path)")" '1'
 check "wrapper captures the backup directory" \
   "$(grep -Fxc "export GENOSYN_BACKUP_DIR=${test_root}/backups" "$(auto_update_wrapper_path)")" '1'
 check "wrapper runs the safe upgrade command" \
@@ -272,6 +270,7 @@ chmod +x "${cron_bin}/crontab" "${cron_bin}/curl" "${cron_bin}/sudo" "${cron_bin
   printf 'export GENOSYN_NAME=%q\n' genosyn
   printf 'export GENOSYN_VOLUME=%q\n' genosyn-data
   printf 'export GENOSYN_IMAGE=%q\n' ghcr.io/genosyn/app:latest
+  # 0.6.0 and 0.7.0 also exported GENOSYN_SANDBOX, which the CLI now ignores.
   printf 'export GENOSYN_SANDBOX=%q\n' 0
   printf 'export GENOSYN_CLI_URL=%q\n' https://genosyn.invalid/genosyn
   printf 'export GENOSYN_BACKUP_DIR=%q\n' "${cron_state}/backups"
@@ -720,26 +719,19 @@ check "run container binds the selected name, port, volume, and image" \
   "$(cat "${command_log}")" \
   "docker <run> <-d> <--name> <company-one> <--restart> <unless-stopped> <-p> <9123:8471> <-v> <company-one-data:/app/data> <registry:5000/genosyn/app:test>"
 
-# The default host execution needs no namespace-related Docker options.
-: >"${command_log}"
-PATH="${test_root}/bin:${PATH}" \
-MOCK_DOCKER_LOG="${command_log}" \
-GENOSYN_SANDBOX="0" \
-bash -c 'source "$1"; run_container_with_image "$2"' \
-  _ "${HERE}/genosyn" "registry:5000/genosyn/app:test"
-check "GENOSYN_SANDBOX=0 keeps the stock container profile" \
-  "$(cat "${command_log}")" \
-  "docker <run> <-d> <--name> <genosyn> <--restart> <unless-stopped> <-p> <8471:8471> <-v> <genosyn-data:/app/data> <registry:5000/genosyn/app:test>"
-
+# GENOSYN_SANDBOX is retired. A value still exported by an operator's shell, or
+# by an auto-update wrapper an older CLI wrote, must change nothing: one plain
+# `docker run`, under Docker's standard security profile.
 : >"${command_log}"
 PATH="${test_root}/bin:${PATH}" \
 MOCK_DOCKER_LOG="${command_log}" \
 GENOSYN_SANDBOX="1" \
 bash -c 'source "$1"; run_container_with_image "$2"' \
   _ "${HERE}/genosyn" "registry:5000/genosyn/app:test"
-check "explicit optional sandbox support adds both required Docker options" \
-  "$(cat "${command_log}")" \
-  "docker <run> <-d> <--name> <genosyn> <--restart> <unless-stopped> <--security-opt> <seccomp=unconfined> <--security-opt> <systempaths=unconfined> <-p> <8471:8471> <-v> <genosyn-data:/app/data> <registry:5000/genosyn/app:test>"
+check "a leftover GENOSYN_SANDBOX=1 still calls docker run exactly once" \
+  "$(grep -Fc 'docker <run>' "${command_log}" || true)" '1'
+check "a leftover GENOSYN_SANDBOX=1 never passes --security-opt" \
+  "$(grep -Fc -e '--security-opt' "${command_log}" || true)" '0'
 
 : >"${command_log}"
 PATH="${test_root}/bin:${PATH}" \
@@ -750,133 +742,6 @@ bash -c 'source "$1"; require_docker() { return 0; }; container_exists() { retur
 check "logs preserves follow and tail flags" \
   "$(cat "${command_log}")" \
   "docker <logs> <-f> <--tail> <25> <company-one>"
-
-echo "sandbox detection on an existing container"
-cat >"${test_root}/bin/docker" <<'EOF'
-#!/usr/bin/env bash
-if [ "${1:-}" = "inspect" ]; then
-  case "$*" in
-    *SecurityOpt*)  printf '%s\n' "${MOCK_SECURITY_OPT}" ;;
-    *MaskedPaths*)  printf '%s\n' "${MOCK_MASKED_PATHS}" ;;
-    *Config.Image*) printf '%s\n' "registry:5000/genosyn/app:test" ;;
-  esac
-fi
-exit 0
-EOF
-chmod +x "${test_root}/bin/docker"
-
-sandbox_ready_result() {
-  PATH="${test_root}/bin:${PATH}" \
-  MOCK_SECURITY_OPT="$1" \
-  MOCK_MASKED_PATHS="$2" \
-    bash -c 'source "$1"; container_sandbox_ready && echo ready || echo missing' \
-    _ "${HERE}/genosyn"
-}
-
-check "a container created with both options is ready" \
-  "$(sandbox_ready_result '["seccomp=unconfined"]' '[]')" 'ready'
-check "no seccomp option means the sandbox cannot start" \
-  "$(sandbox_ready_result 'null' '[]')" 'missing'
-# `systempaths=unconfined` is folded into empty masked/read-only path lists
-# rather than echoed back in SecurityOpt, so retained masks are the tell that
-# only half the options were passed — and bubblewrap then fails mounting /proc
-# rather than failing to create the namespace.
-check "retained masked paths mean the sandbox cannot start" \
-  "$(sandbox_ready_result '["seccomp=unconfined"]' '["/proc/kcore"]')" 'missing'
-
-: >"${command_log}"
-PATH="${test_root}/bin:${PATH}" \
-MOCK_SECURITY_OPT='["seccomp=unconfined"]' \
-MOCK_MASKED_PATHS='["/proc/kcore"]' \
-GENOSYN_SANDBOX="1" \
-  bash -c 'source "$1"
-    recreate_log="$2"
-    wait_for_ready() { return 0; }
-    run_container_with_image() { printf "recreated %s\n" "$1" >>"${recreate_log}"; }
-    ensure_container_sandbox' \
-  _ "${HERE}/genosyn" "${command_log}" >/dev/null 2>&1
-check "an existing container missing the options is recreated from its own image" \
-  "$(cat "${command_log}")" \
-  'recreated registry:5000/genosyn/app:test'
-
-: >"${command_log}"
-PATH="${test_root}/bin:${PATH}" \
-MOCK_SECURITY_OPT='["seccomp=unconfined"]' \
-MOCK_MASKED_PATHS='[]' \
-GENOSYN_SANDBOX="1" \
-  bash -c 'source "$1"
-    recreate_log="$2"
-    run_container_with_image() { printf "recreated %s\n" "$1" >>"${recreate_log}"; }
-    ensure_container_sandbox' \
-  _ "${HERE}/genosyn" "${command_log}" >/dev/null 2>&1
-check "a container that already has them is left alone" \
-  "$(cat "${command_log}")" \
-  ''
-
-# Ordinary upgrades never recreate a container just to add sandbox options.
-: >"${command_log}"
-PATH="${test_root}/bin:${PATH}" \
-MOCK_SECURITY_OPT='null' \
-MOCK_MASKED_PATHS='["/proc/kcore"]' \
-  bash -c 'source "$1"
-    recreate_log="$2"
-    run_container_with_image() { printf "unexpected recreation\n" >>"${recreate_log}"; }
-    ensure_container_sandbox' \
-  _ "${HERE}/genosyn" "${command_log}" >/dev/null 2>&1
-check "the host default leaves existing containers alone without sandbox options" \
-  "$(cat "${command_log}")" ''
-
-# Optional sandbox options may be unsupported. The stock host mode still runs.
-cat >"${test_root}/bin/docker" <<'EOF'
-#!/usr/bin/env bash
-printf 'docker' >>"${MOCK_DOCKER_LOG}"
-printf ' <%s>' "$@" >>"${MOCK_DOCKER_LOG}"
-printf '\n' >>"${MOCK_DOCKER_LOG}"
-case "$*" in
-  *--security-opt*) printf 'docker: invalid --security-opt: systempaths=unconfined\n' >&2; exit 125 ;;
-esac
-exit 0
-EOF
-chmod +x "${test_root}/bin/docker"
-
-: >"${command_log}"
-sandbox_reject_stderr="$(
-  PATH="${test_root}/bin:${PATH}" \
-  MOCK_DOCKER_LOG="${command_log}" \
-  GENOSYN_SANDBOX="1" \
-    bash -c 'source "$1"; run_container_with_image "$2"' \
-    _ "${HERE}/genosyn" "registry:5000/genosyn/app:test" 2>&1 >/dev/null
-)"
-check "a runtime that rejects the options still gets a container" \
-  "$(tail -1 "${command_log}")" \
-  "docker <run> <-d> <--name> <genosyn> <--restart> <unless-stopped> <-p> <8471:8471> <-v> <genosyn-data:/app/data> <registry:5000/genosyn/app:test>"
-check "the rejected attempt is cleaned up before the retry" \
-  "$(grep -Fc 'docker <rm> <-f> <genosyn>' "${command_log}" || true)" '1'
-case "${sandbox_reject_stderr}" in
-  *"Host execution remains available"*) sandbox_reject_explained="explained" ;;
-  *) sandbox_reject_explained="${sandbox_reject_stderr}" ;;
-esac
-check "the operator is told optional sandbox rejection does not disable host execution" \
-  "${sandbox_reject_explained}" 'explained'
-
-# A failure that has nothing to do with sandboxing is the operator's to read.
-cat >"${test_root}/bin/docker" <<'EOF'
-#!/usr/bin/env bash
-printf 'docker' >>"${MOCK_DOCKER_LOG}"
-printf ' <%s>' "$@" >>"${MOCK_DOCKER_LOG}"
-printf '\n' >>"${MOCK_DOCKER_LOG}"
-printf 'docker: Conflict. The container name "/genosyn" is already in use.\n' >&2
-exit 125
-EOF
-chmod +x "${test_root}/bin/docker"
-
-: >"${command_log}"
-PATH="${test_root}/bin:${PATH}" \
-MOCK_DOCKER_LOG="${command_log}" \
-  bash -c 'source "$1"; run_container_with_image "$2"' \
-  _ "${HERE}/genosyn" "registry:5000/genosyn/app:test" >/dev/null 2>&1 || true
-check "an unrelated docker failure is not retried" \
-  "$(grep -Fc 'docker <run>' "${command_log}" || true)" '1'
 
 echo "bootstrap installer smoke tests"
 mkdir -p "${test_root}/bin" "${test_root}/home"

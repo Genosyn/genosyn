@@ -23,16 +23,21 @@ test("the default host surface runs a command through the Codex subscription ada
     codingTools({ cwd, env: {}, bashTimeoutMs: 10_000 }),
   );
   const bash = available.find((tool) => tool.name === "bash");
-  assert.ok(bash, "host coding must include the shell without bubblewrap");
+  assert.ok(bash, "host coding must include the shell");
   const result = await bash.run({ command: "printf 'host coding works'" });
   assert.equal(result.isError, false);
   assert.equal(result.content, "host coding works");
 });
 
-test("optional bubblewrap keeps every coding operation inside its namespace", () => {
+test("a retired execution mode fails closed and exposes no coding adapters", () => {
+  // An old config.ts or chart overlay can still say "bubblewrap" until boot
+  // narrows it; anything but "host" must expose nothing.
+  const retired = "bubblewrap" as unknown as Parameters<
+    typeof filterCodingToolsForExecutionMode
+  >[1];
   assert.deepEqual(
-    filterCodingToolsForExecutionMode(tools, "bubblewrap").map((tool) => tool.name),
-    ["bash"],
+    filterCodingToolsForExecutionMode(tools, retired).map((tool) => tool.name),
+    [],
   );
 });
 
