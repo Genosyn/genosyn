@@ -19,6 +19,7 @@ import { User } from "../db/entities/User.js";
 import { recordAttachmentBytes, discardUnboundAttachment } from "./uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { repositoryWorkSessionCandidates } from "./repositoryWorkSessionModels.js";
+import { workSessionCommandAvailability } from "./repositoryCommandRun.js";
 import {
   CHAT_HARD_TIMEOUT_MS,
   type ChatResult,
@@ -2176,6 +2177,30 @@ describe("session authority", () => {
 });
 
 describe("the briefing an employee receives", () => {
+  test("says how to run a newer Node the repository needs, when commands can run", () => {
+    const nodeRequirement = {
+      major: 26,
+      spec: ">=26",
+      source: "package.json engines.node" as const,
+    };
+    const withCommands = composeWorkSystemPrompt(
+      { ...repository, kind: "code", commandMode: "allowlist" },
+      "s",
+      { nodeRequirement },
+    );
+    if (workSessionCommandAvailability({ commandMode: "allowlist" }).available) {
+      assert.match(withCommands, /### Node version/);
+      assert.match(withCommands, /npx -y -p node@26 -- npm test/);
+    }
+    const withoutCommands = composeWorkSystemPrompt(
+      { ...repository, kind: "code", commandMode: "off" },
+      "s",
+      { nodeRequirement },
+    );
+    assert.doesNotMatch(withoutCommands, /### Node version/);
+    assert.doesNotMatch(composeWorkSystemPrompt(repository, "s"), /### Node version/);
+  });
+
   test("names the session and tells the employee it must commit", () => {
     const prompt = composeWorkSystemPrompt(repository, "session-123");
     assert.match(prompt, /session-123/);

@@ -507,6 +507,15 @@ export function Repositories() {
         commands. OpenCode uses the scoped Repository tools in every mode, preserving work-session
         activity, command policy, and review before delivery.
       </Callout>
+      <P>
+        Genosyn runs on Node 22. When a repository asks for a newer Node — through{" "}
+        <Code>engines.node</Code> in its <Code>package.json</Code>, an <Code>.nvmrc</Code>, or a{" "}
+        <Code>.node-version</Code> — the session&apos;s briefing names the version and tells the
+        employee to run its Node commands through <Code>npx -y -p node@26 -- npm test</Code> (with
+        the major the repository asks for). The first use downloads that Node, so it needs the same
+        network access as installing dependencies. The employee is told never to lower the
+        repository&apos;s requirement to fit the environment.
+      </P>
       <Callout kind="warn" title="A working copy holds only what git tracks.">
         A session&apos;s worktree is created from the Repository&apos;s history, so it has no
         <Code> node_modules</Code>, virtualenv, or vendor directory. Host execution can install

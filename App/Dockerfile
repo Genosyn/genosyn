@@ -54,6 +54,10 @@ WORKDIR /app
 # SSH-auth repos run `ssh` via GIT_SSH_COMMAND); curl is a common utility the
 # `bash` tool reaches for, and is also how the Chrome apt key is fetched below.
 #
+# libatomic1 lets a work session run a newer Node than this image's through
+# `npx -p node@<major>`: Node 23 and later link against it, and the slim base
+# image does not ship it (see services/repositoryNodeVersion.ts).
+#
 # smbclient backs the `smb` backup destination kind, which pushes archives to a
 # NAS with no mount required. It's here rather than as an npm dependency
 # because every JS SMB client tops out at SMB 2.1 and none of them implement
@@ -63,7 +67,7 @@ WORKDIR /app
 # clear error if the binary is ever absent.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      bash bubblewrap ca-certificates curl ffmpeg git openssh-client \
+      bash bubblewrap ca-certificates curl ffmpeg git libatomic1 openssh-client \
       pulseaudio pulseaudio-utils smbclient \
     && rm -rf /var/lib/apt/lists/*
 
