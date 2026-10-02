@@ -121,8 +121,8 @@ export function Verification() {
       <P>
         An <Code>effect</Code> Check is a predicate over what the server recorded this Run changing
         — the <DocLink to="/docs/verification#effects">Effects</DocLink> list below. It needs no
-        shell, no sandbox, and no extra model turn, which is what keeps Checks from being a luxury
-        only some installs get. Four fields:
+        shell and no extra model turn, so it works on every install, including one with command
+        execution disabled. Four fields:
       </P>
       <UL>
         <LI>
@@ -149,16 +149,18 @@ export function Verification() {
 
       <H3 id="command-checks">Writing a command Check</H3>
       <P>
-        A <Code>command</Code> Check runs a shell command in the configured execution mode, rooted
-        at the employee&apos;s working directory, and passes on exit <Code>0</Code>. It can run a
-        test suite, a <Code>git diff --exit-code</Code>, or a script that checks the endpoint the
-        Run was supposed to deploy. The exit code and the tail of the output land on the result.
+        A <Code>command</Code> Check runs a shell command in the configured execution mode,
+        starting in the employee&apos;s working directory, and passes on exit <Code>0</Code>. It
+        can run a test suite, a <Code>git diff --exit-code</Code>, or a script that checks the
+        endpoint the Run was supposed to deploy. The exit code and the tail of the output land on
+        the result.
       </P>
       <Callout kind="info" title="Command Checks follow the execution mode.">
-        Command Checks work in the default host mode and in optional bubblewrap mode. Host commands
-        have the App process user&apos;s authority; bubblewrap commands use the configured isolated
-        boundary. In disabled mode, use <Code>effect</Code> Checks instead. A Check that cannot run
-        records <Strong>not passed</Strong>, with the reason; it never counts as a pass.
+        In the default host mode, a command Check runs directly on the host with the App process
+        user&apos;s authority, like the employee&apos;s own commands; there is no sandbox around it.
+        With command execution disabled, Genosyn refuses to create a command Check, and an existing
+        one records <Strong>not passed</Strong> with the reason — use <Code>effect</Code> Checks
+        there instead. A Check that cannot run never counts as a pass.
       </Callout>
 
       <H2 id="effects">The Effects list</H2>

@@ -106,11 +106,11 @@ export function Install() {
         volume above keeps it across container restarts and upgrades.
       </P>
       <Callout kind="info" title="OpenCode is included; host coding works by default.">
-        AI work uses the bundled OpenCode runtime, with commands running inside the App container
-        under the App process user. The default needs no additional Docker security options or Linux
-        user namespaces. Optional bubblewrap isolation is available through
-        <DocLink to="/docs/self-hosting"> Configuration</DocLink>; selecting it also requires
-        Docker&apos;s namespace and <Code>/proc</Code> options.
+        AI work uses the bundled OpenCode runtime. Commands run directly inside the App container
+        with the App process user&apos;s filesystem and network authority; there is no OS sandbox,
+        and the container keeps Docker&apos;s standard security profile with no extra options. To
+        stop command execution, set the execution mode to <Code>disabled</Code> in{" "}
+        <DocLink to="/docs/self-hosting#config-ts">Configuration</DocLink>.
       </Callout>
 
       <H2 id="next-steps">Next steps</H2>

@@ -70,27 +70,30 @@ the pinned OpenCode 1.18.31 binary and SDK. OpenCode manages model turns,
 tool execution, and context compaction; Genosyn supplies the company context,
 Grants, Approvals, and domain tools and persists the transcript and work state.
 The default `host` execution mode enables OpenCode's native coding tools for
-ordinary employee work, including shell commands, without an OS sandbox. In
-Docker those commands run inside the App container with the App process user's
-authority; no special Docker security options are required. `disabled` skips
-coding and employee repository materialization. Optional `bubblewrap` uses the
-scoped command tool and disables OpenCode's native coding tools. Restricted
+ordinary employee work, including shell commands. AI Employee commands —
+OpenCode's native coding tools, Genosyn's command tools, Repository
+work-session commands, command Checks, and server-managed Git — run directly on
+the host (inside the App container when using Docker) with the App process
+user's filesystem and network authority. A working directory, tool permission,
+command allowlist, or Grant is not an OS sandbox, and no Docker security
+options are required. `disabled` exposes no coding tools and materializes no
+employee repositories. A config that still selects the removed `bubblewrap`
+mode starts with command execution disabled and logs a warning. Restricted
 review turns also omit native coding. Repository work sessions receive only
 `repository_*` tools, retaining their own worktrees, command policy, review,
-and delivery lifecycle in host or optional bubblewrap mode.
+and delivery lifecycle.
 
-A trusted, single-tenant OpenAI subscription model continues to use the
-official pinned `@openai/codex` app-server with a locked temporary `CODEX_HOME`
-and a separate empty scratch directory. Subscription coding uses Genosyn's
-coding wrappers in the selected host or bubblewrap mode. Model credentials remain encrypted on
+An OpenAI subscription model continues to use the official pinned
+`@openai/codex` app-server with a locked temporary `CODEX_HOME` and a separate
+empty scratch directory, in host or disabled mode. Subscription coding uses
+Genosyn's coding wrappers in host mode. Model credentials remain encrypted on
 the AI Model row. API-key requests pass through a per-turn Genosyn proxy, so
 OpenCode receives only a disposable proxy token. Runtime authentication and state are temporary and never
 stored in employee working directories. Genosyn provides the product tools
 (Routines/Todos/Journal/Memory/Bases/attachments), browser tools when enabled,
-and company-configured HTTP MCP servers. User-configured stdio MCP servers are
-available in trusted single-tenant host mode and omitted in disabled and
-bubblewrap modes. The agent transcript is written to `Run.logContent` (capped
-at 256KB). When no model or usable credential
+and company-configured HTTP MCP servers. User-configured stdio MCP servers run
+in host mode and are omitted in disabled mode. The agent transcript is written
+to `Run.logContent` (capped at 256KB). When no model or usable credential
 is configured, the run is marked `skipped` with an explanatory log. Subscription
-auth supports one trusted, single-tenant App process; use API-key models when
-horizontally scaling App replicas.
+auth supports one App process; use API-key models when horizontally scaling App
+replicas.

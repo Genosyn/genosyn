@@ -37,8 +37,8 @@ export function ToolDiscovery() {
       <UL>
         <LI>
           <Strong>Coding tools</Strong> — OpenCode&apos;s native coding tools for ordinary host-mode
-          work, none in disabled or restricted review turns, or isolated <Code>bash</Code> in
-          optional bubblewrap mode. Repository work sessions have their own scoped tools.
+          work, and none in disabled mode or restricted review turns. Repository work sessions have
+          their own scoped tools.
         </LI>
         <LI>
           <Strong>Everything that writes</Strong> — creating a Routine, a Project, a Todo, a journal

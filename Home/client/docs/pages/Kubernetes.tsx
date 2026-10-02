@@ -50,16 +50,16 @@ export function Kubernetes() {
   --set ingress.enabled=true --set ingress.host=genosyn.example.com \\
   --set ingress.tls.enabled=true --set ingress.tls.secretName=genosyn-tls`}</Pre>
       <P>
-        The default chart enables shared SaaS mode, bundled Postgres, and the coding sandbox, with
-        one replica and a 20Gi volume at <Code>/app/data</Code>. Supply your own operator email,
-        hostname, and TLS Secret, or let the chart provide TLS: <Code>ingress.tls.certManager.enabled</Code>{" "}
-        issues it through cert-manager, and on GKE <Code>gke.enabled</Code> with{" "}
-        <Code>gke.managedCertificate.enabled</Code> uses a Google-managed certificate in place of the
-        TLS flags above. Private installations can use the repository&apos;s{" "}
-        <Code>Helm/genosyn/values-selfhost.yaml</Code> overlay for SQLite and single-tenant mode.
-        The pod becomes Ready once every migration has run — <Code>/api/health</Code> answers{" "}
-        <Code>{"{ ok: true, version }"}</Code> only after boot completes, so a pending readiness
-        probe during the first minute is normal. The handful of values that matter:
+        The chart runs Genosyn single-tenant — one organization per install — with bundled
+        Postgres, one replica, and a 20Gi volume at <Code>/app/data</Code>; a bare{" "}
+        <Code>helm install</Code> works too. For real use, supply your operator email, hostname,
+        and TLS Secret as above, or let the chart provide TLS:{" "}
+        <Code>ingress.tls.certManager.enabled</Code> issues it through cert-manager, and on GKE{" "}
+        <Code>gke.enabled</Code> with <Code>gke.managedCertificate.enabled</Code> uses a
+        Google-managed certificate instead. The repository&apos;s{" "}
+        <Code>Helm/genosyn/values-selfhost.yaml</Code> keeps SQLite on the data volume instead of
+        Postgres. The pod becomes Ready once every migration has run, so a pending readiness probe
+        in the first minute is normal. The values that matter:
       </P>
       <KeyList
         rows={[
@@ -98,14 +98,8 @@ export function Kubernetes() {
             def: "Bundled single-node Postgres for evaluation (implies driver: postgres). No HA, no backups — production installs run their own.",
           },
           {
-            term: "sandbox.enabled",
-            def: (
-              <>
-                Grants the securityContext that bubblewrap needs. On in the chart&apos;s shared SaaS
-                default; off in <Code>values-selfhost.yaml</Code>, which uses host coding. See the
-                execution-mode callout below for cluster requirements.
-              </>
-            ),
+            term: "config.bootstrapMasterAdminEmail",
+            def: "Recommended. Register this address and open its verification link, and it becomes master admin at once. Without it, no account is promoted until the App restarts. Either way, every App start with no master admin promotes the earliest registered account, so claim it before sharing the address.",
           },
           {
             term: "secrets.existingSecret",
@@ -120,15 +114,22 @@ export function Kubernetes() {
         ]}
       />
       <P>
-        Upgrades are plain Helm — the chart version tracks the app version, so upgrading the chart
-        upgrades Genosyn:
+        The full values reference and upgrade notes live in the chart&apos;s README, in the
+        repository&apos;s <Code>Helm/genosyn</Code> directory. Upgrades are plain Helm — the chart
+        version tracks the app version, so upgrading the chart upgrades Genosyn:
       </P>
       <Pre lang="bash">{`helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn \\
   -n genosyn --reuse-values`}</Pre>
+
+      <H2 id="single-tenant">One organization per install</H2>
       <P>
-        The full values reference, the multi-tenant checklist, and the sandbox details live in the
-        chart&apos;s README in the <Code>Helm/genosyn</Code> directory of the repository. The rest
-        of this page explains what the chart deploys and how to operate it.
+        AI Employee commands run inside the App container as the App user (<Code>node</Code>, uid
+        1000), with that user&apos;s filesystem and network authority. There is no OS sandbox, so
+        commands can reach every company&apos;s data in the install. Give each unrelated
+        organization its own install; the chart refuses <Code>config.multiTenant=true</Code> and{" "}
+        <Code>sandbox.enabled=true</Code>. Keep <Code>replicaCount</Code> at 1: Repository work
+        sessions, ChatGPT subscription models, and Member browsers depend on state held in one App
+        process, so more than one replica is not supported.
       </P>
 
       <H2 id="saas-deploy">Test and production SaaS deployments</H2>
@@ -153,30 +154,30 @@ export function Kubernetes() {
         </LI>
       </UL>
       <P>
-        Both profiles enable SaaS security and the sandbox. They use one replica,{" "}
-        <Code>Recreate</Code>, and a persistent <Code>ReadWriteOnce</Code> volume from the
-        cluster&apos;s default StorageClass. Select your ingress controller with{" "}
-        <Code>ingress.className</Code>, or leave it empty for the cluster default. The chart uses
-        standard Kubernetes resources; configure HTTPS redirects, WebSockets, streaming timeouts,
-        and query-string-free access logs in your ingress infrastructure, or on GKE&apos;s built-in
-        Ingress set <Code>gke.enabled</Code> and the chart configures them. Controller settings can
-        pass through <Code>ingress.annotations</Code> and <Code>service.annotations</Code>.
-        Kubernetes probes still use <Code>/api/health</Code>. The App trusts one HTTP proxy hop by
-        default (two with <Code>gke.enabled</Code>); adjust <Code>trustedProxyHops</Code> through{" "}
-        <Code>config.extraJs</Code> to match your proxy chain, and keep the App port private. Supply
-        TLS and a suitable StorageClass; the cluster must support the sandbox (the App container
-        runs AppArmor-unconfined, and on GKE it belongs on Container-Optimized OS nodes), and
-        production needs backups. Helm creates Secrets from
-        each profile&apos;s private <Code>secrets.sessionSecret</Code>,{" "}
+        Both profiles run single-tenant; an environment deployed with an earlier chart needs{" "}
+        <Code>config.multiTenant: false</Code> in its profile once (see{" "}
+        <DocLink to="/docs/kubernetes#multi-tenant-upgrade">Upgrading</DocLink>). They use one
+        replica, <Code>Recreate</Code>, and a persistent <Code>ReadWriteOnce</Code> volume from the
+        cluster&apos;s default StorageClass; production needs backups. Select your ingress
+        controller with <Code>ingress.className</Code>, or leave it empty for the cluster default.
+        The chart uses standard Kubernetes resources; configure HTTPS redirects, WebSockets,
+        streaming timeouts, and query-string-free access logs in your ingress infrastructure, or on
+        GKE&apos;s built-in Ingress set <Code>gke.enabled</Code> and the chart configures them.
+        Controller settings can pass through <Code>ingress.annotations</Code> and{" "}
+        <Code>service.annotations</Code>. The App trusts one HTTP proxy hop by default (two with{" "}
+        <Code>gke.enabled</Code>); adjust <Code>trustedProxyHops</Code> through{" "}
+        <Code>config.extraJs</Code> to match your proxy chain, and keep the App port private. Helm
+        creates Secrets from each profile&apos;s private <Code>secrets.sessionSecret</Code>,{" "}
         <Code>secrets.encryptionSecret</Code>, and <Code>postgres.password</Code>. Keep these values
         stable and back them up with the database; deployment previews omit Secret documents.
       </P>
       <P>
         Set <Code>config.bootstrapMasterAdminEmail</Code> in your local profile or pass{" "}
-        <Code>GENOSYN_BOOTSTRAP_ADMIN_EMAIL</Code>. Deployment requires an explicit operator email.
-        Commands deploy the published image named by <Code>VERSION</Code>; they do not build or
-        publish it. Use <Code>GENOSYN_IMAGE_TAG</Code> for another release or a pinned{" "}
-        <Code>sha-</Code> commit tag. Preview before deploying:
+        <Code>GENOSYN_BOOTSTRAP_ADMIN_EMAIL</Code>, so a new environment&apos;s operator can claim
+        the master-admin account. Commands deploy the published image named by{" "}
+        <Code>VERSION</Code>; they do not build or publish it. Use{" "}
+        <Code>GENOSYN_IMAGE_TAG</Code> for another release or a pinned <Code>sha-</Code> commit
+        tag. Preview before deploying:
       </P>
       <Pre lang="bash">{`GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operator@example.com npm run template-deploy-test
 GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operator@example.com npm run template-deploy-prod
@@ -193,50 +194,43 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
       <P>
         Deployment waits for App readiness, then initializes the stored HTTPS public URL for a fresh
         database. It does not replace an existing different URL; change that at{" "}
-        <Code>Admin → General</Code>. Verify DNS and HTTPS before opening registration, then verify
-        the configured operator and set <Code>Admin → Email transport</Code> for verification and
-        recovery messages. OAuth apps belong at <Code>Admin → Integrations</Code>. Keep the public
-        URL at <Code>https://app.genosyn.com</Code>.
-        For hosted sign-in, set{" "}
+        <Code>Admin → General</Code>, and keep it at <Code>https://app.genosyn.com</Code>. Verify
+        DNS and HTTPS before opening registration, then verify the configured operator and set{" "}
+        <Code>Admin → Email transport</Code> for verification and recovery messages. OAuth apps
+        belong at <Code>Admin → Integrations</Code>. For hosted sign-in, set{" "}
         <Strong>Admin → Runtime → Hosted sign-in → Hosted sign-in address</Strong> to{" "}
         <Code>https://connect.genosyn.com</Code> before enabling hosting. Register Google&apos;s new{" "}
         <Code>https://connect.genosyn.com/api/connect/google/callback</Code> alongside the
         App&apos;s ordinary Google redirect URI; retain the legacy{" "}
         <Code>/api/google-sign-in/callback</Code> for older installations. Test leaves the extra
-        host off. See <DocLink to="/docs/saas-hosting">shared SaaS setup</DocLink> for these final steps.
+        host off.
       </P>
       <P>
         New profiles use <Code>ingress.connect.enabled</Code>, <Code>host</Code>, and{" "}
-        <Code>tlsSecretName</Code>. Existing <Code>ingress.gmailSignIn</Code> values remain
-        supported; each supplied <Code>connect</Code> field overrides its legacy counterpart,
-        including <Code>enabled: false</Code>. Unspecified fields inherit the legacy value.
-        The Connect host shares the App Service and requires its own TLS Secret and a distinct
-        hostname. Its <Code>/api/connect</Code> prefix accommodates future providers without
-        ingress changes, while App and administration pages remain on the primary host.
+        <Code>tlsSecretName</Code>. Legacy <Code>ingress.gmailSignIn</Code> values still work: each
+        supplied <Code>connect</Code> field, even <Code>enabled: false</Code>, overrides its legacy
+        counterpart, and unspecified ones inherit it. The Connect host needs its own TLS Secret and
+        a distinct hostname; its <Code>/api/connect</Code> prefix fits future providers without
+        ingress changes.
       </P>
 
       <H2 id="architecture">Architecture</H2>
       <P>
-        Genosyn runs one App container per replica. Everything that needs to survive a restart is
-        either in Postgres or under <Code>/app/data</Code>:
+        Genosyn runs as one App container, a single replica (see{" "}
+        <DocLink to="/docs/kubernetes#single-tenant">One organization per install</DocLink>).
+        Everything that needs to survive a restart is either in the database or under{" "}
+        <Code>/app/data</Code>:
       </P>
       <UL>
         <LI>
-          <Strong>Deployment.</Strong> Keep ordinary self-hosted installs at one replica. Shared
-          SaaS mode supports multiple replicas through Postgres leases, database-backed auth flow
-          state, and cross-replica realtime fan-out; follow{" "}
-          <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
+          <Strong>PersistentVolumeClaim</Strong> at <Code>/app/data</Code> (ReadWriteOnce). Holds
+          materialized git checkouts, browser state, tool artifacts, and uploaded attachments.
+          Model and Connection credentials stay encrypted in the database.
         </LI>
         <LI>
-          <Strong>PersistentVolumeClaim</Strong> at <Code>/app/data</Code> (ReadWriteOnce is fine
-          for one replica; use ReadWriteMany when scaling). Holds materialized git checkouts,
-          browser state, tool artifacts, and uploaded attachments. Model and Connection credentials
-          stay encrypted in Postgres.
-        </LI>
-        <LI>
-          <Strong>External Postgres.</Strong> SaaS requires Postgres; private installations can
-          persist SQLite on the data volume. Run Postgres in-cluster (a separate Helm chart,
-          CloudNativePG, Zalando, …) or point at a managed instance.
+          <Strong>Postgres.</Strong> The chart bundles a single-node Postgres for evaluation;
+          production runs its own in-cluster (a separate Helm chart, CloudNativePG, Zalando, …) or
+          points at a managed instance.
         </LI>
         <LI>
           <Strong>Secret with config overrides.</Strong> Genosyn&apos;s config is a bundled
@@ -258,25 +252,15 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         rows={[
           {
             term: "Cluster",
-            def: "A cluster that permits the sandbox securityContext and user namespaces. Confirm support before deploying shared SaaS; it refuses to start without a working sandbox.",
+            def: "Any conformant cluster. The App pod runs as an unprivileged user and requests no special security settings.",
           },
           {
             term: "Postgres",
-            def: (
-              <>
-                Reachable from the cluster. Genosyn runs every migration on boot, so an empty
-                database is fine.
-              </>
-            ),
+            def: "Reachable from the cluster. Genosyn runs every migration on boot, so an empty database is fine.",
           },
           {
             term: "StorageClass",
-            def: (
-              <>
-                One that supports <Code>ReadWriteOnce</Code>. The default class on every managed
-                cluster qualifies.
-              </>
-            ),
+            def: "One that supports ReadWriteOnce. The default class on every managed cluster qualifies.",
           },
           {
             term: "Ingress",
@@ -306,17 +290,19 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         meetings, the container&apos;s browser, and the agent&apos;s taint policy, member browsers,
         and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>{" "}
         and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
-        ConfigMap edit and a rollout. Signup needs the initial public URL: with an HTTPS Ingress or{" "}
-        <Code>config.publicUrl</Code>, a post-install Job stores it; otherwise run the command
-        below. Later changes belong at <Code>Admin → General</Code>, and the Job keeps them. Those
-        values are stored in Postgres and shared by every replica.
+        ConfigMap edit and a rollout. Email links, OAuth callbacks, and Secure session cookies
+        follow the stored public URL. On Postgres with an HTTPS Ingress or{" "}
+        <Code>config.publicUrl</Code>, a post-install Job stores it; then sign in through that HTTPS
+        address, not a plain <Code>http://</Code> port-forward. Otherwise the first master
+        admin&apos;s sign-in records its browser origin, or run the command below. Later changes
+        belong at <Code>Admin → General</Code>, and the Job keeps them.
       </P>
       <Pre lang="bash">{`kubectl exec -n genosyn deploy/genosyn -- node dist/server/scripts/setupPublicUrl.js --url https://genosyn.example.com`}</Pre>
       <Callout kind="info" title="Claiming the first account before SMTP exists.">
-        A fresh install has no mail transport, so the bootstrap master admin&apos;s verification
-        link is written to the pod log instead of being sent. Read it with{" "}
-        <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
-        account, enroll two-factor authentication, then configure SMTP at{" "}
+        A fresh install has no mail transport, so the verification link for{" "}
+        <Code>config.bootstrapMasterAdminEmail</Code> is written to the pod log instead of being
+        sent. Read it with <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the
+        browser to claim the account, enroll two-factor authentication, then configure SMTP at{" "}
         <Code>Admin → Email transport</Code>. Successful enrollment authorizes that browser session
         immediately. Boot warns until you do, and <Code>Admin → Instance Health</Code> flags the
         transport meanwhile. A link that scrolled out of the log can be reissued from{" "}
@@ -336,7 +322,8 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
       </P>
       <P>
         <Strong>Recreate</Strong> over <Strong>RollingUpdate</Strong> because an RWO volume can only
-        attach to one pod at a time. The old pod must terminate before the new one schedules.
+        attach to one pod at a time, and the App runs as a single process. The old pod must
+        terminate before the new one schedules.
       </P>
       <P>
         Both probes hit <Code>GET /api/health</Code>, which returns{" "}
@@ -344,16 +331,6 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         migrations included. That makes it exactly right for readiness: traffic arrives only after
         the schema is current.
       </P>
-      <Callout kind="info" title="Execution mode follows the deployment shape.">
-        The single-tenant self-host values file uses host coding. OpenCode runs commands with the App
-        process user&apos;s authority inside the pod, so no additional namespace permissions are
-        required. The chart&apos;s default shared SaaS deployment uses bubblewrap instead. Its
-        <Code> sandbox.enabled</Code> setting adds <Code>seccompProfile: Unconfined</Code> and
-        <Code> procMount: Unmasked</Code>; supported clusters also use
-        <Code> hostUsers: false</Code>. Cluster feature gates and admission policy must permit those
-        fields. Shared SaaS refuses to boot without working isolation; the self-host values file
-        selects host execution and needs none of those fields.
-      </Callout>
 
       <H2 id="upgrading">Upgrading</H2>
       <P>
@@ -368,6 +345,23 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
         deployments. Image tags carry no <Code>v</Code> prefix, even though the matching GitHub
         release does: the release is <Code>v1.155.0</Code>, the image is <Code>app:1.155.0</Code>.
       </P>
+
+      <H3 id="multi-tenant-upgrade">Multi-tenant and sandboxed releases</H3>
+      <P>
+        Earlier charts defaulted to shared multi-tenant mode in the bubblewrap sandbox. This chart
+        runs single-tenant, and AI Employee commands run in the App container without an OS
+        sandbox, with access to every company&apos;s data in the install — so{" "}
+        <Code>helm upgrade</Code> stops before changing anything until you confirm. Set{" "}
+        <Code>config.multiTenant=false</Code> once for a release that ran multi-tenant (or, if
+        several unrelated organizations share it, give each its own install), and{" "}
+        <Code>sandbox.enabled=false</Code> once for a single-tenant release that ran in the
+        sandbox, or for values that still enable it. Explicit <Code>false</Code> is always
+        accepted, and other leftover <Code>sandbox</Code> keys are ignored.{" "}
+        <Code>--reuse-values</Code> renders the previous chart&apos;s defaults, which set both, so
+        it needs both flags:
+      </P>
+      <Pre lang="bash">{`helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn -n genosyn \\
+  --reuse-values --set config.multiTenant=false --set sandbox.enabled=false`}</Pre>
 
       <H2 id="backups">Backups</H2>
       <P>

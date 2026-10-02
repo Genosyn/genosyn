@@ -500,12 +500,12 @@ export function Repositories() {
         directory alongside the command.
       </P>
       <Callout kind="info" title="Commands use the installation's execution mode.">
-        The default host mode runs commands in the session&apos;s worktree with the App process
-        user&apos;s authority. The command list expresses what the company permits; it is not an OS
-        sandbox. Optional <Code>bubblewrap</Code> mode isolates commands to that worktree and
-        applies the installation&apos;s network setting. Disabled mode runs work sessions without
-        commands. OpenCode uses the scoped Repository tools in every mode, preserving work-session
-        activity, command policy, and review before delivery.
+        The default host mode starts commands in the session&apos;s worktree and runs them directly
+        on the host with the App process user&apos;s filesystem and network authority. The worktree
+        keeps changes separate and the command list expresses what the company permits; neither is
+        an OS sandbox. Disabled mode runs work sessions without commands. OpenCode uses the scoped
+        Repository tools in both modes, preserving work-session activity, command policy, and review
+        before delivery.
       </Callout>
       <P>
         Genosyn runs on Node 22. When a repository asks for a newer Node — through{" "}
@@ -519,9 +519,8 @@ export function Repositories() {
       <Callout kind="warn" title="A working copy holds only what git tracks.">
         A session&apos;s worktree is created from the Repository&apos;s history, so it has no
         <Code> node_modules</Code>, virtualenv, or vendor directory. Host execution can install
-        dependencies using the App container&apos;s network. With optional bubblewrap, network
-        access depends on <Code>agent.codingTools.allowNetwork</Code>, off by default. If required
-        dependencies cannot be installed, the employee reports the checks it could not run.
+        dependencies using the App container&apos;s network. If required dependencies cannot be
+        installed, the employee reports the checks it could not run.
       </Callout>
       <H2 id="proactive-work">Work that starts from email or a Routine</H2>
       <P>

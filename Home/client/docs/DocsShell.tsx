@@ -38,7 +38,6 @@ const PATH_TO_SOURCE: Record<string, string> = {
   "/docs/vault": "Vault.tsx",
   "/docs/vault-sources": "VaultSources.tsx",
   "/docs/self-hosting": "SelfHosting.tsx",
-  "/docs/saas-hosting": "SaasHosting.tsx",
   "/docs/cli": "Cli.tsx",
   "/docs/vocabulary": "Vocabulary.tsx",
 };

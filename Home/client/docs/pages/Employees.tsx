@@ -123,9 +123,8 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
-          takes an API key; OpenAI takes an API key or, on trusted single-tenant Genosyn, eligible
-          ChatGPT subscription access; Custom takes an OpenAI-compatible endpoint. You can skip this
-          and connect one later.
+          takes an API key; OpenAI takes an API key or eligible ChatGPT subscription access; Custom
+          takes an OpenAI-compatible endpoint. You can skip this and connect one later.
         </LI>
         <LI>
           <Strong>Write the Soul.</Strong> Answer the short About questions, then review the seeded
@@ -167,9 +166,10 @@ export function Employees() {
       </pre>
       <P>
         API-key and custom models use OpenCode. Ordinary employee work uses its native coding tools
-        in the default host mode, including shell commands; this directory is the starting location,
-        not an OS sandbox. Optional bubblewrap mode provides isolated commands, and disabled mode
-        omits coding and employee repository materialization. Repository work sessions use their own
+        in the default host mode, including shell commands. They run directly on the host (inside
+        the App container under Docker) with the App process user&apos;s filesystem and network
+        authority; this directory is the starting location, not an OS sandbox. Disabled mode omits
+        coding and employee repository materialization. Repository work sessions use their own
         worktrees and scoped tools. The runner captures the transcript into the Run log.
       </P>
       <P>
@@ -185,7 +185,7 @@ export function Employees() {
         official Codex app-server with a locked temporary <Code>CODEX_HOME</Code> for a login or
         Run. Managed ChatGPT sessions are materialized there; access tokens enter only the child
         process environment. Genosyn removes temporary authentication state afterward. Subscription
-        auth supports a trusted single-tenant App process in host, bubblewrap, or disabled mode.
+        auth works in host or disabled mode on a single App process.
       </P>
 
       <H3 id="org-chart">Org chart</H3>

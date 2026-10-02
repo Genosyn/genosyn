@@ -178,10 +178,10 @@ export function Vault() {
         closed.
       </Callout>
       <Callout kind="info" title="Host coding shares the App process authority">
-        Vault Grants govern access through Genosyn&apos;s tools. The default host coding mode is not
-        an OS sandbox: a command can access files and services available to the App process user.
-        Select optional bubblewrap or disable coding when that process-level separation is required.
-        See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
+        Vault Grants govern access through Genosyn&apos;s tools. Host coding is not an OS sandbox:
+        a command can access files and services available to the App process user, and Genosyn has
+        no isolation mode. Set the execution mode to <Code>disabled</Code> when commands must not
+        run at all. See <DocLink to="/docs/self-hosting#config-ts">Configuration</DocLink>.
       </Callout>
       <P>
         With Manage, <Code>update_vault_login</Code> can change the title, username, or private

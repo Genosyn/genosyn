@@ -35,13 +35,10 @@ export function MemberBrowsers() {
         starts signed into nothing. You sign in once, inside that window, to each site you want the
         employee to use. Both reasons for this are hard ones, and they are spelled out below.
       </Callout>
-      <Callout kind="warn" title="Unavailable in shared SaaS mode">
-        The fail-closed hosted profile refuses to boot with member browsers enabled. A tenant would
-        be leaving a bearer-authenticated channel into a personal computer standing against shared
-        infrastructure, and the operator has no way to reason about whose laptop it reaches. It
-        remains available for single-tenant self-hosting, where it is on by default and can be
-        turned off by a master admin at <Code>Admin → Runtime</Code> under <Strong>Agent</Strong>.
-        Multi-tenant mode forces it off regardless of what is saved there.
+      <Callout kind="info" title="On by default">
+        A master admin can turn member browsers off for the whole install by clearing{" "}
+        <Strong>Member browsers enabled</Strong> at <Code>Admin → Runtime</Code> under{" "}
+        <Strong>Agent</Strong>.
       </Callout>
 
       <H2 id="what-it-is">What it is</H2>

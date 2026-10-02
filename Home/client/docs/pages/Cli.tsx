@@ -204,17 +204,6 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             ),
           },
           {
-            term: "GENOSYN_SANDBOX",
-            def: (
-              <>
-                Default <Code>0</Code>: keep Docker&apos;s standard profile and use host coding. Set{" "}
-                <Code>1</Code> for optional bubblewrap support, adding
-                <Code> seccomp=unconfined</Code> and <Code>systempaths=unconfined</Code>. Select
-                bubblewrap execution in the boot configuration when you want that isolation.
-              </>
-            ),
-          },
-          {
             term: "GENOSYN_AUTO_UPDATE",
             def: (
               <>
