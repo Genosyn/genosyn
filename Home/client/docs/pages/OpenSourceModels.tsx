@@ -137,29 +137,146 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\
         MCP tool use to work — without them, vLLM will return tool calls as raw text and the agent
         will treat them as a normal message.
       </P>
-      <Callout kind="warn" title="Hybrid models need prefix caching switched on.">
-        Every step of a Routine resends the whole conversation so far — often 50k–130k tokens.
-        With prefix caching the server only reads what is new; without it, each step re-reads
-        everything and a GPU spends most of its time doing so. vLLM caches by default for ordinary
-        models but not for hybrid linear-attention ones (Qwen3.5 and later, Qwen3-Next). Add{" "}
-        <Code>--enable-prefix-caching --mamba-cache-mode align</Code> (with the CLI:{" "}
-        <Code>VLLM_EXTRA_ARGS</Code> in <Code>~/.genosyn/vllm/.env</Code>), then watch{" "}
-        <Code>Prefix cache hit rate</Code> in the server log climb above zero once a Routine runs.
-      </Callout>
-      <Callout kind="tip" title="Models with multi-token prediction write faster with it on.">
-        A Routine spends most of its time waiting for the model to write, one token at a time.
-        Models that ship multi-token prediction weights (Qwen3.5 and later) can propose several
-        tokens per step, and the server keeps only those the full model agrees with. Add{" "}
-        <Code>{`--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`}</Code>; with
-        vLLM 0.30 on one A100 serving two Routines it raised generation from about 49 to 80–90
-        tokens a second. On vLLM 0.24 the same setting crashed a Qwen3.8 server with prefix caching
-        about every half hour (<Code>device-side assert triggered</Code> in its log); Runs wait out
-        such a restart, but upgrading vLLM avoids it. If the server runs out of GPU memory while
-        starting, add{" "}
-        <Code>--max-num-seqs 32</Code>: by default it reserves room for far more simultaneous
-        requests than a few Routines make. The server log&apos;s <Code>SpecDecoding metrics</Code>{" "}
-        line shows how many proposed tokens it accepts.
-      </Callout>
+      <H3 id="vllm-tuning">Tune vLLM for Routines</H3>
+      <P>
+        A Routine is not a chat. Every step resends the whole conversation so far — often 100k–230k
+        tokens — then writes a long reply, often after thinking first, and two or three Routines
+        may share the GPU. vLLM&apos;s defaults suit short chats. This configuration runs a
+        company&apos;s Routines on Qwen3.8-27B with one 80 GB A100 and vLLM 0.30:
+      </P>
+      <Pre lang="bash">{`export VLLM_API_KEY="$(openssl rand -hex 24)"   # paste the same value into Genosyn
+
+docker run -d --name vllm --restart unless-stopped --gpus all --ipc=host -p 8000:8000 \\
+  -v ~/.cache/huggingface:/root/.cache/huggingface -e VLLM_API_KEY \\
+  vllm/vllm-openai:v0.30.0 \\
+  --model Qwen/Qwen3.8-27B \\
+  --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 \\
+  --max-model-len 262144 --gpu-memory-utilization 0.92 \\
+  --enable-prefix-caching --mamba-cache-mode align \\
+  --kv-cache-dtype fp8 --max-num-seqs 32 \\
+  --speculative-config '{"method":"mtp","num_speculative_tokens":3}'`}</Pre>
+      <P>What each setting is for:</P>
+      <KeyList
+        rows={[
+          {
+            term: "--tool-call-parser qwen3_coder --reasoning-parser qwen3",
+            def: (
+              <>
+                Qwen3.5 and later write tool calls in their own format. Without the matching parser
+                vLLM returns them as plain text and the employee never calls a tool. The reasoning
+                parser keeps the model&apos;s thinking out of the reply Genosyn reads. Other
+                families need their own parser: <Code>hermes</Code> for Qwen2.5,{" "}
+                <Code>llama3_json</Code> for Llama 3.x.
+              </>
+            ),
+          },
+          {
+            term: "--max-model-len 262144",
+            def: (
+              <>
+                The model&apos;s full native window. A Routine&apos;s conversation reaches
+                100k–230k tokens before OpenCode compacts it, so a 32k window — the CLI&apos;s
+                default — compacts almost every step. Enter the same number as the model&apos;s{" "}
+                <a href="#context-window">context window</a> in Genosyn.
+              </>
+            ),
+          },
+          {
+            term: "--gpu-memory-utilization 0.92",
+            def: "Whatever is left after the weights becomes the cache that holds conversations. vLLM keeps part of it for CUDA graphs; lower it if startup runs out of memory.",
+          },
+          {
+            term: "--enable-prefix-caching --mamba-cache-mode align",
+            def: (
+              <>
+                With prefix caching the server reads only the new part of each resent conversation;
+                without it, every step re-reads everything and the GPU spends most of its time doing
+                so. vLLM caches by default for ordinary models but not for hybrid linear-attention
+                ones (Qwen3.5 and later, Qwen3-Next), which also need the <Code>align</Code> cache
+                mode. In Routines the <Code>Prefix cache hit rate</Code> in the log settles at
+                70–90%.
+              </>
+            ),
+          },
+          {
+            term: "--kv-cache-dtype fp8",
+            def: "Stores that cache in 8 bits instead of 16. On the A100 above it grew from about 300k to 560k tokens: room for two long Routines at once instead of one. vLLM warns it can cost a little accuracy; Routines have run on it without a difference we could see.",
+          },
+          {
+            term: "--speculative-config (multi-token prediction)",
+            def: (
+              <>
+                Models that ship multi-token prediction weights (Qwen3.5 and later) propose several
+                tokens per step — three, as configured above — and the server keeps only those the
+                full model agrees with. With
+                two Routines, generation rose from about 49 to 80–90 tokens a second. Use vLLM 0.30
+                or later: on 0.24 the same setting crashed a Qwen3.8 server with prefix caching
+                about every half hour (<Code>device-side assert triggered</Code> in its log).
+              </>
+            ),
+          },
+          {
+            term: "--max-num-seqs 32",
+            def: "Caps how many requests vLLM batches at once. The default reserves memory for far more requests than a few Routines make, and with multi-token prediction that reservation ran the A100 out of memory at startup.",
+          },
+          {
+            term: "Image vllm/vllm-openai:v0.30.0",
+            def: "Pin the image version instead of latest, so a restart never changes vLLM under your Routines. Upgrade on purpose, then watch the log.",
+          },
+        ]}
+      />
+      <P>Then set the same numbers in Genosyn, on the AI Model&apos;s card:</P>
+      <UL>
+        <LI>
+          <Strong>Context window</Strong>: the server&apos;s <Code>--max-model-len</Code>,{" "}
+          <Code>262144</Code> above.
+        </LI>
+        <LI>
+          <Strong>Concurrent Routine Runs</Strong>: no more than the startup log&apos;s{" "}
+          <Code>Maximum concurrency for 262,144 tokens per request</Code> — how many full
+          conversations fit in the cache at once. For the setup above it reads 1.97x, so 2. See{" "}
+          <a href="#busy-model">When the model is busy</a>.
+        </LI>
+      </UL>
+      <P>
+        With the CLI, <Code>genosyn vllm up</Code> takes the common settings as flags. Put the rest
+        in <Code>~/.genosyn/vllm/.env</Code>, then run <Code>genosyn vllm up</Code> again to
+        restart the server with them:
+      </P>
+      <Pre lang="bash">{`genosyn vllm up --model Qwen/Qwen3.8-27B --tag v0.30.0 --parser qwen3_coder \\
+  --max-model-len 262144 --gpu-util 0.92 --api-key "$(openssl rand -hex 24)"
+
+# ~/.genosyn/vllm/.env — keep the single quotes around the JSON
+VLLM_EXTRA_ARGS=--reasoning-parser qwen3 --enable-prefix-caching --mamba-cache-mode align --kv-cache-dtype fp8 --max-num-seqs 32 --speculative-config '{"method":"mtp","num_speculative_tokens":3}'`}</Pre>
+      <P>To check it is working, read the server log:</P>
+      <UL>
+        <LI>
+          At startup, <Code>GPU KV cache size</Code> says how many tokens of conversation fit;
+          the line after it gives the maximum concurrency.
+        </LI>
+        <LI>
+          <Code>Prefix cache hit rate</Code> climbs to 70–90% once Routines run. Near zero means
+          the prefix-caching flags are missing.
+        </LI>
+        <LI>
+          <Code>SpecDecoding metrics</Code> shows a <Code>Mean acceptance length</Code> around
+          2.5–3 with three speculative tokens.
+        </LI>
+        <LI>
+          If <Code>Waiting: N reqs</Code> stays above zero, the GPU is saturated. Another
+          application sending bursts of parallel requests to the same server slows Routines
+          sharply; give it its own server, or lower Concurrent Routine Runs.
+        </LI>
+        <LI>
+          A rising <Code>vllm:num_preemptions_total</Code> on the server&apos;s{" "}
+          <Code>/metrics</Code> means the cache is too small for the requests sharing it.
+        </LI>
+      </UL>
+      <P>
+        Changing a flag means restarting the server, which takes 2–6 minutes while it loads the
+        weights, compiles and captures CUDA graphs. Running Routines wait for it and carry on (
+        <a href="#busy-model">When the model is busy</a>).
+      </P>
 
       <H3 id="llama-cpp">llama.cpp (most portable)</H3>
       <P>
@@ -462,10 +579,10 @@ llama-server \\
         </LI>
         <LI>
           <Strong>Slow, or Routines end as timeout Errors.</Strong> First check that the server
-          reuses prompts (the prefix-caching note under vLLM above) and that Routines are not all
-          sharing the GPU at once (<a href="#busy-model">When the model is busy</a>). Then quantize
-          down (q8 → q5) or pin the layers to GPU (<Code>--n-gpu-layers</Code> in llama.cpp). If
-          your GPU is still saturated, the answer is more hardware, not more tuning.
+          reuses prompts (<a href="#vllm-tuning">Tune vLLM for Routines</a>) and that Routines are
+          not all sharing the GPU at once (<a href="#busy-model">When the model is busy</a>). Then
+          quantize down (q8 → q5) or pin the layers to GPU (<Code>--n-gpu-layers</Code> in
+          llama.cpp). If your GPU is still saturated, the answer is more hardware, not more tuning.
         </LI>
       </UL>
 
