@@ -156,3 +156,50 @@ test("the application's No grant error is categorized as authorization", () => {
   assert.equal(report.toolErrors[0].step?.callId, "denied");
   assert.equal(report.failure, null);
 });
+
+// 2026-10-02: a Google Analytics audit Run handed its unfinished work to a
+// continuation after 2.5M tokens, and its view said both "Continuation
+// scheduled" and "Failure details · unknown · The Run did not finish
+// successfully".
+test("a Run that handed its work to a continuation reports no invented failure", () => {
+  const handoff = {
+    status: "failed" as const,
+    errorKind: null,
+    checkpointJson: JSON.stringify({
+      state: "continue",
+      completed: "Pulled GA4 totals for both windows.",
+      remaining: "Compare landing pages.",
+      resume: "Start with the landing-page report.",
+      progressKey: "totals",
+    }),
+  };
+  assert.equal(readRunDiagnostics(run(handoff)).failure, null);
+
+  const stored = readRunDiagnostics(run({ status: "failed", errorKind: null }));
+  assert.equal(stored.failure?.category, "unknown", "the record an earlier release saved");
+  assert.equal(
+    readRunDiagnostics(run({ ...handoff, diagnosticsJson: JSON.stringify(stored) })).failure,
+    null,
+    "a saved invented failure is dropped on read",
+  );
+
+  const recorder = new RunDiagnosticRecorder();
+  recorder.fail("The AI Model request failed (HTTP 502).", "model");
+  assert.equal(
+    readRunDiagnostics(run({ ...handoff, diagnosticsJson: recorder.json() })).failure?.category,
+    "model",
+    "a recorded failure is kept",
+  );
+  assert.match(
+    readRunDiagnostics(
+      run({ ...handoff, continuationStopReason: "The original Routine time limit ended." }),
+    ).failure?.message ?? "",
+    /time limit ended/,
+    "a continuation that was stopped still explains why",
+  );
+  assert.equal(
+    readRunDiagnostics(run({ ...handoff, checkpointJson: null })).failure?.category,
+    "unknown",
+    "a failed Run without saved progress still reports its failure",
+  );
+});
