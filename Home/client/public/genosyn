@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.7.0"
+CLI_VERSION="0.8.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -120,6 +120,35 @@ file_sha256() {
   fi
 }
 
+# Whether a file is a genosyn CLI this host can run: a bash script that
+# declares CLI_VERSION and parses. Checked before a file replaces a CLI,
+# because automatic updates run whatever their copy holds -- a truncated
+# download or an error page installed there would wedge every later run.
+cli_file_valid() {
+  [ -s "$1" ] \
+    && head -1 "$1" | grep -q '^#!' \
+    && grep -q '^CLI_VERSION=' "$1" \
+    && bash -n "$1" >/dev/null 2>&1
+}
+
+# The CLI_VERSION a CLI file declares; empty when it declares none.
+cli_file_version() {
+  sed -n 's/^CLI_VERSION="\([^"]*\)".*/\1/p' "$1" 2>/dev/null
+}
+
+# Replace $2 with a copy of $1 by renaming a temporary file over it in the same
+# directory: nothing ever sees a half-written file, and a run still executing
+# the old file keeps reading the old file.
+replace_file_atomically() {
+  local src="$1" dest="$2" mode="$3" tmp
+  tmp="$(mktemp "${dest}.XXXXXX")" || return 1
+  if cp "${src}" "${tmp}" && chmod "${mode}" "${tmp}" && mv -f "${tmp}" "${dest}"; then
+    return 0
+  fi
+  rm -f "${tmp}"
+  return 1
+}
+
 # Download the latest CLI from CLI_URL and replace the running script if it
 # differs. Returns 0 if no change (already up to date or download skipped),
 # 1 if the binary on disk was replaced (caller should re-exec to pick it up).
@@ -153,9 +182,9 @@ self_upgrade() {
     return 0
   fi
 
-  if ! head -1 "${tmp}" | grep -q '^#!'; then
+  if ! cli_file_valid "${tmp}"; then
     rm -f "${tmp}"
-    [ "${quiet}" = "1" ] || warn "Downloaded CLI does not look like a shell script — keeping current."
+    [ "${quiet}" = "1" ] || warn "Downloaded file is not a working genosyn CLI — keeping current."
     return 0
   fi
 
@@ -188,9 +217,16 @@ self_upgrade() {
 # ---------- automatic upgrades ----------
 
 # Fresh installs schedule a daily `genosyn upgrade` through the host's cron.
-# A small wrapper captures this instance's CLI path and Docker overrides so
+# A small wrapper captures this instance's settings and Docker overrides so
 # cron does not depend on its deliberately sparse environment. One entry is
 # kept per container name, which lets operators maintain several instances.
+#
+# The wrapper runs the schedule's own copy of the CLI, not the installed one.
+# The installer usually leaves /usr/local/bin/genosyn owned by root, which a
+# cron job cannot replace without a password, so self-upgrade failed there on
+# every run and each night repeated an outdated CLI. The copy belongs to the
+# crontab's owner, so each run updates it first and then runs the latest CLI,
+# while the `genosyn` people run by hand keeps working as it always has.
 auto_update_key() {
   printf '%s' "${NAME}" | tr -c '[:alnum:]_.-' '_'
 }
@@ -211,42 +247,136 @@ auto_update_disabled_path() {
   printf '%s/auto-update-%s.disabled' "${AUTO_UPDATE_DIR}" "$(auto_update_key)"
 }
 
+auto_update_cli_path() {
+  printf '%s/auto-update-%s.cli' "${AUTO_UPDATE_DIR}" "$(auto_update_key)"
+}
+
+# The wrapper line naming the CLI it runs. It tells a wrapper that runs the
+# schedule's own copy apart from one an older CLI wrote.
+auto_update_cli_line() {
+  printf 'cli_path=%q' "$(auto_update_cli_path)"
+}
+
 auto_update_enabled() {
   command -v crontab >/dev/null 2>&1 || return 1
   [ -x "$(auto_update_wrapper_path)" ] || return 1
   crontab -l 2>/dev/null | grep -Fq "$(auto_update_marker)"
 }
 
-write_auto_update_wrapper() {
-  local wrapper tmp cli_path log_path
-  wrapper="$(auto_update_wrapper_path)"
-  tmp="${wrapper}.tmp.$$"
-  cli_path="$(self_path)"
-  log_path="$(auto_update_log_path)"
+# The copy must stay something its own runs can execute and replace.
+auto_update_cli_usable() {
+  local cli
+  cli="$(auto_update_cli_path)"
+  [ -f "${cli}" ] && [ -O "${cli}" ] && [ -w "${cli}" ] && [ -x "${cli}" ] \
+    && cli_file_valid "${cli}"
+}
 
-  mkdir -p "${AUTO_UPDATE_DIR}"
-  {
-    printf '%s\n' '#!/usr/bin/env bash' 'set -uo pipefail'
-    printf 'export PATH=%q\n' "${PATH}"
-    printf 'export GENOSYN_PORT=%q\n' "${PORT}"
-    printf 'export GENOSYN_NAME=%q\n' "${NAME}"
-    printf 'export GENOSYN_VOLUME=%q\n' "${VOLUME}"
-    printf 'export GENOSYN_IMAGE=%q\n' "${IMAGE}"
-    printf 'export GENOSYN_SANDBOX=%q\n' "${SANDBOX}"
-    printf 'export GENOSYN_CLI_URL=%q\n' "${CLI_URL}"
-    printf 'export GENOSYN_BACKUP_DIR=%q\n' "${UPGRADE_BACKUP_DIR}"
-    printf 'log_path=%q\n' "${log_path}"
-    printf 'cli_path=%q\n' "${cli_path}"
-    cat <<'EOF'
+auto_update_runs_own_cli() {
+  auto_update_cli_usable \
+    && grep -Fxq -- "$(auto_update_cli_line)" "$(auto_update_wrapper_path)" 2>/dev/null
+}
+
+# Cron runs whatever this directory holds, so nobody but the crontab's owner
+# may be able to change it. Refusing one another user owns, or one inside
+# another user's directory, also keeps a root crontab (sudo can keep HOME)
+# from running a launcher an ordinary user could swap out.
+prepare_auto_update_dir() {
+  local parent_owner
+  mkdir -p "${AUTO_UPDATE_DIR}" || return 1
+  parent_owner="$(ls -ldn "${AUTO_UPDATE_DIR}/.." 2>/dev/null | awk '{ print $3 }')" || true
+  if [ ! -O "${AUTO_UPDATE_DIR}" ] \
+    || { [ "${parent_owner}" != "$(id -u)" ] && [ "${parent_owner}" != "0" ]; }; then
+    warn "Automatic updates will not run code from ${AUTO_UPDATE_DIR}: another user can change it."
+    return 1
+  fi
+  chmod go-w "${AUTO_UPDATE_DIR}"
+}
+
+# Give the schedule its own copy of the running CLI.
+install_auto_update_cli() {
+  local src
+  src="$(self_path)"
+  prepare_auto_update_dir || return 1
+  cli_file_valid "${src}" || return 1
+  replace_file_atomically "${src}" "$(auto_update_cli_path)" 0755
+}
+
+# The launcher cron starts. It passes nothing but `upgrade`, which every CLI
+# version understands, so it can never outrun the copy it starts.
+auto_update_wrapper_content() {
+  printf '%s\n' '#!/usr/bin/env bash' 'set -uo pipefail'
+  printf 'export PATH=%q\n' "${PATH}"
+  printf 'export GENOSYN_PORT=%q\n' "${PORT}"
+  printf 'export GENOSYN_NAME=%q\n' "${NAME}"
+  printf 'export GENOSYN_VOLUME=%q\n' "${VOLUME}"
+  printf 'export GENOSYN_IMAGE=%q\n' "${IMAGE}"
+  printf 'export GENOSYN_SANDBOX=%q\n' "${SANDBOX}"
+  printf 'export GENOSYN_CLI_URL=%q\n' "${CLI_URL}"
+  printf 'export GENOSYN_BACKUP_DIR=%q\n' "${UPGRADE_BACKUP_DIR}"
+  printf 'export GENOSYN_STATE_DIR=%q\n' "${AUTO_UPDATE_DIR}"
+  printf 'log_path=%q\n' "$(auto_update_log_path)"
+  printf '%s\n' "$(auto_update_cli_line)"
+  cat <<'EOF'
 mkdir -p "$(dirname "${log_path}")"
 {
   printf '\n[%s] Starting automatic Genosyn update\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   "${cli_path}" upgrade
 } >>"${log_path}" 2>&1
 EOF
-  } >"${tmp}"
-  chmod 0700 "${tmp}"
-  mv "${tmp}" "${wrapper}"
+}
+
+write_auto_update_wrapper() {
+  local wrapper tmp
+  wrapper="$(auto_update_wrapper_path)"
+  prepare_auto_update_dir || return 1
+  tmp="$(mktemp "${wrapper}.XXXXXX")" || return 1
+  if auto_update_wrapper_content >"${tmp}" && chmod 0700 "${tmp}" && mv -f "${tmp}" "${wrapper}"; then
+    return 0
+  fi
+  rm -f "${tmp}"
+  return 1
+}
+
+# Point a wrapper an older CLI wrote at the schedule's own copy, keeping every
+# other line. Those wrappers run the installed CLI. Rewriting one from this
+# shell's environment instead could quietly move the nightly job to another
+# port or image; the copy's first run rewrites it from the environment the
+# wrapper exported, which is exactly what it captured.
+repoint_auto_update_wrapper() {
+  local wrapper tmp line found=0
+  wrapper="$(auto_update_wrapper_path)"
+  prepare_auto_update_dir || return 1
+  tmp="$(mktemp "${wrapper}.XXXXXX")" || return 1
+  while IFS= read -r line || [ -n "${line}" ]; do
+    case "${line}" in
+      cli_path=*) line="$(auto_update_cli_line)"; found=1 ;;
+    esac
+    printf '%s\n' "${line}"
+  done <"${wrapper}" >"${tmp}"
+  if [ "${found}" = "1" ] && chmod 0700 "${tmp}" && mv -f "${tmp}" "${wrapper}"; then
+    return 0
+  fi
+  rm -f "${tmp}"
+  return 1
+}
+
+# Every upgrade keeps an enabled schedule on a copy it can replace: it restores
+# a missing or unusable copy and moves a wrapper an older CLI wrote onto it.
+# When this run *is* the copy, its environment is what the wrapper exported,
+# so a wrapper this version would write differently is rewritten from it. That
+# is how later wrapper changes reach existing installs without anyone acting.
+refresh_auto_update_launcher() {
+  if ! auto_update_cli_usable; then
+    install_auto_update_cli || return 1
+  fi
+  if ! grep -Fxq -- "$(auto_update_cli_line)" "$(auto_update_wrapper_path)"; then
+    repoint_auto_update_wrapper || return 1
+    ok "Automatic updates now run their own copy of the CLI, which they can update without sudo."
+  elif [ "$(self_path)" -ef "$(auto_update_cli_path)" ] \
+    && [ "$(auto_update_wrapper_content)" != "$(cat "$(auto_update_wrapper_path)")" ]; then
+    write_auto_update_wrapper || return 1
+    ok "Refreshed the automatic update launcher."
+  fi
 }
 
 enable_auto_update() {
@@ -259,7 +389,7 @@ enable_auto_update() {
     return 1
   fi
 
-  if ! write_auto_update_wrapper; then
+  if ! install_auto_update_cli || ! write_auto_update_wrapper; then
     [ "${quiet}" = "1" ] || warn "Could not write the automatic update launcher under ${AUTO_UPDATE_DIR}."
     return 1
   fi
@@ -275,7 +405,7 @@ enable_auto_update() {
     [ -z "${filtered}" ] || printf '%s\n' "${filtered}"
     printf '%s\n' "${line}"
   } | crontab -; then
-    rm -f "${wrapper}"
+    rm -f "${wrapper}" "$(auto_update_cli_path)"
     [ "${quiet}" = "1" ] || warn "Could not install the automatic update cron entry."
     return 1
   fi
@@ -307,7 +437,7 @@ disable_auto_update() {
     fi
   fi
 
-  rm -f "$(auto_update_wrapper_path)"
+  rm -f "$(auto_update_wrapper_path)" "$(auto_update_cli_path)"
   if [ "${cron_ok}" = "0" ]; then
     [ "${quiet}" = "1" ] || warn "The update launcher was disabled, but its stale cron entry could not be removed."
     return 1
@@ -317,7 +447,11 @@ disable_auto_update() {
 
 ensure_auto_update_default() {
   [ -e "$(auto_update_disabled_path)" ] && return 0
-  auto_update_enabled && return 0
+  if auto_update_enabled; then
+    refresh_auto_update_launcher \
+      || warn "Could not update the automatic update launcher under ${AUTO_UPDATE_DIR}. Run 'genosyn auto-update on' to rewrite it."
+    return 0
+  fi
   if ! enable_auto_update 1; then
     warn "Automatic updates are on by default, but cron setup failed. Run 'genosyn auto-update on' after installing cron."
   fi
@@ -1148,6 +1282,12 @@ cmd_auto_update() {
       if auto_update_enabled; then
         printf '%sEnabled%s — daily at 03:17 local time\n' "${C_GREEN}" "${C_RESET}"
         printf '%sLog%s      %s\n' "${C_DIM}" "${C_RESET}" "$(auto_update_log_path)"
+        if auto_update_runs_own_cli; then
+          printf '%sCLI%s      %s (%s)\n' "${C_DIM}" "${C_RESET}" \
+            "$(auto_update_cli_path)" "$(cli_file_version "$(auto_update_cli_path)")"
+        else
+          warn "These updates cannot replace their own CLI yet. Run 'genosyn upgrade' once to give them a copy they can update without sudo."
+        fi
       else
         printf '%sDisabled%s — run %sgenosyn auto-update on%s to enable\n' \
           "${C_YELLOW}" "${C_RESET}" "${C_BOLD}" "${C_RESET}"

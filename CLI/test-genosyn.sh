@@ -122,6 +122,13 @@ case "${1:-}" in
 esac
 EOF
 chmod +x "${test_root}/bin/crontab"
+# The wrapper below captures this PATH, and the test runs it. Whatever it ends
+# up starting must not reach the real Docker daemon, the network, or sudo --
+# not even when the code under test is broken.
+for tool in docker curl wget sudo; do
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"${test_root}/bin/${tool}"
+  chmod +x "${test_root}/bin/${tool}"
+done
 
 original_path="${PATH}"
 PATH="${test_root}/bin:${PATH}"
@@ -144,17 +151,40 @@ check "wrapper captures the backup directory" \
   "$(grep -Fxc "export GENOSYN_BACKUP_DIR=${test_root}/backups" "$(auto_update_wrapper_path)")" '1'
 check "wrapper runs the safe upgrade command" \
   "$(grep -Fxc '  "${cli_path}" upgrade' "$(auto_update_wrapper_path)")" '1'
+# The command is only as safe as the CLI it runs: the schedule's own copy,
+# which starts as exactly the CLI that scheduled it.
+check "the upgrade command runs the schedule's own CLI copy" \
+  "$(grep -Fxc "cli_path=$(printf '%q' "${test_root}/state/auto-update-genosyn-test.cli")" "$(auto_update_wrapper_path)")" '1'
+check "the schedule's copy starts as the CLI that scheduled it" \
+  "$(file_sha256 "$(auto_update_cli_path)")" "$(file_sha256 "${HERE}/genosyn")"
+check "wrapper tells the copy where its schedule lives" \
+  "$(grep -Fxc "export GENOSYN_STATE_DIR=$(printf '%q' "${test_root}/state")" "$(auto_update_wrapper_path)")" '1'
+
+# Run the wrapper the way cron does -- a bare environment -- with a recorder
+# standing in for the copy, to see exactly what a nightly run executes.
+cat >"$(auto_update_cli_path)" <<'EOF' || true
+#!/usr/bin/env bash
+printf 'ran %s %s on port %s\n' "$0" "$*" "${GENOSYN_PORT}"
+EOF
+env -i HOME="${test_root}" PATH=/usr/bin:/bin "$(auto_update_wrapper_path)" </dev/null || true
+check "a cron run executes only 'upgrade', from the copy, with the captured settings" \
+  "$(tail -1 "$(auto_update_log_path)")" \
+  "ran ${test_root}/state/auto-update-genosyn-test.cli upgrade on port 9000"
 
 # Enabling again refreshes the wrapper and schedule instead of duplicating it.
 enable_auto_update 1
 check "re-enable remains idempotent" \
   "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
+check "re-enabling resets the schedule's copy to the CLI that enabled it" \
+  "$(file_sha256 "$(auto_update_cli_path)")" "$(file_sha256 "${HERE}/genosyn")"
 
 disable_auto_update 1
 check "disable removes only the Genosyn cron entry" \
   "$(cat "${mock_crontab}")" '5 2 * * * /usr/local/bin/backup'
 check "disable removes the generated wrapper" \
   "$([ ! -e "$(auto_update_wrapper_path)" ] && echo yes || echo no)" 'yes'
+check "disable removes the schedule's CLI copy" \
+  "$([ ! -e "$(auto_update_cli_path)" ] && echo yes || echo no)" 'yes'
 check "disable records the operator opt-out" \
   "$([ -e "$(auto_update_disabled_path)" ] && echo yes || echo no)" 'yes'
 
@@ -168,6 +198,211 @@ check "existing installs adopt the default-on schedule" \
   "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
 
 PATH="${original_path}"
+rm -rf "${test_root}"
+trap - EXIT
+
+# The install this exists for: the installer left /usr/local/bin/genosyn
+# owned by root, the schedule was set up by an older CLI, and cron has no
+# passwordless sudo -- so every nightly run used to repeat the outdated CLI.
+echo "automatic updates — replace their own CLI without sudo"
+test_root="$(mktemp -d -t genosyn-cli-cron-test.XXXXXX)"
+trap 'chmod -R u+w "${test_root}" 2>/dev/null; rm -rf "${test_root}"' EXIT
+cron_home="${test_root}/home"
+cron_bin="${test_root}/bin"
+cron_state="${cron_home}/.genosyn"
+cron_wrapper="${cron_state}/auto-update-genosyn.sh"
+cron_copy="${cron_state}/auto-update-genosyn.cli"
+cron_log="${cron_state}/auto-update-genosyn.log"
+cron_path="${cron_bin}:/usr/bin:/bin:/usr/sbin:/sbin"
+mkdir -p "${cron_bin}" "${cron_state}" "${test_root}/usr-local/bin"
+
+installed="${test_root}/usr-local/bin/genosyn"
+cp "${HERE}/genosyn" "${installed}"
+chmod 0555 "${installed}" "${test_root}/usr-local/bin"
+
+# What genosyn.com serves next: a newer CLI that says when it runs.
+published="${test_root}/published-genosyn"
+sed 's/^CLI_VERSION=.*/CLI_VERSION="9.9.9"; echo "CLI ${CLI_VERSION} is running"/' \
+  "${HERE}/genosyn" >"${published}"
+
+cat >"${cron_bin}/crontab" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -l) [ -f "${MOCK_CRONTAB_FILE}" ] || exit 1; cat "${MOCK_CRONTAB_FILE}" ;;
+  -) cat >"${MOCK_CRONTAB_FILE}" ;;
+  -r) rm -f "${MOCK_CRONTAB_FILE}" ;;
+  *) exit 2 ;;
+esac
+EOF
+cat >"${cron_bin}/curl" <<'EOF'
+#!/usr/bin/env bash
+dest=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) dest="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cp "${MOCK_CURL_SOURCE}" "${dest}"
+EOF
+# No passwordless sudo, as on the reported install. Any call is recorded.
+cat >"${cron_bin}/sudo" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${MOCK_SUDO_LOG}"
+exit 1
+EOF
+# A running container already on the newest image.
+cat >"${cron_bin}/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${MOCK_DOCKER_LOG}"
+case "${1:-}" in
+  ps) printf '%s\n' genosyn ;;
+  inspect) printf '%s\n' sha256:current ;;
+  image) case "$*" in *'{{.Id}}'*) printf '%s\n' sha256:current ;; esac ;;
+esac
+exit 0
+EOF
+chmod +x "${cron_bin}/crontab" "${cron_bin}/curl" "${cron_bin}/sudo" "${cron_bin}/docker"
+
+# The wrapper CLI 0.3.0 through 0.7.0 wrote: it runs the installed CLI.
+{
+  printf '%s\n' '#!/usr/bin/env bash' 'set -uo pipefail'
+  printf 'export PATH=%q\n' "${cron_path}"
+  printf 'export GENOSYN_PORT=%q\n' 9100
+  printf 'export GENOSYN_NAME=%q\n' genosyn
+  printf 'export GENOSYN_VOLUME=%q\n' genosyn-data
+  printf 'export GENOSYN_IMAGE=%q\n' ghcr.io/genosyn/app:latest
+  printf 'export GENOSYN_SANDBOX=%q\n' 0
+  printf 'export GENOSYN_CLI_URL=%q\n' https://genosyn.invalid/genosyn
+  printf 'export GENOSYN_BACKUP_DIR=%q\n' "${cron_state}/backups"
+  printf 'log_path=%q\n' "${cron_log}"
+  printf 'cli_path=%q\n' "${installed}"
+  cat <<'EOF'
+mkdir -p "$(dirname "${log_path}")"
+{
+  printf '\n[%s] Starting automatic Genosyn update\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "${cli_path}" upgrade
+} >>"${log_path}" 2>&1
+EOF
+} >"${cron_wrapper}"
+chmod 0700 "${cron_wrapper}"
+printf '17 3 * * * %q # genosyn-auto-update:genosyn\n' "${cron_wrapper}" >"${test_root}/crontab"
+cron_entry="$(cat "${test_root}/crontab")"
+
+# Commands an operator runs by hand, with the installed CLI. Their shell has
+# no GENOSYN_PORT, so the default port would leak in if anything re-captured.
+run_installed() {
+  HOME="${cron_home}" PATH="${cron_path}" \
+  MOCK_CRONTAB_FILE="${test_root}/crontab" \
+    bash -c 'source "$1"; shift; "$@"' _ "${installed}" "$@" </dev/null 2>&1
+}
+
+# A nightly run: cron's bare environment, then whatever the wrapper exports.
+run_cron() {
+  env -i HOME="${cron_home}" PATH=/usr/bin:/bin \
+    MOCK_CRONTAB_FILE="${test_root}/crontab" \
+    MOCK_CURL_SOURCE="$1" \
+    MOCK_SUDO_LOG="${test_root}/sudo.log" \
+    MOCK_DOCKER_LOG="${test_root}/docker.log" \
+    "${cron_wrapper}" </dev/null
+}
+
+# Only what the latest run appended to the log.
+last_cron_run() {
+  awk '/Starting automatic Genosyn update/ { run = "" } { run = run $0 "\n" } END { printf "%s", run }' "${cron_log}"
+}
+
+check "status says an older schedule cannot replace its own CLI yet" \
+  "$(run_installed cmd_auto_update status | grep -Fc "Run 'genosyn upgrade' once")" '1'
+
+# `genosyn upgrade` by hand keeps the schedule and moves it onto a copy.
+run_installed ensure_auto_update_default >/dev/null || true
+check "an upgrade run by hand points the older schedule at its own copy" \
+  "$(grep -Fxc "cli_path=$(printf '%q' "${cron_copy}")" "${cron_wrapper}")" '1'
+check "the older schedule keeps the port it captured" \
+  "$(grep -Fxc 'export GENOSYN_PORT=9100' "${cron_wrapper}")" '1'
+check "the copy starts as the installed CLI" \
+  "$(file_sha256 "${cron_copy}")" "$(file_sha256 "${installed}")"
+check "the cron entry itself is unchanged" "$(cat "${test_root}/crontab")" "${cron_entry}"
+
+: >"${test_root}/docker.log"
+run_cron "${published}" || true
+check "the nightly run updates its own copy to the published CLI" \
+  "$(file_sha256 "${cron_copy}")" "$(file_sha256 "${published}")"
+check "the nightly run continues with the latest CLI" \
+  "$(last_cron_run | grep -Fc 'CLI 9.9.9 is running')" '1'
+check "the nightly run never asks for sudo" \
+  "$(cat "${test_root}/sudo.log" 2>/dev/null)" ''
+check "the nightly run has nothing it cannot update" \
+  "$(last_cron_run | grep -Fc 'Cannot update' || true)" '0'
+check "the root-owned installed CLI is left alone" \
+  "$(file_sha256 "${installed}")" "$(file_sha256 "${HERE}/genosyn")"
+check "the nightly run still upgrades Genosyn" \
+  "$(grep -Fxc 'pull ghcr.io/genosyn/app:latest' "${test_root}/docker.log")" '1'
+check "the copy rewrites the older wrapper in the current format" \
+  "$(grep -Fxc "export GENOSYN_STATE_DIR=$(printf '%q' "${cron_state}")" "${cron_wrapper}")" '1'
+check "the rewritten wrapper keeps every setting the older one captured" \
+  "$(grep -Fx -e 'export GENOSYN_PORT=9100' \
+    -e 'export GENOSYN_CLI_URL=https://genosyn.invalid/genosyn' \
+    -e "export PATH=$(printf '%q' "${cron_path}")" "${cron_wrapper}" | wc -l | tr -d ' ')" '3'
+check "status names the copy and the version it runs" \
+  "$(run_installed cmd_auto_update status | grep -Fxc "CLI      ${cron_copy} (9.9.9)")" '1'
+
+wrapper_before="$(file_sha256 "${cron_wrapper}")"
+run_cron "${published}" || true
+check "a current wrapper is not rewritten" \
+  "$(file_sha256 "${cron_wrapper}")" "${wrapper_before}"
+check "an up-to-date copy is kept" \
+  "$(last_cron_run | grep -Fc 'CLI is already up to date.')" '1'
+
+# A download that would not run must not become what every later run starts.
+printf '%s\n' '#!/usr/bin/env bash' 'CLI_VERSION="9.9.10"' 'if then' >"${test_root}/broken-genosyn"
+: >"${test_root}/docker.log"
+run_cron "${test_root}/broken-genosyn" || true
+check "a download that does not parse leaves the copy alone" \
+  "$(file_sha256 "${cron_copy}")" "$(file_sha256 "${published}")"
+check "a rejected download is reported" \
+  "$(last_cron_run | grep -Fc 'not a working genosyn CLI')" '1'
+check "a rejected download does not stop the upgrade" \
+  "$(grep -Fxc 'pull ghcr.io/genosyn/app:latest' "${test_root}/docker.log")" '1'
+
+rm -f "${cron_copy}"
+run_installed ensure_auto_update_default >/dev/null || true
+check "the next upgrade restores a deleted copy" \
+  "$(file_sha256 "${cron_copy}")" "$(file_sha256 "${installed}")"
+
+# Cron runs what the state directory holds, so nobody else may change it.
+open_home="${test_root}/open-home"
+mkdir -p "${open_home}"
+mkdir -m 0777 "${open_home}/.genosyn"
+HOME="${open_home}" PATH="${cron_path}" MOCK_CRONTAB_FILE="${test_root}/open-crontab" \
+  bash -c 'source "$1"; enable_auto_update 1' _ "${HERE}/genosyn" </dev/null >/dev/null 2>&1
+check "the state directory loses group and other write access" \
+  "$(stat -c '%a' "${open_home}/.genosyn" 2>/dev/null || stat -f '%Lp' "${open_home}/.genosyn")" '755'
+
+# Seen as another uid, the home directory holding the state directory belongs
+# to someone else -- the sudo-kept-HOME case a root crontab must refuse.
+mkdir -p "${test_root}/other-uid" "${test_root}/foreign-home"
+# Run as root, the suite would own that home itself; hand it to a third uid.
+if [ "$(id -u)" = "0" ]; then chown 4243 "${test_root}/foreign-home"; fi
+cat >"${test_root}/other-uid/id" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-u" ]; then echo 4242; else exec /usr/bin/id "$@"; fi
+EOF
+chmod +x "${test_root}/other-uid/id"
+foreign_rc=0
+foreign_output="$(
+  HOME="${test_root}/foreign-home" PATH="${test_root}/other-uid:${cron_path}" \
+  MOCK_CRONTAB_FILE="${test_root}/foreign-crontab" \
+    bash -c 'source "$1"; enable_auto_update' _ "${HERE}/genosyn" </dev/null 2>&1
+)" || foreign_rc=$?
+check "a state directory inside another user's directory is refused" "${foreign_rc}" '1'
+check "the refusal says why" \
+  "$(printf '%s' "${foreign_output}" | grep -Fc 'another user can change it')" '1'
+check "a refused schedule installs nothing for cron to run" \
+  "$(ls -A "${test_root}/foreign-home/.genosyn"; cat "${test_root}/foreign-crontab" 2>/dev/null)" ''
+
+chmod -R u+w "${test_root}"
 rm -rf "${test_root}"
 trap - EXIT
 
@@ -370,6 +605,8 @@ check "unsafe container characters are sanitized in state keys" \
   "$(auto_update_key)" "prod_us_west"
 check "the sanitized key is used in the wrapper path" \
   "$(auto_update_wrapper_path)" "/tmp/genosyn state/auto-update-prod_us_west.sh"
+check "the sanitized key is used in the schedule's CLI copy path" \
+  "$(auto_update_cli_path)" "/tmp/genosyn state/auto-update-prod_us_west.cli"
 
 PORT=8471
 NAME=genosyn

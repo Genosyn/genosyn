@@ -147,7 +147,8 @@ export function Install() {
       </P>
       <Pre lang="bash">{`genosyn upgrade --backup`}</Pre>
       <P>
-        Automatic updates use the default path without a backup after first self-upgrading the CLI.
+        Automatic updates use the default path without a backup, after first updating their own
+        copy of the CLI.
         See <DocLink to="/docs/cli">CLI reference</DocLink> for every flag.
       </P>
 

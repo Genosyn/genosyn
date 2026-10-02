@@ -28,7 +28,7 @@ const COMMANDS: Cmd[] = [
     name: "auto-update",
     flags: "<on|off|status>",
     blurb:
-      "Enable, disable, or inspect the host's daily 03:17 automatic upgrade. Each run self-upgrades the CLI, pulls the latest image, and safely recreates the container around the existing data volume.",
+      "Enable, disable, or inspect the host's daily 03:17 automatic upgrade. Each run first updates its own copy of the CLI, without sudo, then pulls the latest image and safely recreates the container around the existing data volume. status shows the CLI version the schedule runs.",
   },
   { name: "start", blurb: "Start a stopped container." },
   { name: "stop", blurb: "Stop the running container." },
@@ -197,7 +197,8 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_CLI_URL",
             def: (
               <>
-                Fetch URL for the CLI script used by <Code>self-upgrade</Code>. Default{" "}
+                Fetch URL for the CLI script used by <Code>self-upgrade</Code> and by automatic
+                updates to refresh their copy of the CLI. Default{" "}
                 <Code>https://genosyn.com/genosyn</Code>.
               </>
             ),
@@ -259,6 +260,22 @@ genosyn auto-update on`}</Pre>
         <Code>~/.genosyn</Code>. If cron is unavailable, installation still completes and prints the
         command to retry after cron is installed.
       </P>
+      <P>
+        Each run uses the schedule&apos;s own copy of the CLI —{" "}
+        <Code>~/.genosyn/auto-update-genosyn.cli</Code> for the default container — and updates that
+        copy before anything else. The installer usually leaves <Code>/usr/local/bin/genosyn</Code>{" "}
+        owned by root, which a cron job cannot replace without a password. The copy belongs to you,
+        so every run starts from the latest CLI without <Code>sudo</Code>. The{" "}
+        <Code>genosyn</Code> you run yourself is unchanged and still updates itself during{" "}
+        <Code>genosyn upgrade</Code>. <Code>genosyn auto-update status</Code> shows the copy and its
+        version.
+      </P>
+      <Callout kind="info" title="Automatic updates set up before CLI 0.8.0">
+        They run the installed CLI, so their log may say it cannot update{" "}
+        <Code>/usr/local/bin/genosyn</Code> without sudo. Run <Code>genosyn upgrade</Code> once
+        yourself: it updates the installed CLI, asking for <Code>sudo</Code> if it needs to, and moves
+        the schedule onto its own copy, keeping the port, image, and other settings it had.
+      </Callout>
       <P>
         Automatic updates do not create a data backup. The previous container is retained until the
         new one becomes ready and is restarted if the upgrade fails, using the current data volume.
