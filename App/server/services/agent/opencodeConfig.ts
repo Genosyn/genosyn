@@ -89,6 +89,18 @@ export async function resolveOpenCodeModel(model: AIModel): Promise<OpenCodeMode
  */
 export const OPENCODE_REPAIR_TOOL = "invalid";
 
+/**
+ * OpenCode's guard against a model repeating itself: three identical tool calls
+ * in a row within one reply ask this permission. Under `"*": "deny"` the guard
+ * denied it outright, and a denial there fails the whole turn. A Daily Partner
+ * Prospecting Run asked for five partnership records at once by an unlisted
+ * tool name; OpenCode repaired each into the same `invalid` call, and the Run
+ * ended after 52 minutes of work. Allowed, the calls run and answer as they
+ * would have, which tells the model what to change; a Run's time limit still
+ * ends a model that never does.
+ */
+export const OPENCODE_REPEAT_GUARD = "doom_loop";
+
 /** Native tools are an explicit work-surface choice; company tools keep their own Grants. */
 export function openCodePermissions(
   nativeCoding: boolean,
@@ -96,6 +108,7 @@ export function openCodePermissions(
   return {
     "*": "deny",
     [OPENCODE_REPAIR_TOOL]: "allow",
+    [OPENCODE_REPEAT_GUARD]: "allow",
     ...(nativeCoding
       ? Object.fromEntries(OPENCODE_NATIVE_PERMISSIONS.map((name) => [name, "ask" as const]))
       : {}),

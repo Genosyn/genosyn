@@ -26,6 +26,8 @@ type ToolCall = { name: string; input: Record<string, unknown>; rawArguments?: s
 type TruncatedReply = { truncated: string };
 /** A reply that is all reasoning, the way vLLM's reasoning parser returns a silent stop. */
 type ReasoningOnlyReply = { reasoningOnly: string };
+/** Several tool calls in one reply, as Qwen makes when it has a batch of records to write. */
+type ParallelToolCalls = { parallel: ToolCall[] };
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const imageMessages: AgentMessage[] = [
@@ -74,7 +76,7 @@ async function fakeProvider(
   script: (
     request: Record<string, unknown>,
     index: number,
-  ) => string | ToolCall | TruncatedReply | ReasoningOnlyReply | "hang",
+  ) => string | ToolCall | TruncatedReply | ReasoningOnlyReply | ParallelToolCalls | "hang",
 ) {
   const requests: { url: string; auth?: string; body: Record<string, unknown> }[] = [];
   const server = createServer(async (req, res) => {
@@ -117,7 +119,7 @@ async function fakeProvider(
 }
 function chatResponse(
   res: ServerResponse,
-  value: string | ToolCall | TruncatedReply | ReasoningOnlyReply,
+  value: string | ToolCall | TruncatedReply | ReasoningOnlyReply | ParallelToolCalls,
 ) {
   const send = (
     delta: Record<string, unknown>,
@@ -138,19 +140,18 @@ function chatResponse(
     send({ role: "assistant", content: value.truncated });
     send({}, "length", { prompt_tokens: 29, completion_tokens: 8192, total_tokens: 8221 });
   } else {
+    const calls = "parallel" in value ? value.parallel : [value];
     send({
       role: "assistant",
-      tool_calls: [
-        {
-          index: 0,
-          id: "tool-fixture",
-          type: "function",
-          function: {
-            name: value.name,
-            arguments: value.rawArguments ?? JSON.stringify(value.input),
-          },
+      tool_calls: calls.map((call, index) => ({
+        index,
+        id: `tool-fixture-${index}`,
+        type: "function",
+        function: {
+          name: call.name,
+          arguments: call.rawArguments ?? JSON.stringify(call.input),
         },
-      ],
+      })),
     });
     send({}, "tool_calls", { prompt_tokens: 23, completion_tokens: 4, total_tokens: 27 });
   }
@@ -800,3 +801,45 @@ test(
     }
   },
 );
+
+// 2026-10-02: a Daily Partner Prospecting Run asked for five partnership records
+// at once with an unlisted tool name. OpenCode repairs each call into the same
+// `invalid` call, and three identical calls in a row trip its repeat guard,
+// which fell under "*": "deny": the denial failed the turn after 52 minutes.
+for (const repeated of [
+  {
+    label: "three calls to an unlisted tool",
+    calls: ["Acme", "Globex", "Initech"].map((value) => ({
+      name: "fixture_create",
+      input: { value },
+    })),
+    runs: 0,
+  },
+  {
+    label: "three identical calls to a Genosyn tool",
+    calls: [1, 2, 3].map(() => ({ name: "genosyn_fixture_echo", input: { value: "same" } })),
+    runs: 3,
+  },
+])
+  test(
+    `pinned OpenCode lets a work turn make ${repeated.label} in one reply and carry on`,
+    { timeout: 180_000 },
+    async () => {
+      const calls: Array<Record<string, unknown>> = [];
+      const fixture = await fakeProvider((_body, index) =>
+        index === 0 ? { parallel: repeated.calls } : "Recovered after repeating.",
+      );
+      try {
+        const result = await realTurn(customFixtureModel(fixture.baseURL), [echoTool(calls)], {
+          maxSteps: null,
+        });
+        assert.equal(result.finalText, "Recovered after repeating.");
+        assert.equal(result.stopReason, "end_turn");
+        assert.equal(calls.length, repeated.runs);
+        assert.equal(fixture.requests.length, 2);
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+

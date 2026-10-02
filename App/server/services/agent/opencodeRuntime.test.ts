@@ -47,7 +47,12 @@ test("long MCP tool names stay inside the provider limit without collisions", ()
 test("OpenCode config confines scoped turns and keeps coding tools an explicit choice", () => {
   const cfg = configuration();
   assert.deepEqual(cfg.enabled_providers, ["genosyn-model"]);
-  assert.deepEqual(cfg.permission, { "*": "deny", invalid: "allow", "genosyn_*": "allow" });
+  assert.deepEqual(cfg.permission, {
+    "*": "deny",
+    invalid: "allow",
+    doom_loop: "allow",
+    "genosyn_*": "allow",
+  });
   assert.equal(cfg.agent?.genosyn?.steps, 8);
   assert.equal(cfg.agent?.general?.disable, true);
   assert.equal(cfg.agent?.title?.disable, true);
