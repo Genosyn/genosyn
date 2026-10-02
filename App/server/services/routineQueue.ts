@@ -11,6 +11,7 @@ import {
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import type { AIModel } from "../db/entities/AIModel.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { SchedulerLease } from "../db/entities/SchedulerLease.js";
@@ -21,6 +22,8 @@ import { browserRunCreationBlocked } from "./browserRecordings.js";
 import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
 import { creditedQueueWaitMs, readRunCheckpoint } from "./runContinuation.js";
+import { modelAnswersForQueue, suspectModelOutage } from "./modelAvailability.js";
+import { isModelServiceUnavailable } from "./agent/modelError.js";
 import {
   modelRunCapacity,
   modelRunSlotsInUse,
@@ -88,6 +91,10 @@ function requestRunDispatch(runId: string): void {
           // because its deadline starts at the claim, waiting costs it nothing.
           const target = await queuedRunModel(runId);
           if (!canClaim()) return;
+          if (target && !(await modelAnswersForQueue(target.capacity.key, target.model))) {
+            await noteModelNotAnswering(runId, target);
+            return;
+          }
           if (target && !target.continuation && (await slotHeldForContinuation(target))) {
             await noteWaitingForContinuation(runId, target);
             return;
@@ -105,6 +112,7 @@ function requestRunDispatch(runId: string): void {
             } finally {
               if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
             }
+            if (target) await suspectOutageAfterModelFailure(runId, target);
           });
           if (!slot.admitted && target) await noteWaitingForModel(runId, target);
           // Offer the slot this Run used to the next waiting Run now, not at
@@ -438,7 +446,12 @@ export async function dispatchQueuedRoutineRuns(): Promise<void> {
   for (const run of [...continuing, ...fresh]) requestRunDispatch(run.id);
 }
 
-type QueuedRunModel = { capacity: ModelRunCapacity; label: string; continuation: boolean };
+type QueuedRunModel = {
+  capacity: ModelRunCapacity;
+  label: string;
+  model: AIModel;
+  continuation: boolean;
+};
 
 /** The model a queued Run will use, read the same way its start will read it. */
 async function queuedRunModel(runId: string): Promise<QueuedRunModel | null> {
@@ -460,7 +473,44 @@ async function routineModelCapacity(
   });
   if (!routine) return null;
   const { model } = await resolveRoutineModel(routine);
-  return model ? { capacity: modelRunCapacity(model), label: model.model } : null;
+  return model ? { capacity: modelRunCapacity(model), label: model.model, model } : null;
+}
+
+/**
+ * A Run on a self-hosted endpoint that failed with a model error may mean the
+ * server is down; the queue then asks it before starting the next Run there.
+ */
+async function suspectOutageAfterModelFailure(runId: string, target: QueuedRunModel) {
+  if (target.model.authMode !== "customEndpoint") return;
+  const run = await AppDataSource.getRepository(Run).findOne({
+    where: { id: runId },
+    select: { id: true, errorKind: true, diagnosticsJson: true },
+  });
+  if (run?.errorKind !== "runtime") return;
+  let failure: { category?: unknown; message?: unknown } | undefined;
+  try {
+    failure = (JSON.parse(run.diagnosticsJson ?? "null") as { failure?: typeof failure })?.failure;
+  } catch {
+    return;
+  }
+  if (
+    failure?.category === "model" &&
+    typeof failure.message === "string" &&
+    isModelServiceUnavailable(failure.message)
+  )
+    suspectModelOutage(target.capacity.key);
+}
+
+/** Say why a queued Run waits while its model server does not answer. */
+async function noteModelNotAnswering(runId: string, target: QueuedRunModel): Promise<void> {
+  await AppDataSource.getRepository(Run).update(
+    { id: runId, status: "queued" },
+    {
+      logContent:
+        `[queue] Waiting for the AI Model ${target.label}: its server is not answering. ` +
+        `This Run starts once it does; waiting does not count against its time limit.\n`,
+    },
+  );
 }
 
 /** Long enough for the heartbeat to queue a handed-off continuation, short enough never to starve. */
