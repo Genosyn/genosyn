@@ -18,6 +18,7 @@ import { findProduct } from "@/products/data";
 import { RolesIndex } from "@/roles/RolesIndex";
 import { RolePage } from "@/roles/RolePage";
 import { findRole } from "@/roles/data";
+import { VisionPage } from "@/vision/VisionPage";
 import { usePathname } from "@/lib/router";
 import { applyHead } from "@/lib/head";
 import { findRouteHead } from "@/lib/siteMeta";
@@ -46,6 +47,10 @@ export function App() {
 
   if (path.startsWith("/roles")) {
     return <RolesRoute path={path} />;
+  }
+
+  if (path.replace(/\/+$/, "") === "/vision") {
+    return <VisionPage />;
   }
 
   return <Landing />;

@@ -5,6 +5,7 @@ import { Logo } from "@/components/Logo";
 import { Link, usePathname } from "@/lib/router";
 
 const LINKS = [
+  { href: "/vision", label: "Vision" },
   { href: "/roles", label: "Roles" },
   { href: "/products", label: "Products" },
   { href: "/docs", label: "Docs" },

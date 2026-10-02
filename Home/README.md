@@ -13,6 +13,12 @@ surface that needs a person is drawn solid (a Decision), and an Approval is
 outlined. Department hues appear only as small dots beside a label. Tokens live in `tailwind.config.ts`; shared surfaces, headings, buttons
 and tags live in `client/sections/Kit.tsx`.
 
+The vision page (`client/vision/`) is the one route about direction rather
+than shipped behavior. It follows Furrow, a sample company, from the one
+sentence its board writes to its twentieth year, and ends by marking plainly
+which parts ship today. Its numbers are kept consistent with one another (see
+`client/vision/data.ts`), and the catalogue test checks the arithmetic.
+
 The landing page tells one sample night at a company on Genosyn. The hero plays
 the night forward from 04:05 to 09:30 on a console — Runs arriving, the horizon
 brightening — and then shows the morning: eighteen Runs finished, three things
@@ -52,13 +58,14 @@ Home/
 ├── client/
 │   ├── index.html
 │   ├── main.tsx
-│   ├── App.tsx                # routing for /, /roles, /products, /docs, …
+│   ├── App.tsx                # routing for /, /vision, /roles, /products, /docs, …
 │   ├── index.css              # Tailwind entrypoint
 │   ├── motion.css             # hover, press and entrance motion, reduced-motion rules
 │   ├── components/            # Logo, Marks, and the Reveal entrance primitive
 │   ├── lib/                   # router, head manager, siteMeta (SEO), night.ts, icons
 │   ├── public/favicon.svg
 │   ├── sections/              # Kit, Nav, Hero and the landing bands, Footer
+│   ├── vision/                # /vision: where Genosyn is going, told through one sample company
 │   ├── roles/                 # role registry + /roles and /roles/<slug> pages
 │   ├── products/              # product registry + /products pages
 │   └── docs/                  # /docs shell, nav, and pages

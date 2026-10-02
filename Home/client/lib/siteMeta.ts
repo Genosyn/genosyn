@@ -27,6 +27,12 @@ export type RouteHead = {
 const SITE_DESCRIPTION =
   "Open-source, self-hosted software for running a company with AI Employees. They hold real roles, work on their own schedule through the night, and stop for a Member only when a job genuinely needs a person.";
 
+// The vision page is the one route that describes direction rather than
+// shipped behavior, so its description says "vision" in its first word and
+// never reads like a feature claim.
+const VISION_DESCRIPTION =
+  "Genosyn's vision: you are not the manager of AI, you are the board. A company that runs itself toward a Goal you set, keeps its own treasury, hires people for physical work, and writes to you once a month.";
+
 const ORGANIZATION = {
   "@context": "https://schema.org",
   "@type": "Organization",
@@ -173,6 +179,28 @@ export function allRoutes(): RouteHead[] {
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },
     {
+      path: "/vision",
+      title: "Vision — you are not the manager, you are the board · Genosyn",
+      description: VISION_DESCRIPTION,
+      jsonLd: [
+        ORGANIZATION,
+        WEBSITE,
+        breadcrumbs([
+          { name: "Home", path: "/" },
+          { name: "Vision", path: "/vision" },
+        ]),
+        {
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          name: "The Genosyn vision",
+          url: `${SITE_URL}/vision`,
+          description: VISION_DESCRIPTION,
+          isPartOf: { "@type": "WebSite", name: "Genosyn", url: SITE_URL },
+          about: { "@type": "Organization", name: "Genosyn", url: SITE_URL },
+        },
+      ],
+    },
+    {
       path: "/products",
       title: "Products — the fourteen tools the work happens in · Genosyn",
       // Derived, not hand-listed: the hand-written version had drifted and
@@ -264,6 +292,10 @@ export function llmsTxt(): string {
     `> ${SITE_DESCRIPTION} Genosyn is Apache 2.0-licensed, ships as a single Docker container, and runs on SQLite (Postgres via config). Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` — the app starts on localhost:8471.`,
     "",
     "Key concepts: an **AI Employee** is a persistent teammate with a **Soul** (written constitution), **Skills** (markdown playbooks), and **Routines** (cron-scheduled work whose every execution is a readable **Run**). Routines are what make a company autonomous — they start themselves, with no human trigger — while approval gates and **Decisions** send the small number of judgement calls back to a Member. Employees run on Anthropic (Claude), OpenAI (GPT), or any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp). Access to company resources is controlled per employee by **Grants**.",
+    "",
+    "## Vision",
+    "",
+    `- [Vision](${SITE_URL}/vision): where Genosyn is going, as opposed to what ships today — companies that run themselves toward a Goal their board sets, with an AI executive team, their own treasury, people hired for physical work, and a monthly letter to the board. The page marks which parts ship today.`,
     "",
     "## Roles",
     "",
@@ -357,6 +389,15 @@ export function llmsFullTxt(): string {
     }
     lines.push("", `Related terms: ${p.keywords.join(", ")}.`, "");
   }
+
+  lines.push(
+    `## Vision (${SITE_URL}/vision)`,
+    "",
+    "This section describes direction, not shipped behavior. Genosyn's vision is a company that runs itself, completely, toward a Goal its board sets: the people involved are not managers supervising AI step by step, they are the board. Given one Goal, Genosyn hires an AI CEO; the CEO hires an AI executive team; the team hires AI Employees and books people for physical work, paying them from the company's own treasury (operating accounts, with reserves in bitcoin held in a vault that needs two keys of three: the AI CFO's and the directors'). Once a month the AI CEO writes the board a letter — what happened, what went wrong, where the money went — and stacks the few Decisions only owners should make.",
+    "",
+    "The board keeps six powers: it writes the Goal, writes the Policies, answers the Decisions, appoints the CEO (its Soul and AI Model), holds the treasury keys, and can stand the whole company down. Goals, Policies, Decisions, Souls, AI Models and Standdowns ship today; the AI executive team, the monthly board letter, the treasury, and work orders for people are on the road.",
+    "",
+  );
 
   lines.push(
     "## Self-hosting",

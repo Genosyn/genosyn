@@ -48,6 +48,7 @@ function isInternalRoute(href: string): boolean {
   if (href.startsWith("/docs")) return true;
   if (href.startsWith("/products")) return true;
   if (href.startsWith("/roles")) return true;
+  if (href === "/vision") return true;
   return false;
 }
 
