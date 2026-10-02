@@ -13,8 +13,6 @@
 #                    (default: https://genosyn.com/genosyn)
 #   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
 #                        (default: 1; set to 0 to opt out)
-#   GENOSYN_SANDBOX  give the container what bubblewrap needs to start
-#                    (default: 0; set to 1 for optional sandbox support)
 #   GENOSYN_BACKUP_DIR   host directory for optional pre-upgrade backups
 #                        (default: ~/.genosyn/backups)
 #   GENOSYN_DRAIN_MINUTES  how long an upgrade lets running Routine Runs
@@ -24,7 +22,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.8.0"
+CLI_VERSION="0.9.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -32,7 +30,6 @@ VOLUME="${GENOSYN_VOLUME:-genosyn-data}"
 IMAGE="${GENOSYN_IMAGE:-ghcr.io/genosyn/app:latest}"
 CLI_URL="${GENOSYN_CLI_URL:-https://genosyn.com/genosyn}"
 VLLM_DIR="${GENOSYN_VLLM_DIR:-${HOME}/.genosyn/vllm}"
-SANDBOX="${GENOSYN_SANDBOX:-0}"
 AUTO_UPDATE_DIR="${GENOSYN_STATE_DIR:-${HOME}/.genosyn}"
 UPGRADE_BACKUP_DIR="${GENOSYN_BACKUP_DIR:-${HOME}/.genosyn/backups}"
 DRAIN_MINUTES="${GENOSYN_DRAIN_MINUTES:-60}"
@@ -324,7 +321,6 @@ auto_update_wrapper_content() {
   printf 'export GENOSYN_NAME=%q\n' "${NAME}"
   printf 'export GENOSYN_VOLUME=%q\n' "${VOLUME}"
   printf 'export GENOSYN_IMAGE=%q\n' "${IMAGE}"
-  printf 'export GENOSYN_SANDBOX=%q\n' "${SANDBOX}"
   printf 'export GENOSYN_CLI_URL=%q\n' "${CLI_URL}"
   printf 'export GENOSYN_BACKUP_DIR=%q\n' "${UPGRADE_BACKUP_DIR}"
   printf 'export GENOSYN_STATE_DIR=%q\n' "${AUTO_UPDATE_DIR}"
@@ -666,20 +662,6 @@ print_post_install() {
   echo
 }
 
-# ---------- optional sandbox support ----------
-#
-# OpenCode uses ordinary host execution under Docker's stock profile by
-# default. An operator who selects bubblewrap in App configuration can also
-# set GENOSYN_SANDBOX=1 to grant the two Docker options that sandbox needs:
-# user namespace creation and mounting a private /proc. This setting prepares
-# the container; the App's executionMode selects the actual execution mode.
-sandbox_requested() {
-  case "${SANDBOX}" in
-    0|false|FALSE|no|NO|off|OFF) return 1 ;;
-    *) return 0 ;;
-  esac
-}
-
 # Start a fresh container with the configured name/port/volume/image.
 run_container() {
   run_container_with_image "${IMAGE}"
@@ -687,84 +669,12 @@ run_container() {
 
 run_container_with_image() {
   local image_ref="$1"
-  local base=(docker run -d --name "${NAME}" --restart unless-stopped)
-  local rest=(-p "${PORT}:8471" -v "${VOLUME}:/app/data" "${image_ref}")
-  local sandbox_opts=(--security-opt seccomp=unconfined --security-opt systempaths=unconfined)
-
-  if sandbox_requested; then
-    local err=""
-    if err="$("${base[@]}" "${sandbox_opts[@]}" "${rest[@]}" 2>&1 >/dev/null)"; then
-      return 0
-    fi
-    # A runtime that does not understand these options should still get an
-    # install. An explicitly selected bubblewrap mode will disable commands;
-    # the default host mode keeps working. Any other failure is the
-    # operator's to read: a taken port or name says nothing about sandboxes.
-    case "${err}" in
-      *security-opt*|*seccomp*|*systempaths*|*unsupported*|*"not supported"*)
-        warn "This container runtime rejected the optional bubblewrap options. Host execution remains available; a configured bubblewrap mode cannot run commands: ${err}"
-        docker rm -f "${NAME}" >/dev/null 2>&1 || true
-        ;;
-      *)
-        printf '%s\n' "${err}" >&2
-        return 1
-        ;;
-    esac
-  fi
-
-  "${base[@]}" "${rest[@]}" >/dev/null
-}
-
-# Whether an existing container was created with those options. The daemon
-# folds `systempaths=unconfined` into empty masked/read-only path lists instead
-# of echoing it back in SecurityOpt, so each half is read where it landed.
-container_sandbox_ready() {
-  local opts masked
-  opts="$(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "${NAME}" 2>/dev/null)" || return 1
-  masked="$(docker inspect --format '{{json .HostConfig.MaskedPaths}}' "${NAME}" 2>/dev/null)" || return 1
-  case "${opts}" in *seccomp=unconfined*) ;; *) return 1 ;; esac
-  case "${masked}" in "[]") ;; *) return 1 ;; esac
-  return 0
-}
-
-container_image_ref() {
-  local ref=""
-  ref="$(docker inspect --format '{{.Config.Image}}' "${NAME}" 2>/dev/null || true)"
-  [ -n "${ref}" ] || ref="${IMAGE}"
-  printf '%s\n' "${ref}"
-}
-
-# A container keeps the profile it was created with for life, so an install
-# that predates these options stays broken through every restart — and through
-# an upgrade that finds no new image to pull. Recreate it instead. Everything
-# durable lives in the data volume, and an upgrade replaces the container
-# anyway, so this is the same operation arriving a step earlier.
-ensure_container_sandbox() {
-  sandbox_requested || return 0
-  container_sandbox_ready && return 0
-
-  local image_ref
-  image_ref="$(container_image_ref)"
-  step "Recreating '${NAME}' with the options bubblewrap needs"
-  docker stop "${NAME}" >/dev/null 2>&1 || true
-  if ! docker rm "${NAME}" >/dev/null; then
-    warn "Could not replace '${NAME}'. Optional bubblewrap execution stays unavailable until it is recreated."
-    return 1
-  fi
-  if ! run_container_with_image "${image_ref}"; then
-    warn "Could not restart '${NAME}' after removing it. Run 'genosyn install' to recreate it."
-    return 1
-  fi
-  wait_for_ready || warn "Container restarted but did not answer HTTP in time. Check 'genosyn logs'."
-  ok "Recreated with the options bubblewrap needs."
-}
-
-# Read-only counterpart for commands that must not replace the container out
-# from under an operator who only asked to start or inspect it.
-warn_container_sandbox() {
-  sandbox_requested || return 0
-  container_sandbox_ready && return 0
-  warn "This container lacks the optional bubblewrap options. If App configuration selects bubblewrap, run 'GENOSYN_SANDBOX=1 genosyn upgrade' to recreate it."
+  docker run -d \
+    --name "${NAME}" \
+    --restart unless-stopped \
+    -p "${PORT}:8471" \
+    -v "${VOLUME}:/app/data" \
+    "${image_ref}" >/dev/null
 }
 
 # ---------- flag parsing ----------
@@ -935,13 +845,6 @@ cmd_upgrade() {
 
   if [ -n "${before}" ] && [ "${before}" = "${after}" ]; then
     ok "Already on the latest image${ver_msg}."
-    # An unchanged image still leaves work when the container predates the
-    # sandbox options: a container cannot be granted them after creation, so
-    # this is the upgrade that recreates it rather than restarting it.
-    if sandbox_requested && ! container_sandbox_ready; then
-      ensure_container_sandbox || true
-      return 0
-    fi
     if container_running; then
       return 0
     fi
@@ -1044,15 +947,11 @@ cmd_start() {
   container_exists || die "No container named '${NAME}' found. Run 'genosyn install' first."
   if container_running; then
     ok "Already running."
-    warn_container_sandbox
     return 0
   fi
   step "Starting '${NAME}'"
   docker start "${NAME}" >/dev/null
   ok "Started."
-  # `start` is not allowed to replace a container an operator may have created
-  # by hand, so it reports the gap and names the command that closes it.
-  warn_container_sandbox
 }
 
 cmd_stop() {
@@ -1097,13 +996,6 @@ cmd_status() {
   printf '%sDigest%s     %s\n'  "${C_DIM}"  "${C_RESET}" "${image_digest}"
   printf '%sVolume%s     %s\n'  "${C_DIM}"  "${C_RESET}" "${VOLUME}"
   printf '%sPort%s       %s → 8471\n' "${C_DIM}" "${C_RESET}" "${PORT}"
-  if ! sandbox_requested; then
-    printf '%sSandbox%s    optional Docker options off (default host execution)\n' "${C_DIM}" "${C_RESET}"
-  elif container_sandbox_ready; then
-    printf '%sSandbox%s    bubblewrap options present\n' "${C_DIM}" "${C_RESET}"
-  else
-    printf '%sSandbox%s    %smissing — run genosyn upgrade to recreate%s\n' "${C_DIM}" "${C_RESET}" "${C_YELLOW}" "${C_RESET}"
-  fi
   printf '%sCreated%s    %s\n'  "${C_DIM}"  "${C_RESET}" "${created}"
   printf '%sStarted%s    %s\n'  "${C_DIM}"  "${C_RESET}" "${started}"
 
@@ -2245,10 +2137,8 @@ ${C_BOLD}Common flags (any command):${C_RESET}
                        env: GENOSYN_IMAGE)
 
 ${C_BOLD}Command execution:${C_RESET}
-  OpenCode runs directly in the container with Docker's stock profile.
-  No sandbox setup is needed. If you select bubblewrap in App configuration,
-  set GENOSYN_SANDBOX=1 to add its required Docker options on install/upgrade
-  (seccomp=unconfined, systempaths=unconfined).
+  AI Employee commands run directly in the container, under Docker's standard
+  security profile. There is no sandbox to configure.
 
 ${C_BOLD}Examples:${C_RESET}
   genosyn install --port 9000
