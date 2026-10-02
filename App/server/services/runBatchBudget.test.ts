@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { RUN_BATCH_TOKEN_TARGET, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
+import {
+  createRunBatchNotice,
+  RUN_BATCH_TOKEN_TARGET,
+  runBatchBrief,
+  shouldYieldRunBatch,
+} from "./runBatchBudget.js";
 import {
   MAX_RUN_CONTINUATIONS,
   minContinuationWindowMs,
@@ -345,4 +350,28 @@ test("a batch handoff keeps working instead of handing a fresh Run too little ti
       `${remainingMs}ms left`,
     );
   }
+});
+
+// 2026-10-02: a Weekly Customer Expansion Run on Qwen saved no checkpoint between
+// 1.7M and 12.2M tokens, each step resending a conversation near the limit.
+test("a long Run is reminded to checkpoint once a fresh Run could take over", () => {
+  let tokens = 1_900_000;
+  let canHandOff = true;
+  const notice = createRunBatchNotice({ tokens: () => tokens, canHandOff: () => canHandOff });
+  assert.equal(notice({ canCheckpoint: true }), null, "below the target");
+  tokens = 2_100_000;
+  assert.match(
+    notice({ canCheckpoint: true }) ?? "",
+    /^\[Progress check\] This Run has used 2\.1M tokens.*save a continue checkpoint with save_run_checkpoint/,
+  );
+  tokens = 2_600_000;
+  assert.equal(notice({ canCheckpoint: true }), null, "at most once per further million tokens");
+  tokens = 3_200_000;
+  assert.match(notice({ canCheckpoint: true }) ?? "", /3\.2M tokens/);
+  tokens = 5_000_000;
+  canHandOff = false;
+  assert.equal(notice({ canCheckpoint: true }), null, "no reminder when no hand-off is possible");
+  canHandOff = true;
+  assert.equal(notice({ canCheckpoint: false }), null, "a delegated worker cannot checkpoint");
+  assert.match(notice({ canCheckpoint: true }) ?? "", /5\.0M tokens/);
 });

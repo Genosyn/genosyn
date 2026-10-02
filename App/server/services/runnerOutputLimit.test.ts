@@ -139,3 +139,36 @@ test("a Run that waited out its model server's restart says so and completes", a
     /\[model\] The AI Model's server answered again after 6m; continuing\./,
   );
 });
+
+// 2026-10-02: a Weekly Customer Expansion Run on Qwen saved no checkpoint between
+// 1.7M and 12.2M tokens. Past the hand-off target, tool results now remind it.
+test("a long Run's tool results remind it to hand its work to a fresh Run", async (t) => {
+  const backfill = await routine();
+  let note: string | null = null;
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    if (params.maxSteps !== null) return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+    assert.equal(params.registry.resultNotice?.() ?? null, null, "no reminder at the start");
+    params.callbacks?.onUsage?.({ inputTokens: 2_100_000, outputTokens: 20_000 });
+    note = params.registry.resultNotice?.() ?? null;
+    return { finalText: "Backfilled 3 leads.", steps: 6, stopReason: "end_turn" };
+  });
+  const run = await (await startRoutineRun(backfill, { triggerKind: "schedule" })).completion;
+  assert.equal(run.status, "completed");
+  assert.match(note ?? "", /\[Progress check\] This Run has used 2\.1M tokens/);
+});
+
+test("a Run that cannot hand its work to a fresh Run is not told to", async (t) => {
+  const backfill = await routine();
+  let note: string | null = "not asked";
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    if (params.maxSteps !== null) return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+    assert.ok(params.registry.resolve("save_run_checkpoint"), "the Run can still checkpoint");
+    params.callbacks?.onUsage?.({ inputTokens: 2_100_000, outputTokens: 20_000 });
+    note = params.registry.resultNotice?.() ?? null;
+    return { finalText: "Backfilled 3 leads.", steps: 6, stopReason: "end_turn" };
+  });
+  // A Run started by an approval finishes in place; it never continues in another.
+  const run = await (await startRoutineRun(backfill, { triggerKind: "approval" })).completion;
+  assert.equal(run.status, "completed");
+  assert.equal(note, null);
+});

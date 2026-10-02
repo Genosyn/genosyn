@@ -69,7 +69,7 @@ import {
 } from "./standdowns.js";
 import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
-import { runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
+import { createRunBatchNotice, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
 import { manualResumeEligibility, RunManualResumeError } from "./runManualResume.js";
 import {
   checkpointAdvanced,
@@ -78,6 +78,7 @@ import {
   creditedQueueWaitMs,
   readRunCheckpoint,
   CONTINUATION_DELAY_MS,
+  MAX_RUN_CONTINUATIONS,
   minContinuationWindowMs,
 } from "./runContinuation.js";
 import { QueuedRoutineIneligibleError, registerQueuedRun } from "./routineQueue.js";
@@ -772,6 +773,27 @@ async function prepareRoutineRun(
       let batchYielded = false;
       let backgroundWork = 0;
       const inFlightTools = new Map<string, number>();
+      // Whether this Run may hand unfinished work to a fresh Run at all, and
+      // whether a continue checkpoint saved now could do so.
+      const canContinue = () =>
+        routine.enabled &&
+        !routine.requiresApproval &&
+        !routine.selfReviewOnly &&
+        saved.triggerKind !== "approval" &&
+        !proactiveApproval;
+      const canHandOff = () =>
+        canContinue() &&
+        saved.continuationCount < MAX_RUN_CONTINUATIONS &&
+        deadlineAtMs >
+          Date.now() + Math.max(CONTINUATION_DELAY_MS, minContinuationWindowMs(routine.timeoutSec));
+      const deadlineNotice = createRunDeadlineNotice({
+        deadlineAtMs,
+        budgetMs: Math.max(1, routine.timeoutSec) * 1000,
+      });
+      const batchNotice = createRunBatchNotice({
+        tokens: () => saved.tokensIn + saved.tokensOut,
+        canHandOff,
+      });
       // A Standdown placed while this Run is in flight aborts it (M58) — a stop
       // that only takes effect at the next slot is not a stop. The registry
       // lives in `standdowns.ts` rather than here so the predicate and the
@@ -821,10 +843,7 @@ async function prepareRoutineRun(
                 })
               : undefined,
             toolScope: selfReviewToolScope(routine.selfReviewOnly),
-            toolResultNotice: createRunDeadlineNotice({
-              deadlineAtMs,
-              budgetMs: Math.max(1, routine.timeoutSec) * 1000,
-            }),
+            toolResultNotice: (context) => deadlineNotice(context) ?? batchNotice(context),
             signal: controller.signal,
             callbacks: {
               onBackgroundWork: (pendingGroups) => {
@@ -872,12 +891,7 @@ async function prepareRoutineRun(
                           ? readRunCheckpoint(continuationParent)
                           : null
                         : undefined,
-                    canContinue:
-                      routine.enabled &&
-                      !routine.requiresApproval &&
-                      !routine.selfReviewOnly &&
-                      saved.triggerKind !== "approval" &&
-                      !proactiveApproval,
+                    canContinue: canContinue(),
                   })
                 ) {
                   batchYielded = true;

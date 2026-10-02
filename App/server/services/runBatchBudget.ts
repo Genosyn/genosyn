@@ -70,6 +70,34 @@ export function shouldYieldRunBatch(args: {
   }
 }
 
+/** Past the batch target, at most one progress check per this many more tokens. */
+export const BATCH_NOTICE_INTERVAL_TOKENS = 1_000_000;
+
+/**
+ * Remind a long Run to save a checkpoint once a fresh Run could take over.
+ *
+ * The brief asks for a checkpoint after every batch, and a continue checkpoint
+ * past the token target hands the rest to a fresh Run with a short context. A
+ * Weekly Customer Expansion Run on Qwen saved none between 1.7M and 12.2M
+ * tokens: ten million tokens of turns that each resent a conversation near the
+ * model's limit, the slowest work a local model does. Past the target, tool
+ * results carry a short reminder, at most once per further million tokens and
+ * only while a hand-off is possible.
+ */
+export function createRunBatchNotice(args: {
+  tokens: () => number;
+  canHandOff: () => boolean;
+}): (context: { canCheckpoint: boolean }) => string | null {
+  let dueAt = RUN_BATCH_TOKEN_TARGET;
+  return (context) => {
+    if (!context.canCheckpoint) return null;
+    const used = args.tokens();
+    if (used < dueAt || !args.canHandOff()) return null;
+    dueAt = used + BATCH_NOTICE_INTERVAL_TOKENS;
+    return `[Progress check] This Run has used ${(used / 1_000_000).toFixed(1)}M tokens, and every step resends its whole conversation. At the next safe point, when no parallel work is pending, save a continue checkpoint with save_run_checkpoint (through call_tool if it is not in your tool list): a fresh Run then carries on from it with a short conversation, which is faster. If only your final report remains, write it instead.`;
+  };
+}
+
 export function runBatchBrief(args: {
   continuationCount: number;
   deadlineAtMs: number;
