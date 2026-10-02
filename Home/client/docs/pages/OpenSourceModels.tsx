@@ -146,6 +146,17 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\
         <Code>VLLM_EXTRA_ARGS</Code> in <Code>~/.genosyn/vllm/.env</Code>), then watch{" "}
         <Code>Prefix cache hit rate</Code> in the server log climb above zero once a Routine runs.
       </Callout>
+      <Callout kind="tip" title="Models with multi-token prediction write faster with it on.">
+        A Routine spends most of its time waiting for the model to write, one token at a time.
+        Models that ship multi-token prediction weights (Qwen3.5 and later) can propose several
+        tokens per step, and the server keeps only those the full model agrees with. Add{" "}
+        <Code>{`--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`}</Code>; on one
+        A100 serving two Routines it raised generation from about 49 to about 80 tokens a second. If
+        the server then runs out of GPU memory while starting, add <Code>--max-num-seqs 32</Code>:
+        by default it reserves room for far more simultaneous requests than a few Routines make. The
+        server log&apos;s <Code>SpecDecoding metrics</Code> line shows how many proposed tokens it
+        accepts.
+      </Callout>
 
       <H3 id="llama-cpp">llama.cpp (most portable)</H3>
       <P>
@@ -316,10 +327,17 @@ llama-server \\
           next Run.
         </LI>
         <LI>
+          <Strong>A restart does not end the work.</Strong> When the model server stops answering
+          mid-Run — a restart, an upgrade, a crash — the Run waits for it, asking every few seconds,
+          and carries on in the same conversation once it answers. It waits up to about 25 minutes,
+          and the wait counts against its time limit; its log notes when the server stopped and when
+          it came back.
+        </LI>
+        <LI>
           <Strong>A restart does not cost the queue.</Strong> When a Run fails because the model
-          server stopped answering — a restart, an upgrade, a crash — the queue asks the server
-          before starting the next Run on it and keeps waiting Runs queued until it answers again,
-          instead of starting each one only to fail.
+          server stopped answering for longer than that, the queue asks the server before starting
+          the next Run on it and keeps waiting Runs queued until it answers again, instead of
+          starting each one only to fail.
         </LI>
         <LI>
           <Strong>No backlog of the same Routine.</Strong> When a Routine&apos;s next scheduled

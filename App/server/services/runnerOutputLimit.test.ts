@@ -100,3 +100,25 @@ test("a turn that ends without a final report is unfinished, not completed", asy
   assert.match(run.logContent, /\[failed\] The AI Model ended its turn without a final report/);
   assert.doesNotMatch(run.logContent, /\[work-summary\]/);
 });
+
+// 2026-10-02: a restart of the self-hosted model server ended both Runs on it.
+// A work turn now waits for the server, and its log says so.
+test("a Run that waited out its model server's restart says so and completes", async (t) => {
+  const backfill = await routine();
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    if (params.maxSteps !== null) return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+    params.callbacks?.onModelOutage?.({ state: "waiting", waitedMs: 0 });
+    params.callbacks?.onModelOutage?.({ state: "answered", waitedMs: 330_000 });
+    return { finalText: "Backfilled 3 leads.", steps: 6, stopReason: "end_turn" };
+  });
+  const run = await (await startRoutineRun(backfill, { triggerKind: "schedule" })).completion;
+  assert.equal(run.status, "completed");
+  assert.match(
+    run.logContent,
+    /\[model\] The AI Model's server stopped answering\. This Run waits for it and continues once it answers/,
+  );
+  assert.match(
+    run.logContent,
+    /\[model\] The AI Model's server answered again after 6m; continuing\./,
+  );
+});

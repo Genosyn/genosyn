@@ -62,7 +62,12 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
   let server: OpenCodeServer | undefined;
   try {
     bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
-    proxy = await serveOpenCodeModel(model, params.signal);
+    // A work turn waits out a self-hosted model server's restart. A chat or
+    // other short turn still fails promptly, so nobody watches it hang.
+    proxy = await serveOpenCodeModel(model, params.signal, {
+      holdOutages: params.maxSteps === null,
+      onOutage: (outage) => params.callbacks?.onModelOutage?.(outage),
+    });
     server = await startOpenCodeServer({
       config: buildOpenCodeConfig({
         model: proxy.model,

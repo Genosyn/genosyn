@@ -67,9 +67,17 @@ export async function modelEndpointAnswers(model: AIModel): Promise<boolean> {
   } catch {
     return true;
   }
+  return endpointAnswers(cfg.baseURL, cfg.apiKey);
+}
+
+/** {@link modelEndpointAnswers} for an endpoint whose address is already checked. */
+export async function endpointAnswers(
+  baseURL: string,
+  apiKey: string | null | undefined,
+): Promise<boolean> {
   const client = new OpenAI({
-    apiKey: cfg.apiKey || "not-needed",
-    baseURL: cfg.baseURL.trim().replace(/\/+$/, ""),
+    apiKey: apiKey || "not-needed",
+    baseURL: baseURL.trim().replace(/\/+$/, ""),
     timeout: PROBE_TIMEOUT_MS,
     maxRetries: 0,
   });

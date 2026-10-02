@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AIModel } from "../../db/entities/AIModel.js";
-import type { AgentMessage, AgentTool } from "./types.js";
+import type { AgentMessage, AgentTool, ModelOutage } from "./types.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
@@ -242,6 +242,7 @@ async function realTurn(
   tools: AgentTool[],
   overrides: Partial<OpenCodeTurnParams> = {},
   onServer?: (server: OpenCodeServer) => void,
+  proxyOptions?: Parameters<typeof serveOpenCodeModel>[2],
 ) {
   const params: OpenCodeTurnParams = {
     model: { provider: model.provider, contextWindow: model.contextWindow } as AIModel,
@@ -254,7 +255,7 @@ async function realTurn(
   };
   const gate = new OpenCodeToolGate(params.signal);
   const bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
-  const proxy = await serveOpenCodeModel(model, params.signal);
+  const proxy = await serveOpenCodeModel(model, params.signal, proxyOptions);
   let server: Awaited<ReturnType<typeof startOpenCodeServer>> | undefined;
   try {
     server = await startOpenCodeServer({
@@ -739,6 +740,63 @@ test(
       assert.equal(bounded.requests.length, 1, "a bounded turn such as grading is not nudged");
     } finally {
       await bounded.close();
+    }
+  },
+);
+
+// 2026-10-02: restarting the vLLM server behind the self-hosted Qwen model
+// ended both Runs working on it with "The AI Model request failed (HTTP 502)"
+// once OpenCode's minute of retries ran out; the server was back minutes later.
+test(
+  "pinned OpenCode waits out a self-hosted model server that stops answering mid-turn",
+  { timeout: 180_000 },
+  async () => {
+    let down = true;
+    let restart: NodeJS.Timeout | undefined;
+    const posts: boolean[] = [];
+    const upstream = createServer(async (req, res) => {
+      for await (const chunk of req) void chunk;
+      if (req.method === "POST") posts.push(down);
+      // The server comes back 1.5s after the turn's first model request.
+      if (req.method === "POST") restart ??= setTimeout(() => (down = false), 1_500);
+      if (down) {
+        res.writeHead(502, { "Content-Type": "text/plain" }).end("upstream unavailable");
+        return;
+      }
+      if (req.method === "GET") {
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ object: "list", data: [{ id: "fixture", object: "model" }] }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      chatResponse(res, "Recovered after the restart.");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const address = upstream.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      const outages: ModelOutage[] = [];
+      const retries: number[] = [];
+      const result = await realTurn(
+        customFixtureModel(`http://127.0.0.1:${address.port}/v1`),
+        [],
+        { maxSteps: null, callbacks: { onModelRetry: (retry) => retries.push(retry.attempt) } },
+        undefined,
+        { holdOutages: true, probeMs: 100, onOutage: (outage) => outages.push(outage) },
+      );
+      assert.equal(result.finalText, "Recovered after the restart.");
+      assert.deepEqual(
+        outages.map((outage) => outage.state),
+        ["waiting", "answered"],
+      );
+      assert.ok(outages[1].waitedMs >= 1_000);
+      assert.deepEqual(posts, [true, false], "the held request was sent again, once");
+      assert.deepEqual(retries, [], "OpenCode never saw the outage, so it spent no retries");
+    } finally {
+      if (restart) clearTimeout(restart);
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
   },
 );

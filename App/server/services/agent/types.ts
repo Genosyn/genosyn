@@ -105,6 +105,11 @@ export type StreamCallbacks = {
   /** Fired before retrying a transient model-service or transport failure. */
   onModelRetry?: (info: ModelRetryInfo) => void;
   /**
+   * Fired when a work turn starts waiting for a self-hosted AI Model's server
+   * that stopped answering, and again when it answers.
+   */
+  onModelOutage?: (outage: ModelOutage) => void;
+  /**
    * Fired when a work turn stopped with no reply and no tool call, just before
    * the runtime asks the model in the same session to continue or report.
    */
@@ -212,6 +217,13 @@ export type TurnUsage = {
 };
 
 /** One transparent retry of the current model turn. */
+export type ModelOutage = {
+  /** `waiting` when the server stops answering; `answered` once it does again. */
+  state: "waiting" | "answered";
+  /** How long the turn waited, measured when the server answers. */
+  waitedMs: number;
+};
+
 export type ModelRetryInfo = {
   /** The provider call about to start, counting the original as attempt 1. */
   attempt: number;

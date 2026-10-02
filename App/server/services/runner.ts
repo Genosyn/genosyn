@@ -30,7 +30,13 @@ import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import { contextUsagePercent, isContextUsageHigh } from "./agent/contextUsage.js";
-import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
+import type {
+  CompactionInfo,
+  ModelOutage,
+  ToolDeferralInfo,
+  ToolTrimInfo,
+  TurnUsage,
+} from "./agent/types.js";
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
@@ -891,6 +897,7 @@ async function prepareRoutineRun(
               },
               onCompact: (c) => log.line(compactLine(c)),
               onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
+              onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
             },
@@ -1633,6 +1640,7 @@ async function runCheckPhase(args: {
             tokensOut += u.outputTokens;
           },
           onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
+          onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
         },
       });
       if (
@@ -1863,6 +1871,17 @@ const SILENT_STOP_LINE =
   "The AI Model stopped without a reply or a tool call; asked it to continue the work or report.";
 const NO_REPORT_STOP =
   "The AI Model ended its turn without a final report, so this Run cannot show the work was done.";
+
+/** The log line for a self-hosted AI Model's server stopping and answering again. */
+export function modelOutageLine(outage: ModelOutage): string {
+  if (outage.state === "waiting")
+    return "[model] The AI Model's server stopped answering. This Run waits for it and continues once it answers; the wait counts against its time limit.";
+  const waited =
+    outage.waitedMs < 60_000
+      ? `${Math.max(1, Math.round(outage.waitedMs / 1000))}s`
+      : `${Math.round(outage.waitedMs / 60_000)}m`;
+  return `[model] The AI Model's server answered again after ${waited}; continuing.`;
+}
 
 const OUTPUT_LIMIT_STOP =
   "The AI Model's response was cut off at its output limit before the work finished. Reasoning models can spend that allowance thinking; if this repeats, set the model's context window on its card (a known window allows longer responses) or ask for less in one Run.";

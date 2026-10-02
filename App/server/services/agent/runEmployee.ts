@@ -629,6 +629,7 @@ async function runDelegatedBrief(
         scopedCallId(callId),
       ),
     onModelRetry: parent.callbacks?.onModelRetry,
+    onModelOutage: parent.callbacks?.onModelOutage,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
     onToolsTrimmed: parent.callbacks?.onToolsTrimmed,
