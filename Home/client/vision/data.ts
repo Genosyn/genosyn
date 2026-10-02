@@ -35,6 +35,9 @@ import type { Dept } from "@/sections/Kit";
  * Vocabulary follows AGENTS.md §3. In particular a board Decision is a choice
  * between options the executive team wrote, never "approve / reject" — the
  * catalogue test enforces it here exactly as it does for the roles.
+ *
+ * VISION.md at the repo root carries this page as plain text for contributors,
+ * so a change to the copy, the numbers, or the road belongs in both.
  */
 
 export const COMPANY = "Sunwise";

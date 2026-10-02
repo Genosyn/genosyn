@@ -2,7 +2,8 @@
 
 > If you are Claude Code, Codex, opencode, goose, Cursor, Aider, or any
 > other AI agent touching this repo, read this file first. It is the single
-> source of truth for how to work here.
+> source of truth for how to work here. For where the product is going, read
+> [`VISION.md`](./VISION.md) next.
 
 ---
 
@@ -31,6 +32,32 @@ autonomously with AI employees**.
 Use this guide for vocabulary and architecture, and the documentation in
 `Home/client/docs/pages/` and product source for shipped behavior.
 
+### Where Genosyn is going
+
+[`VISION.md`](./VISION.md) is the vision page (genosyn.com/vision, built from
+`Home/client/vision/`) as plain text. Read it for the why behind the product:
+the people who own a company on Genosyn are its **board**, not its managers.
+The board writes the Goal, holds the keys to the reserves, reads a monthly
+letter, and keeps a switch that stops every AI Employee. The company decides
+everything else on its own, and asks the board only what an owner must.
+
+- **It is direction, not shipped behavior.** Only the "Ships today" stage of
+  its road exists. Never describe a "Next" or horizon item as shipped — in
+  docs, UI copy, or an AI Employee's prompts — and never build against one as
+  if it were already there.
+- **Use it to choose between designs.** When several approaches meet a
+  request, prefer the one that lets work start, finish, and be checked without
+  a person beside it, and that asks a person only what an owner must decide.
+- **Autonomy is earned, not assumed.** The vision is reached through the
+  primitives that already ship: Goals, Checks, Waivers, Approvals, Policies,
+  Budgets, and Standdowns. It never justifies weakening or removing a human
+  gate. That is a product decision for a human (§13), and §3–§12 bind every
+  change regardless.
+- **Keep it in step with the page.** A change to `Home/client/vision/` updates
+  `VISION.md` in the same PR, and the reverse.
+- **It is Genosyn's own direction**, unrelated to `Company.vision`, the
+  statement a company on Genosyn writes about itself.
+
 ---
 
 ## 2. Repo layout
@@ -49,6 +76,7 @@ genosyn/
 │                # Home's predev/prebuild scripts.
 ├── package.json # Root npm commands for SaaS Helm deployments (no dependencies).
 ├── AGENTS.md    # This file.
+├── VISION.md    # Where Genosyn is going: the /vision page as plain text.
 └── CLAUDE.md    # Pointer to this file.
 ```
 
