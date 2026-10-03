@@ -36,15 +36,16 @@ Use this guide for vocabulary and architecture, and the documentation in
 
 ### Where Genosyn is going
 
-[`VISION.md`](./VISION.md) is the vision page (genosyn.com/vision, built from
-`Home/client/vision/`) as plain text. Read it for the why behind the product:
-the people who own a company on Genosyn are its **board**, not its managers.
-The board writes the Goal, holds the keys to the reserves, reads a monthly
-letter, and keeps a switch that stops every AI Employee. The company decides
+[`VISION.md`](./VISION.md) states plainly where Genosyn is going; the vision
+page (genosyn.com/vision, `Home/client/vision/`) tells the same vision as a
+story. Read it for the why behind the product: the people who own a company on
+Genosyn are its **board**, not its managers. The board writes the Goal, holds
+the keys to the reserves, reads an audited monthly letter, and keeps a switch
+that stops every AI Employee or changes who leads them. The company decides
 everything else on its own, and asks the board only what an owner must.
 
-- **It is direction, not shipped behavior.** Only the "Ships today" stage of
-  its road exists. Never describe a "Next" or horizon item as shipped — in
+- **It is direction, not shipped behavior.** Only what its Status section says
+  ships today exists. Never describe a "Next" or horizon item as shipped — in
   docs, UI copy, or an AI Employee's prompts — and never build against one as
   if it were already there.
 - **Use it to choose between designs.** When several approaches meet a
@@ -55,8 +56,10 @@ everything else on its own, and asks the board only what an owner must.
   Budgets, and Standdowns. It never justifies weakening or removing a human
   gate. That is a product decision for a human (§13), and §3–§12 bind every
   change regardless.
-- **Keep it in step with the page.** A change to `Home/client/vision/` updates
-  `VISION.md` in the same PR, and the reverse.
+- **Keep it in step with the page.** When the vision changes (what the board
+  keeps, what the company decides, the road), update `VISION.md` and
+  `Home/client/vision/` in the same PR. Story details such as Sunwise's figures
+  live only on the page.
 - **It is Genosyn's own direction**, unrelated to `Company.vision`, the
   statement a company on Genosyn writes about itself.
 
@@ -78,7 +81,7 @@ genosyn/
 │                # Home's predev/prebuild scripts.
 ├── package.json # Root npm commands for SaaS Helm deployments (no dependencies).
 ├── AGENTS.md    # This file.
-├── VISION.md    # Where Genosyn is going: the /vision page as plain text.
+├── VISION.md    # Where Genosyn is going, stated plainly. Read with this file.
 └── CLAUDE.md    # Pointer to this file.
 ```
 
