@@ -2,7 +2,8 @@ import { useReveal } from "@/components/Reveal";
 import { Container, Em, Section, SectionHead } from "@/sections/Kit";
 
 /**
- * The premise, in four lines: the past set light, the future set solid.
+ * The premise: why it matters, then the past it comes from, both set light,
+ * and the future set solid.
  */
 export function Prologue() {
   const lines = useReveal<HTMLDivElement>(0, 140);
@@ -11,6 +12,9 @@ export function Prologue() {
       <Container>
         <div ref={lines} className="max-w-[60rem]">
           <p className="text-balance font-display text-display-lg text-ink-300">
+            There are far more problems worth solving than people with the time to run a company.
+          </p>
+          <p className="mt-10 text-balance font-display text-display-lg text-ink-300">
             Every company that has ever existed needed someone to run it.
           </p>
           <p className="mt-4 text-balance font-display text-display-lg text-ink-300">
@@ -85,7 +89,7 @@ export function Shift() {
               Managing AI is a full-time job. <Em>Sitting on its board is not.</Em>
             </>
           }
-          lede="Most AI still needs a person beside it: a prompt to start, a review to finish, a click to act. That person becomes the bottleneck, and the work stops when they do. A board does something else entirely. It sets the direction, appoints who runs things, reads how it is going, and steps in only where an owner must."
+          lede="Most AI still needs a person beside it: a prompt to start, a review to finish, a click to act. That person becomes the bottleneck, and the work stops when they do. A board does something else entirely. It sets the direction, chooses who leads, reads how it is going, and steps in only where an owner must."
         />
 
         <div ref={cards} className="mt-14 grid gap-4 lg:grid-cols-2">
@@ -195,7 +199,7 @@ function Month() {
       <ul className="mt-6 space-y-2 text-[13.5px] leading-5 text-ink-600">
         <li className="flex items-center gap-2.5">
           <span aria-hidden className="h-3 w-3 shrink-0 rounded-[3px] bg-ink" />
-          The 1st: read the letter. Twenty-five minutes.
+          The 1st: read the letter. Twenty minutes.
         </li>
         <li className="flex items-center gap-2.5">
           <span aria-hidden className="ml-1 mr-1 h-1 w-1 shrink-0 rounded-full bg-moss-500" />

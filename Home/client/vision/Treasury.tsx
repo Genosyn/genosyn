@@ -8,8 +8,9 @@ import { COMPANY, LEDGER, MONEY_FLOWS, TREASURY, VAULT_KEYS, type LedgerEntry } 
 
 /**
  * The company's money, split the way control is: a checking account the AI
- * CFO runs through access the directors granted, and a bitcoin vault whose
- * every key is a director's. A day in year three, matching Letter No. 36.
+ * CFO runs through access the directors granted, and a vault whose every key
+ * is a director's, held in what the board chose (bitcoin, for Sunwise). A day
+ * in year three, matching Letter No. 36.
  */
 export function Treasury() {
   const tiles = useReveal<HTMLDivElement>(0, 80);
@@ -26,7 +27,7 @@ export function Treasury() {
                 The company runs the checking account. <Em tone="night">The board keeps the vault.</Em>
               </>
             }
-            lede="Two kinds of money, and two kinds of control. Day-to-day money lives in a checking account the board grants the AI CFO access to: every invoice, payroll and purchase flows through it, and no one signs off. The reserves sit in a bitcoin vault whose keys belong to the directors alone. The company can add to the vault at any hour; only the board can take anything out."
+            lede="Two kinds of money, and two kinds of control. Day-to-day money lives in a checking account the board grants the AI CFO access to: every invoice, payroll and purchase flows through it, and no one signs off. The reserves sit in a vault whose keys belong to the directors alone, held in whatever the board chooses. Sunwise's board chose bitcoin. The company can add to the vault at any hour; only the board can take anything out."
           />
 
           <div ref={tiles} className="mt-14 grid gap-3 lg:grid-cols-2">
@@ -131,6 +132,7 @@ function Vault() {
       <div className="mt-auto pt-6">
         <Rows
           rows={[
+            ["Held in", TREASURY.vaultAsset],
             ["Keys to move it", "Any 2 of 3"],
             ["Swept in this month", TREASURY.sweptThisMonth],
             ["Taken out since day 0", "Nothing"],

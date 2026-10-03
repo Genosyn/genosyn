@@ -26,8 +26,9 @@ import "./vision.css";
  *
  * The rest of the site describes what ships. This page describes the company
  * Genosyn is being built to make possible: one that runs itself toward a Goal
- * its board sets, keeps its own money, hires people for the physical world,
- * and writes to its owners once a month. It follows one sample company,
+ * its board sets, keeps its own money, hires people for the physical world and
+ * shares ownership with them, and writes to its owners once a month, every
+ * figure checked by an auditor it cannot appoint. It follows one sample company,
  * Sunwise, from its first sentence to its twentieth year, and it ends by saying
  * plainly which parts already ship and which are still on the road.
  */
@@ -117,6 +118,14 @@ function Governance() {
                     </div>
                     <h3 className="mt-6 font-display text-[1.3rem] leading-tight tracking-[-0.025em] text-ink">{keep.name}</h3>
                     <p className="mt-2.5 text-[14.5px] leading-6 text-ink-600">{keep.body}</p>
+                    {keep.road && (
+                      <p className="mt-3.5 flex flex-wrap items-center gap-2 text-[13px] leading-5 text-ink-500">
+                        <span className="inline-flex items-center rounded-full border border-dashed border-ink-300 px-2 py-0.5 font-mono text-[10px] uppercase leading-none tracking-[0.08em] text-ink-500">
+                          On the road
+                        </span>
+                        {keep.road}
+                      </p>
+                    )}
                     {keep.docsPath && (
                       <TextLink href={keep.docsPath} className="mt-auto pt-5 !text-[14px]">
                         How it works today
@@ -138,7 +147,7 @@ function Governance() {
                 {lastLetter.decidedWithoutYou.toLocaleString("en-US")}
               </p>
               <p className="mt-3 max-w-[36ch] text-[15px] leading-6 text-night-muted">
-                {`decisions a month by ${lastLetter.period.toLowerCase()}. Almost none of them ever reach the board.`}
+                {`decisions a month by ${lastLetter.period.toLowerCase()}, each written down with its reason. Almost none of them ever reach the board.`}
               </p>
               <ul className="mt-8 flex flex-wrap gap-2">
                 {COMPANY_DECIDES.map((item) => (
@@ -184,7 +193,7 @@ function Bigger() {
             }
           />
 
-          <ol ref={ideas} className="mt-16 grid gap-10 border-t border-white/10 pt-12 lg:mt-20 lg:grid-cols-3 lg:gap-14">
+          <ol ref={ideas} className="mt-16 grid gap-10 border-t border-white/10 pt-12 sm:grid-cols-2 lg:mt-20 lg:grid-cols-3 lg:gap-14">
             {BIG_IDEAS.map((idea, index) => (
               <li key={idea.title} className="min-w-0">
                 <span className="font-mono text-[12px] text-white/40">{`0${index + 1}`}</span>
@@ -206,8 +215,8 @@ function Bigger() {
 
         <Container className="pb-20 pt-16 text-center sm:pb-24 lg:pb-32 lg:pt-20">
           <p className="mx-auto max-w-[30ch] text-balance font-display text-display-md text-white">
-            There are far more problems worth solving than people with the time to run a company.{" "}
-            <span className="text-white/45">That is the part that changes.</span>
+            Running a company is no longer the hard part.{" "}
+            <span className="text-white/45">Choosing its Goal is.</span>
           </p>
         </Container>
       </NightPanel>

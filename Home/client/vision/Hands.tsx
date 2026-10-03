@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Check, Clock3, ShieldCheck, Tag, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, Check, Clock3, PieChart, ShieldCheck, Tag, type LucideIcon } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
 import { Container, Em, Section, SectionHead } from "@/sections/Kit";
 import {
@@ -16,7 +16,7 @@ const COLUMNS: { status: WorkStatus; name: string; hint: string }[] = [
   { status: "paid", name: "Done and paid", hint: "Verified, then paid" },
 ];
 
-const COMMITMENT_ICON: LucideIcon[] = [Tag, Clock3, ArrowLeftRight, ShieldCheck];
+const COMMITMENT_ICON: LucideIcon[] = [Tag, Clock3, ArrowLeftRight, ShieldCheck, PieChart];
 
 /**
  * The physical world, and the people the company hires to work in it. An open
@@ -37,7 +37,7 @@ export function Hands() {
               Software cannot climb a roof. <Em>So it hires someone who can.</Em>
             </>
           }
-          lede="An autonomous company still has a physical world to run. It posts the work, books people qualified to do it, verifies the result, and pays them from its checking account, at the rate it published, usually within hours."
+          lede="An autonomous company still has a physical world to run. It posts the work, books people qualified to do it, verifies the result, and pays them from its checking account, at the rate it published, usually within hours. Every job also earns a share of the company."
         />
 
         <dl className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-3">
@@ -85,7 +85,7 @@ export function Hands() {
 
         <ul
           ref={promises}
-          className="mt-14 grid gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-4"
+          className="mt-14 grid gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-5"
         >
           {COMMITMENTS.map((commitment, index) => {
             const Icon = COMMITMENT_ICON[index];
@@ -97,6 +97,8 @@ export function Hands() {
               </li>
             );
           })}
+          {/* An odd count leaves one cell empty in two columns; fill it so no grey shows. */}
+          {COMMITMENTS.length % 2 === 1 && <li aria-hidden className="hidden bg-paper-raised sm:block lg:hidden" />}
         </ul>
       </Container>
     </Section>

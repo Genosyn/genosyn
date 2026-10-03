@@ -19,6 +19,9 @@ import type { Dept } from "@/sections/Kit";
  *     deliberate miss in year five while owned roofs took hold. That puts
  *     No. 120 at $46M and No. 240 at $1.2B, and the millionth roof in year
  *     seventeen.
+ *   - Every letter leads with roofs, the Goal's own measure: 12, 1,100, 6,200
+ *     and 110,000, then 3.2 million by No. 240, past the millionth in year
+ *     seventeen.
  *   - Bitcoin amounts never sit beside dollar amounts they could be divided
  *     by, so nothing on the page implies a price for it.
  *   - The treasury card, the ledger and the work orders are all a day in year
@@ -26,18 +29,25 @@ import type { Dept } from "@/sections/Kit";
  *
  * The board is deliberately idle. Money is split the way the vision splits
  * control: the AI CFO runs a checking account the directors granted it, and
- * the reserves sit in a bitcoin vault whose every key is a director's. The
- * company decides everything else itself, so buying an installer (No. 12) and
- * starting to own roofs (No. 36) are reported, not asked. Only two letters
- * carry a Decision, and both are ones only an owner can make: whether to sell
- * the company, and what the next Goal is.
+ * the reserves sit in a vault whose every key is a director's, held in what
+ * the board chose (bitcoin, for Sunwise). The company decides everything else
+ * itself, so buying an installer (No. 12) and starting to own roofs (No. 36)
+ * are reported, not asked. Only two letters carry a Decision, and both are
+ * ones only an owner can make: whether to sell the company, and what the next
+ * Goal is. Short of the switch, the board's one lever is choosing who leads;
+ * it never pulls it here, because Ada never gives it cause.
+ *
+ * The charter also sets aside a fifth of Sunwise for the people who will work
+ * for it, earned a little with every job. By No. 240 they own it, and chose a
+ * director.
  *
  * Vocabulary follows AGENTS.md §3. In particular a board Decision is a choice
  * between options the executive team wrote, never "approve / reject" — the
  * catalogue test enforces it here exactly as it does for the roles.
  *
- * VISION.md at the repo root carries this page as plain text for contributors,
- * so a change to the copy, the numbers, or the road belongs in both.
+ * VISION.md at the repo root states this vision plainly, without Sunwise, for
+ * contributors. A change to what the board keeps, what the company decides,
+ * or the road belongs in both.
  */
 
 export const COMPANY = "Sunwise";
@@ -47,6 +57,9 @@ export const TAGLINE = "Rooftop solar";
 
 /** The one sentence the board writes. Everything else on the page follows from it. */
 export const GOAL = "Put solar on a million roofs, with revenue growing 40% a year.";
+
+/** The Goal's own measure, which every letter reports before anything else. */
+export const GOAL_ROOFS = 1_000_000;
 
 export type Director = {
   name: string;
@@ -86,6 +99,10 @@ export const CEO_SOUL = [
   "Tell the board the bad news first.",
   "Pay every person on the day they were promised.",
 ];
+
+/** The seat is the board's, so these lines are too: its one lever short of the switch. */
+export const CEO_SEAT =
+  "Only the board can change these lines. It can add one, change the AI Model behind Ada, or put a new CEO in the seat.";
 
 export const EXECUTIVES: Executive[] = [
   {
@@ -139,7 +156,7 @@ export const FIRST_MONTH: Milestone[] = [
   {
     day: 0,
     title: "The board signs the charter",
-    body: "Three directors, one Goal, a vault of 3.00 BTC, and $250,000 in checking.",
+    body: "Three directors, one Goal, a vault of 3.00 BTC, $250,000 in checking, and a fifth of Sunwise set aside for the people who will do its work.",
   },
   {
     day: 0,
@@ -184,6 +201,8 @@ export type Letter = {
   /** Letters are numbered by month, so No. 120 is the end of year ten. */
   number: number;
   period: string;
+  /** Roofs with Sunwise solar when the letter closes: the Goal's own measure. */
+  roofs: number;
   /** Revenue in the month the letter closes, in US dollars. */
   revenue: number;
   /** Growth on the same month a year earlier. Null until there is a year to compare. */
@@ -200,6 +219,7 @@ export const LETTERS: Letter[] = [
   {
     number: 1,
     period: "Month 1",
+    roofs: 12,
     revenue: 192_000,
     growth: null,
     reserves: "3.00 BTC",
@@ -214,6 +234,7 @@ export const LETTERS: Letter[] = [
   {
     number: 12,
     period: "Year 1",
+    roofs: 1_100,
     revenue: 2_400_000,
     growth: null,
     reserves: "11.4 BTC",
@@ -228,6 +249,7 @@ export const LETTERS: Letter[] = [
   {
     number: 36,
     period: "Year 3",
+    roofs: 6_200,
     revenue: 4_800_000,
     growth: 0.41,
     reserves: "44.0 BTC",
@@ -242,6 +264,7 @@ export const LETTERS: Letter[] = [
   {
     number: 120,
     period: "Year 10",
+    roofs: 110_000,
     revenue: 46_000_000,
     growth: 0.42,
     reserves: "860 BTC",
@@ -269,6 +292,7 @@ export const LETTERS: Letter[] = [
   {
     number: 240,
     period: "Year 20",
+    roofs: 3_200_000,
     revenue: 1_200_000_000,
     growth: 0.41,
     reserves: "12,400 BTC",
@@ -276,7 +300,8 @@ export const LETTERS: Letter[] = [
     decidedWithoutYou: 310_000,
     body: [
       "Twenty years. Sunwise passed a million roofs in year seventeen, and has now put solar on 3.2 million homes in 31 countries. Revenue grew 41% this year.",
-      "Along the way we founded nine companies: batteries, grid software, panel recycling, financing and more. Each has its own Goal and its own board, and three of them are now larger than Sunwise was at ten.",
+      "Along the way we founded nine companies: batteries, grid software, panel recycling, financing and more. Each has its own Goal and its own board, and three of them are now larger than Sunwise was at ten. We trade with them as we would with anyone: the recycler takes our old panels and is paid the moment a Check confirms the work.",
+      "The 52,000 people who have worked for Sunwise now own a fifth of it, as the charter promised, earned a little with every job. They chose the newest director on this board.",
       "The Goal you wrote on the first day is met. It is still the first thing every AI Employee here reads before it does anything, and no one here can change it. Only you can.",
     ],
     decision: {
@@ -302,13 +327,15 @@ export const LETTERS: Letter[] = [
 /**
  * Two kinds of money, two kinds of control. The checking account is the
  * company's to run, through access the directors granted the AI CFO. The vault
- * holds the reserves in bitcoin, and every key to it is a director's.
+ * holds the reserves in whatever the board chose, and every key to it is a
+ * director's. Sunwise's board chose bitcoin.
  */
 export const TREASURY = {
   checking: "$6.1M",
   inThisMonth: "$4.8M",
   outThisMonth: "$4.3M",
   vault: "44.02",
+  vaultAsset: "Bitcoin, the board's choice",
   sweptThisMonth: "1.8 BTC",
 };
 
@@ -457,6 +484,10 @@ export const COMMITMENTS = [
     title: "Insured on every job",
     body: "Every person is covered by the company's insurance from the minute a job starts, at no cost to them.",
   },
+  {
+    title: "A share of every job",
+    body: "Every job also earns a share of the company, so the people who do the work come to own part of it.",
+  },
 ];
 
 /* -------------------------------------------------------------------------
@@ -468,6 +499,8 @@ export type Keep = {
   body: string;
   /** Shipped today, with the page that documents it — or still on the road. */
   docsPath: string | null;
+  /** The part of a shipped keep that is still on the road. */
+  road?: string;
   icon: "goal" | "vault" | "letter" | "switch";
 };
 
@@ -481,20 +514,21 @@ export const BOARD_KEEPS: Keep[] = [
   },
   {
     name: "The vault",
-    body: "Every key to the reserves belongs to a director. The company can add to the vault; only the board can take anything out.",
+    body: "The board chooses what the reserves are held in, and every key to them belongs to a director. The company can add to the vault; only the board can take anything out.",
     docsPath: null,
     icon: "vault",
   },
   {
     name: "The letter",
-    body: "The whole truth, once a month: what happened, what went wrong, and where the money went. Twenty minutes to read.",
+    body: "The whole truth, once a month: what happened, what went wrong, and where the money went. Every figure traces to the ledger, checked by an auditor the company cannot appoint.",
     docsPath: null,
     icon: "letter",
   },
   {
     name: "The switch",
-    body: "One switch stops every AI Employee in the company, mid-Run. Only a person can lift it.",
+    body: "Stop every AI Employee in the company, mid-Run, or change who leads them. Only a person can do either.",
     docsPath: "/docs/standdowns",
+    road: "Changing who leads",
     icon: "switch",
   },
 ];
@@ -503,7 +537,7 @@ export const COMPANY_DECIDES = [
   "Strategy",
   "Prices",
   "Who to hire",
-  "Who to let go, executives included",
+  "Who to let go, below the CEO",
   "Every payment from checking",
   "Suppliers",
   "New markets",
@@ -525,12 +559,24 @@ export const BIG_IDEAS = [
     body: "Most problems go unsolved not because nobody knows how, but because nobody has the years to run the company that would solve them. A village water system. A disease with nine hundred patients. A bus line for a town of nine thousand. When running a company costs almost nothing, small markets become worth serving.",
   },
   {
-    title: "Goals that outlast their founders.",
-    body: "An autonomous company can hold one Goal for a century, to restore a forest or retire a disease, and still be working on it, unchanged, when its founders' grandchildren read the letters.",
+    title: "Everyone on a board.",
+    body: "When running a company costs almost nothing, so can owning one. A village can own its water company. The people who do the work can earn a share of it with every job. And one person can sit on ten boards, a few minutes a month for each.",
   },
   {
-    title: "One person, many boards.",
-    body: "Today a founder runs one company and burns out on it. Tomorrow one person can sit on ten boards: a few minutes a month for each, and a voice exactly where it counts.",
+    title: "More accountable, not less.",
+    body: "A company run by people decides in hallways. One run by AI Employees can show its work: every decision written down with its reason, every figure traced to the ledger, and an auditor it cannot appoint checking the books.",
+  },
+  {
+    title: "Companies you can fork.",
+    body: "Everything that makes a company what it is, from its Goal to its Souls, Skills, Routines and Policies, is plain text. The best water company in one district can be copied to every district under a new board, and one company's Lessons can spare every other the same mistake.",
+  },
+  {
+    title: "An economy of companies.",
+    body: "Companies will found companies and trade with one another: an order, a Check that the work was done, a payment, in minutes. Because Genosyn is open source, that economy runs on software anyone can read, run and change.",
+  },
+  {
+    title: "Goals that outlast their founders.",
+    body: "An autonomous company can hold one Goal for a century, to restore a forest or retire a disease, and still be working on it, unchanged, when its founders' grandchildren read the letters.",
   },
 ];
 
@@ -591,9 +637,10 @@ export const ROAD: { stage: string; note: string; items: RoadItem[] }[] = [
     note: "What we are building toward now.",
     items: [
       { label: "AI executives that hire, coach and replace AI Employees" },
-      { label: "The monthly letter to the board" },
+      { label: "A CEO seat only the board can change" },
+      { label: "The monthly letter to the board, checked by an auditor the company cannot appoint" },
       { label: "A checking account for the AI CFO, and a vault only directors hold keys to" },
-      { label: "Work orders that hire people for physical work" },
+      { label: "Work orders that hire people for physical work, with a share of the company in every job" },
     ],
   },
   {
@@ -601,8 +648,9 @@ export const ROAD: { stage: string; note: string; items: RoadItem[] }[] = [
     note: "Where the road goes.",
     items: [
       { label: "A company founded from one sentence" },
-      { label: "One person on many boards" },
-      { label: "Companies that found companies" },
+      { label: "Everyone on a board" },
+      { label: "Companies you can fork" },
+      { label: "An economy of companies that found and trade with one another" },
     ],
   },
 ];

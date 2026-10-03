@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { ShieldCheck } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
 import { Avatar, Container, Section, SectionHead, StateTag } from "@/sections/Kit";
-import { CEO, COMPANY, LETTERS, TAGLINE, type BoardDecision, type Letter } from "@/vision/data";
+import { CEO, COMPANY, GOAL_ROOFS, LETTERS, TAGLINE, type BoardDecision, type Letter } from "@/vision/data";
 
 /** No. 12 opens: a year in, a mistake owned, and the first Decision for the board. */
 const FIRST_SHOWN = 1;
@@ -71,7 +72,7 @@ export function Letters() {
         <SectionHead
           kicker="The board letter"
           title="Once a month, it writes to you."
-          lede="No dashboard to babysit, no status meeting, and almost nothing to decide. On the first of every month the AI CEO writes to the board: what happened, what it got wrong, and where the money went. Twenty minutes to read. Once in a long while, a question only an owner can answer."
+          lede="No dashboard to babysit, no status meeting, and almost nothing to decide. On the first of every month the AI CEO writes to the board: what happened, what it got wrong, and where the money went, every figure checked by an auditor the company cannot appoint. Twenty minutes to read. Once in a long while, a question only an owner can answer."
         />
 
         <div ref={frame} className="mt-14">
@@ -314,6 +315,8 @@ function LetterSheet({
         </div>
       </header>
 
+      <GoalProgress roofs={letter.roofs} />
+
       <dl className="grid grid-cols-2 gap-px border-b border-line bg-line sm:grid-cols-4">
         {metrics.map((metric) => (
           <div key={metric.term} className="flex flex-col-reverse justify-end bg-paper-raised px-6 py-5 sm:px-7">
@@ -335,12 +338,18 @@ function LetterSheet({
             <p key={paragraph}>{paragraph}</p>
           ))}
         </div>
-        <div className="mt-9 flex items-center gap-3.5">
-          <Avatar initials={CEO.initials} size="md" />
-          <div>
-            <p className="font-display text-[1.15rem] leading-tight tracking-[-0.02em] text-ink">{CEO.person}</p>
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-500">{`${CEO.title}, ${COMPANY}`}</p>
+        <div className="mt-9 flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
+          <div className="flex items-center gap-3.5">
+            <Avatar initials={CEO.initials} size="md" />
+            <div>
+              <p className="font-display text-[1.15rem] leading-tight tracking-[-0.02em] text-ink">{CEO.person}</p>
+              <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-500">{`${CEO.title}, ${COMPANY}`}</p>
+            </div>
           </div>
+          <p className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-600">
+            <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink" strokeWidth={1.8} />
+            {"Every figure checked by the board's auditor"}
+          </p>
         </div>
       </div>
 
@@ -355,12 +364,41 @@ function LetterSheet({
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper px-6 py-4 text-[13px] text-ink-500 sm:px-10">
         <span>
-          {"Decisions the executive team made this month without the board: "}
+          {"Decisions the executive team made this month without the board, each with its reason on record: "}
           <span className="font-mono text-ink tabular">{letter.decidedWithoutYou.toLocaleString("en-US")}</span>
         </span>
         <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-400">Illustrative · nothing is sent</span>
       </footer>
     </article>
+  );
+}
+
+/**
+ * The Goal's own measure, before revenue or anything else: what a letter
+ * reports first tells the board what the company is really for.
+ */
+function GoalProgress({ roofs }: { roofs: number }) {
+  const met = roofs >= GOAL_ROOFS;
+  return (
+    <div className="border-b border-line px-6 py-5 sm:px-10">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-500">Toward the Goal</p>
+        <p className="flex items-baseline gap-2.5">
+          <span className="font-display text-[1.6rem] leading-none tracking-[-0.035em] text-ink tabular sm:text-[1.85rem]">
+            {roofs.toLocaleString("en-US")}
+          </span>
+          <span className="text-[13.5px] text-ink-500">
+            {met ? "roofs · Goal met" : `of ${GOAL_ROOFS.toLocaleString("en-US")} roofs`}
+          </span>
+        </p>
+      </div>
+      <div aria-hidden className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-ink/[0.08]">
+        <div
+          className="h-full min-w-[6px] rounded-full bg-ink"
+          style={{ width: `${Math.min(roofs / GOAL_ROOFS, 1) * 100}%` }}
+        />
+      </div>
+    </div>
   );
 }
 

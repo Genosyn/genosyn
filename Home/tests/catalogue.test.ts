@@ -196,6 +196,16 @@ describe("vision", () => {
       assert.ok(letter.body.length >= 2, `No. ${letter.number}: too short`);
       assert.ok(letter.decidedWithoutYou > 0);
     }
+    // Every letter reports roofs first, so they add up too: they only
+    // accumulate, and only the last letter, which asks for the next Goal, has
+    // met this one.
+    for (let i = 1; i < LETTERS.length; i++) {
+      assert.ok(LETTERS[i].roofs > LETTERS[i - 1].roofs, `No. ${LETTERS[i].number}: roofs went down`);
+    }
+    for (const letter of LETTERS.slice(0, -1)) {
+      assert.ok(letter.roofs < VISION.GOAL_ROOFS, `No. ${letter.number}: Goal met too early`);
+    }
+    assert.ok(LETTERS[LETTERS.length - 1].roofs >= VISION.GOAL_ROOFS, "the last letter has not met the Goal");
   });
 
   // The vision is a company that runs itself, so the board is asked rarely: a

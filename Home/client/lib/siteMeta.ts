@@ -295,7 +295,7 @@ export function llmsTxt(): string {
     "",
     "## Vision",
     "",
-    `- [Vision](${SITE_URL}/vision): where Genosyn is going, as opposed to what ships today — companies that run themselves toward a Goal their board sets, with an AI executive team, their own treasury, people hired for physical work, and a monthly letter to the board. The page marks which parts ship today.`,
+    `- [Vision](${SITE_URL}/vision): where Genosyn is going, as opposed to what ships today — companies that run themselves toward a Goal their board sets, with an AI executive team, their own treasury, people hired for physical work who earn a share of the company, and an audited monthly letter to the board. The page marks which parts ship today.`,
     "",
     "## Roles",
     "",
@@ -393,9 +393,9 @@ export function llmsFullTxt(): string {
   lines.push(
     `## Vision (${SITE_URL}/vision)`,
     "",
-    "This section describes direction, not shipped behavior. Genosyn's vision is a company that runs itself, completely, toward a Goal its board sets: the people involved are not managers supervising AI step by step, they are the board. Given one Goal, Genosyn hires an AI CEO; the CEO hires an AI executive team; the team hires AI Employees and books people for physical work, paying them from a checking account the directors grant the AI CFO access to. The reserves sit in a bitcoin vault whose keys only the directors hold: the company can add to it, and only the board can take anything out. Once a month the AI CEO writes the board a letter — what happened, what went wrong, where the money went — and only rarely asks a question, when it is one only an owner can answer.",
+    "This section describes direction, not shipped behavior. Genosyn's vision starts from one observation: there are far more problems worth solving than people with the time to run a company. So the company runs itself, completely, toward a Goal its board sets: the people involved are not managers supervising AI step by step, they are the board. Given one Goal, Genosyn hires an AI CEO; the CEO hires an AI executive team; the team hires AI Employees and books people for physical work, paying them from a checking account the directors grant the AI CFO access to, with a share of the company in every job. The reserves sit in a vault whose keys only the directors hold, in whatever the board chooses: the company can add to it, and only the board can take anything out. Once a month the AI CEO writes the board a letter — what happened, what went wrong, where the money went, every figure checked by an auditor the company cannot appoint — and only rarely asks a question, when it is one only an owner can answer.",
     "",
-    "The board keeps four things: the Goal, the vault, the monthly letter, and a switch that stands the whole company down. Everything else (strategy, prices, hiring, payments from checking, even its own Policies) the company decides on its own. Goals and Standdowns ship today; the AI executive team, the monthly board letter, the treasury, and work orders for people are on the road.",
+    "The board keeps four things: the Goal, the vault, the monthly letter, and a switch that stands the whole company down or changes who leads it (a line of the CEO's Soul, its AI Model, or the CEO itself). Everything else (strategy, prices, hiring, payments from checking, even its own Policies) the company decides on its own, writing down a reason for each decision. Beyond one company, the vision is of companies owned by the people who work for them and the places they serve, copied from one another as plain text, and trading with one another. Goals and Standdowns ship today; the AI executive team, the CEO seat, the monthly board letter and its auditor, the treasury, and work orders that pay a share of the company are on the road.",
     "",
   );
 

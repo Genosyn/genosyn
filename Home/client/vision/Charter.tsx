@@ -3,6 +3,7 @@ import { Avatar, Container, Em, Section, SectionHead } from "@/sections/Kit";
 import {
   BOARD,
   CEO,
+  CEO_SEAT,
   CEO_SOUL,
   COMPANY,
   EXECUTIVES,
@@ -124,6 +125,7 @@ function CeoCard() {
             </li>
           ))}
         </ol>
+        <p className="mt-4 border-t border-line pt-3 text-[13px] leading-5 text-ink-500">{CEO_SEAT}</p>
       </div>
     </div>
   );
