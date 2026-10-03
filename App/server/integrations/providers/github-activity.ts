@@ -7,7 +7,7 @@ import { forgeFetchWithHeaders, GITHUB_ENDPOINT, repoPath } from "./forge/client
 export const githubActivityTool: IntegrationTool = {
   name: "list_repository_activity",
   description:
-    "Read structured GitHub activity with stable event-ID continuation. Follow nextCursor as cursor after processing eventIds. For interruption within a batch, save resumeCursor and the last successfully processed event ID; resume with cursor=resumeCursor and afterEventId. At scan end save checkpoint and supply it on the next scan to exclude processed IDs while picking up delayed arrivals. A missing saved event or anchor returns an explicit gap without advancing. Store progress in a Workstream. Receipts do not prove processing or exactly-once side effects. Coverage remains partial: at most 300 events from 30 days, delayed up to six hours.",
+    "Read structured GitHub activity with stable event-ID continuation. Follow nextCursor as cursor after processing eventIds. For interruption within a batch, save resumeCursor and the last successfully processed event ID; resume with cursor=resumeCursor and afterEventId. At scan end save checkpoint and supply it on the next scan to exclude processed IDs while picking up delayed arrivals. A missing saved event or anchor returns an explicit gap without advancing. A new scan returns its events oldest first, so the events nearest to leaving GitHub's feed are read before they do. Store progress in a Workstream. Receipts do not prove processing or exactly-once side effects. Coverage remains partial: at most 300 events from 30 days, delayed up to six hours.",
   inputSchema: {
     type: "object",
     properties: {
@@ -230,8 +230,12 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
   const since = input.since ? Date.parse(input.since) : -Infinity;
   const until = input.until ? Date.parse(input.until) : Infinity;
   const priorIds = new Set(saved?.processedIds ?? []);
+  // Oldest first. GitHub keeps only the newest 300 events, and a busy repository
+  // fills that in about a day, so a slow reader that started at the newest end
+  // found the oldest events of its snapshot gone before it reached them: a gap
+  // that stopped the rest of the scan. A saved cursor keeps its own order.
   const snapshotIds = saved?.kind === "cursor" ? saved.snapshotIds :
-    rows.filter((row, i) => dates[i] >= since && dates[i] < until && !priorIds.has(row.id as string)).map((row) => row.id as string);
+    rows.filter((row, i) => dates[i] >= since && dates[i] < until && !priorIds.has(row.id as string)).map((row) => row.id as string).reverse();
   const state: Cursor = saved?.kind === "cursor" ? saved : {
     version: 1, kind: "cursor", ...scope, observedAt: new Date().toISOString(),
     anchorId: rows.length ? rows[0].id as string : null,

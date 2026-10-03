@@ -174,15 +174,16 @@ describe("GitHub activity continuation integrity", () => {
 
   test("legacy 300-ID cursors resume partial batches and legacy checkpoints pick up delayed arrivals", async () => {
     const ids = Array.from({ length: 300 }, (_, i) => String(300 - i));
+    const oldestFirst = [...ids].reverse();
     pagedFeed(ids);
     const args = { ...repo, per_page: 100 };
     const first = await listGithubRepositoryActivity(args, "token");
-    const partial = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(first.resumeCursor!), afterEventId: ids[99] }, "token");
-    assert.deepEqual(partial.eventIds, ids.slice(100, 200));
+    const partial = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(first.resumeCursor!), afterEventId: oldestFirst[99] }, "token");
+    assert.deepEqual(partial.eventIds, oldestFirst.slice(100, 200));
     assert.equal(partial.coverage.processedBefore, 100);
     assert.match(partial.nextCursor!, /^gha2\./);
     const final = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(partial.nextCursor!) }, "token");
-    assert.deepEqual(final.eventIds, ids.slice(200));
+    assert.deepEqual(final.eventIds, oldestFirst.slice(200));
     assert.equal(final.coverage.snapshotComplete, true);
     assert.match(final.checkpoint!, /^gha2\./);
     pagedFeed([...ids.slice(0, 50), "delayed", ...ids.slice(50, -1)]);
@@ -212,7 +213,7 @@ describe("GitHub activity continuation integrity", () => {
         await assert.rejects(listGithubRepositoryActivity({ ...args, [kind]: value }, "token", "other-connection"), /scope unchanged/);
       }
       await assert.rejects(listGithubRepositoryActivity({ ...args, per_page: 3, cursor }, "token"), /scope unchanged/);
-      await assert.rejects(listGithubRepositoryActivity({ ...args, cursor, afterEventId: "2" }, "token"), /saved batch/);
+      await assert.rejects(listGithubRepositoryActivity({ ...args, cursor, afterEventId: "3" }, "token"), /saved batch/);
       await assert.rejects(listGithubRepositoryActivity({ ...args, checkpoint: cursor }, "token"), /Invalid GitHub activity continuation/);
       assert.equal(calls, 0);
     });
@@ -241,7 +242,7 @@ describe("GitHub structured activity coverage", () => {
     }) as typeof fetch;
 
     const first = await listGithubRepositoryActivity(input, "github-secret", "connection");
-    assert.deepEqual(first.eventIds, Array.from({ length: 100 }, (_, i) => String(300 - i)));
+    assert.deepEqual(first.eventIds, Array.from({ length: 100 }, (_, i) => String(i + 1)));
     assert.deepEqual(calls, [1, 2, 3, 1]);
     assert.equal(first.coverage.scanned, 300);
     assert.equal(first.coverage.retainedFeedAtCapacity, true);
@@ -251,11 +252,11 @@ describe("GitHub structured activity coverage", () => {
     assert.equal(first.checkpoint, null);
 
     const second = await listGithubRepositoryActivity({ ...input, cursor: first.nextCursor }, "github-secret", "connection");
-    assert.deepEqual(second.eventIds, Array.from({ length: 100 }, (_, i) => String(200 - i)));
+    assert.deepEqual(second.eventIds, Array.from({ length: 100 }, (_, i) => String(i + 101)));
     assert.equal(second.coverage.processedBefore, 100);
     assert.ok(second.nextCursor);
     const last = await listGithubRepositoryActivity({ ...input, cursor: second.nextCursor }, "github-secret", "connection");
-    assert.deepEqual(last.eventIds, Array.from({ length: 100 }, (_, i) => String(100 - i)));
+    assert.deepEqual(last.eventIds, Array.from({ length: 100 }, (_, i) => String(i + 201)));
     assert.equal(last.nextCursor, null);
     assert.ok(last.checkpoint);
     assert.equal(last.coverage.snapshotComplete, true);
@@ -268,8 +269,9 @@ describe("GitHub structured activity coverage", () => {
   });
 
   test("keeps caller batch size independent of canonical provider pages and resumes a partial batch", async () => {
-    const ids = Array.from({ length: 203 }, (_, i) => String(203 - i));
-    const calls = pagedFeed(ids);
+    const feedIds = Array.from({ length: 203 }, (_, i) => String(203 - i));
+    const ids = [...feedIds].reverse();
+    const calls = pagedFeed(feedIds);
     const input = { ...repo, per_page: 73 };
     const first = await listGithubRepositoryActivity(input, "token");
     assert.deepEqual(first.eventIds, ids.slice(0, 73));
@@ -315,10 +317,12 @@ describe("GitHub structured activity coverage", () => {
     const ids = Array.from({ length: 300 }, (_, i) => String(300 - i));
     pagedFeed(ids);
     const first = await listGithubRepositoryActivity({ ...repo, per_page: 100 }, "token");
-    pagedFeed(["301", ...ids.slice(0, -1)]);
+    // 101 new events push out the 100 already read and one that was not.
+    const arrivals = Array.from({ length: 101 }, (_, i) => String(401 - i));
+    pagedFeed([...arrivals, ...ids.slice(0, 199)]);
     const missing = await listGithubRepositoryActivity({ ...repo, per_page: 100, cursor: first.nextCursor }, "token");
     assert.equal(missing.coverage.gap?.reason, "snapshot_events_missing");
-    assert.deepEqual(missing.coverage.gap?.missingEventIds, ["1"]);
+    assert.deepEqual(missing.coverage.gap?.missingEventIds, ["101"]);
     assert.deepEqual(missing.eventIds, []);
     assert.equal(missing.resumeCursor, null);
     assert.equal(missing.nextCursor, null);
@@ -338,7 +342,7 @@ describe("GitHub structured activity coverage", () => {
       return json([event("2")], '<https://api.github.com/repositories/999/events?per_page=1&page=2&redirect=https%3A%2F%2Fattacker.example&access_token=untrusted>; rel="next"');
     }) as typeof fetch;
     const result = await listGithubRepositoryActivity(repo, "secret");
-    assert.deepEqual(result.eventIds, ["2", "1"]);
+    assert.deepEqual(result.eventIds, ["1", "2"]);
     assert.deepEqual(calls, [
       "https://api.github.com/repos/acme/widgets/events?per_page=100&page=1",
       "https://api.github.com/repos/acme/widgets/events?per_page=100&page=2",
@@ -403,11 +407,11 @@ describe("GitHub structured activity coverage", () => {
     const result = await githubProvider.invokeTool("list_repository_activity", repo, {
       authMode: "apikey", config: { apiKey: "github-secret" }, companyId: "co", connectionId: "conn",
     }) as Awaited<ReturnType<typeof listGithubRepositoryActivity>>;
-    assert.equal(result.events[0].pull_request?.number, 12);
-    assert.equal(result.events[0].review?.state, "approved");
-    assert.equal(result.events[1].head, "abc");
+    assert.equal(result.events[1].pull_request?.number, 12);
+    assert.equal(result.events[1].review?.state, "approved");
+    assert.equal(result.events[0].head, "abc");
     assert.ok(JSON.stringify(result).length < 5000);
-    assert.deepEqual(result.eventIds, ["3", "2"]);
+    assert.deepEqual(result.eventIds, ["2", "3"]);
     assert.equal(result.coverage.complete, false);
     assert.equal(result.coverage.snapshotComplete, true);
     assert.ok(result.checkpoint);
@@ -417,7 +421,7 @@ describe("GitHub structured activity coverage", () => {
   test("resumes stable IDs despite newly prepended events and checkpoints delayed arrivals without duplicates", async () => {
     feed(["3", "2", "1"]);
     const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
-    assert.deepEqual(first.eventIds, ["3"]);
+    assert.deepEqual(first.eventIds, ["1"]);
     assert.ok(first.nextCursor);
     feed(["4", "3", "2", "1"]);
     const second = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: first.nextCursor }, "token");
@@ -425,13 +429,13 @@ describe("GitHub structured activity coverage", () => {
     const replay = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: first.nextCursor }, "token");
     assert.deepEqual(replay.eventIds, second.eventIds);
     const last = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: second.nextCursor }, "token");
-    assert.deepEqual(last.eventIds, ["1"]);
+    assert.deepEqual(last.eventIds, ["3"]);
     assert.ok(last.checkpoint);
     assert.equal(last.coverage.snapshotComplete, true);
     // A newly visible event can have an older timestamp/position than the checkpoint anchor.
     feed(["5", "4", "3", "2", "late", "1"]);
     const nextScan = await listGithubRepositoryActivity({ ...repo, checkpoint: last.checkpoint }, "token");
-    assert.deepEqual(nextScan.eventIds, ["5", "4", "late"]);
+    assert.deepEqual(nextScan.eventIds, ["late", "4", "5"]);
     assert.equal(nextScan.coverage.checkpointStatus, "resumed");
     const unchanged = await listGithubRepositoryActivity({ ...repo, checkpoint: nextScan.checkpoint }, "token");
     assert.deepEqual(unchanged.eventIds, []);
@@ -459,12 +463,12 @@ describe("GitHub structured activity coverage", () => {
   test("resumes halfway through a batch from the last recorded processed event", async () => {
     feed(["4", "3", "2", "1"]);
     const batch = await listGithubRepositoryActivity({ ...repo, per_page: 2 }, "token");
-    assert.deepEqual(batch.eventIds, ["4", "3"]);
+    assert.deepEqual(batch.eventIds, ["1", "2"]);
     feed(["5", "4", "3", "2", "1"]);
-    const resumed = await listGithubRepositoryActivity({ ...repo, per_page: 2, cursor: batch.resumeCursor, afterEventId: "4" }, "token");
-    assert.deepEqual(resumed.eventIds, ["3", "2"]);
+    const resumed = await listGithubRepositoryActivity({ ...repo, per_page: 2, cursor: batch.resumeCursor, afterEventId: "1" }, "token");
+    assert.deepEqual(resumed.eventIds, ["2", "3"]);
     assert.equal(resumed.coverage.processedBefore, 1);
-    await assert.rejects(listGithubRepositoryActivity({ ...repo, per_page: 2, cursor: batch.resumeCursor, afterEventId: "1" }, "token"), /saved batch/);
+    await assert.rejects(listGithubRepositoryActivity({ ...repo, per_page: 2, cursor: batch.resumeCursor, afterEventId: "4" }, "token"), /saved batch/);
   });
 
   test("an expired checkpoint reports retention loss even when its anchor is still present", async () => {
@@ -518,7 +522,7 @@ describe("GitHub structured activity coverage", () => {
         '<https://api.github.com/repos/acme/widgets/events?per_page=100&page=2>; rel="next"');
     }) as typeof fetch;
     const result = await listGithubRepositoryActivity(repo, "token");
-    assert.deepEqual(result.eventIds, ["4", "3", "2", "1"]);
+    assert.deepEqual(result.eventIds, ["1", "2", "3", "4"]);
     assert.equal(firstPageCalls, 4);
     assert.equal(result.coverage.atomicProviderSnapshot, false);
   });
@@ -537,4 +541,41 @@ describe("GitHub structured activity coverage", () => {
     globalThis.fetch = (async () => json([], '<https://attacker.example/events?page=2>; rel="next"')) as typeof fetch;
     await assert.rejects(listGithubRepositoryActivity(repo, "token"), /invalid activity continuation/);
   });
+});
+
+// 2026-10-03: a daily GitHub Routine on a self-hosted model never finished a
+// scan of OneUptime's feed, which sat at GitHub's 300-event cap. New events
+// pushed the oldest out while the Run read from the newest end, so the tail of
+// its snapshot vanished before it got there and the gap stopped the scan.
+test("a scan of a busy feed at capacity finishes while new events push old ones out", async () => {
+  let newest = 300;
+  let ids = Array.from({ length: 300 }, (_, i) => String(newest - i));
+  globalThis.fetch = (async (input) => {
+    const page = Number(new URL(String(input)).searchParams.get("page"));
+    return json(ids.slice((page - 1) * 100, page * 100).map((id) => event(id)),
+      page * 100 < ids.length
+        ? `<https://api.github.com/repositories/380744866/events?per_page=100&page=${page + 1}>; rel="next"`
+        : undefined);
+  }) as typeof fetch;
+  const arrive = (count: number) => {
+    const fresh = Array.from({ length: count }, (_, i) => String(newest + count - i));
+    newest += count;
+    ids = [...fresh, ...ids].slice(0, 300);
+  };
+  const read: string[] = [];
+  let result = await listGithubRepositoryActivity({ ...repo, per_page: 50 }, "token");
+  assert.deepEqual(result.eventIds.slice(0, 3), ["1", "2", "3"], "the events about to leave come first");
+  read.push(...result.eventIds);
+  while (result.nextCursor) {
+    arrive(20);
+    result = await listGithubRepositoryActivity({ ...repo, per_page: 50, cursor: result.nextCursor }, "token");
+    assert.equal(result.coverage.gap, null);
+    read.push(...result.eventIds);
+  }
+  assert.ok(result.checkpoint, "the scan completed");
+  assert.deepEqual(read, Array.from({ length: 300 }, (_, i) => String(i + 1)));
+  // The events that arrived meanwhile are the next scan's.
+  const next = await listGithubRepositoryActivity({ ...repo, per_page: 100, checkpoint: result.checkpoint }, "token");
+  assert.equal(next.coverage.gap, null);
+  assert.deepEqual(next.eventIds, Array.from({ length: 100 }, (_, i) => String(i + 301)));
 });

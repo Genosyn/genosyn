@@ -450,7 +450,9 @@ export function Integrations() {
         explicit coverage. A scan captures stable event IDs; follow <Code>nextCursor</Code> as{" "}
         <Code>cursor</Code> with unchanged repository, page size and timestamp bounds
         (<Code>since</Code> inclusive, <Code>until</Code> exclusive). Newly arriving events cannot
-        shift that saved sequence. Save <Code>resumeCursor</Code> before processing and record
+        shift that saved sequence. A new scan returns its events oldest first: GitHub keeps only
+        the newest 300, so on a busy repository the oldest leave first, and a slow scan reads them
+        before they do. Save <Code>resumeCursor</Code> before processing and record
         each successfully processed event ID in a Workstream. After an interruption, pass that
         saved value as <Code>cursor</Code> and the last processed ID as <Code>afterEventId</Code>.
         Save <Code>nextCursor</Code> after the whole batch succeeds. Replaying an unacknowledged
