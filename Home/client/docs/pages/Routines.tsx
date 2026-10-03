@@ -381,6 +381,14 @@ Every weekday at 09:00, post a 5-bullet summary of:
 5. One sentence of your own opinion about the day
 
 Post it to the #morning channel.`}</Pre>
+      <P>
+        Edit it on the routine&apos;s <Strong>Brief</Strong> tab. Through the authenticated company
+        API, send the markdown as <Code>content</Code> to{" "}
+        <Code>PUT /api/companies/:companyId/routines/:routineId/readme</Code>. The routine&apos;s
+        settings endpoint, <Code>PATCH /api/companies/:companyId/routines/:routineId</Code>, does
+        not take <Code>body</Code>: it refuses any field it does not handle with a 400 that names
+        it, and saves nothing from that request.
+      </P>
 
       <H2 id="assistant">Ask AI about a routine</H2>
       <P>

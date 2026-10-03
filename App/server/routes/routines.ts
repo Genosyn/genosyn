@@ -340,55 +340,61 @@ async function loadRoutine(cid: string, rid: string) {
   return { routine: r, emp, co };
 }
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
-  cronExpr: cronExprSchema.optional(),
-  enabled: z.boolean().optional(),
-  timeoutSec: z
-    .number()
-    .int()
-    .min(10)
-    .max(6 * 60 * 60)
-    .optional(),
-  requiresApproval: z.boolean().optional(),
-  // Null inherits the employee's active model; a string pins one of the
-  // employee's own models to this routine. Ownership is checked below.
-  modelId: z.string().uuid().nullable().optional(),
-  // Three-valued: null inherits the employee's `browserEnabled`; explicit
-  // boolean overrides for this routine only.
-  browserEnabledOverride: z.boolean().nullable().optional(),
-  memberBrowserId: z.string().uuid().nullable().optional(),
-  // Reliability. Defaults catch up once after downtime and disable ordinary
-  // failure/timeout retries. A future initial scheduled Run on an enabled,
-  // ungated routine marked interrupted is the safety exception: one durable
-  // recovery attempt is due an hour later. Higher configured limits bound
-  // interruptions later in the retry chain.
-  catchUpPolicy: z.enum(["once", "skip"]).optional(),
-  maxAttempts: z.number().int().min(1).max(5).optional(),
-  retryBackoffSec: z
-    .number()
-    .int()
-    .min(10)
-    .max(6 * 60 * 60)
-    .optional(),
-  retryOnTimeout: z.boolean().optional(),
-  // The Routine's definition of done. Empty string clears it, which also
-  // switches the post-Run outcome check off for future Runs.
-  acceptanceCriteria: z.string().max(4_000).optional(),
-  // Tags aren't a Routine column — they're assignments in the shared catalog,
-  // so the create route already accepts these. Editing them here keeps the
-  // routine's own endpoint symmetric instead of forcing a second call to the
-  // generic PUT /tags/resources/routine/:rid. Passing the array replaces the
-  // whole set; omitting it leaves existing assignments untouched.
-  tagIds: z.array(z.string().uuid()).max(20).optional(),
-  // Re-file this routine. Null unfiles it; a uuid must name a folder in the
-  // same company as the owning employee. See `POST /routines/move` for the
-  // bulk version the Routines list uses.
-  folderId: z.string().uuid().nullable().optional(),
-  // The Goal this routine's work serves (M51). Null clears the link; a uuid
-  // must name a goal in the same company as the owning employee.
-  goalId: z.string().uuid().nullable().optional(),
-});
+// Strict, because stripping unknown keys made an edit this route cannot apply
+// look saved: `{ "body": "..." }` answered 200 and left the brief as it was.
+// The brief is edited through `PUT /routines/:rid/readme`. A key not listed
+// here is a 400 that names it, and nothing is written.
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    cronExpr: cronExprSchema.optional(),
+    enabled: z.boolean().optional(),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(10)
+      .max(6 * 60 * 60)
+      .optional(),
+    requiresApproval: z.boolean().optional(),
+    // Null inherits the employee's active model; a string pins one of the
+    // employee's own models to this routine. Ownership is checked below.
+    modelId: z.string().uuid().nullable().optional(),
+    // Three-valued: null inherits the employee's `browserEnabled`; explicit
+    // boolean overrides for this routine only.
+    browserEnabledOverride: z.boolean().nullable().optional(),
+    memberBrowserId: z.string().uuid().nullable().optional(),
+    // Reliability. Defaults catch up once after downtime and disable ordinary
+    // failure/timeout retries. A future initial scheduled Run on an enabled,
+    // ungated routine marked interrupted is the safety exception: one durable
+    // recovery attempt is due an hour later. Higher configured limits bound
+    // interruptions later in the retry chain.
+    catchUpPolicy: z.enum(["once", "skip"]).optional(),
+    maxAttempts: z.number().int().min(1).max(5).optional(),
+    retryBackoffSec: z
+      .number()
+      .int()
+      .min(10)
+      .max(6 * 60 * 60)
+      .optional(),
+    retryOnTimeout: z.boolean().optional(),
+    // The Routine's definition of done. Empty string clears it, which also
+    // switches the post-Run outcome check off for future Runs.
+    acceptanceCriteria: z.string().max(4_000).optional(),
+    // Tags aren't a Routine column — they're assignments in the shared catalog,
+    // so the create route already accepts these. Editing them here keeps the
+    // routine's own endpoint symmetric instead of forcing a second call to the
+    // generic PUT /tags/resources/routine/:rid. Passing the array replaces the
+    // whole set; omitting it leaves existing assignments untouched.
+    tagIds: z.array(z.string().uuid()).max(20).optional(),
+    // Re-file this routine. Null unfiles it; a uuid must name a folder in the
+    // same company as the owning employee. See `POST /routines/move` for the
+    // bulk version the Routines list uses.
+    folderId: z.string().uuid().nullable().optional(),
+    // The Goal this routine's work serves (M51). Null clears the link; a uuid
+    // must name a goal in the same company as the owning employee.
+    goalId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
 
 routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
