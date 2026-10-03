@@ -452,7 +452,9 @@ export function Integrations() {
         (<Code>since</Code> inclusive, <Code>until</Code> exclusive). Newly arriving events cannot
         shift that saved sequence. A new scan returns its events oldest first: GitHub keeps only
         the newest 300, so on a busy repository the oldest leave first, and a slow scan reads them
-        before they do. Save <Code>resumeCursor</Code> before processing and record
+        before they do. Genosyn also keeps the events it has read, so a scan still returns an event
+        the feed has dropped since; after a restart it reports that event as a gap instead. Save{" "}
+        <Code>resumeCursor</Code> before processing and record
         each successfully processed event ID in a Workstream. After an interruption, pass that
         saved value as <Code>cursor</Code> and the last processed ID as <Code>afterEventId</Code>.
         Save <Code>nextCursor</Code> after the whole batch succeeds. Replaying an unacknowledged

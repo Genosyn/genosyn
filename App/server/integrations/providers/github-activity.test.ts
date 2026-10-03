@@ -3,11 +3,11 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, test } from "node:test";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { githubProvider } from "./github.js";
-import { listGithubRepositoryActivity } from "./github-activity.js";
+import { forgetRememberedGithubEvents, listGithubRepositoryActivity } from "./github-activity.js";
 
 const originalFetch = globalThis.fetch;
 const originalNow = Date.now;
-afterEach(() => { globalThis.fetch = originalFetch; Date.now = originalNow; });
+afterEach(() => { globalThis.fetch = originalFetch; Date.now = originalNow; forgetRememberedGithubEvents(); });
 const repo = { owner: "acme", repo: "widgets" };
 function event(id: string, created_at = "2026-09-20T12:00:00Z", type = "PushEvent", payload: unknown = {}) {
   return { id, type, created_at, actor: { login: "octocat" }, repo: { name: "acme/widgets" }, payload };
@@ -313,10 +313,11 @@ describe("GitHub structured activity coverage", () => {
     assert.ok(result.checkpoint);
   });
 
-  test("an evicted event in a canonical feed remains a gap instead of advancing the saved cursor", async () => {
+  test("an evicted event this server no longer remembers remains a gap instead of advancing the saved cursor", async () => {
     const ids = Array.from({ length: 300 }, (_, i) => String(300 - i));
     pagedFeed(ids);
     const first = await listGithubRepositoryActivity({ ...repo, per_page: 100 }, "token");
+    forgetRememberedGithubEvents(); // as a restart does
     // 101 new events push out the 100 already read and one that was not.
     const arrivals = Array.from({ length: 101 }, (_, i) => String(401 - i));
     pagedFeed([...arrivals, ...ids.slice(0, 199)]);
@@ -445,6 +446,7 @@ describe("GitHub structured activity coverage", () => {
   test("missing snapshot IDs and evicted checkpoint anchors report gaps without advancing progress", async () => {
     feed(["3", "2", "1"]);
     const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
+    forgetRememberedGithubEvents(); // as a restart does
     feed(["3", "1"]);
     const missing = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: first.nextCursor }, "token");
     assert.equal(missing.coverage.gap?.reason, "snapshot_events_missing");
@@ -578,4 +580,32 @@ test("a scan of a busy feed at capacity finishes while new events push old ones 
   const next = await listGithubRepositoryActivity({ ...repo, per_page: 100, checkpoint: result.checkpoint }, "token");
   assert.equal(next.coverage.gap, null);
   assert.deepEqual(next.eventIds, Array.from({ length: 100 }, (_, i) => String(i + 301)));
+});
+
+// The same morning a five-event-per-page scan still lost events: a burst of new
+// activity pushed out the next unread ones before the Run reached them.
+test("a scan returns an event this server read before GitHub's feed dropped it", async () => {
+  feed(["3", "2", "1"]);
+  const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
+  assert.deepEqual(first.eventIds, ["1"]);
+  // A burst of activity pushes "2" and "1" out of the feed.
+  feed(["6", "5", "4", "3"]);
+  const second = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: first.nextCursor }, "token");
+  assert.equal(second.coverage.gap, null);
+  assert.deepEqual(second.eventIds, ["2"]);
+  assert.equal(second.events[0].id, "2");
+  assert.equal(second.events[0].actor, "octocat");
+  assert.equal(second.coverage.rememberedEvents, 1);
+  const last = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: second.nextCursor }, "token");
+  assert.deepEqual(last.eventIds, ["3"]);
+  assert.equal(last.coverage.rememberedEvents, 0);
+  assert.ok(last.checkpoint, "the scan completed");
+  // Another Connection's scan of the same repository never uses this one's copies.
+  feed(["3", "2", "1"]);
+  const elsewhere = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token", "other-connection");
+  forgetRememberedGithubEvents(); // as a restart does
+  await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
+  feed(["6", "5", "4", "3"]);
+  const gap = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: elsewhere.nextCursor }, "token", "other-connection");
+  assert.equal(gap.coverage.gap?.reason, "snapshot_events_missing");
 });
