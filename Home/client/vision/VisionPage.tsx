@@ -2,18 +2,11 @@ import { ArrowUpRight, Mail, Power, Target, Vault, type LucideIcon } from "lucid
 import { useReveal } from "@/components/Reveal";
 import { Link } from "@/lib/router";
 import { ClosingCta, Footer } from "@/sections/Footer";
-import { Container, Em, NightPanel, Section, SectionHead, TextLink } from "@/sections/Kit";
+import { Container, Em, Section, SectionHead, TextLink } from "@/sections/Kit";
 import { Nav } from "@/sections/Nav";
+import { Bigger } from "@/vision/Bigger";
 import { Charter } from "@/vision/Charter";
-import {
-  BIG_IDEAS,
-  BOARD_KEEPS,
-  COMPANY_DECIDES,
-  FUTURE_COMPANIES,
-  LETTERS,
-  ROAD,
-  type Keep,
-} from "@/vision/data";
+import { BOARD_KEEPS, COMPANY_DECIDES, LETTERS, ROAD, type Keep } from "@/vision/data";
 import { Hands } from "@/vision/Hands";
 import { Letters } from "@/vision/Letters";
 import { Prologue, Shift } from "@/vision/Shift";
@@ -168,94 +161,6 @@ function Governance() {
         </div>
       </Container>
     </Section>
-  );
-}
-
-/* -------------------------------------------------------------------------
-   Think bigger
-------------------------------------------------------------------------- */
-
-function Bigger() {
-  const ideas = useReveal<HTMLOListElement>(0, 90);
-  return (
-    <div className="py-2">
-      <NightPanel id="bigger" dawn={0.7}>
-        <Container className="pt-20 sm:pt-24 lg:pt-32">
-          <SectionHead
-            night
-            align="center"
-            size="xl"
-            kicker="Think bigger"
-            title={
-              <>
-                What happens when founding a company takes <Em tone="night">one sentence?</Em>
-              </>
-            }
-          />
-
-          <ol ref={ideas} className="mt-16 grid gap-10 border-t border-white/10 pt-12 sm:grid-cols-2 lg:mt-20 lg:grid-cols-3 lg:gap-14">
-            {BIG_IDEAS.map((idea, index) => (
-              <li key={idea.title} className="min-w-0">
-                <span className="font-mono text-[12px] text-white/40">{`0${index + 1}`}</span>
-                <h3 className="mt-4 font-display text-[1.65rem] leading-[1.12] tracking-[-0.032em] text-white">{idea.title}</h3>
-                <p className="mt-4 text-[15.5px] leading-7 text-night-muted">{idea.body}</p>
-              </li>
-            ))}
-          </ol>
-        </Container>
-
-        <div className="mt-20 lg:mt-24">
-          <p className="kicker flex items-center justify-center gap-3 text-night-muted">
-            <span aria-hidden className="h-px w-6 bg-white/50" />
-            Companies waiting for a board
-            <span aria-hidden className="h-px w-6 bg-white/50" />
-          </p>
-          <Wall />
-        </div>
-
-        <Container className="pb-20 pt-16 text-center sm:pb-24 lg:pb-32 lg:pt-20">
-          <p className="mx-auto max-w-[30ch] text-balance font-display text-display-md text-white">
-            Running a company is no longer the hard part.{" "}
-            <span className="text-white/45">Choosing its Goal is.</span>
-          </p>
-        </Container>
-      </NightPanel>
-    </div>
-  );
-}
-
-/**
- * Three rows of Goals, drifting in alternate directions. Each row is written
- * twice so the loop is seamless; the copy is hidden from assistive technology,
- * and reduced motion stops the drift and wraps the first copy instead.
- */
-function Wall() {
-  return (
-    <div className="vw-wall fade-x mt-8 space-y-3 overflow-hidden">
-      {FUTURE_COMPANIES.map((row, r) => (
-        <ul
-          key={r}
-          className={`vw-row vw-row-${r} flex w-max motion-reduce:w-auto motion-reduce:flex-wrap motion-reduce:justify-center motion-reduce:gap-y-3 motion-reduce:px-5`}
-        >
-          {[...row, ...row].map((company, i) => (
-            <li
-              key={`${company.goal}-${i}`}
-              aria-hidden={i >= row.length ? true : undefined}
-              className={`w-[18rem] shrink-0 pr-3 sm:w-[21rem] ${i >= row.length ? "motion-reduce:hidden" : ""}`}
-            >
-              <div className="flex h-full flex-col rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5">
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-night-faint">{company.area}</span>
-                <span className="mt-3 text-[15px] leading-6 text-white">{company.goal}</span>
-                <span className="mt-auto inline-flex items-center gap-2 pt-5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-night-muted">
-                  <span aria-hidden className="h-1.5 w-1.5 rounded-full border border-white/60" />
-                  Board seat open
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ))}
-    </div>
   );
 }
 

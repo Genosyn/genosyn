@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Button, NightPanel } from "@/sections/Kit";
 import { COMPANY } from "@/vision/data";
+import { curve, round, seeded, type Point } from "@/vision/draw";
 
 /**
  * The opening of the vision page: one claim, and a picture of what sits
@@ -27,28 +28,9 @@ const Y = {
   runBottom: 472,
 };
 
-type Point = { x: number; y: number };
 type Dot = Point & { r: number; o: number; twinkle: number };
 type Depth = 0 | 1 | 2 | 3;
 type Link = { d: string; depth: Depth };
-
-/** mulberry32: small, fast, and the same sequence on the server and in the browser. */
-function seeded(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const round = (n: number) => Math.round(n * 10) / 10;
-
-function curve(from: Point, to: Point): string {
-  const mid = round((from.y + to.y) / 2);
-  return `M${round(from.x)} ${round(from.y)}C${round(from.x)} ${mid} ${round(to.x)} ${mid} ${round(to.x)} ${round(to.y)}`;
-}
 
 /**
  * Grown once, at module load, from a fixed seed — so the prerendered markup

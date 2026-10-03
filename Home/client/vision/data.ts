@@ -553,31 +553,60 @@ export const COMPANY_DECIDES = [
    Think bigger
 ------------------------------------------------------------------------- */
 
-export const BIG_IDEAS = [
+export type BigIdea = {
+  title: string;
+  body: string;
+  /** The drawing above the idea (IdeaArt.tsx). */
+  art: "problems" | "owners" | "reasons" | "forks" | "economy" | "century";
+  /** What the drawing shows, in a few words. */
+  legend: string;
+};
+
+/** Six ideas, zooming out from one company: who it serves, who owns it, how it answers, how it spreads, how long it lasts. */
+export const BIG_IDEAS: BigIdea[] = [
   {
     title: "Every problem gets a company.",
-    body: "Most problems go unsolved not because nobody knows how, but because nobody has the years to run the company that would solve them. A village water system. A disease with nine hundred patients. A bus line for a town of nine thousand. When running a company costs almost nothing, small markets become worth serving.",
+    body: "Most problems go unsolved not because nobody knows how, but because nobody has the years to run the company that would solve them. When running a company costs almost nothing, a village water system and a disease with nine hundred patients become worth serving.",
+    art: "problems",
+    legend: "Every square, a problem with a company",
   },
   {
     title: "Everyone on a board.",
     body: "When running a company costs almost nothing, so can owning one. A village can own its water company. The people who do the work can earn a share of it with every job. And one person can sit on ten boards, a few minutes a month for each.",
+    art: "owners",
+    legend: "Every seat, an owner",
   },
   {
     title: "More accountable, not less.",
     body: "A company run by people decides in hallways. One run by AI Employees can show its work: every decision written down with its reason, every figure traced to the ledger, and an auditor it cannot appoint checking the books.",
+    art: "reasons",
+    legend: "Every decision, with its reason",
   },
   {
     title: "Companies you can fork.",
     body: "Everything that makes a company what it is, from its Goal to its Souls, Skills, Routines and Policies, is plain text. The best water company in one district can be copied to every district under a new board, and one company's Lessons can spare every other the same mistake.",
+    art: "forks",
+    legend: "One company, copied under new boards",
   },
   {
     title: "An economy of companies.",
     body: "Companies will found companies and trade with one another: an order, a Check that the work was done, a payment, in minutes. Because Genosyn is open source, that economy runs on software anyone can read, run and change.",
+    art: "economy",
+    legend: "Paid the moment a Check passes",
   },
   {
     title: "Goals that outlast their founders.",
     body: "An autonomous company can hold one Goal for a century, to restore a forest or retire a disease, and still be working on it, unchanged, when its founders' grandchildren read the letters.",
+    art: "century",
+    legend: "One Goal, 1,200 letters",
   },
+];
+
+/** Three decisions from Sunwise's letters, as the company wrote them down: what, and why. */
+export const DECISION_LOG = [
+  { what: "Permits filed on signing day", why: "The county took three weeks" },
+  { what: "A second inverter supplier", why: "A batch failed in the heat" },
+  { what: "140 homeowners repaid for a year", why: "Our quotes used an old rate" },
 ];
 
 export type FutureCompany = { area: string; goal: string };
