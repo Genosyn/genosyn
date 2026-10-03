@@ -315,19 +315,25 @@ employeesRouter.get("/:eid", async (req, res) => {
   res.json(emp);
 });
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
-  role: z.string().min(1).max(80).optional(),
-  slug: z.string().min(1).max(80).optional(),
-  teamId: z.string().uuid().nullable().optional(),
-  reportsToEmployeeId: z.string().uuid().nullable().optional(),
-  reportsToUserId: z.string().uuid().nullable().optional(),
-  browserEnabled: z.boolean().optional(),
-  // Newline-separated host globs. The materializer trims and parses;
-  // empty / whitespace-only strings clear the list.
-  browserAllowedHosts: z.string().max(4000).nullable().optional(),
-  browserApprovalRequired: z.boolean().optional(),
-});
+// Strict, because stripping unknown keys made an edit this route cannot apply
+// look saved: `{ "soulBody": "..." }` answered 200 and left the Soul as it was.
+// The Soul is edited through `PUT /:eid/soul`. A key not listed here is a 400
+// that names it, and nothing is written.
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    role: z.string().min(1).max(80).optional(),
+    slug: z.string().min(1).max(80).optional(),
+    teamId: z.string().uuid().nullable().optional(),
+    reportsToEmployeeId: z.string().uuid().nullable().optional(),
+    reportsToUserId: z.string().uuid().nullable().optional(),
+    browserEnabled: z.boolean().optional(),
+    // Newline-separated host globs. The materializer trims and parses;
+    // empty / whitespace-only strings clear the list.
+    browserAllowedHosts: z.string().max(4000).nullable().optional(),
+    browserApprovalRequired: z.boolean().optional(),
+  })
+  .strict();
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   const body = req.body as z.infer<typeof patchSchema>;
