@@ -28,6 +28,14 @@ export function Skills() {
         links to their own slice of that list from <Strong>Settings → Skills</Strong> — same page,
         filtered to them.
       </P>
+      <P>
+        Through the authenticated company API, send the playbook&apos;s markdown as{" "}
+        <Code>content</Code> to <Code>PUT /api/companies/:companyId/skills/:skillId/readme</Code>.
+        The skill&apos;s settings endpoint,{" "}
+        <Code>PATCH /api/companies/:companyId/skills/:skillId</Code>, does not take{" "}
+        <Code>body</Code>: it refuses any field it does not handle with a 400 that names it, and
+        saves nothing from that request.
+      </P>
 
       <H2 id="how-they-work">How they work</H2>
       <P>

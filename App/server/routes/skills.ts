@@ -207,10 +207,16 @@ skillsRouter.put("/skills/:sid/readme", validateBody(readmeSchema), async (req, 
   res.json({ ok: true });
 });
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
-  toolset: z.array(z.string().min(1).max(64)).max(MAX_TOOLSET_ENTRIES).optional(),
-});
+// Strict, because stripping unknown keys made an edit this route cannot apply
+// look saved: `{ "body": "..." }` answered 200 and left the playbook as it was.
+// The playbook is edited through `PUT /skills/:sid/readme`. A key not listed
+// here is a 400 that names it, and nothing is written.
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    toolset: z.array(z.string().min(1).max(64)).max(MAX_TOOLSET_ENTRIES).optional(),
+  })
+  .strict();
 
 /**
  * Rename a skill, or change the tools its playbook declares.
