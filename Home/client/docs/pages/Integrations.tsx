@@ -459,9 +459,11 @@ export function Integrations() {
         saved value as <Code>cursor</Code> and the last processed ID as <Code>afterEventId</Code>.
         Save <Code>nextCursor</Code> after the whole batch succeeds. Replaying an unacknowledged
         cursor intentionally returns the same batch; a read receipt cannot prove that its effects
-        were applied exactly once. Copy progress values exactly: newly issued values detect
-        accidental changes and reject them before reading GitHub. Restore the original saved
-        value when a continuation is invalid; older saved progress remains usable.
+        were applied exactly once. Cursors and checkpoints are short references (
+        <Code>gha3.</Code> and 20 characters) to progress Genosyn keeps for 31 days, so a model
+        has little to copy on each call. Copy them exactly: a reference Genosyn did not issue is
+        rejected before reading GitHub. Restore the original saved value when a continuation is
+        invalid; longer progress values saved before remain usable.
       </P>
       <P>
         At scan end, save <Code>checkpoint</Code> and pass it to the next scan. It excludes the

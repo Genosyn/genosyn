@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, test } from "node:test";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { githubProvider } from "./github.js";
+import { memoryContinuationStore } from "../../services/integrationContinuations.js";
 import { forgetRememberedGithubEvents, listGithubRepositoryActivity } from "./github-activity.js";
 
 const originalFetch = globalThis.fetch;
@@ -46,7 +47,15 @@ function checkedPayload(payload: string) {
 function checkedState(state: unknown) {
   return checkedPayload(deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url"));
 }
-function legacyToken(value: string) {
+/** The full checksummed value a short reference stands for. */
+async function fullToken(reference: string) {
+  assert.match(reference, /^gha3\.[a-f0-9]{20}$/);
+  const value = await memoryContinuationStore.load(reference);
+  assert.ok(value, "the reference was issued");
+  return value;
+}
+async function legacyToken(reference: string) {
+  const value = await fullToken(reference);
   assert.match(value, /^gha2\.[A-Za-z0-9_-]+\.[a-f0-9]{64}$/);
   return `gha1.${value.split(".")[1]}`;
 }
@@ -84,12 +93,13 @@ describe("GitHub activity continuation integrity", () => {
     await invalidContinuation({ ...repo, per_page: 5, cursor: corrupted });
   });
 
-  test("new resume cursors, next cursors and completed checkpoints include the exact encoded payload's checksum", async () => {
+  test("new resume cursors, next cursors and completed checkpoints are short references to checksummed values", async () => {
     feed(["3", "2", "1"]);
     const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
     const full = await listGithubRepositoryActivity(repo, "token");
-    for (const value of [first.resumeCursor, first.nextCursor, full.checkpoint]) {
-      assert.ok(value);
+    for (const reference of [first.resumeCursor, first.nextCursor, full.checkpoint]) {
+      assert.ok(reference);
+      const value = await fullToken(reference);
       const match = value.match(/^gha2\.([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/);
       assert.ok(match);
       assert.equal(Buffer.from(match[1], "base64url").toString("base64url"), match[1]);
@@ -178,34 +188,35 @@ describe("GitHub activity continuation integrity", () => {
     pagedFeed(ids);
     const args = { ...repo, per_page: 100 };
     const first = await listGithubRepositoryActivity(args, "token");
-    const partial = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(first.resumeCursor!), afterEventId: oldestFirst[99] }, "token");
+    const partial = await listGithubRepositoryActivity({ ...args, cursor: await legacyToken(first.resumeCursor!), afterEventId: oldestFirst[99] }, "token");
     assert.deepEqual(partial.eventIds, oldestFirst.slice(100, 200));
     assert.equal(partial.coverage.processedBefore, 100);
-    assert.match(partial.nextCursor!, /^gha2\./);
-    const final = await listGithubRepositoryActivity({ ...args, cursor: legacyToken(partial.nextCursor!) }, "token");
+    assert.match(partial.nextCursor!, /^gha3\./);
+    const final = await listGithubRepositoryActivity({ ...args, cursor: await legacyToken(partial.nextCursor!) }, "token");
     assert.deepEqual(final.eventIds, oldestFirst.slice(200));
     assert.equal(final.coverage.snapshotComplete, true);
-    assert.match(final.checkpoint!, /^gha2\./);
+    assert.match(final.checkpoint!, /^gha3\./);
     pagedFeed([...ids.slice(0, 50), "delayed", ...ids.slice(50, -1)]);
-    const next = await listGithubRepositoryActivity({ ...args, checkpoint: legacyToken(final.checkpoint!) }, "token");
+    const next = await listGithubRepositoryActivity({ ...args, checkpoint: await legacyToken(final.checkpoint!) }, "token");
     assert.deepEqual(next.eventIds, ["delayed"]);
     assert.equal(next.coverage.complete, false);
     assert.equal(next.coverage.snapshotComplete, true);
-    assert.match(next.checkpoint!, /^gha2\./);
+    assert.match(next.checkpoint!, /^gha3\./);
   });
 
-  for (const version of ["legacy", "checksummed"] as const) {
+  for (const version of ["legacy", "full", "short"] as const) {
     test(`${version} values retain Connection, repository, filter, page and acknowledgment boundaries`, async () => {
       feed(["4", "3", "2", "1"]);
       const args = { ...repo, per_page: 2, since: "2026-09-19T00:00:00Z", until: "2026-09-21T00:00:00Z" };
       const first = await listGithubRepositoryActivity(args, "token");
       const last = await listGithubRepositoryActivity({ ...args, cursor: first.nextCursor }, "token");
-      const convert = (value: string) => version === "legacy" ? legacyToken(value) : value;
-      const cursor = convert(first.resumeCursor!);
+      const convert = async (value: string) =>
+        version === "legacy" ? legacyToken(value) : version === "full" ? fullToken(value) : value;
+      const cursor = await convert(first.resumeCursor!);
       let calls = 0;
       globalThis.fetch = (async () => { calls += 1; return json([]); }) as typeof fetch;
       for (const kind of ["cursor", "checkpoint"] as const) {
-        const value = kind === "cursor" ? cursor : convert(last.checkpoint!);
+        const value = kind === "cursor" ? cursor : await convert(last.checkpoint!);
         for (const patch of [
           { owner: "other" }, { repo: "other" }, { since: undefined }, { until: undefined },
           { since: "2026-09-18T00:00:00Z" }, { until: "2026-09-22T00:00:00Z" },
@@ -608,4 +619,46 @@ test("a scan returns an event this server read before GitHub's feed dropped it",
   feed(["6", "5", "4", "3"]);
   const gap = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: elsewhere.nextCursor }, "token", "other-connection");
   assert.equal(gap.coverage.gap?.reason, "snapshot_events_missing");
+});
+
+// 2026-10-03: a self-hosted model copied a 300-ID cursor wrong after a dozen
+// pages; the checksum rejected it, and the Run lost its whole scan.
+describe("short continuation references", () => {
+  test("a scan's cursors stay short however many events it holds", async () => {
+    const ids = Array.from({ length: 300 }, (_, i) => String(9_900_000_300 - i));
+    pagedFeed(ids);
+    const first = await listGithubRepositoryActivity({ ...repo, per_page: 50 }, "token");
+    assert.match(first.nextCursor!, /^gha3\.[a-f0-9]{20}$/);
+    assert.ok((await fullToken(first.nextCursor!)).length > 1000, "the value it stands for is long");
+    const second = await listGithubRepositoryActivity({ ...repo, per_page: 50, cursor: first.nextCursor }, "token");
+    assert.deepEqual(second.eventIds, [...ids].reverse().slice(50, 100));
+    assert.equal(second.nextCursor!.length, 25);
+  });
+
+  test("a reference this server never issued is rejected before reading GitHub", async () => {
+    await invalidContinuation({ ...repo, cursor: `gha3.${"0".repeat(20)}` });
+    await invalidContinuation({ ...repo, checkpoint: `gha3.${"0".repeat(20)}` });
+    await invalidContinuation({ ...repo, cursor: `gha3.${"0".repeat(19)}` });
+  });
+
+  test("a stored value that does not match its reference is rejected", async () => {
+    feed(["3", "2", "1"]);
+    const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
+    const other = await listGithubRepositoryActivity({ ...repo, per_page: 2 }, "token");
+    const forged = `gha3.${"f".repeat(20)}`;
+    await memoryContinuationStore.save(forged, await fullToken(other.nextCursor!), "direct");
+    await invalidContinuation({ ...repo, per_page: 1, cursor: forged });
+    // The genuine reference still works.
+    feed(["3", "2", "1"]);
+    const resumed = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: first.nextCursor }, "token");
+    assert.deepEqual(resumed.eventIds, ["2"]);
+  });
+
+  test("a full value saved before short references still resumes", async () => {
+    feed(["3", "2", "1"]);
+    const first = await listGithubRepositoryActivity({ ...repo, per_page: 1 }, "token");
+    const resumed = await listGithubRepositoryActivity({ ...repo, per_page: 1, cursor: await fullToken(first.nextCursor!) }, "token");
+    assert.deepEqual(resumed.eventIds, ["2"]);
+    assert.match(resumed.nextCursor!, /^gha3\./);
+  });
 });

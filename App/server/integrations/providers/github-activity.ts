@@ -2,12 +2,13 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import type { IntegrationTool } from "../types.js";
+import { continuationStore, type ContinuationStore } from "../../services/integrationContinuations.js";
 import { forgeFetchWithHeaders, GITHUB_ENDPOINT, repoPath } from "./forge/client.js";
 
 export const githubActivityTool: IntegrationTool = {
   name: "list_repository_activity",
   description:
-    "Read structured GitHub activity with stable event-ID continuation. Follow nextCursor as cursor after processing eventIds. For interruption within a batch, save resumeCursor and the last successfully processed event ID; resume with cursor=resumeCursor and afterEventId. At scan end save checkpoint and supply it on the next scan to exclude processed IDs while picking up delayed arrivals. A missing saved event or anchor returns an explicit gap without advancing. A new scan returns its events oldest first, so the events nearest to leaving GitHub's feed are read before they do, and an event this server has already read stays available after the feed drops it. Store progress in a Workstream. Receipts do not prove processing or exactly-once side effects. Coverage remains partial: at most 300 events from 30 days, delayed up to six hours.",
+    "Read structured GitHub activity with stable event-ID continuation. Follow nextCursor as cursor after processing eventIds. For interruption within a batch, save resumeCursor and the last successfully processed event ID; resume with cursor=resumeCursor and afterEventId. At scan end save checkpoint and supply it on the next scan to exclude processed IDs while picking up delayed arrivals. A missing saved event or anchor returns an explicit gap without advancing. A new scan returns its events oldest first, so the events nearest to leaving GitHub's feed are read before they do, and an event this server has already read stays available after the feed drops it. Cursors and checkpoints are short references; copy them exactly. Store progress in a Workstream. Receipts do not prove processing or exactly-once side effects. Coverage remains partial: at most 300 events from 30 days, delayed up to six hours.",
   inputSchema: {
     type: "object",
     properties: {
@@ -161,6 +162,34 @@ function encodeState(state: Checkpoint | Cursor): string {
   const payload = deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url");
   return `gha2.${payload}.${createHash("sha256").update(payload).digest("hex")}`;
 }
+
+const SHORT_REFERENCE = /^gha3\.([a-f0-9]{20})$/;
+function referenceFor(token: string): string {
+  return `gha3.${createHash("sha256").update(token).digest("hex").slice(0, 20)}`;
+}
+
+/**
+ * Hand out a short reference to `state` and keep the full value server-side.
+ * A full value carries up to 300 event IDs, a couple of thousand characters
+ * the model must copy exactly on every call; on 2026-10-03 a self-hosted
+ * model got one wrong after a dozen pages, and the scan was lost.
+ */
+async function issue(state: Checkpoint | Cursor, store: ContinuationStore): Promise<string> {
+  const token = encodeState(state);
+  const reference = referenceFor(token);
+  await store.save(reference, token, state.connectionId);
+  return reference;
+}
+
+/** The full value behind a short reference; a full value is used as given. */
+async function fullValue(value: string, store: ContinuationStore): Promise<string> {
+  if (!SHORT_REFERENCE.test(value)) return value;
+  const token = await store.load(value).catch(() => null);
+  // The reference is derived from the value, so a stored value that does not
+  // match it was not issued for it.
+  return token && referenceFor(token) === value ? token : "";
+}
+
 function decodeState(value: string, kind: "cursor" | "checkpoint"): Checkpoint | Cursor {
   try {
     const current = value.match(/^gha2\.([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/);
@@ -231,12 +260,17 @@ async function retainedEvents(path: string, token: string): Promise<Row[]> {
   throw new Error("GitHub activity changed while scanning its pages. Retry the same saved cursor/checkpoint; no progress was acknowledged.");
 }
 
-export async function listGithubRepositoryActivity(args: unknown, token: string, connectionId = "direct") {
+export async function listGithubRepositoryActivity(
+  args: unknown,
+  token: string,
+  connectionId = "direct",
+  store: ContinuationStore = continuationStore(),
+) {
   const input = activityArgs.parse(args ?? {});
   const repository = `${input.owner.toLowerCase()}/${input.repo.toLowerCase()}`;
   const scope = { repository, connectionId, since: input.since ?? null, until: input.until ?? null };
-  let saved = input.cursor ? decodeState(input.cursor, "cursor") :
-    input.checkpoint ? decodeState(input.checkpoint, "checkpoint") : null;
+  let saved = input.cursor ? decodeState(await fullValue(input.cursor, store), "cursor") :
+    input.checkpoint ? decodeState(await fullValue(input.checkpoint, store), "checkpoint") : null;
   if (input.afterEventId && saved?.kind === "cursor") {
     const acknowledged = saved.snapshotIds.indexOf(input.afterEventId, saved.position);
     if (acknowledged < saved.position || acknowledged >= saved.position + saved.pageSize) {
@@ -281,13 +315,13 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
   const eventIds = gap ? [] : state.snapshotIds.slice(state.position, state.position + state.pageSize);
   const nextPosition = state.position + eventIds.length;
   const done = !gap && nextPosition === state.snapshotIds.length;
-  const nextCursor = gap || done ? null : encodeState({ ...state, position: nextPosition });
-  const checkpoint = done ? encodeState({
+  const nextCursor = gap || done ? null : await issue({ ...state, position: nextPosition }, store);
+  const checkpoint = done ? await issue({
     version: 1, kind: "checkpoint", ...scope, observedAt: state.observedAt,
     anchorId: state.anchorId, processedIds: [...state.processedIds, ...state.snapshotIds],
-  }) : null;
+  }, store) : null;
   return {
-    resumeCursor: gap ? null : encodeState(state),
+    resumeCursor: gap ? null : await issue(state, store),
     nextCursor,
     checkpoint,
     eventIds,

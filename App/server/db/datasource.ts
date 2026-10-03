@@ -57,6 +57,7 @@ import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { BackupDestination } from "./entities/BackupDestination.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
+import { IntegrationContinuation } from "./entities/IntegrationContinuation.js";
 import { EmployeeConnectionGrant } from "./entities/EmployeeConnectionGrant.js";
 import { ExternalChatIdentity } from "./entities/ExternalChatIdentity.js";
 import { EmployeeBaseGrant } from "./entities/EmployeeBaseGrant.js";
@@ -278,6 +279,7 @@ const entities = [
   BackupSchedule,
   BackupDestination,
   IntegrationConnection,
+  IntegrationContinuation,
   EmployeeConnectionGrant,
   ExternalChatIdentity,
   EmployeeBaseGrant,
