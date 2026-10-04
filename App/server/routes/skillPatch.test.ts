@@ -24,6 +24,9 @@ import { skillsRouter } from "./skills.js";
  * `PUT /skills/:sid/readme` — and an API client took that 200 for a saved edit.
  * A refusal names the keys and writes nothing, not even the valid settings
  * sent beside them.
+ *
+ * A save that lands writes one `skill.update` audit row carrying the name and
+ * declared toolset before and after. A refusal, at any status, writes no row.
  */
 
 let server: Server;
@@ -87,8 +90,8 @@ beforeEach(async () => {
   });
 });
 
-async function patch(payload: unknown) {
-  const response = await fetch(`${baseUrl}/api/companies/${company.id}/skills/${skill.id}`, {
+async function patch(payload: unknown, skillId = skill.id) {
+  const response = await fetch(`${baseUrl}/api/companies/${company.id}/skills/${skillId}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -97,10 +100,22 @@ async function patch(payload: unknown) {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
-const savedSkill = () => AppDataSource.getRepository(Skill).findOneByOrFail({ id: skill.id });
-// The route records no audit event of its own, so a refusal must leave the
-// ledger empty: any row at all would be something it wrote.
+const savedSkill = (id = skill.id) => AppDataSource.getRepository(Skill).findOneByOrFail({ id });
+// A refusal must leave the ledger empty, not merely free of `skill.update`:
+// nothing else writes to it here, so any row at all would be the route's.
 const auditRows = () => AppDataSource.getRepository(AuditEvent).count();
+// Every row, minus the id and timestamp the ledger generates for itself.
+const ledger = async () =>
+  (await AppDataSource.getRepository(AuditEvent).find()).map((row) => ({
+    companyId: row.companyId,
+    actorKind: row.actorKind,
+    actorUserId: row.actorUserId,
+    action: row.action,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    targetLabel: row.targetLabel,
+    metadata: JSON.parse(row.metadataJson) as unknown,
+  }));
 
 for (const [label, payload, named] of [
   ["the playbook", { body: "Revised playbook" }, ["body"]],
@@ -141,7 +156,7 @@ for (const [label, settings] of [
     { name: "Reconcile payouts", toolset: ["send_invoice", "record_payment"] },
   ],
 ] as const) {
-  test(`a PATCH carrying ${label} still saves, and the playbook is untouched`, async () => {
+  test(`a PATCH carrying ${label} still saves, is audited once, and the playbook is untouched`, async () => {
     const response = await patch(settings);
     assert.equal(response.status, 200);
     const saved = await savedSkill();
@@ -153,5 +168,81 @@ for (const [label, settings] of [
       settings,
     );
     assert.equal(saved.body, originalBody);
+    assert.deepEqual(await ledger(), [
+      {
+        companyId: company.id,
+        actorKind: "user",
+        actorUserId: administrator.id,
+        action: "skill.update",
+        targetType: "skill",
+        targetId: skill.id,
+        targetLabel: saved.name,
+        metadata: {
+          employeeId: skill.employeeId,
+          slug: "reconcile-stripe-payouts",
+          before: { name: "Reconcile Stripe payouts", toolset: ["record_payment"] },
+          after: columns,
+        },
+      },
+    ]);
+  });
+}
+
+// Refusals the handler makes after the schema has passed. Each one returns
+// before the save, so the stored skill and the ledger stay exactly as they were.
+for (const [label, status, payload, target] of [
+  [
+    "a PATCH carrying a name another of the employee's skills has",
+    409,
+    { name: "send dunning emails" },
+    async () => {
+      await insert(Skill, {
+        employeeId: skill.employeeId,
+        name: "Send dunning emails",
+        slug: "send-dunning-emails",
+      });
+      return skill;
+    },
+  ],
+  // The handler renames the loaded row before it checks the toolset, and
+  // neither change may land.
+  [
+    "a PATCH carrying a misspelled tool beside a rename",
+    400,
+    { name: "Reconcile payouts", toolset: ["send_invoce"] },
+    async () => skill,
+  ],
+  [
+    "a PATCH to another company's skill",
+    404,
+    { name: "Reconcile payouts" },
+    async () => {
+      const other = await insert(Company, {
+        name: "Other Co",
+        slug: "other",
+        ownerId: administrator.id,
+      });
+      const owner = await insert(AIEmployee, {
+        companyId: other.id,
+        name: "Riley",
+        slug: "riley",
+        role: "Finance",
+      });
+      return insert(Skill, {
+        employeeId: owner.id,
+        name: "Reconcile Stripe payouts",
+        slug: "reconcile-stripe-payouts",
+        body: originalBody,
+      });
+    },
+  ],
+] as const) {
+  test(`${label} is a ${status}, and nothing is written`, async () => {
+    const { id } = await target();
+    const stored = await savedSkill(id);
+    const response = await patch(payload, id);
+    assert.equal(response.status, status);
+    assert.deepEqual(await savedSkill(id), stored);
+    assert.equal(await auditRows(), 0);
   });
 }

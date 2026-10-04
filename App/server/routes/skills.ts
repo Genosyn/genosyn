@@ -19,6 +19,7 @@ import {
   onRoutePaths,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import { recordAudit } from "../services/audit.js";
 import { skillTemplate } from "../services/files.js";
 import {
   deleteTagAssignments,
@@ -174,6 +175,17 @@ skillsRouter.post("/employees/:eid/skills", validateBody(createSchema), async (r
     toolsetJson: serializeToolset(checkedToolset.names),
   });
   await repo.save(s);
+  // Recorded before the tags are applied: if that write fails, the skill it
+  // created still exists, and it should not exist without a trail.
+  await recordAudit({
+    companyId: co.id,
+    actorUserId: req.userId ?? null,
+    action: "skill.create",
+    targetType: "skill",
+    targetId: s.id,
+    targetLabel: s.name,
+    metadata: { employeeId: emp.id, slug: s.slug, toolset: parseToolset(s.toolsetJson) },
+  });
   const tags = await replaceResourceTags(co.id, "skill", s.id, tagIds ?? []);
   res.json({ ...s, tags });
 });
@@ -229,6 +241,7 @@ skillsRouter.patch("/skills/:sid", validateBody(patchSchema), async (req, res) =
   if (!found) return res.status(404).json({ error: "Not found" });
   const body = req.body as z.infer<typeof patchSchema>;
   const s = found.skill;
+  const before = { name: s.name, toolset: parseToolset(s.toolsetJson) };
   if (body.name !== undefined) {
     if (await findSkillByName(s.employeeId, body.name, s.id)) {
       return res
@@ -245,6 +258,20 @@ skillsRouter.patch("/skills/:sid", validateBody(patchSchema), async (req, res) =
     s.toolsetJson = serializeToolset(checked.names);
   }
   await AppDataSource.getRepository(Skill).save(s);
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: "skill.update",
+    targetType: "skill",
+    targetId: s.id,
+    targetLabel: s.name,
+    metadata: {
+      employeeId: found.emp.id,
+      slug: s.slug,
+      before,
+      after: { name: s.name, toolset: parseToolset(s.toolsetJson) },
+    },
+  });
   res.json({ ...s, toolset: parseToolset(s.toolsetJson) });
 });
 
@@ -253,5 +280,14 @@ skillsRouter.delete("/skills/:sid", async (req, res) => {
   if (!found) return res.status(404).json({ error: "Not found" });
   await deleteTagAssignments("skill", found.skill.id);
   await AppDataSource.getRepository(Skill).delete({ id: found.skill.id });
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: "skill.delete",
+    targetType: "skill",
+    targetId: found.skill.id,
+    targetLabel: found.skill.name,
+    metadata: { employeeId: found.emp.id, slug: found.skill.slug },
+  });
   res.json({ ok: true });
 });
