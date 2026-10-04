@@ -31,7 +31,7 @@ const SITE_DESCRIPTION =
 // shipped behavior, so its description says "vision" in its first word and
 // never reads like a feature claim.
 const VISION_DESCRIPTION =
-  "Genosyn's vision: you are not the manager of AI, you are the board. A company that runs itself toward a Goal you set, keeps its own treasury, hires people for physical work, and writes to you once a month.";
+  "Genosyn's vision: start a company with one sentence and let it work for a century. That sentence is its Goal; the company works toward it on its own, keeps its own treasury, hires people for physical work, and writes to you, its board, once a month.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -180,7 +180,7 @@ export function allRoutes(): RouteHead[] {
     },
     {
       path: "/vision",
-      title: "Vision — you are not the manager, you are the board · Genosyn",
+      title: "Vision — start a company with one sentence · Genosyn",
       description: VISION_DESCRIPTION,
       jsonLd: [
         ORGANIZATION,

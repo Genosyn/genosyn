@@ -230,15 +230,16 @@ export function VisionHero() {
           <span aria-hidden className="h-px w-6 bg-white/50" />
         </p>
 
-        <h1 className="mx-auto mt-8 text-balance font-display text-display-2xl text-white animate-rise-in [animation-delay:80ms]">
-          You are not the manager. <br />
-          <span className="text-white/45">You are the board.</span>
+        {/* One size down from the other heroes, so the couplet holds on two lines. */}
+        <h1 className="mx-auto mt-8 text-balance font-display text-display-xl text-white animate-rise-in [animation-delay:80ms]">
+          Start a company with one sentence. <br />
+          <span className="text-white/45">Let it work for a&nbsp;century.</span>
         </h1>
 
         <p className="mx-auto mt-8 max-w-[44rem] text-pretty text-[1.0625rem] leading-[1.65] text-night-muted animate-rise-in [animation-delay:160ms] sm:text-[1.1875rem]">
-          The future of AI at work is not a person supervising software all day. It is a company
-          that runs itself, completely, toward a Goal its board sets. An AI executive team hires,
-          builds, sells and pays its own way, and once a month it writes to you.
+          That sentence becomes its Goal, and an AI executive team works toward it on its own:
+          hiring, building, selling and paying its way for as long as the Goal takes. You are not
+          its manager. You are its board, and once a month it writes to you.
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3 animate-rise-in [animation-delay:240ms]">
