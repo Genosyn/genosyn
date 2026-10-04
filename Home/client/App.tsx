@@ -11,6 +11,9 @@ import { Platform } from "@/sections/Platform";
 import { OpenSource } from "@/sections/OpenSource";
 import { ClosingCta, Footer } from "@/sections/Footer";
 import { Button, Container } from "@/sections/Kit";
+import { BlogIndex } from "@/blog/BlogIndex";
+import { BlogPost } from "@/blog/BlogPost";
+import { findPost } from "@/blog/posts";
 import { DocsApp } from "@/docs/DocsApp";
 import { ProductsIndex } from "@/products/ProductsIndex";
 import { ProductPage } from "@/products/ProductPage";
@@ -47,6 +50,10 @@ export function App() {
 
   if (path.startsWith("/roles")) {
     return <RolesRoute path={path} />;
+  }
+
+  if (path.startsWith("/blog")) {
+    return <BlogRoute path={path} />;
   }
 
   if (path.replace(/\/+$/, "") === "/vision") {
@@ -106,7 +113,15 @@ function RolesRoute({ path }: { path: string }) {
   return <RolePage role={role} />;
 }
 
-/** The in-app not-found panel for an unknown product or role slug. */
+function BlogRoute({ path }: { path: string }) {
+  const slug = slugOf(path, "blog");
+  if (!slug) return <BlogIndex />;
+  const post = findPost(slug);
+  if (!post) return <NotFound kind="post" href="/blog" cta="Read every post" />;
+  return <BlogPost post={post} />;
+}
+
+/** The in-app not-found panel for an unknown product, role or post slug. */
 function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string }) {
   return (
     <Page>

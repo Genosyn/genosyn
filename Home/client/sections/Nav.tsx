@@ -6,6 +6,7 @@ import { Link, usePathname } from "@/lib/router";
 
 const LINKS = [
   { href: "/vision", label: "Vision" },
+  { href: "/blog", label: "Blog" },
   { href: "/roles", label: "Roles" },
   { href: "/products", label: "Products" },
   { href: "/docs", label: "Docs" },

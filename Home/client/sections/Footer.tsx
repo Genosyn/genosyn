@@ -45,6 +45,7 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
     title: "Company",
     links: [
       ["Vision", "/vision"],
+      ["Blog", "/blog"],
       ["GitHub", GITHUB_URL],
       ["Releases", `${GITHUB_URL}/releases`],
       ["Issues", `${GITHUB_URL}/issues`],

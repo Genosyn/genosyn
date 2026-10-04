@@ -41,13 +41,14 @@ export function navigate(path: string): void {
 // Only intercept paths the React app actually owns. Everything else (file
 // downloads like /install.sh and /genosyn, hash anchors, http(s) URLs) falls
 // through to the browser's default link behavior.
-function isInternalRoute(href: string): boolean {
+export function isInternalRoute(href: string): boolean {
   if (!href.startsWith("/")) return false;
   if (href.startsWith("//")) return false;
   if (href === "/") return true;
   if (href.startsWith("/docs")) return true;
   if (href.startsWith("/products")) return true;
   if (href.startsWith("/roles")) return true;
+  if (href.startsWith("/blog")) return true;
   if (href === "/vision") return true;
   return false;
 }

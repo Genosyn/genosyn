@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { headingId, readingMinutes, renderMarkdown } from "../client/blog/markdown.js";
+import { POSTS, postDate } from "../client/blog/posts.js";
 import { DOCS_FLAT, DOCS_NAV, findPageMeta } from "../client/docs/nav.js";
 import { PRODUCT_CATEGORIES, PRODUCTS, findProduct } from "../client/products/data.js";
 import { ROLES, ROLE_DISCIPLINES, findRole } from "../client/roles/data.js";
@@ -244,6 +246,63 @@ describe("vision", () => {
   });
 });
 
+// A post is Markdown in client/blog/posts/, listed in posts.ts. The two have
+// to agree, and what Markdown can carry onto a public page has to stay safe.
+describe("blog", () => {
+  const postsDir = fileURLToPath(new URL("../client/blog/posts/", import.meta.url));
+  const files = readdirSync(postsDir).filter((file) => file.endsWith(".md"));
+
+  test("lists every Markdown post exactly once, newest first", () => {
+    const slugs = POSTS.map((post) => post.slug);
+    assert.equal(new Set(slugs).size, slugs.length);
+    assert.deepEqual([...slugs].sort(), files.map((file) => file.replace(/\.md$/, "")).sort());
+    for (const post of POSTS) {
+      assert.match(post.slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+      assert.match(post.date, /^\d{4}-\d{2}-\d{2}$/);
+      assert.doesNotMatch(postDate(post.date), /undefined|NaN/, `${post.slug}: bad date`);
+      assert.ok(post.title.trim() && post.description.trim() && post.author.trim(), post.slug);
+    }
+    const dates = POSTS.map((post) => post.date);
+    assert.deepEqual(dates, [...dates].sort().reverse(), "posts are not newest first");
+  });
+
+  test("writes posts in the product's nouns", () => {
+    for (const file of files) {
+      const text = readFileSync(`${postsDir}${file}`, "utf8");
+      assert.doesNotMatch(text, /\b(agents?|bots?|assistants?|tasks?|pipelines?|OKRs?|KPIs?)\b/i, file);
+      assert.ok(readingMinutes(text) >= 1);
+    }
+  });
+
+  test("renders Markdown to safe HTML", () => {
+    const html = renderMarkdown(
+      [
+        "## Who gets to *own*",
+        "",
+        "Read [the vision](/vision), [the source](https://github.com/Genosyn/genosyn) and [this](javascript:alert(1)).",
+        "",
+        "<script>alert(1)</script>",
+        "",
+        "> A pull quote.",
+      ].join("\n"),
+    );
+    assert.match(html, /<h2 id="who-gets-to-own">Who gets to <em>own<\/em><\/h2>/);
+    assert.match(html, /<a href="\/vision">the vision<\/a>/);
+    assert.match(html, /<a href="https:\/\/github\.com\/Genosyn\/genosyn" target="_blank" rel="noreferrer">/);
+    assert.doesNotMatch(html, /javascript:/);
+    assert.doesNotMatch(html, /<script>/);
+    assert.match(html, /&lt;script&gt;/);
+    assert.match(html, /<blockquote>/);
+    assert.equal(headingId("Ownership you can check"), "ownership-you-can-check");
+  });
+
+  test("puts every post in the LLM index", () => {
+    for (const post of POSTS) {
+      assert.ok(siteMeta.llmsTxt().includes(`https://genosyn.com/blog/${post.slug}`), post.slug);
+    }
+  });
+});
+
 describe("documentation navigation", () => {
   test("has unique section labels and unique canonical page paths", () => {
     assert.equal(new Set(DOCS_NAV.map((section) => section.label)).size, DOCS_NAV.length);
@@ -270,16 +329,18 @@ describe("route metadata and LLM indexes", () => {
     assert.equal(new Set(paths).size, paths.length);
     assert.equal(
       routes.length,
-      4 + PRODUCTS.length + ROLES.length + DOCS_FLAT.length,
-      "home + vision + products + roles + generated product/role/docs routes",
+      5 + PRODUCTS.length + ROLES.length + POSTS.length + DOCS_FLAT.length,
+      "home + vision + products + roles + blog + generated product/role/post/docs routes",
     );
     for (const path of [
       "/",
       "/vision",
       "/products",
       "/roles",
+      "/blog",
       ...PRODUCTS.map((product) => `/products/${product.slug}`),
       ...ROLES.map((role) => `/roles/${role.slug}`),
+      ...POSTS.map((post) => `/blog/${post.slug}`),
       ...DOCS_FLAT.map((page) => page.path),
     ]) {
       const route = siteMeta.findRouteHead(`${path === "/" ? "" : path}/`);

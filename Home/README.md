@@ -66,6 +66,7 @@ Home/
 │   ├── public/favicon.svg
 │   ├── sections/              # Kit, Nav, Hero and the landing bands, Footer
 │   ├── vision/                # /vision: where Genosyn is going, told through one sample company
+│   ├── blog/                  # /blog: posts are Markdown in blog/posts/<slug>.md, listed in blog/posts.ts
 │   ├── roles/                 # role registry + /roles and /roles/<slug> pages
 │   ├── products/              # product registry + /products pages
 │   └── docs/                  # /docs shell, nav, and pages

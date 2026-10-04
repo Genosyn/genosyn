@@ -1,5 +1,6 @@
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { ROLES, type RoleDef } from "@/roles/data";
+import { POSTS, type Post } from "@/blog/posts";
 import { DOCS_NAV } from "@/docs/nav";
 import { GITHUB_URL } from "@/lib/constants";
 
@@ -32,6 +33,11 @@ const SITE_DESCRIPTION =
 // never reads like a feature claim.
 const VISION_DESCRIPTION =
   "Genosyn's vision: start a company with one sentence and let it work for a century. That sentence is its Goal; the company works toward it on its own, keeps its own treasury, hires people for physical work, and writes to you, its board, once a month.";
+
+// The blog, like the vision page it extends, is about direction; its posts
+// say plainly which parts ship today.
+const BLOG_DESCRIPTION =
+  "Essays from the people building Genosyn on companies that run themselves: who will own them, who they will answer to, and what becomes possible when founding one takes a sentence.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -89,6 +95,40 @@ function faqPage(product: ProductDef): object {
       name: f.q,
       acceptedAnswer: { "@type": "Answer", text: f.a },
     })),
+  };
+}
+
+function blogPosting(post: Post): object {
+  const url = `${SITE_URL}/blog/${post.slug}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description: post.description,
+    datePublished: post.date,
+    url,
+    mainEntityOfPage: url,
+    author: { "@type": "Organization", name: post.author, url: SITE_URL },
+    publisher: { "@type": "Organization", name: "Genosyn", url: SITE_URL, logo: `${SITE_URL}/favicon.svg` },
+  };
+}
+
+function postRoute(post: Post): RouteHead {
+  const path = `/blog/${post.slug}`;
+  return {
+    path,
+    title: `${post.title} · Genosyn`,
+    description: post.description,
+    jsonLd: [
+      ORGANIZATION,
+      WEBSITE,
+      breadcrumbs([
+        { name: "Home", path: "/" },
+        { name: "Blog", path: "/blog" },
+        { name: post.title, path },
+      ]),
+      blogPosting(post),
+    ],
   };
 }
 
@@ -256,6 +296,28 @@ export function allRoutes(): RouteHead[] {
       ],
     },
     ...ROLES.map(roleRoute),
+    {
+      path: "/blog",
+      title: "Blog — notes on companies that run themselves · Genosyn",
+      description: BLOG_DESCRIPTION,
+      jsonLd: [
+        ORGANIZATION,
+        WEBSITE,
+        breadcrumbs([
+          { name: "Home", path: "/" },
+          { name: "Blog", path: "/blog" },
+        ]),
+        {
+          "@context": "https://schema.org",
+          "@type": "Blog",
+          name: "The Genosyn blog",
+          url: `${SITE_URL}/blog`,
+          description: BLOG_DESCRIPTION,
+          blogPost: POSTS.map(blogPosting),
+        },
+      ],
+    },
+    ...POSTS.map(postRoute),
     ...DOCS_NAV.flatMap((section) =>
       section.pages.map((page) => ({
         path: page.path,
@@ -296,6 +358,12 @@ export function llmsTxt(): string {
     "## Vision",
     "",
     `- [Vision](${SITE_URL}/vision): where Genosyn is going, as opposed to what ships today — companies that run themselves toward a Goal their board sets, with an AI executive team, their own treasury, people hired for physical work who earn a share of the company, and an audited monthly letter to the board. The page marks which parts ship today.`,
+    "",
+    "## Blog",
+    "",
+    `Essays on the same direction as the vision page; each says which parts ship today. [All posts](${SITE_URL}/blog).`,
+    "",
+    ...POSTS.map((post) => `- [${post.title}](${SITE_URL}/blog/${post.slug}) (${post.date}): ${post.description}`),
     "",
     "## Roles",
     "",
@@ -398,6 +466,12 @@ export function llmsFullTxt(): string {
     "The board keeps four things: the Goal, the vault, the monthly letter, and a switch that stands the whole company down or changes who leads it (a line of the CEO's Soul, its AI Model, or the CEO itself). Everything else (strategy, prices, hiring, payments from checking, even its own Policies) the company decides on its own, writing down a reason for each decision. Beyond one company, the vision is of companies owned by the people who work for them and the places they serve, copied from one another as plain text, and trading with one another. Goals and Standdowns ship today; the AI executive team, the CEO seat, the monthly board letter and its auditor, the treasury, and work orders that pay a share of the company are on the road.",
     "",
   );
+
+  lines.push(`## Blog (${SITE_URL}/blog)`, "", BLOG_DESCRIPTION, "");
+  for (const post of POSTS) {
+    lines.push(`- **${post.title}** (${post.date}, ${SITE_URL}/blog/${post.slug}): ${post.description}`);
+  }
+  lines.push("");
 
   lines.push(
     "## Self-hosting",

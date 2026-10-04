@@ -395,10 +395,22 @@ function useDrawIn<T extends HTMLElement>() {
   return ref;
 }
 
-export function IdeaArt({ art, legend }: { art: BigIdea["art"]; legend: string }) {
+export function IdeaArt({
+  art,
+  legend,
+  frame = "relative h-52 border-b border-white/[0.07]",
+}: {
+  art: BigIdea["art"];
+  legend: string;
+  /**
+   * The box the drawing fills: its position, size and edges. It must position
+   * the box (relative or absolute), because the drawing is laid out inside it.
+   */
+  frame?: string;
+}) {
   const ref = useDrawIn<HTMLDivElement>();
   return (
-    <div ref={ref} className="vi-art relative h-52 overflow-hidden border-b border-white/[0.07]">
+    <div ref={ref} className={`vi-art overflow-hidden ${frame}`}>
       {art === "problems" && <Problems />}
       {art === "owners" && <Owners />}
       {art === "reasons" && <Reasons />}
