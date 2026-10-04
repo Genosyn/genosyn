@@ -1,7 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import { useReveal } from "@/components/Reveal";
 import { postContent } from "@/blog/content";
-import { POSTS, postDate, type Post } from "@/blog/posts";
+import { POSTS, postDate, TOPICS, type Post } from "@/blog/posts";
 import { Link } from "@/lib/router";
 import { ClosingCta, Footer } from "@/sections/Footer";
 import { Container, Em } from "@/sections/Kit";
@@ -11,10 +11,10 @@ import { IdeaArt } from "@/vision/IdeaArt";
 
 /**
  * /blog: essays on where Genosyn is going. The newest post is drawn large,
- * with the vision-page drawing it borrows; earlier ones follow as a list.
+ * with the vision-page drawing it borrows; the rest sit on shelves by topic.
  */
 export function BlogIndex() {
-  const [latest, ...earlier] = POSTS;
+  const [featured, ...rest] = POSTS;
   return (
     <div className="min-h-screen overflow-x-clip bg-paper text-ink">
       <Nav />
@@ -30,8 +30,13 @@ export function BlogIndex() {
         />
         <section className="pb-20 sm:pb-24 lg:pb-28">
           <Container>
-            {latest && <Featured post={latest} />}
-            {earlier.length > 0 && <Earlier posts={earlier} />}
+            {featured && <Featured post={featured} />}
+            <div className="mt-20 space-y-16 sm:mt-24 sm:space-y-20">
+              {TOPICS.map((topic) => {
+                const posts = rest.filter((post) => post.topic === topic.id);
+                return posts.length > 0 ? <Shelf key={topic.id} topic={topic} posts={posts} /> : null;
+              })}
+            </div>
           </Container>
         </section>
         <ClosingCta />
@@ -68,44 +73,47 @@ function Featured({ post }: { post: Post }) {
           <ArrowRight aria-hidden className="nudge h-4 w-4 opacity-70" />
         </span>
       </span>
-      {post.art && (
-        <span className="night-sky on-night relative block min-h-[17rem] text-white lg:min-h-full">
-          <IdeaArt art={post.art} legend={post.legend ?? ""} frame="absolute inset-0" />
-        </span>
-      )}
+      <span className="night-sky on-night relative block min-h-[17rem] text-white lg:min-h-full">
+        <IdeaArt art={post.art} legend={post.legend} frame="absolute inset-0" />
+      </span>
     </Link>
   );
 }
 
-function Earlier({ posts }: { posts: Post[] }) {
-  const list = useReveal<HTMLOListElement>(0, 70);
+/** One topic: its name and what it covers beside the posts filed under it. */
+function Shelf({ topic, posts }: { topic: (typeof TOPICS)[number]; posts: Post[] }) {
+  const list = useReveal<HTMLOListElement>(0, 60);
   return (
-    <div className="mt-20">
-      <p className="kicker inline-flex items-center gap-3 text-ink-500">
-        <span aria-hidden className="h-px w-6 bg-ink" />
-        Earlier
-      </p>
-      <ol ref={list} className="mt-6 divide-y divide-line border-y border-line">
+    <section
+      aria-labelledby={`topic-${topic.id}`}
+      className="grid gap-x-12 gap-y-6 border-t border-line pt-8 lg:grid-cols-[16rem_minmax(0,1fr)]"
+    >
+      <div>
+        <h2 id={`topic-${topic.id}`} className="font-display text-[1.5rem] leading-tight tracking-[-0.025em] text-ink">
+          {topic.label}
+        </h2>
+        <p className="mt-2 max-w-[32ch] text-[14.5px] leading-6 text-ink-500">{topic.blurb}</p>
+      </div>
+      <ol ref={list} className="divide-y divide-line">
         {posts.map((post) => (
-          <li key={post.slug}>
+          <li key={post.slug} className="first:[&>a]:pt-0">
             <Link
               href={`/blog/${post.slug}`}
-              className="group grid gap-x-10 gap-y-2 py-7 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:items-baseline"
+              className="group grid gap-x-8 gap-y-2 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline"
             >
-              <time dateTime={post.date} className="font-mono text-[11.5px] uppercase tracking-[0.1em] text-ink-500">
-                {postDate(post.date)}
-              </time>
               <span className="min-w-0">
-                <span className="block font-display text-[1.45rem] leading-tight tracking-[-0.025em] text-ink underline decoration-transparent underline-offset-[6px] transition-colors group-hover:decoration-ink/30">
+                <span className="block font-display text-[1.35rem] leading-tight tracking-[-0.025em] text-ink underline decoration-transparent decoration-1 underline-offset-[6px] transition-colors group-hover:decoration-ink/30">
                   {post.title}
                 </span>
-                <span className="mt-2 block max-w-[64ch] text-[15px] leading-6 text-ink-600">{post.description}</span>
+                <span className="mt-2 block max-w-[62ch] text-[15px] leading-6 text-ink-600">{post.description}</span>
               </span>
-              <span className="font-mono text-[11.5px] text-ink-400">{`${minutesOf(post)} min`}</span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-400">
+                {`${minutesOf(post)} min read`}
+              </span>
             </Link>
           </li>
         ))}
       </ol>
-    </div>
+    </section>
   );
 }

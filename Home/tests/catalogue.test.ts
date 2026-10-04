@@ -4,7 +4,7 @@ import { before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { headingId, readingMinutes, renderMarkdown } from "../client/blog/markdown.js";
-import { POSTS, postDate } from "../client/blog/posts.js";
+import { POSTS, postDate, TOPICS } from "../client/blog/posts.js";
 import { DOCS_FLAT, DOCS_NAV, findPageMeta } from "../client/docs/nav.js";
 import { PRODUCT_CATEGORIES, PRODUCTS, findProduct } from "../client/products/data.js";
 import { ROLES, ROLE_DISCIPLINES, findRole } from "../client/roles/data.js";
@@ -261,6 +261,8 @@ describe("blog", () => {
       assert.match(post.date, /^\d{4}-\d{2}-\d{2}$/);
       assert.doesNotMatch(postDate(post.date), /undefined|NaN/, `${post.slug}: bad date`);
       assert.ok(post.title.trim() && post.description.trim() && post.author.trim(), post.slug);
+      assert.ok(TOPICS.some((topic) => topic.id === post.topic), `${post.slug}: unknown topic`);
+      assert.ok(post.legend.trim(), `${post.slug}: no caption for its drawing`);
     }
     const dates = POSTS.map((post) => post.date);
     assert.deepEqual(dates, [...dates].sort().reverse(), "posts are not newest first");
@@ -271,6 +273,28 @@ describe("blog", () => {
       const text = readFileSync(`${postsDir}${file}`, "utf8");
       assert.doesNotMatch(text, /\b(agents?|bots?|assistants?|tasks?|pipelines?|OKRs?|KPIs?)\b/i, file);
       assert.ok(readingMinutes(text) >= 1);
+    }
+  });
+
+  // A post is prose, so a renamed docs page or vision section breaks it
+  // silently. Every same-site link has to land on a registered route, and
+  // every anchor on the vision page has to be a section that exists.
+  test("links only to pages and sections that exist", () => {
+    const visionDir = fileURLToPath(new URL("../client/vision/", import.meta.url));
+    const visionSource = readdirSync(visionDir)
+      .filter((file) => file.endsWith(".tsx"))
+      .map((file) => readFileSync(`${visionDir}${file}`, "utf8"))
+      .join("\n");
+    for (const file of files) {
+      const text = readFileSync(`${postsDir}${file}`, "utf8");
+      for (const [, href] of text.matchAll(/\]\((\/[^)\s]*)\)/g)) {
+        const [path, anchor] = href.split("#");
+        assert.ok(siteMeta.findRouteHead(path), `${file}: ${href} is not a page`);
+        if (anchor) {
+          assert.equal(path, "/vision", `${file}: ${href} anchors into a page the test cannot read`);
+          assert.match(visionSource, new RegExp(`id="${anchor}"`), `${file}: no #${anchor} on the vision page`);
+        }
+      }
     }
   });
 

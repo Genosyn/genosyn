@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent, RefObject } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { postContent } from "@/blog/content";
-import { postDate, type Post } from "@/blog/posts";
+import { nextPost, postDate, TOPICS, type Post } from "@/blog/posts";
 import { LogoMark } from "@/components/Logo";
 import { isInternalRoute, Link, navigate } from "@/lib/router";
 import { ClosingCta, Footer } from "@/sections/Footer";
@@ -28,13 +28,14 @@ export function BlogPost({ post }: { post: Post }) {
         <article ref={article}>
           <header className="pb-12 pt-12 sm:pb-16 sm:pt-16 lg:pt-20">
             <Container narrow>
-              <Link
-                href="/blog"
-                className="group inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500 transition-colors hover:text-ink"
-              >
-                <ArrowLeft aria-hidden className="h-3.5 w-3.5 transition-transform duration-200 group-hover:-translate-x-0.5" />
-                Blog
-              </Link>
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">
+                <Link href="/blog" className="group inline-flex items-center gap-2 transition-colors hover:text-ink">
+                  <ArrowLeft aria-hidden className="h-3.5 w-3.5 transition-transform duration-200 group-hover:-translate-x-0.5" />
+                  Blog
+                </Link>
+                <span aria-hidden className="text-ink-300">/</span>
+                <span>{TOPICS.find((topic) => topic.id === post.topic)?.label}</span>
+              </p>
               <h1 className="mt-8 text-balance font-display text-display-xl text-ink">{post.title}</h1>
               <p className="mt-7 max-w-[56ch] text-pretty text-[1.1875rem] leading-[1.6] text-ink-600 sm:text-[1.3125rem]">
                 {post.description}
@@ -53,13 +54,11 @@ export function BlogPost({ post }: { post: Post }) {
             </Container>
           </header>
 
-          {post.art && (
-            <NightPanel dawn={0.55}>
-              <div className="mx-auto max-w-site">
-                <IdeaArt art={post.art} legend={post.legend ?? ""} frame="relative h-64 sm:h-80 lg:h-96" />
-              </div>
-            </NightPanel>
-          )}
+          <NightPanel dawn={0.55}>
+            <div className="mx-auto max-w-site">
+              <IdeaArt art={post.art} legend={post.legend} frame="relative h-64 sm:h-80 lg:h-96" />
+            </div>
+          </NightPanel>
 
           <Container narrow className="py-14 sm:py-20">
             {/* Rendered from the post's own Markdown, with raw HTML escaped: see markdown.ts. */}
@@ -73,13 +72,14 @@ export function BlogPost({ post }: { post: Post }) {
           <footer className="pb-20 sm:pb-24">
             <Container narrow>
               <div className="mx-auto max-w-[40rem]">
-                <ReadNext />
-                <p className="mt-8 text-center">
-                  <Link
-                    href="/blog"
-                    className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500 transition-colors hover:text-ink"
-                  >
+                <ReadNext post={post} />
+                <p className="mt-8 flex items-center justify-center gap-6 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">
+                  <Link href="/blog" className="transition-colors hover:text-ink">
                     Every post
+                  </Link>
+                  <span aria-hidden className="text-ink-300">·</span>
+                  <Link href="/vision" className="transition-colors hover:text-ink">
+                    The vision
                   </Link>
                 </p>
               </div>
@@ -93,19 +93,26 @@ export function BlogPost({ post }: { post: Post }) {
   );
 }
 
-/** Where every post leads: the vision it comes from. */
-function ReadNext() {
+/** Where a post leads: the next essay, or the vision when there is no other post. */
+function ReadNext({ post }: { post: Post }) {
+  const next = nextPost(post);
+  const href = next ? `/blog/${next.slug}` : "/vision";
   return (
     <Link
-      href="/vision"
+      href={href}
       className="group block rounded-[1.75rem] border border-line bg-paper-raised p-7 shadow-soft transition-shadow duration-300 hover:shadow-lifted sm:p-9"
     >
-      <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">Read next · The vision</span>
+      <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">
+        {next ? `Read next · ${TOPICS.find((topic) => topic.id === next.topic)?.label}` : "Read next · The vision"}
+      </span>
       <span className="mt-4 block text-balance font-display text-[1.65rem] leading-[1.1] tracking-[-0.03em] text-ink sm:text-[2rem]">
-        Start a company with one sentence. <span className="text-ink-400">Let it work for a century.</span>
+        {next ? next.title : "Start a company with one sentence."}
+      </span>
+      <span className="mt-3 block text-[15px] leading-6 text-ink-600">
+        {next ? next.description : "Let it work for a century."}
       </span>
       <span className="mt-6 inline-flex items-center gap-1.5 text-[15px] font-medium text-ink underline decoration-ink/20 underline-offset-[6px] transition-colors group-hover:decoration-ink">
-        Read the vision
+        {next ? "Read the essay" : "Read the vision"}
         <ArrowRight aria-hidden className="nudge h-4 w-4 opacity-70" />
       </span>
     </Link>

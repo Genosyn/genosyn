@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { DECISION_LOG, type BigIdea } from "@/vision/data";
-import { round, seeded, sideways, type Point } from "@/vision/draw";
+import { DECISION_LOG } from "@/vision/data";
+import { round, seeded, sideways, type ArtKind, type Point } from "@/vision/draw";
 
 /**
  * The drawings above the bigger ideas, in the hero's vocabulary: a square is a
@@ -361,6 +361,57 @@ function Century() {
 }
 
 /* -------------------------------------------------------------------------
+   A Check (the blog): Runs arrive at a bar; what passes goes on, what fails stops
+------------------------------------------------------------------------- */
+
+const GATE = 196;
+const CHECK_ROWS = [30, 56, 82, 108, 134].map((y, row) => ({ y, passed: row !== 2 }));
+
+function Checks() {
+  return (
+    <svg viewBox={VIEW} className={SVG} aria-hidden focusable="false">
+      <g fill="#fff">
+        {CHECK_ROWS.flatMap(({ y }) =>
+          [40, 70, 100, 130, 160].map((x, i) => (
+            <circle key={`${x}-${y}`} cx={x} cy={y} r="2.2" fillOpacity={round(0.2 + i * 0.17)} className={`vi-in ${step(i)}`} />
+          )),
+        )}
+      </g>
+      <path
+        d={`M${GATE} 16V148`}
+        pathLength={1}
+        stroke="#fff"
+        strokeOpacity="0.8"
+        strokeWidth="1.5"
+        className={`vi-line ${step(0)}`}
+      />
+      <g fill="none" stroke="#fff" strokeOpacity="0.35">
+        {CHECK_ROWS.filter((row) => row.passed).map(({ y }) => (
+          <path key={y} d={`M${GATE + 36} ${y}H328`} pathLength={1} className={`vi-line ${step(6)}`} />
+        ))}
+      </g>
+      <g className={`vi-in ${step(5)}`}>
+        {CHECK_ROWS.map(({ y, passed }) =>
+          passed ? (
+            <rect key={y} x={GATE + 22} y={y - 4.5} width="9" height="9" fill="#fff" />
+          ) : (
+            <g key={y} fill="#0A0A0A" stroke="#fff" strokeWidth="1.2">
+              <rect x={GATE + 22} y={y - 4.5} width="9" height="9" />
+              <path d={`M${GATE + 24.5} ${y - 2}l4 4M${GATE + 28.5} ${y - 2}l-4 4`} />
+            </g>
+          ),
+        )}
+      </g>
+      <g fill="#fff" fillOpacity="0.8">
+        {CHECK_ROWS.filter((row) => row.passed).map(({ y }) => (
+          <circle key={y} cx="332" cy={y} r="2.2" className={`vi-in ${step(7)}`} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+/* -------------------------------------------------------------------------
    The frame every drawing sits in
 ------------------------------------------------------------------------- */
 
@@ -400,7 +451,7 @@ export function IdeaArt({
   legend,
   frame = "relative h-52 border-b border-white/[0.07]",
 }: {
-  art: BigIdea["art"];
+  art: ArtKind;
   legend: string;
   /**
    * The box the drawing fills: its position, size and edges. It must position
@@ -417,6 +468,7 @@ export function IdeaArt({
       {art === "forks" && <Forks />}
       {art === "economy" && <Economy />}
       {art === "century" && <Century />}
+      {art === "checks" && <Checks />}
       <p className="absolute inset-x-6 bottom-3.5 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-night-faint sm:inset-x-7">
         {legend}
       </p>

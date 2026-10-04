@@ -6,6 +6,9 @@
 
 export type Point = { x: number; y: number };
 
+/** Every drawing IdeaArt makes: the vision's six bigger ideas, and the blog's Check. */
+export type ArtKind = "problems" | "owners" | "reasons" | "forks" | "economy" | "century" | "checks";
+
 /** mulberry32: small, fast, and the same sequence on the server and in the browser. */
 export function seeded(seed: number): () => number {
   let state = seed;
