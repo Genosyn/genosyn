@@ -56,7 +56,9 @@ export default function FinanceRecurringInvoiceDetail() {
   const [ri, setRi] = React.useState<RecurringInvoice | null>(null);
   const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<
+    null | "status" | "run" | "retry" | "duplicate" | "delete"
+  >(null);
 
   const reload = React.useCallback(async () => {
     if (!recurringSlug) return;
@@ -83,7 +85,7 @@ export default function FinanceRecurringInvoiceDetail() {
 
   async function patchStatus(next: RecurringInvoiceStatus) {
     if (!ri) return;
-    setBusy(true);
+    setBusy("status");
     try {
       const updated = await api.patch<RecurringInvoice>(
         `/api/companies/${company.id}/recurring-invoices/${ri.slug}`,
@@ -93,13 +95,13 @@ export default function FinanceRecurringInvoiceDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t update the schedule" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function runNow() {
+  async function runNow(from: "run" | "retry") {
     if (!ri) return;
-    setBusy(true);
+    setBusy(from);
     try {
       const result = await api.post<{
         recurringInvoice: RecurringInvoice;
@@ -119,13 +121,13 @@ export default function FinanceRecurringInvoiceDetail() {
       void dialog.error(err, { title: "Couldn’t run the schedule" });
       void reload();
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function duplicate() {
     if (!ri) return;
-    setBusy(true);
+    setBusy("duplicate");
     try {
       const copy = await api.post<RecurringInvoice>(
         `/api/companies/${company.id}/recurring-invoices/${ri.slug}/duplicate`,
@@ -133,7 +135,7 @@ export default function FinanceRecurringInvoiceDetail() {
       navigate(`/c/${company.slug}/finance/recurring-invoices/${copy.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t duplicate the schedule" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -160,13 +162,13 @@ export default function FinanceRecurringInvoiceDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await api.del(`/api/companies/${company.id}/recurring-invoices/${ri.slug}`);
       navigate(`/c/${company.slug}/finance/recurring-invoices`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the schedule" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -260,12 +262,16 @@ export default function FinanceRecurringInvoiceDetail() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {ri.status !== "ended" && (
-            <Button onClick={runNow} disabled={busy}>
+            <Button
+              onClick={() => void runNow("run")}
+              loading={busy === "run"}
+              disabled={busy !== null}
+            >
               <PlayCircle size={14} /> {retrying ? "Retry now" : "Run now"}
             </Button>
           )}
           <Link to={`/c/${company.slug}/finance/recurring-invoices/${ri.slug}/edit`}>
-            <Button variant="secondary" disabled={busy}>
+            <Button variant="secondary" disabled={busy !== null}>
               <Pencil size={14} /> Edit
             </Button>
           </Link>
@@ -277,7 +283,7 @@ export default function FinanceRecurringInvoiceDetail() {
                 ref={ref}
                 variant="secondary"
                 onClick={onClick}
-                disabled={busy}
+                disabled={busy !== null}
                 aria-label="More actions"
               >
                 <MoreHorizontal size={14} />
@@ -355,8 +361,9 @@ export default function FinanceRecurringInvoiceDetail() {
               ? `/c/${company.slug}/finance/invoices/${ri.latestRun.invoiceSlug}`
               : null
           }
-          busy={busy}
-          onRetry={runNow}
+          busy={busy !== null}
+          retryLoading={busy === "retry"}
+          onRetry={() => void runNow("retry")}
         />
       )}
 
@@ -535,12 +542,14 @@ function RunAttention({
   active,
   invoiceUrl,
   busy,
+  retryLoading,
   onRetry,
 }: {
   run: RecurringInvoiceRunSummary;
   active: boolean;
   invoiceUrl: string | null;
   busy: boolean;
+  retryLoading: boolean;
   onRetry: () => void;
 }) {
   const retrying = active && run.status === "pending" && run.lastError !== "";
@@ -574,7 +583,7 @@ function RunAttention({
           </Link>
         )}
         {retrying && (
-          <Button size="sm" onClick={onRetry} disabled={busy}>
+          <Button size="sm" onClick={onRetry} loading={retryLoading} disabled={busy}>
             Retry now
           </Button>
         )}

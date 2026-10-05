@@ -1,6 +1,6 @@
 import React from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
-import { Spinner } from "../ui/Spinner";
+import { ButtonSpinner } from "../ui/Spinner";
 import type { SessionStatusTone } from "./sessionState";
 
 /**
@@ -65,9 +65,10 @@ export function InlineRetry({
             type="button"
             onClick={() => void retry()}
             disabled={retrying}
+            aria-busy={retrying || undefined}
             className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200 hover:bg-rose-50 disabled:opacity-60 dark:bg-slate-900 dark:text-rose-300 dark:ring-rose-500/25 dark:hover:bg-rose-500/10"
           >
-            {retrying ? <Spinner size={11} /> : <RefreshCw size={11} />}
+            {retrying ? <ButtonSpinner size={11} /> : <RefreshCw size={11} />}
             Retry
           </button>
           {onBack && (

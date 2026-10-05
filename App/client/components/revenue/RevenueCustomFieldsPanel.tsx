@@ -113,7 +113,7 @@ export function RevenueCustomFieldsPanel({
           <p className="mt-1 text-xs text-slate-500">Structured, filterable company data.</p>
         </div>
         {rows.length > 0 && (
-          <Button size="sm" onClick={() => void save()} disabled={busy}>
+          <Button size="sm" onClick={() => void save()} loading={busy}>
             {busy ? "Saving…" : "Save"}
           </Button>
         )}

@@ -103,7 +103,7 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
 
   async function removeMember(row: VaultMemberAccess) {
     if (busy) return;
-    setBusy(`member:${row.id}`);
+    setBusy(`member:remove:${row.id}`);
     try {
       await vaultApi.deleteMemberAccess(companyId, item.id, row.id);
       await reload();
@@ -145,7 +145,7 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
 
   async function removeEmployee(row: VaultEmployeeGrant) {
     if (busy) return;
-    setBusy(`employee:${row.id}`);
+    setBusy(`employee:remove:${row.id}`);
     try {
       await vaultApi.deleteEmployeeGrant(companyId, item.id, row.id);
       await reload();
@@ -249,6 +249,7 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
                   <Button
                     variant="ghost"
                     size="sm"
+                    loading={busy === `member:remove:${row.id}`}
                     disabled={!item.canShare || busy !== null}
                     onClick={() => void removeMember(row)}
                     aria-label={`Remove ${row.member.name}'s access`}
@@ -294,6 +295,7 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
               </Select>
               <Button
                 size="sm"
+                loading={busy === "member:add"}
                 disabled={busy !== null || !memberPick}
                 onClick={() => void addMember()}
               >
@@ -368,6 +370,7 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
                   <Button
                     variant="ghost"
                     size="sm"
+                    loading={busy === `employee:remove:${row.id}`}
                     disabled={!item.canShare || busy !== null}
                     onClick={() => void removeEmployee(row)}
                     aria-label={`Remove ${row.employee.name}'s Grant`}
@@ -416,6 +419,7 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
               </Select>
               <Button
                 size="sm"
+                loading={busy === "employee:add"}
                 disabled={busy !== null || !employeePick}
                 onClick={() => void addEmployee()}
               >

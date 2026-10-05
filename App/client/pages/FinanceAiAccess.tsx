@@ -258,8 +258,13 @@ export default function FinanceAiAccess() {
                 onChange={setPickLevel}
               />
             </div>
-            <Button onClick={addGrant} disabled={adding || !pickEmployee} className="shrink-0">
-              {adding ? <Spinner size={14} /> : <UserPlus size={14} />}
+            <Button
+              onClick={addGrant}
+              loading={adding}
+              disabled={!pickEmployee}
+              className="shrink-0"
+            >
+              <UserPlus size={14} />
               Add
             </Button>
           </div>

@@ -144,7 +144,7 @@ export function SettingsTags() {
               Tags belong to the company. Reuse them across routines, skills, and Resources.
             </p>
             <div className="flex justify-end">
-              <Button type="submit" disabled={!name.trim() || saving}>
+              <Button type="submit" loading={saving} disabled={!name.trim()}>
                 {saving ? "Creating…" : "Create tag"}
               </Button>
             </div>

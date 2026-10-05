@@ -122,7 +122,7 @@ export function VerifyEmailRequired({ email }: { email: string }) {
         {success ? (
           <p className="text-sm text-emerald-700 dark:text-emerald-400">{success}</p>
         ) : null}
-        <Button onClick={resend} disabled={loading}>
+        <Button onClick={resend} loading={loading}>
           {loading ? "Sending…" : "Resend verification email"}
         </Button>
       </div>

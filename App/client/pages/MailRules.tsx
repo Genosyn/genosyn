@@ -746,8 +746,8 @@ function RuleEditor({
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={busy}>
-            {busy ? <Spinner size={14} /> : state.id ? "Save rule" : "Create rule"}
+          <Button onClick={save} loading={busy}>
+            {state.id ? "Save rule" : "Create rule"}
           </Button>
         </div>
       </div>

@@ -84,6 +84,7 @@ export function AdminDbConsole() {
   const [panel, setPanel] = React.useState<"schema" | "history">("schema");
   const [tableFilter, setTableFilter] = React.useState("");
   const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [refreshingSchema, setRefreshingSchema] = React.useState(false);
 
   const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
 
@@ -99,6 +100,15 @@ export function AdminDbConsole() {
   React.useEffect(() => {
     loadSchema();
   }, [loadSchema]);
+
+  const refreshSchema = async () => {
+    setRefreshingSchema(true);
+    try {
+      await loadSchema();
+    } finally {
+      setRefreshingSchema(false);
+    }
+  };
 
   const pushHistory = React.useCallback((q: string) => {
     setHistory((prev) => {
@@ -202,7 +212,7 @@ export function AdminDbConsole() {
                 <Database size={12} /> {driverLabel}
               </span>
             )}
-            <Button variant="secondary" onClick={loadSchema}>
+            <Button variant="secondary" onClick={refreshSchema} loading={refreshingSchema}>
               <RefreshCw size={14} /> Refresh schema
             </Button>
           </div>
@@ -268,14 +278,11 @@ export function AdminDbConsole() {
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
               <Button
                 onClick={() => run()}
-                disabled={running || !sql.trim()}
+                loading={running}
+                disabled={!sql.trim()}
                 className="shrink-0"
               >
-                {running ? (
-                  <Spinner size={14} />
-                ) : (
-                  <Play size={14} className="fill-current" />
-                )}
+                <Play size={14} className="fill-current" />
                 Run
               </Button>
 

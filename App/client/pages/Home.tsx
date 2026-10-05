@@ -73,7 +73,7 @@ import {
   type DecisionFollowUps,
 } from "@/components/decisions/useDecisionFollowUps";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
@@ -132,6 +132,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
   const [readNotice, setReadNotice] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const background = useBackgroundAction();
   const decisionFollowUps = useDecisionFollowUps(company, me.id);
   const clearClosedFollowUps = decisionFollowUps.clearClosed;
@@ -164,6 +165,15 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
       setLoadError(errorMessage(err, "Could not refresh your home screen."));
     }
   }, [company.id, clearClosedFollowUps]);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const reloadPendingDecisions = React.useCallback(
     async (announcement?: string) => {
@@ -418,7 +428,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                 Showing the last update. Counts may have changed.
               </p>
             )}
-            <Button variant="secondary" size="sm" onClick={() => void reload()}>
+            <Button variant="secondary" size="sm" loading={retrying} onClick={() => void retry()}>
               Retry
             </Button>
           </div>
@@ -944,7 +954,7 @@ function PushPromptBanner() {
           is closed.
         </div>
       </div>
-      <Button size="sm" onClick={enable} disabled={busy}>
+      <Button size="sm" onClick={enable} loading={busy}>
         {busy ? "Enabling…" : "Enable"}
       </Button>
       <button
@@ -1203,12 +1213,13 @@ function FailedRoutinesAlert({
                 type="button"
                 onClick={() => retry(r)}
                 disabled={busy?.runId === r.runId}
+                aria-busy={(busy?.runId === r.runId && busy.action === "retry") || undefined}
                 title="Retry"
                 aria-label={`Retry ${r.routineName}`}
                 className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
               >
                 {busy?.runId === r.runId && busy.action === "retry" ? (
-                  <Spinner size={14} />
+                  <ButtonSpinner size={14} />
                 ) : (
                   <RotateCw size={14} />
                 )}
@@ -1219,12 +1230,13 @@ function FailedRoutinesAlert({
               type="button"
               onClick={() => dismiss(r.runId)}
               disabled={busy?.runId === r.runId}
+              aria-busy={(busy?.runId === r.runId && busy.action === "dismiss") || undefined}
               title="Dismiss"
               aria-label={`Dismiss ${r.routineName} failure`}
               className="flex shrink-0 items-center px-3 text-rose-400 transition hover:bg-rose-100/50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-500/70 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
             >
               {busy?.runId === r.runId && busy.action === "dismiss" ? (
-                <Spinner size={14} />
+                <ButtonSpinner size={14} />
               ) : (
                 <X size={15} />
               )}

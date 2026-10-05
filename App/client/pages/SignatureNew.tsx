@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import { api, type Customer } from "@/lib/api";
 import { customerOptionLabel } from "@/lib/customerLabel";
@@ -271,8 +270,8 @@ export default function SignatureNew() {
                 Cancel
               </Button>
             </Link>
-            <Button type="submit" disabled={saving || checkingFile}>
-              {saving && <Spinner size={15} />} Create draft
+            <Button type="submit" loading={saving} disabled={checkingFile}>
+              Create draft
             </Button>
           </div>
         </form>

@@ -52,6 +52,7 @@ export function EmployeeDayModal({
 }) {
   const [data, setData] = React.useState<WorkTimeline | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const request = React.useRef(0);
   const today = workCalendarDate(nowIso);
   const earliestDay = shiftWorkCalendarDate(today, -6);
@@ -105,6 +106,15 @@ export function EmployeeDayModal({
     calendarRef.current
       ?.querySelector('[data-first-work="true"]')
       ?.scrollIntoView({ block: "start" });
+  };
+
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      await load();
+    } finally {
+      setRetrying(false);
+    }
   };
 
   const base = `/c/${company.slug}/employees/${employee.slug}`;
@@ -237,7 +247,8 @@ export function EmployeeDayModal({
             variant="secondary"
             size="sm"
             className="mt-3"
-            onClick={() => void load()}
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>

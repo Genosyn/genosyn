@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Loader2, Send, Trash2, Users } from "lucide-react";
+import { AlertTriangle, Send, Trash2, Users } from "lucide-react";
 import { MailDraftSendPreview } from "../lib/mail";
 import { Button } from "../components/ui/Button";
 import { clsx } from "../components/ui/clsx";
@@ -52,7 +52,7 @@ export function MailBulkSendDialog({
   // more than they can see, which deserves the same friction as a large batch.
   const count = sending ? preview.sendable : preview.total;
   const needsAck = sending && (count > ACK_THRESHOLD || preview.truncated);
-  const blocked = running || count === 0 || (needsAck && !acknowledged);
+  const blocked = count === 0 || (needsAck && !acknowledged);
 
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -208,16 +208,11 @@ export function MailBulkSendDialog({
           <Button
             size="sm"
             variant={sending ? "primary" : "danger"}
+            loading={running}
             disabled={blocked}
             onClick={onConfirm}
           >
-            {running ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : sending ? (
-              <Send size={14} />
-            ) : (
-              <Trash2 size={14} />
-            )}
+            {sending ? <Send size={14} /> : <Trash2 size={14} />}
             {sending ? `Queue ${count}` : `Discard ${count}`}
           </Button>
         </ModalFooter>

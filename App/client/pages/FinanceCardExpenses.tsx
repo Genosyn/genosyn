@@ -34,6 +34,7 @@ export default function FinanceCardExpenses() {
   const [transactionsError, setTransactionsError] = React.useState<string | null>(null);
   const [showNewFeed, setShowNewFeed] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [syncNotice, setSyncNotice] = React.useState<string | null>(null);
   const [rowBusy, setRowBusy] = React.useState<string | null>(null);
 
@@ -169,11 +170,14 @@ export default function FinanceCardExpenses() {
       variant: "danger",
     });
     if (!confirmed) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/card-feeds/${activeFeed.id}`);
       await reloadFeeds();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the card feed" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -237,10 +241,10 @@ export default function FinanceCardExpenses() {
                 </option>
               ))}
             </Select>
-            <Button variant="secondary" onClick={syncFeed} disabled={syncing}>
-              <RefreshCw size={14} className={syncing ? "animate-spin" : ""} /> Sync
+            <Button variant="secondary" onClick={syncFeed} loading={syncing}>
+              <RefreshCw size={14} /> Sync
             </Button>
-            <Button variant="secondary" onClick={deleteFeed} disabled={syncing}>
+            <Button variant="secondary" onClick={deleteFeed} loading={deleting} disabled={syncing}>
               <Trash2 size={14} /> Delete feed
             </Button>
             {activeFeed?.lastSyncAt && (
@@ -371,7 +375,7 @@ export default function FinanceCardExpenses() {
                               variant="secondary"
                               className="mt-2"
                               onClick={() => retryPosting(transaction)}
-                              disabled={rowBusy === transaction.id}
+                              loading={rowBusy === transaction.id}
                             >
                               Retry
                             </Button>
@@ -555,15 +559,12 @@ function NewCardFeedModal({
           </Button>
           <Button
             type="submit"
+            loading={busy}
             disabled={
-              busy ||
-              !connectionId ||
-              !liabilityAccountId ||
-              !defaultExpenseAccountId ||
-              !paymentAccountId
+              !connectionId || !liabilityAccountId || !defaultExpenseAccountId || !paymentAccountId
             }
           >
-            {busy ? <Spinner size={14} /> : <CreditCard size={14} />}
+            <CreditCard size={14} />
             Connect
           </Button>
         </div>

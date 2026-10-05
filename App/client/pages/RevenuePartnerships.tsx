@@ -205,7 +205,7 @@ function NewPartnershipModal({
         {error && <FormError message={error} />}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create partnership"}</Button>
+          <Button type="submit" loading={busy}>{busy ? "Creating…" : "Create partnership"}</Button>
         </div>
       </form>
     </Modal>

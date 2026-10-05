@@ -29,7 +29,7 @@ import {
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { FormSuccess } from "../components/ui/FormError";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 
 /**
  * What the AI made of this email, and the buttons it earned.
@@ -152,9 +152,10 @@ export function MailAnalysisCard({
         <button
           onClick={() => void retry()}
           disabled={retrying}
+          aria-busy={retrying || undefined}
           className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50 dark:text-indigo-400"
         >
-          {retrying ? <Spinner size={12} /> : <RefreshCw size={12} />} Try again
+          {retrying ? <ButtonSpinner size={12} /> : <RefreshCw size={12} />} Try again
         </button>
       </div>
     );
@@ -184,10 +185,11 @@ export function MailAnalysisCard({
             <button
               onClick={() => void retry()}
               disabled={retrying || busyId !== null}
+              aria-busy={retrying || undefined}
               title="Read this email again"
               className="ml-auto rounded p-1 text-violet-400 hover:bg-violet-100 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-violet-500/15 dark:hover:text-violet-200"
             >
-              {retrying ? <Spinner size={12} /> : <RefreshCw size={12} />}
+              {retrying ? <ButtonSpinner size={12} /> : <RefreshCw size={12} />}
             </button>
           </div>
           <p className="text-sm text-slate-700 dark:text-slate-200">{row.summary}</p>
@@ -207,6 +209,7 @@ export function MailAnalysisCard({
                   <button
                     key={action.id}
                     disabled={spent || Boolean(blocked) || busyId !== null || retrying}
+                    aria-busy={busyId === action.id || undefined}
                     onClick={() => void run(action)}
                     title={spent ? "Already done" : (blocked ?? analysisActionHint(action))}
                     className={clsx(
@@ -220,7 +223,7 @@ export function MailAnalysisCard({
                   >
                     <span className="mt-0.5 shrink-0">
                       {busyId === action.id ? (
-                        <Spinner size={13} />
+                        <ButtonSpinner size={13} />
                       ) : spent ? (
                         <Check size={13} />
                       ) : blocked ? (

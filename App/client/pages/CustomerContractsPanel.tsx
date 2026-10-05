@@ -1,7 +1,7 @@
 import React from "react";
 import { Download, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, Company, CustomerContract } from "../lib/api";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { ContractUploadModal } from "../components/ContractUploadModal";
 import { formatContractSize, formatSignedDate } from "../lib/contracts";
@@ -25,6 +25,7 @@ export function CustomerContractsPanel({
   const [contracts, setContracts] = React.useState<CustomerContract[] | null>(null);
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<CustomerContract | null>(null);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     const list = await api.get<CustomerContract[]>(
@@ -47,11 +48,14 @@ export function CustomerContractsPanel({
       confirmLabel: "Delete",
     });
     if (!ok) return;
+    setRemovingId(c.id);
     try {
       await api.del(`/api/companies/${company.id}/contracts/${c.id}`);
       reload();
     } catch (e) {
       void dialog.error(e, { title: "Couldn’t delete the contract" });
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -127,11 +131,13 @@ export function CustomerContractsPanel({
               <button
                 type="button"
                 onClick={() => remove(c)}
+                disabled={removingId === c.id}
+                aria-busy={removingId === c.id || undefined}
                 className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                 aria-label="Delete contract"
                 title="Delete"
               >
-                <Trash2 size={15} />
+                {removingId === c.id ? <ButtonSpinner size={15} /> : <Trash2 size={15} />}
               </button>
             </li>
           ))}

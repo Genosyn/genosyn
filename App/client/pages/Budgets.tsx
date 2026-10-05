@@ -190,20 +190,20 @@ function BudgetRow({
   onChanged: () => void;
 }) {
   const dialog = useDialog();
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "toggle" | "delete">(null);
 
   const exhausted = budget.spentThisMonthMinor >= budget.amountMinor;
   const progress = Math.min(1, Math.max(0, budget.spentThisMonthMinor / budget.amountMinor));
 
   async function toggle(enabled: boolean) {
-    setBusy(true);
+    setBusy("toggle");
     try {
       await api.patch(`/api/companies/${company.id}/budgets/${budget.id}`, { enabled });
       onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Could not update the budget" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -216,14 +216,14 @@ function BudgetRow({
       variant: "danger",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await api.del(`/api/companies/${company.id}/budgets/${budget.id}`);
       onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Could not delete the budget" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -273,14 +273,14 @@ function BudgetRow({
               <EnabledToggle
                 enabled={budget.enabled}
                 label={`${budget.enabled ? "Disable" : "Enable"} budget ${budget.name}`}
-                disabled={busy}
+                disabled={busy !== null}
                 onChange={(next) => void toggle(next)}
               />
               <div className="flex items-center gap-1">
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={busy}
+                  disabled={busy !== null}
                   onClick={() => onEdit(budget)}
                   aria-label={`Edit ${budget.name}`}
                 >
@@ -289,7 +289,8 @@ function BudgetRow({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={busy}
+                  loading={busy === "delete"}
+                  disabled={busy !== null}
                   onClick={() => void remove()}
                   aria-label={`Delete ${budget.name}`}
                 >
@@ -379,7 +380,7 @@ function BudgetModal({
           <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             {budget ? "Save changes" : "Create budget"}
           </Button>
         </>

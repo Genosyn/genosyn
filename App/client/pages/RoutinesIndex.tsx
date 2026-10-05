@@ -650,14 +650,24 @@ function RoutineRow({
   onToggleSelected: () => void;
   onMove: (folderId: string | null) => void;
   onNewFolder: () => void;
-  onRun: () => void;
+  onRun: () => Promise<void>;
 }) {
+  const [starting, setStarting] = React.useState(false);
   const to = r.employee ? `/c/${company.slug}/routines/${r.employee.slug}/${r.slug}` : null;
   const brokenSchedule = r.enabled && r.nextRunAt === null;
   const folder = r.folderId ? (folders.find((f) => f.id === r.folderId) ?? null) : null;
   const standdownTitle = r.standdown
     ? `${r.standdown.scope === "company" ? "Company" : r.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${r.standdown.reason}`
     : undefined;
+
+  async function run() {
+    setStarting(true);
+    try {
+      await onRun();
+    } finally {
+      setStarting(false);
+    }
+  }
 
   return (
     <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-900">
@@ -808,7 +818,8 @@ function RoutineRow({
           <Button
             size="sm"
             variant="ghost"
-            onClick={onRun}
+            onClick={() => void run()}
+            loading={starting}
             disabled={!!r.standdown}
             title={standdownTitle ?? "Run now"}
           >

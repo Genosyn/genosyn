@@ -319,7 +319,7 @@ export default function CustomerNew() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={busy || !name.trim()}>
+          <Button type="submit" loading={busy} disabled={!name.trim()}>
             {isEdit ? "Save changes" : "Create customer"}
           </Button>
         </div>

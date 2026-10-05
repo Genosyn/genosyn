@@ -42,7 +42,7 @@ export default function Forgot() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" loading={loading}>
             {loading ? "Sending…" : "Send reset link"}
           </Button>
           <Link to="/login" className="text-sm text-slate-500 hover:text-indigo-600 dark:text-slate-400">

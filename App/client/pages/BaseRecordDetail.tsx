@@ -11,7 +11,6 @@ import {
   Download,
   User as UserIcon,
   Bot,
-  Loader2,
   Maximize2,
 } from "lucide-react";
 import {
@@ -32,6 +31,7 @@ import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Ava
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -268,6 +268,7 @@ export function RecordFilesSection({
   const dialog = useDialog();
   const [attachments, setAttachments] = React.useState<BaseRecordAttachment[] | null>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -323,11 +324,14 @@ export function RecordFilesSection({
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(a.id);
     try {
       await api.del(`${baseUrl}/attachments/${a.id}`);
       await loadAttachments();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the file" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -345,18 +349,10 @@ export function RecordFilesSection({
         <Button
           variant="secondary"
           size="sm"
-          disabled={uploading}
+          loading={uploading}
           onClick={() => fileInputRef.current?.click()}
         >
-          {uploading ? (
-            <>
-              <Loader2 size={12} className="animate-spin" /> Uploading…
-            </>
-          ) : (
-            <>
-              <Paperclip size={12} /> Upload
-            </>
-          )}
+          <Paperclip size={12} /> {uploading ? "Uploading…" : "Upload"}
         </Button>
         <input
           ref={fileInputRef}
@@ -386,6 +382,7 @@ export function RecordFilesSection({
               company={company}
               attachment={a}
               downloadUrl={`/api/companies/${company.id}/base-attachments/${a.id}`}
+              deleting={deletingId === a.id}
               onDelete={() => void deleteAttachment(a)}
             />
           ))
@@ -408,6 +405,7 @@ export function RecordCommentsSection({
   const [comments, setComments] = React.useState<BaseRecordComment[] | null>(null);
   const [commentDraft, setCommentDraft] = React.useState("");
   const [postingComment, setPostingComment] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [postError, setPostError] = React.useState<string | null>(null);
 
@@ -450,11 +448,14 @@ export function RecordCommentsSection({
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(c.id);
     try {
       await api.del(`${baseUrl}/comments/${c.id}`);
       await loadComments();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the comment" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -483,6 +484,7 @@ export function RecordCommentsSection({
               key={c.id}
               company={company}
               comment={c}
+              deleting={deletingId === c.id}
               onDelete={() => void deleteComment(c)}
             />
           ))
@@ -507,14 +509,11 @@ export function RecordCommentsSection({
         />
         <Button
           size="sm"
-          disabled={postingComment || !commentDraft.trim()}
+          loading={postingComment}
+          disabled={!commentDraft.trim()}
           onClick={() => void postComment()}
         >
-          {postingComment ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <Send size={12} />
-          )}
+          <Send size={12} />
           Send
         </Button>
       </div>
@@ -525,10 +524,12 @@ export function RecordCommentsSection({
 function CommentRow({
   company,
   comment,
+  deleting,
   onDelete,
 }: {
   company: Company;
   comment: BaseRecordComment;
+  deleting: boolean;
   onDelete: () => void;
 }) {
   const author = comment.author;
@@ -568,10 +569,12 @@ function CommentRow({
           </span>
           <button
             onClick={onDelete}
+            disabled={deleting}
+            aria-busy={deleting || undefined}
             className="ml-auto rounded p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-600 dark:hover:bg-red-950/30"
             title="Delete"
           >
-            <Trash2 size={11} />
+            {deleting ? <ButtonSpinner size={11} /> : <Trash2 size={11} />}
           </button>
         </div>
         <div className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -586,11 +589,13 @@ function AttachmentRow({
   company,
   attachment,
   downloadUrl,
+  deleting,
   onDelete,
 }: {
   company: Company;
   attachment: BaseRecordAttachment;
   downloadUrl: string;
+  deleting: boolean;
   onDelete: () => void;
 }) {
   const uploader = attachment.uploader;
@@ -642,10 +647,12 @@ function AttachmentRow({
       </a>
       <button
         onClick={onDelete}
+        disabled={deleting}
+        aria-busy={deleting || undefined}
         className="rounded p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-600 dark:hover:bg-red-950/30"
         title="Delete"
       >
-        <Trash2 size={13} />
+        {deleting ? <ButtonSpinner size={13} /> : <Trash2 size={13} />}
       </button>
       {/* keep eslint happy when company isn't otherwise referenced */}
       <span className="hidden">{company.id}</span>

@@ -951,7 +951,7 @@ type RunLiveModalProps = {
   routine: Pick<Routine, "id" | "name">;
   run: Run;
   onClose: () => void;
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   onResumed?: (run: Run) => void | Promise<void>;
   initialView?: "log" | "explanation";
 };
@@ -993,6 +993,8 @@ function RunLiveModalContent({
   const userScrolledRef = React.useRef(false);
   const [view, setView] = React.useState(initialView);
   const [explanationOpened, setExplanationOpened] = React.useState(initialView === "explanation");
+  const [cancelling, setCancelling] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
 
   const tabsId = React.useId();
   const status: RunStatus = log?.status ?? initialRun.status;
@@ -1052,11 +1054,23 @@ function RunLiveModalContent({
   // Stop an automatic re-attempt without pausing the whole routine — the way
   // out when a human has decided to fix this failure by hand.
   async function cancelRetry() {
+    setCancelling(true);
     try {
       await api.post(`/api/companies/${company.id}/runs/${initialRun.id}/cancel-retry`, {});
       setLog((cur) => (cur ? { ...cur, retryAt: null, continuationPending: false } : cur));
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await onRetry?.();
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -1155,12 +1169,12 @@ function RunLiveModalContent({
                 onResumed={onResumed}
               />
               {log?.retryAt && !followUpRun ? (
-                <Button variant="secondary" size="sm" onClick={cancelRetry}>
+                <Button variant="secondary" size="sm" loading={cancelling} onClick={cancelRetry}>
                   <Ban size={13} />{" "}
                   {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
                 </Button>
               ) : onRetry && isTerminal && needsAttention && followUpRun === null ? (
-                <Button variant="secondary" size="sm" onClick={onRetry}>
+                <Button variant="secondary" size="sm" loading={retrying} onClick={retry}>
                   <RotateCcw size={13} /> Retry
                 </Button>
               ) : null}

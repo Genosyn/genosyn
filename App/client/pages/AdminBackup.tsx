@@ -71,6 +71,7 @@ export function AdminBackup() {
   const [uploading, setUploading] = React.useState(false);
   const [restoringId, setRestoringId] = React.useState<string | null>(null);
   const [sendingId, setSendingId] = React.useState<string | null>(null);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [scheduleError, setScheduleError] = React.useState<string | null>(null);
   const [retentionError, setRetentionError] = React.useState<string | null>(null);
@@ -239,7 +240,8 @@ export function AdminBackup() {
                   size="sm"
                   variant="secondary"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading || running || restoringId !== null}
+                  loading={uploading}
+                  disabled={running || restoringId !== null}
                 >
                   <Upload size={12} />
                   {uploading ? "Uploading…" : "Upload backup"}
@@ -247,7 +249,8 @@ export function AdminBackup() {
                 <Button
                   size="sm"
                   onClick={backupNow}
-                  disabled={running || uploading || restoringId !== null}
+                  loading={running}
+                  disabled={uploading || restoringId !== null}
                 >
                   {running ? "Backing up…" : "Back up now"}
                 </Button>
@@ -334,6 +337,7 @@ export function AdminBackup() {
                               variant="ghost"
                               size="sm"
                               onClick={() => sendToDestinations(b)}
+                              loading={sendingId === b.id}
                               disabled={sendingId !== null || restoringId !== null}
                               title="Copy this archive to every enabled destination"
                             >
@@ -345,6 +349,7 @@ export function AdminBackup() {
                             variant="ghost"
                             size="sm"
                             onClick={() => restoreFrom(b)}
+                            loading={restoringId === b.id}
                             disabled={restoringId !== null || running || uploading}
                           >
                             <RotateCcw size={12} />
@@ -355,6 +360,7 @@ export function AdminBackup() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        loading={deletingId === b.id}
                         disabled={restoringId !== null}
                         onClick={async () => {
                           const ok = await dialog.confirm({
@@ -364,11 +370,14 @@ export function AdminBackup() {
                             variant: "danger",
                           });
                           if (!ok) return;
+                          setDeletingId(b.id);
                           try {
                             await api.del(`/api/backups/${b.id}`);
                             await reload();
                           } catch (err) {
                             void dialog.error(err, { title: "Couldn’t delete the backup" });
+                          } finally {
+                            setDeletingId(null);
                           }
                         }}
                       >
@@ -396,7 +405,10 @@ function DestinationsCard({
   const dialog = useDialog();
   const [modalOpen, setModalOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<BackupDestination | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<{
+    id: string;
+    action: "test" | "toggle" | "remove";
+  } | null>(null);
 
   const openNew = () => {
     setEditing(null);
@@ -408,7 +420,7 @@ function DestinationsCard({
   };
 
   const testOne = async (d: BackupDestination) => {
-    setBusyId(d.id);
+    setBusy({ id: d.id, action: "test" });
     try {
       const res = await api.post<{ ok: boolean; message: string }>(
         `/api/backup-destinations/${d.id}/test`,
@@ -420,12 +432,12 @@ function DestinationsCard({
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t test "${d.name}"` });
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   };
 
   const toggleEnabled = async (d: BackupDestination) => {
-    setBusyId(d.id);
+    setBusy({ id: d.id, action: "toggle" });
     try {
       await api.put<BackupDestination>(`/api/backup-destinations/${d.id}`, {
         enabled: !d.enabled,
@@ -434,7 +446,7 @@ function DestinationsCard({
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t update "${d.name}"` });
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   };
 
@@ -447,14 +459,14 @@ function DestinationsCard({
       variant: "danger",
     });
     if (!ok) return;
-    setBusyId(d.id);
+    setBusy({ id: d.id, action: "remove" });
     try {
       await api.del(`/api/backup-destinations/${d.id}`);
       await onChanged();
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t remove "${d.name}"` });
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   };
 
@@ -527,7 +539,7 @@ function DestinationsCard({
                       type="checkbox"
                       className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
                       checked={d.enabled}
-                      disabled={busyId !== null}
+                      disabled={busy !== null}
                       onChange={() => toggleEnabled(d)}
                     />
                     Enabled
@@ -536,16 +548,17 @@ function DestinationsCard({
                     variant="ghost"
                     size="sm"
                     onClick={() => testOne(d)}
-                    disabled={busyId !== null}
+                    loading={busy?.id === d.id && busy.action === "test"}
+                    disabled={busy !== null}
                   >
                     <Plug size={12} />
-                    {busyId === d.id ? "Testing…" : "Test"}
+                    {busy?.id === d.id && busy.action === "test" ? "Testing…" : "Test"}
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => openEdit(d)}
-                    disabled={busyId !== null}
+                    disabled={busy !== null}
                   >
                     <Pencil size={12} />
                   </Button>
@@ -553,7 +566,8 @@ function DestinationsCard({
                     variant="ghost"
                     size="sm"
                     onClick={() => remove(d)}
-                    disabled={busyId !== null}
+                    loading={busy?.id === d.id && busy.action === "remove"}
+                    disabled={busy !== null}
                   >
                     <Trash2 size={12} />
                   </Button>
@@ -968,7 +982,7 @@ function DestinationModal({
           <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button type="submit" size="sm" loading={saving}>
             {saving ? "Saving…" : isEdit ? "Save changes" : "Add destination"}
           </Button>
         </div>
@@ -1158,7 +1172,7 @@ function ScheduleCard({
                 ? `Last run: ${formatTimestamp(schedule.lastRunAt)}`
                 : "No scheduled runs yet."}
             </span>
-            <Button type="submit" size="sm" disabled={!dirty || saving}>
+            <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
               {saving ? "Saving…" : "Save schedule"}
             </Button>
           </div>
@@ -1279,7 +1293,7 @@ function RetentionCard({
                   }.`
                 : "Archives are kept until you delete them."}
             </span>
-            <Button type="submit" size="sm" disabled={!dirty || saving}>
+            <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
               {saving ? "Saving…" : "Save retention"}
             </Button>
           </div>

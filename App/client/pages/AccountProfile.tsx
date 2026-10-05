@@ -212,7 +212,7 @@ export function AccountProfile() {
                 </p>
               </div>
               <div className="flex justify-end pt-1">
-                <Button type="submit" disabled={!profileDirty || savingProfile}>
+                <Button type="submit" loading={savingProfile} disabled={!profileDirty}>
                   {savingProfile ? "Saving…" : "Save changes"}
                 </Button>
               </div>
@@ -291,8 +291,8 @@ export function AccountProfile() {
               <div className="flex justify-end pt-1">
                 <Button
                   type="submit"
+                  loading={savingPassword}
                   disabled={
-                    savingPassword ||
                     currentPassword.length === 0 ||
                     newPassword.length === 0 ||
                     confirmPassword.length === 0
@@ -375,7 +375,7 @@ function EmailVerificationNotice({ me, onVerified }: { me: Me; onVerified: () =>
       {outcome?.tone === "success" ? <FormSuccess message={outcome.message} /> : null}
       <div className="flex justify-end">
         {/* Inside the profile form — without an explicit type this submits it. */}
-        <Button type="button" size="sm" variant="secondary" onClick={resend} disabled={sending}>
+        <Button type="button" size="sm" variant="secondary" onClick={resend} loading={sending}>
           <Mail size={12} /> {sending ? "Sending…" : "Resend verification email"}
         </Button>
       </div>
@@ -438,7 +438,8 @@ function PushNotificationsCard() {
           </div>
           <Button
             onClick={toggle}
-            disabled={busy || state === "unsupported" || state === "denied"}
+            loading={busy}
+            disabled={state === "unsupported" || state === "denied"}
             variant={state === "subscribed" ? "secondary" : "primary"}
           >
             {busy ? "Working…" : state === "subscribed" ? "Disable" : "Enable"}
@@ -452,6 +453,7 @@ function PushNotificationsCard() {
 function ProfileAvatarCard({ me, onCompaniesChanged }: { me: Me; onCompaniesChanged: () => void }) {
   const [avatarKey, setAvatarKey] = React.useState<string | null>(me.avatarKey ?? null);
   const [uploading, setUploading] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -493,12 +495,15 @@ function ProfileAvatarCard({ me, onCompaniesChanged }: { me: Me; onCompaniesChan
 
   async function remove() {
     setError(null);
+    setRemoving(true);
     try {
       await api.del("/api/auth/me/avatar");
       setAvatarKey(null);
       onCompaniesChanged();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -530,12 +535,18 @@ function ProfileAvatarCard({ me, onCompaniesChanged }: { me: Me; onCompaniesChan
               size="sm"
               variant="secondary"
               onClick={() => fileRef.current?.click()}
-              disabled={uploading}
+              loading={uploading}
             >
               <Camera size={12} /> {uploading ? "Uploading…" : "Upload new"}
             </Button>
             {avatarKey && (
-              <Button size="sm" variant="ghost" onClick={remove} disabled={uploading}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={remove}
+                loading={removing}
+                disabled={uploading}
+              >
                 Remove
               </Button>
             )}

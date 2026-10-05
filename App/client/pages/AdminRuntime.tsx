@@ -552,6 +552,7 @@ function humanBytes(raw: DraftValue): string | null {
 export function AdminRuntime() {
   const [data, setData] = React.useState<RuntimeSettingsSnapshot | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -583,12 +584,21 @@ export function AdminRuntime() {
     );
   }
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="Runtime"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -728,7 +738,13 @@ function GroupCard({
             </div>
           </div>
           {overridden && (
-            <Button size="sm" variant="ghost" onClick={resetToDefaults} disabled={busy}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={resetToDefaults}
+              loading={resetting}
+              disabled={busy}
+            >
               <RotateCcw size={12} />
               {resetting ? "Resetting…" : "Reset to defaults"}
             </Button>
@@ -759,7 +775,7 @@ function GroupCard({
           <FormError message={error} />
 
           <div className="flex justify-end pt-1">
-            <Button type="submit" size="sm" disabled={!dirty || busy}>
+            <Button type="submit" size="sm" loading={saving} disabled={!dirty || busy}>
               <Save size={14} /> {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>

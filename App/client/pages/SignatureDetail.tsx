@@ -132,7 +132,9 @@ export default function SignatureDetail() {
   const [selectedFieldId, setSelectedFieldId] = React.useState<string | null>(null);
   const [fieldTool, setFieldTool] = React.useState<SignatureFieldType>("signature");
   const [saving, setSaving] = React.useState(false);
-  const [acting, setActing] = React.useState(false);
+  const [acting, setActing] = React.useState<
+    null | "send" | "duplicate" | "void" | "delete" | `remind:${string}`
+  >(null);
   const [preparingAiHandoff, setPreparingAiHandoff] = React.useState(false);
   const [aiCandidates, setAiCandidates] = React.useState<SigningAiCandidate[]>([]);
   const [selectedAiEmployeeId, setSelectedAiEmployeeId] = React.useState("");
@@ -250,7 +252,7 @@ export default function SignatureDetail() {
   }, [dirty, saving]);
 
   React.useEffect(() => {
-    if (!isDraft || !dirty || saving || acting || remoteDraft || autosaveError) return;
+    if (!isDraft || !dirty || saving || acting !== null || remoteDraft || autosaveError) return;
     const timer = window.setTimeout(() => void autosaveRef.current?.(), 1_500);
     return () => window.clearTimeout(timer);
   }, [acting, autosaveError, detail, dirty, fields, isDraft, recipients, remoteDraft, saving]);
@@ -682,7 +684,7 @@ export default function SignatureDetail() {
     if (sendReviewBusyRef.current) return;
     sendReviewBusyRef.current = true;
     const routeGeneration = routeGenerationRef.current;
-    setActing(true);
+    setActing("send");
     try {
       for (;;) {
         const reviewed = await currentDraftForSend(routeGeneration);
@@ -757,7 +759,7 @@ export default function SignatureDetail() {
       sendDispatchingRef.current = false;
       setSendDispatching(false);
       sendReviewBusyRef.current = false;
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -767,14 +769,14 @@ export default function SignatureDetail() {
   }
 
   async function duplicate() {
-    setActing(true);
+    setActing("duplicate");
     try {
       const result = normalizeEnvelopeDetail(await api.post<unknown>(`${base}/duplicate`));
       navigate(`${routeBase}/${result.envelope.id}`);
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t duplicate the envelope" });
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -787,14 +789,14 @@ export default function SignatureDetail() {
       validate: (value) => (value ? null : "Enter a reason."),
     });
     if (!reason) return;
-    setActing(true);
+    setActing("void");
     try {
       await api.post(`${base}/void`, { reason });
       await load();
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t void the envelope" });
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -809,14 +811,14 @@ export default function SignatureDetail() {
     ) {
       return;
     }
-    setActing(true);
+    setActing("delete");
     try {
       await api.del(base);
       navigate(routeBase);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The draft could not be deleted.");
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -951,35 +953,39 @@ export default function SignatureDetail() {
           <Button
             variant="secondary"
             size="sm"
-            disabled={preparingAiHandoff || saving}
+            loading={preparingAiHandoff}
+            disabled={saving}
             onClick={() => void askAi()}
           >
-            {preparingAiHandoff ? <Spinner size={14} /> : <Bot size={14} />} Ask AI
+            <Bot size={14} /> Ask AI
           </Button>
           {isDraft ? (
             <>
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={saving || !dirty}
+                loading={saving}
+                disabled={!dirty}
                 onClick={() => void saveDraft()}
               >
-                {saving ? <Spinner size={14} /> : <Save size={14} />} Save
+                <Save size={14} /> Save
               </Button>
               <Button
                 size="sm"
-                disabled={saving || acting || readinessIssues.length > 0}
+                loading={acting === "send"}
+                disabled={saving || acting !== null || readinessIssues.length > 0}
                 title={readinessIssues[0]?.message}
                 onClick={() => void sendEnvelope()}
               >
-                {acting ? <Spinner size={14} /> : <Send size={14} />} Send
+                <Send size={14} /> Send
               </Button>
             </>
           ) : (
             <Button
               variant="secondary"
               size="sm"
-              disabled={acting}
+              loading={acting === "duplicate"}
+              disabled={acting !== null}
               onClick={() => void duplicate()}
             >
               <Copy size={14} /> Duplicate
@@ -1101,7 +1107,7 @@ export default function SignatureDetail() {
           sourceUrl={envelope.status === "completed" ? `${base}/completed` : sourceUrl}
           acting={acting}
           onRemind={async (recipient) => {
-            setActing(true);
+            setActing(`remind:${recipient.id}`);
             try {
               const result = normalizeEnvelopeDetail(
                 await api.post<unknown>(`${base}/recipients/${recipient.id}/remind`),
@@ -1112,7 +1118,7 @@ export default function SignatureDetail() {
             } catch (cause) {
               void dialog.error(cause, { title: "Couldn’t send the reminder" });
             } finally {
-              setActing(false);
+              setActing(null);
             }
           }}
           onVoid={voidEnvelope}
@@ -1126,7 +1132,8 @@ export default function SignatureDetail() {
             <Button
               variant="ghost"
               size="sm"
-              disabled={acting}
+              loading={acting === "delete"}
+              disabled={acting !== null}
               onClick={() => void removeEnvelope()}
             >
               <Trash2 size={14} /> Delete draft
@@ -2113,7 +2120,7 @@ function SentEnvelope({
   detail: SignatureEnvelopeDetail;
   sourceUrl: string;
   completedUrl: string;
-  acting: boolean;
+  acting: string | null;
   onRemind: (recipient: SignatureRecipient) => Promise<void>;
   onVoid: () => Promise<void>;
 }) {
@@ -2194,7 +2201,8 @@ function SentEnvelope({
                     className="mt-2"
                     variant="ghost"
                     size="sm"
-                    disabled={acting}
+                    loading={acting === `remind:${recipient.id}`}
+                    disabled={acting !== null}
                     onClick={() => void onRemind(recipient)}
                   >
                     <Mail size={13} /> Send reminder
@@ -2232,7 +2240,8 @@ function SentEnvelope({
             variant="ghost"
             size="sm"
             className="mt-7 w-full text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
-            disabled={acting}
+            loading={acting === "void"}
+            disabled={acting !== null}
             onClick={() => void onVoid()}
           >
             <XCircle size={14} /> Void request

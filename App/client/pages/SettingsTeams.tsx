@@ -121,7 +121,7 @@ export function SettingsTeams() {
               placeholder="Ships product code and infra."
             />
             <div className="flex justify-end">
-              <Button type="submit" disabled={!name.trim() || creating}>
+              <Button type="submit" loading={creating} disabled={!name.trim()}>
                 {creating ? "Creating…" : "Create team"}
               </Button>
             </div>
@@ -244,7 +244,7 @@ function EditTeamModal({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={!name.trim() || saving}>
+          <Button type="submit" loading={saving} disabled={!name.trim()}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </>

@@ -4,7 +4,6 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import {
   api,
@@ -531,8 +530,7 @@ export function RepoFormModal({
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={busy}>
-          {busy && <Spinner size={14} />}
+        <Button onClick={submit} loading={busy}>
           {busy ? "Adding…" : "Add repository"}
         </Button>
       </div>

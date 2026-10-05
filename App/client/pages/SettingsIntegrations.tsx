@@ -592,13 +592,10 @@ function IntegrationsPage({
                           variant="ghost"
                           size="sm"
                           onClick={() => refreshStatus(c)}
-                          disabled={refreshingId === c.id}
+                          loading={refreshingId === c.id}
                           title="Check status"
                         >
-                          <RefreshCw
-                            size={12}
-                            className={refreshingId === c.id ? "animate-spin" : ""}
-                          />
+                          <RefreshCw size={12} />
                         </Button>
                         {!c.retired && (
                           <Button
@@ -1018,13 +1015,13 @@ function ManageAccessModal({
                         variant="ghost"
                         size="sm"
                         onClick={() => revoke(emp)}
-                        disabled={isBusy}
+                        loading={isBusy}
                       >
                         Revoke
                       </Button>
                     </div>
                   ) : (
-                    <Button size="sm" onClick={() => grant(emp)} disabled={isBusy}>
+                    <Button size="sm" onClick={() => grant(emp)} loading={isBusy}>
                       Grant access
                     </Button>
                   )}
@@ -1320,7 +1317,7 @@ function ChatSurfaceModal({
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={busyId === identity.id}
+                      loading={busyId === identity.id}
                       onClick={() => unbind(identity)}
                     >
                       Unlink
@@ -1502,7 +1499,7 @@ export function ApiKeyModal({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Testing…" : isReconnect ? "Reconnect" : "Connect"}
           </Button>
         </div>
@@ -2110,8 +2107,8 @@ export function OauthOrServiceAccountModal({
               </Button>
               <Button
                 type="submit"
+                loading={busy}
                 disabled={
-                  busy ||
                   selectedScopeGroups.length === 0 ||
                   (!isReconnect && !usesSharedApp && (!clientId.trim() || !clientSecret.trim()))
                 }
@@ -2184,7 +2181,8 @@ export function OauthOrServiceAccountModal({
               </Button>
               <Button
                 type="submit"
-                disabled={busy || !keyJson.trim() || selectedScopeGroups.length === 0}
+                loading={busy}
+                disabled={!keyJson.trim() || selectedScopeGroups.length === 0}
               >
                 {busy ? "Validating…" : isReconnect ? "Reconnect" : "Save service account"}
               </Button>
@@ -2253,7 +2251,8 @@ export function OauthOrServiceAccountModal({
                 type="button"
                 variant="secondary"
                 onClick={discoverGithubApp}
-                disabled={discovering || !appId.trim() || !appPrivateKey.trim()}
+                loading={discovering}
+                disabled={!appId.trim() || !appPrivateKey.trim()}
               >
                 {discovering ? "Discovering…" : "Discover installations"}
               </Button>
@@ -2302,9 +2301,8 @@ export function OauthOrServiceAccountModal({
               </Button>
               <Button
                 type="submit"
-                disabled={
-                  busy || !appId.trim() || !appPrivateKey.trim() || !selectedInstallationId.trim()
-                }
+                loading={busy}
+                disabled={!appId.trim() || !appPrivateKey.trim() || !selectedInstallationId.trim()}
               >
                 {busy ? "Saving…" : isReconnect ? "Reconnect" : "Connect"}
               </Button>
@@ -2360,7 +2358,7 @@ export function OauthOrServiceAccountModal({
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" loading={busy}>
                 {busy ? "Testing…" : "Connect"}
               </Button>
             </div>
@@ -2590,7 +2588,7 @@ function RepoAllowlistModal({
             <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="button" onClick={save} disabled={busy}>
+            <Button type="button" onClick={save} loading={busy}>
               {busy ? "Saving…" : "Save selection"}
             </Button>
           </div>

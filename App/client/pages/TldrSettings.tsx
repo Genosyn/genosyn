@@ -454,11 +454,10 @@ export default function TldrSettingsPage() {
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                   <Button
                     onClick={() => void persistDraft()}
-                    disabled={
-                      saving || generating || !dirty || (draft.enabled && !draft.employeeId)
-                    }
+                    loading={saving}
+                    disabled={generating || !dirty || (draft.enabled && !draft.employeeId)}
                   >
-                    {saving ? <Spinner size={14} /> : <Save size={14} />}
+                    <Save size={14} />
                     {saving ? "Saving…" : "Save changes"}
                   </Button>
                   {dirty && (
@@ -488,9 +487,10 @@ export default function TldrSettingsPage() {
                   <Button
                     className="mt-4 w-full"
                     onClick={() => void generateNow()}
-                    disabled={saving || generating || !draft.employeeId}
+                    loading={generating}
+                    disabled={saving || !draft.employeeId}
                   >
-                    {generating ? <Spinner size={14} /> : <Sparkles size={14} />}
+                    <Sparkles size={14} />
                     {generating ? "Generating…" : "Generate now"}
                   </Button>
                   <FormSuccess message={generateNotice} className="mt-3" />

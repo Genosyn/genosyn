@@ -73,7 +73,7 @@ function ResumeAction({ company, run, routineName, onResumed }: RunResumeButtonP
       variant="secondary"
       size="sm"
       className="shrink-0 self-center"
-      disabled={busy}
+      loading={busy}
       onClick={resume}
     >
       <Play size={13} /> {busy ? "Resuming…" : "Resume unfinished work"}

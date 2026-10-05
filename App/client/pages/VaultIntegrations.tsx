@@ -125,6 +125,7 @@ function SourcesPanel({ company }: { company: Company }) {
   const [connecting, setConnecting] = React.useState(false);
   const [editing, setEditing] = React.useState<VaultSource | null>(null);
   const [syncingId, setSyncingId] = React.useState<string | null>(null);
+  const [disconnectingId, setDisconnectingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     setError(null);
@@ -174,11 +175,14 @@ function SourcesPanel({ company }: { company: Company }) {
       variant: "danger",
     });
     if (!confirmed) return;
+    setDisconnectingId(source.id);
     try {
       await vaultSourcesApi.remove(company.id, source.id);
       await reload();
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t disconnect the Vault source" });
+    } finally {
+      setDisconnectingId(null);
     }
   }
 
@@ -233,6 +237,7 @@ function SourcesPanel({ company }: { company: Company }) {
                 source={source}
                 syncing={syncingId === source.id}
                 syncDisabled={syncingId !== null}
+                disconnecting={disconnectingId === source.id}
                 onSync={() => void syncNow(source)}
                 onEdit={() => setEditing(source)}
                 onDisconnect={() => void disconnect(source)}
@@ -342,6 +347,7 @@ function SourceRow({
   source,
   syncing,
   syncDisabled,
+  disconnecting,
   onSync,
   onEdit,
   onDisconnect,
@@ -349,6 +355,7 @@ function SourceRow({
   source: VaultSource;
   syncing: boolean;
   syncDisabled: boolean;
+  disconnecting: boolean;
   onSync: () => void;
   onEdit: () => void;
   onDisconnect: () => void;
@@ -402,14 +409,20 @@ function SourceRow({
         )}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 pl-12 sm:pl-0">
-        <Button variant="secondary" size="sm" disabled={syncDisabled} onClick={onSync}>
-          <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={syncing}
+          disabled={syncDisabled}
+          onClick={onSync}
+        >
+          <RefreshCw size={13} />
           {syncing ? "Syncing…" : "Sync now"}
         </Button>
         <Button variant="ghost" size="sm" onClick={onEdit}>
           <Pencil size={13} /> Edit
         </Button>
-        <Button variant="ghost" size="sm" onClick={onDisconnect}>
+        <Button variant="ghost" size="sm" loading={disconnecting} onClick={onDisconnect}>
           <Trash2 size={13} /> Disconnect
         </Button>
       </div>
@@ -676,12 +689,9 @@ function VaultSourceForm({
           </Button>
           <Button
             type="submit"
+            loading={busy}
             disabled={
-              busy ||
-              !label.trim() ||
-              !serverUrl.trim() ||
-              !email.trim() ||
-              (!editing && !masterPassword)
+              !label.trim() || !serverUrl.trim() || !email.trim() || (!editing && !masterPassword)
             }
           >
             {busy

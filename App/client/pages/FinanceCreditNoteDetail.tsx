@@ -12,7 +12,7 @@ import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
@@ -33,6 +33,9 @@ export default function FinanceCreditNoteDetail() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showApply, setShowApply] = React.useState(false);
   const [showRefund, setShowRefund] = React.useState(false);
+  const [voiding, setVoiding] = React.useState(false);
+  const [unapplyingId, setUnapplyingId] = React.useState<string | null>(null);
+  const [reversingRefundId, setReversingRefundId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     if (!creditSlug) return;
@@ -61,6 +64,7 @@ export default function FinanceCreditNoteDetail() {
       confirmLabel: "Unapply",
     });
     if (!ok) return;
+    setUnapplyingId(appId);
     try {
       setCredit(
         await api.del<CreditNoteDetail>(
@@ -69,6 +73,8 @@ export default function FinanceCreditNoteDetail() {
       );
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t unapply the credit" });
+    } finally {
+      setUnapplyingId(null);
     }
   }
 
@@ -80,6 +86,7 @@ export default function FinanceCreditNoteDetail() {
       confirmLabel: "Reverse",
     });
     if (!ok) return;
+    setReversingRefundId(refundId);
     try {
       setCredit(
         await api.del<CreditNoteDetail>(
@@ -88,6 +95,8 @@ export default function FinanceCreditNoteDetail() {
       );
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t reverse the refund" });
+    } finally {
+      setReversingRefundId(null);
     }
   }
 
@@ -100,6 +109,7 @@ export default function FinanceCreditNoteDetail() {
       confirmLabel: "Void",
     });
     if (!ok) return;
+    setVoiding(true);
     try {
       setCredit(
         await api.post<CreditNoteDetail>(
@@ -109,6 +119,8 @@ export default function FinanceCreditNoteDetail() {
       );
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t void the credit note" });
+    } finally {
+      setVoiding(false);
     }
   }
 
@@ -176,7 +188,7 @@ export default function FinanceCreditNoteDetail() {
             </Button>
           )}
           {canVoid && (
-            <Button variant="secondary" onClick={voidCredit}>
+            <Button variant="secondary" onClick={voidCredit} loading={voiding}>
               <Ban size={14} /> Void
             </Button>
           )}
@@ -249,10 +261,12 @@ export default function FinanceCreditNoteDetail() {
                 {!a.reversedAt && (
                   <button
                     onClick={() => unapply(a.id)}
+                    disabled={unapplyingId === a.id}
+                    aria-busy={unapplyingId === a.id || undefined}
                     className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                     aria-label="Unapply"
                   >
-                    <Trash2 size={12} />
+                    {unapplyingId === a.id ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                   </button>
                 )}
               </li>
@@ -288,10 +302,16 @@ export default function FinanceCreditNoteDetail() {
                 {!r.reversedAt && (
                   <button
                     onClick={() => voidRefund(r.id)}
+                    disabled={reversingRefundId === r.id}
+                    aria-busy={reversingRefundId === r.id || undefined}
                     className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                     aria-label="Reverse refund"
                   >
-                    <Trash2 size={12} />
+                    {reversingRefundId === r.id ? (
+                      <ButtonSpinner size={12} />
+                    ) : (
+                      <Trash2 size={12} />
+                    )}
                   </button>
                 )}
               </li>
@@ -397,7 +417,7 @@ function RefundModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} loading={busy}>
             {busy ? "Refunding…" : "Refund"}
           </Button>
         </div>
@@ -475,7 +495,7 @@ function ApplyCreditModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} loading={busy}>
             {busy ? "Applying…" : "Apply"}
           </Button>
         </div>

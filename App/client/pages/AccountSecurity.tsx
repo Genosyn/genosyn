@@ -195,7 +195,7 @@ function ConfirmPasswordModal({
           <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" variant={danger ? "danger" : "primary"} disabled={busy}>
+          <Button type="submit" variant={danger ? "danger" : "primary"} loading={busy}>
             {busy ? busyLabel : confirmLabel}
           </Button>
         </div>
@@ -318,7 +318,7 @@ function AddAuthenticatorModal({
             <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" loading={busy}>
               {busy ? "Preparing…" : "Continue"}
             </Button>
           </div>
@@ -361,7 +361,7 @@ function AddAuthenticatorModal({
             <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" loading={busy}>
               {busy ? "Verifying…" : "Verify and add"}
             </Button>
           </div>
@@ -494,7 +494,7 @@ function AddWebAuthnModal({
             <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" loading={busy}>
               {busy ? "Waiting…" : isSecurityKey ? "Add security key" : "Add passkey"}
             </Button>
           </div>

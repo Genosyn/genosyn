@@ -172,10 +172,11 @@ export default function RepositoryHistory() {
           <Button
             variant="secondary"
             onClick={refresh}
-            disabled={reloading || switching}
+            loading={reloading}
+            disabled={switching}
             className="shrink-0"
           >
-            {reloading ? <Spinner size={14} /> : <RefreshCw size={14} />}
+            <RefreshCw size={14} />
             Refresh
           </Button>
         </div>

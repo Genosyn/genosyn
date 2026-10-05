@@ -181,8 +181,8 @@ export function AdminMigrations() {
   }, [reload]);
 
   const retry = (
-    <Button variant="secondary" onClick={reload} disabled={loading}>
-      <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Retry
+    <Button variant="secondary" onClick={reload} loading={loading}>
+      <RefreshCw size={14} /> Retry
     </Button>
   );
 
@@ -191,8 +191,8 @@ export function AdminMigrations() {
       <TopBar
         title="Migrations"
         right={
-          <Button variant="secondary" onClick={reload} disabled={loading}>
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
+          <Button variant="secondary" onClick={reload} loading={loading}>
+            <RefreshCw size={14} /> Refresh
           </Button>
         }
       />

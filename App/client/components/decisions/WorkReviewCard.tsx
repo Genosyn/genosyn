@@ -184,8 +184,12 @@ export function WorkReviewCard({
       </p>
       <FormError message={error} className="mt-3" />
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button disabled={busy !== null} onClick={() => void decide("approve")}>
-          {busy === "approve" ? <Spinner size={14} /> : <Check size={14} />} Approve &amp; start
+        <Button
+          loading={busy === "approve"}
+          disabled={busy !== null}
+          onClick={() => void decide("approve")}
+        >
+          <Check size={14} /> Approve &amp; start
         </Button>
         <ApprovalDiscussButton
           company={company}
@@ -197,10 +201,11 @@ export function WorkReviewCard({
           size="sm"
           variant="ghost"
           className="text-rose-600 hover:text-rose-700 dark:text-rose-400"
+          loading={busy === "reject"}
           disabled={busy !== null}
           onClick={() => void decide("reject")}
         >
-          {busy === "reject" ? <Spinner size={14} /> : <X size={14} />} Don’t do this
+          <X size={14} /> Don’t do this
         </Button>
       </div>
     </li>

@@ -111,6 +111,7 @@ export default function RevenueDealDetail() {
   const [contacts, setContacts] = React.useState<RevenueContact[]>([]);
   const [classifications, setClassifications] = React.useState<RevenueClassification[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const [taskOpen, setTaskOpen] = React.useState(false);
 
   const reload = React.useCallback(async () => {
@@ -351,7 +352,13 @@ export default function RevenueDealDetail() {
           <Button
             variant="secondary"
             className="mt-4"
-            onClick={() => reload().catch((err) => setLoadError(errText(err)))}
+            loading={retrying}
+            onClick={() => {
+              setRetrying(true);
+              reload()
+                .catch((err) => setLoadError(errText(err)))
+                .finally(() => setRetrying(false));
+            }}
           >
             Try again
           </Button>
@@ -598,7 +605,7 @@ function DealTaskModal({
         {error && <FormError message={error} />}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create task"}</Button>
+          <Button type="submit" loading={busy}>{busy ? "Creating…" : "Create task"}</Button>
         </div>
       </form>
     </Modal>

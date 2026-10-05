@@ -303,7 +303,7 @@ function NewAccountModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Creating…" : "Create account"}
           </Button>
         </div>

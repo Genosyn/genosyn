@@ -33,7 +33,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
@@ -68,6 +68,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [showShare, setShowShare] = React.useState(false);
   const [showRaw, setShowRaw] = React.useState(false);
@@ -114,6 +116,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
   async function save() {
     if (!row) return;
     setSaveError(null);
+    setSaving(true);
     try {
       const payload: Record<string, string> = {
         title: title.trim(),
@@ -128,6 +131,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
       setEditing(false);
     } catch (err) {
       setSaveError(errorMessage(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -149,11 +154,14 @@ export default function ResourceDetail({ company }: { company: Company }) {
       variant: "danger",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/resources/${row.slug}`);
       navigate(`/c/${company.slug}/resources`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the resource" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -264,7 +272,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
           <div className="mb-6 flex flex-wrap items-center gap-2">
             {editing ? (
               <>
-                <Button onClick={save}>
+                <Button onClick={save} loading={saving}>
                   <Save size={14} /> Save
                 </Button>
                 <Button variant="secondary" onClick={cancelEdit}>
@@ -308,10 +316,12 @@ export default function ResourceDetail({ company }: { company: Company }) {
                 <button
                   type="button"
                   onClick={remove}
+                  disabled={deleting}
+                  aria-busy={deleting || undefined}
                   title="Delete resource"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
                 >
-                  <Trash2 size={14} />
+                  {deleting ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}
                 </button>
               </>
             )}
@@ -547,11 +557,12 @@ function DownloadMenu({
       <button
         type="button"
         disabled={disabled || busy !== null}
+        aria-busy={busy !== null || undefined}
         onClick={() => setOpen((v) => !v)}
         title={disabled ? "Nothing to download yet" : "Download as…"}
         className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50 disabled:hover:border-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:disabled:hover:border-slate-700"
       >
-        {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+        {busy ? <ButtonSpinner size={14} /> : <Download size={14} />}
         {busy ? `Rendering ${busy.toUpperCase()}…` : "Download"}
         {!busy && <ChevronDown size={12} className="text-slate-400" />}
       </button>
@@ -960,7 +971,7 @@ function ShareModal({
   const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<ResourceGrant[]>([]);
   const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>([]);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -987,7 +998,7 @@ function ShareModal({
   }, [reload]);
 
   async function add(employeeId: string, accessLevel: ResourceAccessLevel) {
-    setBusy(true);
+    setBusy(`${employeeId}:${accessLevel}`);
     setError(null);
     try {
       await api.post<ResourceGrant>(
@@ -999,7 +1010,7 @@ function ShareModal({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1084,13 +1095,13 @@ function ShareModal({
                   <div className="flex shrink-0 items-center gap-1">
                     <AccessLevelMenu
                       level={g.accessLevel}
-                      busy={busy}
+                      busy={busy !== null}
                       onChange={(next) => changeLevel(g, next)}
                     />
                     <button
                       type="button"
                       onClick={() => remove(g.id)}
-                      disabled={busy}
+                      disabled={busy !== null}
                       title="Revoke access"
                       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
                     >
@@ -1128,7 +1139,8 @@ function ShareModal({
                       size="sm"
                       variant="secondary"
                       onClick={() => add(c.id, "read")}
-                      disabled={busy}
+                      loading={busy === `${c.id}:read`}
+                      disabled={busy !== null}
                     >
                       <Plus size={12} /> View
                     </Button>
@@ -1136,11 +1148,17 @@ function ShareModal({
                       size="sm"
                       variant="secondary"
                       onClick={() => add(c.id, "edit")}
-                      disabled={busy}
+                      loading={busy === `${c.id}:edit`}
+                      disabled={busy !== null}
                     >
                       <Plus size={12} /> Edit
                     </Button>
-                    <Button size="sm" onClick={() => add(c.id, "delete")} disabled={busy}>
+                    <Button
+                      size="sm"
+                      onClick={() => add(c.id, "delete")}
+                      loading={busy === `${c.id}:delete`}
+                      disabled={busy !== null}
+                    >
                       <Plus size={12} /> Delete
                     </Button>
                   </div>

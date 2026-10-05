@@ -74,6 +74,7 @@ export function VaultItemDetail({
   const [totpSecondsLeft, setTotpSecondsLeft] = React.useState(0);
   const [totpBusy, setTotpBusy] = React.useState<"show" | "copy" | "remove" | null>(null);
   const [passkeyBusy, setPasskeyBusy] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const hideSecret = React.useCallback(() => {
     setRevealedSecret(null);
@@ -272,12 +273,15 @@ export function VaultItemDetail({
       variant: "danger",
     });
     if (!confirmed) return;
+    setDeleting(true);
     try {
       await vaultApi.deleteItem(companyId, detail.id);
       hideSecret();
       await onDeleted(detail);
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t delete the Vault item" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -338,7 +342,7 @@ export function VaultItemDetail({
                 </Button>
               )}
               {detail.canDelete && (
-                <Button variant="ghost" size="sm" onClick={() => void remove()}>
+                <Button variant="ghost" size="sm" loading={deleting} onClick={() => void remove()}>
                   <Trash2 size={13} /> Delete
                 </Button>
               )}
@@ -432,7 +436,7 @@ export function VaultItemDetail({
                       <Button
                         variant="secondary"
                         size="sm"
-                        disabled={revealing}
+                        loading={revealing}
                         onClick={() => (revealedSecret === null ? void reveal() : hideSecret())}
                       >
                         {revealedSecret === null ? <Eye size={13} /> : <EyeOff size={13} />}
@@ -441,7 +445,7 @@ export function VaultItemDetail({
                       <Button
                         variant="secondary"
                         size="sm"
-                        disabled={copying}
+                        loading={copying}
                         onClick={() => void copyStoredSecret()}
                       >
                         {copiedField === "secret" ? <Check size={13} /> : <Copy size={13} />}
@@ -501,6 +505,7 @@ export function VaultItemDetail({
                         <Button
                           variant="secondary"
                           size="sm"
+                          loading={totpBusy === "show"}
                           disabled={totpBusy !== null}
                           onClick={() =>
                             totpCode === null ? void showCurrentTotpCode() : hideTotpCode()
@@ -516,6 +521,7 @@ export function VaultItemDetail({
                         <Button
                           variant="secondary"
                           size="sm"
+                          loading={totpBusy === "copy"}
                           disabled={totpBusy !== null}
                           onClick={() => void copyCurrentTotpCode()}
                         >
@@ -526,6 +532,7 @@ export function VaultItemDetail({
                           <Button
                             variant="ghost"
                             size="sm"
+                            loading={totpBusy === "remove"}
                             disabled={totpBusy !== null}
                             onClick={() => void removeTotp()}
                           >
@@ -581,6 +588,7 @@ export function VaultItemDetail({
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  loading={passkeyBusy === passkey.id}
                                   disabled={passkeyBusy !== null}
                                   onClick={() => void removePasskey(passkey)}
                                 >

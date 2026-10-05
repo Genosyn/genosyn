@@ -40,6 +40,7 @@ export default function MeetingsAiAccess() {
   const [pickLevel, setPickLevel] = React.useState<"read" | "record">("read");
   const [saving, setSaving] = React.useState(false);
   const [grantError, setGrantError] = React.useState<string | null>(null);
+  const [revokingKey, setRevokingKey] = React.useState<string | null>(null);
 
   const canManage = company.role !== "member";
 
@@ -84,6 +85,7 @@ export default function MeetingsAiAccess() {
   };
 
   const revoke = async (grant: CalendarGrant) => {
+    setRevokingKey(`${grant.employeeId}-${grant.accountId}`);
     try {
       const result = await meetingsApi.revoke(company.id, {
         employeeId: grant.employeeId,
@@ -92,6 +94,8 @@ export default function MeetingsAiAccess() {
       setGrants(result.grants);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t revoke access" });
+    } finally {
+      setRevokingKey(null);
     }
   };
 
@@ -187,7 +191,8 @@ export default function MeetingsAiAccess() {
                 <Button
                   size="sm"
                   onClick={addGrant}
-                  disabled={saving || !pickEmployee || !pickCalendar}
+                  loading={saving}
+                  disabled={!pickEmployee || !pickCalendar}
                 >
                   <Bot size={14} /> {saving ? "Granting…" : "Grant"}
                 </Button>
@@ -235,7 +240,12 @@ export default function MeetingsAiAccess() {
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           {canManage && (
-                            <Button variant="ghost" size="sm" onClick={() => revoke(grant)}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              loading={revokingKey === `${grant.employeeId}-${grant.accountId}`}
+                              onClick={() => revoke(grant)}
+                            >
                               <Trash2 size={14} />
                             </Button>
                           )}

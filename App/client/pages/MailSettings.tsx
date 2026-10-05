@@ -57,6 +57,7 @@ export default function MailSettings() {
   const [candidates, setCandidates] = React.useState<MailGrantCandidate[]>([]);
   const [addOpen, setAddOpen] = React.useState(false);
   const [connectOpen, setConnectOpen] = React.useState(false);
+  const [disconnecting, setDisconnecting] = React.useState(false);
   const [pendingStatusByAccount, setPendingStatusByAccount] = React.useState<
     Partial<Record<string, "active" | "paused">>
   >({});
@@ -115,12 +116,15 @@ export default function MailSettings() {
       variant: "danger",
     });
     if (!ok) return;
+    setDisconnecting(true);
     try {
       await mailApi.deleteAccount(company.id, account.id);
       await refresh();
       navigate(`/c/${company.slug}/mail`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t disconnect the mailbox" });
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -204,11 +208,11 @@ export default function MailSettings() {
           <Button
             size="sm"
             variant="secondary"
-            disabled={syncing || pausePending || displayStatus === "paused"}
+            loading={syncing}
+            disabled={pausePending || displayStatus === "paused"}
             onClick={() => void syncNow()}
-            aria-busy={syncing}
           >
-            <RefreshCw size={14} className={syncing ? "mr-1.5 animate-spin" : "mr-1.5"} />{" "}
+            <RefreshCw size={14} className="mr-1.5" />{" "}
             {syncing ? "Syncing…" : displayStatus === "error" ? "Retry sync" : "Sync now"}
           </Button>
           {reconnectHref && (
@@ -233,7 +237,13 @@ export default function MailSettings() {
               </>
             )}
           </Button>
-          <Button size="sm" variant="danger" disabled={pausePending} onClick={disconnect}>
+          <Button
+            size="sm"
+            variant="danger"
+            loading={disconnecting}
+            disabled={pausePending}
+            onClick={disconnect}
+          >
             <Trash2 size={14} className="mr-1.5" /> Disconnect
           </Button>
         </div>
@@ -443,8 +453,8 @@ function GrantModal({
             <Button variant="ghost" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={busy || !employeeId}>
-              {busy ? <Spinner size={14} /> : "Grant"}
+            <Button onClick={submit} loading={busy} disabled={!employeeId}>
+              Grant
             </Button>
           </div>
         </div>

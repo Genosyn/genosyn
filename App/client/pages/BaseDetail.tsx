@@ -44,7 +44,7 @@ import {
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -158,6 +158,7 @@ export default function BaseDetail({ company }: { company: Company }) {
   const [showAssistant, setShowAssistant] = React.useState(false);
   const [openRecordId, setOpenRecordId] = React.useState<string | null>(null);
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
+  const [creatingView, setCreatingView] = React.useState(false);
 
   // `activeDetail` may belong to the previous base (during nav). Only trust it
   // once the slug matches the URL.
@@ -298,6 +299,7 @@ export default function BaseDetail({ company }: { company: Company }) {
       confirmLabel: "Create",
     });
     if (!name) return;
+    setCreatingView(true);
     try {
       const created = await api.post<BaseView>(
         `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/views`,
@@ -307,6 +309,8 @@ export default function BaseDetail({ company }: { company: Company }) {
       setActiveViewId(created.id);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create the view" });
+    } finally {
+      setCreatingView(false);
     }
   }, [company.id, content, currentTable, detail, dialog, loadContent]);
 
@@ -465,6 +469,7 @@ export default function BaseDetail({ company }: { company: Company }) {
               activeViewId={activeViewId}
               onSwitchView={setActiveViewId}
               onCreateView={createView}
+              creatingView={creatingView}
               onRenameView={renameView}
               onDeleteView={deleteView}
               onUpdateActiveView={updateActiveView}
@@ -533,6 +538,7 @@ function Grid({
   activeViewId,
   onSwitchView,
   onCreateView,
+  creatingView,
   onRenameView,
   onDeleteView,
   onUpdateActiveView,
@@ -549,6 +555,7 @@ function Grid({
   activeViewId: string | null;
   onSwitchView: (id: string) => void;
   onCreateView: () => Promise<void> | void;
+  creatingView: boolean;
   onRenameView: (id: string) => Promise<void> | void;
   onDeleteView: (id: string) => Promise<void> | void;
   onUpdateActiveView: (
@@ -562,6 +569,9 @@ function Grid({
   const [filterOpen, setFilterOpen] = React.useState(false);
   const [sortOpen, setSortOpen] = React.useState(false);
   const [hideOpen, setHideOpen] = React.useState(false);
+  const [addingRow, setAddingRow] = React.useState(false);
+  const [deletingRowId, setDeletingRowId] = React.useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = React.useState(false);
   const filterBtnRef = React.useRef<HTMLButtonElement>(null);
   const sortBtnRef = React.useRef<HTMLButtonElement>(null);
   const hideBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -659,6 +669,7 @@ function Grid({
   }
 
   async function addRow() {
+    setAddingRow(true);
     try {
       await api.post<BaseRecord>(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows`,
@@ -667,10 +678,13 @@ function Grid({
       await onReload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t add the row" });
+    } finally {
+      setAddingRow(false);
     }
   }
 
   async function deleteRow(row: BaseRecord) {
+    setDeletingRowId(row.id);
     try {
       await api.del(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows/${row.id}`,
@@ -678,6 +692,8 @@ function Grid({
       await onReload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the row" });
+    } finally {
+      setDeletingRowId(null);
     }
   }
 
@@ -723,6 +739,7 @@ function Grid({
       variant: "danger",
     });
     if (!ok) return;
+    setBulkDeleting(true);
     try {
       await api.post<{ ok: true; deleted: number }>(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows/bulk-delete`,
@@ -734,6 +751,8 @@ function Grid({
       void dialog.error(err, {
         title: `Couldn’t delete the ${ids.length === 1 ? "row" : "rows"}`,
       });
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -835,6 +854,7 @@ function Grid({
           activeViewId={activeViewId}
           onSwitch={onSwitchView}
           onCreate={() => void onCreateView()}
+          creating={creatingView}
           onRename={(id) => void onRenameView(id)}
           onDelete={(id) => void onDeleteView(id)}
         />
@@ -921,6 +941,7 @@ function Grid({
                     onToggleSelect={(shift) => toggleSelect(r.id, shift)}
                     onPatchCell={(fid, v) => patchCell(r, fid, v)}
                     onDelete={() => deleteRow(r)}
+                    deleting={deletingRowId === r.id}
                     onExpand={() => onOpenRecord(r.id)}
                   />
                 ))}
@@ -932,9 +953,11 @@ function Grid({
                   >
                     <button
                       onClick={addRow}
+                      disabled={addingRow}
+                      aria-busy={addingRow || undefined}
                       className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                     >
-                      <Plus size={12} /> Add row
+                      {addingRow ? <ButtonSpinner size={12} /> : <Plus size={12} />} Add row
                     </button>
                   </td>
                 </tr>
@@ -990,6 +1013,7 @@ function Grid({
       {selectedIds.size > 0 && (
         <BulkActionBar
           count={selectedIds.size}
+          deleting={bulkDeleting}
           onClear={() => setSelectedIds(new Set())}
           onDelete={() => void bulkDelete()}
         />
@@ -1052,10 +1076,12 @@ function SelectAllCell({
 
 function BulkActionBar({
   count,
+  deleting,
   onClear,
   onDelete,
 }: {
   count: number;
+  deleting: boolean;
   onClear: () => void;
   onDelete: () => void;
 }) {
@@ -1068,9 +1094,11 @@ function BulkActionBar({
         <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
         <button
           onClick={onDelete}
+          disabled={deleting}
+          aria-busy={deleting || undefined}
           className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
         >
-          <Trash2 size={12} /> Delete
+          {deleting ? <ButtonSpinner size={12} /> : <Trash2 size={12} />} Delete
         </button>
         <button
           onClick={onClear}
@@ -1168,6 +1196,7 @@ function Row({
   onToggleSelect,
   onPatchCell,
   onDelete,
+  deleting,
   onExpand,
 }: {
   index: number;
@@ -1179,6 +1208,7 @@ function Row({
   onToggleSelect: (shiftKey: boolean) => void;
   onPatchCell: (fieldId: string, value: unknown) => void;
   onDelete: () => void;
+  deleting: boolean;
   onExpand: () => void;
 }) {
   const [editingField, setEditingField] = React.useState<string | null>(null);
@@ -1297,10 +1327,12 @@ function Row({
           </button>
           <button
             onClick={onDelete}
+            disabled={deleting}
+            aria-busy={deleting || undefined}
             className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex dark:hover:bg-red-950/30"
             title="Delete row"
           >
-            <Trash2 size={13} />
+            {deleting ? <ButtonSpinner size={13} /> : <Trash2 size={13} />}
           </button>
         </div>
       </td>
@@ -1581,12 +1613,12 @@ function BaseSettingsModal({
   const [description, setDescription] = React.useState(base.description);
   const [icon, setIcon] = React.useState(base.icon);
   const [color, setColor] = React.useState(base.color);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "save" | "delete">(null);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<"general" | "access">("general");
 
   async function save() {
-    setBusy(true);
+    setBusy("save");
     setError(null);
     try {
       await api.patch(`/api/companies/${company.id}/bases/${base.slug}`, {
@@ -1600,7 +1632,7 @@ function BaseSettingsModal({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1612,7 +1644,7 @@ function BaseSettingsModal({
       variant: "danger",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     setError(null);
     try {
       await api.del(`/api/companies/${company.id}/bases/${base.slug}`);
@@ -1620,7 +1652,7 @@ function BaseSettingsModal({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1708,15 +1740,24 @@ function BaseSettingsModal({
               <FormError message={error} />
 
               <div className="mt-2 flex items-center justify-between">
-                <Button variant="danger" onClick={remove} disabled={busy}>
+                <Button
+                  variant="danger"
+                  onClick={remove}
+                  loading={busy === "delete"}
+                  disabled={busy !== null}
+                >
                   <Trash2 size={14} /> Delete base
                 </Button>
                 <div className="flex gap-2">
-                  <Button variant="secondary" onClick={onClose} disabled={busy}>
+                  <Button variant="secondary" onClick={onClose} disabled={busy !== null}>
                     Cancel
                   </Button>
-                  <Button onClick={save} disabled={busy || !name.trim()}>
-                    {busy ? "Saving…" : "Save"}
+                  <Button
+                    onClick={save}
+                    loading={busy === "save"}
+                    disabled={busy !== null || !name.trim()}
+                  >
+                    {busy === "save" ? "Saving…" : "Save"}
                   </Button>
                 </div>
               </div>
@@ -1769,6 +1810,8 @@ function BaseAccessTab({
   const [picker, setPicker] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [grantError, setGrantError] = React.useState<string | null>(null);
+  const [grantingId, setGrantingId] = React.useState<string | null>(null);
+  const [revokingId, setRevokingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -1802,6 +1845,7 @@ function BaseAccessTab({
 
   async function grant(emp: Employee) {
     setGrantError(null);
+    setGrantingId(emp.id);
     try {
       await api.post<BaseGrant>(
         `/api/companies/${company.id}/bases/${base.slug}/grants`,
@@ -1811,6 +1855,8 @@ function BaseAccessTab({
       reload();
     } catch (err) {
       setGrantError(errorMessage(err));
+    } finally {
+      setGrantingId(null);
     }
   }
 
@@ -1822,6 +1868,7 @@ function BaseAccessTab({
       variant: "danger",
     });
     if (!ok) return;
+    setRevokingId(g.id);
     try {
       await api.del(
         `/api/companies/${company.id}/bases/${base.slug}/grants/${g.employeeId}`,
@@ -1829,6 +1876,8 @@ function BaseAccessTab({
       setGrants((prev) => (prev ?? []).filter((x) => x.id !== g.id));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t revoke access" });
+    } finally {
+      setRevokingId(null);
     }
   }
 
@@ -1884,7 +1933,12 @@ function BaseAccessTab({
                   {g.employee?.role ?? ""}
                 </div>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => revoke(g)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={revokingId === g.id}
+                onClick={() => revoke(g)}
+              >
                 <Trash2 size={12} />
               </Button>
             </li>
@@ -1913,6 +1967,7 @@ function BaseAccessTab({
         <EmployeePickerModal
           employees={grantable}
           error={grantError}
+          pendingId={grantingId}
           onCancel={() => {
             setPicker(false);
             setGrantError(null);
@@ -1927,11 +1982,13 @@ function BaseAccessTab({
 function EmployeePickerModal({
   employees,
   error,
+  pendingId,
   onCancel,
   onPick,
 }: {
   employees: Employee[];
   error: string | null;
+  pendingId: string | null;
   onCancel: () => void;
   onPick: (e: Employee) => void;
 }) {
@@ -1956,10 +2013,16 @@ function EmployeePickerModal({
                 <li key={e.id}>
                   <button
                     onClick={() => onPick(e)}
+                    disabled={pendingId === e.id}
+                    aria-busy={pendingId === e.id || undefined}
                     className="flex w-full items-center gap-3 rounded-lg border border-slate-200 p-2.5 text-left hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
                   >
                     <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {e.name.slice(0, 1).toUpperCase()}
+                      {pendingId === e.id ? (
+                        <ButtonSpinner size={14} />
+                      ) : (
+                        e.name.slice(0, 1).toUpperCase()
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">

@@ -248,7 +248,7 @@ export default function PipelineNew({ company }: { company: Company }) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !name.trim()}>
+            <Button type="submit" loading={busy} disabled={!name.trim()}>
               {busy ? "Creating…" : "Open builder"}
               {!busy && <ArrowRight size={15} />}
             </Button>

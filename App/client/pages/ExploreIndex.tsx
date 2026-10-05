@@ -36,6 +36,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
   const [connectionsError, setConnectionsError] = React.useState<string | null>(null);
   const [aiBuilderOpen, setAiBuilderOpen] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
 
   const reloadConnections = React.useCallback(async () => {
     try {
@@ -57,6 +58,15 @@ export default function ExploreIndex({ company }: { company: Company }) {
   // Charts + dashboards are kept live by ExploreLayout's context; keep the
   // database sources list live too.
   useLiveRefetch("connection", reloadConnections);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await Promise.all([reload(), reloadConnections()]);
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const hasConnections = (connections ?? []).some(
     (connection) => connection.status === "connected",
@@ -99,14 +109,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
       {(error || connectionsError) && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
           <span>{error ?? `Couldn't load database sources: ${connectionsError}`}</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              void reload();
-              void reloadConnections();
-            }}
-          >
+          <Button variant="secondary" size="sm" loading={retrying} onClick={() => void retry()}>
             Try again
           </Button>
         </div>

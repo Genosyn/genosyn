@@ -87,7 +87,7 @@ export function AskEmployeeModal({
           <Button type="button" variant="secondary" disabled={opening} onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={!canContinue || opening} aria-busy={opening}>
+          <Button type="submit" loading={opening} disabled={!canContinue} aria-busy={opening}>
             {opening ? "Opening Chat…" : "Continue to Chat"}{" "}
             <ArrowRight size={16} aria-hidden="true" />
           </Button>

@@ -357,7 +357,11 @@ function AccountEditor({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !name.trim() || (!isSystem && !code.trim())}>
+          <Button
+            type="submit"
+            loading={busy}
+            disabled={!name.trim() || (!isSystem && !code.trim())}
+          >
             {account ? "Save" : "Create account"}
           </Button>
         </div>

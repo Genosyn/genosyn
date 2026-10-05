@@ -28,7 +28,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { clsx } from "../components/ui/clsx";
@@ -86,6 +86,8 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const [workReviews, setWorkReviews] = React.useState<Approval[] | null>(null);
   const [workError, setWorkError] = React.useState<string | null>(null);
   const [resolutionNotice, setResolutionNotice] = React.useState<{ message: string } | null>(null);
+  const [retryingDecisions, setRetryingDecisions] = React.useState(false);
+  const [retryingWork, setRetryingWork] = React.useState(false);
   const canReview = company.role === "owner" || company.role === "admin";
   const workRequest = React.useRef(0);
   const followUps = useDecisionFollowUps(company, me.id);
@@ -199,6 +201,24 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
     },
     [reloadWork],
   );
+
+  async function retryDecisions() {
+    setRetryingDecisions(true);
+    try {
+      await reload();
+    } finally {
+      setRetryingDecisions(false);
+    }
+  }
+
+  async function retryWork() {
+    setRetryingWork(true);
+    try {
+      await reloadWork();
+    } finally {
+      setRetryingWork(false);
+    }
+  }
 
   React.useEffect(() => {
     setRows(null);
@@ -388,7 +408,12 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       {loadError && (
         <div className="mb-5 space-y-2">
           <FormError message={loadError} />
-          <Button size="sm" variant="secondary" onClick={() => void reload()}>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={retryingDecisions}
+            onClick={() => void retryDecisions()}
+          >
             Retry Decisions
           </Button>
         </div>
@@ -396,7 +421,12 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       {workError && (
         <div className="mb-5 space-y-2">
           <FormError message={workError} />
-          <Button size="sm" variant="secondary" onClick={() => void reloadWork()}>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={retryingWork}
+            onClick={() => void retryWork()}
+          >
             Retry email and work reviews
           </Button>
         </div>
@@ -584,6 +614,7 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
   const [busyRuleId, setBusyRuleId] = React.useState<string | null>(null);
+  const [removingRuleId, setRemovingRuleId] = React.useState<string | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
 
   const canManage = company.role === "owner" || company.role === "admin";
@@ -639,6 +670,7 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
 
   async function remove(rule: DecisionPolicyRule) {
     setBusyRuleId(rule.id);
+    setRemovingRuleId(rule.id);
     setRowError(null);
     try {
       await api.del(`${base}/${rule.id}`);
@@ -647,6 +679,7 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
       setRowError(errorMessage(err, "Could not delete the rule"));
     } finally {
       setBusyRuleId(null);
+      setRemovingRuleId(null);
     }
   }
 
@@ -716,10 +749,15 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
                             type="button"
                             onClick={() => void remove(rule)}
                             disabled={busyRuleId !== null}
+                            aria-busy={removingRuleId === rule.id || undefined}
                             aria-label={`Delete routing ${asking} → ${decider}`}
                             className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-red-400"
                           >
-                            <Trash2 size={14} />
+                            {removingRuleId === rule.id ? (
+                              <ButtonSpinner size={14} />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
                           </button>
                         </>
                       ) : (
@@ -831,7 +869,7 @@ function AddRuleForm({
         )}
       </div>
       <div>
-        <Button type="submit" size="sm" disabled={saving}>
+        <Button type="submit" size="sm" loading={saving}>
           <Plus size={14} /> Add rule
         </Button>
       </div>

@@ -144,7 +144,7 @@ export function EmailStep({
           <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
             One step left — give {employee.name} draft access to it.
           </p>
-          <Button className="mt-4" onClick={grantExisting} disabled={busy}>
+          <Button className="mt-4" onClick={grantExisting} loading={busy}>
             {busy ? "Granting…" : "Grant draft access"}
           </Button>
         </div>

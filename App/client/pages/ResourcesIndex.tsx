@@ -1151,8 +1151,7 @@ function NewResourceModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy}>
-            {busy && <Spinner size={14} />}
+          <Button onClick={submit} loading={busy}>
             {busy ? "Ingesting…" : "Add resource"}
           </Button>
         </div>

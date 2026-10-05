@@ -405,7 +405,8 @@ function NewHandoffModal({
           </Button>
           <Button
             type="submit"
-            disabled={!toEmployeeId || !title.trim() || saving}
+            loading={saving}
+            disabled={!toEmployeeId || !title.trim()}
           >
             {saving ? "Sending…" : "Send handoff"}
           </Button>
@@ -489,7 +490,7 @@ function TransitionHandoffModal({
           >
             Back
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             {saving ? "Saving…" : label.verb}
           </Button>
         </div>

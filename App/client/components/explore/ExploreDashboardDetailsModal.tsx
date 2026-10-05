@@ -73,7 +73,7 @@ export function ExploreDashboardDetailsModal({
           <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={!nextTitle.trim() || saving}>
+          <Button type="submit" size="sm" loading={saving} disabled={!nextTitle.trim()}>
             {saving ? "Saving…" : submitLabel}
           </Button>
         </div>

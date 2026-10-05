@@ -169,7 +169,7 @@ export default function BaseNew({ company }: { company: Company }) {
                 >
                   Cancel
                 </Button>
-                <Button onClick={create} disabled={busy || !name.trim()}>
+                <Button onClick={create} loading={busy} disabled={!name.trim()}>
                   {busy ? "Creating…" : "Create base"}
                 </Button>
               </div>

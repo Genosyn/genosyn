@@ -12,6 +12,7 @@ import {
 import { ContextualLayout } from "../components/AppShell";
 import { api, Company, Note, Notebook } from "../lib/api";
 import { useDialog } from "../components/ui/Dialog";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -32,6 +33,8 @@ export default function NotesLayout({ company }: { company: Company }) {
   const [loading, setLoading] = React.useState(true);
   const [showArchived, setShowArchived] = React.useState(false);
   const [filter, setFilter] = React.useState("");
+  const [creatingIn, setCreatingIn] = React.useState<string | null>(null);
+  const [creatingNotebook, setCreatingNotebook] = React.useState<null | "header" | "empty">(null);
   const navigate = useNavigate();
   const dialog = useDialog();
 
@@ -58,6 +61,7 @@ export default function NotesLayout({ company }: { company: Company }) {
 
   const createNoteInNotebook = React.useCallback(
     async (notebook: Notebook) => {
+      setCreatingIn(notebook.id);
       try {
         const created = await api.post<Note>(`/api/companies/${company.id}/notes`, {
           title: "Untitled",
@@ -67,6 +71,8 @@ export default function NotesLayout({ company }: { company: Company }) {
         navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
       } catch (err) {
         void dialog.error(err, { title: "Couldn’t create the page" });
+      } finally {
+        setCreatingIn(null);
       }
     },
     [company.id, company.slug, dialog, navigate, refresh],
@@ -74,6 +80,7 @@ export default function NotesLayout({ company }: { company: Company }) {
 
   const createChild = React.useCallback(
     async (parent: Note, notebook: Notebook) => {
+      setCreatingIn(parent.id);
       try {
         const created = await api.post<Note>(`/api/companies/${company.id}/notes`, {
           title: "Untitled",
@@ -83,12 +90,14 @@ export default function NotesLayout({ company }: { company: Company }) {
         navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
       } catch (err) {
         void dialog.error(err, { title: "Couldn’t create the sub-page" });
+      } finally {
+        setCreatingIn(null);
       }
     },
     [company.id, company.slug, dialog, navigate, refresh],
   );
 
-  const createNotebook = React.useCallback(async () => {
+  const createNotebook = React.useCallback(async (from: "header" | "empty") => {
     const title = await dialog.prompt({
       title: "New notebook",
       message: "Notebooks group related pages — runbooks, briefs, post-mortems, etc.",
@@ -96,6 +105,7 @@ export default function NotesLayout({ company }: { company: Company }) {
       confirmLabel: "Create",
     });
     if (!title) return;
+    setCreatingNotebook(from);
     try {
       const created = await api.post<Notebook>(
         `/api/companies/${company.id}/notebooks`,
@@ -105,6 +115,8 @@ export default function NotesLayout({ company }: { company: Company }) {
       navigate(`/c/${company.slug}/notes/${created.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create the notebook" });
+    } finally {
+      setCreatingNotebook(null);
     }
   }, [company.id, company.slug, dialog, navigate, refresh]);
 
@@ -123,6 +135,8 @@ export default function NotesLayout({ company }: { company: Company }) {
           onCreateNote={createNoteInNotebook}
           onCreateChild={createChild}
           onCreateNotebook={createNotebook}
+          creatingIn={creatingIn}
+          creatingNotebook={creatingNotebook}
         />
       }
     >
@@ -151,6 +165,8 @@ function Sidebar({
   onCreateNote,
   onCreateChild,
   onCreateNotebook,
+  creatingIn,
+  creatingNotebook,
 }: {
   company: Company;
   notebooks: Notebook[];
@@ -162,7 +178,9 @@ function Sidebar({
   onToggleArchived: () => void;
   onCreateNote: (notebook: Notebook) => void;
   onCreateChild: (parent: Note, notebook: Notebook) => void;
-  onCreateNotebook: () => void;
+  onCreateNotebook: (from: "header" | "empty") => void;
+  creatingIn: string | null;
+  creatingNotebook: "header" | "empty" | null;
 }) {
   const notesByNotebook = React.useMemo(() => {
     const m = new Map<string, Note[]>();
@@ -195,12 +213,14 @@ function Sidebar({
           </span>
           {!showArchived && (
             <button
-              onClick={onCreateNotebook}
+              onClick={() => onCreateNotebook("header")}
+              disabled={creatingNotebook !== null}
+              aria-busy={creatingNotebook === "header" || undefined}
               className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               title="New notebook"
               aria-label="New notebook"
             >
-              <Plus size={14} />
+              {creatingNotebook === "header" ? <ButtonSpinner size={14} /> : <Plus size={14} />}
             </button>
           )}
         </div>
@@ -246,10 +266,13 @@ function Sidebar({
               No notebooks yet.
             </div>
             <button
-              onClick={onCreateNotebook}
+              onClick={() => onCreateNotebook("empty")}
+              disabled={creatingNotebook !== null}
+              aria-busy={creatingNotebook === "empty" || undefined}
               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700 dark:hover:text-indigo-300"
             >
-              <Plus size={12} /> New notebook
+              {creatingNotebook === "empty" ? <ButtonSpinner size={12} /> : <Plus size={12} />} New
+              notebook
             </button>
           </div>
         ) : (
@@ -262,6 +285,7 @@ function Sidebar({
               showAdd={!showArchived}
               onCreateNote={() => onCreateNote(nb)}
               onCreateChild={(parent) => onCreateChild(parent, nb)}
+              creatingIn={creatingIn}
             />
           ))
         )}
@@ -312,6 +336,7 @@ function NotebookSection({
   showAdd,
   onCreateNote,
   onCreateChild,
+  creatingIn,
 }: {
   company: Company;
   notebook: Notebook;
@@ -319,6 +344,7 @@ function NotebookSection({
   showAdd: boolean;
   onCreateNote: () => void;
   onCreateChild: (parent: Note) => void;
+  creatingIn: string | null;
 }) {
   const [open, setOpen] = React.useState(true);
   const tree = React.useMemo(() => buildTree(notes), [notes]);
@@ -365,11 +391,13 @@ function NotebookSection({
           <button
             type="button"
             onClick={onCreateNote}
+            disabled={creatingIn === notebook.id}
+            aria-busy={creatingIn === notebook.id || undefined}
             className="ml-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700 group-hover/nb:flex dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="New page in this notebook"
             aria-label="New page in this notebook"
           >
-            <Plus size={12} />
+            {creatingIn === notebook.id ? <ButtonSpinner size={12} /> : <Plus size={12} />}
           </button>
         )}
       </div>
@@ -389,6 +417,7 @@ function NotebookSection({
                 depth={1}
                 onCreateChild={onCreateChild}
                 showAdd={showAdd}
+                creatingIn={creatingIn}
               />
             ))
           )}
@@ -405,6 +434,7 @@ function NoteRow({
   depth,
   onCreateChild,
   showAdd,
+  creatingIn,
 }: {
   company: Company;
   notebookSlug: string;
@@ -412,6 +442,7 @@ function NoteRow({
   depth: number;
   onCreateChild: (parent: Note) => void;
   showAdd: boolean;
+  creatingIn: string | null;
 }) {
   const [open, setOpen] = React.useState(true);
   const hasChildren = node.children.length > 0;
@@ -463,11 +494,13 @@ function NoteRow({
           <button
             type="button"
             onClick={() => onCreateChild(node)}
+            disabled={creatingIn === node.id}
+            aria-busy={creatingIn === node.id || undefined}
             className="ml-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700 group-hover:flex dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="New sub-page"
             aria-label="New sub-page"
           >
-            <Plus size={12} />
+            {creatingIn === node.id ? <ButtonSpinner size={12} /> : <Plus size={12} />}
           </button>
         )}
       </div>
@@ -482,6 +515,7 @@ function NoteRow({
               depth={depth + 1}
               onCreateChild={onCreateChild}
               showAdd={showAdd}
+              creatingIn={creatingIn}
             />
           ))}
         </div>

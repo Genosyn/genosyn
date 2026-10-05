@@ -393,7 +393,7 @@ export function VaultItemEditor({
           <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !title.trim() || (!editing && !secret)}>
+          <Button type="submit" loading={busy} disabled={!title.trim() || (!editing && !secret)}>
             {busy ? "Saving…" : editing ? "Save changes" : "Add to Vault"}
           </Button>
         </div>

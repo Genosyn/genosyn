@@ -21,6 +21,7 @@ import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
+import { ButtonSpinner } from "./ui/Spinner";
 import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
 import { CommandRegistryProvider } from "./CommandRegistry";
 import { CompanySocketProvider } from "./CompanySocket";
@@ -148,6 +149,7 @@ function TopNav({
   const navigationGuard = useNavigationGuard();
   const [companyOpen, setCompanyOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
+  const [loggingOut, setLoggingOut] = React.useState(false);
 
   React.useEffect(() => {
     if (!companyOpen && !userOpen) return;
@@ -161,7 +163,12 @@ function TopNav({
   }, [companyOpen, userOpen]);
 
   async function performLogout() {
-    await api.post("/api/auth/logout");
+    setLoggingOut(true);
+    try {
+      await api.post("/api/auth/logout");
+    } finally {
+      setLoggingOut(false);
+    }
     clearAssistantChatSessions();
     // Tear down the current document so trusted custom JavaScript loaded for
     // the signed-in App cannot remain resident on the sign-in screen.
@@ -334,9 +341,11 @@ function TopNav({
                 )}
                 <button
                   onClick={logout}
+                  disabled={loggingOut}
+                  aria-busy={loggingOut || undefined}
                   className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <LogOut size={14} /> Log out
+                  {loggingOut ? <ButtonSpinner size={14} /> : <LogOut size={14} />} Log out
                 </button>
                 <div
                   className="border-t border-slate-100 px-3 py-2 text-[11px] tabular-nums text-slate-400 dark:border-slate-700 dark:text-slate-500"

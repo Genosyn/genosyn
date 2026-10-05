@@ -347,7 +347,7 @@ function InitiativeCard({
                   <Button
                     size="sm"
                     variant={confirm === "decline" ? "danger" : "primary"}
-                    disabled={busy}
+                    loading={busy}
                     onClick={() => void decide(confirm)}
                   >
                     {confirm === "accept" ? "Accept initiative" : "Decline initiative"}

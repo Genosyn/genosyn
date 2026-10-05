@@ -156,7 +156,8 @@ export default function Login() {
             <Button
               type="button"
               variant="secondary"
-              disabled={loading || passkeyLoading}
+              loading={passkeyLoading}
+              disabled={loading}
               onClick={() => void signInWithPasskey()}
             >
               <KeyRound size={15} />
@@ -185,7 +186,7 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <Button type="submit" disabled={loading || passkeyLoading}>
+        <Button type="submit" loading={loading} disabled={passkeyLoading}>
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         {sso?.enabled && (
@@ -453,7 +454,7 @@ function CompanySsoLinkConfirm({
         required
         autoFocus
       />
-      <Button type="submit" disabled={loading}>
+      <Button type="submit" loading={loading}>
         {loading ? "Linking…" : "Link and sign in"}
       </Button>
       <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
@@ -479,13 +480,13 @@ function TwoFactorPrompt({
 }) {
   const [code, setCode] = React.useState("");
   const [recoveryMode, setRecoveryMode] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState<null | "code" | "webauthn">(null);
   const [error, setError] = React.useState<string | null>(null);
 
   async function verifyCode(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+    setLoading("code");
     try {
       await api.post(
         recoveryMode ? "/api/auth/login/two-factor/recovery" : "/api/auth/login/two-factor/totp",
@@ -495,13 +496,13 @@ function TwoFactorPrompt({
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
   async function verifyWebAuthn() {
     setError(null);
-    setLoading(true);
+    setLoading("webauthn");
     try {
       const optionsJSON = await api.post<PublicKeyCredentialRequestOptionsJSON>(
         "/api/auth/login/two-factor/webauthn/options",
@@ -513,7 +514,7 @@ function TwoFactorPrompt({
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -530,7 +531,12 @@ function TwoFactorPrompt({
       <FormError message={error} />
 
       {methods.webAuthn && (
-        <Button type="button" onClick={verifyWebAuthn} disabled={loading}>
+        <Button
+          type="button"
+          onClick={verifyWebAuthn}
+          loading={loading === "webauthn"}
+          disabled={loading !== null}
+        >
           <KeyRound size={15} />
           Use passkey or security key
         </Button>
@@ -556,8 +562,8 @@ function TwoFactorPrompt({
             required
             autoFocus
           />
-          <Button type="submit" disabled={loading}>
-            {loading ? "Verifying…" : "Verify"}
+          <Button type="submit" loading={loading === "code"} disabled={loading !== null}>
+            {loading !== null ? "Verifying…" : "Verify"}
           </Button>
         </form>
       )}

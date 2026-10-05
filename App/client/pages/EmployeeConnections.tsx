@@ -24,7 +24,7 @@ import { errorMessage } from "../lib/errors";
 import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
@@ -71,6 +71,7 @@ export function EmployeeConnections() {
   const [picker, setPicker] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [pickError, setPickError] = React.useState<string | null>(null);
+  const [grantingId, setGrantingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -221,6 +222,7 @@ export function EmployeeConnections() {
         }}
         onPick={async (connection) => {
           setPickError(null);
+          setGrantingId(connection.id);
           try {
             await api.post<ConnectionGrant>(
               `/api/companies/${company.id}/integrations/employees/${emp.id}/grants`,
@@ -230,8 +232,11 @@ export function EmployeeConnections() {
             reload();
           } catch (err) {
             setPickError(errorMessage(err));
+          } finally {
+            setGrantingId(null);
           }
         }}
+        pendingId={grantingId}
         error={pickError}
         options={grantable}
         catalog={catalog}
@@ -268,6 +273,7 @@ function GrantPickerModal({
   open,
   onClose,
   onPick,
+  pendingId,
   error,
   options,
   catalog,
@@ -275,6 +281,7 @@ function GrantPickerModal({
   open: boolean;
   onClose: () => void;
   onPick: (c: IntegrationConnection) => void;
+  pendingId: string | null;
   error: string | null;
   options: IntegrationConnection[];
   catalog: IntegrationCatalogEntry[];
@@ -296,10 +303,12 @@ function GrantPickerModal({
               <li key={c.id}>
                 <button
                   onClick={() => onPick(c)}
+                  disabled={pendingId === c.id}
+                  aria-busy={pendingId === c.id || undefined}
                   className="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
                 >
                   <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                    <Icon size={16} />
+                    {pendingId === c.id ? <ButtonSpinner size={16} /> : <Icon size={16} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">

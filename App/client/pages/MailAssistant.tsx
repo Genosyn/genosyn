@@ -52,7 +52,7 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import {
   ChatResourceReference,
@@ -103,6 +103,7 @@ export function MailAssistant({
   const navigate = useNavigate();
   const [draft, setDraft] = React.useState("");
   const [composerError, setComposerError] = React.useState<string | null>(null);
+  const [clearing, setClearing] = React.useState(false);
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -334,10 +335,13 @@ export function MailAssistant({
   const markExecuted = session.updateMessage;
 
   const clearConversation = async () => {
+    setClearing(true);
     try {
       await session.clear();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t clear the conversation" });
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -479,11 +483,12 @@ export function MailAssistant({
         {messages !== null && messages.length > 0 && (
           <button
             onClick={() => void clearConversation()}
-            disabled={turnInFlight || queuedMessages.length > 0 || session.loading}
+            disabled={turnInFlight || queuedMessages.length > 0 || session.loading || clearing}
+            aria-busy={clearing || undefined}
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Clear conversation"
           >
-            <Trash2 size={14} />
+            {clearing ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}
           </button>
         )}
         {onClose && (
@@ -624,10 +629,11 @@ export function MailAssistant({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={messages === null || uploading > 0}
+            aria-busy={uploading > 0 || undefined}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Attach a file"
           >
-            {uploading > 0 ? <Spinner size={12} /> : <Paperclip size={14} />}
+            {uploading > 0 ? <ButtonSpinner size={12} /> : <Paperclip size={14} />}
           </button>
           <textarea
             ref={textareaRef}
@@ -1171,6 +1177,7 @@ function SuggestionButtons({
           <button
             key={s.id}
             disabled={spent || busyId !== null}
+            aria-busy={busyId === s.id || undefined}
             onClick={() => void run(s)}
             title={spent ? "Already done" : suggestionHint(s)}
             className={clsx(
@@ -1181,7 +1188,7 @@ function SuggestionButtons({
             )}
           >
             {busyId === s.id ? (
-              <Spinner size={12} />
+              <ButtonSpinner size={12} />
             ) : spent ? (
               <Check size={12} />
             ) : (

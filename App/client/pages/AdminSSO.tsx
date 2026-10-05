@@ -62,6 +62,7 @@ export function AdminSSO() {
   const [saving, setSaving] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
   const [resetting, setResetting] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
@@ -186,12 +187,21 @@ export function AdminSSO() {
     }
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="SSO"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -219,7 +229,8 @@ export function AdminSSO() {
                   size="sm"
                   variant="ghost"
                   onClick={resetToDefault}
-                  disabled={resetting || saving}
+                  loading={resetting}
+                  disabled={saving}
                 >
                   <RotateCcw size={12} />
                   {resetting ? "Resetting…" : "Reset"}
@@ -387,12 +398,12 @@ export function AdminSSO() {
                   size="sm"
                   variant="secondary"
                   onClick={checkIssuer}
-                  disabled={checking}
+                  loading={checking}
                 >
                   <ShieldCheck size={14} />
                   {checking ? "Checking…" : "Check issuer"}
                 </Button>
-                <Button type="submit" size="sm" disabled={!dirty || saving}>
+                <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
                   {saving ? "Saving…" : "Save SSO settings"}
                 </Button>
               </div>

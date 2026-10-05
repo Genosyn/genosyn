@@ -261,7 +261,7 @@ export default function RevenueAccountDetail() {
                 Firmographics, lifecycle, ownership, and shared account notes.
               </p>
             </div>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" loading={busy}>
               {busy ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -685,7 +685,8 @@ function AccountMergeModal({
           <Button
             type="submit"
             variant="danger"
-            disabled={!preview || confirmName !== source.name || busy}
+            loading={busy}
+            disabled={!preview || confirmName !== source.name}
           >
             {busy ? "Merging…" : "Merge and archive"}
           </Button>

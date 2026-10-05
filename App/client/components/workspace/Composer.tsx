@@ -13,7 +13,7 @@ import {
 import { Avatar as UIAvatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner } from "@/components/ui/Spinner";
 import type { Company } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { useComposerFileDrop } from "@/lib/fileDrop";
@@ -90,6 +90,7 @@ export const ChannelComposer = React.forwardRef<
   const [draft, setDraft] = React.useState("");
   const [attachments, setAttachments] = React.useState<WorkspaceAttachment[]>([]);
   const [sending, setSending] = React.useState(false);
+  const [uploading, setUploading] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const [mentionOpen, setMentionOpen] = React.useState(false);
@@ -203,13 +204,18 @@ export const ChannelComposer = React.forwardRef<
   async function onFiles(files: FileList | File[] | null) {
     if (!files || files.length === 0) return;
     setError(null);
-    for (const f of Array.from(files)) {
-      try {
-        const a = await workspaceApi.uploadAttachment(company.id, f);
-        setAttachments((prev) => [...prev, a]);
-      } catch (err) {
-        setError(`Upload failed: ${errorMessage(err)}`);
+    setUploading((count) => count + 1);
+    try {
+      for (const f of Array.from(files)) {
+        try {
+          const a = await workspaceApi.uploadAttachment(company.id, f);
+          setAttachments((prev) => [...prev, a]);
+        } catch (err) {
+          setError(`Upload failed: ${errorMessage(err)}`);
+        }
       }
+    } finally {
+      setUploading((count) => count - 1);
     }
   }
 
@@ -357,8 +363,9 @@ export const ChannelComposer = React.forwardRef<
           className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           title="Attach file"
           aria-label="Attach file"
+          aria-busy={uploading > 0 || undefined}
         >
-          <Paperclip size={16} />
+          {uploading > 0 ? <ButtonSpinner size={16} /> : <Paperclip size={16} />}
         </button>
         <textarea
           ref={textRef}
@@ -468,11 +475,12 @@ export const ChannelComposer = React.forwardRef<
         </div>
         <Button
           size="sm"
-          disabled={sending || (draft.trim() === "" && attachments.length === 0)}
+          loading={sending}
+          disabled={draft.trim() === "" && attachments.length === 0}
           onClick={handleSend}
           className="disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
         >
-          {sending ? <Spinner size={12} /> : <Send size={14} />}
+          <Send size={14} />
           Send
         </Button>
 

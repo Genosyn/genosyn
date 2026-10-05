@@ -14,7 +14,7 @@ import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { RevenueOutletCtx } from "./RevenueLayout";
 import type { Activity, RevenueContact } from "./RevenueDeals";
@@ -51,7 +51,8 @@ export default function RevenuePartnershipDetail() {
   const [contactRole, setContactRole] = React.useState("");
   const [replyAll, setReplyAll] = React.useState(true);
   const [primary, setPrimary] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "save" | "contact" | "note">(null);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -92,7 +93,7 @@ export default function RevenuePartnershipDetail() {
 
   async function save() {
     if (!draft) return;
-    setBusy(true);
+    setBusy("save");
     setError(null);
     try {
       const saved = await api.patch<Partnership>(`${base}/partnerships/${partnershipId}`, {
@@ -113,14 +114,14 @@ export default function RevenuePartnershipDetail() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function addContact(event: React.FormEvent) {
     event.preventDefault();
     if (!contactId) return;
-    setBusy(true);
+    setBusy("contact");
     setError(null);
     try {
       await api.post(`${base}/partnerships/${partnershipId}/contacts`, {
@@ -136,23 +137,26 @@ export default function RevenuePartnershipDetail() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function removeContact(id: string) {
+    setRemovingId(id);
     try {
       await api.del(`${base}/partnerships/${partnershipId}/contacts/${id}`);
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRemovingId(null);
     }
   }
 
   async function logNote(event: React.FormEvent) {
     event.preventDefault();
     if (!note.trim()) return;
-    setBusy(true);
+    setBusy("note");
     try {
       await api.post(`${base}/activities`, {
         kind: "note",
@@ -165,7 +169,7 @@ export default function RevenuePartnershipDetail() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -180,7 +184,7 @@ export default function RevenuePartnershipDetail() {
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{detail.partnership.name}</h1>
           <p className="mt-1 text-sm text-slate-500">Partner-specific relationship, contact, and outreach context.</p>
         </div>
-        <Button onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
+        <Button onClick={() => void save()} loading={busy === "save"} disabled={busy !== null}>{busy === "save" ? "Saving…" : "Save changes"}</Button>
       </div>
       {error && <div className="mt-4"><FormError message={error} /></div>}
 
@@ -245,7 +249,7 @@ export default function RevenuePartnershipDetail() {
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">Activity</h2>
             <form onSubmit={logNote} className="mt-4 flex gap-2">
               <Input className="flex-1" placeholder="Add a partner note" value={note} onChange={(e) => setNote(e.target.value)} />
-              <Button type="submit" disabled={busy || !note.trim()}><Send size={14} /> Add</Button>
+              <Button type="submit" loading={busy === "note"} disabled={busy !== null || !note.trim()}><Send size={14} /> Add</Button>
             </form>
             <div className="mt-4 space-y-3">
               {detail.activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : detail.activities.map((activity) => (
@@ -269,7 +273,7 @@ export default function RevenuePartnershipDetail() {
                     <Link to={`${sectionUrl}/contacts/${link.contactId}`} className="text-sm font-medium text-indigo-600 hover:underline">{link.contact.name}</Link>
                     <p className="truncate text-xs text-slate-500">{link.contact.email}</p>
                   </div>
-                  <button type="button" onClick={() => void removeContact(link.contactId)} className="text-slate-400 hover:text-rose-600" aria-label={`Remove ${link.contact.name}`}><Trash2 size={14} /></button>
+                  <button type="button" onClick={() => void removeContact(link.contactId)} disabled={removingId === link.contactId} aria-busy={removingId === link.contactId || undefined} className="text-slate-400 hover:text-rose-600" aria-label={`Remove ${link.contact.name}`}>{removingId === link.contactId ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}</button>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
                   {link.role && <span>{link.role}</span>}
@@ -291,7 +295,7 @@ export default function RevenuePartnershipDetail() {
             <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input type="checkbox" checked={replyAll} onChange={(e) => setReplyAll(e.target.checked)} /> Include on Reply-All
             </label>
-            <Button type="submit" size="sm" variant="secondary" disabled={!contactId || busy}><Plus size={14} /> Add contact</Button>
+            <Button type="submit" size="sm" variant="secondary" loading={busy === "contact"} disabled={!contactId || busy !== null}><Plus size={14} /> Add contact</Button>
           </form>
         </section>
       </div>

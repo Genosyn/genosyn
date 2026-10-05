@@ -358,7 +358,7 @@ export default function FinanceInvoiceNew() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={busy || !canSave}>
+          <Button type="submit" loading={busy} disabled={!canSave}>
             {isEdit ? "Save changes" : "Save draft"}
           </Button>
         </div>

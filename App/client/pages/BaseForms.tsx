@@ -324,8 +324,8 @@ function CreateFormModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !title.trim()}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />}
+          <Button type="submit" loading={busy} disabled={!title.trim()}>
+            <Plus size={14} />
             {busy ? "Creating…" : "Create form"}
           </Button>
         </>

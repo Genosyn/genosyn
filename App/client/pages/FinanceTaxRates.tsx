@@ -228,7 +228,7 @@ function TaxRateEditor({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !name.trim()}>
+          <Button type="submit" loading={busy} disabled={!name.trim()}>
             {rate ? "Save" : "Create rate"}
           </Button>
         </div>

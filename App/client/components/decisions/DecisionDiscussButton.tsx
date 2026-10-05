@@ -6,7 +6,6 @@ import { useChatSessions } from "@/lib/chatSessions";
 import { errorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
-import { Spinner } from "@/components/ui/Spinner";
 
 /** Stage a private conversation with the asker; choosing an option stays on the card. */
 export function DecisionDiscussButton({
@@ -64,7 +63,8 @@ export function DecisionDiscussButton({
         type="button"
         size="sm"
         variant="secondary"
-        disabled={disabled || opening || !decision.employee}
+        loading={opening}
+        disabled={disabled || !decision.employee}
         onClick={() => void discuss()}
         title={
           decision.employee
@@ -73,7 +73,7 @@ export function DecisionDiscussButton({
         }
         aria-busy={opening}
       >
-        {opening ? <Spinner size={14} /> : <MessageSquare size={14} />}
+        <MessageSquare size={14} />
         Discuss
       </Button>
       <FormError message={error} className="mt-2" />
