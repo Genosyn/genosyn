@@ -14,6 +14,7 @@ import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { api, type Customer, type Employee, type Member } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import type { RevenueAccount } from "../lib/revenue";
 import type { RevenueContact } from "./RevenueContacts";
 import type { Deal } from "./RevenueDeals";
@@ -575,8 +576,7 @@ function AccountMergeModal({
             <option value="">Choose an active Account…</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
-                {account.domain ? ` · ${account.domain}` : ""}
+                {customerOptionLabel(account)}
               </option>
             ))}
           </Select>

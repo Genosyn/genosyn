@@ -38,6 +38,7 @@ import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import { api, type Customer, type Employee } from "@/lib/api";
+import { customerOptionLabel } from "@/lib/customerLabel";
 import { errorMessage } from "@/lib/errors";
 import {
   SIGNATURE_FIELD_LABELS,
@@ -1617,7 +1618,7 @@ function DraftEditor(props: DraftEditorProps) {
                 <option value="">No customer</option>
                 {props.customers.map((customer) => (
                   <option key={customer.id} value={customer.id}>
-                    {customer.name}
+                    {customerOptionLabel(customer)}
                   </option>
                 ))}
               </Select>

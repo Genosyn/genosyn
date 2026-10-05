@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import { api, type Customer } from "@/lib/api";
+import { customerOptionLabel } from "@/lib/customerLabel";
 import {
   signatureDateInputToEndOfDayIso,
   type SignatureEnvelope,
@@ -213,7 +214,7 @@ export default function SignatureNew() {
               <option value="">No linked customer</option>
               {customers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
-                  {customer.name}
+                  {customerOptionLabel(customer)}
                 </option>
               ))}
             </Select>

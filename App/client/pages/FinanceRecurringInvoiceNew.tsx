@@ -26,6 +26,7 @@ import {
   WEEKDAY_LABELS,
   withTime,
 } from "../lib/schedule";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -427,7 +428,7 @@ export default function FinanceRecurringInvoiceNew() {
           >
             {customers?.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {customerOptionLabel(c)}
               </option>
             ))}
           </Select>

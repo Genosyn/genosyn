@@ -9,6 +9,7 @@ import {
   formatMoney,
   parseMoneyToCents,
 } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -1170,7 +1171,7 @@ function NewDealModal({
             <option value="">No account yet</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {customerOptionLabel(c)}
               </option>
             ))}
           </Select>

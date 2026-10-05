@@ -14,6 +14,7 @@ import {
   Product,
   TaxRate,
 } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -386,7 +387,7 @@ export default function FinanceInvoiceNew() {
             >
               {customers?.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {customerOptionLabel(c)}
                 </option>
               ))}
             </Select>

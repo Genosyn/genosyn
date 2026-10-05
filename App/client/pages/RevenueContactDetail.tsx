@@ -16,6 +16,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { api, Customer, Employee, Member, formatMoney } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -770,7 +771,7 @@ function EditContactModal({
             <option value="">No linked account</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
+                {customerOptionLabel(account)}
               </option>
             ))}
           </Select>

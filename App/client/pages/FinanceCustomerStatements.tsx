@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowRight, ScrollText } from "lucide-react";
 import { api, type Customer } from "@/lib/api";
+import { customerOptionLabel } from "@/lib/customerLabel";
 import { Breadcrumbs } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Button } from "@/components/ui/Button";
@@ -124,9 +125,8 @@ function CustomerSwitcher({
   const archived = customers?.filter((customer) => customer.archivedAt) ?? [];
 
   function optionLabel(customer: Customer): string {
-    const detail = customer.email || customer.domain;
     const archivedLabel = customer.archivedAt ? " (archived)" : "";
-    return `${customer.name}${detail ? ` — ${detail}` : ""}${archivedLabel}`;
+    return `${customerOptionLabel(customer)}${archivedLabel}`;
   }
 
   return (

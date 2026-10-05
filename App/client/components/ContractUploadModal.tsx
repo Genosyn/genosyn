@@ -1,5 +1,6 @@
 import React from "react";
 import { api, Company, Customer, CustomerContract } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import { Button } from "./ui/Button";
 import { FormError } from "./ui/FormError";
@@ -157,7 +158,7 @@ export function ContractUploadModal({
             <option value="">— No customer —</option>
             {customers?.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {customerOptionLabel(c)}
               </option>
             ))}
           </Select>
