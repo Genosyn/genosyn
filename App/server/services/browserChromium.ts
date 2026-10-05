@@ -17,6 +17,7 @@ import {
   loadChromiumLauncher,
   persistentContextOptions,
 } from "./browserProfile.js";
+import { clearStaleProfileLock } from "./browserProfileLock.js";
 import { installVaultPasskeyGate } from "./vaultBrowserAuthenticators.js";
 
 /**
@@ -385,6 +386,9 @@ async function launchProfile(
   if (chromium.launchPersistentContext) {
     try {
       userDataDir = await ensureBrowserProfileDir(companyId, employeeId);
+      // Before the newness check, so a profile holding nothing but a dead lock
+      // still counts as new and is seeded.
+      await clearStaleLockUnlessOpen(employeeId, userDataDir);
       seedSnapshot = await browserProfileIsNew(companyId, employeeId);
       context = await chromium.launchPersistentContext(
         userDataDir,
@@ -446,6 +450,26 @@ async function launchProfile(
     throw error;
   }
   return profile;
+}
+
+/**
+ * Break a profile lock an unclean stop left behind, so it does not cost the
+ * employee their profile (see `browserProfileLock.ts`).
+ *
+ * The registry is asked first. A Chrome this process launched holds its
+ * profile whatever the lock says, and a host renamed under a running Chrome
+ * leaves the lock naming the old one. `acquireSharedProfile` never launches
+ * over a live profile, so this is a backstop, but breaking a live lock means
+ * two Chromes writing one profile.
+ */
+async function clearStaleLockUnlessOpen(employeeId: string, userDataDir: string): Promise<void> {
+  for (const profile of profiles.values()) {
+    if (profile.userDataDir === userDataDir) return;
+  }
+  const holder = await clearStaleProfileLock(userDataDir);
+  if (!holder) return;
+  // eslint-disable-next-line no-console
+  console.warn(`[browser] cleared a stale profile lock (${holder}) for employee ${employeeId}`);
 }
 
 /**
