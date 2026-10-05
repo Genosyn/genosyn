@@ -1386,7 +1386,11 @@ function PaymentModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={cents <= 0 || overpay}>
+          <Button
+            type="submit"
+            loading={busy}
+            disabled={cents <= 0 || (overpay && !allowOverpayment)}
+          >
             Record payment
           </Button>
         </div>

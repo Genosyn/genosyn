@@ -293,7 +293,9 @@ export function Finance() {
         <Strong>Record the excess as an on-account customer credit</Strong> in the payment dialog:
         the balance-due portion posts as a normal payment and the overage becomes a credit (
         <Code>DR Bank / CR Customer Credits</Code>) you can apply to their next invoice or refund.
-        Without that tick, overpayment is refused, exactly as before.
+        Until you tick it, <Code>Record payment</Code> stays disabled for any amount above the
+        balance due. On an invoice that&apos;s already paid, <Code>Record payment</Code> is in the{" "}
+        <Code>More actions</Code> menu and the whole amount becomes a credit.
       </P>
 
       <H2 id="recurring-invoices">Recurring invoices</H2>
