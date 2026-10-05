@@ -220,6 +220,7 @@ import {
   voidBill,
 } from "../services/bills.js";
 import { hydrateCustomers, listCustomers } from "../services/customers.js";
+import { listCustomerMail } from "../services/customerMail.js";
 import { resolveDocumentIssuer } from "../services/subsidiaries.js";
 import { subsidiariesRouter } from "./subsidiaries.js";
 
@@ -410,6 +411,27 @@ financeRouter.get("/customers/:slug", async (req, res) => {
   const [hydrated] = await hydrateCustomers(cid, [c]);
   res.json(hydrated);
 });
+
+// Mail exchanged with the customer, across every connected mailbox — see
+// services/customerMail.ts for how a conversation is matched to an account.
+const customerMailQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    offset: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  })
+  .strict();
+
+financeRouter.get(
+  "/customers/:slug/mail",
+  validateQuery(customerMailQuerySchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const c = await loadCustomerBySlug(cid, req.params.slug);
+    if (!c) return res.status(404).json({ error: "Customer not found" });
+    const query = req.query as unknown as z.infer<typeof customerMailQuerySchema>;
+    res.json(await listCustomerMail(cid, c, query));
+  },
+);
 
 // ─────────────────────── Customer statement ───────────────────────────
 //
@@ -1512,9 +1534,14 @@ async function serializeCreditDetail(companyId: string, credit: CustomerCredit) 
   };
 }
 
-financeRouter.get("/credit-notes", async (req, res) => {
+const creditListQuerySchema = z.object({
+  customerId: z.string().uuid().optional(),
+});
+
+financeRouter.get("/credit-notes", validateQuery(creditListQuerySchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const credits = await listCustomerCredits(cid);
+  const query = req.query as unknown as z.infer<typeof creditListQuerySchema>;
+  const credits = await listCustomerCredits(cid, { customerId: query.customerId });
   res.json(credits.map((c) => ({ ...c, openCents: creditOpenCents(c) })));
 });
 

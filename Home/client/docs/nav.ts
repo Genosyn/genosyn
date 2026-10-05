@@ -301,7 +301,8 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/customers",
         title: "Customers",
-        blurb: "Accounts, contacts, annual contract value, statements, and signed contracts.",
+        blurb:
+          "Accounts and everything about them — emails, activity, deals, people, billing, statements, and signed contracts.",
       },
       {
         path: "/docs/pdf-forms",

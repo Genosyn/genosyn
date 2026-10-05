@@ -119,9 +119,12 @@ export async function loadCreditBySlug(
   return AppDataSource.getRepository(CustomerCredit).findOneBy({ companyId, slug });
 }
 
-export async function listCustomerCredits(companyId: string): Promise<CustomerCredit[]> {
+export async function listCustomerCredits(
+  companyId: string,
+  filter: { customerId?: string } = {},
+): Promise<CustomerCredit[]> {
   return AppDataSource.getRepository(CustomerCredit).find({
-    where: { companyId },
+    where: filter.customerId ? { companyId, customerId: filter.customerId } : { companyId },
     order: { createdAt: "DESC" },
   });
 }

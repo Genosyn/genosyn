@@ -1396,7 +1396,10 @@ registry.registerPath({
     "mail sync matches thread participants against known contacts and records every " +
     "message, so a contact's history is populated without anyone doing data entry.\n\n" +
     "Filter by `contactId`, `dealId` or `customerId`. All three are independent — an " +
-    "email to somebody with no open deal carries only `contactId`.",
+    "email to somebody with no open deal carries only `contactId`. Add " +
+    "`includeRelatedRecords=true` to a `customerId` filter for the account's whole " +
+    "history, including activity recorded against its contacts and deals before they " +
+    "were linked to it.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -1405,6 +1408,7 @@ registry.registerPath({
       contactId: z.string().uuid().optional(),
       dealId: z.string().uuid().optional(),
       customerId: z.string().uuid().optional(),
+      includeRelatedRecords: z.enum(["true", "false"]).optional(),
       limit: z.coerce.number().int().min(1).max(200).optional(),
       offset: z.coerce.number().int().min(0).optional(),
     }),

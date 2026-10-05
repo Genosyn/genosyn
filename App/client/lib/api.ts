@@ -4161,6 +4161,43 @@ export type Customer = {
   contacts: CustomerContact[];
 };
 
+/** One of the customer's people on a mail conversation. */
+export type CustomerMailPerson = {
+  email: string;
+  /** Contact name, else the sender's display name, else "". */
+  name: string;
+};
+
+/** A mail conversation with a customer — GET /customers/:slug/mail. */
+export type CustomerMailThread = {
+  id: string;
+  accountId: string;
+  mailboxAddress: string;
+  subject: string;
+  snippet: string;
+  participants: string;
+  unread: boolean;
+  messageCount: number;
+  hasAttachments: boolean;
+  lastMessageAt: string | null;
+  people: CustomerMailPerson[];
+  peopleTotal: number;
+};
+
+export type CustomerMailPage = {
+  threads: CustomerMailThread[];
+  total: number;
+  limit: number;
+  offset: number;
+  /** Exact addresses the server matched on. */
+  addresses: string[];
+  /** The domain matched on; null when unset, free mail, or the company's own. */
+  domain: string | null;
+  mailboxCount: number;
+  /** Mail mirrored before the address index existed is still being indexed. */
+  indexing: boolean;
+};
+
 /** A server-filtered window for the standalone Customers list. */
 export type CustomerListPage = {
   customers: Customer[];

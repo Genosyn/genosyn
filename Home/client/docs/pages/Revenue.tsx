@@ -95,7 +95,8 @@ export function Revenue() {
                 An <Strong>account</Strong> — prospect, customer, or former customer. It appears
                 under <Code>Revenue → Accounts</Code> for relationship work and{" "}
                 <DocLink to="/docs/customers">Customers</DocLink> for billing details, contracts,
-                and statements.
+                statements, and one overview of everything linked to it — emails, activity, deals,
+                people, and meetings.
               </>
             ),
           },
