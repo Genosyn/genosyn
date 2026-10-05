@@ -502,9 +502,10 @@ export type SqlitePragmaTarget = {
  *   corrupts the file. In rollback mode NORMAL is not corruption-safe, so a
  *   database that refuses WAL (an in-memory one, a filesystem without shared
  *   memory) keeps SQLite's FULL default.
- * - **A 64 MiB page cache** (better-sqlite3 ships 16 MiB) and in-memory temp
- *   b-trees for sorts and DISTINCT, so hot pages stop round-tripping through
- *   read(2).
+ * - **A 64 MiB page cache** (better-sqlite3 ships 16 MiB), so hot pages stop
+ *   round-tripping through read(2). Temporary storage stays on disk (SQLite's
+ *   default here): the mail search index lives in the `temp` schema and is
+ *   the size of a large mailbox's text (services/mail/searchIndex.ts).
  * - **journal_size_limit** trims the WAL back after a large transaction
  *   instead of leaving it at its high-water mark.
  */
@@ -515,7 +516,6 @@ export function tuneSqliteConnection(db: SqlitePragmaTarget): void {
     db.pragma("journal_size_limit = 67108864");
   }
   db.pragma("cache_size = -65536");
-  db.pragma("temp_store = MEMORY");
 }
 
 export const AppDataSource = buildDataSource();
@@ -569,7 +569,9 @@ export function optimizeSqliteStatistics(): void {
   try {
     const db = (AppDataSource.driver as unknown as { databaseConnection: SqlitePragmaTarget })
       .databaseConnection;
-    db.pragma("optimize = 0x10002");
+    // `main` only: the `temp` schema holds the mail search index, whose
+    // FTS5 tables gain nothing from statistics and are large to analyze.
+    db.pragma("main.optimize = 0x10002");
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[db] refreshing SQLite planner statistics failed:", err);

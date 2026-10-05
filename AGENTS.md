@@ -610,6 +610,12 @@ in a Work session instead of leaving them stranded as local commits.
   migrations and every six hours; without them it treats `companyId = ?` as
   selective. `EXPLAIN QUERY PLAN` a new query against a realistically sized
   database before shipping it.
+  Mail search's full-text index is the one structure built outside
+  migrations: `services/mail/searchIndex.ts` keeps an FTS5 table and TEMP
+  triggers in the connection's `temp` schema, rebuilt after every boot and
+  never written to `app.sqlite`. Keep it that way — anything persisted needs
+  an entity and a generated migration — and keep `temp_store` on disk, since
+  the index is the size of a mailbox's text.
 - **Schema changes require a migration, and migrations are NEVER
   hand-written.** `synchronize` is off. After editing entities, run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

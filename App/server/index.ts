@@ -19,6 +19,7 @@ import { bootMeetings } from "./services/meetings/boot.js";
 import { bootChatSurfaceWorkers } from "./services/chatSurfaces/index.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailAddressIndex } from "./services/mail/addressIndex.js";
+import { bootMailSearchIndex } from "./services/mail/searchIndex.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
@@ -233,6 +234,9 @@ async function main() {
   // Address index behind the Customer page's Emails tab; works through mail
   // mirrored before it existed in bounded chunks, then keeps up.
   bootMailAddressIndex();
+  // Full-text index behind mail search (SQLite): built in the background, and
+  // search scans as before until it is ready.
+  bootMailSearchIndex();
   void bootMailAutomationQueue().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] inbound automation queue failed to start:", err);

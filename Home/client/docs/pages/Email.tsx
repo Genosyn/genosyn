@@ -177,8 +177,13 @@ export function Email() {
       <P>
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
         folder except Spam and Trash — and matches subjects, participants, and the{" "}
-        <Strong>full text of every message</Strong> in the index. Terms combine, quotes match exact
-        phrases, and the familiar operators narrow things down: <Code>from:</Code>, <Code>to:</Code>
+        <Strong>full text of every message</Strong> in the index. A term matches whole words and
+        the start of words, ignoring case and accents: <Code>invo</Code> finds &ldquo;invoice&rdquo;
+        and <Code>cafe</Code> finds &ldquo;Café&rdquo;, but <Code>voice</Code> does not find
+        &ldquo;invoice&rdquo;. (On an install that uses Postgres, and for the minute or so after a
+        restart while the search index rebuilds, a term matches anywhere in the text instead.)
+        Terms combine, quotes match words in that order, and the familiar
+        operators narrow things down: <Code>from:</Code>, <Code>to:</Code>
         , <Code>subject:</Code>, <Code>label:</Code>, <Code>has:attachment</Code>,{" "}
         <Code>is:unread</Code>, <Code>is:starred</Code>, <Code>before:</Code>/<Code>after:</Code>{" "}
         with a date, and <Code>in:</Code> to pick a folder (<Code>in:archive</Code>,{" "}

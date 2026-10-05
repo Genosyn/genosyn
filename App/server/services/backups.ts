@@ -8,6 +8,7 @@ import * as archiverRuntime from "archiver";
 import unzipper from "unzipper";
 import cron, { ScheduledTask } from "node-cron";
 import { AppDataSource, optimizeSqliteStatistics } from "../db/datasource.js";
+import { bootMailSearchIndex, stopMailSearchIndex } from "./mail/searchIndex.js";
 import { Backup } from "../db/entities/Backup.js";
 import { BackupSchedule, BackupFrequency } from "../db/entities/BackupSchedule.js";
 import { config } from "../../config.js";
@@ -1003,6 +1004,8 @@ export async function restoreFromBackup(id: string): Promise<{
     // but a tick that did would query the destroyed DataSource for the whole
     // extract window. Cheap to take down; re-registered below.
     stopContextWindowRefresh();
+    // The search index lives on this connection; it goes with it.
+    stopMailSearchIndex();
     await AppDataSource.destroy();
 
     // Last look before the point of no return. The checks above ran before the
@@ -1011,6 +1014,7 @@ export async function restoreFromBackup(id: string): Promise<{
     // costs the install.
     if (!(await isRestorableArchive(target.filename))) {
       await AppDataSource.initialize();
+      bootMailSearchIndex();
       throw new Error(
         "Backup archive went missing or became unreadable before the restore started",
       );
@@ -1034,6 +1038,7 @@ export async function restoreFromBackup(id: string): Promise<{
     // An archive taken before planner statistics existed restores without
     // them; plan nothing against it until they do.
     optimizeSqliteStatistics();
+    bootMailSearchIndex();
     await bindInstanceSecretsToDatabase();
 
     // After the restored DB comes back online it has no row for the safety

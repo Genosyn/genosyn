@@ -4908,10 +4908,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         query: {
           type: "string",
-          description: "Free-text — matches subject, participants, and body.",
+          description: "Free-text — matches words and word starts in subject, participants, and body.",
         },
-        from: { type: "string", description: "Sender address/name substring." },
-        to: { type: "string", description: "Recipient address substring." },
+        from: { type: "string", description: "Sender address or name; words match from their start." },
+        to: { type: "string", description: "Recipient address; words match from their start." },
         after: { type: "string", description: "Only threads on/after this date (YYYY-MM-DD)." },
         before: { type: "string", description: "Only threads before this date (YYYY-MM-DD)." },
         label: {
