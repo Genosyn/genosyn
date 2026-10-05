@@ -52,7 +52,7 @@ export default function MeetingDetail() {
   const [data, setData] = React.useState<MeetingDetailPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "upload" | "rerun" | "relink">(null);
   const [startingNotetaker, setStartingNotetaker] = React.useState(false);
   const [stoppingNotetaker, setStoppingNotetaker] = React.useState(false);
   const [pasting, setPasting] = React.useState(false);
@@ -97,7 +97,7 @@ export default function MeetingDetail() {
 
   const upload = async (file: File) => {
     if (!meetingId) return;
-    setBusy(true);
+    setBusy("upload");
     setNotice(null);
     try {
       await meetingsApi.uploadRecording(company.id, meetingId, file);
@@ -105,14 +105,14 @@ export default function MeetingDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t upload the recording" });
     } finally {
-      setBusy(false);
+      setBusy(null);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
 
   const rerun = async () => {
     if (!meetingId) return;
-    setBusy(true);
+    setBusy("rerun");
     setNotice(null);
     try {
       await meetingsApi.process(company.id, meetingId);
@@ -120,13 +120,13 @@ export default function MeetingDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t re-run the write-up" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   const relink = async () => {
     if (!meetingId) return;
-    setBusy(true);
+    setBusy("relink");
     setNotice(null);
     try {
       const { result } = await meetingsApi.link(company.id, meetingId);
@@ -137,7 +137,7 @@ export default function MeetingDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t re-link the attendees" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -262,14 +262,19 @@ export default function MeetingDetail() {
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {canStartNotetaker && (
-            <Button size="sm" disabled={busy || startingNotetaker} onClick={startNotetaker}>
-              {startingNotetaker ? <Spinner size={14} /> : <Mic size={14} />}
+            <Button
+              size="sm"
+              loading={startingNotetaker}
+              disabled={busy !== null}
+              onClick={startNotetaker}
+            >
+              <Mic size={14} />
               {startingNotetaker ? "Joining…" : "Start notetaker"}
             </Button>
           )}
           {canStopNotetaker && (
-            <Button size="sm" variant="danger" disabled={stoppingNotetaker} onClick={stopNotetaker}>
-              {stoppingNotetaker ? <Spinner size={14} /> : <Square size={14} />}
+            <Button size="sm" variant="danger" loading={stoppingNotetaker} onClick={stopNotetaker}>
+              <Square size={14} />
               {stoppingNotetaker ? "Stopping…" : "Stop notetaker"}
             </Button>
           )}
@@ -293,21 +298,39 @@ export default function MeetingDetail() {
           <Button
             variant="secondary"
             size="sm"
-            disabled={busy}
+            loading={busy === "upload"}
+            disabled={busy !== null}
             onClick={() => fileRef.current?.click()}
           >
             <Upload size={14} /> Recording
           </Button>
-          <Button variant="secondary" size="sm" disabled={busy} onClick={() => setPasting(true)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => setPasting(true)}
+          >
             <FileText size={14} /> Transcript
           </Button>
           {meeting.transcriptState === "ready" && (
             <>
-              <Button variant="secondary" size="sm" disabled={busy} onClick={relink}>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={busy === "relink"}
+                disabled={busy !== null}
+                onClick={relink}
+              >
                 <Link2 size={14} /> Re-link
               </Button>
-              <Button variant="secondary" size="sm" disabled={busy} onClick={rerun}>
-                <RefreshCw size={14} className={busy ? "animate-spin" : undefined} /> Re-run
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={busy === "rerun"}
+                disabled={busy !== null}
+                onClick={rerun}
+              >
+                <RefreshCw size={14} /> Re-run
               </Button>
             </>
           )}
@@ -581,7 +604,7 @@ function PasteTranscriptModal({
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} disabled={saving || !text.trim()}>
+          <Button size="sm" onClick={submit} loading={saving} disabled={!text.trim()}>
             {saving ? "Saving…" : "Save transcript"}
           </Button>
         </div>
@@ -669,7 +692,7 @@ function AddAttendeesModal({
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} disabled={saving || emails.length === 0}>
+          <Button size="sm" onClick={submit} loading={saving} disabled={emails.length === 0}>
             {saving ? "Adding…" : `Add ${emails.length || ""}`.trim()}
           </Button>
         </div>

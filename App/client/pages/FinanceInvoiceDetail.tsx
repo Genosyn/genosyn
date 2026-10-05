@@ -31,7 +31,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
@@ -117,7 +117,12 @@ export default function FinanceInvoiceDetail() {
     CustomerCreditApplicationRow[]
   >([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "issue" | "send" | "void" | "duplicate" | "delete">(
+    null,
+  );
+  const [deletingPaymentId, setDeletingPaymentId] = React.useState<string | null>(null);
+  const [reversingWriteOffId, setReversingWriteOffId] = React.useState<string | null>(null);
+  const [unapplyingCreditId, setUnapplyingCreditId] = React.useState<string | null>(null);
   const [showPay, setShowPay] = React.useState(false);
   const [showWriteOff, setShowWriteOff] = React.useState(false);
   const [showCreditNote, setShowCreditNote] = React.useState(false);
@@ -160,7 +165,7 @@ export default function FinanceInvoiceDetail() {
 
   async function issue() {
     if (!invoice) return;
-    setBusy(true);
+    setBusy("issue");
     try {
       const fresh = await api.post<Invoice>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/issue`,
@@ -171,13 +176,13 @@ export default function FinanceInvoiceDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t issue the invoice" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function send() {
     if (!invoice) return;
-    setBusy(true);
+    setBusy("send");
     try {
       const result = await api.post<InvoiceSendResponse>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/send`,
@@ -207,7 +212,7 @@ export default function FinanceInvoiceDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t send the invoice" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -221,7 +226,7 @@ export default function FinanceInvoiceDetail() {
       confirmLabel: "Void",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("void");
     try {
       const fresh = await api.post<Invoice>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/void`,
@@ -230,13 +235,13 @@ export default function FinanceInvoiceDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t void the invoice" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function duplicate() {
     if (!invoice) return;
-    setBusy(true);
+    setBusy("duplicate");
     try {
       const draft = await api.post<Invoice>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/duplicate`,
@@ -244,7 +249,7 @@ export default function FinanceInvoiceDetail() {
       navigate(`/c/${company.slug}/finance/invoices/${draft.slug}/edit`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t duplicate the invoice" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -256,13 +261,13 @@ export default function FinanceInvoiceDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await api.del(`/api/companies/${company.id}/invoices/${invoice.slug}`);
       navigate(`/c/${company.slug}/finance/invoices`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the draft" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -275,6 +280,7 @@ export default function FinanceInvoiceDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
+    setDeletingPaymentId(paymentId);
     try {
       const fresh = await api.del<Invoice>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/payments/${paymentId}`,
@@ -282,6 +288,8 @@ export default function FinanceInvoiceDetail() {
       setInvoice(fresh);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the payment" });
+    } finally {
+      setDeletingPaymentId(null);
     }
   }
 
@@ -294,6 +302,7 @@ export default function FinanceInvoiceDetail() {
       confirmLabel: "Reverse",
     });
     if (!ok) return;
+    setReversingWriteOffId(writeOffId);
     try {
       const fresh = await api.del<Invoice & { writeOffs: InvoiceWriteOff[] }>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/write-offs/${writeOffId}`,
@@ -302,6 +311,8 @@ export default function FinanceInvoiceDetail() {
       setWriteOffs(fresh.writeOffs ?? []);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t reverse the write-off" });
+    } finally {
+      setReversingWriteOffId(null);
     }
   }
 
@@ -314,6 +325,7 @@ export default function FinanceInvoiceDetail() {
       confirmLabel: "Unapply",
     });
     if (!ok) return;
+    setUnapplyingCreditId(app.id);
     try {
       await api.del(
         `/api/companies/${company.id}/credit-notes/${app.creditSlug}/applications/${app.id}`,
@@ -321,6 +333,8 @@ export default function FinanceInvoiceDetail() {
       await reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t unapply the credit" });
+    } finally {
+      setUnapplyingCreditId(null);
     }
   }
 
@@ -388,32 +402,44 @@ export default function FinanceInvoiceDetail() {
           {invoice.status === "draft" && (
             <>
               <Link to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}>
-                <Button variant="secondary" disabled={busy}>
+                <Button variant="secondary" disabled={busy !== null}>
                   <Pencil size={14} /> Edit
                 </Button>
               </Link>
-              <Button onClick={send} disabled={busy}>
+              <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
                 <Send size={14} /> Issue & send
               </Button>
             </>
           )}
           {invoice.status === "sent" && (
-            <Button onClick={() => setShowPay(true)} disabled={busy}>
+            <Button onClick={() => setShowPay(true)} disabled={busy !== null}>
               <Plus size={14} /> Record payment
             </Button>
           )}
           {invoice.status === "sent" && invoice.balanceCents > 0 && (
-            <Button variant="secondary" onClick={() => setShowWriteOff(true)} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={() => setShowWriteOff(true)}
+              disabled={busy !== null}
+            >
               <Ban size={14} /> Write off
             </Button>
           )}
           {(invoice.status === "sent" || invoice.status === "paid") && invoice.balanceCents > 0 && (
-            <Button variant="secondary" onClick={() => setShowCreditNote(true)} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={() => setShowCreditNote(true)}
+              disabled={busy !== null}
+            >
               <Undo2 size={14} /> Credit note
             </Button>
           )}
           {invoice.status === "paid" && (
-            <Button variant="secondary" onClick={() => setShowResend(true)} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={() => setShowResend(true)}
+              disabled={busy !== null}
+            >
               <Mail size={14} /> Resend email
             </Button>
           )}
@@ -426,7 +452,7 @@ export default function FinanceInvoiceDetail() {
                 ref={ref}
                 variant="secondary"
                 onClick={onClick}
-                disabled={busy}
+                disabled={busy !== null}
                 aria-label="More actions"
               >
                 <MoreHorizontal size={14} />
@@ -684,10 +710,16 @@ export default function FinanceInvoiceDetail() {
                   </div>
                   <button
                     onClick={() => deletePayment(p.id)}
+                    disabled={deletingPaymentId === p.id}
+                    aria-busy={deletingPaymentId === p.id || undefined}
                     className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                     aria-label="Delete payment"
                   >
-                    <Trash2 size={12} />
+                    {deletingPaymentId === p.id ? (
+                      <ButtonSpinner size={12} />
+                    ) : (
+                      <Trash2 size={12} />
+                    )}
                   </button>
                 </li>
               ))}
@@ -724,10 +756,16 @@ export default function FinanceInvoiceDetail() {
                   {!w.reversedAt && (
                     <button
                       onClick={() => reverseWriteOff(w.id)}
+                      disabled={reversingWriteOffId === w.id}
+                      aria-busy={reversingWriteOffId === w.id || undefined}
                       className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                       aria-label="Reverse write-off"
                     >
-                      <Trash2 size={12} />
+                      {reversingWriteOffId === w.id ? (
+                        <ButtonSpinner size={12} />
+                      ) : (
+                        <Trash2 size={12} />
+                      )}
                     </button>
                   )}
                 </li>
@@ -756,10 +794,16 @@ export default function FinanceInvoiceDetail() {
                     {!a.reversedAt && (
                       <button
                         onClick={() => unapplyCredit(a)}
+                        disabled={unapplyingCreditId === a.id}
+                        aria-busy={unapplyingCreditId === a.id || undefined}
                         className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                         aria-label="Unapply credit"
                       >
-                        <Trash2 size={12} />
+                        {unapplyingCreditId === a.id ? (
+                          <ButtonSpinner size={12} />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
                       </button>
                     )}
                   </li>
@@ -954,7 +998,7 @@ function CreditNoteModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} loading={busy}>
             {busy ? "Creating…" : "Create credit note"}
           </Button>
         </div>
@@ -1038,7 +1082,7 @@ function WriteOffModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy}>
+          <Button onClick={submit} loading={busy}>
             {busy ? "Writing off…" : "Write off"}
           </Button>
         </div>
@@ -1211,7 +1255,7 @@ function ResendInvoiceModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !to.trim()}>
+          <Button type="submit" loading={busy} disabled={!to.trim()}>
             <Mail size={14} /> {busy ? "Sending…" : "Resend email"}
           </Button>
         </div>
@@ -1342,7 +1386,7 @@ function PaymentModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || cents <= 0 || overpay}>
+          <Button type="submit" loading={busy} disabled={cents <= 0 || overpay}>
             Record payment
           </Button>
         </div>

@@ -119,8 +119,8 @@ export function AdminUsers() {
       <TopBar
         title="Users"
         right={
-          <Button variant="secondary" onClick={reload} disabled={loading}>
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
+          <Button variant="secondary" onClick={reload} loading={loading}>
+            <RefreshCw size={14} /> Refresh
           </Button>
         }
       />
@@ -156,8 +156,8 @@ export function AdminUsers() {
             title="Couldn't load users"
             description={error}
             action={
-              <Button variant="secondary" onClick={reload} disabled={loading}>
-                <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Retry
+              <Button variant="secondary" onClick={reload} loading={loading}>
+                <RefreshCw size={14} /> Retry
               </Button>
             }
           />
@@ -276,6 +276,7 @@ function UserRow({
         variant="ghost"
         size="sm"
         className="shrink-0"
+        loading={promoting}
         disabled={busy || (user.isMasterAdmin && isSelf)}
         title={
           user.isMasterAdmin
@@ -299,6 +300,7 @@ function UserRow({
         variant="ghost"
         size="sm"
         className="shrink-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700 disabled:text-slate-300 dark:text-rose-400 dark:hover:bg-rose-500/10 dark:disabled:text-slate-600"
+        loading={deleting}
         disabled={busy || isSelf || owns}
         title={blockedReason ?? "Delete user"}
         onClick={onDelete}

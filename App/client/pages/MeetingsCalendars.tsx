@@ -43,6 +43,7 @@ export default function MeetingsCalendars() {
   const [error, setError] = React.useState<string | null>(null);
   const [connecting, setConnecting] = React.useState(false);
   const [syncingId, setSyncingId] = React.useState<string | null>(null);
+  const [disconnectingId, setDisconnectingId] = React.useState<string | null>(null);
 
   const canManage = company.role !== "member";
 
@@ -94,11 +95,14 @@ export default function MeetingsCalendars() {
       variant: "danger",
     });
     if (!ok) return;
+    setDisconnectingId(row.id);
     try {
       await meetingsApi.deleteCalendar(company.id, row.id);
       reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t disconnect the calendar" });
+    } finally {
+      setDisconnectingId(null);
     }
   };
 
@@ -183,17 +187,19 @@ export default function MeetingsCalendars() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    disabled={syncingId === row.id}
+                    loading={syncingId === row.id}
                     onClick={() => sync(row.id)}
                   >
-                    <RefreshCw
-                      size={14}
-                      className={syncingId === row.id ? "animate-spin" : undefined}
-                    />
+                    <RefreshCw size={14} />
                     Sync
                   </Button>
                   {canManage && (
-                    <Button variant="ghost" size="sm" onClick={() => disconnect(row)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={disconnectingId === row.id}
+                      onClick={() => disconnect(row)}
+                    >
                       <Trash2 size={14} />
                     </Button>
                   )}
@@ -397,7 +403,12 @@ function ConnectModal({
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} disabled={saving || !connectionId || !calendarId}>
+          <Button
+            size="sm"
+            onClick={submit}
+            loading={saving}
+            disabled={!connectionId || !calendarId}
+          >
             {saving ? "Connecting…" : "Connect"}
           </Button>
         </div>

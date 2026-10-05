@@ -87,6 +87,7 @@ export default function RevenueSuppressions() {
   const [rows, setRows] = React.useState<Suppression[] | null>(null);
   const [total, setTotal] = React.useState(0);
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [reasonFilter, setReasonFilter] = React.useState<SuppressionReason | "all">("all");
@@ -191,6 +192,18 @@ export default function RevenueSuppressions() {
     });
   }
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } catch {
+      setRows([]);
+      setLoadError(true);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   const showingFrom = total === 0 ? 0 : offset + 1;
   const showingTo = Math.min(offset + PAGE_SIZE, total);
 
@@ -246,8 +259,8 @@ export default function RevenueSuppressions() {
               maxLength={2000}
             />
           </div>
-          <Button type="submit" disabled={adding || !newEmail.trim()} className="shrink-0">
-            {adding ? <Spinner size={14} /> : <UserMinus size={14} />}
+          <Button type="submit" loading={adding} disabled={!newEmail.trim()} className="shrink-0">
+            <UserMinus size={14} />
             Suppress
           </Button>
         </div>
@@ -298,12 +311,8 @@ export default function RevenueSuppressions() {
           <Button
             variant="secondary"
             className="mt-4"
-            onClick={() =>
-              reload().catch(() => {
-                setRows([]);
-                setLoadError(true);
-              })
-            }
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>

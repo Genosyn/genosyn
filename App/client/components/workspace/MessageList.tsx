@@ -170,6 +170,7 @@ function MessageRow({
   const [editError, setEditError] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const rowRef = React.useRef<HTMLDivElement | null>(null);
   const dialog = useDialog();
 
@@ -251,11 +252,14 @@ function MessageRow({
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   setEditError(null);
+                  setSaving(true);
                   try {
                     await onEdit?.(message, draft);
                     onSetEditing?.(null);
                   } catch (err) {
                     setEditError(errorMessage(err));
+                  } finally {
+                    setSaving(false);
                   }
                 }
               }}
@@ -263,13 +267,17 @@ function MessageRow({
             />
             <Button
               size="sm"
+              loading={saving}
               onClick={async () => {
                 setEditError(null);
+                setSaving(true);
                 try {
                   await onEdit?.(message, draft);
                   onSetEditing?.(null);
                 } catch (e) {
                   setEditError(errorMessage(e));
+                } finally {
+                  setSaving(false);
                 }
               }}
             >

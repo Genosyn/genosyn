@@ -14,7 +14,7 @@ import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
@@ -43,7 +43,9 @@ export default function FinanceBillDetail() {
   const dialog = useDialog();
   const [bill, setBill] = React.useState<Bill | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "issue" | "void">(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = React.useState<string | null>(null);
   const [showPay, setShowPay] = React.useState(false);
   const [showCredit, setShowCredit] = React.useState(false);
 
@@ -78,7 +80,7 @@ export default function FinanceBillDetail() {
 
   async function issue() {
     if (!bill) return;
-    setBusy(true);
+    setBusy("issue");
     try {
       const fresh = await api.post<Bill>(
         `/api/companies/${company.id}/bills/${bill.slug}/issue`,
@@ -88,7 +90,7 @@ export default function FinanceBillDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t issue the bill" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -100,14 +102,14 @@ export default function FinanceBillDetail() {
       confirmLabel: "Void",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("void");
     try {
       const fresh = await api.post<Bill>(`/api/companies/${company.id}/bills/${bill.slug}/void`);
       setBill(fresh);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t void the bill" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -119,11 +121,14 @@ export default function FinanceBillDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/bills/${bill.slug}`);
       navigate(`/c/${company.slug}/finance/bills`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the draft" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -135,6 +140,7 @@ export default function FinanceBillDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
+    setDeletingPaymentId(pid);
     try {
       const fresh = await api.del<Bill>(
         `/api/companies/${company.id}/bills/${bill.slug}/payments/${pid}`,
@@ -142,6 +148,8 @@ export default function FinanceBillDetail() {
       setBill(fresh);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the payment" });
+    } finally {
+      setDeletingPaymentId(null);
     }
   }
 
@@ -195,27 +203,41 @@ export default function FinanceBillDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           {bill.status === "draft" && (
-            <Button onClick={issue} disabled={busy}>
+            <Button onClick={issue} loading={busy === "issue"} disabled={busy !== null}>
               <CheckCircle2 size={14} /> Issue
             </Button>
           )}
           {bill.status !== "void" && bill.status !== "draft" && (
-            <Button variant="secondary" onClick={() => setShowPay(true)} disabled={busy}>
+            <Button variant="secondary" onClick={() => setShowPay(true)} disabled={busy !== null}>
               <Plus size={14} /> Record payment
             </Button>
           )}
           {bill.status !== "void" && bill.status !== "draft" && bill.balanceCents > 0 && (
-            <Button variant="secondary" onClick={() => setShowCredit(true)} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={() => setShowCredit(true)}
+              disabled={busy !== null}
+            >
               <Undo2 size={14} /> Vendor credit
             </Button>
           )}
           {bill.status !== "void" && bill.status !== "draft" && (
-            <Button variant="secondary" onClick={voidIt} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={voidIt}
+              loading={busy === "void"}
+              disabled={busy !== null}
+            >
               <Ban size={14} /> Void
             </Button>
           )}
           {bill.status === "draft" && (
-            <Button variant="secondary" onClick={deleteDraft} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={deleteDraft}
+              loading={deleting}
+              disabled={busy !== null}
+            >
               <Trash2 size={14} /> Delete
             </Button>
           )}
@@ -376,10 +398,16 @@ export default function FinanceBillDetail() {
                     </div>
                     <button
                       onClick={() => deletePayment(p.id)}
+                      disabled={deletingPaymentId === p.id}
+                      aria-busy={deletingPaymentId === p.id || undefined}
                       className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                       aria-label="Delete payment"
                     >
-                      <Trash2 size={12} />
+                      {deletingPaymentId === p.id ? (
+                        <ButtonSpinner size={12} />
+                      ) : (
+                        <Trash2 size={12} />
+                      )}
                     </button>
                   </li>
                 ))}
@@ -488,7 +516,7 @@ function VendorCreditModal({
         <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create vendor credit"}</Button>
+          <Button onClick={submit} loading={busy}>{busy ? "Creating…" : "Create vendor credit"}</Button>
         </div>
       </div>
     </Modal>
@@ -564,7 +592,7 @@ function PaymentModal({
         <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button type="submit" disabled={busy || cents <= 0 || overpay}>Record payment</Button>
+          <Button type="submit" loading={busy} disabled={cents <= 0 || overpay}>Record payment</Button>
         </div>
       </form>
     </Modal>

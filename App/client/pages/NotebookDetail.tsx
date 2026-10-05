@@ -35,7 +35,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { NotesContext } from "./NotesLayout";
@@ -74,7 +74,7 @@ export default function NotebookDetail({ company }: { company: Company }) {
   const navigate = useNavigate();
   const dialog = useDialog();
   const [query, setQuery] = React.useState("");
-  const [creating, setCreating] = React.useState(false);
+  const [creating, setCreating] = React.useState<null | "toolbar" | "empty">(null);
   const [busy, setBusy] = React.useState(false);
   const [iconPickerOpen, setIconPickerOpen] = React.useState(false);
   const [renaming, setRenaming] = React.useState(false);
@@ -117,9 +117,9 @@ export default function NotebookDetail({ company }: { company: Company }) {
     );
   }
 
-  async function createPage() {
+  async function createPage(from: "toolbar" | "empty") {
     if (!notebook) return;
-    setCreating(true);
+    setCreating(from);
     try {
       const created = await api.post<Note>(`/api/companies/${company.id}/notes`, {
         title: "Untitled",
@@ -130,7 +130,7 @@ export default function NotebookDetail({ company }: { company: Company }) {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create the page" });
     } finally {
-      setCreating(false);
+      setCreating(null);
     }
   }
 
@@ -359,11 +359,13 @@ export default function NotebookDetail({ company }: { company: Company }) {
               className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:ring-indigo-500/25"
             />
             <button
-              onClick={createPage}
-              disabled={creating}
+              onClick={() => createPage("toolbar")}
+              disabled={creating !== null}
+              aria-busy={creating === "toolbar" || undefined}
               className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
             >
-              <Plus size={13} /> {creating ? "Creating…" : "New page"}
+              {creating === "toolbar" ? <ButtonSpinner size={13} /> : <Plus size={13} />}{" "}
+              {creating === "toolbar" ? "Creating…" : "New page"}
             </button>
           </div>
 
@@ -389,11 +391,13 @@ export default function NotebookDetail({ company }: { company: Company }) {
                   Create a page to capture a runbook, decision, or brief.
                 </p>
                 <button
-                  onClick={createPage}
-                  disabled={creating}
+                  onClick={() => createPage("empty")}
+                  disabled={creating !== null}
+                  aria-busy={creating === "empty" || undefined}
                   className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                 >
-                  <Plus size={12} /> {creating ? "Creating…" : "Create the first page"}
+                  {creating === "empty" ? <ButtonSpinner size={12} /> : <Plus size={12} />}{" "}
+                  {creating === "empty" ? "Creating…" : "Create the first page"}
                 </button>
               </div>
             )
@@ -962,7 +966,7 @@ function AddGrantModal({
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="button" onClick={submit} disabled={!picked || busy}>
+            <Button type="button" onClick={submit} loading={busy} disabled={!picked}>
               {busy ? "Sharing…" : "Share"}
             </Button>
           </div>

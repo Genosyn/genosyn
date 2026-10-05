@@ -130,9 +130,10 @@ export default function MeetingsAgenda() {
             variant="secondary"
             size="sm"
             onClick={syncAll}
-            disabled={syncing || !calendars || calendars.length === 0}
+            loading={syncing}
+            disabled={!calendars || calendars.length === 0}
           >
-            <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+            <RefreshCw size={14} />
             {syncing ? "Syncing…" : "Sync"}
           </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
@@ -412,7 +413,7 @@ function NewMeetingModal({
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} disabled={saving || !title.trim()}>
+          <Button size="sm" onClick={submit} loading={saving} disabled={!title.trim()}>
             <CalendarDays size={14} /> {saving ? "Creating…" : "Create"}
           </Button>
         </div>

@@ -45,6 +45,7 @@ export default function Proactive({ company }: { company: Company }) {
   const [selected, setSelected] = React.useState<ProactiveRecipe | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [savingDefaults, setSavingDefaults] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const [askOpen, setAskOpen] = React.useState(false);
   const [libraryOpen, setLibraryOpen] = React.useState(false);
   const [starterFilter, setStarterFilter] = React.useState<StarterFilter>("all");
@@ -105,6 +106,15 @@ export default function Proactive({ company }: { company: Company }) {
     }
   }
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="page-shell space-y-7 p-4 sm:p-8">
       <header>
@@ -139,7 +149,7 @@ export default function Proactive({ company }: { company: Company }) {
       {error && (
         <div className="space-y-3">
           <FormError message={error} />
-          <Button variant="secondary" onClick={() => void refresh()}>
+          <Button variant="secondary" loading={retrying} onClick={() => void retry()}>
             Retry
           </Button>
         </div>
@@ -508,7 +518,7 @@ function StandingWork({
                     <Button
                       variant="secondary"
                       size="sm"
-                      disabled={busy === installation.id}
+                      loading={busy === installation.id}
                       onClick={() => onToggle(installation)}
                     >
                       {busy === installation.id

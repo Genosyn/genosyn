@@ -196,6 +196,7 @@ export default function RevenueSequences() {
   const navigate = useNavigate();
   const [sequences, setSequences] = React.useState<HydratedSequence[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [accounts, setAccounts] = React.useState<MailAccount[]>([]);
   const [statusFilter, setStatusFilter] = React.useState<SequenceStatus | "all">("all");
@@ -259,6 +260,18 @@ export default function RevenueSequences() {
     });
   }, [sequences, statusFilter, query]);
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } catch {
+      setSequences([]);
+      setLoadError(true);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="page-shell p-8">
       <div className="mb-6">
@@ -315,12 +328,8 @@ export default function RevenueSequences() {
           <Button
             variant="secondary"
             className="mt-4"
-            onClick={() =>
-              reload().catch(() => {
-                setSequences([]);
-                setLoadError(true);
-              })
-            }
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>
@@ -626,8 +635,12 @@ function CreateSequenceModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving || !name.trim() || !employeeId || !mailAccountId}>
-            {saving ? <Spinner size={14} /> : <Send size={14} />}
+          <Button
+            type="submit"
+            loading={saving}
+            disabled={!name.trim() || !employeeId || !mailAccountId}
+          >
+            <Send size={14} />
             Create sequence
           </Button>
         </div>

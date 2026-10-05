@@ -49,7 +49,9 @@ export default function FinanceEstimateDetail() {
   const dialog = useDialog();
   const [estimate, setEstimate] = React.useState<Estimate | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<
+    null | "issue" | "send" | "accept" | "decline" | "convert" | "void" | "duplicate" | "delete"
+  >(null);
   const [sendNotice, setSendNotice] = React.useState<string | null>(null);
 
   // True once this slug has loaded. Issuing a draft re-slugs the estimate from
@@ -83,7 +85,7 @@ export default function FinanceEstimateDetail() {
 
   async function issue() {
     if (!estimate) return;
-    setBusy(true);
+    setBusy("issue");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/issue`,
@@ -95,7 +97,7 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t issue the estimate" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -105,7 +107,7 @@ export default function FinanceEstimateDetail() {
     // a resend leaves the page byte-identical, so only that path earns a notice.
     const wasDraft = estimate.status === "draft";
     setSendNotice(null);
-    setBusy(true);
+    setBusy("send");
     try {
       const result = await api.post<{
         estimate: Estimate;
@@ -130,14 +132,14 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t send the estimate" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function accept() {
     if (!estimate) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("accept");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/accept`,
@@ -146,7 +148,7 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t mark the estimate as accepted" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -159,7 +161,7 @@ export default function FinanceEstimateDetail() {
     });
     if (!ok) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("decline");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/decline`,
@@ -168,7 +170,7 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t mark the estimate as declined" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -182,7 +184,7 @@ export default function FinanceEstimateDetail() {
     });
     if (!ok) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("convert");
     try {
       const result = await api.post<{ estimate: Estimate; invoice: Invoice }>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/convert`,
@@ -192,7 +194,7 @@ export default function FinanceEstimateDetail() {
       navigate(`/c/${company.slug}/finance/invoices/${result.invoice.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t convert the estimate" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -207,7 +209,7 @@ export default function FinanceEstimateDetail() {
     });
     if (!ok) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("void");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/void`,
@@ -216,13 +218,13 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t void the estimate" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function duplicate() {
     if (!estimate) return;
-    setBusy(true);
+    setBusy("duplicate");
     try {
       const draft = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/duplicate`,
@@ -230,7 +232,7 @@ export default function FinanceEstimateDetail() {
       navigate(`/c/${company.slug}/finance/estimates/${draft.slug}/edit`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t duplicate the estimate" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -242,13 +244,13 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await api.del(`/api/companies/${company.id}/estimates/${estimate.slug}`);
       navigate(`/c/${company.slug}/finance/estimates`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the draft" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -318,27 +320,32 @@ export default function FinanceEstimateDetail() {
           {estimate.status === "draft" && (
             <>
               <Link to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}>
-                <Button variant="secondary" disabled={busy}>
+                <Button variant="secondary" disabled={busy !== null}>
                   <Pencil size={14} /> Edit
                 </Button>
               </Link>
-              <Button onClick={send} disabled={busy}>
+              <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
                 <Send size={14} /> Issue & send
               </Button>
             </>
           )}
           {estimate.status === "sent" && !isConverted && (
             <>
-              <Button variant="secondary" onClick={accept} disabled={busy}>
+              <Button
+                variant="secondary"
+                onClick={accept}
+                loading={busy === "accept"}
+                disabled={busy !== null}
+              >
                 <CheckCircle2 size={14} /> Mark accepted
               </Button>
-              <Button onClick={convert} disabled={busy}>
+              <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
                 <ArrowRight size={14} /> Convert to invoice
               </Button>
             </>
           )}
           {estimate.status === "accepted" && !isConverted && (
-            <Button onClick={convert} disabled={busy}>
+            <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
               <ArrowRight size={14} /> Convert to invoice
             </Button>
           )}
@@ -351,7 +358,7 @@ export default function FinanceEstimateDetail() {
                 ref={ref}
                 variant="secondary"
                 onClick={onClick}
-                disabled={busy}
+                disabled={busy !== null}
                 aria-label="More actions"
               >
                 <MoreHorizontal size={14} />

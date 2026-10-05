@@ -448,10 +448,9 @@ export function ChannelPeekModal({
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={loadingOlder}
+                      loading={loadingOlder}
                       onClick={() => void loadOlder()}
                     >
-                      {loadingOlder ? <Spinner size={12} /> : null}
                       {loadingOlder ? "Loading…" : "Load earlier messages"}
                     </Button>
                   </div>

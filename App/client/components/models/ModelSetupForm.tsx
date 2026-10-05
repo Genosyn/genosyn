@@ -305,7 +305,8 @@ export function ModelSetupForm({
           <div>
             <Button
               type="submit"
-              disabled={saving || discovering || (isApiKey && needsKey && !apiKey.trim())}
+              loading={saving}
+              disabled={discovering || (isApiKey && needsKey && !apiKey.trim())}
             >
               {saving
                 ? authMode === "subscription" && mode === "create"

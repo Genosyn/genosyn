@@ -38,6 +38,7 @@ const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-sla
 export function AdminIntegrations() {
   const [apps, setApps] = React.useState<OauthAppDescriptor[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -69,12 +70,21 @@ export function AdminIntegrations() {
 
   const configuredCount = apps.filter((a) => a.configured).length;
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="Integrations"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -221,7 +231,13 @@ function OauthAppCard({
               Open console <ExternalLink size={11} />
             </a>
             {app.configured && (
-              <Button size="sm" variant="ghost" onClick={clear} disabled={clearing || saving}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clear}
+                loading={clearing}
+                disabled={saving}
+              >
                 <RotateCcw size={12} />
                 {clearing ? "Removing…" : "Remove"}
               </Button>
@@ -296,7 +312,7 @@ function OauthAppCard({
           <FormError message={error} />
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={!dirty || !canSave || saving}>
+            <Button type="submit" loading={saving} disabled={!dirty || !canSave}>
               <KeyRound size={14} />
               {saving ? "Saving…" : app.configured ? "Update" : "Register"}
             </Button>

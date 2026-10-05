@@ -61,7 +61,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { copyToClipboard } from "../lib/clipboard";
@@ -144,6 +144,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
   const { routines, folders, loading, loadError, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
+  const [startingRun, setStartingRun] = React.useState(false);
   const [aiOpen, setAiOpen] = React.useState(() => readFlag(ASSISTANT_OPEN_KEY, false));
   const [aiCollapsed, setAiCollapsed] = React.useState(() =>
     readFlag(ASSISTANT_COLLAPSED_KEY, false),
@@ -228,6 +229,15 @@ export default function RoutineDetail({ company }: { company: Company }) {
       setActiveRun(run);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t start the run" });
+    }
+  }
+
+  async function runNow() {
+    setStartingRun(true);
+    try {
+      await triggerRun();
+    } finally {
+      setStartingRun(false);
     }
   }
 
@@ -345,7 +355,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
             >
               <Sparkles size={14} /> Ask AI
             </Button>
-            <Button onClick={triggerRun}>
+            <Button onClick={() => void runNow()} loading={startingRun}>
               <Play size={14} /> Run now
             </Button>
           </div>
@@ -701,6 +711,7 @@ function LessonsCard({
   compact: boolean;
 }) {
   const [lessons, setLessons] = React.useState<RunLesson[] | null>(null);
+  const [dismissingId, setDismissingId] = React.useState<string | null>(null);
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
 
@@ -720,11 +731,14 @@ function LessonsCard({
   useLiveRefetch("routine", reload, routine.id);
 
   async function dismiss(lesson: RunLesson) {
+    setDismissingId(lesson.id);
     try {
       await api.post(`/api/companies/${company.id}/run-lessons/${lesson.id}/dismiss`, {});
       reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t dismiss the lesson" });
+    } finally {
+      setDismissingId(null);
     }
   }
 
@@ -763,7 +777,12 @@ function LessonsCard({
                   Dismissed
                 </span>
               ) : canManage ? (
-                <Button variant="ghost" size="sm" onClick={() => void dismiss(lesson)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={dismissingId === lesson.id}
+                  onClick={() => void dismiss(lesson)}
+                >
                   Dismiss
                 </Button>
               ) : null}
@@ -909,7 +928,7 @@ function CloseWorkstreamModal({
           <Button variant="secondary" type="button" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Closing…" : "Close workstream"}
           </Button>
         </>
@@ -1063,7 +1082,7 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
         <MarkdownEditor value={content} onChange={setContent} rows={18} />
         <FormError message={error} />
         <div className="flex items-center gap-2">
-          <Button onClick={save} disabled={saving || !dirty}>
+          <Button onClick={save} loading={saving} disabled={!dirty}>
             {saving ? "Saving…" : "Save brief"}
           </Button>
           {dirty && (
@@ -1094,7 +1113,7 @@ function RunsTab({
   /** The Ask AI rail is docked, so the run list stacks above the log. */
   compact: boolean;
   initialRunId: string | null;
-  onRetry: () => void;
+  onRetry: () => Promise<void>;
 }) {
   const [runs, setRuns] = React.useState<Run[] | null>(null);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -1102,6 +1121,8 @@ function RunsTab({
   const [loadingLog, setLoadingLog] = React.useState(false);
   const [logLoadError, setLogLoadError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [starting, setStarting] = React.useState(false);
+  const [cancellingRetry, setCancellingRetry] = React.useState(false);
   const dialog = useDialog();
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
 
@@ -1177,6 +1198,15 @@ function RunsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id, activeId]);
 
+  async function runNow() {
+    setStarting(true);
+    try {
+      await onRetry();
+    } finally {
+      setStarting(false);
+    }
+  }
+
   if (loadError) return <FormError message={loadError} />;
   if (runs === null) return <Spinner />;
   if (runs.length === 0) {
@@ -1185,7 +1215,7 @@ function RunsTab({
         title="No runs yet"
         description="Hit Run now to trigger this routine, or wait for its schedule to fire."
         action={
-          <Button onClick={onRetry}>
+          <Button onClick={() => void runNow()} loading={starting}>
             <Play size={14} /> Run now
           </Button>
         }
@@ -1201,6 +1231,7 @@ function RunsTab({
 
   async function cancelActiveRetry() {
     if (!activeRun || !pendingRetryAt) return;
+    setCancellingRetry(true);
     try {
       await api.post(`/api/companies/${company.id}/runs/${activeRun.id}/cancel-retry`, {});
       setRuns(
@@ -1219,6 +1250,8 @@ function RunsTab({
           : "Couldn’t cancel the retry",
       });
       await loadRuns();
+    } finally {
+      setCancellingRetry(false);
     }
   }
 
@@ -1399,12 +1432,12 @@ function RunsTab({
             />
           )}
           {pendingRetryAt && !activeRun?.followUpRun ? (
-            <Button variant="secondary" onClick={cancelActiveRetry}>
+            <Button variant="secondary" onClick={cancelActiveRetry} loading={cancellingRetry}>
               <Ban size={14} />
               {activeRun?.continuationPending ? "Cancel continuation" : "Cancel retry"}
             </Button>
           ) : !followUpNeedsPolling(activeRun?.followUpRun) ? (
-            <Button variant="secondary" onClick={onRetry}>
+            <Button variant="secondary" onClick={() => void runNow()} loading={starting}>
               <Play size={14} /> Run now
             </Button>
           ) : null}
@@ -1489,7 +1522,9 @@ function SettingsTab({
   const [memberBrowsers, setMemberBrowsers] = React.useState<MemberBrowser[]>([]);
   const [webhookEnabled, setWebhookEnabled] = React.useState(routine.webhookEnabled);
   const [webhookToken, setWebhookToken] = React.useState(routine.webhookToken);
+  const [regenerating, setRegenerating] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [webhookError, setWebhookError] = React.useState<string | null>(null);
   const [webhookNotice, setWebhookNotice] = React.useState<string | null>(null);
@@ -1925,9 +1960,15 @@ function SettingsTab({
               <Button
                 size="sm"
                 variant="ghost"
+                loading={regenerating}
                 onClick={async () => {
-                  await toggleWebhook(false);
-                  await toggleWebhook(true);
+                  setRegenerating(true);
+                  try {
+                    await toggleWebhook(false);
+                    await toggleWebhook(true);
+                  } finally {
+                    setRegenerating(false);
+                  }
                 }}
               >
                 Regenerate token
@@ -1970,7 +2011,7 @@ function SettingsTab({
       <FormError message={error} />
 
       <div className="flex gap-2">
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={save} loading={saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -2011,6 +2052,7 @@ function SettingsTab({
           </div>
           <Button
             variant="danger"
+            loading={deleting}
             onClick={async () => {
               const ok = await dialog.confirm({
                 title: `Delete routine "${routine.name}"?`,
@@ -2020,12 +2062,15 @@ function SettingsTab({
                 variant: "danger",
               });
               if (!ok) return;
+              setDeleting(true);
               try {
                 await api.del(`/api/companies/${company.id}/routines/${routine.id}`);
                 await onSaved();
                 navigate(`/c/${company.slug}/routines`, { replace: true });
               } catch (err) {
                 void dialog.error(err, { title: "Couldn’t delete the routine" });
+              } finally {
+                setDeleting(false);
               }
             }}
           >
@@ -2050,7 +2095,7 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
   const [data, setData] = React.useState<RoutineTriggerList | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<`${"toggle" | "remove"}:${string}` | null>(null);
   const canManage = company.role === "owner" || company.role === "admin";
 
   const reload = React.useCallback(async () => {
@@ -2076,7 +2121,7 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
   useLiveRefetch("routine", reload, routine.id);
 
   async function toggle(trigger: RoutineTrigger, enabled: boolean) {
-    setBusyId(trigger.id);
+    setBusy(`toggle:${trigger.id}`);
     setRowError(null);
     try {
       await api.patch(`/api/companies/${company.id}/routine-triggers/${trigger.id}`, { enabled });
@@ -2084,12 +2129,12 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
     } catch (err) {
       setRowError(errorMessage(err, "Could not update the trigger"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
   async function remove(trigger: RoutineTrigger) {
-    setBusyId(trigger.id);
+    setBusy(`remove:${trigger.id}`);
     setRowError(null);
     try {
       await api.del(`/api/companies/${company.id}/routine-triggers/${trigger.id}`);
@@ -2097,7 +2142,7 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
     } catch (err) {
       setRowError(errorMessage(err, "Could not delete the trigger"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2147,17 +2192,22 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
                         <EnabledToggle
                           enabled={trigger.enabled}
                           label={`${trigger.enabled ? "Disable" : "Enable"} the ${trigger.kind} trigger`}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
                           onChange={(next) => void toggle(trigger, next)}
                         />
                         <button
                           type="button"
                           onClick={() => void remove(trigger)}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
+                          aria-busy={busy === `remove:${trigger.id}` || undefined}
                           aria-label={`Delete the ${trigger.kind} trigger`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-red-400"
                         >
-                          <Trash2 size={14} />
+                          {busy === `remove:${trigger.id}` ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </button>
                       </>
                     )}
@@ -2259,7 +2309,7 @@ function AddTriggerForm({
             }
           />
         </div>
-        <Button type="submit" size="sm" disabled={saving}>
+        <Button type="submit" size="sm" loading={saving}>
           {saving ? "Adding…" : "Add trigger"}
         </Button>
       </div>
@@ -2289,7 +2339,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
   const [data, setData] = React.useState<RoutineCheckList | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<`${"toggle" | "remove" | "move"}:${string}` | null>(null);
   const [editing, setEditing] = React.useState<RoutineCheck | "new" | null>(null);
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
@@ -2316,7 +2366,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
   const atLimit = checks.length >= MAX_CHECKS_PER_ROUTINE;
 
   async function toggle(check: RoutineCheck, enabled: boolean) {
-    setBusyId(check.id);
+    setBusy(`toggle:${check.id}`);
     setRowError(null);
     try {
       await api.patch(`/api/companies/${company.id}/routines/${routine.id}/checks/${check.id}`, {
@@ -2326,7 +2376,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     } catch (err) {
       setRowError(errorMessage(err, "Could not update the check"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2339,7 +2389,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
       variant: "danger",
     });
     if (!ok) return;
-    setBusyId(check.id);
+    setBusy(`remove:${check.id}`);
     setRowError(null);
     try {
       await api.del(`/api/companies/${company.id}/routines/${routine.id}/checks/${check.id}`);
@@ -2347,7 +2397,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     } catch (err) {
       setRowError(errorMessage(err, "Could not delete the check"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2359,7 +2409,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     const target = index + delta;
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
-    setBusyId(checks[index].id);
+    setBusy(`move:${checks[index].id}`);
     setRowError(null);
     try {
       await api.post(`/api/companies/${company.id}/routines/${routine.id}/checks/reorder`, {
@@ -2369,7 +2419,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     } catch (err) {
       setRowError(errorMessage(err, "Could not reorder the checks"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2437,7 +2487,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <button
                           type="button"
                           onClick={() => void move(index, -1)}
-                          disabled={busyId !== null || index === 0}
+                          disabled={busy !== null || index === 0}
                           aria-label={`Move "${check.name}" earlier`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         >
@@ -2446,7 +2496,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <button
                           type="button"
                           onClick={() => void move(index, 1)}
-                          disabled={busyId !== null || index === checks.length - 1}
+                          disabled={busy !== null || index === checks.length - 1}
                           aria-label={`Move "${check.name}" later`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         >
@@ -2455,13 +2505,13 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <EnabledToggle
                           enabled={check.enabled}
                           label={`${check.enabled ? "Disable" : "Enable"} the check "${check.name}"`}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
                           onChange={(next) => void toggle(check, next)}
                         />
                         <button
                           type="button"
                           onClick={() => setEditing(check)}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
                           aria-label={`Edit the check "${check.name}"`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         >
@@ -2470,11 +2520,16 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <button
                           type="button"
                           onClick={() => void remove(check)}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
+                          aria-busy={busy === `remove:${check.id}` || undefined}
                           aria-label={`Delete the check "${check.name}"`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-red-400"
                         >
-                          <Trash2 size={14} />
+                          {busy === `remove:${check.id}` ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </button>
                       </div>
                     )}
@@ -2746,7 +2801,7 @@ function CheckEditor({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             {saving ? "Saving…" : check ? "Save check" : "Add check"}
           </Button>
         </div>

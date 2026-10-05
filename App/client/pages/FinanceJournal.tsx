@@ -15,7 +15,7 @@ import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { FormError, FormSuccess } from "../components/ui/FormError";
@@ -145,6 +145,8 @@ export default function FinanceJournal() {
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [showNew, setShowNew] = React.useState(false);
   // A proposal never lands in this feed, so staging one leaves nothing on
   // screen to show for it. Everything else here confirms itself.
@@ -171,6 +173,18 @@ export default function FinanceJournal() {
 
   useLiveRefetch(["ledger", "financeaccount"], reload);
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } catch {
+      setEntries([]);
+      setLoadError(true);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   async function remove(e: LedgerEntry) {
     setNotice(null);
     const ok = await dialog.confirm({
@@ -180,11 +194,14 @@ export default function FinanceJournal() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
+    setDeletingId(e.id);
     try {
       await api.del(`/api/companies/${company.id}/ledger-entries/${e.id}`);
       reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the entry" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -225,16 +242,7 @@ export default function FinanceJournal() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Something went wrong fetching the ledger.
           </p>
-          <Button
-            variant="secondary"
-            className="mt-4"
-            onClick={() =>
-              reload().catch(() => {
-                setEntries([]);
-                setLoadError(true);
-              })
-            }
-          >
+          <Button variant="secondary" className="mt-4" loading={retrying} onClick={retry}>
             Try again
           </Button>
         </div>
@@ -261,6 +269,7 @@ export default function FinanceJournal() {
                 accountById={accountById}
                 companySlug={company.slug}
                 homeCurrency={homeCurrency}
+                deleting={deletingId === e.id}
                 onDelete={() => remove(e)}
               />
             ))}
@@ -290,12 +299,14 @@ function EntryRow({
   accountById,
   companySlug,
   homeCurrency,
+  deleting,
   onDelete,
 }: {
   entry: LedgerEntry;
   accountById: Map<string, Account>;
   companySlug: string;
   homeCurrency: string;
+  deleting: boolean;
   onDelete: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -344,10 +355,12 @@ function EntryRow({
               e.stopPropagation();
               onDelete();
             }}
+            disabled={deleting}
+            aria-busy={deleting || undefined}
             className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
             aria-label="Delete entry"
           >
-            <Trash2 size={14} />
+            {deleting ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}
           </button>
         )}
       </div>
@@ -445,7 +458,7 @@ function NewEntryModal({
   const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = React.useState("");
   const [lines, setLines] = React.useState<DraftLine[]>([emptyLine("debit"), emptyLine("credit")]);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "post" | "propose">(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const totals = React.useMemo(() => {
@@ -493,14 +506,14 @@ function NewEntryModal({
       setError("Debits and credits must match");
       return;
     }
-    setBusy(true);
+    setBusy("post");
     try {
       await api.post(`/api/companies/${companyId}/ledger-entries`, buildBody());
       onSaved();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -513,14 +526,14 @@ function NewEntryModal({
       setError("Debits and credits must match");
       return;
     }
-    setBusy(true);
+    setBusy("propose");
     try {
       await api.post(`/api/companies/${companyId}/finance-proposals`, buildBody());
       onSaved("Staged for review");
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -666,18 +679,23 @@ function NewEntryModal({
         <FormError message={error} />
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy !== null}>
             Cancel
           </Button>
           <Button
             type="button"
             variant="secondary"
             onClick={propose}
-            disabled={busy || !totals.balanced}
+            loading={busy === "propose"}
+            disabled={busy !== null || !totals.balanced}
           >
             Propose for review
           </Button>
-          <Button type="submit" disabled={busy || !totals.balanced}>
+          <Button
+            type="submit"
+            loading={busy === "post"}
+            disabled={busy !== null || !totals.balanced}
+          >
             Post entry
           </Button>
         </div>

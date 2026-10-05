@@ -24,7 +24,7 @@ import {
   Company,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { BaseIcon, baseAccent } from "../components/BaseIcons";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
@@ -57,6 +57,7 @@ export default function BasesLayout({ company }: { company: Company }) {
     null,
   );
   const [showArchivedTables, setShowArchivedTables] = React.useState(false);
+  const [addingTableBaseId, setAddingTableBaseId] = React.useState<string | null>(null);
 
   // Parse the active base + table slugs off the URL. `useParams()` won't work
   // from the layout level because this component renders *outside* the child
@@ -142,6 +143,7 @@ export default function BasesLayout({ company }: { company: Company }) {
       confirmLabel: "Create",
     });
     if (!name) return;
+    setAddingTableBaseId(base.id);
     try {
       const t = await api.post<BaseTable>(
         `/api/companies/${company.id}/bases/${base.slug}/tables`,
@@ -152,6 +154,8 @@ export default function BasesLayout({ company }: { company: Company }) {
       navigate(`/c/${company.slug}/bases/${base.slug}/${t.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create the table" });
+    } finally {
+      setAddingTableBaseId(null);
     }
   }
 
@@ -409,9 +413,16 @@ export default function BasesLayout({ company }: { company: Company }) {
                         onClick={() =>
                           addTable(b, tables ?? [])
                         }
+                        disabled={addingTableBaseId === b.id}
+                        aria-busy={addingTableBaseId === b.id || undefined}
                         className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                       >
-                        <Plus size={11} /> Add table
+                        {addingTableBaseId === b.id ? (
+                          <ButtonSpinner size={11} />
+                        ) : (
+                          <Plus size={11} />
+                        )}{" "}
+                        Add table
                       </button>
                     </div>
                   )}

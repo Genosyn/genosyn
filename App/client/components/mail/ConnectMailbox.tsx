@@ -13,7 +13,6 @@ import { Button } from "../ui/Button";
 import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
-import { Spinner } from "../ui/Spinner";
 
 /**
  * Connecting a mailbox, from the one thing the person already knows.
@@ -210,14 +209,8 @@ export function ConnectMailboxForm({
           Genosyn works out the rest from the address.
         </p>
         <FormError message={error} />
-        <Button type="submit" disabled={busy || !email.trim()}>
-          {busy ? (
-            <Spinner size={13} />
-          ) : (
-            <>
-              Continue <ArrowRight size={14} className="ml-1" />
-            </>
-          )}
+        <Button type="submit" loading={busy} disabled={!email.trim()}>
+          Continue <ArrowRight size={14} className="ml-1" />
         </Button>
       </form>
     );
@@ -356,8 +349,8 @@ export function ConnectMailboxForm({
           )}
           <FormError message={error} />
           <div className="flex items-center gap-2">
-            <Button type="submit" disabled={busy || !password}>
-              {busy ? <Spinner size={13} /> : "Connect mailbox"}
+            <Button type="submit" loading={busy} disabled={!password}>
+              Connect mailbox
             </Button>
             {plan.options.length > 1 && (
               <button
@@ -407,8 +400,13 @@ function OptionRow({
           {title}
         </span>
         {option.ready && (
-          <Button size="sm" disabled={busy} onClick={onPick}>
-            {busy ? <Spinner size={13} /> : "Continue"}
+          <Button
+            size="sm"
+            loading={busy && option.kind === "oauth"}
+            disabled={busy}
+            onClick={onPick}
+          >
+            Continue
           </Button>
         )}
       </div>

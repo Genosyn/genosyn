@@ -64,7 +64,8 @@ export function RoutineActivity({
   } | null>(null);
   const [errorCompanyId, setErrorCompanyId] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState(false);
-  const refreshRef = React.useRef<(() => void) | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
+  const refreshRef = React.useRef<(() => Promise<void>) | null>(null);
   const refresh = React.useCallback(() => refreshRef.current?.(), []);
 
   React.useEffect(() => {
@@ -99,7 +100,7 @@ export function RoutineActivity({
         }
       }
     };
-    refreshRef.current = () => void load();
+    refreshRef.current = load;
     // StrictMode tears down its first setup immediately. Avoid issuing a read
     // for that discarded lifecycle; its guarded microtask simply does nothing.
     queueMicrotask(() => void load());
@@ -129,11 +130,20 @@ export function RoutineActivity({
   const today = data?.today.filter((item) => byId.has(item.routineId)) ?? [];
   const runCount = today.reduce((count, item) => count + item.runCount, 0);
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   if (errorCompanyId === company.id) {
     return (
       <div className="mb-6 space-y-2">
         <FormError message="Couldn’t load recent Runs. Try again to see what’s running and what ran today." />
-        <Button variant="secondary" onClick={() => void refresh()}>
+        <Button variant="secondary" loading={retrying} onClick={() => void retry()}>
           Try again
         </Button>
       </div>

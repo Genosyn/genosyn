@@ -6,7 +6,6 @@ import { useChatSessions } from "@/lib/chatSessions";
 import { errorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
-import { Spinner } from "@/components/ui/Spinner";
 
 /** Open a draft conversation tied to the exact review; no message is sent automatically. */
 export function ApprovalDiscussButton({
@@ -60,11 +59,12 @@ export function ApprovalDiscussButton({
         type="button"
         size="sm"
         variant="secondary"
-        disabled={disabled || opening || !approval.employee}
+        loading={opening}
+        disabled={disabled || !approval.employee}
         onClick={() => void discuss()}
         aria-busy={opening}
       >
-        {opening ? <Spinner size={14} /> : <MessageSquare size={14} />}
+        <MessageSquare size={14} />
         {label}
       </Button>
       <FormError message={error} className="mt-2" />

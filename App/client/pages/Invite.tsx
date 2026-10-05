@@ -56,7 +56,7 @@ export default function Invite({ authenticated = true }: { authenticated?: boole
             </Link>
           </>
         ) : (
-          <Button onClick={accept} disabled={loading}>
+          <Button onClick={accept} loading={loading}>
             {loading ? "Accepting…" : "Accept invitation"}
           </Button>
         )}

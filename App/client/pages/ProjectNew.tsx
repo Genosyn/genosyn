@@ -87,7 +87,7 @@ export default function ProjectNew({ company }: { company: Company }) {
               />
             </div>
             <div className="flex gap-2">
-              <Button type="submit" disabled={loading || !name}>
+              <Button type="submit" loading={loading} disabled={!name}>
                 {loading ? "Creating…" : "Create project"}
               </Button>
               <Button

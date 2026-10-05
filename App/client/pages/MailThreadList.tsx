@@ -32,7 +32,7 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { MailReviewBadge } from "@/components/mail/MailReviewBadge";
 import { mergeMailThreadUpdate } from "@/lib/mailReview";
@@ -181,7 +181,7 @@ export default function MailThreadList() {
 
   const navigate = useNavigate();
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
-  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [bulkBusy, setBulkBusy] = React.useState<ThreadActionName | null>(null);
   const [cursor, setCursor] = React.useState(0);
   /** Where a shift-click range started. */
   const anchorRef = React.useRef<string | null>(null);
@@ -241,7 +241,7 @@ export default function MailThreadList() {
     async (action: ThreadActionName) => {
       const ids = [...selectedIds];
       if (ids.length === 0) return;
-      setBulkBusy(true);
+      setBulkBusy(action);
       const failures: { id: string; reason: string }[] = [];
       try {
         for (let i = 0; i < ids.length; i += THREAD_BULK_CHUNK) {
@@ -261,7 +261,7 @@ export default function MailThreadList() {
       } catch (err) {
         void dialog.error(err, { title: "Couldn’t update the threads" });
       } finally {
-        setBulkBusy(false);
+        setBulkBusy(null);
         clearSelection();
         await load(false).catch(() => {});
       }
@@ -318,6 +318,7 @@ export default function MailThreadList() {
   // ───────────────────────── saved searches ─────────────────────────
 
   const [saved, setSaved] = React.useState<MailSavedSearch[]>([]);
+  const [savingSearch, setSavingSearch] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -347,11 +348,14 @@ export default function MailThreadList() {
       validate: (value) => (value.length > 80 ? "Keep it under 80 characters" : null),
     });
     if (!name) return;
+    setSavingSearch(true);
     try {
       const res = await mailApi.createSavedSearch(company.id, account.id, { name, query });
       setSaved((prev) => [...prev, res.savedSearch]);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t save the search" });
+    } finally {
+      setSavingSearch(false);
     }
   };
 
@@ -407,7 +411,7 @@ export default function MailThreadList() {
       }
       // A sweep already in flight owns the selection; letting a second one
       // start would interleave two chunked runs over the same rows.
-      if (bulkBusy) return;
+      if (bulkBusy !== null) return;
       // With a selection up, single keys act on the selection — the same rule
       // every mail client uses, and the only one that isn't a nasty surprise.
       const applyTo = (action: ThreadActionName) => {
@@ -472,7 +476,7 @@ export default function MailThreadList() {
           aria-busy={syncing}
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
         >
-          <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+          {syncing ? <ButtonSpinner size={14} /> : <RefreshCw size={14} />}
           {syncing ? "Syncing…" : "Sync now"}
         </button>
         {/* The review queue carries its own scoped search; two boxes on one
@@ -506,6 +510,7 @@ export default function MailThreadList() {
           view={view}
           onChange={setSearch}
           saved={saved}
+          saving={savingSearch}
           onSave={() => void saveCurrentSearch()}
           onDelete={(entry) => void removeSavedSearch(entry)}
         />
@@ -584,7 +589,7 @@ export default function MailThreadList() {
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={loadingMore}
+                loading={loadingMore}
                 onClick={async () => {
                   setLoadingMore(true);
                   setMoreError(null);
@@ -597,7 +602,7 @@ export default function MailThreadList() {
                   }
                 }}
               >
-                {loadingMore ? <Spinner size={14} /> : "Load more"}
+                Load more
               </Button>
             </div>
           )}
@@ -628,7 +633,7 @@ function ThreadBulkBar({
   onClear,
 }: {
   count: number;
-  busy: boolean;
+  busy: ThreadActionName | null;
   onAction: (action: ThreadActionName) => void;
   onClear: () => void;
 }) {
@@ -639,16 +644,40 @@ function ThreadBulkBar({
           {count} selected
         </span>
         <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("markRead")}>
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={busy === "markRead"}
+          disabled={busy !== null}
+          onClick={() => onAction("markRead")}
+        >
           <MailOpen size={14} /> Read
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("star")}>
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={busy === "star"}
+          disabled={busy !== null}
+          onClick={() => onAction("star")}
+        >
           <Star size={14} /> Star
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("archive")}>
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={busy === "archive"}
+          disabled={busy !== null}
+          onClick={() => onAction("archive")}
+        >
           <Archive size={14} /> Archive
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("trash")}>
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={busy === "trash"}
+          disabled={busy !== null}
+          onClick={() => onAction("trash")}
+        >
           <Trash2 size={14} /> Trash
         </Button>
         <button
@@ -689,6 +718,7 @@ function FilterBar({
   view,
   onChange,
   saved,
+  saving,
   onSave,
   onDelete,
 }: {
@@ -696,6 +726,7 @@ function FilterBar({
   view: MailThreadView;
   onChange: (next: string) => void;
   saved: MailSavedSearch[];
+  saving: boolean;
   onSave: () => void;
   onDelete: (entry: MailSavedSearch) => void;
 }) {
@@ -779,9 +810,11 @@ function FilterBar({
         <button
           type="button"
           onClick={onSave}
+          disabled={saving}
+          aria-busy={saving || undefined}
           className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-600 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:text-indigo-300"
         >
-          <Star size={11} /> Save search
+          {saving ? <ButtonSpinner size={11} /> : <Star size={11} />} Save search
         </button>
       )}
     </div>

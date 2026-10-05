@@ -394,7 +394,7 @@ export default function FinanceRecurringInvoiceNew() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={busy || !canSave}>
+          <Button type="submit" loading={busy} disabled={!canSave}>
             {isEdit ? "Save changes" : "Create schedule"}
           </Button>
         </div>

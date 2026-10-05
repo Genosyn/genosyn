@@ -257,6 +257,7 @@ export function ExploreAiBuilder({
                         <Button
                           size="sm"
                           onClick={() => void openEmployeeChat(employee)}
+                          loading={busyEmployeeId === employee.id}
                           disabled={!request.trim() || busyEmployeeId !== null}
                         >
                           <Bot size={13} /> {granted ? "Open chat" : "Grant & open chat"}

@@ -26,7 +26,7 @@ import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import {
   api,
@@ -82,6 +82,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
@@ -332,12 +333,15 @@ export default function BaseFormEditor({ company }: { company: Company }) {
       variant: "danger",
     });
     if (!confirmed) return;
+    setDeleting(true);
     try {
       await api.del(endpoint);
       bypassGuardRef.current = true;
       navigate(formsPath, { replace: true });
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t delete the form" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -433,8 +437,8 @@ export default function BaseFormEditor({ company }: { company: Company }) {
               {table.archivedAt ? <ArchiveRestore size={14} /> : <Send size={14} />}
               {table.archivedAt ? "Unavailable" : "Share"}
             </Button>
-            <Button size="sm" disabled={!dirty || saving} onClick={() => void save()}>
-              {saving ? <Spinner size={14} /> : <Save size={14} />}
+            <Button size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
+              <Save size={14} />
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -602,9 +606,11 @@ export default function BaseFormEditor({ company }: { company: Company }) {
               <button
                 type="button"
                 onClick={() => void deleteForm()}
+                disabled={deleting}
+                aria-busy={deleting || undefined}
                 className="flex items-center gap-2 text-sm font-medium text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
               >
-                <Trash2 size={14} /> Delete form
+                {deleting ? <ButtonSpinner size={14} /> : <Trash2 size={14} />} Delete form
               </button>
             </div>
           </div>
@@ -876,8 +882,8 @@ function AddQuestionModal({
             <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
               Back
             </Button>
-            <Button type="submit" disabled={busy || !name.trim() || !canCreateField}>
-              {busy ? <Spinner size={14} /> : <Plus size={14} />}
+            <Button type="submit" loading={busy} disabled={!name.trim() || !canCreateField}>
+              <Plus size={14} />
               {busy ? "Creating…" : "Create field"}
             </Button>
           </div>
@@ -987,8 +993,8 @@ function ChoiceOptionsModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void save()} disabled={busy || saveBlocked}>
-            {busy ? <Spinner size={14} /> : <Save size={14} />}
+          <Button onClick={() => void save()} loading={busy} disabled={saveBlocked}>
+            <Save size={14} />
             {busy ? "Saving…" : "Save choices"}
           </Button>
         </>

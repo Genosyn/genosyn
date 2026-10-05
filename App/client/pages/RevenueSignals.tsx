@@ -170,6 +170,7 @@ export default function RevenueSignals() {
   const [signals, setSignals] = React.useState<Signal[] | null>(null);
   const [connections, setConnections] = React.useState<SignalConnection[]>([]);
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
 
   const base = `/api/companies/${company.id}/revenue`;
@@ -226,6 +227,18 @@ export default function RevenueSignals() {
     });
   }
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } catch {
+      setSignals([]);
+      setLoadError(true);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="page-shell p-8">
       <div className="mb-6">
@@ -257,12 +270,8 @@ export default function RevenueSignals() {
           <Button
             variant="secondary"
             className="mt-4"
-            onClick={() =>
-              reload().catch(() => {
-                setSignals([]);
-                setLoadError(true);
-              })
-            }
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>
@@ -527,8 +536,8 @@ function CreateSignalModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving || !name.trim()}>
-            {saving ? <Spinner size={14} /> : <Plus size={14} />}
+          <Button type="submit" loading={saving} disabled={!name.trim()}>
+            <Plus size={14} />
             Create signal
           </Button>
         </div>

@@ -109,7 +109,7 @@ export function SettingsEmailProviders() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState<EmailProviderCatalogEntry | null>(null);
   const [editing, setEditing] = React.useState<EmailProvider | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<{ id: string; action: "default" | "remove" } | null>(null);
   const [testTarget, setTestTarget] = React.useState<EmailProvider | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -137,14 +137,14 @@ export function SettingsEmailProviders() {
   useLiveRefetch("emailprovider", reload);
 
   async function makeDefault(p: EmailProvider) {
-    setBusyId(p.id);
+    setBusy({ id: p.id, action: "default" });
     try {
       await api.post(`/api/companies/${company.id}/email/providers/${p.id}/default`);
       await reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t set the default sender" });
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -157,14 +157,14 @@ export function SettingsEmailProviders() {
       variant: "danger",
     });
     if (!ok) return;
-    setBusyId(p.id);
+    setBusy({ id: p.id, action: "remove" });
     try {
       await api.del(`/api/companies/${company.id}/email/providers/${p.id}`);
       await reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the provider" });
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -224,7 +224,7 @@ export function SettingsEmailProviders() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setTestTarget(p)}
-                          disabled={busyId === p.id}
+                          disabled={busy?.id === p.id}
                         >
                           <Send size={12} /> Test
                         </Button>
@@ -233,7 +233,8 @@ export function SettingsEmailProviders() {
                             variant="ghost"
                             size="sm"
                             onClick={() => makeDefault(p)}
-                            disabled={busyId === p.id}
+                            loading={busy?.id === p.id && busy.action === "default"}
+                            disabled={busy?.id === p.id}
                           >
                             <Star size={12} /> Make default
                           </Button>
@@ -242,7 +243,7 @@ export function SettingsEmailProviders() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setEditing(p)}
-                          disabled={busyId === p.id}
+                          disabled={busy?.id === p.id}
                         >
                           Edit
                         </Button>
@@ -250,7 +251,8 @@ export function SettingsEmailProviders() {
                           variant="ghost"
                           size="sm"
                           onClick={() => remove(p)}
-                          disabled={busyId === p.id}
+                          loading={busy?.id === p.id && busy.action === "remove"}
+                          disabled={busy?.id === p.id}
                           title="Delete"
                         >
                           <Trash2 size={12} />
@@ -605,8 +607,8 @@ function ProviderModal({
               variant="secondary"
               size="md"
               onClick={runTest}
+              loading={testBusy}
               disabled={
-                testBusy ||
                 !testTo.trim() ||
                 !state.fromAddress.trim() ||
                 missingRequiredField(entry.fields, state.fields)
@@ -645,7 +647,7 @@ function ProviderModal({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Saving…" : isEdit ? "Save changes" : "Add provider"}
           </Button>
         </div>
@@ -896,7 +898,7 @@ function TestModal({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             {notice ? "Close" : "Cancel"}
           </Button>
-          <Button type="submit" disabled={busy || !to.trim()}>
+          <Button type="submit" loading={busy} disabled={!to.trim()}>
             {busy ? "Sending…" : "Send test"}
           </Button>
         </div>

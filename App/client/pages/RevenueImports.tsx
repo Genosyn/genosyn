@@ -80,6 +80,17 @@ type ImportDecisionPage = {
   total: number;
   offset: number;
 };
+type ImportBusy =
+  | "install"
+  | "load"
+  | "file"
+  | "preview"
+  | "commit"
+  | "previous"
+  | "next"
+  | `report:${string}`
+  | `attachments:${string}`
+  | `rollback:${string}`;
 
 const TARGET_FIELDS: Record<
   RevenueResourceType,
@@ -164,7 +175,7 @@ export default function RevenueImports() {
     null,
   );
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<ImportBusy | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const importConfigurationKey = JSON.stringify({
     resourceType,
@@ -236,7 +247,7 @@ export default function RevenueImports() {
 
   async function loadBaseSource() {
     if (!baseId || !tableId) return;
-    setBusy(true);
+    setBusy("load");
     setError(null);
     try {
       const source = await api.get<{
@@ -255,12 +266,12 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function loadFile(file: File) {
-    setBusy(true);
+    setBusy("file");
     setError(null);
     try {
       const inspected = await api.uploadFile<{
@@ -283,7 +294,7 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -301,7 +312,7 @@ export default function RevenueImports() {
 
   async function dryRun() {
     const configurationKey = importConfigurationKey;
-    setBusy(true);
+    setBusy("preview");
     setError(null);
     try {
       const report =
@@ -325,7 +336,7 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -334,7 +345,7 @@ export default function RevenueImports() {
       setError("The import settings changed after the preview. Preview the import again.");
       return;
     }
-    setBusy(true);
+    setBusy("commit");
     setError(null);
     try {
       if (sourceKind === "file") {
@@ -366,7 +377,7 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -379,7 +390,7 @@ export default function RevenueImports() {
       variant: "danger",
     });
     if (!confirmed) return;
-    setBusy(true);
+    setBusy(`rollback:${id}`);
     setError(null);
     try {
       const result = await api.post<{ deleted: number; blocked: string[] }>(
@@ -395,12 +406,12 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function installMigrationFields() {
-    setBusy(true);
+    setBusy("install");
     setError(null);
     try {
       const result = await api.post<{ created: RevenueCustomField[] }>(
@@ -415,12 +426,12 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function viewReport(id: string, offset = 0) {
-    setBusy(true);
+  async function viewReport(id: string, offset = 0, action: ImportBusy = `report:${id}`) {
+    setBusy(action);
     setError(null);
     try {
       const result = await api.get<Omit<ImportDecisionPage, "offset">>(
@@ -430,12 +441,12 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function migrateAttachments(id: string) {
-    setBusy(true);
+    setBusy(`attachments:${id}`);
     setError(null);
     try {
       const result = await api.post<{
@@ -453,7 +464,7 @@ export default function RevenueImports() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -544,7 +555,12 @@ export default function RevenueImports() {
               <option value="file">CSV, JSON, or NDJSON file</option>
             </Select>
           </div>
-          <Button variant="secondary" onClick={() => void installMigrationFields()} disabled={busy}>
+          <Button
+            variant="secondary"
+            onClick={() => void installMigrationFields()}
+            loading={busy === "install"}
+            disabled={busy !== null}
+          >
             <Sparkles size={14} /> Install Base migration fields
           </Button>
         </div>
@@ -597,7 +613,8 @@ export default function RevenueImports() {
             <Button
               variant="secondary"
               onClick={() => void loadBaseSource()}
-              disabled={!tableId || busy}
+              loading={busy === "load"}
+              disabled={!tableId || busy !== null}
             >
               <Database size={14} /> Load rows
             </Button>
@@ -625,8 +642,12 @@ export default function RevenueImports() {
                   {sourceRowCount.toLocaleString()} source rows · {sourceLabel}
                 </p>
               </div>
-              <Button onClick={() => void dryRun()} disabled={busy || !mappingComplete}>
-                {busy ? "Checking…" : "Preview import"}
+              <Button
+                onClick={() => void dryRun()}
+                loading={busy === "preview"}
+                disabled={busy !== null || !mappingComplete}
+              >
+                {busy === "preview" ? "Checking…" : "Preview import"}
               </Button>
             </div>
             {resourceType === "account_contact_deal" ? (
@@ -720,7 +741,11 @@ export default function RevenueImports() {
                 </div>
               )}
             </div>
-            <Button onClick={() => void commit()} disabled={busy || preview.createCount === 0}>
+            <Button
+              onClick={() => void commit()}
+              loading={busy === "commit"}
+              disabled={busy !== null || preview.createCount === 0}
+            >
               <CheckCircle2 size={14} /> Import {preview.createCount} rows
             </Button>
           </div>
@@ -852,7 +877,8 @@ export default function RevenueImports() {
                     size="sm"
                     variant="secondary"
                     onClick={() => void viewReport(batch.id)}
-                    disabled={busy}
+                    loading={busy === `report:${batch.id}`}
+                    disabled={busy !== null}
                   >
                     <Eye size={13} /> Report
                   </Button>
@@ -861,7 +887,8 @@ export default function RevenueImports() {
                       size="sm"
                       variant="secondary"
                       onClick={() => void migrateAttachments(batch.id)}
-                      disabled={busy}
+                      loading={busy === `attachments:${batch.id}`}
+                      disabled={busy !== null}
                     >
                       <Paperclip size={13} /> Migrate attachments
                     </Button>
@@ -871,7 +898,8 @@ export default function RevenueImports() {
                       size="sm"
                       variant="secondary"
                       onClick={() => void rollback(batch.id)}
-                      disabled={busy}
+                      loading={busy === `rollback:${batch.id}`}
+                      disabled={busy !== null}
                     >
                       <RotateCcw size={13} /> Roll back
                     </Button>
@@ -918,7 +946,10 @@ export default function RevenueImports() {
         <ImportDecisionPanel
           page={selectedDecisionPage}
           baseUrl={baseUrl}
-          onPage={(offset) => void viewReport(selectedDecisionPage.batch.id, offset)}
+          paging={busy === "previous" || busy === "next" ? busy : null}
+          onPage={(offset, direction) =>
+            void viewReport(selectedDecisionPage.batch.id, offset, direction)
+          }
           onClose={() => setSelectedDecisionPage(null)}
         />
       )}
@@ -929,12 +960,14 @@ export default function RevenueImports() {
 function ImportDecisionPanel({
   page,
   baseUrl,
+  paging,
   onPage,
   onClose,
 }: {
   page: ImportDecisionPage;
   baseUrl: string;
-  onPage: (offset: number) => void;
+  paging: "previous" | "next" | null;
+  onPage: (offset: number, direction: "previous" | "next") => void;
   onClose: () => void;
 }) {
   return (
@@ -987,16 +1020,18 @@ function ImportDecisionPanel({
           <Button
             size="sm"
             variant="secondary"
+            loading={paging === "previous"}
             disabled={page.offset === 0}
-            onClick={() => onPage(Math.max(0, page.offset - 100))}
+            onClick={() => onPage(Math.max(0, page.offset - 100), "previous")}
           >
             Previous
           </Button>
           <Button
             size="sm"
             variant="secondary"
+            loading={paging === "next"}
             disabled={page.offset + page.rows.length >= page.total}
-            onClick={() => onPage(page.offset + 100)}
+            onClick={() => onPage(page.offset + 100, "next")}
           >
             Next
           </Button>

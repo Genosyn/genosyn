@@ -120,6 +120,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const [runError, setRunError] = React.useState<string | null>(null);
   const [running, setRunning] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [dirty, setDirty] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
@@ -365,12 +366,15 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       confirmLabel: "Delete chart",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/explore/charts/${slug}`);
       await reloadIndex();
       navigate(`/c/${company.slug}/explore`, { replace: true });
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the chart" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -445,11 +449,11 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
             </Button>
           )}
           {!isNew && (
-            <Button variant="ghost" size="sm" onClick={destroy}>
+            <Button variant="ghost" size="sm" loading={deleting} onClick={destroy}>
               <Trash2 size={14} className="text-red-500" />
             </Button>
           )}
-          <Button onClick={save} size="sm" disabled={saving || (!isNew && !dirty)}>
+          <Button onClick={save} size="sm" loading={saving} disabled={!isNew && !dirty}>
             <Save size={14} />
             {saving ? "Saving…" : isNew ? "Save chart" : dirty ? "Save" : "Saved"}
           </Button>
@@ -528,7 +532,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
                 ⌘/Ctrl + Enter to run
               </span>
             </div>
-            <Button onClick={() => void runSql()} size="sm" disabled={running}>
+            <Button onClick={() => void runSql()} size="sm" loading={running}>
               <Play size={12} />
               {running ? "Running…" : "Run"}
             </Button>

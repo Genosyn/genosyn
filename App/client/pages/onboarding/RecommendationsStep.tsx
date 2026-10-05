@@ -442,7 +442,11 @@ export function RecommendationsStep({
             </div>
             <FormError message={contextError} className="mt-4" />
             <div className="mt-4 flex justify-end">
-              <Button onClick={saveCompanyContext} disabled={savingContext || !canSaveContext}>
+              <Button
+                onClick={saveCompanyContext}
+                loading={savingContext}
+                disabled={!canSaveContext}
+              >
                 {savingContext ? "Refreshing plan…" : "Save and refresh plan"}
                 {!savingContext && <Sparkles size={14} />}
               </Button>
@@ -583,7 +587,7 @@ export function RecommendationsStep({
               Continue without adding them
             </button>
           )}
-          <Button className="w-full sm:w-auto" onClick={applyAndContinue} disabled={addingRoutines}>
+          <Button className="w-full sm:w-auto" onClick={applyAndContinue} loading={addingRoutines}>
             {addingRoutines
               ? "Scheduling…"
               : selectedRoutineIds.size > 0
@@ -808,7 +812,7 @@ function IntegrationCard({
                 : `Ready for ${employee.name}`}
             </div>
           ) : integration.status === "grant_needed" ? (
-            <Button size="sm" onClick={onGrant} disabled={granting}>
+            <Button size="sm" onClick={onGrant} loading={granting}>
               {granting ? "Granting…" : `Grant ${grantConnection?.label ?? "access"}`}
               {!granting && <ArrowRight size={12} />}
             </Button>

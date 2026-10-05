@@ -4,6 +4,7 @@ import { AlertTriangle, Plus, Search, Target } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
 import { FormError } from "../components/ui/FormError";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { api, type Employee, type IntegrationConnection } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
@@ -151,7 +152,8 @@ export function MarketingCampaignsPage() {
             >
               Cancel
             </button>
-            <button disabled={saving} className={primaryButton}>
+            <button disabled={saving} aria-busy={saving || undefined} className={primaryButton}>
+              {saving && <ButtonSpinner size={12} />}
               {saving ? "Creating…" : "Create draft"}
             </button>
           </div>

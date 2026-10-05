@@ -1121,7 +1121,7 @@ function AddGrantModal({
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="button" onClick={submit} disabled={!picked || busy}>
+            <Button type="button" onClick={submit} loading={busy} disabled={!picked}>
               {busy ? "Sharing…" : "Share"}
             </Button>
           </div>

@@ -65,7 +65,9 @@ export default function PublicSigning() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [declineError, setDeclineError] = React.useState<string | null>(null);
-  const [submitting, setSubmitting] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState<null | "finish" | "decline" | "finalize">(
+    null,
+  );
   const [editorFrozen, setEditorFrozen] = React.useState(false);
   const [consent, setConsent] = React.useState(false);
   const [completed, setCompleted] = React.useState(false);
@@ -100,7 +102,7 @@ export default function PublicSigning() {
     valuesRef.current = {};
     viewSent.current = false;
     setLoading(true);
-    setSubmitting(false);
+    setSubmitting(null);
     setEditorFrozen(false);
     setConsent(false);
     setCaptureDirty(false);
@@ -249,7 +251,7 @@ export default function PublicSigning() {
     valuesRef.current = completionValues;
     setValues(completionValues);
     setEditorFrozen(true);
-    setSubmitting(true);
+    setSubmitting("finish");
     setError(null);
     try {
       const result = await api.post<CompletionResult>(`${base}/complete`, {
@@ -318,7 +320,7 @@ export default function PublicSigning() {
         );
       }
     } finally {
-      if (requestScopeRef.current === requestScope) setSubmitting(false);
+      if (requestScopeRef.current === requestScope) setSubmitting(null);
     }
   }
 
@@ -327,7 +329,7 @@ export default function PublicSigning() {
       setDeclineError("Please provide a reason for declining.");
       return;
     }
-    setSubmitting(true);
+    setSubmitting("decline");
     setDeclineError(null);
     try {
       await api.post(`${base}/decline`, { reason: declineReason.trim() });
@@ -341,13 +343,13 @@ export default function PublicSigning() {
         cause instanceof Error ? cause.message : "The envelope could not be declined.",
       );
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   }
 
   async function retryFinalization() {
     if (!data || !canRetryPublicSignatureFinalization(data)) return;
-    setSubmitting(true);
+    setSubmitting("finalize");
     setError(null);
     try {
       await api.post<CompletionResult>(`${base}/finalize`, {});
@@ -370,7 +372,7 @@ export default function PublicSigning() {
           : "The completed document could not be prepared yet. Please try again.",
       );
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   }
 
@@ -455,9 +457,12 @@ export default function PublicSigning() {
               </a>
             ) : finalizationPending ? (
               <>
-                <Button disabled={submitting} onClick={() => void retryFinalization()}>
-                  {submitting ? <Spinner size={15} /> : <FileSignature size={15} />} Prepare
-                  completed PDF
+                <Button
+                  loading={submitting === "finalize"}
+                  disabled={submitting !== null}
+                  onClick={() => void retryFinalization()}
+                >
+                  <FileSignature size={15} /> Prepare completed PDF
                 </Button>
                 <FormError message={error} className="mt-4" />
               </>
@@ -472,7 +477,7 @@ export default function PublicSigning() {
   const requiredCount = progress.total;
   const requiredDone = progress.done;
   const nextRequiredField = firstIncompleteRequiredSignatureField(data.fields, values);
-  const editorDisabled = submitting || editorFrozen;
+  const editorDisabled = submitting !== null || editorFrozen;
   const documentDescription = [
     data.envelope.filename,
     data.envelope.originalPageCount
@@ -534,7 +539,7 @@ export default function PublicSigning() {
 
       <div className="grid w-full gap-0 lg:grid-cols-[minmax(0,1fr)_21rem]">
         <main
-          aria-busy={submitting || undefined}
+          aria-busy={submitting !== null || undefined}
           className="min-h-[75vh] bg-slate-200/70 pb-24 lg:pb-0 dark:bg-slate-900"
         >
           <div className={editorDisabled ? "pointer-events-none opacity-70" : undefined}>
@@ -572,7 +577,7 @@ export default function PublicSigning() {
           className="border-t border-slate-200 bg-white p-5 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-l lg:border-t-0 dark:border-slate-700 dark:bg-slate-950"
         >
           <form
-            aria-busy={submitting || undefined}
+            aria-busy={submitting !== null || undefined}
             onSubmit={(event) => {
               event.preventDefault();
               void finish();
@@ -672,9 +677,10 @@ export default function PublicSigning() {
                 ref={finishButtonRef}
                 type="submit"
                 className="mt-4 w-full"
+                loading={submitting === "finish"}
                 disabled={editorDisabled}
               >
-                {submitting ? <Spinner size={15} /> : <PenLine size={15} />} Finish signing
+                <PenLine size={15} /> Finish signing
               </Button>
               <Button
                 type="button"
@@ -777,8 +783,13 @@ export default function PublicSigning() {
           >
             Cancel
           </Button>
-          <Button variant="danger" disabled={submitting} onClick={() => void decline()}>
-            {submitting && <Spinner size={15} />} Decline envelope
+          <Button
+            variant="danger"
+            loading={submitting === "decline"}
+            disabled={submitting !== null}
+            onClick={() => void decline()}
+          >
+            Decline envelope
           </Button>
         </div>
       </Modal>

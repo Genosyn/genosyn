@@ -177,7 +177,7 @@ export default function RoutineNew({ company }: { company: Company }) {
             {error && <FormError message={error} />}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={saving || !name.trim() || !scheduleOk}>
+              <Button type="submit" loading={saving} disabled={!name.trim() || !scheduleOk}>
                 {saving ? "Creating…" : "Create routine"}
               </Button>
               <Button

@@ -195,7 +195,7 @@ export function SettingsCompany() {
               </label>
             ) : null}
             <div className="flex justify-end pt-1">
-              <Button type="submit" disabled={!canAdminister || !dirty || saving}>
+              <Button type="submit" loading={saving} disabled={!canAdminister || !dirty}>
                 {saving ? "Saving…" : "Save"}
               </Button>
             </div>
@@ -338,7 +338,8 @@ function DangerZoneCard() {
             <Button
               variant="danger"
               onClick={doDelete}
-              disabled={confirmText !== company.name || deleting}
+              loading={deleting}
+              disabled={confirmText !== company.name}
             >
               {deleting ? "Deleting…" : "Delete forever"}
             </Button>
@@ -355,6 +356,8 @@ export function SettingsMembers() {
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteError, setInviteError] = React.useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = React.useState<string | null>(null);
+  const [inviting, setInviting] = React.useState(false);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
 
@@ -389,6 +392,7 @@ export function SettingsMembers() {
       variant: "danger",
     });
     if (!confirmed) return;
+    setRemovingId(member.userId);
     try {
       await api.del(`/api/companies/${company.id}/members/${member.userId}`);
       if (self) {
@@ -397,9 +401,11 @@ export function SettingsMembers() {
       }
       await reload();
     } catch (error) {
-      await dialog.error(error, {
+      void dialog.error(error, {
         title: self ? "Couldn’t leave the company" : "Couldn’t remove the member",
       });
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -487,6 +493,7 @@ export function SettingsMembers() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        loading={removingId === m.userId}
                         onClick={() => void removeMember(m)}
                         aria-label={m.userId === me.id ? "Leave company" : "Remove member"}
                       >
@@ -505,6 +512,7 @@ export function SettingsMembers() {
                 e.preventDefault();
                 setInviteError(null);
                 setInviteNotice(null);
+                setInviting(true);
                 try {
                   await api.post(`/api/companies/${company.id}/invitations`, {
                     email: inviteEmail,
@@ -513,6 +521,8 @@ export function SettingsMembers() {
                   setInviteNotice("Invite sent");
                 } catch (err) {
                   setInviteError(errorMessage(err));
+                } finally {
+                  setInviting(false);
                 }
               }}
             >
@@ -528,7 +538,9 @@ export function SettingsMembers() {
                     required
                   />
                 </div>
-                <Button type="submit">Send invite</Button>
+                <Button type="submit" loading={inviting}>
+                  Send invite
+                </Button>
               </div>
             </form>
           ) : null}
@@ -558,6 +570,7 @@ function SecretsCard({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Secret[] | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<Secret | null>(null);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
@@ -629,6 +642,7 @@ function SecretsCard({ company }: { company: Company }) {
                   <Button
                     variant="ghost"
                     size="sm"
+                    loading={deletingId === s.id}
                     onClick={async () => {
                       const ok = await dialog.confirm({
                         title: `Delete "${s.name}"?`,
@@ -637,11 +651,14 @@ function SecretsCard({ company }: { company: Company }) {
                         variant: "danger",
                       });
                       if (!ok) return;
+                      setDeletingId(s.id);
                       try {
                         await api.del(`/api/companies/${company.id}/secrets/${s.id}`);
                         await reload();
                       } catch (err) {
-                        await dialog.error(err, { title: `Couldn’t delete ${s.name}` });
+                        void dialog.error(err, { title: `Couldn’t delete ${s.name}` });
+                      } finally {
+                        setDeletingId(null);
                       }
                     }}
                   >
@@ -774,7 +791,7 @@ function SecretModal({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {isEdit ? "Save" : "Add secret"}
           </Button>
         </div>

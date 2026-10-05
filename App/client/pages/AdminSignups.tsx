@@ -21,6 +21,7 @@ import { clsx } from "../components/ui/clsx";
 export function AdminSignups() {
   const [data, setData] = React.useState<SignupSettings | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -70,12 +71,21 @@ export function AdminSignups() {
     }
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="Sign-ups"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }

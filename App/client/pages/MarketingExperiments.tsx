@@ -5,6 +5,7 @@ import { Check, FlaskConical, Play, Plus, Square } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { api } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
@@ -49,6 +50,8 @@ export function MarketingExperimentsPage() {
   const [decisions, setDecisions] = React.useState<Record<string, Decision>>({});
   const [loadError, setLoadError] = React.useState("");
   const [formError, setFormError] = React.useState("");
+  const [creating, setCreating] = React.useState(false);
+  const [updating, setUpdating] = React.useState<{ id: string; status: unknown } | null>(null);
 
   const load = React.useCallback(async () => {
     const [experiments, campaignRows, creativeRows] = await Promise.all([
@@ -76,6 +79,7 @@ export function MarketingExperimentsPage() {
   async function createExperiment(event: React.FormEvent) {
     event.preventDefault();
     setFormError("");
+    setCreating(true);
     try {
       await api.post(`/api/companies/${company.id}/marketing/experiments`, {
         ...draft,
@@ -103,17 +107,25 @@ export function MarketingExperimentsPage() {
       );
     } catch (err) {
       setFormError(errorMessage(err, "Could not create Experiment"));
+    } finally {
+      setCreating(false);
     }
   }
 
   async function updateExperiment(id: string, patch: Record<string, unknown>, title: string) {
+    setUpdating({ id, status: patch.status });
     try {
       await api.patch(`/api/companies/${company.id}/marketing/experiments/${id}`, patch);
       await load();
     } catch (err) {
       void dialog.error(err, { title });
+    } finally {
+      setUpdating(null);
     }
   }
+
+  const isUpdating = (id: string, status: MarketingExperiment["status"]) =>
+    updating?.id === id && updating.status === status;
 
   if (loadError) return <ErrorPage message={loadError} />;
   if (!rows) return <LoadingPage />;
@@ -237,7 +249,12 @@ export function MarketingExperimentsPage() {
             <button type="button" className={secondaryButton} onClick={() => setShowForm(false)}>
               Cancel
             </button>
-            <button disabled={draft.creativeIds.length < 2} className={primaryButton}>
+            <button
+              disabled={draft.creativeIds.length < 2 || creating}
+              aria-busy={creating || undefined}
+              className={primaryButton}
+            >
+              {creating && <ButtonSpinner size={12} />}
               Create Experiment
             </button>
           </div>
@@ -339,6 +356,8 @@ export function MarketingExperimentsPage() {
                       <>
                         <button
                           className={primaryButton}
+                          disabled={isUpdating(row.id, "running")}
+                          aria-busy={isUpdating(row.id, "running") || undefined}
                           onClick={() =>
                             updateExperiment(
                               row.id,
@@ -347,10 +366,17 @@ export function MarketingExperimentsPage() {
                             )
                           }
                         >
-                          <Play size={14} /> Start
+                          {isUpdating(row.id, "running") ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Play size={14} />
+                          )}{" "}
+                          Start
                         </button>
                         <button
                           className={secondaryButton}
+                          disabled={isUpdating(row.id, "stopped")}
+                          aria-busy={isUpdating(row.id, "stopped") || undefined}
                           onClick={() =>
                             updateExperiment(
                               row.id,
@@ -359,7 +385,12 @@ export function MarketingExperimentsPage() {
                             )
                           }
                         >
-                          <Square size={14} /> Abandon
+                          {isUpdating(row.id, "stopped") ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Square size={14} />
+                          )}{" "}
+                          Abandon
                         </button>
                       </>
                     )}
@@ -413,7 +444,12 @@ export function MarketingExperimentsPage() {
                         </label>
                         <button
                           className={primaryButton}
-                          disabled={!decision.winnerCreativeId || !decision.rationale.trim()}
+                          disabled={
+                            !decision.winnerCreativeId ||
+                            !decision.rationale.trim() ||
+                            isUpdating(row.id, "decided")
+                          }
+                          aria-busy={isUpdating(row.id, "decided") || undefined}
                           onClick={() =>
                             updateExperiment(
                               row.id,
@@ -427,10 +463,17 @@ export function MarketingExperimentsPage() {
                             )
                           }
                         >
-                          <Check size={14} /> Decide
+                          {isUpdating(row.id, "decided") ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Check size={14} />
+                          )}{" "}
+                          Decide
                         </button>
                         <button
                           className={secondaryButton}
+                          disabled={isUpdating(row.id, "stopped")}
+                          aria-busy={isUpdating(row.id, "stopped") || undefined}
                           onClick={() =>
                             updateExperiment(
                               row.id,
@@ -439,7 +482,12 @@ export function MarketingExperimentsPage() {
                             )
                           }
                         >
-                          <Square size={14} /> Stop
+                          {isUpdating(row.id, "stopped") ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Square size={14} />
+                          )}{" "}
+                          Stop
                         </button>
                       </>
                     )}

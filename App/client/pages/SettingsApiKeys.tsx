@@ -283,7 +283,7 @@ function CreateApiKeyModal({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || name.trim().length === 0}>
+          <Button type="submit" loading={busy} disabled={name.trim().length === 0}>
             Generate
           </Button>
         </div>

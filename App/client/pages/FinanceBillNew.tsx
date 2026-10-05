@@ -229,7 +229,7 @@ export default function FinanceBillNew() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={busy || !canSave}>
+          <Button type="submit" loading={busy} disabled={!canSave}>
             Save draft
           </Button>
         </div>

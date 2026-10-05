@@ -53,6 +53,7 @@ import { EmployeeHeader } from "../components/EmployeeHeader";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { ModalCloseButton, ModalPanel, ModalScrim } from "../components/ui/ModalChrome";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
 import {
   RepositoryWorkPanel,
@@ -130,6 +131,10 @@ export default function EmployeeChat() {
    */
   const [modelOverride, setModelOverride] = React.useState<ComposerModelOverride | null>(null);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
+  const [creatingConversation, setCreatingConversation] = React.useState(false);
+  const [archivingConvId, setArchivingConvId] = React.useState<string | null>(null);
+  const [unarchivingConvId, setUnarchivingConvId] = React.useState<string | null>(null);
+  const [deletingConvId, setDeletingConvId] = React.useState<string | null>(null);
   /** A thread or conversation-list fetch that failed, shown in the transcript. */
   const [loadError, setLoadError] = React.useState<string | null>(null);
   /** Archived-thread fetch failure, shown inside the sidebar's archived section. */
@@ -394,11 +399,14 @@ export default function EmployeeChat() {
   }, [input]);
 
   async function handleNewClick() {
+    setCreatingConversation(true);
     try {
       await actions.newConversation(company.id, emp.id);
       inputRef.current?.focus();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t start a new conversation" });
+    } finally {
+      setCreatingConversation(false);
     }
   }
 
@@ -410,26 +418,35 @@ export default function EmployeeChat() {
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingConvId(convId);
     try {
       await actions.deleteConversation(company.id, emp.id, convId);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the conversation" });
+    } finally {
+      setDeletingConvId(null);
     }
   }
 
   async function handleArchive(convId: string) {
+    setArchivingConvId(convId);
     try {
       await actions.archiveConversation(company.id, emp.id, convId);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t archive the conversation" });
+    } finally {
+      setArchivingConvId(null);
     }
   }
 
   async function handleUnarchive(convId: string) {
+    setUnarchivingConvId(convId);
     try {
       await actions.unarchiveConversation(company.id, emp.id, convId);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t unarchive the conversation" });
+    } finally {
+      setUnarchivingConvId(null);
     }
   }
 
@@ -613,6 +630,9 @@ export default function EmployeeChat() {
         onDelete={handleDelete}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
+        deletingId={deletingConvId}
+        archivingId={archivingConvId}
+        unarchivingId={unarchivingConvId}
         onLoadArchived={() => {
           setArchivedError(null);
           actions.loadArchived(company.id, emp.id).catch((err: unknown) => {
@@ -620,6 +640,7 @@ export default function EmployeeChat() {
           });
         }}
         onNew={handleNewClick}
+        creating={creatingConversation}
       />
 
       <section className="flex min-w-0 flex-1 flex-col">
@@ -628,6 +649,7 @@ export default function EmployeeChat() {
           emp={emp}
           convTitle={activeConv?.title ?? null}
           onNew={handleNewClick}
+          creating={creatingConversation}
           browserTarget={
             activeConvId && !activeConv?.legacyUnclaimed ? (
               <ChatBrowserTarget
@@ -812,8 +834,12 @@ function ConversationList({
   onDelete,
   onArchive,
   onUnarchive,
+  deletingId,
+  archivingId,
+  unarchivingId,
   onLoadArchived,
   onNew,
+  creating,
 }: {
   convs: ConversationSummary[];
   archivedConvs: ConversationSummary[];
@@ -824,8 +850,12 @@ function ConversationList({
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
+  deletingId: string | null;
+  archivingId: string | null;
+  unarchivingId: string | null;
   onLoadArchived: () => void;
   onNew: () => void;
+  creating: boolean;
 }) {
   const [archivedOpen, setArchivedOpen] = React.useState(false);
 
@@ -845,11 +875,13 @@ function ConversationList({
         </div>
         <button
           onClick={onNew}
+          disabled={creating}
+          aria-busy={creating || undefined}
           className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           aria-label="New conversation"
           title="New conversation"
         >
-          <MessageSquarePlus size={15} />
+          {creating ? <ButtonSpinner size={15} /> : <MessageSquarePlus size={15} />}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
@@ -870,19 +902,23 @@ function ConversationList({
                     <>
                       <button
                         onClick={() => onArchive(c.id)}
+                        disabled={archivingId === c.id}
+                        aria-busy={archivingId === c.id || undefined}
                         className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                         aria-label="Archive conversation"
                         title="Archive"
                       >
-                        <Archive size={12} />
+                        {archivingId === c.id ? <ButtonSpinner size={12} /> : <Archive size={12} />}
                       </button>
                       <button
                         onClick={() => onDelete(c.id)}
+                        disabled={deletingId === c.id}
+                        aria-busy={deletingId === c.id || undefined}
                         className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
                         aria-label="Delete conversation"
                         title="Delete"
                       >
-                        <Trash2 size={12} />
+                        {deletingId === c.id ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                       </button>
                     </>
                   ) : undefined
@@ -929,19 +965,31 @@ function ConversationList({
                         <>
                           <button
                             onClick={() => onUnarchive(c.id)}
+                            disabled={unarchivingId === c.id}
+                            aria-busy={unarchivingId === c.id || undefined}
                             className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-emerald-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-emerald-400"
                             aria-label="Unarchive conversation"
                             title="Unarchive"
                           >
-                            <ArchiveRestore size={12} />
+                            {unarchivingId === c.id ? (
+                              <ButtonSpinner size={12} />
+                            ) : (
+                              <ArchiveRestore size={12} />
+                            )}
                           </button>
                           <button
                             onClick={() => onDelete(c.id)}
+                            disabled={deletingId === c.id}
+                            aria-busy={deletingId === c.id || undefined}
                             className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
                             aria-label="Delete conversation"
                             title="Delete"
                           >
-                            <Trash2 size={12} />
+                            {deletingId === c.id ? (
+                              <ButtonSpinner size={12} />
+                            ) : (
+                              <Trash2 size={12} />
+                            )}
                           </button>
                         </>
                       ) : undefined
@@ -1015,12 +1063,14 @@ function ChatHeader({
   emp,
   convTitle,
   onNew,
+  creating,
   browserTarget,
 }: {
   company: Company;
   emp: Employee;
   convTitle: string | null;
   onNew: () => void;
+  creating: boolean;
   browserTarget?: React.ReactNode;
 }) {
   return (
@@ -1034,10 +1084,12 @@ function ChatHeader({
           {browserTarget}
           <button
             onClick={onNew}
+            disabled={creating}
+            aria-busy={creating || undefined}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             aria-label="New conversation"
           >
-            <MessageSquarePlus size={13} /> New
+            {creating ? <ButtonSpinner size={13} /> : <MessageSquarePlus size={13} />} New
           </button>
         </>
       }
@@ -1693,11 +1745,12 @@ function Composer({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
+          aria-busy={uploading || undefined}
           aria-label="Attach file"
           title="Attach file"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
         >
-          <Paperclip size={16} />
+          {uploading ? <ButtonSpinner size={16} /> : <Paperclip size={16} />}
         </button>
         <textarea
           ref={inputRef}

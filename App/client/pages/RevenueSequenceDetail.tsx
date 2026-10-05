@@ -166,6 +166,7 @@ export default function RevenueSequenceDetail() {
   const [form, setForm] = React.useState<SettingsForm | null>(null);
   const [drafts, setDrafts] = React.useState<StepDraft[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [accounts, setAccounts] = React.useState<MailAccount[]>([]);
   const [savingSettings, setSavingSettings] = React.useState(false);
@@ -356,6 +357,17 @@ export default function RevenueSequenceDetail() {
     });
   }
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   if (loadError) {
     return (
       <div className="page-shell p-8">
@@ -376,11 +388,8 @@ export default function RevenueSequenceDetail() {
           <Button
             variant="secondary"
             className="mt-4"
-            onClick={() =>
-              reload().catch((err: unknown) =>
-                setLoadError(err instanceof Error ? err.message : String(err)),
-              )
-            }
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>
@@ -620,8 +629,8 @@ export default function RevenueSequenceDetail() {
           </div>
 
           <div className="flex justify-end">
-            <Button onClick={saveSettings} disabled={savingSettings || !form.name.trim()}>
-              {savingSettings ? <Spinner size={14} /> : <Save size={14} />}
+            <Button onClick={saveSettings} loading={savingSettings} disabled={!form.name.trim()}>
+              <Save size={14} />
               Save settings
             </Button>
           </div>
@@ -727,8 +736,8 @@ export default function RevenueSequenceDetail() {
             >
               <Plus size={14} /> Add step
             </Button>
-            <Button size="sm" onClick={saveSteps} disabled={savingSteps}>
-              {savingSteps ? <Spinner size={14} /> : <Save size={14} />}
+            <Button size="sm" onClick={saveSteps} loading={savingSteps}>
+              <Save size={14} />
               Save ladder
             </Button>
           </div>

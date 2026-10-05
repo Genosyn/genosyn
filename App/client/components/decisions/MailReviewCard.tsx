@@ -464,10 +464,11 @@ export function MailReviewCard({
                     size="sm"
                     variant="secondary"
                     className="mt-2"
+                    loading={busy === "reload"}
                     disabled={busy !== null}
                     onClick={() => void reloadLatest()}
                   >
-                    {busy === "reload" && <Spinner size={14} />} Discard edits and reload latest
+                    Discard edits and reload latest
                   </Button>
                 </div>
               )}
@@ -507,9 +508,13 @@ export function MailReviewCard({
                 hint="Saving updates this Genosyn review only. It does not create a mailbox draft."
               />
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" size="sm" disabled={busy !== null || stale}>
-                  {busy === "save" ? <Spinner size={14} /> : <CheckCircle2 size={14} />} Save
-                  changes
+                <Button
+                  type="submit"
+                  size="sm"
+                  loading={busy === "save"}
+                  disabled={busy !== null || stale}
+                >
+                  <CheckCircle2 size={14} /> Save changes
                 </Button>
                 <Button
                   size="sm"
@@ -532,8 +537,12 @@ export function MailReviewCard({
       <FormError message={error} className="mt-4" />
       {!editing && (
         <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <Button disabled={busy !== null || !review} onClick={() => void decide("approve")}>
-            {busy === "send" ? <Spinner size={14} /> : <Send size={14} />} Send now
+          <Button
+            loading={busy === "send"}
+            disabled={busy !== null || !review}
+            onClick={() => void decide("approve")}
+          >
+            <Send size={14} /> Send now
           </Button>
           <Button
             ref={editButtonRef}
@@ -554,10 +563,11 @@ export function MailReviewCard({
             size="sm"
             variant="ghost"
             className="text-rose-600 hover:text-rose-700 dark:text-rose-400"
+            loading={busy === "discard"}
             disabled={busy !== null}
             onClick={() => void decide("reject")}
           >
-            {busy === "discard" ? <Spinner size={14} /> : <Trash2 size={14} />} Discard
+            <Trash2 size={14} /> Discard
           </Button>
         </div>
       )}

@@ -34,6 +34,7 @@ export default function BaseRecordPage({ company }: { company: Company }) {
   const [loading, setLoading] = React.useState(true);
   const [contentError, setContentError] = React.useState<string | null>(null);
   const [fieldError, setFieldError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   // `activeDetail` may belong to the previous base during nav — only trust it
   // once the slug matches the URL, same rule as BaseDetail.
@@ -146,11 +147,14 @@ export default function BaseRecordPage({ company }: { company: Company }) {
       variant: "danger",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(baseUrl);
       navigate(tableUrl);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the record" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -173,7 +177,7 @@ export default function BaseRecordPage({ company }: { company: Company }) {
           <h1 className="min-w-0 truncate text-xl font-semibold text-slate-900 dark:text-slate-100">
             {title}
           </h1>
-          <Button variant="ghost" size="sm" onClick={() => void deleteRecord()}>
+          <Button variant="ghost" size="sm" loading={deleting} onClick={() => void deleteRecord()}>
             <Trash2 size={13} className="text-red-500" />
             <span className="text-red-600 dark:text-red-400">Delete</span>
           </Button>

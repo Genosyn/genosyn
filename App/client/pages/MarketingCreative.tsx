@@ -5,6 +5,7 @@ import { Check, Images, Plus, Rocket, Search, X } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { api } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
@@ -55,6 +56,7 @@ export function MarketingCreativePage() {
   const [campaignFilter, setCampaignFilter] = React.useState("");
   // A rejection without a reason teaches the next variant nothing.
   const [rejecting, setRejecting] = React.useState<{ id: string; note: string } | null>(null);
+  const [updating, setUpdating] = React.useState<{ id: string; status: unknown } | null>(null);
 
   const load = React.useCallback(async () => {
     const [creativeRows, campaignRows] = await Promise.all([
@@ -106,13 +108,19 @@ export function MarketingCreativePage() {
   }
 
   async function patchCreative(id: string, body: Record<string, unknown>) {
+    setUpdating({ id, status: body.status });
     try {
       await api.patch(`/api/companies/${company.id}/marketing/creatives/${id}`, body);
       await load();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t update the Creative" });
+    } finally {
+      setUpdating(null);
     }
   }
+
+  const isUpdating = (id: string, status: MarketingCreative["status"]) =>
+    updating?.id === id && updating.status === status;
 
   if (!rows) return <LoadingPage />;
 
@@ -260,7 +268,8 @@ export function MarketingCreativePage() {
             <button type="button" className={secondaryButton} onClick={() => setShowForm(false)}>
               Cancel
             </button>
-            <button disabled={saving} className={primaryButton}>
+            <button disabled={saving} aria-busy={saving || undefined} className={primaryButton}>
+              {saving && <ButtonSpinner size={12} />}
               {saving ? "Submitting…" : "Submit for review"}
             </button>
           </div>
@@ -403,22 +412,37 @@ export function MarketingCreativePage() {
                         <>
                           <button
                             className={primaryButton}
+                            disabled={isUpdating(row.id, "approved")}
+                            aria-busy={isUpdating(row.id, "approved") || undefined}
                             onClick={() => patchCreative(row.id, { status: "approved" })}
                           >
-                            <Check size={14} /> Approve
+                            {isUpdating(row.id, "approved") ? (
+                              <ButtonSpinner size={14} />
+                            ) : (
+                              <Check size={14} />
+                            )}{" "}
+                            Approve
                           </button>
                           <button
                             className={secondaryButton}
+                            disabled={isUpdating(row.id, "rejected")}
+                            aria-busy={isUpdating(row.id, "rejected") || undefined}
                             onClick={() => setRejecting({ id: row.id, note: "" })}
                           >
-                            <X size={14} /> Reject
+                            {isUpdating(row.id, "rejected") ? (
+                              <ButtonSpinner size={14} />
+                            ) : (
+                              <X size={14} />
+                            )}{" "}
+                            Reject
                           </button>
                         </>
                       )}
                       {row.status === "approved" && (
                         <button
                           className={primaryButton}
-                          disabled={campaign?.status !== "active"}
+                          disabled={campaign?.status !== "active" || isUpdating(row.id, "active")}
+                          aria-busy={isUpdating(row.id, "active") || undefined}
                           title={
                             campaign?.status === "active"
                               ? undefined
@@ -426,30 +450,44 @@ export function MarketingCreativePage() {
                           }
                           onClick={() => patchCreative(row.id, { status: "active" })}
                         >
-                          <Rocket size={14} /> Mark active
+                          {isUpdating(row.id, "active") ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Rocket size={14} />
+                          )}{" "}
+                          Mark active
                         </button>
                       )}
                       {row.status === "active" && (
                         <button
                           className={secondaryButton}
+                          disabled={isUpdating(row.id, "retired")}
+                          aria-busy={isUpdating(row.id, "retired") || undefined}
                           onClick={() => patchCreative(row.id, { status: "retired" })}
                         >
+                          {isUpdating(row.id, "retired") && <ButtonSpinner size={12} />}
                           Retire
                         </button>
                       )}
                       {(row.status === "rejected" || row.status === "retired") && (
                         <button
                           className={secondaryButton}
+                          disabled={isUpdating(row.id, "draft")}
+                          aria-busy={isUpdating(row.id, "draft") || undefined}
                           onClick={() => patchCreative(row.id, { status: "draft" })}
                         >
+                          {isUpdating(row.id, "draft") && <ButtonSpinner size={12} />}
                           Reopen as draft
                         </button>
                       )}
                       {row.status === "draft" && (
                         <button
                           className={primaryButton}
+                          disabled={isUpdating(row.id, "review")}
+                          aria-busy={isUpdating(row.id, "review") || undefined}
                           onClick={() => patchCreative(row.id, { status: "review" })}
                         >
+                          {isUpdating(row.id, "review") && <ButtonSpinner size={12} />}
                           Submit for review
                         </button>
                       )}

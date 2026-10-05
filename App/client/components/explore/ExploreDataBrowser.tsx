@@ -7,7 +7,7 @@ import {
   type ExploreSchema,
   type ExploreSchemaTable,
 } from "../../lib/explore";
-import { Spinner } from "../ui/Spinner";
+import { ButtonSpinner, Spinner } from "../ui/Spinner";
 
 type Props = {
   companyId: string;
@@ -72,11 +72,12 @@ export function ExploreDataBrowser({ companyId, connectionId, onPreview, onInser
           type="button"
           onClick={() => void load()}
           disabled={loading}
+          aria-busy={loading || undefined}
           className="rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Refresh data browser"
           title="Refresh data browser"
         >
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          {loading ? <ButtonSpinner size={13} /> : <RefreshCw size={13} />}
         </button>
       </div>
 

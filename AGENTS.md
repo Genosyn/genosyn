@@ -644,6 +644,11 @@ Think **Linear × Notion**. Clean, quiet, fast.
   from this codebase; do not reintroduce a toast, a snackbar, or a
   notification library. Optimistic writes report a failure the same way, from
   `useBackgroundAction()`, after rolling the row back.
+- A button that starts work the person waits on shows that it is working. Pass
+  `loading` to the `<Button>` that was pressed: it disables itself and puts a
+  spinner where its icon was. The rest of the row stays plain `disabled`, and
+  a hand-rolled `<button>` swaps its icon for `<ButtonSpinner>`. A button that
+  only greys out reads as a click that was ignored.
 - Success needs no announcement. The list re-rendering, the row updating, the
   modal closing *is* the confirmation. Only when an action changes nothing on
   screen — a test email sent, a backup queued — does it earn a `<FormSuccess>`

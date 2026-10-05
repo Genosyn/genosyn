@@ -11,7 +11,6 @@ import {
   memberAvatarUrl,
 } from "../components/ui/Avatar";
 import { Menu } from "../components/ui/Menu";
-import { Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { clsx } from "../components/ui/clsx";
 import { api, Company, Employee, Member, Team } from "../lib/api";
@@ -656,8 +655,8 @@ function OrgEditForm({
         </Select>
       </label>
       <div className="flex justify-end pt-1">
-        <Button type="submit" size="sm" disabled={!dirty || saving}>
-          {saving ? <Spinner size={12} /> : "Save"}
+        <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
+          Save
         </Button>
       </div>
     </form>

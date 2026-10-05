@@ -112,7 +112,7 @@ export function ContractUploadModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || (!isEdit && !file)}>
+          <Button type="submit" loading={busy} disabled={!isEdit && !file}>
             {isEdit ? "Save changes" : "Upload"}
           </Button>
         </>

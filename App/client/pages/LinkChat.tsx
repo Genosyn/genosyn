@@ -465,8 +465,8 @@ function ConfirmPanel({
           <Button size="sm" variant="secondary" onClick={onDecline} disabled={busy}>
             {copy.declineLabel}
           </Button>
-          <Button size="sm" onClick={onConfirm} disabled={busy}>
-            {busy ? <Spinner size={12} /> : <Link2 size={12} />}
+          <Button size="sm" onClick={onConfirm} loading={busy}>
+            <Link2 size={12} />
             {copy.confirmLabel}
           </Button>
         </div>

@@ -22,6 +22,7 @@ export default function FinanceSubsidiaries() {
   const [showArchived, setShowArchived] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -35,6 +36,15 @@ export default function FinanceSubsidiaries() {
   React.useEffect(() => {
     void reload();
   }, [reload]);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function setArchived(subsidiary: Subsidiary) {
     setBusyId(subsidiary.id);
@@ -99,7 +109,7 @@ export default function FinanceSubsidiaries() {
       <FormError message={error} className="mb-4" />
       {subsidiaries === null ? (
         error ? (
-          <Button variant="secondary" onClick={() => void reload()}>
+          <Button variant="secondary" loading={retrying} onClick={() => void retry()}>
             Try again
           </Button>
         ) : (
@@ -157,7 +167,7 @@ export default function FinanceSubsidiaries() {
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={busyId === subsidiary.id}
+                    loading={busyId === subsidiary.id}
                     onClick={() => void setArchived(subsidiary)}
                   >
                     {subsidiary.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
@@ -316,7 +326,7 @@ function SubsidiaryEditor({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !draft.name.trim()}>
+          <Button type="submit" loading={busy} disabled={!draft.name.trim()}>
             {subsidiary ? "Save changes" : "Create subsidiary"}
           </Button>
         </div>

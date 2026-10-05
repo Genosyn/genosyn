@@ -179,10 +179,10 @@ export function SettingsEmailLogs() {
               variant="ghost"
               size="sm"
               onClick={() => reload()}
-              disabled={loading}
+              loading={loading}
               title="Refresh"
             >
-              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={12} />
               Refresh
             </Button>
           </div>

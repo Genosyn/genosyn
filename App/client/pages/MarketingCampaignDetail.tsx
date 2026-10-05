@@ -18,6 +18,7 @@ import {
 
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { api, type Employee, type IntegrationConnection } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
@@ -130,6 +131,7 @@ export function MarketingCampaignDetailPage() {
   const [snapshot, setSnapshot] = React.useState(emptySnapshot);
   const [showSnapshotForm, setShowSnapshotForm] = React.useState(false);
   const [snapshotError, setSnapshotError] = React.useState<string | null>(null);
+  const [savingStatus, setSavingStatus] = React.useState<MarketingCampaign["status"] | null>(null);
 
   const load = React.useCallback(async () => {
     const result = await api.get<Detail>(
@@ -253,15 +255,21 @@ export function MarketingCampaignDetailPage() {
             <button
               key={action.value}
               className={action.primary ? primaryButton : secondaryButton}
+              disabled={savingStatus === action.value}
+              aria-busy={savingStatus === action.value || undefined}
               onClick={async () => {
+                setSavingStatus(action.value);
                 try {
                   await patchCampaign({ status: action.value });
                 } catch (err) {
                   void dialog.error(err, { title: "Couldn’t change the Campaign status" });
+                } finally {
+                  setSavingStatus(null);
                 }
               }}
             >
-              {action.icon} {action.label}
+              {savingStatus === action.value ? <ButtonSpinner size={14} /> : action.icon}{" "}
+              {action.label}
             </button>
           ))}
           <button
@@ -346,7 +354,8 @@ export function MarketingCampaignDetailPage() {
             <button type="button" className={secondaryButton} onClick={() => setEditing(false)}>
               Cancel
             </button>
-            <button disabled={saving} className={primaryButton}>
+            <button disabled={saving} aria-busy={saving || undefined} className={primaryButton}>
+              {saving && <ButtonSpinner size={12} />}
               {saving ? "Saving…" : "Save brief"}
             </button>
           </div>
@@ -480,7 +489,12 @@ export function MarketingCampaignDetailPage() {
                 >
                   Cancel
                 </button>
-                <button disabled={recording} className={primaryButton}>
+                <button
+                  disabled={recording}
+                  aria-busy={recording || undefined}
+                  className={primaryButton}
+                >
+                  {recording && <ButtonSpinner size={12} />}
                   {recording ? "Recording…" : "Record readout"}
                 </button>
               </div>

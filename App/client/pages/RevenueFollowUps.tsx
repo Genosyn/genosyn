@@ -22,7 +22,7 @@ import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
@@ -86,6 +86,8 @@ export default function RevenueFollowUps() {
   const [selectedViewId, setSelectedViewId] = React.useState("");
   const [viewName, setViewName] = React.useState("");
   const [viewError, setViewError] = React.useState<string | null>(null);
+  const [savingView, setSavingView] = React.useState(false);
+  const [deletingView, setDeletingView] = React.useState(false);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = React.useState("complete");
@@ -106,8 +108,13 @@ export default function RevenueFollowUps() {
     failed: number;
   } | null>(null);
   const [bulkError, setBulkError] = React.useState<string | null>(null);
+  const [previewing, setPreviewing] = React.useState(false);
+  const [applying, setApplying] = React.useState(false);
+  const [undoing, setUndoing] = React.useState(false);
   const [rows, setRows] = React.useState<FollowUpItem[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [completingId, setCompletingId] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
@@ -248,6 +255,7 @@ export default function RevenueFollowUps() {
   async function saveView() {
     if (!viewName.trim()) return;
     setViewError(null);
+    setSavingView(true);
     try {
       const view = await api.post<FollowUpView>(`${base}/follow-up-views`, {
         name: viewName.trim(),
@@ -259,18 +267,23 @@ export default function RevenueFollowUps() {
       setViewName("");
     } catch (error) {
       setViewError(errorMessage(error));
+    } finally {
+      setSavingView(false);
     }
   }
 
   async function deleteSelectedView() {
     if (!selectedViewId) return;
     setViewError(null);
+    setDeletingView(true);
     try {
       await api.del(`${base}/follow-up-views/${selectedViewId}`);
       setViews((current) => current.filter((view) => view.id !== selectedViewId));
       setSelectedViewId("");
     } catch (error) {
       setViewError(errorMessage(error));
+    } finally {
+      setDeletingView(false);
     }
   }
 
@@ -278,11 +291,14 @@ export default function RevenueFollowUps() {
 
   async function complete(item: FollowUpItem) {
     if (item.source !== "task") return;
+    setCompletingId(item.id);
     try {
       await api.patch(`${base}/follow-ups/${item.id}`, { taskStatus: "completed" });
       setRows((current) => current?.filter((row) => row.id !== item.id) ?? current);
     } catch (error) {
       void dialog.error(error, { title: "Couldn’t complete the follow-up" });
+    } finally {
+      setCompletingId(null);
     }
   }
 
@@ -319,6 +335,8 @@ export default function RevenueFollowUps() {
                 assignedUserId: bulkValue.startsWith("user:") ? bulkValue.slice(5) : null,
                 assignedEmployeeId: bulkValue.startsWith("employee:") ? bulkValue.slice(9) : null,
               };
+    const setRunning = dryRun ? setPreviewing : setApplying;
+    setRunning(true);
     try {
       const request = {
         resourceType: "follow_up",
@@ -393,17 +411,31 @@ export default function RevenueFollowUps() {
       setBulkPreview(result);
     } catch (error) {
       setBulkError(errorMessage(error));
+    } finally {
+      setRunning(false);
     }
   }
 
   async function undoBulkJob() {
     if (!bulkJob) return;
+    setUndoing(true);
     try {
       await api.post(`${base}/bulk/jobs/${bulkJob.id}/undo`, { confirm: "UNDO" });
       setBulkJob((current) => (current ? { ...current, status: "rolled_back" } : current));
       await reload();
     } catch (error) {
       void dialog.error(error, { title: "Couldn’t undo the bulk changes" });
+    } finally {
+      setUndoing(false);
+    }
+  }
+
+  async function loadMore(cursor: string) {
+    setLoadingMore(true);
+    try {
+      await loadPage(cursor, true);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -461,13 +493,19 @@ export default function RevenueFollowUps() {
             onChange={(event) => setViewName(event.target.value)}
             placeholder="e.g. Enterprise overdue"
           />
-          <Button size="sm" disabled={!viewName.trim()} onClick={() => void saveView()}>
+          <Button
+            size="sm"
+            loading={savingView}
+            disabled={!viewName.trim()}
+            onClick={() => void saveView()}
+          >
             <BookmarkPlus size={14} /> Save view
           </Button>
           {selectedViewId && (
             <Button
               size="sm"
               variant="ghost"
+              loading={deletingView}
               onClick={() => void deleteSelectedView()}
               aria-label="Delete saved Follow-up view"
             >
@@ -685,6 +723,7 @@ export default function RevenueFollowUps() {
           )}
           <Button
             size="sm"
+            loading={previewing}
             disabled={(bulkAction === "priority" || bulkAction === "reschedule") && !bulkValue}
             onClick={() => void applyBulk(true)}
           >
@@ -692,6 +731,7 @@ export default function RevenueFollowUps() {
           </Button>
           <Button
             size="sm"
+            loading={applying}
             disabled={(bulkAction === "priority" || bulkAction === "reschedule") && !bulkValue}
             onClick={() => void applyBulk(false)}
           >
@@ -721,7 +761,7 @@ export default function RevenueFollowUps() {
             Download reconciliation
           </a>
           {["completed", "partial"].includes(bulkJob.status) && (
-            <Button size="sm" variant="ghost" onClick={() => void undoBulkJob()}>
+            <Button size="sm" variant="ghost" loading={undoing} onClick={() => void undoBulkJob()}>
               Undo
             </Button>
           )}
@@ -760,10 +800,12 @@ export default function RevenueFollowUps() {
                     <button
                       type="button"
                       onClick={() => void complete(item)}
+                      disabled={completingId === item.id}
+                      aria-busy={completingId === item.id || undefined}
                       className="rounded-full border border-slate-300 p-1.5 text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-slate-600"
                       aria-label={`Complete ${item.title}`}
                     >
-                      <Check size={14} />
+                      {completingId === item.id ? <ButtonSpinner size={14} /> : <Check size={14} />}
                     </button>
                   ) : (
                     <Clock3
@@ -806,7 +848,11 @@ export default function RevenueFollowUps() {
           </div>
           {nextCursor && (
             <div className="mt-4 flex justify-center">
-              <Button variant="secondary" onClick={() => void loadPage(nextCursor, true)}>
+              <Button
+                variant="secondary"
+                loading={loadingMore}
+                onClick={() => void loadMore(nextCursor)}
+              >
                 Load more
               </Button>
             </div>
@@ -944,7 +990,7 @@ function NewFollowUpModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Creating…" : "Create follow-up"}
           </Button>
         </div>

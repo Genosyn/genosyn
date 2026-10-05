@@ -40,7 +40,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { FormError } from "../components/ui/FormError";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -839,8 +839,8 @@ function NewTodoRow({
           role="reviewer"
           compact
         />
-        <Button type="submit" size="sm" disabled={!title.trim() || busy}>
-          {busy ? "…" : "Add"}
+        <Button type="submit" size="sm" loading={busy} disabled={!title.trim()}>
+          Add
         </Button>
       </form>
       <FormError message={error} className="mx-6 mb-2" />
@@ -1462,12 +1462,12 @@ function ProjectGeneralTab({
   onSaved: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "save" | "delete">(null);
   const [error, setError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   async function save() {
-    setBusy(true);
+    setBusy("save");
     setError(null);
     try {
       await api.patch(`/api/companies/${company.id}/projects/${project.slug}`, {
@@ -1480,7 +1480,7 @@ function ProjectGeneralTab({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1493,14 +1493,14 @@ function ProjectGeneralTab({
       variant: "danger",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await api.del(`/api/companies/${company.id}/projects/${project.slug}`);
       onDeleted();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1539,7 +1539,12 @@ function ProjectGeneralTab({
       <FormError message={error} />
       <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         {canEdit ? (
-          <Button variant="danger" onClick={remove} disabled={busy}>
+          <Button
+            variant="danger"
+            onClick={remove}
+            loading={busy === "delete"}
+            disabled={busy !== null}
+          >
             <Trash2 size={14} /> Delete project
           </Button>
         ) : (
@@ -1550,8 +1555,12 @@ function ProjectGeneralTab({
             {canEdit ? "Cancel" : "Close"}
           </Button>
           {canEdit && (
-            <Button onClick={save} disabled={busy || !name.trim() || !projectKey.trim()}>
-              {busy ? "Saving…" : "Save"}
+            <Button
+              onClick={save}
+              loading={busy === "save"}
+              disabled={busy !== null || !name.trim() || !projectKey.trim()}
+            >
+              {busy === "save" ? "Saving…" : "Save"}
             </Button>
           )}
         </div>
@@ -1598,7 +1607,9 @@ function ProjectAccessTab({
   // Every control on this tab writes straight through, so they share one
   // banner rather than each growing an error slot of its own.
   const [error, setError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "mode" | "add" | "level" | `remove:${string}`>(
+    null,
+  );
   const [addPick, setAddPick] = React.useState("");
   const [addLevel, setAddLevel] = React.useState<ProjectAccessLevel>("write");
 
@@ -1622,7 +1633,7 @@ function ProjectAccessTab({
 
   async function setMode(next: ProjectAccessMode) {
     if (!access || access.accessMode === next) return;
-    setBusy(true);
+    setBusy("mode");
     setError(null);
     try {
       await api.patch(base, { accessMode: next });
@@ -1633,14 +1644,14 @@ function ProjectAccessTab({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function addMember() {
     if (!addPick) return;
     const [kind, id] = addPick.split(":");
-    setBusy(true);
+    setBusy("add");
     setError(null);
     try {
       await api.post<ProjectMember>(`${base}/access`, {
@@ -1653,13 +1664,13 @@ function ProjectAccessTab({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function changeLevel(m: ProjectMember, next: ProjectAccessLevel) {
     if (m.accessLevel === next) return;
-    setBusy(true);
+    setBusy("level");
     setError(null);
     try {
       await api.patch(`${base}/access/${m.id}`, { accessLevel: next });
@@ -1667,7 +1678,7 @@ function ProjectAccessTab({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1683,7 +1694,7 @@ function ProjectAccessTab({
       });
       if (!ok) return;
     }
-    setBusy(true);
+    setBusy(`remove:${m.id}`);
     try {
       await api.del(`${base}/access/${m.id}`);
       if (isMe) {
@@ -1697,7 +1708,7 @@ function ProjectAccessTab({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1725,7 +1736,7 @@ function ProjectAccessTab({
   const restricted = access.accessMode === "restricted";
   // Rows survive a flip back to `open`, so the list can be non-empty while it
   // has no effect. Show it dimmed rather than hiding what is still stored.
-  const interactive = canEdit && restricted && !busy;
+  const interactive = canEdit && restricted && busy === null;
 
   const takenUsers = new Set(access.members.flatMap((m) => (m.userId ? [m.userId] : [])));
   const takenEmployees = new Set(
@@ -1749,14 +1760,14 @@ function ProjectAccessTab({
         <div className="flex flex-col gap-2 sm:flex-row">
           <ModeOption
             active={!restricted}
-            disabled={!canEdit || busy}
+            disabled={!canEdit || busy !== null}
             title="Anyone in the company"
             subtitle="Every member and AI employee can view and edit."
             onClick={() => setMode("open")}
           />
           <ModeOption
             active={restricted}
-            disabled={!canEdit || busy}
+            disabled={!canEdit || busy !== null}
             title="Only people and AI employees you add"
             subtitle="Everyone else is locked out of the project and its todos."
             onClick={() => setMode("restricted")}
@@ -1819,10 +1830,11 @@ function ProjectAccessTab({
                       type="button"
                       onClick={() => removeMember(m)}
                       disabled={!interactive}
+                      aria-busy={busy === `remove:${m.id}` || undefined}
                       title="Remove from project"
                       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
                     >
-                      <X size={12} />
+                      {busy === `remove:${m.id}` ? <ButtonSpinner size={12} /> : <X size={12} />}
                     </button>
                   </div>
                 </li>
@@ -1843,7 +1855,7 @@ function ProjectAccessTab({
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
               <Select
                 value={addPick}
-                disabled={busy}
+                disabled={busy !== null}
                 onChange={(e) => setAddPick(e.target.value)}
                 className="h-8 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
               >
@@ -1868,8 +1880,13 @@ function ProjectAccessTab({
                 )}
               </Select>
               <div className="flex items-center gap-2">
-                <LevelSelect value={addLevel} disabled={busy} onChange={setAddLevel} />
-                <Button size="sm" onClick={addMember} disabled={busy || !addPick}>
+                <LevelSelect value={addLevel} disabled={busy !== null} onChange={setAddLevel} />
+                <Button
+                  size="sm"
+                  onClick={addMember}
+                  loading={busy === "add"}
+                  disabled={busy !== null || !addPick}
+                >
                   <Plus size={13} /> Add
                 </Button>
               </div>

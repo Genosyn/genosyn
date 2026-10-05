@@ -177,7 +177,7 @@ export default function FinanceSettings() {
           >
             Reset
           </Button>
-          <Button type="submit" disabled={busy || !dirty}>
+          <Button type="submit" loading={busy} disabled={!dirty}>
             {busy ? "Saving…" : "Save settings"}
           </Button>
         </div>

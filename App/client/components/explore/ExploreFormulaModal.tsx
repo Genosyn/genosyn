@@ -107,7 +107,12 @@ export function ExploreFormulaModal({
           <Button type="button" variant="secondary" size="sm" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={!title.trim() || !!validationError || saving}>
+          <Button
+            type="submit"
+            size="sm"
+            loading={saving}
+            disabled={!title.trim() || !!validationError}
+          >
             {saving ? "Saving…" : "Save formula"}
           </Button>
         </>

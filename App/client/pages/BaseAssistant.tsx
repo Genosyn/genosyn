@@ -7,7 +7,7 @@ import type { ChatAttachment } from "../lib/api";
 import { FormError } from "../components/ui/FormError";
 import { Sparkles, Send, X, Bot, AlertTriangle, Paperclip } from "lucide-react";
 import { api, Base, BaseAssistantResult, BaseTable } from "../lib/api";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import {
@@ -218,11 +218,12 @@ export function BaseAssistant({
           <button
             type="button"
             aria-label="Attach a file"
+            aria-busy={attachmentDraft.uploading > 0 || undefined}
             disabled={busy}
             onClick={() => fileInputRef.current?.click()}
             className="m-1 rounded-md p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-40"
           >
-            {attachmentDraft.uploading > 0 ? <Spinner size={14} /> : <Paperclip size={14} />}
+            {attachmentDraft.uploading > 0 ? <ButtonSpinner size={14} /> : <Paperclip size={14} />}
           </button>
           <textarea
             ref={textareaRef}
@@ -275,8 +276,9 @@ export function BaseAssistant({
             }
             className="m-1 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white disabled:bg-indigo-300 dark:disabled:bg-indigo-900"
             title="Send (⌘⏎)"
+            aria-busy={busy || undefined}
           >
-            <Send size={14} />
+            {busy ? <ButtonSpinner size={14} /> : <Send size={14} />}
           </button>
           {resourceQuery !== null && (
             <ResourceReferencePicker

@@ -31,6 +31,7 @@ export function EmployeeWorkQueue({
   const [data, setData] = React.useState<WorkQueue | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const request = React.useRef(0);
   const headingId = React.useId();
   const load = React.useCallback(async () => {
@@ -61,6 +62,15 @@ export function EmployeeWorkQueue({
     };
   }, [load]);
   useLiveRefetch(["run", "routine", "employee", "standdown"], load);
+
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      await load();
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const currentData = data?.employeeId === employee.id ? data : null;
   const visiblePending = expanded
@@ -101,7 +111,8 @@ export function EmployeeWorkQueue({
             variant="secondary"
             size="sm"
             className="mt-3"
-            onClick={() => void load()}
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>

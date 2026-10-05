@@ -15,7 +15,7 @@ import {
 import { ContextualLayout } from "@/components/AppShell";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import {
@@ -52,6 +52,7 @@ export default function Help({ company }: { company: Company }) {
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
+  const [startingConversation, setStartingConversation] = React.useState(false);
   const [claimError, setClaimError] = React.useState<string | null>(null);
   const [streamingReply, setStreamingReply] = React.useState("");
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
@@ -201,6 +202,15 @@ export default function Help({ company }: { company: Company }) {
     } catch (error) {
       void dialog.error(error, { title: "Couldn’t start a Help conversation" });
       return null;
+    }
+  }
+
+  async function startNewConversation() {
+    setStartingConversation(true);
+    try {
+      await newConversation();
+    } finally {
+      setStartingConversation(false);
     }
   }
 
@@ -406,13 +416,18 @@ export default function Help({ company }: { company: Company }) {
               </div>
               <button
                 type="button"
-                onClick={() => void newConversation()}
-                disabled={!selected || sending || claimingLegacy}
+                onClick={() => void startNewConversation()}
+                disabled={!selected || sending || claimingLegacy || startingConversation}
+                aria-busy={startingConversation || undefined}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 aria-label="New Help conversation"
                 title="New Help conversation"
               >
-                <MessageSquarePlus size={15} />
+                {startingConversation ? (
+                  <ButtonSpinner size={15} />
+                ) : (
+                  <MessageSquarePlus size={15} />
+                )}
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -469,11 +484,17 @@ export default function Help({ company }: { company: Company }) {
               </div>
               <button
                 type="button"
-                onClick={() => void newConversation()}
-                disabled={!selected || sending || claimingLegacy}
+                onClick={() => void startNewConversation()}
+                disabled={!selected || sending || claimingLegacy || startingConversation}
+                aria-busy={startingConversation || undefined}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
               >
-                <MessageSquarePlus size={13} /> New
+                {startingConversation ? (
+                  <ButtonSpinner size={13} />
+                ) : (
+                  <MessageSquarePlus size={13} />
+                )}{" "}
+                New
               </button>
             </div>
 
@@ -680,9 +701,14 @@ export default function Help({ company }: { company: Company }) {
                   aria-label="Attach a file"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!selected || sending || Boolean(activeConversation?.legacyUnclaimed)}
+                  aria-busy={attachmentDraft.uploading > 0 || undefined}
                   className="mb-1 rounded-md p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-40"
                 >
-                  {attachmentDraft.uploading > 0 ? <Spinner size={16} /> : <Paperclip size={16} />}
+                  {attachmentDraft.uploading > 0 ? (
+                    <ButtonSpinner size={16} />
+                  ) : (
+                    <Paperclip size={16} />
+                  )}
                 </button>
                 <textarea
                   ref={inputRef}
@@ -714,8 +740,9 @@ export default function Help({ company }: { company: Company }) {
                   }
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
                   aria-label="Ask for Help"
+                  aria-busy={sending || undefined}
                 >
-                  {sending ? <Spinner size={14} /> : <Send size={15} />}
+                  {sending ? <ButtonSpinner size={14} /> : <Send size={15} />}
                 </button>
               </div>
               <p className="mt-1.5 px-1 text-[11px] text-slate-400 dark:text-slate-500">

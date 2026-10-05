@@ -143,7 +143,7 @@ export default function Signup() {
           minLength={12}
           required
         />
-        <Button type="submit" disabled={loading}>
+        <Button type="submit" loading={loading}>
           {loading ? "Creating…" : "Create account"}
         </Button>
         <p className="text-sm text-slate-500 dark:text-slate-400">

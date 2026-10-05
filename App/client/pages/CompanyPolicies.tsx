@@ -50,6 +50,7 @@ export function CompanyPolicies() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   // `policy: null` is the create modal; a policy is the edit modal.
   const [modal, setModal] = React.useState<{ policy: CompanyPolicy | null } | null>(null);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   const canManage = company.role === "owner" || company.role === "admin";
@@ -79,11 +80,14 @@ export function CompanyPolicies() {
       variant: "danger",
     });
     if (!ok) return;
+    setRemovingId(policy.id);
     try {
       await api.del(`/api/companies/${company.id}/company-policies/${policy.id}`);
       await reload();
     } catch (err) {
       void dialog.error(err, { title: "Could not delete the policy" });
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -164,6 +168,7 @@ export function CompanyPolicies() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      loading={removingId === policy.id}
                       onClick={() => void remove(policy)}
                       aria-label={`Delete ${policy.title}`}
                     >
@@ -255,7 +260,7 @@ function PolicyModal({
           <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             {policy ? "Save changes" : "Create policy"}
           </Button>
         </>

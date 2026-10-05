@@ -25,7 +25,7 @@ import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
 import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { useNavigationGuard } from "../components/NavigationGuard";
@@ -257,7 +257,9 @@ export default function RepositoryFiles() {
   const [dirs, setDirs] = React.useState<Record<string, RepositoryTreeEntry[]>>({});
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set([""]));
   const [treeError, setTreeError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<
+    null | "refresh" | "checkout" | "branch" | "push" | "pull"
+  >(null);
 
   const [openPath, setOpenPath] = React.useState<string | null>(null);
   const [file, setFile] = React.useState<RepositoryFileContent | null>(null);
@@ -279,6 +281,7 @@ export default function RepositoryFiles() {
   const [message, setMessage] = React.useState("");
   const [committing, setCommitting] = React.useState(false);
   const [commitError, setCommitError] = React.useState<string | null>(null);
+  const [discardingPath, setDiscardingPath] = React.useState<string | null>(null);
 
   const [showIgnored, setShowIgnored] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
@@ -818,7 +821,7 @@ export default function RepositoryFiles() {
   }
 
   async function refresh() {
-    setBusy(true);
+    setBusy("refresh");
     try {
       // The only read that costs a round trip to the git host.
       const next = await api.post<RepositoryStatus>(`${base}/workspace/refresh`);
@@ -831,13 +834,13 @@ export default function RepositoryFiles() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t refresh the repository" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function checkout(name: string) {
     if (!(await confirmLeavingUnsaved())) return;
-    setBusy(true);
+    setBusy("checkout");
     try {
       await api.post(`${base}/workspace/checkout`, { name });
       await Promise.all([reloadStatus(), reloadTree()]);
@@ -846,7 +849,7 @@ export default function RepositoryFiles() {
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t switch to ${name}` });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -868,14 +871,14 @@ export default function RepositoryFiles() {
       },
     });
     if (!name) return;
-    setBusy(true);
+    setBusy("branch");
     try {
       await api.post(`${base}/workspace/branches`, { name: name.trim() });
       await Promise.all([reloadStatus(), reloadTree()]);
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t create ${name.trim()}` });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -885,7 +888,7 @@ export default function RepositoryFiles() {
       void dialog.error("Check out a branch before pushing.", { title: "Couldn’t push" });
       return;
     }
-    setBusy(true);
+    setBusy("push");
     try {
       await api.post(`${base}/workspace/push`, { name: branch });
       await reloadStatus();
@@ -894,7 +897,7 @@ export default function RepositoryFiles() {
       // is the whole value of the response, so it is shown verbatim.
       void dialog.error(err, { title: `Couldn’t push ${branch}` });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -909,7 +912,7 @@ export default function RepositoryFiles() {
       return;
     }
     if (!(await confirmLeavingUnsaved())) return;
-    setBusy(true);
+    setBusy("pull");
     try {
       await api.post(`${base}/workspace/pull`, { name: branch });
       await Promise.all([reloadStatus(), reloadTree()]);
@@ -918,7 +921,7 @@ export default function RepositoryFiles() {
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t pull ${branch}` });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -973,6 +976,7 @@ export default function RepositoryFiles() {
       variant: "danger",
     });
     if (!ok) return;
+    setDiscardingPath(change.path);
     try {
       await api.post(`${base}/workspace/discard`, { paths: [change.path] });
       await Promise.all([reloadStatus(), reloadTree()]);
@@ -985,6 +989,8 @@ export default function RepositoryFiles() {
       if (openPath === change.path) await openFile(change.path);
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t discard changes to ${change.path}` });
+    } finally {
+      setDiscardingPath(null);
     }
   }
 
@@ -1054,7 +1060,7 @@ export default function RepositoryFiles() {
           status={currentStatus}
           branches={branches}
           defaultBranch={currentRepo.defaultBranch}
-          disabled={busy}
+          disabled={busy !== null}
           onCheckout={(name) => void checkout(name)}
           onCreateBranch={() => void createBranch()}
         />
@@ -1102,14 +1108,15 @@ export default function RepositoryFiles() {
             size="sm"
             variant="secondary"
             onClick={refresh}
-            disabled={busy}
+            loading={busy === "refresh"}
+            disabled={busy !== null}
             title={
               isRemote
                 ? "Ask the git host what has changed, and re-read this copy"
                 : "Re-read this copy from disk"
             }
           >
-            {busy ? <Spinner size={14} /> : <RefreshCw size={14} />}
+            <RefreshCw size={14} />
             {isRemote ? "Check for updates" : "Reload"}
           </Button>
           {isRemote && (
@@ -1117,7 +1124,8 @@ export default function RepositoryFiles() {
               size="sm"
               variant="secondary"
               onClick={pull}
-              disabled={busy}
+              loading={busy === "pull"}
+              disabled={busy !== null}
               title="Bring down commits made on the remote"
             >
               <Download size={14} />
@@ -1128,7 +1136,8 @@ export default function RepositoryFiles() {
             <Button
               size="sm"
               onClick={push}
-              disabled={busy}
+              loading={busy === "push"}
+              disabled={busy !== null}
               title="Send your commits to the remote"
             >
               <Upload size={14} />
@@ -1269,7 +1278,13 @@ export default function RepositoryFiles() {
                           ? "Saved just now"
                           : "No changes"}
                   </span>
-                  <Button size="sm" variant="secondary" onClick={save} disabled={!dirty || saving}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={save}
+                    loading={saving}
+                    disabled={!dirty}
+                  >
                     <Save size={13} /> Save
                   </Button>
                 </>
@@ -1370,6 +1385,7 @@ export default function RepositoryFiles() {
                     change={change}
                     active={diffPath === change.path}
                     checked={selected.has(change.path)}
+                    discarding={discardingPath === change.path}
                     onToggle={() =>
                       setSelected((current) => {
                         const next = new Set(current);
@@ -1423,9 +1439,10 @@ export default function RepositoryFiles() {
                 <Button
                   size="sm"
                   onClick={commit}
-                  disabled={committing || selected.size === 0 || !message.trim()}
+                  loading={committing}
+                  disabled={selected.size === 0 || !message.trim()}
                 >
-                  {committing ? <Spinner size={13} /> : <GitCommitHorizontal size={13} />}
+                  <GitCommitHorizontal size={13} />
                   {committing ? "Committing…" : "Commit"}
                 </Button>
               </div>
@@ -1837,6 +1854,7 @@ function ChangeRow({
   change,
   active,
   checked,
+  discarding,
   onToggle,
   onShowDiff,
   onDiscard,
@@ -1844,6 +1862,7 @@ function ChangeRow({
   change: RepositoryChange;
   active: boolean;
   checked: boolean;
+  discarding: boolean;
   onToggle: () => void;
   onShowDiff: () => void;
   onDiscard: () => void;
@@ -1881,11 +1900,13 @@ function ChangeRow({
       <button
         type="button"
         onClick={onDiscard}
+        disabled={discarding}
+        aria-busy={discarding || undefined}
         title="Discard changes to this file"
         aria-label={`Discard changes to ${change.path}`}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
       >
-        <RotateCcw size={13} />
+        {discarding ? <ButtonSpinner size={13} /> : <RotateCcw size={13} />}
       </button>
     </div>
   );

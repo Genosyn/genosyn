@@ -305,10 +305,11 @@ export default function RevenueAiAccess() {
             </div>
             <Button
               onClick={addGrant}
-              disabled={!canManage || adding || !pickEmployee}
+              loading={adding}
+              disabled={!canManage || !pickEmployee}
               className="shrink-0"
             >
-              {adding ? <Spinner size={14} /> : <UserPlus size={14} />}
+              <UserPlus size={14} />
               Add
             </Button>
           </div>

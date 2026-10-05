@@ -31,7 +31,7 @@ import { STANDDOWNS_CHANGED_EVENT } from "@/components/StanddownBanner";
 import { childrenByParent } from "../lib/routineFolders";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 
 /**
  * Routines section shell — every scheduled routine in the company, in one
@@ -190,7 +190,7 @@ function CompanyRoutinesLayout({ company }: { company: Company }) {
               </p>
               <p>{loadError}</p>
             </div>
-            <Button variant="secondary" onClick={() => void refresh()} disabled={refreshing}>
+            <Button variant="secondary" onClick={() => void refresh()} loading={refreshing}>
               {refreshing ? "Retrying…" : "Try again"}
             </Button>
           </div>
@@ -252,6 +252,7 @@ function Sidebar({
   const activeFolder = params.get("folder");
   const onIndex = location.pathname === base;
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
+  const [creatingFolder, setCreatingFolder] = React.useState<null | "header" | "section">(null);
 
   const countFor = (slug: string) =>
     (routines ?? []).filter((r) => r.employee?.slug === slug).length;
@@ -262,7 +263,7 @@ function Sidebar({
 
   const childrenOf = React.useMemo(() => childrenByParent(folders), [folders]);
 
-  async function createFolder(parent: RoutineFolder | null) {
+  async function createFolder(parent: RoutineFolder | null, from?: "header" | "section") {
     const name = await dialog.prompt({
       title: parent ? `New folder in “${parent.name}”` : "New folder",
       message: parent
@@ -272,6 +273,7 @@ function Sidebar({
       confirmLabel: "Create folder",
     });
     if (!name?.trim()) return;
+    if (from) setCreatingFolder(from);
     try {
       await api.post(`/api/companies/${company.id}/routine-folders`, {
         name: name.trim(),
@@ -280,6 +282,8 @@ function Sidebar({
       await onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create that folder" });
+    } finally {
+      if (from) setCreatingFolder(null);
     }
   }
 
@@ -464,12 +468,14 @@ function Sidebar({
         </div>
         <div className="flex items-center gap-0.5">
           <button
-            onClick={() => void createFolder(null)}
+            onClick={() => void createFolder(null, "header")}
+            disabled={creatingFolder !== null}
+            aria-busy={creatingFolder === "header" || undefined}
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="New folder"
             aria-label="New folder"
           >
-            <FolderPlus size={14} />
+            {creatingFolder === "header" ? <ButtonSpinner size={14} /> : <FolderPlus size={14} />}
           </button>
           <button
             onClick={onNew}
@@ -506,12 +512,14 @@ function Sidebar({
             <Folder size={12} /> Folders
           </span>
           <button
-            onClick={() => void createFolder(null)}
+            onClick={() => void createFolder(null, "section")}
+            disabled={creatingFolder !== null}
+            aria-busy={creatingFolder === "section" || undefined}
             className="rounded p-0.5 hover:text-slate-700 dark:hover:text-slate-200"
             title="New folder"
             aria-label="New top-level folder"
           >
-            <Plus size={12} />
+            {creatingFolder === "section" ? <ButtonSpinner size={12} /> : <Plus size={12} />}
           </button>
         </div>
 

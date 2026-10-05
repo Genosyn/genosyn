@@ -297,7 +297,12 @@ export function RunExplanation({
                     </span>
                   )}
                 </span>
-                <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  loading={busy && pendingMessage !== ""}
+                  disabled={busy || !draft.trim()}
+                >
                   <ArrowUp size={14} /> Send
                 </Button>
               </div>

@@ -122,7 +122,7 @@ export default function SkillNew({ company }: { company: Company }) {
             {error && <FormError message={error} />}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={saving || !name.trim()}>
+              <Button type="submit" loading={saving} disabled={!name.trim()}>
                 {saving ? "Creating…" : "Create skill"}
               </Button>
               <Button
