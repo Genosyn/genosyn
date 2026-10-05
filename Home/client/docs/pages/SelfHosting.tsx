@@ -265,7 +265,7 @@ export function SelfHosting() {
 │   ├── browser-state/<company-id>/<employee-id>.json
 │   ├── browser-recordings/<company-id>/<run-id>/
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
-├── app.sqlite
+├── app.sqlite            # plus app.sqlite-wal / -shm while the App runs
 └── companies/<co-slug>/employees/<emp-slug>/
     ├── repos/
     ├── code-repos/
@@ -275,6 +275,12 @@ export function SelfHosting() {
         In the Docker image, this is mounted at <Code>/app/data</Code>. The installer maps a named
         volume <Code>genosyn-data</Code> there — back that volume up and you&apos;ve backed up
         everything.
+      </P>
+      <P>
+        SQLite runs in write-ahead-log mode, so while the App is running its most recent writes sit
+        in <Code>app.sqlite-wal</Code> beside the database. Copy the whole directory rather than{" "}
+        <Code>app.sqlite</Code> on its own; a clean stop folds the log back into{" "}
+        <Code>app.sqlite</Code>.
       </P>
       <P>
         Each file under <Code>.private/browser-recordings</Code> is a silent MP4 from one browser
@@ -667,6 +673,11 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         flag list.
       </P>
 
+      <P>
+        The SQLite database is copied with SQLite&apos;s online backup API a few pages at a time, so
+        the App keeps answering requests while a backup runs and the archive still holds one
+        consistent point-in-time copy as <Code>app.sqlite</Code>.
+      </P>
       <P>
         A backup is written to a temporary <Code>.part</Code> file and moved into place only once it
         is complete, so a <Code>.zip</Code> in <Code>data/Backup/</Code> is always a whole archive —

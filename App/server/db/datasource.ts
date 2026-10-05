@@ -464,7 +464,48 @@ function buildDataSource(): DataSource {
     migrations,
     synchronize: false,
     logging: false,
+    prepareDatabase: tuneSqliteConnection,
   });
+}
+
+/** The slice of a better-sqlite3 handle {@link tuneSqliteConnection} needs. */
+export type SqlitePragmaTarget = {
+  pragma(source: string, options?: { simple?: boolean }): unknown;
+};
+
+/**
+ * Connection settings for the one SQLite handle the whole process shares.
+ *
+ * better-sqlite3 is synchronous, so every statement — and every commit's
+ * fsyncs — runs on the event loop and holds every other request until it
+ * returns. SQLite's defaults are tuned for a different shape of program:
+ *
+ * - **WAL.** The default rollback journal copies each changed page out to a
+ *   journal and fsyncs the journal and the database on every commit. WAL
+ *   appends the new pages to a log and checkpoints them in batches, so a
+ *   commit is a sequential write; readers in another process (the CLI, an
+ *   operator's `sqlite3`) also stop blocking the writer. The mode is
+ *   persistent in the file and `-wal`/`-shm` sit beside it; backups, restore
+ *   and the CLI already treat both as part of the database.
+ * - **synchronous = NORMAL**, in WAL only: commits stop fsyncing and
+ *   checkpoints still do. A power cut can lose the last few commits but never
+ *   corrupts the file. In rollback mode NORMAL is not corruption-safe, so a
+ *   database that refuses WAL (an in-memory one, a filesystem without shared
+ *   memory) keeps SQLite's FULL default.
+ * - **A 64 MiB page cache** (better-sqlite3 ships 16 MiB) and in-memory temp
+ *   b-trees for sorts and DISTINCT, so hot pages stop round-tripping through
+ *   read(2).
+ * - **journal_size_limit** trims the WAL back after a large transaction
+ *   instead of leaving it at its high-water mark.
+ */
+export function tuneSqliteConnection(db: SqlitePragmaTarget): void {
+  const mode = db.pragma("journal_mode = WAL", { simple: true });
+  if (String(mode).toLowerCase() === "wal") {
+    db.pragma("synchronous = NORMAL");
+    db.pragma("journal_size_limit = 67108864");
+  }
+  db.pragma("cache_size = -65536");
+  db.pragma("temp_store = MEMORY");
 }
 
 export const AppDataSource = buildDataSource();
@@ -480,6 +521,48 @@ export async function initDb(): Promise<void> {
     AppDataSource.subscribers.push(new ResourceChangeSubscriber());
   }
   await runMigrationsExclusively();
+  // After the migrations, never before: an index they just created has no
+  // statistics yet, and the planner treats an unanalyzed index as selective.
+  optimizeSqliteStatistics();
+  if (!statisticsTimer && AppDataSource.options.type === "better-sqlite3") {
+    statisticsTimer = setInterval(optimizeSqliteStatistics, STATISTICS_REFRESH_MS);
+    statisticsTimer.unref();
+  }
+}
+
+const STATISTICS_REFRESH_MS = 6 * 60 * 60 * 1000;
+let statisticsTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Bring SQLite's query-planner statistics (`sqlite_stat1`) up to date.
+ *
+ * Without statistics SQLite assumes every indexed equality is selective. Here
+ * that is badly wrong: `companyId` has a handful of values across hundreds of
+ * thousands of rows, so `companyId = ? AND threadId IN (...)` was planned on
+ * the company index — reading every message in the mailbox, about a minute
+ * with the server held, to label one page of the Mail list.
+ *
+ * `PRAGMA optimize` analyzes only what needs it — a table with an index that
+ * has no statistics, or one whose row count grew 25x since it was last
+ * analyzed — and the analysis limit caps each ANALYZE at a sample, so it is
+ * cheap to repeat: about a second on a 15 GB database when every table needs
+ * it, nothing measurable otherwise. A no-op on Postgres, whose autovacuum
+ * keeps its own statistics.
+ *
+ * Never throws: statistics only steer the planner, so failing to refresh
+ * them must not fail a boot or a restore.
+ */
+export function optimizeSqliteStatistics(): void {
+  if (AppDataSource.options.type !== "better-sqlite3" || !AppDataSource.isInitialized) return;
+  try {
+    const db = (AppDataSource.driver as unknown as { databaseConnection: SqlitePragmaTarget })
+      .databaseConnection;
+    db.pragma("analysis_limit = 2000");
+    db.pragma("optimize = 0x10002");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[db] refreshing SQLite planner statistics failed:", err);
+  }
 }
 
 /**

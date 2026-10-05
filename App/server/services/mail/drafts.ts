@@ -113,12 +113,18 @@ const HOME_DRAFT_LIMIT = 5;
 
 // ───────────────────────────── query helpers ─────────────────────────────
 
+/**
+ * A non-empty handle is written as a range, not `<> ''`: no index serves `!=`,
+ * and without `(accountId, gmailDraftId)` this read visits every message in
+ * the mailbox (about 20 seconds on a 420K-message account) to find a dozen
+ * drafts.
+ */
 function baseDraftQuery(account: MailAccount): SelectQueryBuilder<MailMessage> {
   return AppDataSource.getRepository(MailMessage)
     .createQueryBuilder("m")
     .where("m.accountId = :aid", { aid: account.id })
     .andWhere("m.companyId = :cid", { cid: account.companyId })
-    .andWhere("m.gmailDraftId <> ''");
+    .andWhere("m.gmailDraftId > ''");
 }
 
 /** Keep active send-queue items out of the human review surface. */

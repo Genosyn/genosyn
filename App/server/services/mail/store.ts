@@ -295,12 +295,24 @@ export async function syncLabels(account: MailAccount, labels: MailboxLabel[]): 
 
 // ---------- Draft-id mapping ----------
 
+/** Bound on one `IN (...)` list, well under SQLite's bound-parameter limit. */
+const DRAFT_REF_LOOKUP_CHUNK = 500;
+
 /**
  * A draft's handle lives in a different namespace from its message's, on both
  * providers — a Gmail draft id, an IMAP folder-and-UID — and we need it to
  * edit, send or discard. One listing pass maps handles onto the mirrored
  * messages; rows whose draft disappeared (sent or discarded elsewhere) get the
  * handle cleared.
+ *
+ * Runs on every sync pass, so it must never scan the mailbox. The rows it can
+ * change are exactly two indexed sets: the rows already holding a handle
+ * (`(accountId, gmailDraftId)`, as a range — no index serves `!=`), and the
+ * rows the mailbox lists as drafts (`(accountId, gmailMessageId)`). An earlier
+ * version asked for `labelIds LIKE '% DRAFT %'` across the whole account; the
+ * label column sits behind both bodies in the row, so that read every body in
+ * the mailbox — 14 GB and nearly a minute on a 420K-message account, with the
+ * synchronous driver holding the whole server for all of it.
  */
 export async function refreshDraftIds(
   account: MailAccount,
@@ -312,19 +324,36 @@ export async function refreshDraftIds(
   const byMessageId = new Map<string, string>();
   for (const d of drafts) byMessageId.set(d.messageRef, d.draftRef);
   const repo = AppDataSource.getRepository(MailMessage);
-  const local = await repo
+  const columns = ["m.id", "m.gmailMessageId", "m.gmailDraftId", "m.labelIds"];
+  const local = new Map<string, MailMessage>();
+  const holdingHandle = await repo
     .createQueryBuilder("m")
+    .select(columns)
     .where("m.accountId = :aid", { aid: account.id })
-    .andWhere("(m.gmailDraftId != '' OR m.labelIds LIKE :draft)", {
-      draft: "% DRAFT %",
-    })
+    .andWhere("m.gmailDraftId > ''")
     .getMany();
-  for (const row of local) {
+  for (const row of holdingHandle) local.set(row.id, row);
+  const listed = [...byMessageId.keys()];
+  for (let i = 0; i < listed.length; i += DRAFT_REF_LOOKUP_CHUNK) {
+    const rows = await repo
+      .createQueryBuilder("m")
+      .select(columns)
+      .where("m.accountId = :aid", { aid: account.id })
+      .andWhere("m.gmailMessageId IN (:...refs)", {
+        refs: listed.slice(i, i + DRAFT_REF_LOOKUP_CHUNK),
+      })
+      .getMany();
+    // Same candidates as ever: a row the mailbox lists only gains a handle
+    // when it is mirrored as a draft.
+    for (const row of rows) {
+      if (row.gmailDraftId !== "" || columnHasLabel(row.labelIds, "DRAFT")) local.set(row.id, row);
+    }
+  }
+  for (const row of local.values()) {
     await assertWritable();
     const draftId = byMessageId.get(row.gmailMessageId) ?? "";
     if (row.gmailDraftId !== draftId) {
-      row.gmailDraftId = draftId;
-      await repo.save(row);
+      await repo.update({ id: row.id }, { gmailDraftId: draftId });
     }
   }
 }

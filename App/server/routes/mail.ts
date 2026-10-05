@@ -489,28 +489,34 @@ mailRouter.get("/mail/accounts/:aid/labels", async (req, res) => {
     where: { accountId: account.id },
     order: { name: "ASC" },
   });
-  // One in-memory pass over (labelIds, unread) computes every sidebar count.
-  // Raw rows avoid hydrating a MailThread entity for every conversation in a
-  // potentially very large mailbox. This endpoint only needs two scalar
-  // columns, and it runs repeatedly while the sidebar follows sync updates.
-  const threads = await AppDataSource.getRepository(MailThread)
+  // One grouped pass computes every sidebar count. The database folds the
+  // conversations into their distinct (labelIds, unread) combinations — a
+  // few hundred even across 200K conversations — so this endpoint, which
+  // re-runs every time the sidebar follows a sync update, no longer builds
+  // one JS object per conversation on the event loop.
+  const groups = await AppDataSource.getRepository(MailThread)
     .createQueryBuilder("t")
     .select("t.labelIds", "labelIds")
     .addSelect("t.unread", "unread")
+    .addSelect("COUNT(*)", "threads")
     .where("t.accountId = :accountId", { accountId: account.id })
-    .getRawMany<{ labelIds: string; unread: boolean | number }>();
+    .groupBy("t.labelIds")
+    .addGroupBy("t.unread")
+    .getRawMany<{ labelIds: string; unread: boolean | number; threads: number | string }>();
   let inboxUnread = 0;
   let drafts = 0;
   let starred = 0;
   const perLabel: Record<string, number> = {};
-  for (const t of threads) {
-    const inTrash = t.labelIds.includes(" TRASH ");
-    if (!inTrash && t.unread && t.labelIds.includes(" INBOX ")) inboxUnread += 1;
-    if (!inTrash && t.labelIds.includes(" DRAFT ")) drafts += 1;
-    if (!inTrash && t.labelIds.includes(" STARRED ")) starred += 1;
+  for (const g of groups) {
+    // Postgres returns COUNT(*) as a string; SQLite as a number.
+    const n = Number(g.threads);
+    const inTrash = g.labelIds.includes(" TRASH ");
+    if (!inTrash && g.unread && g.labelIds.includes(" INBOX ")) inboxUnread += n;
+    if (!inTrash && g.labelIds.includes(" DRAFT ")) drafts += n;
+    if (!inTrash && g.labelIds.includes(" STARRED ")) starred += n;
     if (inTrash) continue;
-    for (const id of columnToLabelIds(t.labelIds)) {
-      perLabel[id] = (perLabel[id] ?? 0) + 1;
+    for (const id of columnToLabelIds(g.labelIds)) {
+      perLabel[id] = (perLabel[id] ?? 0) + n;
     }
   }
   res.json({

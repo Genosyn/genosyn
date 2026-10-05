@@ -6,7 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
-import { initDb } from "./db/datasource.js";
+import { AppDataSource, initDb } from "./db/datasource.js";
 import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { bootStanddowns } from "./services/standdowns.js";
@@ -669,6 +669,11 @@ function installShutdownHandlers(server: http.Server): void {
       .catch(() => {
         // A failed flush still exits — see the doc comment.
       })
+      // Closing the SQLite handle checkpoints the write-ahead log back into
+      // `app.sqlite`, so a stopped install is one self-contained file again.
+      // Exiting without it loses nothing — the next open replays the log.
+      .then(() => (AppDataSource.isInitialized ? AppDataSource.destroy() : undefined))
+      .catch(() => {})
       .then(() => process.exit(0));
   };
 

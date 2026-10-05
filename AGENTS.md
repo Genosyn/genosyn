@@ -422,7 +422,7 @@ data/
 │   ├── browser-state/<company-id>/<employee-id>.json # cookies/localStorage
 │   ├── browser-recordings/<company-id>/<run-id>/ # silent per-session Routine MP4s
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
-├── app.sqlite
+├── app.sqlite              # WAL mode: app.sqlite-wal / -shm beside it while running
 └── companies/<company-slug>/employees/<emp-slug>/
     ├── repos/  code-repos/    # git working trees the coding tools operate on
     └── …                      # artifacts the agent's tools write into cwd
@@ -598,6 +598,18 @@ in a Work session instead of leaving them stranded as local commits.
   - App: server compiled to `dist/server/index.js`, client assets under
     `dist/client/` (served by the Express process).
   - Home: `dist/server.js` serving built client assets.
+- **SQLite queries run on the event loop.** better-sqlite3 is synchronous,
+  so one slow statement freezes every request, and a loop of awaited
+  queries never yields to I/O. Reach large tables (`mail_messages`,
+  `mail_threads`, `runs`, `audit_events`) through an index that bounds the
+  rows read. Never filter or sort many rows on a column stored after a large
+  text column — `MailMessage.bodyText`/`bodyHtml`, `Run.logContent` — since
+  SQLite then reads every body to get there; add an index instead. `!=` can't
+  use an index, so write a non-empty test as `> ''`. The planner relies on the
+  statistics `optimizeSqliteStatistics()` (`db/datasource.ts`) refreshes after
+  migrations and every six hours; without them it treats `companyId = ?` as
+  selective. `EXPLAIN QUERY PLAN` a new query against a realistically sized
+  database before shipping it.
 - **Schema changes require a migration, and migrations are NEVER
   hand-written.** `synchronize` is off. After editing entities, run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

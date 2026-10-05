@@ -75,6 +75,10 @@ export type RunTrigger =
 // The heartbeat's retry scan: terminal rows carrying a due `retryAt`.
 @Index(["retryAt"])
 @Index(["employeeId", "status", "createdAt"])
+// The live-failure roll-up asks, per failed Run, whether a continuation
+// already picked it up. Without this that probe walks the Routine's whole
+// Run history, `logContent` and all, once per failure.
+@Index(["parentRunId"])
 export class Run {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
