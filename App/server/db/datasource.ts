@@ -546,10 +546,12 @@ let statisticsTimer: ReturnType<typeof setInterval> | null = null;
  *
  * `PRAGMA optimize` analyzes only what needs it — a table with an index that
  * has no statistics, or one whose row count grew 25x since it was last
- * analyzed — and the analysis limit caps each ANALYZE at a sample, so it is
- * cheap to repeat: about a second on a 15 GB database when every table needs
- * it, nothing measurable otherwise. A no-op on Postgres, whose autovacuum
- * keeps its own statistics.
+ * analyzed — so it is cheap to repeat: half a second on a 15 GB database when
+ * every table needs it, nothing measurable otherwise. The mask leaves out
+ * `0x10`, the sampled analysis: a sample of N rows caps the estimate for a
+ * column like `companyId` near N rows per value, and that low cardinality is
+ * the very thing the planner most needs to know. A no-op on Postgres, whose
+ * autovacuum keeps its own statistics.
  *
  * Never throws: statistics only steer the planner, so failing to refresh
  * them must not fail a boot or a restore.
@@ -559,7 +561,6 @@ export function optimizeSqliteStatistics(): void {
   try {
     const db = (AppDataSource.driver as unknown as { databaseConnection: SqlitePragmaTarget })
       .databaseConnection;
-    db.pragma("analysis_limit = 2000");
     db.pragma("optimize = 0x10002");
   } catch (err) {
     // eslint-disable-next-line no-console
