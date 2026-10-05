@@ -523,7 +523,16 @@ export default function FinanceInvoiceDetail() {
                   Bill to
                 </div>
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
-                  {invoice.customer?.name ?? "—"}
+                  {invoice.customer ? (
+                    <Link
+                      to={`/c/${company.slug}/customers/${invoice.customer.slug}`}
+                      className="hover:text-indigo-600 hover:underline dark:hover:text-indigo-400"
+                    >
+                      {invoice.customer.name}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
                 </div>
                 <div className="text-slate-500 dark:text-slate-400">{invoice.customer?.email}</div>
               </div>

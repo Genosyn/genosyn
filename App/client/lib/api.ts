@@ -4604,6 +4604,24 @@ export type RecurringInvoice = {
   updatedAt: string;
   customer: RecurringInvoiceCustomerStub | null;
   lines: RecurringInvoiceLineItem[];
+  /** What one run bills, tax included: the generated invoice's total. */
+  totalCents: number;
+  /** The most recent scheduled run, so one that is retrying or failed shows. */
+  latestRun: RecurringInvoiceRunSummary | null;
+};
+
+export type RecurringInvoiceRunStatus = "pending" | "succeeded" | "failed" | "cancelled";
+
+/** One scheduled run of a recurring invoice, as list and detail pages see it. */
+export type RecurringInvoiceRunSummary = {
+  status: RecurringInvoiceRunStatus;
+  scheduledFor: string;
+  attempts: number;
+  retryAt: string | null;
+  lastError: string;
+  emailStatus: "" | "sent" | "skipped" | "failed";
+  completedAt: string | null;
+  invoiceSlug: string | null;
 };
 
 export type RecurringInvoiceListItem = Omit<RecurringInvoice, "lines"> & {

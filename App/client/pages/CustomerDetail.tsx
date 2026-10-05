@@ -12,6 +12,7 @@ import {
   Phone,
   Plus,
   Receipt,
+  Repeat,
   ScrollText,
 } from "lucide-react";
 import {
@@ -22,7 +23,9 @@ import {
   EstimateListItem,
   formatMoney,
   InvoiceListItem,
+  RecurringInvoiceListItem,
 } from "../lib/api";
+import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -52,9 +55,9 @@ type ActionItem = {
 /**
  * Customer detail — a single read-only overview of one account: headline
  * numbers, an "action needed" queue (overdue / unpaid invoices, estimates
- * awaiting a response), and the full history of invoices, estimates,
- * contracts, and contacts. Invoice/estimate detail still lives in Finance,
- * so rows deep-link across to those pages.
+ * awaiting a response), and the full history of invoices, recurring
+ * invoices, estimates, contracts, and contacts. Their detail pages still live
+ * in Finance, so rows deep-link across to them.
  */
 export default function CustomerDetail() {
   const { company } = useOutletContext<CustomersOutletCtx>();
@@ -66,6 +69,7 @@ export default function CustomerDetail() {
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [invoices, setInvoices] = React.useState<InvoiceListItem[]>([]);
   const [estimates, setEstimates] = React.useState<EstimateListItem[]>([]);
+  const [recurring, setRecurring] = React.useState<RecurringInvoiceListItem[]>([]);
   const [ready, setReady] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -75,16 +79,20 @@ export default function CustomerDetail() {
         `/api/companies/${company.id}/customers/${customerSlug}`,
       );
       setCustomer(c);
-      const [inv, est] = await Promise.all([
+      const [inv, est, rec] = await Promise.all([
         api.get<InvoiceListItem[]>(
           `/api/companies/${company.id}/invoices?customerId=${c.id}`,
         ),
         api.get<EstimateListItem[]>(
           `/api/companies/${company.id}/estimates?customerId=${c.id}`,
         ),
+        api.get<RecurringInvoiceListItem[]>(
+          `/api/companies/${company.id}/recurring-invoices?customerId=${c.id}`,
+        ),
       ]);
       setInvoices(inv);
       setEstimates(est);
+      setRecurring(rec);
       setReady(true);
     } catch (err) {
       setError((err as Error).message);
@@ -96,7 +104,7 @@ export default function CustomerDetail() {
     reload();
   }, [reload]);
 
-  useLiveRefetch(["customer", "invoice", "estimate"], reload);
+  useLiveRefetch(["customer", "invoice", "estimate", "recurringinvoice"], reload);
 
   // Outstanding (issued + unpaid) and lifetime-billed totals, grouped by
   // currency so a multi-currency account is never summed into a meaningless
@@ -181,9 +189,24 @@ export default function CustomerDetail() {
         });
       }
     }
+    // A scheduled run that is retrying, or that issued its invoice but could
+    // not email it, is billing that has not reached the customer yet.
+    for (const ri of recurring) {
+      const run = ri.latestRun;
+      const retrying = ri.status === "active" && run?.status === "pending" && !!run.lastError;
+      if (!run || (!retrying && run.status !== "failed")) continue;
+      items.push({
+        id: ri.id,
+        tone: "warn",
+        icon: <Repeat size={15} />,
+        label: retrying ? `${ri.name}: run retrying` : `${ri.name}: invoice not emailed`,
+        detail: run.lastError,
+        to: `${financeBase}/recurring-invoices/${ri.slug}`,
+      });
+    }
     const rank: Record<Tone, number> = { danger: 0, warn: 1, info: 2 };
     return items.sort((a, b) => rank[a.tone] - rank[b.tone]);
-  }, [invoices, estimates, financeBase]);
+  }, [invoices, estimates, recurring, financeBase]);
 
   if (!ready) {
     return (
@@ -355,6 +378,37 @@ export default function CustomerDetail() {
                   {inv.balanceCents > 0
                     ? formatMoney(inv.balanceCents, inv.currency)
                     : "—"}
+                </span>,
+              ],
+            }))}
+          />
+        )}
+      </DocSection>
+
+      {/* Recurring invoices */}
+      <DocSection
+        title="Recurring invoices"
+        count={recurring.length}
+        newLabel="New recurring invoice"
+        newTo={`${financeBase}/recurring-invoices/new`}
+        emptyText="No recurring invoices for this customer yet."
+      >
+        {recurring.length > 0 && (
+          <DocTable
+            head={["Name", "Status", "Schedule", "Each run", "Next run", "Amount"]}
+            rows={recurring.map((ri) => ({
+              key: ri.id,
+              to: `${financeBase}/recurring-invoices/${ri.slug}`,
+              cells: [
+                <span key="name" className="font-medium">
+                  {ri.name}
+                </span>,
+                <StatusBadge key="status" status={ri.status} />,
+                describeCron(ri.cronExpr, ri.intervalCount),
+                ri.autoSend ? "Issue + email" : "Draft only",
+                ri.status === "active" && ri.nextRunAt ? fmtDate(ri.nextRunAt) : "—",
+                <span key="total" className="tabular-nums">
+                  {formatMoney(ri.totalCents, ri.currency)}
                 </span>,
               ],
             }))}
@@ -609,6 +663,9 @@ function StatusBadge({ status }: { status: string }) {
     declined: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
     expired: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
     invoiced: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
+    active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+    paused: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+    ended: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   };
   return (
     <span

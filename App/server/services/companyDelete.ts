@@ -164,6 +164,7 @@ import { Project } from "../db/entities/Project.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
+import { RecurringInvoiceRun } from "../db/entities/RecurringInvoiceRun.js";
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -515,6 +516,7 @@ export async function deleteCompanyCascade(args: {
     // Repositories, and browser sessions. Line items, dashboard cards,
     // and the three employee grants were removed in the leaf/employee sweeps.
     await m.delete(Estimate, { companyId });
+    await m.delete(RecurringInvoiceRun, { companyId });
     await m.delete(RecurringInvoice, { companyId });
     // Signing evidence and placed fields are leaves; remove them before their
     // recipients and envelope. The AI access grant is company-scoped.

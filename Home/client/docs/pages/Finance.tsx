@@ -307,6 +307,11 @@ export function Finance() {
         plain-English summary (for example <Code>Every 2 weeks on Monday at 9:00 AM</Code>) appears
         beneath the picker so you can confirm the cadence before saving.
       </P>
+      <P>
+        The list shows what each schedule bills per run, tax included, with its currency, and
+        whether each run creates a draft or issues and emails the invoice. The same schedules appear
+        on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
+      </P>
 
       <H3 id="recurring-modes">Draft vs auto-send</H3>
       <P>
@@ -315,6 +320,25 @@ export function Finance() {
         tick issues the invoice (minting its invoice number and posting the AR / Revenue ledger
         entry) and emails it to the customer through the company&apos;s configured EmailProvider —
         same path a human-sent invoice takes, so the email log captures it identically.
+      </P>
+
+      <H3 id="recurring-reliability">Failed runs and downtime</H3>
+      <P>
+        Each scheduled run is recorded before any work starts, so a crash, restart, or outage
+        cannot lose it. When the server comes back, it bills what came due while it was down
+        (several missed slots collapse into one invoice) and finishes any run it was in the middle
+        of. It continues that run&apos;s invoice rather than creating a second one, so a customer is
+        never billed twice for the same slot.
+      </P>
+      <P>
+        If creating, issuing, or emailing the invoice fails, Genosyn retries it automatically after
+        1, 5, and 15 minutes, then 1, 3, and 6 hours, and every 6 hours after that until it succeeds.
+        Email stops after six failed attempts, or at once when no email transport is configured;
+        the invoice stays issued and you send it from its page. Meanwhile the list marks the
+        schedule <Strong>Retrying</Strong> or <Strong>Email not sent</Strong>, and the detail page
+        shows the error and the time of the next attempt. A schedule starts its next run only after
+        the current one finishes. Pausing or ending the schedule stops a run that hasn&apos;t
+        finished.
       </P>
 
       <H3 id="recurring-ai-employees">Using an AI Employee</H3>
@@ -331,7 +355,9 @@ export function Finance() {
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
       <P>
         From the detail page, <Code>Run now</Code> generates an invoice immediately without
-        consuming the scheduled slot, useful for catch-up runs or testing the template. The{" "}
+        consuming the scheduled slot, useful for catch-up runs or testing the template. While a
+        scheduled run is retrying, the button reads <Code>Retry now</Code> and finishes that run
+        instead of creating an extra invoice. The{" "}
         <Code>More actions</Code> menu holds the lifecycle controls: <Code>Pause</Code> stops
         scheduled runs without losing the template and <Code>Resume</Code> restarts the next tick
         from now; <Code>End</Code> is terminal — the schedule becomes read-only but every invoice it

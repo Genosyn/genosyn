@@ -73,15 +73,23 @@ export function Customers() {
         kept in the page URL, so browser Back and Forward restore the same view. Archived customers
         remain hidden unless <Code>Show archived</Code> is selected.
       </P>
+      <P>
+        Wherever you pick a customer — on an invoice, estimate, recurring invoice, contract,
+        signature, contact, or deal — each option shows the account&apos;s domain and billing email
+        beside its name, so similarly named accounts are easy to tell apart. Typing a domain or an
+        email address into the picker finds the account too.
+      </P>
 
       <H2 id="overview">Customer overview</H2>
       <P>
         Click any customer&apos;s name to open their <Strong>overview</Strong> — a single page with
         the headline numbers (annual contract value, outstanding balance, lifetime billed), an{" "}
-        <Strong>action-needed</Strong> queue that surfaces overdue and unpaid invoices and estimates
-        awaiting a response, and the full history of the account&apos;s invoices, estimates,
-        contracts, and contacts. Each row deep-links into the underlying document in{" "}
-        <DocLink to="/docs/finance">Finance</DocLink>.
+        <Strong>action-needed</Strong> queue that surfaces overdue and unpaid invoices, estimates
+        awaiting a response, and recurring invoice runs that are retrying or couldn&apos;t email
+        their invoice. Below it is the full history of the account&apos;s invoices, recurring
+        invoices, estimates, contracts, and contacts. Each row deep-links into the underlying
+        document in <DocLink to="/docs/finance">Finance</DocLink>, and the customer&apos;s name on
+        an invoice, estimate, or recurring invoice links back here.
       </P>
 
       <H2 id="statements">Statements</H2>

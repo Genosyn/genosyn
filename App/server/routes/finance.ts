@@ -22,6 +22,7 @@ import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
 import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
+import { RecurringInvoiceRun } from "../db/entities/RecurringInvoiceRun.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
@@ -122,9 +123,11 @@ import {
 import {
   applyRecurringInvoiceStatus,
   duplicateRecurringInvoice,
+  findPendingRecurringInvoiceRun,
   generateInvoiceFromRecurring,
   hydrateRecurringInvoices,
   loadRecurringInvoiceBySlug,
+  processRecurringInvoiceRun,
   registerRecurringInvoice,
   replaceRecurringInvoiceLines,
 } from "../services/recurringInvoices.js";
@@ -4161,6 +4164,7 @@ financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
   await AppDataSource.getRepository(RecurringInvoiceLineItem).delete({
     recurringInvoiceId: ri.id,
   });
+  await AppDataSource.getRepository(RecurringInvoiceRun).delete({ recurringInvoiceId: ri.id });
   await AppDataSource.getRepository(RecurringInvoice).delete({ id: ri.id });
   res.json({ ok: true });
 });
@@ -4169,12 +4173,39 @@ financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
 // scheduled slot — `nextRunAt` is untouched so the next scheduled fire
 // still happens on time. The generated invoice is counted toward
 // `runsCreated` though, so any `maxRuns` cap is respected.
+//
+// While a scheduled run is still retrying, Run now retries *that* run
+// instead: an extra invoice now plus the retried one later would bill the
+// customer twice for the same slot.
 financeRouter.post("/recurring-invoices/:slug/run-now", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
   if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
   if (ri.status === "ended") {
     return res.status(409).json({ error: "This schedule has ended" });
+  }
+  const pending = ri.status === "active" ? await findPendingRecurringInvoiceRun(ri.id) : null;
+  if (pending) {
+    const result = await processRecurringInvoiceRun(pending.id, {
+      ignoreBackoff: true,
+      actorUserId: req.userId ?? null,
+    });
+    if (!result) {
+      return res
+        .status(409)
+        .json({ error: "This run is being retried right now. Refresh in a moment." });
+    }
+    if (result.run.status === "pending" || result.run.status === "cancelled") {
+      return res.status(400).json({ error: result.run.lastError });
+    }
+    const fresh = (await loadRecurringInvoiceBySlug(cid, req.params.slug)) ?? ri;
+    const [hydrated] = await hydrateRecurringInvoices(cid, [fresh]);
+    return res.json({
+      recurringInvoice: hydrated,
+      invoice: result.invoice,
+      emailStatus: result.run.emailStatus || "not_attempted",
+      emailError: result.run.status === "failed" ? result.run.lastError : "",
+    });
   }
   try {
     const result = await generateInvoiceFromRecurring(ri, req.userId ?? null);

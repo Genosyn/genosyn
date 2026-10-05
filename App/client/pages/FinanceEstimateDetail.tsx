@@ -474,7 +474,16 @@ export default function FinanceEstimateDetail() {
                   Prepared for
                 </div>
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
-                  {estimate.customer?.name ?? "—"}
+                  {estimate.customer ? (
+                    <Link
+                      to={`/c/${company.slug}/customers/${estimate.customer.slug}`}
+                      className="hover:text-indigo-600 hover:underline dark:hover:text-indigo-400"
+                    >
+                      {estimate.customer.name}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
                 </div>
                 <div className="text-slate-500 dark:text-slate-400">{estimate.customer?.email}</div>
                 {estimate.customer?.billingAddress.trim() && (

@@ -24,14 +24,17 @@ import {
  *                  explicitly ended it). `nextRunAt` cleared.
  *
  * On each fire the service layer:
- *   1. Materializes a fresh `Invoice` (status `draft` or `sent`
+ *   1. Records the due slot as a `RecurringInvoiceRun` and advances
+ *      `nextRunAt` from *now*.
+ *   2. Materializes a fresh `Invoice` (status `draft` or `sent`
  *      depending on `autoSend`) with line items snapshotted from the
  *      template lines, issueDate = now, dueDate = now + daysUntilDue.
- *   2. Posts ledger entries via the existing `issueInvoice` path when
+ *   3. Posts ledger entries via the existing `issueInvoice` path when
  *      auto-send is on (or just leaves it as a draft if not).
- *   3. Optionally calls `sendInvoiceEmail` if `autoSend` is true.
- *   4. Increments `runsCreated`, advances `nextRunAt` from *now*
- *      (fire-at-most-once, same semantics as routines).
+ *   4. Optionally calls `sendInvoiceEmail` if `autoSend` is true.
+ *   5. Increments `runsCreated` and closes the run.
+ * The run row carries the slot through crashes and failed steps 2–4: the
+ * heartbeat resumes it, retrying with a backoff, and never bills it twice.
  *
  * Catch-up after downtime mirrors `services/cron.ts`: a single fire
  * collapses any missed slots — accountants would rather see one invoice

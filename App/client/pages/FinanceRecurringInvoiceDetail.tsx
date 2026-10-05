@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   Ban,
   Copy,
@@ -19,6 +20,7 @@ import {
   formatMoney,
   Invoice,
   RecurringInvoice,
+  RecurringInvoiceRunSummary,
   RecurringInvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
@@ -115,6 +117,7 @@ export default function FinanceRecurringInvoiceDetail() {
       }
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t run the schedule" });
+      void reload();
     } finally {
       setBusy(false);
     }
@@ -195,9 +198,11 @@ export default function FinanceRecurringInvoiceDetail() {
     );
   }
 
-  const totalPreview = ri.lines.reduce((sum, l) => {
-    return sum + Math.round(l.quantity * l.unitPriceCents);
-  }, 0);
+  const customerUrl = ri.customer ? `/c/${company.slug}/customers/${ri.customer.slug}` : null;
+  const retrying = ri.status === "active" && ri.latestRun?.status === "pending";
+  // A run still in flight may already have created its invoice; that one is
+  // newer than the last finished run's.
+  const latestInvoiceSlug = ri.latestRun?.invoiceSlug || ri.lastInvoiceSlug;
 
   return (
     <div className="page-shell p-8">
@@ -240,16 +245,23 @@ export default function FinanceRecurringInvoiceDetail() {
               <Repeat size={12} className="mr-1 inline" />
               {describeCron(ri.cronExpr, ri.intervalCount)}
               {" — billing "}
-              <span className="font-medium text-slate-700 dark:text-slate-300">
-                {ri.customer?.name ?? "—"}
-              </span>
+              {customerUrl ? (
+                <Link
+                  to={customerUrl}
+                  className="font-medium text-slate-700 hover:text-indigo-600 hover:underline dark:text-slate-300 dark:hover:text-indigo-400"
+                >
+                  {ri.customer?.name}
+                </Link>
+              ) : (
+                <span className="font-medium text-slate-700 dark:text-slate-300">—</span>
+              )}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {ri.status !== "ended" && (
             <Button onClick={runNow} disabled={busy}>
-              <PlayCircle size={14} /> Run now
+              <PlayCircle size={14} /> {retrying ? "Retry now" : "Run now"}
             </Button>
           )}
           <Link to={`/c/${company.slug}/finance/recurring-invoices/${ri.slug}/edit`}>
@@ -334,6 +346,20 @@ export default function FinanceRecurringInvoiceDetail() {
         </div>
       )}
 
+      {ri.latestRun && (
+        <RunAttention
+          run={ri.latestRun}
+          active={ri.status === "active"}
+          invoiceUrl={
+            ri.latestRun.invoiceSlug
+              ? `/c/${company.slug}/finance/invoices/${ri.latestRun.invoiceSlug}`
+              : null
+          }
+          busy={busy}
+          onRetry={runNow}
+        />
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -370,7 +396,21 @@ export default function FinanceRecurringInvoiceDetail() {
                   : company.name
               }
             />
-            <Row label="Customer" value={ri.customer?.name ?? "—"} />
+            <Row
+              label="Customer"
+              value={
+                customerUrl ? (
+                  <Link
+                    to={customerUrl}
+                    className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {ri.customer?.name}
+                  </Link>
+                ) : (
+                  "—"
+                )
+              }
+            />
             <Row label="Email" value={ri.customer?.email || "—"} />
             <Row label="Currency" value={ri.currency} />
             <Row label="Days until due" value={`${ri.daysUntilDue} days`} />
@@ -378,7 +418,7 @@ export default function FinanceRecurringInvoiceDetail() {
               label="Auto-send"
               value={ri.autoSend ? "Issue + email each tick" : "Create draft only"}
             />
-            <Row label="Total per invoice" value={formatMoney(totalPreview, ri.currency)} />
+            <Row label="Total per invoice" value={formatMoney(ri.totalCents, ri.currency)} />
           </dl>
         </div>
 
@@ -386,9 +426,9 @@ export default function FinanceRecurringInvoiceDetail() {
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Latest run
           </h3>
-          {ri.lastInvoiceSlug ? (
+          {latestInvoiceSlug ? (
             <Link
-              to={`/c/${company.slug}/finance/invoices/${ri.lastInvoiceSlug}`}
+              to={`/c/${company.slug}/finance/invoices/${latestInvoiceSlug}`}
               className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
             >
               Open last generated invoice →
@@ -484,7 +524,66 @@ export default function FinanceRecurringInvoiceDetail() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/**
+ * Surfaces a scheduled run that needs a person's eye: one still retrying
+ * after a failed attempt, or one that issued its invoice but could not
+ * email it. A run that is simply in progress, or that finished cleanly,
+ * shows nothing.
+ */
+function RunAttention({
+  run,
+  active,
+  invoiceUrl,
+  busy,
+  onRetry,
+}: {
+  run: RecurringInvoiceRunSummary;
+  active: boolean;
+  invoiceUrl: string | null;
+  busy: boolean;
+  onRetry: () => void;
+}) {
+  const retrying = active && run.status === "pending" && run.lastError !== "";
+  if (!retrying && run.status !== "failed") return null;
+  return (
+    <div className="mb-6 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 sm:flex-row sm:items-start sm:justify-between dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+      <div className="flex gap-2">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+        <div>
+          <p className="font-medium">
+            {retrying
+              ? `The run scheduled for ${formatStamp(run.scheduledFor)} hasn’t finished yet`
+              : `The run scheduled for ${formatStamp(run.scheduledFor)} needs attention`}
+          </p>
+          <p className="mt-0.5">{run.lastError}</p>
+          {retrying && (
+            <p className="mt-0.5 text-xs opacity-80">
+              Genosyn retries automatically
+              {run.retryAt ? ` — next attempt ${formatStamp(run.retryAt)}` : ""}. Retrying finishes
+              this run; it never bills the customer a second time.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {invoiceUrl && (
+          <Link to={invoiceUrl}>
+            <Button variant="secondary" size="sm">
+              Open invoice
+            </Button>
+          </Link>
+        )}
+        {retrying && (
+          <Button size="sm" onClick={onRetry} disabled={busy}>
+            Retry now
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
