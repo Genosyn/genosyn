@@ -5,6 +5,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
+import { AskAiMessage } from "../db/entities/AskAiMessage.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import {
@@ -235,4 +236,61 @@ test("chunks redact credentials before clipping and recheck participation for ev
     }),
     RoutineParticipationError,
   );
+});
+
+test("an Ask AI answer counts, is listed once beside a legacy receipt, and the newest wins", async () => {
+  const legacy = await receipt({ createdAt: new Date("2026-09-01T09:00:00Z") });
+  const askAi = await insert(AskAiMessage, {
+    companyId,
+    conversationId: randomUUID(),
+    role: "assistant",
+    employeeId: employee.id,
+    status: "ok",
+    content: "PRIVATE ASK AI CONTENT",
+    contextKind: "routine",
+    contextId: routine.id,
+    createdAt: new Date("2026-10-01T09:00:00Z"),
+  });
+  // A failed answer and an answer about something else never count.
+  await insert(AskAiMessage, {
+    companyId,
+    conversationId: randomUUID(),
+    role: "assistant",
+    employeeId: employee.id,
+    status: "error",
+    contextKind: "routine",
+    contextId: routine.id,
+    createdAt: new Date("2026-10-02T09:00:00Z"),
+  });
+
+  const listed = await listParticipatingRoutines(companyId, employee.id);
+  assert.deepEqual(
+    listed.items.map((item) => item.routine.id),
+    [routine.id],
+  );
+  assert.equal(listed.items[0].receipt.id, askAi.id);
+  const value = await getParticipatingRoutine(companyId, employee.id, routine.id);
+  assert.equal(value.participationMessageId, askAi.id);
+  assert.doesNotMatch(JSON.stringify(value), /PRIVATE/);
+
+  // Without the Ask AI answer the legacy receipt still stands on its own.
+  await AppDataSource.getRepository(AskAiMessage).delete({ id: askAi.id });
+  assert.equal(
+    (await getParticipatingRoutine(companyId, employee.id, routine.id)).participationMessageId,
+    legacy.id,
+  );
+});
+
+test("an Ask AI answer about the employee's own Routine is not participation", async () => {
+  await insert(AskAiMessage, {
+    companyId,
+    conversationId: randomUUID(),
+    role: "assistant",
+    employeeId: owner.id,
+    status: "ok",
+    contextKind: "routine",
+    contextId: routine.id,
+    createdAt: new Date(),
+  });
+  assert.deepEqual((await listParticipatingRoutines(companyId, owner.id)).items, []);
 });

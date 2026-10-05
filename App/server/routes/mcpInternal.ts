@@ -282,6 +282,8 @@ import {
 } from "../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
+import { AskAiConversation } from "../db/entities/AskAiConversation.js";
+import { AskAiMessage } from "../db/entities/AskAiMessage.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import {
@@ -16319,15 +16321,27 @@ async function delegatedMemberCanUseAttachment(
   if (!attachment) return false;
   if (attachment.uploadedByUserId === membership.userId) return true;
   if (!attachment.messageId) return false;
-  // Per-email AI chat is a shared surface: the conversation belongs to the
-  // email thread, not to one Member, so any teammate who can open the mailbox
-  // can work with what was uploaded there. Mailbox access is checked by the
-  // mail routes themselves; company scope is the boundary here.
+  // Files from the retired per-email AI chat stay usable: that conversation
+  // belonged to the email thread rather than to one Member, so any teammate
+  // who can open the mailbox could work with what was uploaded there.
   const mailChatMessage = await AppDataSource.getRepository(MailChatMessage).findOneBy({
     id: attachment.messageId,
     companyId: req.mcpCompany!.id,
   });
   if (mailChatMessage) return true;
+  // Ask AI conversations are private to the Member who started them, so a
+  // file bound to one of its turns is usable only on that Member's authority.
+  const askAiMessage = await AppDataSource.getRepository(AskAiMessage).findOneBy({
+    id: attachment.messageId,
+    companyId: req.mcpCompany!.id,
+  });
+  if (askAiMessage) {
+    return AppDataSource.getRepository(AskAiConversation).existsBy({
+      id: askAiMessage.conversationId,
+      companyId: req.mcpCompany!.id,
+      ownerUserId: membership.userId,
+    });
+  }
   const message = await AppDataSource.getRepository(ConversationMessage).findOneBy({
     id: attachment.messageId,
   });
@@ -18700,11 +18714,11 @@ mcpInternalRouter.post(
   },
 );
 
-// ----- Per-email AI chat: structured action suggestions -----
+// ----- Ask AI on an email: structured action suggestions -----
 //
 // `suggest_mail_actions` never mutates anything — it stages structured
-// suggestions on the turn's MCP token; the per-email chat drains them after
-// the turn and renders them as one-click buttons the human executes through
+// suggestions on the turn's MCP token; Ask AI drains them after the turn
+// and renders them as one-click buttons the human executes through
 // the ordinary mail routes (with the human's own authority). That is the
 // point: a draft-level employee can *propose* a send it isn't allowed to do.
 
@@ -18924,7 +18938,7 @@ mcpInternalRouter.post(
     res.json({
       ok: true,
       staged: body.suggestions.length,
-      note: "The buttons will render under your reply in this email's AI chat — mention them briefly instead of repeating their contents.",
+      note: "The buttons will render under your reply in Ask AI — mention them briefly instead of repeating their contents.",
     });
   },
 );

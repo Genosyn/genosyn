@@ -1,6 +1,7 @@
 import React from "react";
 import { Plus, Search, Settings2, Trash2 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
+import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   api,
   Approval,
@@ -77,6 +78,9 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
     /^#review-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
       .exec(location.hash)?.[1]
       ?.toLowerCase() ?? null;
+  // A decision linked from elsewhere (`#decision-<id>`) is the one Ask AI
+  // means by "this decision".
+  useAskAiPageContext(linkedDecisionId ? [{ kind: "decision", id: linkedDecisionId }] : null);
   const [rows, setRows] = React.useState<Decision[] | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [loadError, setLoadError] = React.useState<string | null>(null);

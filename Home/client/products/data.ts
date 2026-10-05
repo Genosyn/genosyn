@@ -420,8 +420,8 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         icon: "bot",
-        title: "The Base Assistant knows the schema and suggests changes",
-        body: "A slide-over chat hands your question to an AI Employee loaded with the Base's schema, and it comes back with suggested changes. Applying them stays your call, which keeps the blast radius small.",
+        title: "Ask AI already knows the Base you have open",
+        body: "Press Ask AI in the top bar and a granted AI Employee sees the tables, fields and the record in front of you. It explains, suggests changes, or makes them when you ask — with its Base Grant and your authority, never more.",
       },
       {
         icon: "keyRound",

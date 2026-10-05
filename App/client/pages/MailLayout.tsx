@@ -36,6 +36,7 @@ import { Menu, MenuItem } from "../components/ui/Menu";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
+import { useAskAiMailComposer } from "../components/askAi/AskAiProvider";
 
 /**
  * Layout + sidebar for `/c/:slug/mail/*` — the Email section (M25).
@@ -320,6 +321,9 @@ export default function MailLayout({ company }: { company: Company }) {
     setComposeSession((current) => current + 1);
     setComposeOpen(true);
   }, []);
+
+  // A "Reply" button an AI Employee suggested in Ask AI opens this composer.
+  useAskAiMailComposer(openCompose);
 
   // `c` composes from anywhere in the mail section. It is the one mail shortcut
   // that is not list-scoped, so it belongs to the layout that owns the composer

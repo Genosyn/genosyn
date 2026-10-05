@@ -12,6 +12,7 @@ import {
   PanelLeft,
   Plug,
   ServerCog,
+  Sparkles,
   Sun,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
@@ -30,6 +31,8 @@ import { KeyboardShortcutsProvider, useKeyboardShortcuts } from "./KeyboardShort
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useNavigationGuard } from "./NavigationGuard";
 import { useTheme, Theme } from "./Theme";
+import { ASK_AI_SHORTCUT, AskAiProvider, useAskAi } from "./askAi/AskAiProvider";
+import { AskAiPanel } from "./askAi/AskAiPanel";
 
 /**
  * App chrome:
@@ -98,6 +101,7 @@ export function AppShell({
         <CommandRegistryProvider>
           <CommandPaletteProvider companyId={current.id} companySlug={current.slug}>
             <ContextualSidebarContext.Provider value={sidebarState}>
+              <AskAiProvider>
               <div className="flex h-full flex-col">
                 <a
                   href="#main-content"
@@ -120,13 +124,53 @@ export function AppShell({
                   current={current}
                   onCompaniesChanged={onCompaniesChanged}
                 />
-                <div className="flex min-h-0 flex-1">{children}</div>
+                <div className="flex min-h-0 flex-1">
+                  {children}
+                  <AskAiDock company={current} />
+                </div>
               </div>
+              </AskAiProvider>
             </ContextualSidebarContext.Provider>
           </CommandPaletteProvider>
         </CommandRegistryProvider>
       </KeyboardShortcutsProvider>
     </CompanySocketProvider>
+  );
+}
+
+/** The Ask AI panel, docked beside whatever page is open. */
+function AskAiDock({ company }: { company: Company }) {
+  const askAi = useAskAi();
+  if (!askAi?.open) return null;
+  // Keyed by company: switching companies starts from that company's own
+  // conversations rather than briefly showing the previous one's.
+  return <AskAiPanel key={company.id} company={company} />;
+}
+
+/**
+ * The top nav's Ask AI button. Opens a chat with any AI Employee — or several
+ * — that already knows what is on screen.
+ */
+function AskAiButton() {
+  const askAi = useAskAi();
+  if (!askAi) return null;
+  return (
+    <button
+      type="button"
+      onClick={askAi.toggle}
+      className={
+        "flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium sm:px-2.5 " +
+        (askAi.open
+          ? "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200"
+          : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800")
+      }
+      title={`Ask AI about this page (${ASK_AI_SHORTCUT})`}
+      aria-label="Ask AI"
+      aria-pressed={askAi.open}
+    >
+      <Sparkles size={15} className="text-violet-600 dark:text-violet-300" />
+      <span className="hidden sm:inline">Ask AI</span>
+    </button>
   );
 }
 
@@ -272,14 +316,16 @@ function TopNav({
 
       <SectionMenu current={section} />
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        <AskAiButton />
         <button
           onClick={() => {
             const destination = `/c/${current.slug}/help`;
             if (!navigationGuard.request(destination)) navigate(destination);
           }}
+          // Phones reach Help from the section menu; the bar is full there.
           className={
-            "flex h-8 w-8 items-center justify-center rounded-md " +
+            "hidden h-8 w-8 items-center justify-center rounded-md sm:flex " +
             (sectionKey === "help"
               ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
               : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")
@@ -299,7 +345,11 @@ function TopNav({
           <Keyboard size={16} />
         </button>
         <NotificationsPanel company={current} meId={me.id} />
-        <ThemeToggle />
+        {/* Phones follow the system theme; the bar has no room for a third
+            icon there once Ask AI sits in it. */}
+        <div className="hidden sm:block">
+          <ThemeToggle />
+        </div>
         <div className="relative">
           <button
             onClick={() => {

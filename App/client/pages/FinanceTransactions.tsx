@@ -31,6 +31,7 @@ import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import { useAskAi, useAskAiPageContext } from "../components/askAi/AskAiProvider";
 
 type ReviewSummary = {
   unreviewed: number;
@@ -762,6 +763,14 @@ function TransactionReviewModal({
   const [note, setNote] = React.useState(entry.reviewNote ?? "");
   const [busy, setBusy] = React.useState<null | "approve" | "return">(null);
   const [error, setError] = React.useState<string | null>(null);
+  // The open transaction is what Ask AI means by "this one". The modal covers
+  // the top bar, so it carries its own way in.
+  const askAi = useAskAi();
+  const askAiRef = React.useMemo(
+    () => [{ kind: "transaction" as const, id: entry.id }],
+    [entry.id],
+  );
+  useAskAiPageContext(askAiRef);
 
   const changes = entry.lines
     .filter((line) => categories[line.id] && categories[line.id] !== line.accountId)
@@ -820,6 +829,21 @@ function TransactionReviewModal({
           >
             {statusLabel(entry.reviewStatus)}
           </span>
+          {askAi && (
+            <div className="mt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  askAi.ask({ refs: askAiRef });
+                  onClose();
+                }}
+                title="Ask AI about this transaction"
+              >
+                <Sparkles size={13} /> Ask AI
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 

@@ -427,4 +427,86 @@ describe("assistant panel follow-up sessions", () => {
     assert.equal(h.session.getSnapshot().target?.id, "next-employee");
     assert.equal(h.session.getSnapshot().modelId, "next-model");
   });
+
+  test("a message owed several answers streams each in turn and holds follow-ups until all finish", async (t) => {
+    const h = harness();
+    t.after(() => h.session.dispose());
+    h.session.send({
+      message: "@alex @sam thoughts?",
+      attachments: [],
+      employeeIds: ["alex", "sam"],
+      payload: { page: "/c/acme/finance/invoices/inv-1" },
+    });
+    h.session.send({ message: "Follow-up", attachments: [] });
+    await until(() => h.calls.length === 1);
+    assert.deepEqual(h.calls[0].item.employeeIds, ["alex", "sam"]);
+    assert.deepEqual(h.calls[0].item.payload, { page: "/c/acme/finance/invoices/inv-1" });
+
+    const user = message("user-0", "user", "@alex @sam thoughts?");
+    const alex = { ...message("alex-0", "assistant", "", "working"), employeeId: "alex" };
+    const sam = { ...message("sam-0", "assistant", "", "queued"), employeeId: "sam" };
+    h.rows.push(user, alex, sam);
+    h.calls[0].emit("user", user);
+    h.calls[0].emit("working", alex);
+    h.calls[0].emit("queued", sam);
+    h.calls[0].emit("chunk", { text: "Alex says" });
+    assert.equal(h.session.getSnapshot().streaming, "Alex says");
+    assert.deepEqual(
+      h.session.getSnapshot().messages?.map((row) => [row.id, row.status]),
+      [
+        ["user-0", null],
+        ["alex-0", "working"],
+        ["sam-0", "queued"],
+      ],
+    );
+
+    const alexDone = { ...alex, content: "Alex says yes", status: "ok" as const };
+    h.rows[1] = alexDone;
+    h.calls[0].emit("assistant", alexDone);
+    const samWorking = { ...sam, status: "working" as const };
+    h.rows[2] = samWorking;
+    h.calls[0].emit("working", samWorking);
+    assert.equal(h.session.getSnapshot().streaming, null, "the next answer starts with no text");
+    h.calls[0].emit("chunk", { text: "Sam" });
+    assert.equal(h.session.getSnapshot().streaming, "Sam", "and never inherits the previous one's");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(h.calls.length, 1, "the follow-up waits while an answer is still owed");
+
+    const samDone = { ...sam, content: "Sam says no", status: "ok" as const };
+    h.rows[2] = samDone;
+    h.calls[0].emit("assistant", samDone);
+    h.calls[0].finish();
+    await until(() => h.calls.length === 2);
+    assert.equal(h.calls[1].item.message, "Follow-up");
+  });
+
+  test("a stream lost between two answers is followed until every owed answer finishes", async (t) => {
+    const h = harness();
+    t.after(() => h.session.dispose());
+    h.session.send({ message: "@alex @sam go", attachments: [], employeeIds: ["alex", "sam"] });
+    h.session.send({ message: "Next", attachments: [] });
+    await until(() => h.calls.length === 1);
+    const user = message("user-0", "user", "@alex @sam go");
+    const alex = { ...message("alex-0", "assistant", "", "working"), employeeId: "alex" };
+    const sam = { ...message("sam-0", "assistant", "", "queued"), employeeId: "sam" };
+    h.rows.push(user, alex, sam);
+    h.calls[0].emit("user", user);
+    h.calls[0].emit("working", alex);
+    h.calls[0].emit("queued", sam);
+    const alexDone = { ...alex, content: "Alex done", status: "ok" as const };
+    h.rows[1] = alexDone;
+    h.calls[0].emit("assistant", alexDone);
+    // The connection drops before Sam starts; the server carries on.
+    h.calls[0].fail(new Error("Connection closed"));
+    await until(() => h.loads() >= 2);
+    assert.equal(h.calls.length, 1, "nothing new is sent while Sam's answer is queued");
+    h.rows[2] = { ...sam, content: "Sam done", status: "ok" };
+    await until(() => h.calls.length === 2);
+    assert.equal(h.calls[1].item.message, "Next");
+    assert.deepEqual(
+      h.session.getSnapshot().messages?.filter((row) => row.role === "assistant").map((row) => row.status),
+      ["ok", "ok"],
+    );
+  });
 });
+

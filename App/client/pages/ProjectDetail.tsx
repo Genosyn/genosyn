@@ -1,6 +1,7 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   LayoutList,
   Columns3,
@@ -207,6 +208,10 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [peekId, canEdit]);
+
+  // The URL names the Project; the peeked Todo is only in state, so tell Ask AI.
+  const peekedTodoId = peekId && data?.todos.some((t) => t.id === peekId) ? peekId : null;
+  useAskAiPageContext(peekedTodoId ? [{ kind: "todo", id: peekedTodoId }] : null);
 
   if (!data) {
     return (

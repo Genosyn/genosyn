@@ -110,6 +110,8 @@ import { MeetingParticipant } from "../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../db/entities/MeetingTranscriptSegment.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
+import { AskAiConversation } from "../db/entities/AskAiConversation.js";
+import { AskAiMessage } from "../db/entities/AskAiMessage.js";
 import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
@@ -485,6 +487,9 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MailHandover, { companyId });
     await m.delete(MailChatMessage, { companyId });
     await m.delete(RoutineChatMessage, { companyId });
+    // Ask AI conversations are company-scoped, Member-owned transcripts.
+    await m.delete(AskAiMessage, { companyId });
+    await m.delete(AskAiConversation, { companyId });
     await m.delete(MailAccount, { companyId });
     // Calendar + Meetings (M44). Same shape as mail: the grant carries no
     // companyId so it goes by this company's employees, then leaf-first

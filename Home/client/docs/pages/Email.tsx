@@ -230,8 +230,9 @@ export function Email() {
       </P>
       <P>
         Press <Code>Enter</Code> to peek at a draft inline, or open it for full review: the whole
-        message, its attachments, the message it is replying to, the Run that produced it, and the
-        thread&apos;s AI chat — all in one panel, without leaving the queue.
+        message, its attachments, the message it is replying to, and the Run that produced it — all
+        in one panel, without leaving the queue. Its <Strong>Ask AI</Strong> button hands that draft
+        to <DocLink to="/docs/email#assistant">Ask AI</DocLink>.
       </P>
 
       <H3 id="sending-in-bulk">Marking drafts to send, and sending everything</H3>
@@ -432,44 +433,36 @@ export function Email() {
         <DocLink to="/docs/email#access">AI access</DocLink> for that.
       </Callout>
 
-      <H2 id="assistant">AI chat on every email</H2>
+      <H2 id="assistant">Ask AI about an email</H2>
       <P>
-        Open any email and its <Strong>Ask AI</Strong> chat is already docked beside it. Type what
-        you want directly — &ldquo;summarize this email&rdquo;, &ldquo;draft a reply&rdquo;,
-        &ldquo;make this draft shorter and friendlier&rdquo;, or &ldquo;label and archive
-        this&rdquo;. Type <Code>@</Code> when you want to choose a particular AI Employee. The
-        employee you tagged stays on that email until you tag somebody else. Type <Code>#</Code> to
-        attach a product area or company resource to the instruction, or <Code>/new</Code> by itself
-        to clear this email&apos;s AI context. Use several <Code>#</Code> tags when the work crosses
-        products—for example an account, Invoices, and a Workspace channel. The same panel sits
-        beside every <DocLink to="/docs/routines#assistant">Routine</DocLink>, where it answers
-        about the schedule and the Run log instead.
+        Open an email and press <Strong>Ask AI</Strong> in the top bar (or <Code>⌘J</Code> /{" "}
+        <Code>Ctrl J</Code>). The thread you are reading is already in the chat — its chip shows
+        above the message box — so type what you want directly: &ldquo;summarize this email&rdquo;,
+        &ldquo;draft a reply&rdquo;, &ldquo;make this draft shorter and friendlier&rdquo;, or
+        &ldquo;label and archive this&rdquo;. Type <Code>@</Code> to choose an AI Employee, or tag
+        two or three to hear from each of them in turn. Reviewing a draft from the Drafts queue? The
+        draft under your cursor is what &ldquo;this draft&rdquo; means. Everything about the panel
+        itself — conversations, queued follow-ups, model choice, files — is on the{" "}
+        <DocLink to="/docs/ask-ai">Ask AI</DocLink> page.
       </P>
       <P>
-        Every email has an independent chat, including each item in the Drafts review queue, so
-        instructions and replies never bleed into another conversation. The employee already has the
-        opened email and current draft in context — no ids or copy-pasting. With{" "}
-        <Strong>Draft</Strong>
-        access it can rewrite the actual draft in place, and the review pane refreshes with the
-        result. An employee without mailbox access can chat but cannot see or change the email.
-        Everything it actually does appears as a small action pill under its reply.
+        What an employee can see follows its mailbox Grant. With <Strong>Read</Strong> access or
+        above it gets the thread transcript, the files on it, and the unsent drafts; with{" "}
+        <Strong>Draft</Strong> access it can rewrite the actual draft in place. An employee without a
+        Grant on that mailbox is told only that an email is open — not its subject, not its
+        contents — and the composer warns you before you send that it won&apos;t be shown. Earlier
+        answers that quoted the email are withheld from it too.
       </P>
       <P>
-        A visible working status stays beside the composer while the employee replies, including
-        after text starts appearing. You can keep typing, attach files, and press{" "}
-        <Strong>Queue message</Strong> to add a follow-up. Pending messages appear in order above
-        the composer; remove any message before it starts. Each one sends after the reply ahead of
-        it finishes. Switching emails or navigating elsewhere in the app keeps the queue with its
-        original conversation. If a reply fails, pending messages stay queued until you resume them.
-      </P>
-      <P>
-        Replies can also carry <Strong>action buttons</Strong> — concrete next steps the employee
+        Replies can carry <Strong>action buttons</Strong> — concrete next steps the employee
         proposes that run with <em>your</em> authority when you click them: open a pre-filled reply,
         send a draft it just wrote, archive or label the thread, start a handover, or create an
         inbox rule it spotted a pattern for. That is the human-in-the-loop sweet spot: an employee
         on the default <Strong>Draft</Strong> level can prepare and propose a send, and the send
         happens only when you press the button. Buttons that consume something (send, triage,
-        handover, rule) are marked done after they run, so a reload can&apos;t re-arm them.
+        handover, rule) are marked done after they run, so a reload can&apos;t re-arm them. A{" "}
+        <Strong>Reply</Strong> button opens the Email composer, switching to Email first if you
+        asked from elsewhere.
       </P>
       <P>
         <Strong>Files go both ways.</Strong> An employee can open anything attached to the email
@@ -480,30 +473,6 @@ export function Email() {
         so the reply leaves with the paperwork on it. If the blank form isn&apos;t on the thread at
         all, the employee can search the web for the current version, check the page, and download
         it to work on.
-      </P>
-      <P>
-        You can attach files to the chat too — the paperclip in the composer. Text, Markdown, CSV
-        and PDF contents are read directly; anything else is announced by name so the employee knows
-        it arrived. Files in an email&apos;s chat are visible to anyone who can open that mailbox,
-        since the conversation belongs to the email rather than to one person.
-      </P>
-      <P>
-        <Strong>Picking the model.</Strong> When the tagged employee has more than one connected{" "}
-        <DocLink to="/docs/models">AI Model</DocLink>, a selector appears under the composer. It
-        defaults to that employee&apos;s active model, and an email&apos;s chat stays on whichever
-        model answered last — so reopening it days later does not quietly continue on a different
-        brain. Tagging a different employee switches to their models.
-      </P>
-      <P>
-        A reply in progress belongs to the server, not to your browser tab. Work that takes a while
-        shows as <Strong>working</Strong> beside the email; if the connection drops, the panel says{" "}
-        <Strong>reconnecting</Strong> and picks the same reply back up when it lands — closing the
-        panel, switching threads, or reloading the page is safe. Each email thread is answered
-        independently, so a reply running on one email never holds up the one you are reading; only
-        a second message on the <em>same</em> email waits its turn, and it waits instead of asking
-        you to send it again. Replies that genuinely could not run — the server restarted
-        mid-answer, or the employee stayed busy for several minutes — say so plainly and offer{" "}
-        <Strong>Try again</Strong>, which re-sends that same instruction.
       </P>
 
       <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>
@@ -680,7 +649,7 @@ export function Email() {
       <P>
         Granted employees get mail tools on the built-in <Code>genosyn</Code> MCP
         surface to list accounts, search and read threads, write drafts, triage
-        (label / archive / mark read), edit existing drafts, propose the email chat&apos;s{" "}
+        (label / archive / mark read), edit existing drafts, propose Ask AI&apos;s{" "}
         <DocLink to="/docs/email#assistant">action buttons</DocLink>, and — with{" "}
         <Strong>send</Strong> access — send. Search runs over the same full-text index humans use
         and takes structured filters (sender, recipient, date range, label, has-attachment), so an

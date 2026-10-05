@@ -48,7 +48,7 @@ export function Browser() {
         That last one is the useful chain: an employee working an email thread can find the current
         version of a form online, download it, complete it from what your company already knows, and
         attach the finished file to a Gmail draft. See{" "}
-        <DocLink to="/docs/email#assistant">AI chat on every email</DocLink>.
+        <DocLink to="/docs/email#assistant">Ask AI about an email</DocLink>.
       </P>
       <P>
         Every request goes through the same outbound guard as the rest of the product: http(s) only,

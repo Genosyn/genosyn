@@ -34,6 +34,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Ask any AI Employee about the product and its shipped source code.",
       },
       {
+        path: "/docs/ask-ai",
+        title: "Ask AI",
+        blurb:
+          "Ask any AI Employee — or several at once — about the record on screen, within their Grants.",
+      },
+      {
         path: "/docs/mobile",
         title: "Install on your phone",
         blurb: "Add Genosyn to your home screen as a PWA — iOS, Android, desktop.",

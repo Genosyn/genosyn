@@ -74,7 +74,6 @@ import {
   normalizeSignatureEmail,
   reconcileSignatureDraftSave,
   resizeSignatureFieldGeometry,
-  signatureAiHandoffPrompt,
   signatureCalendarDateForOffset,
   signatureDateInputToEndOfDayIso,
   signatureFieldValueIsComplete,
@@ -165,27 +164,6 @@ describe("signing date helpers", () => {
       { width: 320, height: 414 },
     );
     closeTo(middleHandle.left, (0.45 + checkbox.width) * 320);
-  });
-
-  test("keeps the Ask AI handoff inside the signing tools' real capabilities", () => {
-    const draft = signatureAiHandoffPrompt({
-      id: "envelope-1",
-      title: "Mutual NDA",
-      status: "draft",
-    });
-    assert.match(draft, /saved setup/);
-    assert.match(draft, /cannot read the source PDF contents or edit this existing draft/);
-    assert.match(draft, /Do not send, remind, or void/);
-    assert.doesNotMatch(draft, /review the PDF/i);
-
-    const sent = signatureAiHandoffPrompt({
-      id: "envelope-2",
-      title: "Services agreement",
-      status: "sent",
-    });
-    assert.match(sent, /recipient progress, routing, delivery state, and the evidence trail/);
-    assert.match(sent, /never claim to have seen private signing links or signature values/);
-    assert.match(sent, /Do not send a reminder or void/);
   });
 
   test("offers completion recovery only to the completed signer of an all-signed saga", () => {

@@ -1,4 +1,4 @@
-import { api, MessageAction } from "./api";
+import { api } from "./api";
 
 /**
  * Types + REST client for the Email section (M25). Kept out of `lib/api.ts`
@@ -332,9 +332,12 @@ export type UpdateDraftInput = Omit<ComposeInput, "threadId"> & {
   keepAttachmentIndexes?: number[];
 };
 
-// ───────────────────────────── assistant ─────────────────────────────
+// ───────────────────────────── AI Employees ─────────────────────────────
 
-/** One structured action button an employee proposed via `suggest_mail_actions`. */
+/**
+ * One structured action button an employee proposed via `suggest_mail_actions`
+ * while answering in Ask AI with an email open.
+ */
 export type MailSuggestion = {
   id: string;
   kind: "reply" | "send_draft" | "thread_action" | "open_thread" | "hand_over" | "create_rule";
@@ -364,33 +367,7 @@ export type MailSuggestion = {
   executedAt?: string;
 };
 
-/** A file on an email-chat turn — uploaded by the human or produced by the AI. */
-export type MailAssistantAttachment = {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  isImage: boolean;
-};
-
-export type MailAssistantMessage = {
-  id: string;
-  accountId: string;
-  threadId: string | null;
-  role: "user" | "assistant";
-  employeeId: string | null;
-  /** The AI Model the turn ran on; null on human rows. */
-  modelId: string | null;
-  content: string;
-  /** `working` is an in-flight reply the panel follows until it resolves. */
-  status: "working" | "ok" | "skipped" | "error" | null;
-  actions: MessageAction[];
-  suggestions: MailSuggestion[];
-  attachments: MailAssistantAttachment[];
-  createdAt: string;
-};
-
-/** One brain an employee can answer on, for the panel's model picker. */
+/** One brain an employee can answer on, for the mailbox's AI pickers. */
 export type MailAssistantModel = {
   id: string;
   provider: "anthropic" | "openai" | "custom";
@@ -851,46 +828,6 @@ export const mailApi = {
     api.del<{ ok: true }>(`${base(cid)}/accounts/${aid}/grants/${gid}`),
   grantCandidates: (cid: string, aid: string) =>
     api.get<{ candidates: MailGrantCandidate[] }>(`${base(cid)}/accounts/${aid}/grant-candidates`),
-
-  assistant: (cid: string, aid: string, threadId: string) =>
-    api.get<{
-      messages: MailAssistantMessage[];
-      roster: MailAssistantRosterEntry[];
-      /** The model the last answered turn ran on, when it is still usable. */
-      modelId: string | null;
-    }>(`${base(cid)}/accounts/${aid}/assistant?threadId=${encodeURIComponent(threadId)}`),
-  assistantSend: (
-    cid: string,
-    aid: string,
-    input: {
-      message: string;
-      threadId: string;
-      focusedMessageId?: string;
-      employeeId?: string;
-      attachmentIds?: string[];
-      modelId?: string | null;
-    },
-    onEvent: (event: string, data: unknown) => void,
-    opts: { signal?: AbortSignal } = {},
-  ) => api.stream(`${base(cid)}/accounts/${aid}/assistant/messages`, input, onEvent, opts),
-  /** Upload a file into an email's AI chat; the id travels with the next send. */
-  assistantUpload: (cid: string, aid: string, file: File) =>
-    api
-      .uploadFile<{
-        attachment: MailAssistantAttachment;
-      }>(`${base(cid)}/accounts/${aid}/assistant/attachments`, file)
-      .then((r) => r.attachment),
-  assistantAttachmentUrl: (cid: string, aid: string, attachmentId: string) =>
-    `${base(cid)}/accounts/${aid}/assistant/attachments/${attachmentId}`,
-  assistantClear: (cid: string, aid: string, threadId: string) =>
-    api.del<{ ok: true }>(
-      `${base(cid)}/accounts/${aid}/assistant/messages?threadId=${encodeURIComponent(threadId)}`,
-    ),
-  assistantMarkExecuted: (cid: string, mid: string, sid: string) =>
-    api.post<{ message: MailAssistantMessage }>(
-      `${base(cid)}/assistant/messages/${mid}/suggestions/${sid}/executed`,
-      {},
-    ),
 };
 
 /** "2h ago"-style short timestamp for thread rows. */

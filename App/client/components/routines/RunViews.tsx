@@ -5,7 +5,6 @@ import {
   Ban,
   CheckCircle2,
   Download,
-  FileText,
   Loader2,
   Receipt,
   RotateCcw,
@@ -35,9 +34,15 @@ import { FormError } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
 import { errorMessage } from "@/lib/errors";
 import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
-import { RunExplanation, runExplanationLabel } from "@/components/routines/RunExplanation";
+import { useAskAi, useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
-import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
+import {
+  runExplanationLabel,
+  runExplanationPrompt,
+  runNeedsAttention,
+  runStatusHint,
+  runStatusLabel,
+} from "@/lib/runStatus";
 
 /**
  * Shared rendering for Runs — one execution of a Routine. Lives here rather
@@ -953,7 +958,6 @@ type RunLiveModalProps = {
   onClose: () => void;
   onRetry?: () => void | Promise<void>;
   onResumed?: (run: Run) => void | Promise<void>;
-  initialView?: "log" | "explanation";
 };
 
 export function RunLiveModal(props: RunLiveModalProps) {
@@ -964,7 +968,6 @@ export function RunLiveModal(props: RunLiveModalProps) {
       {...props}
       key={run.id}
       run={run}
-      initialView={run.id === props.run.id ? props.initialView : "log"}
       onResumed={async (next) => {
         setResumed({ sourceRunId: props.run.id, run: next });
         await props.onResumed?.(next);
@@ -982,7 +985,6 @@ function RunLiveModalContent({
   onRetry,
   onResumed,
   onOpenRun,
-  initialView = "log",
 }: RunLiveModalProps & {
   onResumed: (run: Run) => void | Promise<void>;
   onOpenRun: (run: RunFollowUp) => void;
@@ -991,12 +993,12 @@ function RunLiveModalContent({
   const [error, setError] = React.useState<string | null>(null);
   const preRef = React.useRef<HTMLPreElement>(null);
   const userScrolledRef = React.useRef(false);
-  const [view, setView] = React.useState(initialView);
-  const [explanationOpened, setExplanationOpened] = React.useState(initialView === "explanation");
+  const askAi = useAskAi();
+  // While this Run is open, Ask AI's "this" means it.
+  const runRef = React.useMemo(() => [{ kind: "run" as const, id: initialRun.id }], [initialRun.id]);
+  useAskAiPageContext(runRef);
   const [cancelling, setCancelling] = React.useState(false);
   const [retrying, setRetrying] = React.useState(false);
-
-  const tabsId = React.useId();
   const status: RunStatus = log?.status ?? initialRun.status;
   const isQueued = status === "queued";
   const isTerminal = !isQueued && status !== "running";
@@ -1040,9 +1042,9 @@ function RunLiveModalContent({
   // — reading mid-log shouldn't get yanked out from under them.
   React.useEffect(() => {
     const el = preRef.current;
-    if (!el || view !== "log" || userScrolledRef.current) return;
+    if (!el || userScrolledRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [log?.content, view]);
+  }, [log?.content]);
 
   function handleScroll() {
     const el = preRef.current;
@@ -1098,27 +1100,6 @@ function RunLiveModalContent({
     },
   ];
 
-  function selectView(next: "log" | "explanation") {
-    if (next === "explanation") setExplanationOpened(true);
-    setView(next);
-  }
-
-  function navigateTabs(event: React.KeyboardEvent<HTMLButtonElement>) {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const tabs = Array.from(
-      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-    );
-    const current = tabs.indexOf(event.currentTarget);
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? tabs.length - 1
-          : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-    tabs[next]?.focus();
-  }
-
   return (
     <Modal
       open
@@ -1154,6 +1135,24 @@ function RunLiveModalContent({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {askAi && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    // The modal covers the panel, so hand the Run over and
+                    // get out of the way; it stays in Ask AI's context.
+                    askAi.ask({
+                      refs: runRef,
+                      prompt: needsAttention ? runExplanationPrompt(status) : undefined,
+                    });
+                    onClose();
+                  }}
+                  title="Ask AI about this Run"
+                >
+                  <Sparkles size={13} /> {needsAttention ? runExplanationLabel(status) : "Ask AI"}
+                </Button>
+              )}
               <RunResumeButton
                 company={company}
                 routineName={routine.name}
@@ -1214,63 +1213,10 @@ function RunLiveModalContent({
             </div>
           )}
         </div>
-        {needsAttention && (
-          <div
-            role="tablist"
-            aria-label="Run details"
-            className="flex shrink-0 gap-5 border-b border-slate-200 px-4 sm:px-5 dark:border-slate-800"
-          >
-            {(
-              [
-                { id: "log", label: "Run log", icon: FileText },
-                { id: "explanation", label: runExplanationLabel(status), icon: Sparkles },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                id={`${tabsId}-${tab.id}`}
-                aria-controls={`${tabsId}-${tab.id}-panel`}
-                aria-selected={view === tab.id}
-                tabIndex={view === tab.id ? 0 : -1}
-                onClick={() => selectView(tab.id)}
-                onKeyDown={navigateTabs}
-                className={
-                  "-mb-px inline-flex items-center gap-2 border-b-2 py-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:text-sm " +
-                  (view === tab.id
-                    ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-300"
-                    : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200")
-                }
-              >
-                <tab.icon size={14} aria-hidden="true" /> {tab.label}
-              </button>
-            ))}
-          </div>
-        )}
         {error && <FormError message={error} className="mx-4 mt-3 sm:mx-5" />}
-        {explanationOpened && (
-          <div
-            hidden={view !== "explanation"}
-            role="tabpanel"
-            id={`${tabsId}-explanation-panel`}
-            aria-labelledby={`${tabsId}-explanation`}
-            className="min-h-0 flex-1 [@media(max-height:500px)]:min-h-[380px] [@media(max-height:500px)]:shrink-0"
-          >
-            <RunExplanation
-              key={`${company.id}:${initialRun.id}`}
-              companyId={company.id}
-              runId={initialRun.id}
-              active={view === "explanation"}
-            />
-          </div>
-        )}
         <div
-          hidden={view !== "log"}
-          role={needsAttention ? "tabpanel" : undefined}
-          id={`${tabsId}-log-panel`}
-          aria-labelledby={needsAttention ? `${tabsId}-log` : undefined}
-          tabIndex={view === "log" ? 0 : -1}
+          tabIndex={0}
+          aria-label="Run log"
           className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5 [@media(max-height:500px)]:min-h-[300px] [@media(max-height:500px)]:shrink-0"
         >
           <RunContinuationNotice

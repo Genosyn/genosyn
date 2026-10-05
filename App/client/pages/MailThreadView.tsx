@@ -33,7 +33,7 @@ import {
 } from "../lib/mail";
 import { MailAnalysisCard } from "./MailAnalysisCard";
 import { MailOutletCtx } from "./MailLayout";
-import { MailAssistant } from "./MailAssistant";
+import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { Button } from "../components/ui/Button";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
@@ -288,6 +288,15 @@ export default function MailThreadView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread?.id, thread?.unread]);
 
+  // The thread is already in the URL. Its newest unsent draft is what Ask AI
+  // should mean by "this draft".
+  const newestDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
+  useAskAiPageContext(
+    thread && newestDraftId
+      ? [{ kind: "mail_thread", id: thread.id, focusId: newestDraftId }]
+      : null,
+  );
+
   const base = `/c/${company.slug}/mail`;
 
   if (notFound) {
@@ -343,8 +352,6 @@ export default function MailThreadView() {
   };
 
   const latestAnalysis = currentMailAnalysis(analyses, thread.aiReview);
-
-  const focusedDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
 
   return (
     <div className="flex min-h-full flex-col xl:h-full xl:min-h-0 xl:flex-row xl:overflow-hidden">
@@ -579,15 +586,6 @@ export default function MailThreadView() {
           />
         </div>
       </main>
-      <aside className="min-h-[30rem] shrink-0 border-t border-slate-200 bg-white xl:min-h-0 xl:w-[23rem] xl:border-l xl:border-t-0 dark:border-slate-800 dark:bg-slate-950">
-        <MailAssistant
-          company={company}
-          account={account}
-          threadId={thread.id}
-          focusedMessageId={focusedDraftId}
-          openCompose={openCompose}
-        />
-      </aside>
     </div>
   );
 }

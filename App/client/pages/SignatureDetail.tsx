@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
-  Bot,
   Calendar,
   CheckSquare,
   CheckCircle2,
@@ -24,7 +23,7 @@ import {
   UserPlus,
   XCircle,
 } from "lucide-react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { useNavigationGuard } from "@/components/NavigationGuard";
 import { PdfCanvasRenderer } from "@/components/signatures/PdfCanvasRenderer";
@@ -33,11 +32,10 @@ import { useDialog } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
-import { api, type Customer, type Employee } from "@/lib/api";
+import { api, type Customer } from "@/lib/api";
 import { customerOptionLabel } from "@/lib/customerLabel";
 import { errorMessage } from "@/lib/errors";
 import {
@@ -55,7 +53,6 @@ import {
   normalizeEnvelopeDetail,
   reconcileSignatureDraftSave,
   recipientStatusClasses,
-  signatureAiHandoffPrompt,
   signatureDateInputToEndOfDayIso,
   signatureEditorShortcut,
   signatureFieldPageSummary,
@@ -72,7 +69,6 @@ import {
   signatureStatusClasses,
   visibleSignaturePage,
   type SignatureEnvelopeDetail,
-  type SignatureAccessLevel,
   type SignatureField,
   type SignatureFieldType,
   type SignaturePageSummary,
@@ -93,7 +89,6 @@ const FIELD_ICONS: Record<SignatureFieldType, React.ReactNode> = {
 };
 
 type DraftRecipient = SignatureRecipient & { id: string };
-type SigningAiCandidate = { employee: Employee; accessLevel: SignatureAccessLevel };
 
 function recipientColorStyle(recipientId: string): React.CSSProperties {
   return signatureRecipientColor(recipientId).cssVariables as React.CSSProperties;
@@ -135,9 +130,6 @@ export default function SignatureDetail() {
   const [acting, setActing] = React.useState<
     null | "send" | "duplicate" | "void" | "delete" | `remind:${string}`
   >(null);
-  const [preparingAiHandoff, setPreparingAiHandoff] = React.useState(false);
-  const [aiCandidates, setAiCandidates] = React.useState<SigningAiCandidate[]>([]);
-  const [selectedAiEmployeeId, setSelectedAiEmployeeId] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
@@ -822,74 +814,6 @@ export default function SignatureDetail() {
     }
   }
 
-  function openAiChat(employee: Employee, current: SignatureEnvelopeDetail = detail!) {
-    setAiCandidates([]);
-    const destination = `/c/${company.slug}/employees/${employee.slug}/chat`;
-    const completeNavigation = () => {
-      const savedDetail = latestSavedDetailRef.current ?? current;
-      navigate(destination, {
-        state: { starterPrompt: signatureAiHandoffPrompt(savedDetail.envelope) },
-      });
-    };
-    if (navigationGuard.request(destination, completeNavigation)) return;
-    if (isDraft && (dirtyRef.current || saveInFlightRef.current)) {
-      void leaveDraft(destination, completeNavigation);
-      return;
-    }
-    completeNavigation();
-  }
-
-  async function askAi() {
-    setPreparingAiHandoff(true);
-    try {
-      const saved =
-        isDraft && dirtyRef.current
-          ? await saveDraft()
-          : detail
-            ? { detail, current: true }
-            : null;
-      if (!saved?.current) return;
-      const response = await api.get<unknown>(`/api/companies/${company.id}/signatures/ai-access`);
-      const rows = Array.isArray(response)
-        ? (response as Array<{
-            employee?: Employee;
-            grant?: { accessLevel?: SignatureAccessLevel };
-          }>)
-        : [];
-      const candidates = rows.flatMap((row): SigningAiCandidate[] =>
-        row.employee && row.grant?.accessLevel
-          ? [{ employee: row.employee, accessLevel: row.grant.accessLevel }]
-          : [],
-      );
-      if (candidates.length === 0) {
-        await dialog.alert({
-          title: "Give an AI Employee signing access first",
-          message: (
-            <span>
-              Open{" "}
-              <Link className="text-indigo-600 underline" to={`${routeBase}/ai-access`}>
-                AI access
-              </Link>{" "}
-              and start with Read only. That is enough to check readiness and status without
-              changing anything.
-            </span>
-          ),
-        });
-        return;
-      }
-      if (candidates.length === 1) {
-        openAiChat(candidates[0].employee, saved.detail);
-        return;
-      }
-      setAiCandidates(candidates);
-      setSelectedAiEmployeeId(candidates[0].employee.id);
-    } catch (cause) {
-      void dialog.error(cause, { title: "Couldn’t open AI help" });
-    } finally {
-      setPreparingAiHandoff(false);
-    }
-  }
-
   if (!detail && !loadError) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -950,15 +874,6 @@ export default function SignatureDetail() {
                       : ""}
             </div>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={preparingAiHandoff}
-            disabled={saving}
-            onClick={() => void askAi()}
-          >
-            <Bot size={14} /> Ask AI
-          </Button>
           {isDraft ? (
             <>
               <Button
@@ -1143,48 +1058,6 @@ export default function SignatureDetail() {
         </div>
       )}
 
-      <Modal
-        open={aiCandidates.length > 1}
-        onClose={() => setAiCandidates([])}
-        title="Choose an AI Employee"
-      >
-        <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-          Choose who should check this request. Chat opens with a draft message for you to review;
-          nothing runs until you send it.
-        </p>
-        <Select
-          className="mt-4"
-          label="AI Employee"
-          value={selectedAiEmployeeId}
-          onChange={(event) => setSelectedAiEmployeeId(event.target.value)}
-        >
-          {aiCandidates.map((candidate) => (
-            <option key={candidate.employee.id} value={candidate.employee.id}>
-              {candidate.employee.name} · {candidate.employee.role} ·{" "}
-              {candidate.accessLevel === "read"
-                ? "Read only"
-                : candidate.accessLevel === "draft"
-                  ? "Prepare drafts"
-                  : "Send to customers"}
-            </option>
-          ))}
-        </Select>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setAiCandidates([])}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              const selected = aiCandidates.find(
-                (candidate) => candidate.employee.id === selectedAiEmployeeId,
-              );
-              if (selected) openAiChat(selected.employee);
-            }}
-          >
-            <Bot size={14} /> Open chat
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }

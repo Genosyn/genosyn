@@ -12,9 +12,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Company } from "../lib/api";
 import {
-  ComposeInput,
   DRAFT_DISCARD_CHUNK,
   MailAccount,
   MailDraft,
@@ -32,6 +30,7 @@ import { errorMessage } from "../lib/errors";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { MailBulkSendDialog, type BulkProgress } from "./MailBulkSendDialog";
 import { MailDraftDrawer } from "./MailDraftDrawer";
+import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { DraftAuthorAvatar, RoutineChip, authorName } from "../components/mail/DraftAuthor";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -72,19 +71,15 @@ type PendingBulk = { action: "send" | "discard"; preview: MailDraftSendPreview }
 type MailDraftReviewProps = {
   companyId: string;
   companySlug: string;
-  company: Company;
   account: MailAccount;
   changeTick: number;
-  openCompose: (init?: Partial<ComposeInput>) => void;
 };
 
 export function MailDraftReview({
   companyId,
   companySlug,
-  company,
   account,
   changeTick,
-  openCompose,
 }: MailDraftReviewProps) {
   const dialog = useDialog();
 
@@ -459,6 +454,13 @@ export function MailDraftReview({
 
   const activeFilterCount = (employeeId ? 1 : 0) + (routineId ? 1 : 0) + (query ? 1 : 0);
   const drawerDraft = drawerId ? (rows.find((row) => row.id === drawerId) ?? null) : null;
+  // The draft under the cursor is what Ask AI means by "this draft".
+  const cursorDraft = flatRows[cursor] ?? null;
+  useAskAiPageContext(
+    cursorDraft
+      ? [{ kind: "mail_thread", id: cursorDraft.threadId, focusId: cursorDraft.id }]
+      : null,
+  );
 
   // ───────────────────────── keyboard ─────────────────────────
 
@@ -792,13 +794,10 @@ export function MailDraftReview({
         <MailDraftDrawer
           companyId={companyId}
           companySlug={companySlug}
-          company={company}
-          account={account}
           draft={drawerDraft}
           onClose={() => setDrawerId(null)}
           onSend={sendOne}
           onDiscard={(draft) => void discardOne(draft)}
-          openCompose={openCompose}
         />
       )}
     </div>

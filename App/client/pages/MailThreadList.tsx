@@ -55,7 +55,7 @@ const VIEW_TITLES: Record<MailThreadView, string> = {
 };
 
 export default function MailThreadList() {
-  const { company, account, labels, changeTick, syncing, syncNow, openCompose } =
+  const { company, account, labels, changeTick, syncing, syncNow } =
     useOutletContext<MailOutletCtx>();
   const background = useBackgroundAction();
   const dialog = useDialog();
@@ -520,10 +520,8 @@ export default function MailThreadList() {
         <MailDraftReview
           companyId={company.id}
           companySlug={company.slug}
-          company={company}
           account={account}
           changeTick={changeTick}
-          openCompose={openCompose}
         />
       ) : loadError ? (
         <FormError message={loadError} />

@@ -2295,12 +2295,6 @@ export type BaseTemplateSummary = {
   tableNames: string[];
 };
 
-export type BaseAssistantResult = {
-  status: "ok" | "skipped" | "error";
-  reply: string;
-  employee?: { id: string; name: string; slug: string };
-};
-
 export type BaseRecordCommentAuthor =
   | {
       kind: "human";

@@ -1,6 +1,7 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import { Link, useOutletContext } from "react-router-dom";
+import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import {
   Account,
@@ -310,6 +311,8 @@ function EntryRow({
   onDelete: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
+  // An expanded entry is what Ask AI means by "this entry".
+  useAskAiPageContext(open ? [{ kind: "journal_entry", id: entry.id }] : null);
   // Ledger sources are persisted strings. Keep the Journal usable if a newer
   // backend source reaches an older client before its dedicated badge ships.
   const badge = SOURCE_BADGE[entry.source] ?? UNKNOWN_SOURCE_BADGE;

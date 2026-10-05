@@ -112,7 +112,7 @@ const tokenAttachments = new Map<string, Set<string>>();
  * hand back to whichever surface ran the turn — same lifecycle as
  * `stagedAttachments`, but keyed by a payload kind so unrelated tools don't
  * trample each other. Today the only producer is `suggest_mail_actions`
- * (kind "mail.suggestions"); per-email AI chat drains it after the turn and
+ * (kind "mail.suggestions"); Ask AI drains it after the turn and
  * renders the payloads as one-click action buttons.
  */
 const stagedSidecars = new Map<string, Map<string, unknown[]>>();

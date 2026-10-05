@@ -47,8 +47,9 @@ export function Routines() {
       </P>
       <P>
         Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
-        <Strong>Runs</Strong>, and <Strong>Settings</Strong>, with{" "}
-        <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the header. Each AI Employee
+        <Strong>Runs</Strong>, and <Strong>Settings</Strong>; press{" "}
+        <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the top bar to ask about it. Each
+        AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
         filtered to them.
       </P>
@@ -392,51 +393,24 @@ Post it to the #morning channel.`}</Pre>
 
       <H2 id="assistant">Ask AI about a routine</H2>
       <P>
-        You can paste screenshots into the AI message box, drag files onto it, or use the paperclip.
-        Review and remove attachments before sending. See{" "}
-        <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
-      </P>
-      <P>
-        Every routine has its own AI chat. Press <Strong>Ask AI</Strong> in the routine header and a
-        panel docks beside the page — the same idea as the chat beside an{" "}
-        <DocLink to="/docs/email#assistant">email</DocLink>, pointed at scheduled work instead. Drag
-        its left edge to resize it, or wind it down to a spine with the chevron; it stays how you
-        left it next time.
-      </P>
-      <P>
-        The employee that owns the routine answers by default, because the question is usually about
-        their work. They are handed the routine itself before they read your message: the schedule
-        and every setting, the brief, how the last ten <Strong>Runs</Strong> went, and the tail of
-        the newest Run&apos;s log. So &ldquo;why did last night&apos;s run fail?&rdquo; is answered
-        from the transcript rather than guessed at — and you never have to paste a log in. Type{" "}
-        <Code>@</Code> to hand the question to somebody else, <Code>#</Code> to reference another
-        company resource, or <Code>/new</Code> on its own to clear this routine&apos;s context.
+        Open a routine and press <Strong>Ask AI</Strong> in the top bar (or <Code>⌘J</Code> /{" "}
+        <Code>Ctrl J</Code>). The routine is already in the chat, and the employee that owns it
+        answers by default, because the question is usually about their work. They are handed the
+        routine itself before they read your message: the schedule and every setting, the brief, how
+        the last ten <Strong>Runs</Strong> went, and the tail of the newest Run&apos;s log. So
+        &ldquo;why did last night&apos;s run fail?&rdquo; is answered from the transcript rather
+        than guessed at — and you never have to paste a log in. Type <Code>@</Code> to hand the
+        question to somebody else, or tag several employees to compare their views. The{" "}
+        <DocLink to="/docs/ask-ai">Ask AI</DocLink> page covers the panel itself.
       </P>
       <P>
         Asking is not editing. Any Member who can open a routine can ask about it, while changing
         one still needs an admin — and the employee is told to describe a change rather than make
         it. If you do ask for the change and you have the rights to make it, it runs with{" "}
         <em>your</em> authority, and whatever it did shows up as a small action pill under the
-        reply. You can attach a file to the question too — a spec to check the brief against, a log
-        from somewhere else.
-      </P>
-      <P>
-        The working status remains visible beside the composer throughout the reply. Keep typing or
-        attaching files and press <Strong>Queue message</Strong> to add a follow-up. Pending
-        messages appear above the composer and send one at a time after the preceding reply
-        finishes; remove a message before it starts if it is no longer needed. The queue stays with
-        this routine&apos;s conversation as you navigate around the app. If a reply fails, pending
-        messages remain available for you to resume.
-      </P>
-      <P>
-        Each routine&apos;s chat is independent, and a reply in progress belongs to the server
-        rather than to your browser tab. A long answer shows as <Strong>working</Strong>; if the
-        connection drops the panel says <Strong>reconnecting</Strong> and picks the same reply back
-        up when it lands, so closing the panel, changing tabs, or reloading is safe. A reply that
-        genuinely could not run — the server restarted mid-answer, or the employee stayed busy for
-        several minutes — says so and offers <Strong>Try again</Strong>. When the answering employee
-        has more than one connected <DocLink to="/docs/models">AI Model</DocLink> a selector appears
-        under the composer, and the conversation stays on whichever model answered last.
+        reply. A successful answer from another employee about this routine also lets that employee
+        suggest an <DocLink to="/docs/improvement">improvement to its brief</DocLink> for your
+        review.
       </P>
 
       <H2 id="concurrent-runs">Concurrent Routine Runs</H2>
@@ -727,21 +701,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Click <Strong>Why did it fail?</Strong> or <Strong>Why did it error?</Strong> beside a Run
-        on Home, or inside its Run modal. A compact summary groups the Run&apos;s status, duration,
-        and token usage above the <Strong>Run log</Strong> and explanation tabs. The AI Employee who
-        ran the Routine automatically reads that specific Run&apos;s recorded log, failure reason,
-        and Check results, then explains the cause, the evidence, and what to try next in the same
-        modal. Missing or incomplete evidence is called out.
-      </P>
-      <P>
-        Use <Strong>Message</Strong>, labelled with the employee&apos;s name, to ask about the
-        failure, evidence, or possible fixes. The message box stays below the conversation while you
-        scroll through replies. Click <Strong>Send</Strong> or press <Code>Cmd/Ctrl + Enter</Code>;
-        the same employee answers every follow-up with your conversation&apos;s context. Switching
-        to <Strong>Run log</Strong> keeps your conversation and draft while the modal is open. If
-        their AI Model is unavailable, restore their connected AI Model and try again. Any Member
-        can ask; the explanation does not retry the Routine, change records, or change the
-        Run&apos;s status or verdicts.
+        on Home, or inside its Run modal. <DocLink to="/docs/ask-ai">Ask AI</DocLink> opens with that
+        Run in context and the question already typed: the AI Employee who ran the Routine reads the
+        Run&apos;s status, failure reason, outcome and Check verdicts, and the end of its log, then
+        explains the cause, the evidence, and what to try next. It is told that an Error (an
+        operational failure) is not a Failed Run (the work was not done), and not to retry, resume
+        or change anything unless you ask. Any Member can ask; follow-up questions stay in the same
+        conversation.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer

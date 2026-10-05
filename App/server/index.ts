@@ -22,8 +22,6 @@ import { bootMailAddressIndex } from "./services/mail/addressIndex.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
-import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js";
-import { finalizeInterruptedAssistantTurns as finalizeInterruptedRoutineAssistantTurns } from "./services/routineAssistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./services/tldrQuestions.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler, installProcessErrorHandlers } from "./middleware/error.js";
@@ -41,8 +39,8 @@ import { toolCatalogueRouter } from "./routes/toolCatalogue.js";
 import { routinesRouter } from "./routes/routines.js";
 import { proactiveRouter } from "./routes/proactive.js";
 import { bootProactiveDefaults } from "./services/proactive/defaults.js";
-import { routineAssistantRouter } from "./routes/routineAssistant.js";
-import { runExplanationsRouter } from "./routes/runExplanations.js";
+import { askAiRouter } from "./routes/askAi.js";
+import { finalizeInterruptedAskAiTurns } from "./services/askAi/assistant.js";
 import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { goalsRouter } from "./routes/goals.js";
 import { improvementRouter } from "./routes/improvement.js";
@@ -247,13 +245,9 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[mail] draft-send queue boot failed:", err);
   });
-  void finalizeInterruptedAssistantTurns().catch((err) => {
+  void finalizeInterruptedAskAiTurns().catch((err) => {
     // eslint-disable-next-line no-console
-    console.error("[mail] assistant turn recovery failed:", err);
-  });
-  void finalizeInterruptedRoutineAssistantTurns().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error("[routine:assistant] turn recovery failed:", err);
+    console.error("[ask-ai] turn recovery failed:", err);
   });
   void finalizeInterruptedTldrQuestionTurns().catch((err) => {
     // eslint-disable-next-line no-console
@@ -410,12 +404,10 @@ async function main() {
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);
   app.use("/api/companies/:cid", skillsRouter);
   app.use("/api/companies/:cid", toolCatalogueRouter);
-  // Ask AI on a Routine. Mounted before `routinesRouter` deliberately: that
-  // router gates every non-GET under `/routines` behind the admin role, and
-  // asking a question about a routine is not an admin action. See the header
-  // of `routes/routineAssistant.ts`.
-  app.use("/api/companies/:cid", routineAssistantRouter);
-  app.use("/api/companies/:cid", runExplanationsRouter);
+  // Ask AI — the top-nav chat window. Its own router, mounted ahead of the
+  // section routers, so no section's admin-only mutation gate applies to
+  // asking a question about something on screen.
+  app.use("/api/companies/:cid", askAiRouter);
   app.use("/api/companies/:cid", proactiveRouter);
   app.use("/api/companies/:cid", routinesRouter);
   app.use("/api/companies/:cid", routineFoldersRouter);

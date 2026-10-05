@@ -20,7 +20,6 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
   Timer,
   Trash2,
   Webhook,
@@ -97,7 +96,7 @@ import {
   type CheckSpecDraft,
 } from "../lib/routineChecks";
 import { RoutinesContext } from "./RoutinesLayout";
-import { RoutineAssistant } from "./RoutineAssistant";
+import { useAskAi } from "../components/askAi/AskAiProvider";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { EnabledToggle } from "./RevenueSignals";
 
@@ -118,71 +117,16 @@ const TABS: Array<[Tab, string]> = [
   ["settings", "Settings"],
 ];
 
-/**
- * Whether the Ask AI rail is open, and whether it is wound down to its 44px
- * spine. Remembered per browser rather than in the URL: opening a chat is a
- * preference about the workspace, and putting it in `?` would make every
- * shared routine link carry somebody else's panel state — and would fight
- * `?tab=` for the same history entry.
- */
-const ASSISTANT_OPEN_KEY = "genosyn.routineAssistant.open";
-const ASSISTANT_COLLAPSED_KEY = "genosyn.routineAssistant.collapsed";
-
-function readFlag(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
-  return raw === null ? fallback : raw === "1";
-}
-
-function writeFlag(key: string, value: boolean): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, value ? "1" : "0");
-}
-
 export default function RoutineDetail({ company }: { company: Company }) {
   const { empSlug, routineSlug } = useParams();
   const { routines, folders, loading, loadError, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
   const [startingRun, setStartingRun] = React.useState(false);
-  const [aiOpen, setAiOpen] = React.useState(() => readFlag(ASSISTANT_OPEN_KEY, false));
-  const [aiCollapsed, setAiCollapsed] = React.useState(() =>
-    readFlag(ASSISTANT_COLLAPSED_KEY, false),
-  );
   const dialog = useDialog();
-
-  const openAssistant = React.useCallback((next: boolean) => {
-    setAiOpen(next);
-    writeFlag(ASSISTANT_OPEN_KEY, next);
-    // Reopening a panel that was closed while wound down should give the
-    // reader the panel, not the spine they can't remember collapsing.
-    if (next) {
-      setAiCollapsed(false);
-      writeFlag(ASSISTANT_COLLAPSED_KEY, false);
-    }
-  }, []);
-
-  const collapseAssistant = React.useCallback((next: boolean) => {
-    setAiCollapsed(next);
-    writeFlag(ASSISTANT_COLLAPSED_KEY, next);
-  }, []);
-
-  /** The conversation is actually on screen — open, and not wound down. */
-  const assistantShowing = aiOpen && !aiCollapsed;
-
-  /**
-   * What the header button does. From a collapsed spine it restores the
-   * conversation rather than closing the panel outright: the reader pressing
-   * "Ask AI" while a spine is showing wants the chat back, and closing it
-   * would take two more clicks to undo.
-   */
-  const toggleAssistant = React.useCallback(() => {
-    if (aiOpen && aiCollapsed) {
-      collapseAssistant(false);
-      return;
-    }
-    openAssistant(!aiOpen);
-  }, [aiOpen, aiCollapsed, collapseAssistant, openAssistant]);
+  // Ask AI docks beside every page now; with it open the routine has roughly
+  // a phone's width, and two-column tab layouts stop being two columns.
+  const askAiOpen = Boolean(useAskAi()?.open);
 
   const routine =
     routines.find((r) => r.employee?.slug === empSlug && r.slug === routineSlug) ?? null;
@@ -271,15 +215,11 @@ export default function RoutineDetail({ company }: { company: Company }) {
 
   const emp = routine.employee;
   const brokenSchedule = routine.enabled && routine.nextRunAt === null;
-  // With the rail docked, the page has roughly a phone's width to play with.
-  // Two-column tab layouts stop being two columns at that point.
-  const compact = assistantShowing;
+  const compact = askAiOpen;
 
   return (
-    // A flex row so the Ask AI rail can dock beside the routine, the same
-    // shape the mail thread uses. `relative` anchors the rail's narrow-window
-    // takeover; the left column takes the page's scroll off `<main>` so the
-    // rail scrolls its own conversation instead of riding the page down.
+    // The left column takes the page's scroll off `<main>` so Ask AI, docked
+    // beside the page, scrolls its own conversation instead of riding along.
     <div className="relative flex h-full min-h-0 w-full">
       <div className="page-shell min-w-0 flex-1 overflow-y-auto p-6">
         <Breadcrumbs
@@ -345,16 +285,6 @@ export default function RoutineDetail({ company }: { company: Company }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => toggleAssistant()}
-              // "Showing" means the conversation is on screen. A rail wound
-              // down to its spine is open but not showing, so announcing it as
-              // pressed would contradict what the reader can see.
-              aria-pressed={assistantShowing}
-            >
-              <Sparkles size={14} /> Ask AI
-            </Button>
             <Button onClick={() => void runNow()} loading={startingRun}>
               <Play size={14} /> Run now
             </Button>
@@ -434,16 +364,6 @@ export default function RoutineDetail({ company }: { company: Company }) {
           />
         )}
       </div>
-
-      {aiOpen && (
-        <RoutineAssistant
-          company={company}
-          routine={routine}
-          collapsed={aiCollapsed}
-          onCollapsedChange={collapseAssistant}
-          onClose={() => openAssistant(false)}
-        />
-      )}
     </div>
   );
 }
@@ -461,7 +381,7 @@ function OverviewTab({
   company: Company;
   routine: RoutineWithMeta;
   folders: RoutineFolder[];
-  /** The Ask AI rail is docked, so there is no room for two columns. */
+  /** Ask AI is docked beside the page, so there is no room for two columns. */
   compact: boolean;
   onSeeRuns: () => void;
   onOpenRun: (runId: string) => void;
@@ -1110,7 +1030,7 @@ function RunsTab({
 }: {
   company: Company;
   routine: RoutineWithMeta;
-  /** The Ask AI rail is docked, so the run list stacks above the log. */
+  /** Ask AI is docked beside the page, so the run list stacks above the log. */
   compact: boolean;
   initialRunId: string | null;
   onRetry: () => Promise<void>;

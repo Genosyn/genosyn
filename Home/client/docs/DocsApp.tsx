@@ -28,6 +28,7 @@ import { Sequences } from "@/docs/pages/Sequences";
 import { Signals } from "@/docs/pages/Signals";
 import { Deliverability } from "@/docs/pages/Deliverability";
 import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
+import { AskAi } from "@/docs/pages/AskAi";
 import { ChatSurfaces } from "@/docs/pages/ChatSurfaces";
 import { Tldrs } from "@/docs/pages/Tldrs";
 import { Vault } from "@/docs/pages/Vault";
@@ -63,6 +64,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/install": Install,
   "/docs/getting-started": GettingStarted,
   "/docs/help": Help,
+  "/docs/ask-ai": AskAi,
   "/docs/mobile": MobileApp,
   "/docs/security": Security,
   "/docs/employees": Employees,

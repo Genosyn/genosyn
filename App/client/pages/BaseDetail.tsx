@@ -1,11 +1,11 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   Plus,
   Trash2,
   Settings as SettingsIcon,
-  Sparkles,
   Type,
   AlignLeft,
   Hash,
@@ -58,7 +58,6 @@ import {
   RESOURCE_TYPE_ICONS,
   SelectOptionsEditor,
 } from "./BaseGridCells";
-import { BaseAssistant } from "./BaseAssistant";
 import { RecordDetailDrawer } from "./BaseRecordDetail";
 import {
   BASE_COLORS,
@@ -155,7 +154,6 @@ export default function BaseDetail({ company }: { company: Company }) {
   const [contentLoading, setContentLoading] = React.useState(false);
   const [contentError, setContentError] = React.useState<string | null>(null);
   const [showSettings, setShowSettings] = React.useState(false);
-  const [showAssistant, setShowAssistant] = React.useState(false);
   const [openRecordId, setOpenRecordId] = React.useState<string | null>(null);
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
   const [creatingView, setCreatingView] = React.useState(false);
@@ -231,10 +229,6 @@ export default function BaseDetail({ company }: { company: Company }) {
     setActiveViewId(null);
     setContentError(null);
   }, [currentTable?.id]);
-
-  React.useEffect(() => {
-    if (currentTable?.archivedAt) setShowAssistant(false);
-  }, [currentTable?.archivedAt]);
 
   // Promote the first available view to active once content arrives, and
   // gracefully fall back if the active view was deleted out from under us.
@@ -363,6 +357,13 @@ export default function BaseDetail({ company }: { company: Company }) {
     [activeViewId, company.id, content, currentTable, detail, dialog, loadContent],
   );
 
+  // The drawer below opens a record without changing the URL, so tell Ask AI.
+  const openRecord =
+    openRecordId && contentForTable
+      ? (contentForTable.records.find((r) => r.id === openRecordId) ?? null)
+      : null;
+  useAskAiPageContext(openRecord ? [{ kind: "base_record", id: openRecord.id }] : null);
+
   if (!detail) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -410,24 +411,6 @@ export default function BaseDetail({ company }: { company: Company }) {
             title="Create and share forms that add rows to this table"
           >
             <ClipboardList size={13} /> Forms
-          </button>
-          <button
-            onClick={() => setShowAssistant((s) => !s)}
-            disabled={!!currentTable?.archivedAt}
-            className={clsx(
-              "flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition",
-              currentTable?.archivedAt && "cursor-not-allowed opacity-50",
-              showAssistant
-                ? "border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:border-violet-800 dark:text-violet-300"
-                : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
-            )}
-            title={
-              currentTable?.archivedAt
-                ? "Unarchive this table before sharing it with an AI Employee"
-                : "Base assistant"
-            }
-          >
-            <Sparkles size={13} /> AI assistant
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -495,16 +478,6 @@ export default function BaseDetail({ company }: { company: Company }) {
           />
         );
       })()}
-
-      {showAssistant && (
-        <BaseAssistant
-          companyId={company.id}
-          companySlug={company.slug}
-          base={base}
-          currentTable={currentTable}
-          onClose={() => setShowAssistant(false)}
-        />
-      )}
 
       {showSettings && (
         <BaseSettingsModal

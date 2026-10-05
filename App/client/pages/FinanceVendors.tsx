@@ -1,5 +1,6 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
+import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { Archive, ArchiveRestore, Mail, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, Vendor } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
@@ -29,6 +30,10 @@ export default function FinanceVendors() {
   const [vendors, setVendors] = React.useState<Vendor[] | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
   const [editing, setEditing] = React.useState<Vendor | "new" | null>(null);
+  // The vendor being edited is what Ask AI means by "this vendor".
+  useAskAiPageContext(
+    editing && editing !== "new" ? [{ kind: "vendor", id: editing.id }] : null,
+  );
 
   const reload = React.useCallback(async () => {
     const list = await api.get<Vendor[]>(
