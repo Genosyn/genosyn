@@ -114,6 +114,8 @@ import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailMessageAddress } from "../db/entities/MailMessageAddress.js";
+import { MailAddressIndexState } from "../db/entities/MailAddressIndexState.js";
 import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
 import { MailInboundAutomation } from "../db/entities/MailInboundAutomation.js";
 import { MailRule } from "../db/entities/MailRule.js";
@@ -474,6 +476,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MailSavedSearch, { companyId });
     await m.delete(MailInboundAutomation, { companyId });
     await m.delete(MailInboundAnalysis, { companyId });
+    await m.delete(MailMessageAddress, { companyId });
+    await m.delete(MailAddressIndexState, { companyId });
     await m.delete(MailMessage, { companyId });
     await m.delete(MailThread, { companyId });
     await m.delete(MailLabel, { companyId });

@@ -18,6 +18,7 @@ import { bootRevenue } from "./services/revenue/boot.js";
 import { bootMeetings } from "./services/meetings/boot.js";
 import { bootChatSurfaceWorkers } from "./services/chatSurfaces/index.js";
 import { bootMailSync } from "./services/mail/sync.js";
+import { bootMailAddressIndex } from "./services/mail/addressIndex.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
@@ -231,6 +232,9 @@ async function main() {
   // The heartbeat's first pass runs async, so like the chat surfaces it never
   // gates startup; handover recovery is a quick DB sweep.
   bootMailSync();
+  // Address index behind the Customer page's Emails tab; works through mail
+  // mirrored before it existed in bounded chunks, then keeps up.
+  bootMailAddressIndex();
   void bootMailAutomationQueue().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] inbound automation queue failed to start:", err);

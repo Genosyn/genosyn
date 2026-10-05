@@ -144,6 +144,8 @@ import { PushSubscription } from "./entities/PushSubscription.js";
 import { MailAccount } from "./entities/MailAccount.js";
 import { MailThread } from "./entities/MailThread.js";
 import { MailMessage } from "./entities/MailMessage.js";
+import { MailMessageAddress } from "./entities/MailMessageAddress.js";
+import { MailAddressIndexState } from "./entities/MailAddressIndexState.js";
 import { MailLabel } from "./entities/MailLabel.js";
 import { MailRule } from "./entities/MailRule.js";
 import { MailHandover } from "./entities/MailHandover.js";
@@ -367,6 +369,8 @@ const entities = [
   MailAccount,
   MailThread,
   MailMessage,
+  MailMessageAddress,
+  MailAddressIndexState,
   MailLabel,
   MailRule,
   MailHandover,
