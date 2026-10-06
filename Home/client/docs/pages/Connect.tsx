@@ -43,8 +43,8 @@ export function Connect() {
       </P>
       <OL>
         <LI>
-          Your installation asks Connect to start a sign-in, with two one-time proofs: one only its
-          server holds, one only the browser tab you are using holds.
+          Your installation asks Connect to start a sign-in. It sends a proof that only the browser
+          tab you are using holds, and a one-time key that never leaves its own server.
         </LI>
         <LI>
           A window opens on Connect. It shows your installation&apos;s address and what it will be
@@ -53,11 +53,12 @@ export function Connect() {
         </LI>
         <LI>
           You approve Google&apos;s consent screen. Google returns to Connect, which exchanges the
-          one-time code for tokens and keeps them, encrypted, for at most ten minutes.
+          one-time code for tokens and sends the window straight back to your installation with
+          them encrypted to that one-time key. Connect keeps nothing.
         </LI>
         <LI>
-          Your installation&apos;s server collects them, once, with the proof only it holds. The
-          window closes, and the Connection — and for Gmail the mailbox — is created.
+          Your installation&apos;s server decrypts them, once. The window closes, and the
+          Connection — and for Gmail the mailbox — is created.
         </LI>
       </OL>
       <P>
@@ -160,11 +161,9 @@ export function Connect() {
           homepage, privacy policy and terms.
         </LI>
         <LI>
-          Create an OAuth client of type <Strong>Web application</Strong> with these authorized
-          redirect URIs — the second one serves installations released before provider-neutral
-          routes:
-          <Pre>{`https://connect.example.com/api/connect/google/callback
-https://connect.example.com/api/google-sign-in/callback`}</Pre>
+          Create an OAuth client of type <Strong>Web application</Strong> with this authorized
+          redirect URI:
+          <Pre>{`https://connect.example.com/api/connect/google/callback`}</Pre>
         </LI>
         <LI>
           Complete Google&apos;s verification for the scopes you offer. Gmail and Drive are
@@ -180,13 +179,16 @@ https://connect.example.com/api/google-sign-in/callback`}</Pre>
   -e CONNECT_GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com \\
   -e CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-... \\
   -e CONNECT_GOOGLE_SCOPE_GROUPS=gmail \\
+  -e CONNECT_SECRET="$(openssl rand -base64 48)" \\
   -e CONNECT_TRUSTED_PROXY_HOPS=1 \\
   ghcr.io/genosyn/connect:latest`}</Pre>
       <P>
         Put it behind a reverse proxy that terminates HTTPS for{" "}
         <Code>connect.example.com</Code>, preserves the Host and Origin headers, and keeps query
         strings out of its access logs: callback URLs carry one-time authorization codes. The
-        service has no admin UI and nothing to back up; it needs only outbound HTTPS to Google.
+        service keeps no state, has no admin UI and nothing to back up, and needs only outbound
+        HTTPS to Google. Keep at least one instance running: installations give its status check
+        two seconds, so a host that puts idle containers to sleep shows sign-in as unavailable.
       </P>
       <KeyList
         rows={[
@@ -207,8 +209,8 @@ https://connect.example.com/api/google-sign-in/callback`}</Pre>
             def: "How many proxies sit in front and append to X-Forwarded-For, so rate limits apply to the real client. Default 0.",
           },
           {
-            term: "CONNECT_DATABASE_URL, CONNECT_SECRET",
-            def: "For more than one replica: a Postgres URL for shared sign-in state, and a secret of at least 32 characters that encrypts it. One replica keeps sign-ins in memory and needs neither.",
+            term: "CONNECT_SECRET",
+            def: "At least 32 characters; seals what each sign-in carries through the browser. Give every replica the same one, and they need nothing else in common. Unset, each process makes its own, which suits a single replica: a restart then only ends the sign-ins open at that moment.",
           },
           {
             term: "CONNECT_PRIVACY_URL, CONNECT_TERMS_URL",
@@ -216,13 +218,13 @@ https://connect.example.com/api/google-sign-in/callback`}</Pre>
           },
           {
             term: "PORT",
-            def: "Listening port, 8473 by default. Health checks: /healthz (process) and /readyz (sign-in store).",
+            def: "Listening port, 8473 by default. Health checks: /healthz and /readyz, which answer the same.",
           },
         ]}
       />
       <P>
-        Each secret can also come from a mounted file: set <Code>CONNECT_GOOGLE_CLIENT_SECRET_FILE</Code>,{" "}
-        <Code>CONNECT_SECRET_FILE</Code> or <Code>CONNECT_DATABASE_URL_FILE</Code> instead. On
+        Each secret can also come from a mounted file: set{" "}
+        <Code>CONNECT_GOOGLE_CLIENT_SECRET_FILE</Code> or <Code>CONNECT_SECRET_FILE</Code> instead. On
         Kubernetes, the Helm chart runs the service beside the App; see{" "}
         <DocLink to="/docs/kubernetes">Kubernetes</DocLink>. The repository&apos;s{" "}
         <ExtLink href="https://github.com/genosyn/genosyn/blob/main/Connect/README.md">
