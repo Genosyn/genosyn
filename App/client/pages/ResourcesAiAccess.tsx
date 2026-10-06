@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Bot, Check, Eye, Info, MessageSquare, PenLine } from "lucide-react";
+import { AiAccessToggle, type AiAccessToggleOption } from "../components/AiAccessToggle";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
@@ -55,6 +56,14 @@ const LEVEL_STYLES: Record<ResourceLibraryAccessLevel, { chip: string; selected:
       "bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:bg-slate-900 dark:text-indigo-300 dark:ring-indigo-500/30",
   },
 };
+
+const TOGGLE_OPTIONS: AiAccessToggleOption<ResourceLibraryAccessLevel>[] =
+  RESOURCE_LIBRARY_LEVELS.map((level) => ({
+    value: level.value,
+    label: level.label,
+    icon: LEVEL_ICONS[level.value],
+    selectedClassName: LEVEL_STYLES[level.value].selected,
+  }));
 
 export default function ResourcesAiAccess() {
   const { company } = useOutletContext<ResourcesOutletCtx>();
@@ -266,8 +275,9 @@ export default function ResourcesAiAccess() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 sm:justify-end">
-                  <AccessToggle
-                    employeeName={row.employee.name}
+                  <AiAccessToggle
+                    label={`Resources access for ${row.employee.name}`}
+                    options={TOGGLE_OPTIONS}
                     value={row.accessLevel}
                     disabled={!canManage}
                     onChange={(level) => changeLevel(row, level)}
@@ -286,76 +296,6 @@ export default function ResourcesAiAccess() {
           </ul>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * A two-option segmented control, as a radio group: the arrow keys move the
- * selection like any other radio group, and only the selected option is in the
- * tab order. Disabled for Members who can see the setting but not change it.
- */
-function AccessToggle({
-  employeeName,
-  value,
-  disabled,
-  onChange,
-}: {
-  employeeName: string;
-  value: ResourceLibraryAccessLevel;
-  disabled: boolean;
-  onChange: (level: ResourceLibraryAccessLevel) => void;
-}) {
-  const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
-
-  function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
-    const step =
-      event.key === "ArrowRight" || event.key === "ArrowDown"
-        ? 1
-        : event.key === "ArrowLeft" || event.key === "ArrowUp"
-          ? -1
-          : 0;
-    if (step === 0 || disabled) return;
-    event.preventDefault();
-    const next = (index + step + RESOURCE_LIBRARY_LEVELS.length) % RESOURCE_LIBRARY_LEVELS.length;
-    refs.current[next]?.focus();
-    onChange(RESOURCE_LIBRARY_LEVELS[next].value);
-  }
-
-  return (
-    <div
-      role="radiogroup"
-      aria-label={`Resources access for ${employeeName}`}
-      className="inline-flex gap-0.5 rounded-lg border border-slate-200 bg-slate-100/70 p-0.5 dark:border-slate-700 dark:bg-slate-800/60"
-    >
-      {RESOURCE_LIBRARY_LEVELS.map((level, index) => {
-        const active = level.value === value;
-        return (
-          <button
-            key={level.value}
-            ref={(node) => {
-              refs.current[index] = node;
-            }}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            tabIndex={active ? 0 : -1}
-            disabled={disabled}
-            onClick={() => onChange(level.value)}
-            onKeyDown={(event) => onKeyDown(event, index)}
-            className={
-              "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed " +
-              (active
-                ? LEVEL_STYLES[level.value].selected
-                : "text-slate-400 enabled:hover:text-slate-700 dark:text-slate-500 dark:enabled:hover:text-slate-200") +
-              (disabled && !active ? " opacity-60" : "")
-            }
-          >
-            {LEVEL_ICONS[level.value]}
-            {level.label}
-          </button>
-        );
-      })}
     </div>
   );
 }
