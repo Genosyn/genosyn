@@ -4,6 +4,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { Pipeline } from "../../db/entities/Pipeline.js";
 import { Project } from "../../db/entities/Project.js";
 import { Todo } from "../../db/entities/Todo.js";
+import { splitAddressList } from "../mail/mime.js";
 import { runPipeline } from "./executor.js";
 import { parseAddressList } from "./config.js";
 import { parseGraph } from "./index.js";
@@ -149,8 +150,11 @@ export async function dispatchEmailReceived(
           accountId: message.accountId,
           accountAddress: account?.address ?? "",
           from: { name: message.fromName, email: message.fromEmail },
-          to: splitAddresses(message.toEmails),
-          cc: splitAddresses(message.ccEmails),
+          // One entry per recipient, as written — the shape Pipeline steps
+          // already read. Not a plain split on commas: a quoted name such as
+          // `"Doe, Zoë"` holds one.
+          to: splitAddressList(message.toEmails),
+          cc: splitAddressList(message.ccEmails),
           subject: message.subject,
           snippet: message.snippet,
           bodyText: message.bodyText,
@@ -245,13 +249,6 @@ function containsFilter(value: string, filter: unknown): boolean {
     .trim()
     .toLowerCase();
   return !needle || value.toLowerCase().includes(needle);
-}
-
-function splitAddresses(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function parseArray(value: string): unknown[] {
