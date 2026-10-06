@@ -150,10 +150,12 @@ describe("Routines → AI access in the tools briefing", () => {
   test("the restriction is the only difference between the two prompts", () => {
     const write = compose({ surface: "routine", routineAccess: "write" });
     const run = compose({ surface: "routine", routineAccess: "run" });
+    // The Standdown block stamps the time it was composed, which differs
+    // between two calls; every other line must match exactly.
     const strip = (prompt: string) =>
       prompt
         .split("\n")
-        .filter((line) => !line.startsWith("- Routines — "))
+        .filter((line) => !line.startsWith("- Routines — ") && !line.startsWith("Checked at: "))
         .join("\n");
     assert.equal(strip(run), strip(write));
   });

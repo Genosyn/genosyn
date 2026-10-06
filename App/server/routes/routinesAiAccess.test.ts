@@ -403,13 +403,20 @@ describe("PUT /routines/ai-access/:employeeId", () => {
     assert.equal(restored.status, 200);
     assert.equal(restored.body.row.accessLevel, "write");
     assert.equal(restored.body.row.isDefault, false);
-    const events = await accessAudits();
+    // Matched by content, not position: both rows can share a createdAt second.
+    const events = (await accessAudits()).map((event) => ({
+      actorUserId: event.actorUserId,
+      metadata: JSON.parse(event.metadataJson ?? "{}") as Record<string, string>,
+    }));
     assert.equal(events.length, 2);
-    assert.equal(events[1].actorUserId, adminId);
-    assert.deepEqual(JSON.parse(events[1].metadataJson ?? "{}"), {
-      accessLevel: "write",
-      previousAccessLevel: "run",
-    });
+    assert.deepEqual(
+      events.find((event) => event.metadata.accessLevel === "write"),
+      { actorUserId: adminId, metadata: { accessLevel: "write", previousAccessLevel: "run" } },
+    );
+    assert.deepEqual(
+      events.find((event) => event.metadata.accessLevel === "run"),
+      { actorUserId: ownerId, metadata: { accessLevel: "run", previousAccessLevel: "write" } },
+    );
   });
 
   test("repeating a level is a successful no-op that is not audited again", async () => {
