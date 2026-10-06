@@ -996,8 +996,10 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
   return next();
 });
 
+// The mail-delivery ceiling is a denylist, so it names the tool the way the
+// router dispatched it rather than the way the path spelled it.
 mcpInternalRouter.use((req: McpRequest, res, next) => {
-  const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
+  const name = dispatchedToolName(req.path);
   const error = name ? mailDeliveryToolError(req.mcpMailDeliveryMode, name, req.body ?? {}) : null;
   if (error) return res.status(403).json({ error });
   return next();
