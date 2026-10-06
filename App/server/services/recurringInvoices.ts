@@ -17,6 +17,7 @@ import {
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { withSerializedTransaction } from "../db/transactions.js";
 import { computeLineTotals } from "../lib/money.js";
+import { resolveRecurringInvoiceName } from "../../shared/recurringInvoiceName.js";
 import { issueInvoice, sendInvoiceEmail } from "./finance.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { resolveDocumentIssuer } from "./subsidiaries.js";
@@ -201,6 +202,27 @@ async function uniqueDraftInvoiceSlug(companyId: string): Promise<string> {
     if (!(await repo.findOneBy({ companyId, slug }))) return slug;
   }
   return `draft-${Date.now().toString(36)}`;
+}
+
+// ──────────────────────────── Naming ──────────────────────────────────
+
+/** Why a schedule created without a name is refused: nothing to name it after. */
+export const RECURRING_INVOICE_NAME_REQUIRED_ERROR =
+  "Give the schedule a name. Its customer has no name to use instead.";
+
+/**
+ * The name a new schedule is saved with: the requested one, trimmed, or its
+ * customer's when the request leaves it out or blank. That is the name the New
+ * recurring invoice form pre-fills (`shared/recurringInvoiceName.ts`). Null
+ * when neither exists. Only creating a schedule takes this default: an edit
+ * keeps the name unless it sends a new one, and changing the customer never
+ * renames a schedule.
+ */
+export function nameForNewRecurringInvoice(
+  requested: string | undefined,
+  customer: Pick<Customer, "name" | "domain" | "email">,
+): string | null {
+  return resolveRecurringInvoiceName(requested, customer) || null;
 }
 
 // ──────────────────────────── Lookups ─────────────────────────────────

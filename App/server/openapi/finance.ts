@@ -230,7 +230,7 @@ registry.registerPath({
   path: "/api/companies/{cid}/recurring-invoices",
   summary: "Create a recurring invoice schedule",
   description:
-    "Requires full Finance access. Pass an active subsidiaryId in this company to issue future invoices under that legal entity. Each generated invoice saves the then-current subsidiary details. Null or omitted subsidiaryId uses the company default. Creating the schedule does not generate an invoice immediately.",
+    "Requires full Finance access. Pass an active subsidiaryId in this company to issue future invoices under that legal entity. Each generated invoice saves the then-current subsidiary details. Null or omitted subsidiaryId uses the company default. An omitted or blank name names the schedule after its customer. Creating the schedule does not generate an invoice immediately.",
   tags: ["Finance"],
   security: defaultSecurity,
   request: {
@@ -254,7 +254,7 @@ registry.registerPath({
   path: "/api/companies/{cid}/recurring-invoices/{slug}",
   summary: "Edit a recurring invoice schedule",
   description:
-    "Requires full Finance access. Changing subsidiaryId changes the issuer of future invoices only; previously generated documents retain their saved identity. Pass null to restore the company default issuer or omit the field to preserve its selection.",
+    "Requires full Finance access. Changing subsidiaryId changes the issuer of future invoices only; previously generated documents retain their saved identity. Pass null to restore the company default issuer or omit the field to preserve its selection. Changing customerId never renames the schedule, and a name, when sent, cannot be blank.",
   tags: ["Finance"],
   security: defaultSecurity,
   request: {

@@ -123,7 +123,9 @@ export function Customers() {
           transcripts, and summaries.
         </LI>
         <LI>
-          <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.
+          <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.{" "}
+          <Code>New recurring invoice</Code> opens a schedule for this customer, named after it (see{" "}
+          <DocLink to="/docs/finance#recurring-names">naming a schedule</DocLink>).
         </LI>
         <LI>
           <Strong>Documents</Strong> — contracts, signature requests, and files.
