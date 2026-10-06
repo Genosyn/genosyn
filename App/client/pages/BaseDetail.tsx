@@ -615,6 +615,11 @@ function Grid({
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && selectedIds.size > 0) {
+        // A modal surface over the grid — the record drawer, the confirm before
+        // a bulk delete — answers Escape on window capture and marks it handled,
+        // and has already unmounted by the time the key bubbles here. That key
+        // closed the surface; it must not also drop the rows it was opened over.
+        if (e.defaultPrevented) return;
         // Skip if the user is editing inside an input/textarea — they likely
         // want to cancel the cell edit, not deselect the row.
         const tag = (e.target as HTMLElement)?.tagName;
