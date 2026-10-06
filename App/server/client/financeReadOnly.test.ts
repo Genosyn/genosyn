@@ -51,7 +51,7 @@ const CUSTOMER_WRITE = /\bapi\.(?:post|patch|put|del)\b(?:<[^>]*>)?\(\s*`[^`]*\/
  */
 const CUSTOMER_FORM_LINK = /(?<!\/signatures)\/(?:new|edit)`/;
 
-function pages(pattern: RegExp, layout: string): { file: string; source: string }[] {
+function readPages(pattern: RegExp, layout: string): { file: string; source: string }[] {
   return fs
     .readdirSync(pagesDir)
     .filter((file) => pattern.test(file) && file !== layout)
@@ -59,11 +59,11 @@ function pages(pattern: RegExp, layout: string): { file: string; source: string 
 }
 
 function financePages(): { file: string; source: string }[] {
-  return pages(/^Finance.*\.tsx$/, "FinanceLayout.tsx");
+  return readPages(/^Finance.*\.tsx$/, "FinanceLayout.tsx");
 }
 
 function customerPages(): { file: string; source: string }[] {
-  return pages(/^Customers?[A-Z].*\.tsx$/, "CustomersLayout.tsx");
+  return readPages(/^Customers?[A-Z].*\.tsx$/, "CustomersLayout.tsx");
 }
 
 describe("Finance pages and read-only access", () => {
