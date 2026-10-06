@@ -18,9 +18,9 @@ its checks and does not use these private files.
 | `npm run deploy-prod` | `prod.values.yaml` | `GENOSYN_PROD_KUBE_CONTEXT` | `genosyn-prod` | `https://app.genosyn.com` |
 
 Production also serves `https://connect.genosyn.com` from the same Ingress,
-App containers, database, and secrets. That host forwards only the
-`/api/connect` namespace and six legacy Gmail sign-in endpoints. It does not
-expose App pages or create a second App deployment.
+routed entirely to Genosyn Connect, the hosted sign-in service, which runs as
+its own small Deployment (`connect.enabled`). It shares no container, database
+or secret with the App, and no App page or route is reachable on that host.
 
 Set the environment's context variable, or override it for one command with
 `GENOSYN_KUBE_CONTEXT`. Live deployments require an explicit context and
@@ -139,23 +139,39 @@ After deployment, register and verify the configured operator. Until SMTP is
 configured, the verification link is in the private App log. Configure
 **Admin → Email transport** and **Admin → Integrations** for OAuth apps before
 inviting Members.
-For hosted sign-in, keep **Admin → General → Public URL** at
-`https://app.genosyn.com`. Set **Admin → Runtime → Hosted sign-in → Hosted
-sign-in address** to `https://connect.genosyn.com`. Register Google's new
-`https://connect.genosyn.com/api/connect/google/callback` alongside the App's
-ordinary Google redirect URI, and retain the legacy hosted callback
-`https://connect.genosyn.com/api/google-sign-in/callback` for older installs.
-Complete Google configuration before enabling hosting.
-The [hosted sign-in guide](../../App/HOSTED_SIGN_IN.md) covers these steps.
-The test profile leaves `ingress.connect.enabled` off; it can use its own
-hostname and TLS Secret when hosted sign-in needs a test environment.
+For Genosyn Connect, the production profile needs both blocks below, and the
+`genosyn-connect` Secret created once in `genosyn-prod` with
+`CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET` (plus
+`CONNECT_DATABASE_URL` and `CONNECT_SECRET` before raising
+`connect.replicaCount` above one). A profile from before Connect became its own
+service — `ingress.connect` without `connect.enabled` — fails to render with
+that instruction rather than deploying a host with nothing behind it.
+
+```yaml
+ingress:
+  connect:
+    enabled: true
+    host: connect.genosyn.com
+    tlsSecretName: genosyn-connect-tls
+connect:
+  enabled: true
+  existingSecret: genosyn-connect
+  googleScopeGroups: gmail
+```
+
+Register `https://connect.genosyn.com/api/connect/google/callback` and the
+legacy `https://connect.genosyn.com/api/google-sign-in/callback` with Google,
+and complete Google's verification for the offered scopes before announcing
+it. The App's own Google redirect URI at **Admin → Integrations** is unrelated
+and only needed if the App registers its own Google app. The
+[operator guide](../../Connect/README.md) covers the launch checklist. The test
+profile leaves `ingress.connect.enabled` off; it can use its own hostname and
+TLS Secret when Connect needs a test environment.
 
 Use `ingress.connect.enabled`, `host`, and `tlsSecretName` in new profiles.
 Legacy `ingress.gmailSignIn` fields remain supported. Each explicitly supplied
 `connect` field overrides its legacy counterpart, including `enabled: false`;
 unspecified fields inherit legacy values. Remove the legacy block once migrated.
-The shared `/api/connect` route accommodates future providers without changing
-the ingress; Google is the current hosted sign-in provider.
 
 Run `npm run test:deploy` to check the deployment commands using stubbed Helm
 and kubectl commands; it does not deploy either environment.

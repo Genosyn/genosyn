@@ -97,6 +97,7 @@ try {
   const oldValues = fs.readFileSync(file, 'utf8')
     .replace(/^service:\n(?:  .*\n|\n)*/m, block => block.replace(/^  annotations: \{\}\n/m, ''))
     .replace(/^  connect: \{\}\n/m, '')
+    .replace(/^connect:\n(?:  .*\n|\n)*/m, '')
     .replace(/^  gmailSignIn:\n(?:    .*\n)*/m, '')
     .replace(/^config:\n/m, 'config:\n  multiTenant: true\n')
     .concat('sandbox:\n  enabled: true\n  hostUsers: false\n  appArmorProfile: Unconfined\n');

@@ -87,7 +87,9 @@ describe("describeMailboxConnect", () => {
     const oauth = oauthOption(plan);
     assert.equal(oauth.ready, false);
     assert.equal(oauth.instanceApp, false);
-    assert.match(oauth.blockedReason ?? "", /No Google OAuth app is registered on this install/);
+    // With Genosyn Connect turned off, only an app registered here can sign in.
+    assert.match(oauth.blockedReason ?? "", /Google OAuth app registered on this install/);
+    assert.match(oauth.blockedReason ?? "", /turned Genosyn Connect off/);
     // The reason has to name the way out, not just the obstacle.
     assert.match(oauth.blockedReason ?? "", /Admin → Integrations/);
     assert.doesNotMatch(oauth.blockedReason ?? "", /password|IMAP/i);

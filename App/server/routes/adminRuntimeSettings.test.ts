@@ -130,16 +130,14 @@ describe("GET /api/admin/runtime-settings", () => {
 });
 
 describe("PUT /api/admin/runtime-settings/:group", () => {
-  test("a separate sign-in host address normalizes and leaves the consumer service intact", async () => {
+  test("hosted sign-in settings normalize and reach the readers", async () => {
     const expected = {
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://customer-sign-in.example.com",
-      hostSignIn: true,
-      signInHostUrl: "https://connect.example.com",
     };
     const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
       ...expected,
-      signInHostUrl: " https://CONNECT.example.com/ ",
+      hostedSignInUrl: " https://CUSTOMER-sign-in.example.com/ ",
     });
 
     assert.equal(status, 200);
@@ -152,49 +150,27 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
     assert.deepEqual(JSON.parse(stored!.value), expected);
   });
 
-  test("a blank sign-in host address can restore the installation address", async () => {
-    const settings = {
-      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
-      hostSignIn: true,
-      hostedSignInUrl: "https://customer-sign-in.example.com",
-      signInHostUrl: "https://connect.example.com",
-    };
-    assert.equal((await call("PUT", "/runtime-settings/oauth", settings)).status, 200);
-
-    for (const signInHostUrl of ["", "   "]) {
-      const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
-        ...settings,
-        signInHostUrl,
-      });
-      assert.equal(status, 200);
-      assert.equal(body.oauth.signInHostUrl, "");
-      assert.equal(body.oauth.hostSignIn, true);
-      assert.equal(body.oauth.hostedSignInUrl, settings.hostedSignInUrl);
-    }
-  });
-
-  test("invalid sign-in host addresses are rejected without replacing saved settings", async () => {
+  test("invalid service addresses are rejected without replacing saved settings", async () => {
     const settings = {
       ...RUNTIME_SETTINGS_DEFAULTS.oauth,
       hostedSignInUrl: "https://customer-sign-in.example.com",
-      signInHostUrl: "https://connect.example.com",
     };
     assert.equal((await call("PUT", "/runtime-settings/oauth", settings)).status, 200);
 
-    for (const signInHostUrl of [
+    for (const hostedSignInUrl of [
       "http://connect.example.com",
       "https://connect.example.com/callback",
       "https://connect.example.com?value=1",
       "https://connect.example.com#fragment",
       "https://user:secret@connect.example.com",
+      "",
       null,
       123,
       "x".repeat(2049),
     ]) {
       const { status, body } = await call<{ error: string }>("PUT", "/runtime-settings/oauth", {
         ...settings,
-        hostSignIn: true,
-        signInHostUrl,
+        hostedSignInUrl,
       });
       assert.equal(status, 400);
       assert.match(body.error, /Invalid runtime settings/);
@@ -204,6 +180,22 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
       key: RUNTIME_SETTING_KEYS.oauth,
     });
     assert.deepEqual(JSON.parse(stored!.value), settings);
+  });
+
+  test("a form from before hosting moved to Connect still saves, without the retired fields", async () => {
+    // An admin page loaded before the upgrade still posts the hosting fields.
+    const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+      hostedSignInEnabled: true,
+      hostedSignInUrl: "https://connect.genosyn.com",
+      hostSignIn: true,
+      signInHostUrl: "https://connect.example.com",
+    });
+    assert.equal(status, 200);
+    assert.deepEqual(body.oauth, RUNTIME_SETTINGS_DEFAULTS.oauth);
+    const stored = await AppDataSource.getRepository(AppSetting).findOneByOrFail({
+      key: RUNTIME_SETTING_KEYS.oauth,
+    });
+    assert.deepEqual(JSON.parse(stored.value), RUNTIME_SETTINGS_DEFAULTS.oauth);
   });
 
   test("old complete Gmail API bodies persist and return only canonical fields", async () => {
@@ -217,8 +209,6 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
       const expected = {
         hostedSignInEnabled: false,
         hostedSignInUrl: "https://legacy.example.com",
-        hostSignIn: true,
-        signInHostUrl: gmailSignInHostUrl ? "https://host.example.com" : "",
       };
       assert.equal(status, 200);
       assert.deepEqual(body.oauth, expected);
@@ -233,14 +223,10 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
     const expected = {
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://current.example.com",
-      hostSignIn: false,
-      signInHostUrl: "",
     };
     const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
       gmailSignInEnabled: true,
       gmailSignInUrl: "http://unsafe.example.com",
-      hostGmailSignIn: true,
-      gmailSignInHostUrl: "http://unsafe.example.com",
       ...expected,
     });
     assert.equal(status, 200);
@@ -251,16 +237,11 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
     const legacy = {
       gmailSignInEnabled: true,
       gmailSignInUrl: "https://legacy.example.com",
-      hostGmailSignIn: true,
-      gmailSignInHostUrl: "https://host.example.com",
     };
     for (const invalid of [
       { hostedSignInEnabled: "false" },
       { hostedSignInUrl: "http://unsafe.example.com" },
-      { hostSignIn: "true" },
-      { signInHostUrl: "https://host.example.com/callback" },
-      { signInHostUrl: null },
-      { gmailSignInHostUrl: "http://unsafe.example.com" },
+      { gmailSignInUrl: "http://unsafe.example.com" },
     ]) {
       assert.equal((await call("PUT", "/runtime-settings/oauth", { ...legacy, ...invalid })).status, 400);
     }
@@ -272,6 +253,7 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
       { hostedSignInEnabled: false },
       { gmailSignInEnabled: false },
       { ...RUNTIME_SETTINGS_DEFAULTS.oauth, hostSignin: true },
+      { ...RUNTIME_SETTINGS_DEFAULTS.oauth, connectUrl: "https://connect.example.com" },
     ]) {
       assert.equal((await call("PUT", "/runtime-settings/oauth", invalid)).status, 400);
     }

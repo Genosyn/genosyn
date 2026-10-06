@@ -42,7 +42,8 @@ import { getRegisteredOauthApp } from "./oauthApps.js";
 import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
 import { AppDataSource } from "../db/datasource.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
-import { startHostedGoogleOauth, type OauthStartResult } from "./hostedGoogleOauth.js";
+import { startHostedOauth, type OauthStartResult } from "./hostedOauth.js";
+import { hostedOauthApp } from "./hostedOauthApps.js";
 import { getRuntimeOauthSettings } from "./runtimeSettings.js";
 
 /**
@@ -60,7 +61,8 @@ import { getRuntimeOauthSettings } from "./runtimeSettings.js";
  * Google Cloud OAuth client. The resolved values are then persisted onto the
  * Connection exactly as a user-supplied pair would be, so token refresh and
  * reconnect stay a single code path that never reaches back to instance
- * settings.
+ * settings. With neither, an Integration that Genosyn Connect supports signs
+ * in through that service instead (`services/hostedOauth.ts`).
  *
  *   1. UI posts `startOauth({ companyId, userId, provider, label })`, with
  *      `clientId` / `clientSecret` only when the Connection brings its own,
@@ -134,6 +136,18 @@ export async function startOauth(args: {
   const oauth = provider.catalog.oauth;
   if (!oauth) throw new Error(`${provider.catalog.name} has no OAuth metadata`);
 
+  // Validate declared extra fields up front so a missing developer token
+  // fails before the user round-trips through the consent screen — on either
+  // sign-in path.
+  const extraFields: Record<string, string> = {};
+  for (const field of oauth.extraFields ?? []) {
+    const value = (args.extraFields?.[field.key] ?? "").trim();
+    if (!value && field.required) {
+      throw new Error(`${field.label} is required`);
+    }
+    if (value) extraFields[field.key] = value;
+  }
+
   // Per-Connection credentials win when supplied; otherwise fall back to the
   // install-wide registration. Resolving here (rather than at the route) keeps
   // every caller — connect, reconnect, onboarding — on one rule.
@@ -151,10 +165,16 @@ export async function startOauth(args: {
   const clientId = credentials?.clientId ?? "";
   const clientSecret = credentials?.clientSecret ?? "";
   if (!clientId || !clientSecret) {
-    if (!suppliedId && !suppliedSecret && args.provider === "google" &&
-        args.scopeGroups.length === 1 && args.scopeGroups[0] === "mail" &&
-        getRuntimeOauthSettings().hostedSignInEnabled) {
-      return startHostedGoogleOauth(args);
+    // Nothing registered here and nothing supplied: Genosyn Connect is the
+    // default way in. An installation that registered its own app — or a
+    // Connection that brings one — has opted out of it, and wins above.
+    if (
+      !suppliedId &&
+      !suppliedSecret &&
+      hostedOauthApp(oauth.app) &&
+      getRuntimeOauthSettings().hostedSignInEnabled
+    ) {
+      return startHostedOauth({ ...args, extraFields });
     }
     throw new Error(
       `No ${provider.catalog.name} OAuth client is available. Ask an instance admin to register one at Admin → Integrations, or supply a Client ID and Client Secret for this connection.`,
@@ -165,16 +185,6 @@ export async function startOauth(args: {
   // Google's and GitHub's plain auth-code flows this is undefined and the
   // callback skips passing it.
   const codeVerifier = oauth.app === "x" ? generatePkceVerifier() : undefined;
-  // Validate declared extra fields up front so a missing developer token
-  // fails before the user round-trips through the consent screen.
-  const extraFields: Record<string, string> = {};
-  for (const field of oauth.extraFields ?? []) {
-    const value = (args.extraFields?.[field.key] ?? "").trim();
-    if (!value && field.required) {
-      throw new Error(`${field.label} is required`);
-    }
-    if (value) extraFields[field.key] = value;
-  }
 
   const expiresAt = Date.now() + STATE_TTL_MS;
   const statePayload: OauthState = {
@@ -358,14 +368,19 @@ export async function startOauthReconnect(args: {
     if (!scopeGroups.includes("mail")) scopeGroups = [...scopeGroups, "mail"];
   }
   if (cfg.credentialSource === "hosted") {
-    if (conn.provider !== "google" || !cfg.tokenBrokerUrl ||
-        scopeGroups.length !== 1 || scopeGroups[0] !== "mail") {
-      throw new Error("Hosted Google sign-in supports Gmail only. Use your own OAuth client for other Google products.");
+    // Renewal is bound to the service that issued the refresh token, so a
+    // reconnect goes back to that same service and protocol, whatever the
+    // installation's current default is.
+    if (!cfg.tokenBrokerUrl) {
+      throw new Error("This Connection's sign-in service is unknown. Disconnect it and connect again.");
     }
-    return startHostedGoogleOauth({
+    return startHostedOauth({
       companyId: args.companyId,
       userId: args.userId,
+      provider: conn.provider,
       label: conn.label,
+      scopeGroups,
+      extraFields,
       existingConnectionId: conn.id,
       linkMailbox: !!linkedMailbox,
       tokenBrokerUrl: cfg.tokenBrokerUrl,

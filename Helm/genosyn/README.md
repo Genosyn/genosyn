@@ -15,10 +15,9 @@ Git-ignored files `Helm/Values/test.values.yaml` and
 `Helm/Values/prod.values.yaml`. The
 [environment guide](../Values/README.md) covers Kubernetes contexts, namespaces, TLS,
 database Secrets, offline previews, and public URL initialization.
-Production routes `connect.genosyn.com` to the same App through `/api/connect`
-and the six legacy Gmail sign-in paths. Set its separate **Hosted sign-in address** at
-**Admin → Runtime → Hosted sign-in** while retaining `app.genosyn.com` as the
-App's public URL; see the [hosted sign-in guide](../../App/HOSTED_SIGN_IN.md).
+Production also runs Genosyn Connect, the hosted sign-in service, and routes
+`connect.genosyn.com` to it on the same Ingress; see
+[Genosyn Connect](#genosyn-connect) and the [operator guide](../../Connect/README.md).
 
 A bare `helm install` works: bundled Postgres, one replica, a 20Gi data
 volume, and chart-generated strong secrets. For real use, front it with an
@@ -193,7 +192,8 @@ that depend on them.
 | `replicaCount` | `1` | Keep at 1; see [One organization per install](#one-organization-per-install). |
 | `strategy` | `Recreate` | Keep it: RWO volumes need it, and a rollout never overlaps two App processes. |
 | `ingress.enabled` / `ingress.host` | `false` / `""` | Front the app. WebSockets pass through a plain Ingress rule on nginx/Traefik. |
-| `ingress.connect.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` (effective) | Add a separate TLS hostname on the same Ingress and Service for hosted sign-in. Configure the hosting address and OAuth apps in the dashboard before enabling hosting. Legacy `ingress.gmailSignIn` fields remain supported. |
+| `ingress.connect.enabled` / `host` / `tlsSecretName` | `false` / `""` / `""` (effective) | Add a separate TLS hostname on the same Ingress, routed to the Genosyn Connect service. Requires `connect.enabled`. Legacy `ingress.gmailSignIn` fields remain supported. |
+| `connect.enabled` / `existingSecret` | `false` / `""` | Run Genosyn Connect beside the App, with provider credentials from a Secret. See [Genosyn Connect](#genosyn-connect). |
 | `ingress.className` | Empty | Installed IngressClass to use; empty leaves selection to the cluster's default. |
 | `ingress.annotations` | `{}` | Controller-specific settings passed through to the Ingress. They win over annotations an integration adds. |
 | `service.annotations` | `{}` | Optional settings passed through to the App Service for the chosen cluster/load balancer. They win over annotations an integration adds. |
@@ -232,9 +232,22 @@ mode. Password and encryption-key changes require a separate migration.
 `postgres.enabled=false`; an external production database still uses
 `config.db.postgresUrlSecret`.
 
-## Hosted sign-in ingress
+## Genosyn Connect
 
-Add a Connect hostname when this installation hosts sign-in for other installs:
+Genosyn Connect is the hosted OAuth sign-in service (`Connect/` in the
+repository, image `ghcr.io/genosyn/connect`). It lets self-hosted installations
+connect Gmail and other Integrations without registering their own OAuth app.
+Only the operator of a public sign-in service runs it; an ordinary install
+leaves it off and its App uses `https://connect.genosyn.com`.
+
+Create a Secret with the provider credentials, then enable the workload and
+its hostname together:
+
+```bash
+kubectl -n genosyn create secret generic genosyn-connect \
+  --from-literal=CONNECT_GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com \
+  --from-literal=CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-...
+```
 
 ```yaml
 ingress:
@@ -247,15 +260,28 @@ ingress:
     enabled: true
     host: connect.example.com
     tlsSecretName: connect-tls
+connect:
+  enabled: true
+  existingSecret: genosyn-connect
+  # Products to offer; each needs your Google app's verification.
+  googleScopeGroups: gmail
+  privacyUrl: https://example.com/privacy
+  termsUrl: https://example.com/terms
 ```
 
-Both hosts use the same Ingress and App Service. The Connect host exposes only
-the `/api/connect` path prefix and the six legacy exact paths
-`/api/google-sign-in/{status,start,authorize,callback,poll,refresh}`. It does
-not route the App, administration pages, or `/api/health`. Provider routes
-under `/api/connect` need no further ingress changes; Google is the current
-hosted sign-in provider. Use `/api/connect/google/callback` for its new OAuth
-callback and retain `/api/google-sign-in/callback` for older installations.
+The chart renders a `<release>-connect` Deployment and Service: the image at
+the chart's version (`connect.image.tag` overrides it), non-root, read-only,
+no service-account token and no volume, with readiness on `/readyz` and
+liveness on `/healthz`. The whole Connect hostname routes to it and none of it
+reaches the App. On GKE it gets its own BackendConfig with request logging
+off, because callback URLs carry authorization codes.
+
+One replica keeps sign-ins in memory; a restart costs only the sign-ins open
+at that moment. For `connect.replicaCount` above one, add
+`CONNECT_DATABASE_URL` (Postgres) and `CONNECT_SECRET` (32+ characters) to the
+Secret so replicas share sign-in state. Register
+`https://connect.example.com/api/connect/google/callback` and the legacy
+`https://connect.example.com/api/google-sign-in/callback` with Google.
 
 `ingress.connect` defaults to an empty object, with effective defaults of
 disabled, empty hostname, and empty TLS Secret name. Existing
@@ -263,7 +289,10 @@ disabled, empty hostname, and empty TLS Secret name. Existing
 field takes precedence over the corresponding legacy field, including
 `enabled: false` or an empty string. Unspecified fields inherit their legacy
 values; remove the legacy block after migration. An enabled Connect host must
-be a distinct DNS hostname, and both hosts must have TLS configured.
+be a distinct DNS hostname, both hosts must have TLS configured, and
+`connect.enabled` must be on: a profile that routed the hostname to the App
+fails to render, because the App no longer serves sign-in for other
+installations.
 
 ## How config works
 

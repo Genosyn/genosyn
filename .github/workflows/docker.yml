@@ -12,6 +12,7 @@ on:
     # bump as its own commit — which matches no other path.
     paths:
       - "App/**"
+      - "Connect/**"
       - "Home/**"
       - "CLI/**"
       - "VERSION"
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - "App/**"
+      - "Connect/**"
       - "Home/**"
       - "CLI/**"
       - "VERSION"
@@ -74,6 +76,18 @@ jobs:
             runner: ubuntu-latest
           - project: Home
             image: home
+            context: .
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          # Genosyn Connect, the hosted sign-in service. Built from the repo
+          # root so the image can carry the license.
+          - project: Connect
+            image: connect
+            context: .
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - project: Connect
+            image: connect
             context: .
             platform: linux/arm64
             runner: ubuntu-24.04-arm
@@ -198,6 +212,8 @@ jobs:
             image: app
           - project: Home
             image: home
+          - project: Connect
+            image: connect
     steps:
       - name: Checkout
         uses: actions/checkout@v6

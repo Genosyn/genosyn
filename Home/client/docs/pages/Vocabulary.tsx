@@ -164,6 +164,10 @@ export function Vocabulary() {
             def: "An AI Employee's access to a specific Connection.",
           },
           {
+            term: "Genosyn Connect",
+            def: "The hosted sign-in service that lets a self-hosted installation create Connections without registering its own OAuth app. Not a Connection, and not how Members log in.",
+          },
+          {
             term: "MCP server",
             def: "A Model Context Protocol server. Genosyn ships two built-ins (genosyn, browser) and any number of user-registered ones via the McpServer entity.",
           },

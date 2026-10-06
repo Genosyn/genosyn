@@ -11,7 +11,12 @@ import {
   ShieldAlert,
   Video,
 } from "lucide-react";
-import { api, type RuntimeSettingsGroup, type RuntimeSettingsSnapshot } from "../lib/api";
+import {
+  api,
+  type HostedSignInReport,
+  type RuntimeSettingsGroup,
+  type RuntimeSettingsSnapshot,
+} from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -172,13 +177,13 @@ const GROUPS: GroupSpec[] = [
     group: "oauth",
     title: "Hosted sign-in",
     icon: <Mailbox size={16} className="text-indigo-500" />,
-    blurb: "Connect supported Integrations through a shared sign-in service. Currently supports Google for Gmail; other providers must be added separately. This does not change how Members log into Genosyn.",
+    blurb: "Genosyn Connect signs this installation in to OAuth Integrations such as Gmail, so nobody has to register an OAuth app first. An app registered at Admin → Integrations, or a client supplied on a Connection, is used instead whenever there is one. This does not change how Members log into Genosyn.",
     fields: [
       {
         kind: "boolean",
         path: "hostedSignInEnabled",
-        label: "Use hosted sign-in",
-        help: "Use the service below when no local OAuth app is configured for a supported Integration. Turning this off stops new hosted sign-ins; existing Connections keep refreshing through their original service.",
+        label: "Use Genosyn Connect",
+        help: "Sign in through the service below whenever no OAuth app is registered here for an Integration it supports. Turning this off stops new sign-ins through it; Connections it already made keep renewing through the service that issued them.",
       },
       {
         kind: "text",
@@ -187,22 +192,7 @@ const GROUPS: GroupSpec[] = [
         maxLength: 2048,
         placeholder: "https://connect.genosyn.com",
         mono: true,
-        help: "Only change this to a service you operate or trust with Integration credentials. It handles sign-in and token renewal. Gmail reads and sends go directly between this installation and Google. Use an HTTPS origin with no path; HTTP loopback is allowed for development. The service must be online before companies can connect.",
-      },
-      {
-        kind: "boolean",
-        path: "hostSignIn",
-        label: "Host shared sign-in on this installation",
-        help: "For the operator of the public sign-in service only. This exposes sign-in and token-renewal endpoints for other installations. Currently Google only: set a public HTTPS URL, register a Google app at Admin → Integrations, and complete Google production verification before enabling. Ordinary self-hosted installations leave this off.",
-      },
-      {
-        kind: "text",
-        path: "signInHostUrl",
-        label: "Hosted sign-in address",
-        maxLength: 2048,
-        placeholder: "https://connect.genosyn.com",
-        mono: true,
-        help: "Leave blank to use the App address. Set https://connect.genosyn.com when the sign-in service shares the SaaS deployment. Route this address to the App and register its /api/connect/google/callback URL with Google. The existing /api/google-sign-in/callback remains compatible. Hosting still needs to be enabled above.",
+        help: "Change this only to a Genosyn Connect you run yourself or trust with Integration sign-ins and token renewal. Your data — mail, files, events — goes directly between this installation and the provider, never through the service. Use an HTTPS origin with no path; HTTP is allowed on localhost for development.",
       },
     ],
   },
@@ -672,19 +662,6 @@ function GroupCard({
       setError(built.error);
       return;
     }
-    if (
-      spec.group === "oauth" &&
-      built.value.hostSignIn === true &&
-      readPath(value, "hostSignIn") !== true
-    ) {
-      const confirmed = await dialog.confirm({
-        title: "Host the shared sign-in service?",
-        message:
-          "Other installations will send sign-in and token-renewal requests here. Currently only Google for Gmail is supported. Configure the public sign-in address and Google OAuth app, register that address with /api/connect/google/callback, and complete Google production verification before enabling. This does not enable other providers or change Member login.",
-        confirmLabel: "Enable hosting",
-      });
-      if (!confirmed) return;
-    }
     setError(null);
     setSaving(true);
     try {
@@ -759,6 +736,8 @@ function GroupCard({
             if (dirty) void save();
           }}
         >
+          {spec.group === "oauth" && <HostedSignInStatus key={serialized} />}
+
           <div className="grid gap-3 sm:grid-cols-2">
             {spec.fields.map((field) => (
               <Field
@@ -782,6 +761,76 @@ function GroupCard({
         </form>
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * Whether Genosyn Connect answers this installation, and for which products.
+ *
+ * "Google sign-in is unavailable" on the Email page can mean the service was
+ * turned off here, cannot be reached from this network, or does not offer
+ * Gmail; this says which, beside the settings that change it. Re-mounted
+ * (and so re-checked) whenever the saved settings change.
+ */
+function HostedSignInStatus() {
+  const [report, setReport] = React.useState<HostedSignInReport | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    api
+      .get<HostedSignInReport>("/api/admin/hosted-sign-in")
+      .then((next) => {
+        if (live) setReport(next);
+      })
+      .catch((err: unknown) => {
+        if (live) setError(errorMessage(err, "Could not check Genosyn Connect"));
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (error) return <FormError message={error} />;
+  if (!report) {
+    return (
+      <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400" role="status">
+        <Spinner size={12} /> Checking Genosyn Connect…
+      </p>
+    );
+  }
+  return (
+    <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-xs dark:divide-slate-800 dark:border-slate-700">
+      {report.apps.map((app) => {
+        const ok = app.status === "available";
+        const text =
+          app.status === "available"
+            ? `${report.url} signs in to ${app.integrations
+                .map((integration) => `${integration.name} (${integration.groups.join(", ")})`)
+                .join("; ")}.`
+            : app.status === "registered"
+              ? "This instance's own app at Admin → Integrations is used instead."
+              : app.status === "disabled"
+                ? "Turned off. Only an app registered at Admin → Integrations can sign in."
+                : app.status === "unreachable"
+                  ? `This installation cannot reach ${report.url}. It needs outbound HTTPS to the service.`
+                  : `${report.url} does not offer ${app.name} sign-in right now.`;
+        return (
+          <li key={app.app} className="flex items-start gap-2 px-3 py-2" role="status">
+            <span
+              aria-hidden
+              className={clsx(
+                "mt-1 inline-block h-2 w-2 shrink-0 rounded-full",
+                ok || app.status === "registered" ? "bg-emerald-500" : "bg-amber-500",
+              )}
+            />
+            <span className="min-w-0 text-slate-600 dark:text-slate-300">
+              <span className="font-medium text-slate-800 dark:text-slate-100">{app.name}</span>{" "}
+              — {text}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

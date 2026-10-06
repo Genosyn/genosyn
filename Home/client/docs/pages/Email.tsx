@@ -64,18 +64,19 @@ export function Email() {
         </LI>
       </OL>
       <P>
-        Self-hosted installations can use Genosyn&apos;s hosted Gmail sign-in service without
-        creating a Google Cloud project. Once the service is available, choose{" "}
-        <Strong>Continue with Google</Strong>, select your account, and consent. The service handles
-        sign-in and token renewal; your installation reads and sends email directly through Google.
-        Google credentials stay encrypted in your installation and are sent to the sign-in service
-        when needed to renew access. Email content does not pass through that service.
+        Gmail needs no Google Cloud project, even on a self-hosted installation:{" "}
+        <DocLink to="/docs/connect">Genosyn Connect</DocLink> handles the sign-in. Choose{" "}
+        <Strong>Continue with Google</Strong>, pick your account, and approve Google&apos;s consent
+        screen in the window that opens; the mailbox appears as soon as you do. Connect handles
+        sign-in and token renewal; your installation reads and sends email directly through Google,
+        and email content never passes through Connect. Google&apos;s tokens stay encrypted in your
+        installation, which sends the refresh token to Connect only to renew access.
       </P>
       <P>
-        If Google sign-in is unavailable, an instance admin can check <Strong>Hosted sign-in</Strong>
-        {" "}at <Strong>Admin → Runtime</Strong>, or register an independent Google OAuth app at{" "}
-        <Strong>Admin → Integrations</Strong>. A locally registered app takes precedence. Hosted
-        sign-in covers Gmail only; other Google products need your own app. See{" "}
+        If Google sign-in is unavailable, an instance admin can see why at{" "}
+        <Strong>Admin → Runtime → Hosted sign-in</Strong>: turned off, unreachable from your
+        network, or not offering Gmail. To use your own Google OAuth app instead, register it at{" "}
+        <Strong>Admin → Integrations</Strong>; a registered app always takes precedence. See{" "}
         <DocLink to="/docs/integrations">Integrations</DocLink> for setup. You can skip connecting
         email during onboarding and add it later.
       </P>
@@ -135,7 +136,7 @@ export function Email() {
 
       <Callout kind="info" title="No push endpoint to expose.">
         Sync is poll-based on a short interval, so there is no Google Cloud Pub/Sub topic and no
-        inbound webhook. Gmail uses hosted sign-in or a locally registered Google OAuth app; other
+        inbound webhook. Gmail uses Genosyn Connect or a locally registered Google OAuth app; other
         supported mailboxes use their password and server settings. (On a very large account a master admin can cap the
         first import to recent mail with <Strong>Backfill days</Strong> at{" "}
         <Code>Admin → Runtime</Code>; the default imports everything.)

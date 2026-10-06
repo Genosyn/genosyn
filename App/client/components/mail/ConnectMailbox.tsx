@@ -261,8 +261,8 @@ export function ConnectMailboxForm({
           ))}
           {plan.options.some((option) => option.kind === "oauth" && option.hostedSignIn) && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Genosyn handles Google sign-in. Your mailbox syncs directly with Google on this
-              installation.
+              Genosyn Connect handles Google sign-in, so there is no OAuth app to set up. Your mail
+              syncs directly between this installation and Google.
             </p>
           )}
           {waitingForOauth && (
