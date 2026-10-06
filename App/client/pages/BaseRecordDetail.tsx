@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import {
   X,
@@ -31,6 +32,7 @@ import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Ava
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { useModalChrome } from "../components/ui/ModalChrome";
 import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 
@@ -100,14 +102,11 @@ export function RecordDetailDrawer({
   const [error, setError] = React.useState<string | null>(null);
   const baseUrl = recordApiUrl(company, base, table, record.id);
 
-  // Close on Escape so the drawer feels like a modal.
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // A modal like any other, on the shared overlay stack: it traps Tab, moves
+  // focus in and back out, and answers Escape only while nothing is open on
+  // top of it. A window listener of its own used to close the drawer on the
+  // same Escape that cancelled a delete confirm opened from inside it.
+  const { titleId, panelRef } = useModalChrome({ open: true, onDismiss: onClose });
 
   async function patchCell(fieldId: string, value: unknown) {
     setError(null);
@@ -119,14 +118,19 @@ export function RecordDetailDrawer({
     }
   }
 
-  return (
+  // Portalled to <body> like Modal and Dialog. z-[60] is ModalChrome's
+  // `nested` layer: over the page, under the dialog a delete confirms with.
+  return createPortal(
     <div
       onMouseDown={onClose}
       className="fixed inset-0 z-[60] flex justify-end bg-slate-900/40 dark:bg-black/60"
-      aria-modal="true"
-      role="dialog"
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
         className="flex h-full w-full max-w-[640px] flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
       >
@@ -136,9 +140,12 @@ export function RecordDetailDrawer({
             <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
               {table.name}
             </div>
-            <div className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
+            <h2
+              id={titleId}
+              className="truncate text-base font-semibold text-slate-900 dark:text-slate-100"
+            >
               {recordTitle(fields, record)}
-            </div>
+            </h2>
           </div>
           <div className="flex items-center gap-1">
             <Link
@@ -149,6 +156,7 @@ export function RecordDetailDrawer({
               <Maximize2 size={15} />
             </Link>
             <button
+              data-modal-close
               onClick={onClose}
               className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               aria-label="Close"
@@ -184,7 +192,8 @@ export function RecordDetailDrawer({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
