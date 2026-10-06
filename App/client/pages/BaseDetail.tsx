@@ -151,13 +151,58 @@ function sortDirectionLabels(type: BaseFieldType): { asc: string; desc: string }
   }
 }
 
+type ViewPatch = Partial<Pick<BaseView, "name" | "filters" | "sorts" | "hiddenFieldIds">>;
+
+/**
+ * A change to a view made on this page, kept on screen over the fetched content
+ * until a fetch is sure to include it. `savedAfterFetch` is the number of the
+ * last content fetch started before the server confirmed the save (null while
+ * the save is in flight): any fetch numbered higher read the saved view.
+ */
+type ViewEdit = {
+  id: number;
+  viewId: string;
+  patch: ViewPatch;
+  savedAfterFetch: number | null;
+};
+
+// Lay the view edits still settling over the content last fetched, oldest
+// first, so the newest edit to a setting wins.
+function withViewEdits(
+  content: BaseTableContent | null,
+  edits: ViewEdit[],
+): BaseTableContent | null {
+  if (!content || edits.length === 0) return content;
+  let changed = false;
+  const views = content.views.map((view) =>
+    edits.reduce((v, edit) => {
+      if (edit.viewId !== v.id) return v;
+      changed = true;
+      return { ...v, ...edit.patch };
+    }, view),
+  );
+  return changed ? { ...content, views } : content;
+}
+
 export default function BaseDetail({ company }: { company: Company }) {
   const { baseSlug, tableSlug } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
   const { activeDetail, reloadActive, reload: reloadBases } = useBases();
 
-  const [content, setContent] = React.useState<BaseTableContent | null>(null);
+  // The table as last fetched, and the view edits made here that it may not
+  // include yet. The page shows one laid over the other, so no refetch — live,
+  // or the reload after a write — can put back a view already changed here.
+  const [fetchedContent, setFetchedContent] = React.useState<BaseTableContent | null>(null);
+  const [viewEdits, setViewEdits] = React.useState<ViewEdit[]>([]);
+  const content = React.useMemo(
+    () => withViewEdits(fetchedContent, viewEdits),
+    [fetchedContent, viewEdits],
+  );
+  // Content fetches are numbered as they start; `shownFetch` is the one on screen.
+  const contentFetches = React.useRef(0);
+  const shownFetch = React.useRef(0);
+  const viewEditIds = React.useRef(0);
   const [contentLoading, setContentLoading] = React.useState(false);
   const [contentError, setContentError] = React.useState<string | null>(null);
   const [showSettings, setShowSettings] = React.useState(false);
@@ -193,18 +238,39 @@ export default function BaseDetail({ company }: { company: Company }) {
     }
   }, [company.slug, detail, navigate, tableSlug]);
 
+  // Keyed on ids rather than on `detail` and `currentTable`, which are new
+  // objects whenever the base's own live refetch lands: reloading the grid on
+  // each of those started a fetch that could answer after a view edit.
+  const contentBaseSlug = detail?.base.slug ?? null;
+  const contentTableId = currentTable?.id ?? null;
+
   const loadContent = React.useCallback(
     async (silent = false) => {
-      if (!detail || !currentTable) {
-        setContent(null);
+      if (!contentBaseSlug || !contentTableId) {
+        setFetchedContent(null);
         return;
       }
+      const fetchNo = ++contentFetches.current;
       if (!silent) setContentLoading(true);
       try {
         const d = await api.get<BaseTableContent>(
-          `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/rows`,
+          `/api/companies/${company.id}/bases/${contentBaseSlug}/tables/${contentTableId}/rows`,
         );
-        setContent(d);
+        // Fetches overlap, so one that started earlier can answer later, with
+        // older content than the screen already shows.
+        if (fetchNo < shownFetch.current) return;
+        shownFetch.current = fetchNo;
+        setFetchedContent(d);
+        // The view edits this fetch read go, oldest first. Saves can answer out
+        // of order, so one not yet read keeps every later edit with it: laid
+        // over this fetch alone, it would hide a newer change to its setting.
+        setViewEdits((edits) => {
+          const unread = edits.findIndex(
+            (edit) => edit.savedAfterFetch === null || edit.savedAfterFetch >= fetchNo,
+          );
+          if (unread === 0) return edits;
+          return unread === -1 ? [] : edits.slice(unread);
+        });
         setContentError(null);
       } catch (err) {
         // A silent refetch (live socket, post-mutation reload) is background
@@ -216,7 +282,7 @@ export default function BaseDetail({ company }: { company: Company }) {
         if (!silent) setContentLoading(false);
       }
     },
-    [company.id, currentTable, detail],
+    [company.id, contentBaseSlug, contentTableId],
   );
 
   React.useEffect(() => {
@@ -228,6 +294,11 @@ export default function BaseDetail({ company }: { company: Company }) {
   // Scoped to the active table so other tables' writes don't refetch it.
   const liveReloadContent = React.useCallback(() => loadContent(true), [loadContent]);
   useLiveRefetch("baserecord", liveReloadContent, currentTable?.id ?? null);
+  // Fields and views ride the "base" kind: a column or view changed in another
+  // tab or by an AI employee, and the refetch that settles a view edit made
+  // here. Unscoped, because a linked table's primary field labels this
+  // table's link cells.
+  useLiveRefetch("base", liveReloadContent);
 
   // Reset the active view whenever the user switches tables — view IDs are
   // per-table so the previous selection is meaningless on the next one. The
@@ -259,36 +330,34 @@ export default function BaseDetail({ company }: { company: Company }) {
   );
 
   // Apply a partial change to the active view and persist it. Optimistic so
-  // toggling a filter feels instant; reverts on error.
+  // toggling a filter feels instant: the edit stays laid over the content
+  // until a fetch that started after its save has landed, and a failed save
+  // takes back its own change and nothing else.
   const updateActiveView = React.useCallback(
-    async (
-      patch: Partial<
-        Pick<BaseView, "name" | "filters" | "sorts" | "hiddenFieldIds">
-      >,
-    ) => {
+    async (patch: ViewPatch) => {
       if (!detail || !currentTable || !activeView) return;
-      const prev = content;
-      // Optimistic
-      setContent((prevContent) => {
-        if (!prevContent) return prevContent;
-        return {
-          ...prevContent,
-          views: prevContent.views.map((v) =>
-            v.id === activeView.id ? { ...v, ...patch } : v,
-          ),
-        };
-      });
+      const edit: ViewEdit = {
+        id: ++viewEditIds.current,
+        viewId: activeView.id,
+        patch,
+        savedAfterFetch: null,
+      };
+      setViewEdits((edits) => [...edits, edit]);
       try {
         await api.patch(
           `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/views/${activeView.id}`,
           patch,
         );
+        const savedAfterFetch = contentFetches.current;
+        setViewEdits((edits) =>
+          edits.map((e) => (e.id === edit.id ? { ...e, savedAfterFetch } : e)),
+        );
       } catch (err) {
+        setViewEdits((edits) => edits.filter((e) => e.id !== edit.id));
         void dialog.error(err, { title: "Couldn’t update the view" });
-        setContent(prev);
       }
     },
-    [activeView, company.id, content, currentTable, detail, dialog],
+    [activeView, company.id, currentTable, detail, dialog],
   );
 
   const createView = React.useCallback(async () => {
