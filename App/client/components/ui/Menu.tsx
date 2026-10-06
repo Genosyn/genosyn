@@ -2,6 +2,51 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { clsx } from "./clsx";
 
+/* ── Escape across open menus and popovers ────────────────────────────────
+ *
+ * Every open Menu or popover pushes an entry, and one listener closes only the
+ * newest, the way `ModalChrome` stacks modals. Each used to bind a window
+ * listener of its own, so a menu opened inside a popover took the popover down
+ * with it, and a page listener registered earlier (the Base grid clearing its
+ * selection) acted on the same Escape before any of them.
+ *
+ * The listener bubbles on `document`: after anything inside the surface that
+ * claims the key (a `Select` closing its list calls `preventDefault`), and
+ * before the page's own bubbling `window` listeners. Closing marks the key
+ * handled, and page listeners skip an Escape that arrives handled.
+ */
+
+const openSurfaces: Array<() => void> = [];
+
+function onEscape(event: KeyboardEvent) {
+  // Handled already: by something nearer the focus, or by a modal open on top.
+  // Mid-composition, Escape belongs to the IME (see `ModalChrome`).
+  if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+  const close = openSurfaces[openSurfaces.length - 1];
+  if (!close) return;
+  event.preventDefault();
+  close();
+}
+
+/** Close a menu or popover on Escape, while it is the newest one open. */
+export function useCloseOnEscape(open: boolean, onClose: () => void) {
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
+
+  React.useEffect(() => {
+    if (!open) return;
+    // Through the ref, so a parent passing a fresh arrow every render does not
+    // re-register the entry — or lose its place at the top of the stack.
+    const close = () => closeRef.current();
+    openSurfaces.push(close);
+    if (openSurfaces.length === 1) document.addEventListener("keydown", onEscape);
+    return () => {
+      openSurfaces.splice(openSurfaces.indexOf(close), 1);
+      if (openSurfaces.length === 0) document.removeEventListener("keydown", onEscape);
+    };
+  }, [open]);
+}
+
 /**
  * Small popover menu, Linear-style. Not a full combobox — pairs with a
  * trigger button supplied by the caller so the same primitive can back
@@ -61,17 +106,11 @@ export function Menu({
       if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
       setOpen(false);
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("mousedown", onDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  useCloseOnEscape(open, () => setOpen(false));
 
   return (
     <>

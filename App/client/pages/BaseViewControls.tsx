@@ -20,7 +20,7 @@ import {
   isBaseResourceFieldType,
   SelectOption,
 } from "../lib/api";
-import { Menu } from "../components/ui/Menu";
+import { Menu, useCloseOnEscape } from "../components/ui/Menu";
 import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { chipClass } from "../components/BaseIcons";
@@ -382,16 +382,12 @@ function ToolbarPopover({
       if (ref.current?.contains(t) || triggerRef.current?.contains(t)) return;
       onClose();
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("mousedown", onDown);
   }, [open, onClose, triggerRef]);
+  // On the Menu stack, so a field or operator menu opened in here closes
+  // before the popover does, and the grid keeps its selection either way.
+  useCloseOnEscape(open, onClose);
 
   if (!open || !coords) return null;
   return (
