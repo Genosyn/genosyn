@@ -68,7 +68,7 @@ export type ConnectionDTO = {
    * Empty array for API-key connections or legacy rows that pre-date
    * scope groups. The reconnect modal uses this to prefill checkboxes. */
   scopeGroups: string[];
-  /** Non-secret transport hint: hosted Google Connections support Gmail only. */
+  /** Non-secret hint: this Connection signed in through Genosyn Connect and renews there. */
   hostedSignIn?: boolean;
   /** Set when this row's connector has been removed from the catalog, so the
    * connection list can say so instead of rendering an anonymous card the
@@ -111,7 +111,7 @@ function readOauthMetadata(c: IntegrationConnection): { scopeGroups: string[]; h
       scopeGroups: Array.isArray(cfg.scopeGroups)
         ? cfg.scopeGroups.filter((s): s is string => typeof s === "string")
         : [],
-      ...(c.provider === "google" && cfg.credentialSource === "hosted" ? { hostedSignIn: true } : {}),
+      ...(cfg.credentialSource === "hosted" ? { hostedSignIn: true } : {}),
     };
   } catch {
     // Bad config — surface as empty rather than crashing the list endpoint.

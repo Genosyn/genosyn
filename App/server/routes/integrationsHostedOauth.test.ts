@@ -10,10 +10,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { requireTrustedOrigin } from "../middleware/httpSecurity.js";
-import {
-  resetHostedGoogleAvailabilityForTests,
-  startHostedGoogleOauth,
-} from "../services/hostedGoogleOauth.js";
+import { resetHostedOauthAvailabilityForTests, startHostedOauth } from "../services/hostedOauth.js";
 import { encryptConnectionConfig } from "../services/integrations.js";
 import { overrideRuntimeSettingsForTests } from "../services/runtimeSettings.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -71,7 +68,7 @@ beforeEach(async () => {
   await insert(Membership, { companyId: company.id, userId: member.id, role: "member" });
   actingUserId = owner.id;
   remoteCalls = 0;
-  resetHostedGoogleAvailabilityForTests();
+  resetHostedOauthAvailabilityForTests();
   remoteStarts = [];
   overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: true, gmailSignInUrl: issuer } });
   globalThis.fetch = async (input, init) => {
@@ -115,13 +112,15 @@ async function post(action: "poll" | "cancel", attempt: unknown) {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 async function start() {
-  const result = await startHostedGoogleOauth({
+  const result = await startHostedOauth({
     companyId: company.id,
     userId: owner.id,
+    provider: "google",
     label: "Gmail",
+    scopeGroups: ["mail"],
   });
   remoteCalls = 0;
-  resetHostedGoogleAvailabilityForTests();
+  resetHostedOauthAvailabilityForTests();
   return result.hostedAttempt!;
 }
 

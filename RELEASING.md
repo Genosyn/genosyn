@@ -158,10 +158,13 @@ the GHCR images are immutable but you can publish a higher patch over the top.
 
 ## Images and tags
 
-Two images, named after the repo folder — **not** `genosyn-app` / `genosyn-home`:
+Three images, named after the repo folder — **not** `genosyn-app` / `genosyn-home`:
 
 - `ghcr.io/genosyn/app` (from [`App/Dockerfile`](App/Dockerfile))
 - `ghcr.io/genosyn/home` (from [`Home/Dockerfile`](Home/Dockerfile))
+- `ghcr.io/genosyn/connect` (from [`Connect/Dockerfile`](Connect/Dockerfile)) — Genosyn
+  Connect, the hosted sign-in service. The Helm chart's `connect.image.tag` defaults to the
+  chart version, so a release that changes Connect ships it with the same tag as the App.
 
 **Image tags carry no `v` prefix.** Only the git tag and the GitHub release do.
 Releasing `VERSION=<version>` gives you git tag `v<version>` but image tag

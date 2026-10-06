@@ -145,6 +145,8 @@ type Case = {
   run: (page: Page) => Promise<void>;
   reconnect?: boolean;
   mobile?: boolean;
+  /** Scope groups the fixture's Genosyn Connect offers; Gmail alone by default. */
+  offer?: string[];
 };
 const cases: Case[] = [];
 const dialog = (page: Page) => page.getByRole("dialog");
@@ -174,7 +176,9 @@ cases.push({
     await clientId(page).waitFor();
     assert.equal(await submit(page).isDisabled(), true);
     assert.equal(await dialog(page).locator('input[type="password"]').count(), 1);
-    await dialog(page).getByRole("button", { name: "Use Genosyn’s Gmail sign-in instead" }).click();
+    await dialog(page)
+      .getByRole("button", { name: "Use Genosyn Connect for Gmail instead" })
+      .click();
     await noClientFields(page);
     assert.equal(await scope(page, "Drive").isChecked(), false);
     assert.equal(await scope(page, "Gmail").isChecked(), true);
@@ -183,6 +187,44 @@ cases.push({
       fullPage: true,
     });
     await saved(page, 0);
+  },
+});
+
+cases.push({
+  name: "a Connect offering several products starts from them and explains the ones it lacks",
+  offer: ["mail", "calendar"],
+  run: async (page) => {
+    assert.equal(await scope(page, "Gmail").isChecked(), true);
+    assert.equal(await scope(page, "Calendar").isChecked(), true);
+    assert.equal(await scope(page, "Drive").isChecked(), false);
+    await dialog(page)
+      .getByText(/Genosyn Connect handles Google sign-in/)
+      .waitFor();
+    await noClientFields(page);
+    // What Connect does not offer is marked before anyone picks it.
+    const ownClient = (name: string) =>
+      dialog(page).getByRole("checkbox", { name: new RegExp(`^${name} Own OAuth client `) });
+    assert.equal(await ownClient("Drive").count(), 1);
+    assert.equal(await ownClient("Gmail").count(), 0);
+    assert.equal(await ownClient("Calendar").count(), 0);
+    await scope(page, "Drive").check();
+    await clientId(page).waitFor();
+    await dialog(page)
+      .getByText(
+        "Genosyn Connect offers Gmail, Calendar without any setup. Drive needs an OAuth client of your own.",
+      )
+      .waitFor();
+    await dialog(page)
+      .getByRole("button", { name: "Use Genosyn Connect for Gmail, Calendar instead" })
+      .click();
+    await noClientFields(page);
+    assert.equal(await scope(page, "Drive").isChecked(), false);
+    assert.equal(await scope(page, "Calendar").isChecked(), true);
+    await scope(page, "Gmail").uncheck();
+    await completeHosted(page);
+    const started = state.calls.find((call) => call.path.endsWith("/oauth/start"))!;
+    assert.deepEqual(started.body.scopeGroups, ["calendar"]);
+    assert.equal(started.body.clientId, undefined);
   },
 });
 
@@ -332,7 +374,10 @@ try {
     });
     console.log(`RUN ${item.name}`);
     try {
-      await page.goto(`${origin}/__hosted_google_modal${item.reconnect ? "?reconnect" : ""}`, {
+      const query = new URLSearchParams();
+      if (item.reconnect) query.set("reconnect", "");
+      if (item.offer) query.set("offer", item.offer.join(","));
+      await page.goto(`${origin}/__hosted_google_modal${query.size ? `?${query}` : ""}`, {
         waitUntil: "commit",
         timeout: 60_000,
       });

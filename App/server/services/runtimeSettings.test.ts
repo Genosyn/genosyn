@@ -24,6 +24,7 @@ import {
   getWebSettings,
   importLegacyConfigOverrides,
   overrideRuntimeSettingsForTests,
+  normalizeOauthSettingNames,
   normalizeSignInUrl,
   parseAgentSettings,
   parseNetworkSettings,
@@ -400,17 +401,15 @@ describe("the network group", () => {
 });
 
 describe("hosted sign-in settings", () => {
-  test("fresh installations use Genosyn sign-in without hosting a service", async () => {
+  test("fresh installations use Genosyn Connect", async () => {
     await reloadRuntimeSettings();
     assert.deepEqual(getRuntimeOauthSettings(), {
       hostedSignInEnabled: true,
       hostedSignInUrl: "https://connect.genosyn.com",
-      hostSignIn: false,
-      signInHostUrl: "",
     });
   });
 
-  test("saved Gmail settings load canonically and are rewritten only when saved", async () => {
+  test("saved Gmail-era settings load canonically and are rewritten only when saved", async () => {
     const legacy = {
       gmailSignInEnabled: false,
       gmailSignInUrl: "https://LEGACY.example.com/",
@@ -422,8 +421,6 @@ describe("hosted sign-in settings", () => {
     const expected = {
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://legacy.example.com",
-      hostSignIn: true,
-      signInHostUrl: "https://host.example.com",
     };
     assert.deepEqual(getRuntimeOauthSettings(), expected);
     assert.deepEqual((await getRuntimeSettingsSnapshot()).oauth, expected);
@@ -433,63 +430,56 @@ describe("hosted sign-in settings", () => {
     assert.deepEqual(JSON.parse((await readRow(RUNTIME_SETTING_KEYS.oauth))!), expected);
   });
 
-  test("explicit canonical fields win over legacy fields, including false and a blank host", () => {
+  test("explicit canonical fields win over legacy fields, including false", () => {
     const stored = Object.freeze({
       gmailSignInEnabled: true,
       gmailSignInUrl: "https://legacy.example.com",
-      hostGmailSignIn: true,
-      gmailSignInHostUrl: "http://unsafe.example.com",
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://current.example.com",
-      hostSignIn: false,
-      signInHostUrl: "",
     });
     assert.deepEqual(parseOauthSettings(stored), {
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://current.example.com",
-      hostSignIn: false,
-      signInHostUrl: "",
     });
     assert.equal(stored.gmailSignInUrl, "https://legacy.example.com");
   });
 
-  test("a malformed selected host fails closed without falling back to a legacy address", () => {
-    for (const signInHostUrl of [null, 123, "http://unsafe.example.com", "https://host.example/path"]) {
-      const parsed = parseOauthSettings({
+  test("rows from installations that hosted sign-in inside the App drop the retired fields", async () => {
+    // Hosting moved to the separate Connect image. A row saved while the App
+    // hosted it must load cleanly, keep its consumer settings, and expose
+    // nothing that suggests this installation still serves sign-ins.
+    await writeRow(
+      RUNTIME_SETTING_KEYS.oauth,
+      JSON.stringify({
+        hostedSignInEnabled: true,
+        hostedSignInUrl: "https://customer-service.example.com",
         hostSignIn: true,
-        signInHostUrl,
+        signInHostUrl: "https://connect.example.com",
         hostGmailSignIn: true,
-        gmailSignInHostUrl: "https://legacy.example.com",
-      });
-      assert.equal(parsed.hostSignIn, false);
-      assert.equal(parsed.signInHostUrl, "");
-    }
-    assert.equal(parseOauthSettings({
-      hostGmailSignIn: true,
-      gmailSignInHostUrl: "http://unsafe.example.com",
-    }).hostSignIn, false);
-    assert.equal(parseOauthSettings({
-      hostSignIn: true,
-      signInHostUrl: "https://current.example.com",
-      gmailSignInHostUrl: "http://unsafe.example.com",
-    }).hostSignIn, true);
+        gmailSignInHostUrl: "https://legacy-host.example.com",
+      }),
+    );
+    await reloadRuntimeSettings();
+    assert.deepEqual(getRuntimeOauthSettings(), {
+      hostedSignInEnabled: true,
+      hostedSignInUrl: "https://customer-service.example.com",
+    });
+    assert.deepEqual(
+      normalizeOauthSettingNames({ hostSignIn: true, signInHostUrl: "x", hostedSignInEnabled: false }),
+      { hostedSignInEnabled: false },
+    );
   });
 
   test("legacy test overrides expose only canonical settings and retain explicit false", () => {
-    overrideRuntimeSettingsForTests({ oauth: {
-      gmailSignInEnabled: false,
-      gmailSignInUrl: "https://legacy.example.com",
-      hostGmailSignIn: true,
-      gmailSignInHostUrl: "https://legacy-host.example.com",
-    } });
+    overrideRuntimeSettingsForTests({
+      oauth: { gmailSignInEnabled: false, gmailSignInUrl: "https://legacy.example.com" },
+    });
     assert.deepEqual(getRuntimeOauthSettings(), {
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://legacy.example.com",
-      hostSignIn: true,
-      signInHostUrl: "https://legacy-host.example.com",
     });
-    overrideRuntimeSettingsForTests({ oauth: { hostSignIn: false, hostGmailSignIn: true } });
-    assert.equal(getRuntimeOauthSettings().hostSignIn, false);
+    overrideRuntimeSettingsForTests({ oauth: { hostedSignInEnabled: true, gmailSignInEnabled: false } });
+    assert.equal(getRuntimeOauthSettings().hostedSignInEnabled, true);
   });
 
   test("only secure service origins and explicit development loopback are accepted", () => {
@@ -514,98 +504,32 @@ describe("hosted sign-in settings", () => {
     assert.equal(normalizeSignInUrl("http://[::1]:3001/"), "http://[::1]:3001");
   });
 
-  test("bad stored fields fall back independently and cannot enable hosting", () => {
+  test("bad stored fields fall back independently", () => {
     assert.deepEqual(
       parseOauthSettings({
         hostedSignInEnabled: false,
         hostedSignInUrl: "http://untrusted.example.com",
-        hostSignIn: "true",
       }),
-      {
-        hostedSignInEnabled: false,
-        hostedSignInUrl: "https://connect.genosyn.com",
-        hostSignIn: false,
-        signInHostUrl: "",
-      },
+      { hostedSignInEnabled: false, hostedSignInUrl: "https://connect.genosyn.com" },
     );
-  });
-
-  test("legacy hosting without a host address and blank canonical addresses use the installation", () => {
-    assert.deepEqual(parseOauthSettings({ hostGmailSignIn: true }), {
-      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
-      hostSignIn: true,
-    });
-    for (const signInHostUrl of [undefined, "", "   "]) {
-      const parsed = parseOauthSettings({ hostSignIn: true, signInHostUrl });
-      assert.equal(parsed.signInHostUrl, "");
-      assert.equal(parsed.hostSignIn, true);
-    }
-  });
-
-  test("a separate host address normalizes without enabling hosting or changing the consumer URL", () => {
-    for (const [value, expected] of [
-      [" https://CONNECT.example.com/ ", "https://connect.example.com"],
-      ["http://localhost:3001/", "http://localhost:3001"],
-      ["http://127.0.0.1:3001/", "http://127.0.0.1:3001"],
-      ["http://[::1]:3001/", "http://[::1]:3001"],
-    ]) {
-      const parsed = parseOauthSettings({ signInHostUrl: value });
-      assert.equal(parsed.signInHostUrl, expected);
-      assert.equal(parsed.hostedSignInUrl, RUNTIME_SETTINGS_DEFAULTS.oauth.hostedSignInUrl);
-      assert.equal(parsed.hostSignIn, false);
-    }
-  });
-
-  test("malformed stored host addresses fail closed even when hosting was enabled", async () => {
-    for (const signInHostUrl of [
-      null,
-      true,
-      123,
-      {},
-      [],
-      "x".repeat(2049),
-      "http://connect.example.com",
-      "https://user:secret@connect.example.com",
-      "https://connect.example.com/callback",
-      "https://connect.example.com?token=secret",
-      "https://connect.example.com#token",
-    ]) {
-      await writeRow(
-        RUNTIME_SETTING_KEYS.oauth,
-        JSON.stringify({
-          hostSignIn: true,
-          signInHostUrl,
-          hostedSignInUrl: "https://customer-service.example.com",
-        }),
-      );
-      await reloadRuntimeSettings();
-      assert.equal(getRuntimeOauthSettings().hostSignIn, false);
-      assert.equal(getRuntimeOauthSettings().signInHostUrl, "");
-      assert.equal(
-        getRuntimeOauthSettings().hostedSignInUrl,
-        "https://customer-service.example.com",
-      );
-      await AppDataSource.getRepository(AppSetting).delete({ key: RUNTIME_SETTING_KEYS.oauth });
-    }
+    assert.deepEqual(
+      parseOauthSettings({ hostedSignInEnabled: "yes", hostedSignInUrl: "https://ok.example.com" }),
+      { hostedSignInEnabled: true, hostedSignInUrl: "https://ok.example.com" },
+    );
   });
 
   test("custom settings persist, normalize, and reset through the shared cache", async () => {
     await saveRuntimeSettingsGroup("oauth", {
       hostedSignInEnabled: false,
       hostedSignInUrl: "https://connect.example.com/",
-      hostSignIn: true,
-      signInHostUrl: " https://LOGIN.example.com/ ",
     });
     assert.equal(getRuntimeOauthSettings().hostedSignInUrl, "https://connect.example.com");
-    assert.equal(getRuntimeOauthSettings().signInHostUrl, "https://login.example.com");
-    assert.equal(getRuntimeOauthSettings().hostSignIn, true);
     const stored = JSON.parse((await readRow(RUNTIME_SETTING_KEYS.oauth))!);
-    assert.equal(stored.signInHostUrl, "https://login.example.com");
+    assert.equal(stored.hostedSignInUrl, "https://connect.example.com");
     resetRuntimeSettingsCacheForTests();
     const snapshot = await getRuntimeSettingsSnapshot();
     assert.equal(snapshot.oauth.hostedSignInEnabled, false);
-    assert.equal(snapshot.oauth.signInHostUrl, "https://login.example.com");
-    assert.equal(snapshot.oauth.hostSignIn, true);
+    assert.equal(snapshot.oauth.hostedSignInUrl, "https://connect.example.com");
     assert.equal(snapshot.overridden.oauth, true);
     await resetRuntimeSettingsGroup("oauth");
     assert.equal(await readRow(RUNTIME_SETTING_KEYS.oauth), null);

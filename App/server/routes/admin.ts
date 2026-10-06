@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireMasterAdmin } from "../middleware/auth.js";
-import { validateBody, validateParams } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
@@ -50,8 +50,10 @@ import {
   clearOauthApp,
   describeOauthApps,
   isRegisterableOauthApp,
+  registeredOauthApps,
   saveOauthApp,
 } from "../services/oauthApps.js";
+import { describeHostedSignIn } from "../services/hostedOauth.js";
 
 /**
  * Instance-wide admin endpoints. Not company-scoped — these describe and manage
@@ -331,16 +333,6 @@ const runtimeGroupSchemas = {
           (value) => normalizeSignInUrl(value) !== null,
           "Use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
         ),
-      hostSignIn: z.boolean(),
-      signInHostUrl: z
-        .string()
-        .trim()
-        .max(2048)
-        .refine(
-          (value) => value === "" || normalizeSignInUrl(value) !== null,
-          "Leave blank or use an HTTPS origin without credentials, a path, query, or fragment. HTTP is allowed only on localhost for development.",
-        )
-        .default(""),
     }).strict(),
   ),
   meetings: z.object({
@@ -431,6 +423,19 @@ adminRouter.delete(
     }
   },
 );
+
+// Whether Genosyn Connect is reachable from here and what it offers, so an
+// admin can tell "turned off", "cannot reach it" and "does not offer Gmail"
+// apart without reading server logs. No secret is involved: the service's
+// status routes are public.
+adminRouter.get("/hosted-sign-in", validateQuery(z.object({}).strict()), async (_req, res, next) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(await describeHostedSignIn(await registeredOauthApps()));
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─────────────────────── install-wide OAuth apps ───────────────────────────
 //

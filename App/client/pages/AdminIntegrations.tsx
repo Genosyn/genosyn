@@ -23,8 +23,9 @@ import { errorMessage } from "../lib/errors";
  * whole install, so nobody has to stand up a Google Cloud project just to
  * connect their mailbox.
  *
- * Gmail can also use hosted sign-in configured at Admin → Runtime. A local
- * registration takes precedence and covers the other Google products too.
+ * Without one, Integrations Genosyn Connect supports sign in through it (set
+ * at Admin → Runtime). Registering an app here is how an installation opts
+ * out: a local registration always takes precedence.
  *
  * Secrets are write-only. The API returns whether one is on file, never the
  * value, so the field renders blank with a placeholder that says a secret is
@@ -104,10 +105,12 @@ export function AdminIntegrations() {
               </p>
               <p className="mt-1">
                 Every company on this instance can then connect these
-                integrations with a single click. Gmail can use the hosted
-                sign-in service at Admin → Runtime without registering an app
-                here. Register Google for other Google products, or to manage
-                Gmail sign-in independently.
+                integrations with a single click. Nothing here is required for
+                Google: Genosyn Connect (Admin → Runtime → Hosted sign-in)
+                signs in to Gmail and the other Google products it offers
+                without an app of your own. Register one here to use your own
+                instead — for products Genosyn Connect does not offer, your own
+                consent screen, or your own API quota.
               </p>
               <p className="mt-1.5">
                 {configuredCount === 0

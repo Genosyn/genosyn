@@ -38,10 +38,11 @@ import {
 } from "../services/integrations.js";
 import { startOauth, startOauthReconnect } from "../services/oauth.js";
 import {
-  cancelHostedGoogleOauth,
-  hostedGoogleSignInAvailable,
-  pollHostedGoogleOauth,
-} from "../services/hostedGoogleOauth.js";
+  cancelHostedOauth,
+  hostedSignInOffers,
+  pollHostedOauth,
+} from "../services/hostedOauth.js";
+import { HOSTED_OAUTH_APPS } from "../services/hostedOauthApps.js";
 import { recordAudit } from "../services/audit.js";
 import { publicOriginFromRequest } from "../services/publicUrl.js";
 import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
@@ -88,7 +89,8 @@ integrationsRouter.get("/catalog", async (_req, res, next) => {
     const registered = await registeredOauthApps();
     res.json(listCatalog({
       registeredOauthApps: registered,
-      hostedGoogleSignIn: !registered.has("google") && await hostedGoogleSignInAvailable(),
+      // What Genosyn Connect offers for each OAuth app nobody registered here.
+      hostedSignIn: await hostedSignInOffers(registered, Object.keys(HOSTED_OAUTH_APPS)),
     }));
   } catch (err) {
     next(err);
@@ -246,9 +248,9 @@ integrationsRouter.post("/oauth/hosted/poll", validateBody(hostedOauthAttemptSch
   const { attempt } = req.body as z.infer<typeof hostedOauthAttemptSchema>;
   res.set("Cache-Control", "no-store");
   try {
-    res.json(await pollHostedGoogleOauth({ companyId: cid, userId: req.userId!, attempt }));
+    res.json(await pollHostedOauth({ companyId: cid, userId: req.userId!, attempt }));
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Google sign-in could not finish." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Sign-in could not finish." });
   }
 });
 
@@ -257,10 +259,10 @@ integrationsRouter.post("/oauth/hosted/cancel", validateBody(hostedOauthAttemptS
   const { attempt } = req.body as z.infer<typeof hostedOauthAttemptSchema>;
   res.set("Cache-Control", "no-store");
   try {
-    await cancelHostedGoogleOauth({ companyId: cid, userId: req.userId!, attempt });
+    await cancelHostedOauth({ companyId: cid, userId: req.userId!, attempt });
     res.json({ ok: true });
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Google sign-in could not be cancelled." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Sign-in could not be cancelled." });
   }
 });
 

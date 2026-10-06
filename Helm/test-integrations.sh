@@ -40,6 +40,8 @@ function resource(documents, kind, name) {
 const kinds = documents => documents.map(block => /^kind: (.+)$/m.exec(block)[1]);
 const tls = { enabled: true, secretName: 'app-tls' };
 const connect = { enabled: true, host: 'connect.example.com', tlsSecretName: 'connect-tls' };
+// The Connect hostname routes to the Connect service, which needs its credentials Secret.
+const connectService = { enabled: true, existingSecret: 'connect-credentials' };
 let passed = 0;
 function check(name, fn) { fn(); passed += 1; process.stdout.write(`ok - ${name}\n`); }
 try {
@@ -83,7 +85,7 @@ try {
 
   check('a Google-managed certificate covers both hosts in place of TLS Secrets', () => {
     const documents = render({ ...app, ingress: { ...app.ingress, connect: { enabled: true, host: 'connect.example.com' } },
-      gke: { enabled: true, managedCertificate: { enabled: true } } });
+      connect: connectService, gke: { enabled: true, managedCertificate: { enabled: true } } });
     const certificate = resource(documents, 'ManagedCertificate', 'genosyn');
     assert.match(certificate, /domains:\n\s+- "app.example.com"\n\s+- "connect.example.com"/);
     const ingress = resource(documents, 'Ingress');
@@ -101,12 +103,12 @@ try {
     reject({ gke: { enabled: true, managedCertificate: { enabled: true } } }, 'gke.managedCertificate.enabled requires ingress.enabled=true and ingress.host');
     reject({ ...app, ingress: { ...app.ingress, tls }, gke: { enabled: true, managedCertificate: { enabled: true } } },
       'gke.managedCertificate.enabled and ingress.tls.enabled are alternatives');
-    reject({ ...app, ingress: { ...app.ingress, connect: { enabled: true, host: 'connect.example.com' } } },
+    reject({ ...app, ingress: { ...app.ingress, connect: { enabled: true, host: 'connect.example.com' } }, connect: connectService },
       'requires ingress.enabled=true and ingress.tls.enabled=true');
   });
 
   check('cert-manager issues both Secrets through the GKE Ingress, starting temporary', () => {
-    const documents = render({ ...app, gke: { enabled: true }, ingress: { ...app.ingress, connect,
+    const documents = render({ ...app, gke: { enabled: true }, connect: connectService, ingress: { ...app.ingress, connect,
       tls: { ...tls, certManager: { enabled: true, email: 'ops@example.com' } } } });
     const issuer = resource(documents, 'Issuer', 'genosyn-acme');
     assert.match(issuer, /server: "https:\/\/acme-v02.api.letsencrypt.org\/directory"/);
@@ -166,9 +168,10 @@ try {
     const file = path.join(oldChart, 'values.yaml');
     const oldValues = fs.readFileSync(file, 'utf8')
       .replace(/^gke:\n(?:  .*\n|\n)*/m, '')
+      .replace(/^connect:\n(?:  .*\n|\n)*/m, '')
       .replace(/^    certManager:\n(?:      .*\n)*/m, '')
       .replace(/^  publicUrl: .*\n/m, '');
-    assert(!/^gke:|certManager:|publicUrl:/m.test(oldValues), 'fixture removes every new block');
+    assert(!/^gke:|^connect:|certManager:|publicUrl:/m.test(oldValues), 'fixture removes every new block');
     fs.writeFileSync(file, oldValues);
     const documents = render({ ...app, ingress: { ...app.ingress, tls } }, { source: oldChart });
     assert(!kinds(documents).some(kind => ['BackendConfig', 'FrontendConfig', 'ManagedCertificate', 'Issuer', 'Certificate'].includes(kind)));

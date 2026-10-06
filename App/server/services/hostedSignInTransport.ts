@@ -2,9 +2,30 @@ import { z } from "zod";
 import { normalizeSignInUrl } from "./runtimeSettings.js";
 
 const UNAVAILABLE = "Hosted sign-in is unavailable. Please try again later.";
-const discovery = new Map<string, { expiresAt: number; result: Promise<string | null> }>();
+const LEGACY_GOOGLE_PATH = "/api/google-sign-in";
+const DISCOVERY_TTL_MS = 30_000;
 const providerSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
-const statusSchema = z.object({ version: z.literal(1), available: z.boolean() });
+/** `scopes` is absent on services released before scopes were negotiable. */
+const statusSchema = z.object({
+  version: z.literal(1),
+  available: z.boolean(),
+  scopes: z.array(z.string().min(1).max(256)).max(256).optional(),
+});
+
+/** What a sign-in service offers for one provider, as its status route reports it. */
+export type HostedSignInOffer = {
+  path: string;
+  /**
+   * Every scope the service will request for an installation. Null when the
+   * service predates scope negotiation: it then grants Gmail and nothing else.
+   */
+  scopes: string[] | null;
+};
+
+const discovery = new Map<
+  string,
+  { expiresAt: number; result: Promise<HostedSignInOffer | null> }
+>();
 
 class SignInTransportError extends Error {
   constructor(readonly status?: number) {
@@ -16,8 +37,7 @@ class SignInTransportError extends Error {
 export function validateHostedSignInPath(provider: string, path: string): string {
   if (
     !providerSchema.safeParse(provider).success ||
-    (path !== `/api/connect/${provider}` &&
-      !(provider === "google" && path === "/api/google-sign-in"))
+    (path !== `/api/connect/${provider}` && !(provider === "google" && path === LEGACY_GOOGLE_PATH))
   ) {
     throw new SignInTransportError();
   }
@@ -72,36 +92,70 @@ export async function requestHostedSignIn(
   }
 }
 
-/** Discover with public status calls only; token exchanges never fall back. */
-export async function discoverHostedSignInPath(
+async function readOffer(
+  origin: string,
+  provider: string,
+  path: string,
+): Promise<HostedSignInOffer | null> {
+  const status = statusSchema.safeParse(
+    await requestHostedSignIn(origin, provider, path, "status", undefined, 2000),
+  );
+  if (!status.success || !status.data.available) return null;
+  return { path, scopes: status.data.scopes ?? null };
+}
+
+function cached(key: string, load: () => Promise<HostedSignInOffer | null>) {
+  const hit = discovery.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.result;
+  const result = load();
+  if (discovery.size >= 64) discovery.clear();
+  discovery.set(key, { expiresAt: Date.now() + DISCOVERY_TTL_MS, result });
+  return result;
+}
+
+/**
+ * Discover what a service offers for a provider with public status calls only;
+ * token exchanges never fall back. Null means "not offered here right now".
+ * Throws when the service cannot be reached at all.
+ */
+export async function discoverHostedSignIn(
   issuer: string,
   provider: string,
-): Promise<string | null> {
+): Promise<HostedSignInOffer | null> {
   const path = validateHostedSignInPath(provider, `/api/connect/${provider}`);
   const origin = normalizeSignInUrl(issuer);
   if (!origin) throw new SignInTransportError();
-  const key = `${origin}${path}`;
-  const cached = discovery.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.result;
-  const result = (async () => {
-    let selectedPath = path;
-    let raw: unknown;
+  return cached(`${origin}${path}`, async () => {
     try {
-      raw = await requestHostedSignIn(origin, provider, path, "status", undefined, 2000);
+      return await readOffer(origin, provider, path);
     } catch (error) {
       // Older Google hosts only know this route. A disabled provider, outage,
       // redirect, or incompatible protocol must not trigger a downgrade.
       if (!(error instanceof SignInTransportError) || error.status !== 404 || provider !== "google")
         throw error;
-      selectedPath = "/api/google-sign-in";
-      raw = await requestHostedSignIn(origin, provider, selectedPath, "status", undefined, 2000);
+      return readOffer(origin, provider, LEGACY_GOOGLE_PATH);
     }
-    const status = statusSchema.safeParse(raw);
-    return status.success && status.data.available ? selectedPath : null;
-  })();
-  if (discovery.size >= 64) discovery.clear();
-  discovery.set(key, { expiresAt: Date.now() + 30_000, result });
-  return result;
+  });
+}
+
+/** What the exact saved issuer and path offer now — for reconnecting a Connection. */
+export async function readHostedSignInOffer(
+  issuer: string,
+  provider: string,
+  path: string,
+): Promise<HostedSignInOffer | null> {
+  validateHostedSignInPath(provider, path);
+  const origin = normalizeSignInUrl(issuer);
+  if (!origin) throw new SignInTransportError();
+  return cached(`pinned:${origin}${path}`, () => readOffer(origin, provider, path));
+}
+
+/** Compatibility for callers that only need the protocol path. */
+export async function discoverHostedSignInPath(
+  issuer: string,
+  provider: string,
+): Promise<string | null> {
+  return (await discoverHostedSignIn(issuer, provider))?.path ?? null;
 }
 
 export function resetHostedSignInDiscoveryForTests(): void {

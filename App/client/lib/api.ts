@@ -1709,8 +1709,10 @@ export type IntegrationCatalogEntry = {
      *  (Admin → Integrations). The connect form then asks for no credentials
      *  at all — the handshake uses the instance's client. */
     instanceApp?: boolean;
-    /** Hosted sign-in covers Gmail only; other Google products need a registered client. */
+    /** Genosyn Connect can sign in to this Integration with no client here. */
     hostedSignIn?: boolean;
+    /** The scope groups Genosyn Connect offers; the rest need an own client. */
+    hostedScopeGroups?: string[];
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     /** Extra create-time inputs (developer tokens, account ids, safety
@@ -3768,8 +3770,18 @@ export type RuntimeMailSettings = {
 export type RuntimeOauthSettings = {
   hostedSignInEnabled: boolean;
   hostedSignInUrl: string;
-  hostSignIn: boolean;
-  signInHostUrl: string;
+};
+
+/** `GET /api/admin/hosted-sign-in` — what Genosyn Connect offers this installation now. */
+export type HostedSignInReport = {
+  enabled: boolean;
+  url: string;
+  apps: Array<{
+    app: string;
+    name: string;
+    status: "available" | "unreachable" | "unsupported" | "disabled" | "registered";
+    integrations: Array<{ provider: string; name: string; groups: string[] }>;
+  }>;
 };
 
 /** Calendar mirror + meeting transcription. */
