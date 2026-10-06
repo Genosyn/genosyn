@@ -1238,11 +1238,13 @@ function Row({
       >
         {/* The row number and the selection checkbox share one grid cell, so
             swapping one for the other moves neither. A selected row shows only
-            its checkbox. The checkbox comes last so it sits on top and takes
-            the click. */}
+            its checkbox. The number lets the pointer through: faded out, its
+            opacity below 1 paints it over the checkbox, and it took the click. */}
         <div className="grid h-9 place-items-center">
           {!selected && (
-            <span className={clsx("col-start-1 row-start-1", ROW_NUMBER_CLASS)}>{index}</span>
+            <span className={clsx("pointer-events-none col-start-1 row-start-1", ROW_NUMBER_CLASS)}>
+              {index}
+            </span>
           )}
           <button
             type="button"
