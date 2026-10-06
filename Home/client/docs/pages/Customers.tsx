@@ -243,6 +243,27 @@ export function Customers() {
         <DocLink to="/docs/signatures">Signatures</DocLink>. A completed, Customer-linked request is
         archived here automatically with its signed date and evidence-backed PDF.
       </P>
+
+      <H2 id="access">Who can change customers</H2>
+      <P>
+        Customer accounts are finance records, so each Member&apos;s{" "}
+        <DocLink to="/docs/finance#finance-access">finance access</DocLink> decides what they can
+        do with them. Owners, admins, and Members with <Strong>Full</Strong> access can create,
+        edit, archive, and delete customers and their contacts.
+      </P>
+      <P>
+        A Member with <Strong>Read-only</Strong> finance access can open the customer list, every
+        customer&apos;s overview, and its statement, but not change them. The list leaves out{" "}
+        <Strong>New customer</Strong> and each row&apos;s menu, and the overview leaves out{" "}
+        <Strong>Edit</Strong> and the Billing tab&apos;s <Strong>New invoice</Strong>,{" "}
+        <Strong>New estimate</Strong>, and <Strong>New recurring invoice</Strong>. Following a saved
+        link to the New or Edit customer page shows a note in its place, with a way back.
+      </P>
+      <P>
+        Contracts don&apos;t depend on finance access, so a read-only Member can still upload, edit,
+        download, and delete them, on a customer&apos;s <Strong>Documents</Strong> tab or under{" "}
+        <Code>Customers → Contracts</Code>.
+      </P>
     </>
   );
 }

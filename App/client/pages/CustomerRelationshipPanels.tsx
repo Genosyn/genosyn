@@ -138,12 +138,18 @@ export function CustomerPeoplePanel({
   companySlug,
   members,
   employees,
+  canEditBilling,
 }: {
   contacts: RevenueContact[];
   billingContacts: CustomerContact[];
   companySlug: string;
   members: Member[];
   employees: Employee[];
+  /**
+   * Whether this Member can add billing contacts, on the customer's edit
+   * page: a finance write, so not with read-only finance access.
+   */
+  canEditBilling: boolean;
 }) {
   return (
     <div className="space-y-8">
@@ -195,7 +201,11 @@ export function CustomerPeoplePanel({
         {billingContacts.length === 0 ? (
           <EmptyState
             title="No billing contacts"
-            description="Add the people who handle invoices and payments on the customer's edit page."
+            description={
+              canEditBilling
+                ? "Add the people who handle invoices and payments on the customer's edit page."
+                : "The people who handle this customer's invoices and payments appear here."
+            }
           />
         ) : (
           <ul className={CARD + " divide-y divide-slate-100 dark:divide-slate-800"}>

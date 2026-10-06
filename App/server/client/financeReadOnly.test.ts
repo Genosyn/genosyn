@@ -5,16 +5,19 @@ import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 /**
- * Every Finance page that can change finances asks `canWriteFinance` first.
+ * Every Finance page that can change finances asks `canWriteFinance` first,
+ * and so does every Customers page that can change a customer, since the
+ * finance routes write customers too.
  *
- * `client/pages/FinanceReadOnly.test.ts` renders what a page draws before its
- * data arrives. What it draws afterwards — a row's menu, an invoice's Send and
- * Void, Record payment, a proposal's Apply — exists only once a request has
- * come back, which server rendering never waits for. So the rule is held here,
- * at the source: a Finance page that sends a write, or links to a form that
- * does, must consult `canWriteFinance(company)`, the client's copy of the
- * server's `requireFinanceWrite`. Lint fails a `canWrite` that is never read,
- * so consulting it means using it.
+ * `client/pages/FinanceReadOnly.test.ts` and `CustomersReadOnly.test.ts`
+ * render what a page draws before its data arrives. What it draws afterwards
+ * — a row's menu, an invoice's Send and Void, Record payment, a proposal's
+ * Apply, a customer's Edit — exists only once a request has come back, which
+ * server rendering never waits for. So the rule is held here, at the source:
+ * a page that sends a finance write, or links to a form that does, must
+ * consult `canWriteFinance(company)`, the client's copy of the server's
+ * `requireFinanceWrite`. Lint fails a `canWrite` that is never read, so
+ * consulting it means using it.
  */
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -35,11 +38,31 @@ const STRICTER: Record<string, RegExp> = {
   "FinanceSubsidiaries.tsx": /canManage = company\.role === "owner" \|\| company\.role === "admin"/,
 };
 
-function financePages(): { file: string; source: string }[] {
+/**
+ * A Customers page's write to the finance routes, which serve customers and
+ * their contacts. Told apart by its path, because the same pages also upload
+ * contracts, which `routes/contracts.ts` gates on no finance level.
+ */
+const CUSTOMER_WRITE = /\bapi\.(?:post|patch|put|del)\b(?:<[^>]*>)?\(\s*`[^`]*\/customers\b/;
+/**
+ * A Customers page's link into a form that needs Full access: a customer's,
+ * or one of Finance's. A signature request is no finance write.
+ */
+const CUSTOMER_FORM_LINK = /(?<!\/signatures)\/(?:new|edit)`/;
+
+function pages(pattern: RegExp, layout: string): { file: string; source: string }[] {
   return fs
     .readdirSync(pagesDir)
-    .filter((file) => /^Finance.*\.tsx$/.test(file) && file !== "FinanceLayout.tsx")
+    .filter((file) => pattern.test(file) && file !== layout)
     .map((file) => ({ file, source: fs.readFileSync(path.join(pagesDir, file), "utf8") }));
+}
+
+function financePages(): { file: string; source: string }[] {
+  return pages(/^Finance.*\.tsx$/, "FinanceLayout.tsx");
+}
+
+function customerPages(): { file: string; source: string }[] {
+  return pages(/^Customers?[A-Z].*\.tsx$/, "CustomersLayout.tsx");
 }
 
 describe("Finance pages and read-only access", () => {
@@ -60,6 +83,29 @@ describe("Finance pages and read-only access", () => {
         ASKS,
         `${file} changes finances, so it must offer each change only when ` +
           "canWriteFinance(company) is true — a read-only Member's request is refused",
+      );
+    }
+  });
+});
+
+describe("Customers pages and read-only access", () => {
+  test("ask canWriteFinance wherever they can change a customer or open a form that does", () => {
+    const writers = customerPages().filter(
+      ({ source }) => CUSTOMER_WRITE.test(source) || CUSTOMER_FORM_LINK.test(source),
+    );
+    // Guard the guard: a pattern that stopped matching would pass vacuously.
+    for (const file of ["CustomersIndex.tsx", "CustomerDetail.tsx", "CustomerNew.tsx"]) {
+      assert.ok(
+        writers.some((page) => page.file === file),
+        `${file} is no longer recognized as changing customers`,
+      );
+    }
+    for (const { file, source } of writers) {
+      assert.match(
+        source,
+        ASKS,
+        `${file} changes customers through the finance routes, so it must offer each ` +
+          "change only when canWriteFinance(company) is true — a read-only Member's request is refused",
       );
     }
   });

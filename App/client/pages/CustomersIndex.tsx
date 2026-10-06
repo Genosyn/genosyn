@@ -28,6 +28,7 @@ import {
   patchCustomerListParams,
   type CustomerListUrlState,
 } from "../lib/customerList";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -40,10 +41,13 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * Customers list — the landing page of the standalone Customers section.
  * Creating and editing happen on a dedicated `customers/new` /
  * `customers/:slug/edit` page (not a modal) so the form has room for
- * contacts and contracts.
+ * contacts and contracts. The finance routes write customers, so a read-only
+ * Member gets the list without New customer or the row menu, whose every
+ * entry is a write; each name still opens the customer's page.
  */
 export default function CustomersIndex() {
   const { company } = useOutletContext<CustomersOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const background = useBackgroundAction();
@@ -286,9 +290,11 @@ export default function CustomersIndex() {
       </div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Customers</h1>
-        <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
-          <Plus size={14} /> New customer
-        </Button>
+        {canWrite && (
+          <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
+            <Plus size={14} /> New customer
+          </Button>
+        )}
       </div>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -360,22 +366,29 @@ export default function CustomersIndex() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             {listState.query ? "No customers match your search" : "No customers yet"}
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {listState.query
-              ? "Try a different search term, or clear the search to see every customer."
-              : "Add the first customer you bill so you can issue an invoice."}
-          </p>
-          <div className="mt-4">
-            {listState.query ? (
-              <Button variant="secondary" onClick={clearSearch}>
-                <X size={14} /> Clear search
-              </Button>
-            ) : (
-              <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
-                <Plus size={14} /> New customer
-              </Button>
-            )}
-          </div>
+          {listState.query ? (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Try a different search term, or clear the search to see every customer.
+              </p>
+              <div className="mt-4">
+                <Button variant="secondary" onClick={clearSearch}>
+                  <X size={14} /> Clear search
+                </Button>
+              </div>
+            </>
+          ) : canWrite ? (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Add the first customer you bill so you can issue an invoice.
+              </p>
+              <div className="mt-4">
+                <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
+                  <Plus size={14} /> New customer
+                </Button>
+              </div>
+            </>
+          ) : null}
         </div>
       ) : (
         <>
@@ -394,7 +407,7 @@ export default function CustomersIndex() {
                     <th className="px-4 py-2 text-left font-medium">Contacts</th>
                     <th className="px-4 py-2 text-right font-medium">Annual contract value</th>
                     <th className="px-4 py-2 text-left font-medium">Currency</th>
-                    <th className="px-4 py-2 text-right font-medium">&nbsp;</th>
+                    {canWrite && <th className="px-4 py-2 text-right font-medium">&nbsp;</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -454,15 +467,17 @@ export default function CustomersIndex() {
                       <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
                         {c.currency}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <RowMenu
-                          onEdit={() => navigate(`/c/${company.slug}/customers/${c.slug}/edit`)}
-                          onArchive={() => archive(c)}
-                          onDelete={() => remove(c)}
-                          archived={!!c.archivedAt}
-                          disabled={pendingCustomerIds.has(c.id)}
-                        />
-                      </td>
+                      {canWrite && (
+                        <td className="px-4 py-3 text-right">
+                          <RowMenu
+                            onEdit={() => navigate(`/c/${company.slug}/customers/${c.slug}/edit`)}
+                            onArchive={() => archive(c)}
+                            onDelete={() => remove(c)}
+                            archived={!!c.archivedAt}
+                            disabled={pendingCustomerIds.has(c.id)}
+                          />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

@@ -11,6 +11,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
@@ -18,6 +19,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
+import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { CustomersOutletCtx } from "./CustomersLayout";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
 
@@ -69,7 +71,29 @@ function rowFromContact(c: CustomerContact): ContactRow {
   };
 }
 
+/**
+ * `customers/new` and `customers/:customerSlug/edit`. The finance routes save
+ * customers and their contacts, so either needs Full finance access; a
+ * read-only Member who lands here gets a note instead of a form that could
+ * only be refused.
+ */
 export default function CustomerNew() {
+  const { company } = useOutletContext<CustomersOutletCtx>();
+  const { customerSlug } = useParams();
+  if (!canWriteFinance(company)) {
+    return (
+      <FinanceReadOnlyPage
+        company={company}
+        section={{ label: "Customers", path: "customers" }}
+        title={customerSlug ? "Edit customer" : "New customer"}
+        backTo={customerSlug ?? ""}
+      />
+    );
+  }
+  return <CustomerForm />;
+}
+
+function CustomerForm() {
   const { company } = useOutletContext<CustomersOutletCtx>();
   const navigate = useNavigate();
   const { customerSlug } = useParams();
