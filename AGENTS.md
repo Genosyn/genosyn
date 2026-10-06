@@ -115,7 +115,7 @@ into tracked examples or CI fixtures. See `Helm/Values/README.md`.
 
 Every Docker image uses the repo root as its build context. Home needs the
 root because `sync-cli` reads from `../CLI/`; App needs it because in-app Help
-ships a read-only snapshot of App, Home, CLI, docs, and delivery
+ships a read-only snapshot of App, Home, CLI, Connect, docs, and delivery
 workflows for AI Employees to inspect; Connect needs it for the license. `Home/Dockerfile` mirrors the repo
 layout inside the image at `/build/Home` + `/build/CLI` so the relative path
 resolves the same way as local dev. If you rename `CLI/`, update **all three**:

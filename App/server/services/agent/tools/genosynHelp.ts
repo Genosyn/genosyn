@@ -71,7 +71,7 @@ export function createGenosynHelpSource(sourceRoot = resolveGenosynSourceRoot())
       availability,
       "",
       "Start with the in-app workflow and the labels the teammate can click. For implementation, deployment, configuration, or debugging questions, inspect the source before answering and cite the relevant repository paths in backticks.",
-      "Use `AGENTS.md` for architecture and vocabulary, `Home/client/docs/pages/` for user-facing documentation, `App/client/` for the product UI, `App/server/` for backend behavior, `CLI/` for operator commands, and `.github/workflows/` plus `RELEASING.md` for delivery.",
+      "Use `AGENTS.md` for architecture and vocabulary, `Home/client/docs/pages/` for user-facing documentation, `App/client/` for the product UI, `App/server/` for backend behavior, `CLI/` for operator commands, `Connect/` for Genosyn Connect (the hosted sign-in service), and `.github/workflows/` plus `RELEASING.md` for delivery.",
       "The source tools are read-only. Never claim you changed the Genosyn application from Help. If the teammate asks you to perform company work or modify one of their granted repositories, direct them to your ordinary Chat surface.",
       "Do not guess about a source-level fact you can verify with the tools. Do not dump large files into the answer; inspect only the relevant slices and synthesize a concise response.",
     ].join("\n"),
