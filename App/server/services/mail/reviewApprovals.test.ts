@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
@@ -39,6 +40,7 @@ import {
   mailReviewOutcome,
   reconcileMailReviewApprovals,
   recordMailReviewRejection,
+  restampMailReviewInboundEvidence,
   reviseMailReviewApproval,
   updateMailReviewApproval,
 } from "./reviewApprovals.js";
@@ -149,6 +151,73 @@ async function createReview(f: Fixture): Promise<Approval> {
   });
   assert.equal(result.created, true);
   return result.approval;
+}
+
+/** How an IMAP mailbox mirrored the fixture's message before its adapter decoded header text. */
+async function mirrorHeaderTextAsSent(f: Fixture): Promise<void> {
+  await AppDataSource.getRepository(MailMessage).update(
+    { threadId: f.thread.id },
+    {
+      subject: "=?UTF-8?Q?Probl=C3=A8me_de_connexion?=",
+      toEmails: `=?UTF-8?Q?=C3=89quipe_Support?= <${MAILBOX_ADDRESS}>`,
+    },
+  );
+}
+
+/** What the sync pass writes over it. */
+async function decodeMirroredHeaderText(f: Fixture): Promise<void> {
+  await AppDataSource.getRepository(MailMessage).update(
+    { threadId: f.thread.id },
+    { subject: "Problème de connexion", toEmails: `Équipe Support <${MAILBOX_ADDRESS}>` },
+  );
+}
+
+function proposeReplyAgain(f: Fixture) {
+  return createMailReviewApproval({
+    companyId: f.companyId,
+    employeeId: f.employee.id,
+    threadId: f.thread.id,
+    context: "A later pass looks at the same customer thread again.",
+    bodyText: "Following up on your sign-in problem.",
+  });
+}
+
+/**
+ * The inbound stamp the release before this one wrote on a handled review,
+ * computed as it computed it: over the header text exactly as stored.
+ */
+async function inboundStampAsWrittenBefore(f: Fixture): Promise<string> {
+  const messages = await AppDataSource.getRepository(MailMessage).find({
+    where: { threadId: f.thread.id },
+  });
+  const inbound = messages.map((m) => [
+    m.id,
+    m.gmailMessageId,
+    m.gmailThreadId,
+    m.messageIdHeader,
+    m.referencesHeader,
+    m.inReplyToHeader,
+    m.sentAt?.toISOString() ?? null,
+    m.fromName,
+    m.fromEmail,
+    m.toEmails,
+    m.ccEmails,
+    m.bccEmails,
+    m.subject,
+    m.bodyText,
+    m.bodyHtml,
+    m.attachmentsJson,
+    m.sizeEstimate,
+  ]);
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        [f.account.id, f.account.connectionId, f.account.provider, f.account.address],
+        [f.thread.id, f.thread.gmailThreadId],
+        inbound,
+      ]),
+    )
+    .digest("hex");
 }
 
 async function routineOrigin(f: Fixture, slug: string) {
@@ -800,6 +869,83 @@ describe("mail review approvals", () => {
     });
     assert.equal(newInbound.created, true);
     assert.notEqual(newInbound.approval.id, approval.id);
+  });
+
+  test("a discarded reply stays discarded when its thread's header text is decoded", async () => {
+    // An IMAP row mirrored before its adapter decoded holds header text as the
+    // server sent it, until the sync pass decodes it in place. Either way it
+    // is the same customer mail, and nothing new arrived.
+    const f = await fixture();
+    await mirrorHeaderTextAsSent(f);
+    const discarded = await createReview(f);
+    await AppDataSource.getRepository(Approval).update(discarded.id, {
+      status: "rejected",
+      decidedAt: new Date(),
+      decidedByUserId: f.reviewerId,
+    });
+
+    await decodeMirroredHeaderText(f);
+    const retry = await proposeReplyAgain(f);
+    assert.equal(retry.created, false);
+    assert.equal(retry.approval.id, discarded.id);
+  });
+
+  test("a stamp written over raw header text holds before and after the sync pass carries it across", async () => {
+    const f = await fixture();
+    await mirrorHeaderTextAsSent(f);
+    const discarded = await createReview(f);
+    // The stamp the release before this one wrote: over the text as stored.
+    const payload = JSON.parse(discarded.payloadJson!) as Record<string, unknown>;
+    await AppDataSource.getRepository(Approval).update(discarded.id, {
+      status: "rejected",
+      decidedAt: new Date(),
+      decidedByUserId: f.reviewerId,
+      payloadJson: JSON.stringify({
+        ...payload,
+        inboundEvidenceFingerprint: await inboundStampAsWrittenBefore(f),
+      }),
+    });
+    assert.equal((await proposeReplyAgain(f)).created, false, "the old stamp holds while raw");
+
+    assert.equal(await restampMailReviewInboundEvidence(f.account, discarded.id), true);
+    await decodeMirroredHeaderText(f);
+    const retry = await proposeReplyAgain(f);
+    assert.equal(retry.created, false, "and holds once the text is decoded");
+    assert.equal(retry.approval.id, discarded.id);
+
+    await insert(MailMessage, {
+      companyId: f.companyId,
+      accountId: f.account.id,
+      threadId: f.thread.id,
+      gmailMessageId: "provider-message-after-decoding",
+      gmailThreadId: f.thread.gmailThreadId,
+      fromName: "Customer",
+      fromEmail: CUSTOMER_ADDRESS,
+      toEmails: MAILBOX_ADDRESS,
+      subject: f.thread.subject,
+      bodyText: "Still locked out, and now on my phone too.",
+      labelIds: " INBOX ",
+      sentAt: new Date("2026-09-02T10:00:00.000Z"),
+    });
+    assert.equal((await proposeReplyAgain(f)).created, true, "new customer mail still re-arms it");
+  });
+
+  test("decoding a thread's header text still expires a pending reply", async () => {
+    // Only the stamp that holds handled replies back is carried across; the
+    // fingerprint that guards Send is not, so a pending card fails closed.
+    const f = await fixture();
+    await mirrorHeaderTextAsSent(f);
+    const pending = await createReview(f);
+    assert.equal(
+      await restampMailReviewInboundEvidence(f.account, pending.id),
+      false,
+      "a stamp this release wrote has nothing to move",
+    );
+
+    await decodeMirroredHeaderText(f);
+    await reconcileMailReviewApprovals(f.companyId);
+    const current = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: pending.id });
+    assert.equal(current.status, "expired");
   });
 
   test("a changed source thread fails closed before the mailbox is called", async () => {

@@ -572,6 +572,39 @@ export function decodeAddressList(value: string): string {
     .join(", ");
 }
 
+/**
+ * A `Subject` with every layer of RFC 2047 encoding taken off, for telling
+ * whether two copies of one header say the same thing.
+ *
+ * Not what the mirror stores: that is one decode ({@link decodeHeaderText}),
+ * the text Gmail's API hands over. This is for comparing a copy that may still
+ * be raw — an IMAP row mirrored before its adapter decoded — with one that has
+ * been decoded since. Decoding until nothing changes gives both the same text,
+ * even for the rare sender that encoded its subject twice.
+ */
+export function fullyDecodedHeaderText(value: string): string {
+  return decodeUntilSettled(value, decodeHeaderText);
+}
+
+/**
+ * An address list with every layer of RFC 2047 encoding taken off, for the
+ * same comparisons — see {@link fullyDecodedHeaderText}.
+ */
+export function fullyDecodedAddressList(value: string): string {
+  return decodeUntilSettled(value, decodeAddressList);
+}
+
+function decodeUntilSettled(value: string, decode: (value: string) => string): string {
+  let current = value;
+  // A text settles after one or two decodes; the bound is only a guard.
+  for (let pass = 0; pass < 8; pass++) {
+    const next = decode(current);
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+
 /** RFC 2047's `Q` encoding: `_` is a space, `=XX` is one byte, the rest is itself. */
 function decodeQ(text: string): Buffer {
   const bytes: number[] = [];

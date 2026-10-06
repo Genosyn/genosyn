@@ -37,7 +37,8 @@ import {
 } from "./actions.js";
 import { assertRecipientsAllowed } from "./suppression.js";
 import { CANONICAL_LABELS } from "./mailbox/types.js";
-import { columnHasLabel } from "./store.js";
+import { fullyDecodedAddressList, fullyDecodedHeaderText } from "./mime.js";
+import { columnHasLabel, threadHoldsEncodedHeaderText } from "./store.js";
 
 const reviewStepSchema = z
   .object({
@@ -170,10 +171,22 @@ function validateReviewRecipients(draft: { to: string; cc: string; bcc: string }
   }
 }
 
+type ThreadEvidence = {
+  all: unknown[];
+  inbound: unknown[];
+  /**
+   * `inbound` with every subject and recipient list fully decoded, or null
+   * when no inbound header holds an RFC 2047 word and the two are the same.
+   */
+  decodedInbound: unknown[] | null;
+};
+
+type HeaderText = Pick<MailMessage, "subject" | "toEmails" | "ccEmails" | "bccEmails">;
+
 async function semanticThreadEvidence(
   manager: EntityManager,
   threadId: string,
-): Promise<{ all: unknown[]; inbound: unknown[] }> {
+): Promise<ThreadEvidence> {
   const messages = await manager.getRepository(MailMessage).find({ where: { threadId } });
   const semantic = messages
     .filter((message) => !columnHasLabel(message.labelIds, CANONICAL_LABELS.draft))
@@ -188,30 +201,102 @@ async function semanticThreadEvidence(
     })
     .map((message) => ({
       sent: columnHasLabel(message.labelIds, CANONICAL_LABELS.sent),
-      evidence: [
-        message.id,
-        message.gmailMessageId,
-        message.gmailThreadId,
-        message.messageIdHeader,
-        message.referencesHeader,
-        message.inReplyToHeader,
-        message.sentAt?.toISOString() ?? null,
-        message.fromName,
-        message.fromEmail,
-        message.toEmails,
-        message.ccEmails,
-        message.bccEmails,
-        message.subject,
-        message.bodyText,
-        message.bodyHtml,
-        message.attachmentsJson,
-        message.sizeEstimate,
-      ],
+      message,
+      evidence: messageEvidence(message, message),
     }));
+  const inbound = semantic.filter((entry) => !entry.sent);
+  const encoded = inbound.some(({ message }) =>
+    [message.subject, message.toEmails, message.ccEmails, message.bccEmails].some((text) =>
+      text.includes("=?"),
+    ),
+  );
   return {
-    all: semantic.map((message) => message.evidence),
-    inbound: semantic.filter((message) => !message.sent).map((message) => message.evidence),
+    all: semantic.map((entry) => entry.evidence),
+    inbound: inbound.map((entry) => entry.evidence),
+    decodedInbound: encoded
+      ? inbound.map(({ message }) =>
+          messageEvidence(message, {
+            subject: fullyDecodedHeaderText(message.subject),
+            toEmails: fullyDecodedAddressList(message.toEmails),
+            ccEmails: fullyDecodedAddressList(message.ccEmails),
+            bccEmails: fullyDecodedAddressList(message.bccEmails),
+          }),
+        )
+      : null,
   };
+}
+
+/** What one message contributes to its thread's evidence, with `headers` as its header text. */
+function messageEvidence(message: MailMessage, headers: HeaderText): unknown[] {
+  return [
+    message.id,
+    message.gmailMessageId,
+    message.gmailThreadId,
+    message.messageIdHeader,
+    message.referencesHeader,
+    message.inReplyToHeader,
+    message.sentAt?.toISOString() ?? null,
+    message.fromName,
+    message.fromEmail,
+    headers.toEmails,
+    headers.ccEmails,
+    headers.bccEmails,
+    headers.subject,
+    message.bodyText,
+    message.bodyHtml,
+    message.attachmentsJson,
+    message.sizeEstimate,
+  ];
+}
+
+/**
+ * A thread's inbound evidence, in both forms a stamp on a handled review may
+ * hold. `current` hashes each subject and recipient list fully decoded, and is
+ * what every new stamp carries. `raw` hashes them as stored, which is how every
+ * stamp was written before — over RFC 2047 words, on an IMAP thread mirrored
+ * before its adapter decoded them. The two differ only while an inbound header
+ * still holds such a word.
+ *
+ * Only stable mailbox identity goes in, never delivery authority, so
+ * reconnecting the same mailbox cannot re-arm an already sent or discarded
+ * customer reply without new inbound evidence.
+ */
+function inboundEvidenceFingerprints(
+  account: Pick<MailAccount, "id" | "connectionId" | "provider" | "address">,
+  thread: Pick<MailThread, "id" | "gmailThreadId"> | null,
+  evidence: ThreadEvidence,
+): { current: string; raw: string } {
+  const stableAccountIdentity = [
+    account.id,
+    account.connectionId,
+    account.provider,
+    account.address,
+  ];
+  const stableThreadIdentity = [thread?.id ?? null, thread?.gmailThreadId ?? null];
+  const raw = digest([stableAccountIdentity, stableThreadIdentity, evidence.inbound]);
+  return {
+    current: evidence.decodedInbound
+      ? digest([stableAccountIdentity, stableThreadIdentity, evidence.decodedInbound])
+      : raw,
+    raw,
+  };
+}
+
+/**
+ * Whether a handled review's inbound stamp still describes its thread. Either
+ * form of the evidence counts ({@link inboundEvidenceFingerprints}): a raw
+ * stamp on an IMAP thread whose header text has not been decoded yet, and a
+ * decoded one on the same thread after it has, both say nothing new arrived.
+ */
+function inboundEvidenceUnchanged(
+  previous: MailReviewPayload,
+  source: { inboundEvidenceFingerprint: string; rawInboundEvidenceFingerprint: string },
+): boolean {
+  const stamp = previous.inboundEvidenceFingerprint;
+  if (!stamp) return true;
+  return (
+    stamp === source.inboundEvidenceFingerprint || stamp === source.rawInboundEvidenceFingerprint
+  );
 }
 
 async function reviewSource(args: {
@@ -231,6 +316,7 @@ async function reviewSource(args: {
   threading: { inReplyTo: string | null; references: string | null };
   fingerprint: string;
   inboundEvidenceFingerprint: string;
+  rawInboundEvidenceFingerprint: string;
 }> {
   const manager = args.manager ?? AppDataSource.manager;
   const employee = await manager.getRepository(AIEmployee).findOneBy({
@@ -390,9 +476,9 @@ async function reviewSource(args: {
       instruction: handover.instruction,
     };
   }
-  const threadEvidence = thread
+  const threadEvidence: ThreadEvidence = thread
     ? await semanticThreadEvidence(manager, thread.id)
-    : { all: [], inbound: [] };
+    : { all: [], inbound: [], decodedInbound: null };
   const accountEvidence = [
     account.id,
     account.connectionId,
@@ -409,14 +495,7 @@ async function reviewSource(args: {
   ];
   // Delivery authority belongs in the full freshness fingerprint. The
   // terminal-card fingerprint intentionally keeps only stable mailbox
-  // identity so reconnecting the same mailbox cannot re-arm an already sent
-  // or discarded customer reply without new inbound evidence.
-  const stableAccountIdentity = [
-    account.id,
-    account.connectionId,
-    account.provider,
-    account.address,
-  ];
+  // identity — see inboundEvidenceFingerprints.
   const stableThreadIdentity = [thread?.id ?? null, thread?.gmailThreadId ?? null];
   const threadIdentity = [...stableThreadIdentity, thread?.subject ?? null];
   const fingerprintEvidence: unknown[] = [
@@ -430,6 +509,7 @@ async function reviewSource(args: {
   // Keep legacy/manual reviews byte-for-byte compatible. Only a review that
   // explicitly names a server-bound origin depends on that live origin.
   if (originEvidence.length > 0) fingerprintEvidence.push(originEvidence);
+  const inbound = inboundEvidenceFingerprints(account, thread, threadEvidence);
   return {
     account,
     thread,
@@ -439,11 +519,8 @@ async function reviewSource(args: {
       references: reply?.references ?? null,
     },
     fingerprint: digest(fingerprintEvidence),
-    inboundEvidenceFingerprint: digest([
-      stableAccountIdentity,
-      stableThreadIdentity,
-      threadEvidence.inbound,
-    ]),
+    inboundEvidenceFingerprint: inbound.current,
+    rawInboundEvidenceFingerprint: inbound.raw,
   };
 }
 
@@ -684,18 +761,16 @@ export async function createMailReviewApproval(args: {
         // for a fresh compose, the exact same message stays suppressed.
         if (mailReviewDeliveryStatus(candidate) === "not_sent") continue;
         if (!sameReply) return { approval: candidate, created: false };
-        const inboundUnchanged = previous.inboundEvidenceFingerprint
-          ? previous.inboundEvidenceFingerprint === source.inboundEvidenceFingerprint
-          : true;
-        if (inboundUnchanged) return { approval: candidate, created: false };
+        if (inboundEvidenceUnchanged(previous, source)) {
+          return { approval: candidate, created: false };
+        }
         continue;
       }
       if (candidate.status === "approved" || candidate.status === "rejected") {
         if (sameReply) {
-          const inboundUnchanged = previous.inboundEvidenceFingerprint
-            ? previous.inboundEvidenceFingerprint === source.inboundEvidenceFingerprint
-            : true;
-          if (inboundUnchanged) return { approval: candidate, created: false };
+          if (inboundEvidenceUnchanged(previous, source)) {
+            return { approval: candidate, created: false };
+          }
           continue;
         }
         if (candidate.status === "rejected") {
@@ -1405,6 +1480,68 @@ export async function reconcileMailReviewApprovals(
           },
     );
   }
+}
+
+/**
+ * Carry one review's inbound stamp across the decoding of its thread's header
+ * text, before that decoding happens.
+ *
+ * An IMAP mailbox mirrored subjects and recipients as its server sent them,
+ * RFC 2047 words included, until its adapter learned to decode them, and its
+ * sync pass now decodes those rows in place. A sent, discarded or attempted
+ * reply keeps the same reply from being proposed again until new customer
+ * mail arrives, by holding the thread's inbound evidence; stamped over the raw
+ * text, that evidence would stop matching once the text is decoded, and the
+ * reply would come back with nothing new to answer. So a stamp that still
+ * matches its thread's raw text is replaced by the same evidence fully
+ * decoded, which the decoding leaves alone. A stamp that no longer matches is
+ * left as it is: its thread already has new evidence.
+ *
+ * Only this stamp moves. The source fingerprint that guards Send is never
+ * rewritten, so a pending review on a decoded thread still expires and is
+ * prepared again. Returns whether the stamp was replaced.
+ */
+export async function restampMailReviewInboundEvidence(
+  account: MailAccount,
+  approvalId: string,
+): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({
+    id: approvalId,
+    companyId: account.companyId,
+    kind: "mail_send",
+  });
+  if (!approval?.payloadJson) return false;
+  let payload: MailReviewPayload;
+  try {
+    payload = parseMailReviewPayload(approval.payloadJson);
+  } catch {
+    return false;
+  }
+  const stamp = payload.inboundEvidenceFingerprint;
+  if (!stamp || !payload.threadId || payload.accountId !== account.id) return false;
+  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
+    id: payload.threadId,
+    accountId: account.id,
+  });
+  // Most threads never held an encoded word, and their two forms are one.
+  if (!thread || !(await threadHoldsEncodedHeaderText(thread.id))) return false;
+  const inbound = inboundEvidenceFingerprints(
+    account,
+    thread,
+    await semanticThreadEvidence(AppDataSource.manager, thread.id),
+  );
+  if (stamp !== inbound.raw || inbound.current === inbound.raw) return false;
+  const restamped = await repo.update(
+    { id: approval.id, companyId: account.companyId, payloadJson: approval.payloadJson },
+    {
+      payloadJson: JSON.stringify({
+        ...(JSON.parse(approval.payloadJson) as Record<string, unknown>),
+        inboundEvidenceFingerprint: inbound.current,
+      }),
+    },
+  );
+  return restamped.affected === 1;
 }
 
 export async function recordMailReviewRejection(approval: Approval): Promise<void> {
