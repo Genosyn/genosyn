@@ -27,6 +27,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -103,10 +104,12 @@ type InvoiceSendResponse = {
  * Renders the line items + payments and exposes the lifecycle actions
  * (Issue / Send / Mark paid / Void / Delete) appropriate to the current
  * status. The printable HTML lives at a separate route so File → Print
- * gives a clean PDF without app chrome.
+ * gives a clean PDF without app chrome. A read-only Member gets the invoice
+ * and its PDF, and none of the actions the server would refuse them.
  */
 export default function FinanceInvoiceDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const { invoiceSlug } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
@@ -399,145 +402,154 @@ export default function FinanceInvoiceDetail() {
             {STATUS_LABEL[ds] ?? ds}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {invoice.status === "draft" && (
-            <>
-              <Link to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}>
-                <Button variant="secondary" disabled={busy !== null}>
-                  <Pencil size={14} /> Edit
-                </Button>
-              </Link>
-              <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
-                <Send size={14} /> Issue & send
-              </Button>
-            </>
-          )}
-          {invoice.status === "sent" && (
-            <Button onClick={() => setShowPay(true)} disabled={busy !== null}>
-              <Plus size={14} /> Record payment
-            </Button>
-          )}
-          {invoice.status === "sent" && invoice.balanceCents > 0 && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowWriteOff(true)}
-              disabled={busy !== null}
-            >
-              <Ban size={14} /> Write off
-            </Button>
-          )}
-          {(invoice.status === "sent" || invoice.status === "paid") && invoice.balanceCents > 0 && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowCreditNote(true)}
-              disabled={busy !== null}
-            >
-              <Undo2 size={14} /> Credit note
-            </Button>
-          )}
-          {invoice.status === "paid" && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowResend(true)}
-              disabled={busy !== null}
-            >
-              <Mail size={14} /> Resend email
-            </Button>
-          )}
-
-          <Menu
-            align="right"
-            width={208}
-            trigger={({ ref, onClick }) => (
-              <Button
-                ref={ref}
-                variant="secondary"
-                onClick={onClick}
-                disabled={busy !== null}
-                aria-label="More actions"
-              >
-                <MoreHorizontal size={14} />
-              </Button>
-            )}
-          >
-            {(close) => (
+        {canWrite ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {invoice.status === "draft" && (
               <>
-                {invoice.status === "draft" && (
-                  <MenuItem
-                    icon={<CheckCircle2 size={14} />}
-                    label="Issue without sending"
-                    onSelect={() => {
-                      close();
-                      issue();
-                    }}
-                  />
-                )}
-                {invoice.status === "sent" && (
-                  <MenuItem
-                    icon={<Mail size={14} />}
-                    label="Resend email"
-                    onSelect={() => {
-                      close();
-                      setShowResend(true);
-                    }}
-                  />
-                )}
-                {invoice.status === "paid" && (
-                  <MenuItem
-                    icon={<Plus size={14} />}
-                    label="Record payment"
-                    onSelect={() => {
-                      close();
-                      setShowPay(true);
-                    }}
-                  />
-                )}
-                <MenuItem
-                  icon={<Download size={14} />}
-                  label="Download PDF"
-                  onSelect={() => {
-                    close();
-                    window.location.href = `/api/companies/${company.id}/invoices/${invoice.slug}/pdf`;
-                  }}
-                />
-                <MenuItem
-                  icon={<Copy size={14} />}
-                  label="Duplicate"
-                  onSelect={() => {
-                    close();
-                    duplicate();
-                  }}
-                />
-                {invoice.status !== "void" && invoice.status !== "draft" && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem
-                      icon={<Ban size={14} className="text-red-500" />}
-                      label={<span className="text-red-600 dark:text-red-400">Void</span>}
-                      onSelect={() => {
-                        close();
-                        voidInvoice();
-                      }}
-                    />
-                  </>
-                )}
-                {invoice.status === "draft" && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem
-                      icon={<Trash2 size={14} className="text-red-500" />}
-                      label={<span className="text-red-600 dark:text-red-400">Delete</span>}
-                      onSelect={() => {
-                        close();
-                        deleteDraft();
-                      }}
-                    />
-                  </>
-                )}
+                <Link to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}>
+                  <Button variant="secondary" disabled={busy !== null}>
+                    <Pencil size={14} /> Edit
+                  </Button>
+                </Link>
+                <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
+                  <Send size={14} /> Issue & send
+                </Button>
               </>
             )}
-          </Menu>
-        </div>
+            {invoice.status === "sent" && (
+              <Button onClick={() => setShowPay(true)} disabled={busy !== null}>
+                <Plus size={14} /> Record payment
+              </Button>
+            )}
+            {invoice.status === "sent" && invoice.balanceCents > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setShowWriteOff(true)}
+                disabled={busy !== null}
+              >
+                <Ban size={14} /> Write off
+              </Button>
+            )}
+            {(invoice.status === "sent" || invoice.status === "paid") &&
+              invoice.balanceCents > 0 && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowCreditNote(true)}
+                  disabled={busy !== null}
+                >
+                  <Undo2 size={14} /> Credit note
+                </Button>
+              )}
+            {invoice.status === "paid" && (
+              <Button
+                variant="secondary"
+                onClick={() => setShowResend(true)}
+                disabled={busy !== null}
+              >
+                <Mail size={14} /> Resend email
+              </Button>
+            )}
+
+            <Menu
+              align="right"
+              width={208}
+              trigger={({ ref, onClick }) => (
+                <Button
+                  ref={ref}
+                  variant="secondary"
+                  onClick={onClick}
+                  disabled={busy !== null}
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal size={14} />
+                </Button>
+              )}
+            >
+              {(close) => (
+                <>
+                  {invoice.status === "draft" && (
+                    <MenuItem
+                      icon={<CheckCircle2 size={14} />}
+                      label="Issue without sending"
+                      onSelect={() => {
+                        close();
+                        issue();
+                      }}
+                    />
+                  )}
+                  {invoice.status === "sent" && (
+                    <MenuItem
+                      icon={<Mail size={14} />}
+                      label="Resend email"
+                      onSelect={() => {
+                        close();
+                        setShowResend(true);
+                      }}
+                    />
+                  )}
+                  {invoice.status === "paid" && (
+                    <MenuItem
+                      icon={<Plus size={14} />}
+                      label="Record payment"
+                      onSelect={() => {
+                        close();
+                        setShowPay(true);
+                      }}
+                    />
+                  )}
+                  <MenuItem
+                    icon={<Download size={14} />}
+                    label="Download PDF"
+                    onSelect={() => {
+                      close();
+                      window.location.href = `/api/companies/${company.id}/invoices/${invoice.slug}/pdf`;
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Copy size={14} />}
+                    label="Duplicate"
+                    onSelect={() => {
+                      close();
+                      duplicate();
+                    }}
+                  />
+                  {invoice.status !== "void" && invoice.status !== "draft" && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        icon={<Ban size={14} className="text-red-500" />}
+                        label={<span className="text-red-600 dark:text-red-400">Void</span>}
+                        onSelect={() => {
+                          close();
+                          voidInvoice();
+                        }}
+                      />
+                    </>
+                  )}
+                  {invoice.status === "draft" && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        icon={<Trash2 size={14} className="text-red-500" />}
+                        label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+                        onSelect={() => {
+                          close();
+                          deleteDraft();
+                        }}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </Menu>
+          </div>
+        ) : (
+          <a href={`/api/companies/${company.id}/invoices/${invoice.slug}/pdf`}>
+            <Button variant="secondary">
+              <Download size={14} /> Download PDF
+            </Button>
+          </a>
+        )}
       </div>
 
       <div className="space-y-6">
@@ -709,19 +721,21 @@ export default function FinanceInvoiceDetail() {
                       {p.reference ? ` · ${p.reference}` : ""}
                     </div>
                   </div>
-                  <button
-                    onClick={() => deletePayment(p.id)}
-                    disabled={deletingPaymentId === p.id}
-                    aria-busy={deletingPaymentId === p.id || undefined}
-                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                    aria-label="Delete payment"
-                  >
-                    {deletingPaymentId === p.id ? (
-                      <ButtonSpinner size={12} />
-                    ) : (
-                      <Trash2 size={12} />
-                    )}
-                  </button>
+                  {canWrite && (
+                    <button
+                      onClick={() => deletePayment(p.id)}
+                      disabled={deletingPaymentId === p.id}
+                      aria-busy={deletingPaymentId === p.id || undefined}
+                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                      aria-label="Delete payment"
+                    >
+                      {deletingPaymentId === p.id ? (
+                        <ButtonSpinner size={12} />
+                      ) : (
+                        <Trash2 size={12} />
+                      )}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -754,7 +768,7 @@ export default function FinanceInvoiceDetail() {
                       <div className="mt-0.5 truncate text-xs text-slate-400">{w.note}</div>
                     ) : null}
                   </div>
-                  {!w.reversedAt && (
+                  {canWrite && !w.reversedAt && (
                     <button
                       onClick={() => reverseWriteOff(w.id)}
                       disabled={reversingWriteOffId === w.id}
@@ -792,7 +806,7 @@ export default function FinanceInvoiceDetail() {
                         {a.reversedAt ? " · reversed" : ""}
                       </div>
                     </div>
-                    {!a.reversedAt && (
+                    {canWrite && !a.reversedAt && (
                       <button
                         onClick={() => unapplyCredit(a)}
                         disabled={unapplyingCreditId === a.id}

@@ -10,6 +10,7 @@ import {
   formatMoney,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -43,10 +44,12 @@ const STATUS_BADGE: Record<DisplayEstimateStatus, string> = {
 
 /**
  * Estimate (Quotation) list with status-tab filter. Mirrors the
- * Invoices list — click any row to open the detail page.
+ * Invoices list — click any row to open the detail page, and a read-only
+ * Member gets neither New estimate nor the all-writes row menu.
  */
 export default function FinanceEstimates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
@@ -170,11 +173,13 @@ export default function FinanceEstimates() {
       </div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Estimates</h1>
-        <Link to={`/c/${company.slug}/finance/estimates/new`}>
-          <Button>
-            <Plus size={14} /> New estimate
-          </Button>
-        </Link>
+        {canWrite && (
+          <Link to={`/c/${company.slug}/finance/estimates/new`}>
+            <Button>
+              <Plus size={14} /> New estimate
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
@@ -208,20 +213,24 @@ export default function FinanceEstimates() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No estimates in this view
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {filter === "all"
-              ? "Send your first quotation to a customer."
-              : "Try a different status filter."}
-          </p>
-          {filter === "all" && (
-            <div className="mt-4">
-              <Link to={`/c/${company.slug}/finance/estimates/new`}>
-                <Button>
-                  <Plus size={14} /> New estimate
-                </Button>
-              </Link>
-            </div>
-          )}
+          {filter !== "all" ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Try a different status filter.
+            </p>
+          ) : canWrite ? (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Send your first quotation to a customer.
+              </p>
+              <div className="mt-4">
+                <Link to={`/c/${company.slug}/finance/estimates/new`}>
+                  <Button>
+                    <Plus size={14} /> New estimate
+                  </Button>
+                </Link>
+              </div>
+            </>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -234,7 +243,7 @@ export default function FinanceEstimates() {
                 <th className="px-4 py-2 text-left font-medium">Issued</th>
                 <th className="px-4 py-2 text-left font-medium">Valid until</th>
                 <th className="px-4 py-2 text-right font-medium">Total</th>
-                <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>
+                {canWrite && <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -275,14 +284,16 @@ export default function FinanceEstimates() {
                     <td className="px-4 py-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
                       {formatMoney(est.totalCents, est.currency)}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <RowMenu
-                        estimate={est}
-                        onDelete={() => deleteDraft(est)}
-                        onDuplicate={() => duplicate(est)}
-                        onVoid={() => voidEstimate(est)}
-                      />
-                    </td>
+                    {canWrite && (
+                      <td className="px-4 py-3 text-right">
+                        <RowMenu
+                          estimate={est}
+                          onDelete={() => deleteDraft(est)}
+                          onDuplicate={() => duplicate(est)}
+                          onVoid={() => voidEstimate(est)}
+                        />
+                      </td>
+                    )}
                   </tr>
                 );
               })}

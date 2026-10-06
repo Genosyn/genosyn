@@ -10,6 +10,7 @@ import {
   InvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -44,10 +45,12 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
 
 /**
  * Invoice list with status-tab filter. Phase A of the Finance milestone
- * (M19). Click any row to open the detail page.
+ * (M19). Click any row to open the detail page. A read-only Member gets the
+ * list without New invoice or the row menu, whose every entry is a write.
  */
 export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
@@ -168,11 +171,13 @@ export default function FinanceInvoices() {
       </div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Invoices</h1>
-        <Link to={`/c/${company.slug}/finance/invoices/new`}>
-          <Button>
-            <Plus size={14} /> New invoice
-          </Button>
-        </Link>
+        {canWrite && (
+          <Link to={`/c/${company.slug}/finance/invoices/new`}>
+            <Button>
+              <Plus size={14} /> New invoice
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
@@ -206,20 +211,24 @@ export default function FinanceInvoices() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No invoices in this view
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {filter === "all"
-              ? "Create one to start billing customers."
-              : "Try a different status filter."}
-          </p>
-          {filter === "all" && (
-            <div className="mt-4">
-              <Link to={`/c/${company.slug}/finance/invoices/new`}>
-                <Button>
-                  <Plus size={14} /> New invoice
-                </Button>
-              </Link>
-            </div>
-          )}
+          {filter !== "all" ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Try a different status filter.
+            </p>
+          ) : canWrite ? (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Create one to start billing customers.
+              </p>
+              <div className="mt-4">
+                <Link to={`/c/${company.slug}/finance/invoices/new`}>
+                  <Button>
+                    <Plus size={14} /> New invoice
+                  </Button>
+                </Link>
+              </div>
+            </>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -233,7 +242,7 @@ export default function FinanceInvoices() {
                 <th className="px-4 py-2 text-left font-medium">Due</th>
                 <th className="px-4 py-2 text-right font-medium">Total</th>
                 <th className="px-4 py-2 text-right font-medium">Balance</th>
-                <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>
+                {canWrite && <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -285,14 +294,16 @@ export default function FinanceInvoices() {
                         {formatMoney(inv.balanceCents, inv.currency)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <RowMenu
-                        invoice={inv}
-                        onDelete={() => deleteDraft(inv)}
-                        onDuplicate={() => duplicate(inv)}
-                        onVoid={() => voidInvoice(inv)}
-                      />
-                    </td>
+                    {canWrite && (
+                      <td className="px-4 py-3 text-right">
+                        <RowMenu
+                          invoice={inv}
+                          onDelete={() => deleteDraft(inv)}
+                          onDuplicate={() => duplicate(inv)}
+                          onVoid={() => voidInvoice(inv)}
+                        />
+                      </td>
+                    )}
                   </tr>
                 );
               })}

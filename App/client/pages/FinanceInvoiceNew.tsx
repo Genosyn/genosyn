@@ -16,6 +16,7 @@ import {
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
@@ -24,6 +25,7 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -64,6 +66,27 @@ function lineRowFromExisting(l: {
 }
 
 /**
+ * `invoices/new` and `invoices/:invoiceSlug/edit`. Saving either needs Full
+ * finance access, so a read-only Member who lands here gets a note instead
+ * of a form that could only be refused.
+ */
+export default function FinanceInvoiceNew() {
+  const { company } = useOutletContext<FinanceOutletCtx>();
+  const { invoiceSlug } = useParams();
+  if (!canWriteFinance(company)) {
+    return (
+      <FinanceReadOnlyPage
+        company={company}
+        list={{ label: "Invoices", path: "invoices" }}
+        title={invoiceSlug ? "Edit invoice" : "New invoice"}
+        backTo={invoiceSlug ? `invoices/${invoiceSlug}` : "invoices"}
+      />
+    );
+  }
+  return <InvoiceForm />;
+}
+
+/**
  * Invoice form — handles both create (no `:invoiceSlug` route param)
  * and edit (param present, status must be `draft`). The form composes
  * line items inline (no separate per-line modal); selecting a product
@@ -73,7 +96,7 @@ function lineRowFromExisting(l: {
  * Lifecycle actions (Issue / Send / Mark paid / Void) live on the
  * detail page so users can preview the rendered HTML before sending.
  */
-export default function FinanceInvoiceNew() {
+function InvoiceForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const { invoiceSlug } = useParams();

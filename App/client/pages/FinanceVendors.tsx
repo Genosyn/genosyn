@@ -1,8 +1,18 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
-import { Archive, ArchiveRestore, Mail, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Eye,
+  Mail,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { api, Vendor } from "../lib/api";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -14,6 +24,7 @@ import { FormError } from "../components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { errorMessage } from "../lib/errors";
+import { FinanceReadOnlyNote } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -22,9 +33,14 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  * pages stay separate (rather than one shared "Counterparties" view)
  * because billing-side and supplier-side workflows diverge fast as
  * Phase G+ adds vendor-specific fields (W-9 status, payment terms).
+ *
+ * A read-only Member can't add, edit, archive, or delete a vendor, but the
+ * editor is the only place a vendor's phone, address, and notes show, so
+ * they get it as a read-only view instead of losing those details.
  */
 export default function FinanceVendors() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
   const [vendors, setVendors] = React.useState<Vendor[] | null>(null);
@@ -124,9 +140,11 @@ export default function FinanceVendors() {
             />
             Show archived
           </label>
-          <Button onClick={() => setEditing("new")}>
-            <Plus size={14} /> New vendor
-          </Button>
+          {canWrite && (
+            <Button onClick={() => setEditing("new")}>
+              <Plus size={14} /> New vendor
+            </Button>
+          )}
         </div>
       </div>
 
@@ -139,14 +157,18 @@ export default function FinanceVendors() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No vendors yet
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Add the suppliers and contractors you pay so you can record bills.
-          </p>
-          <div className="mt-4">
-            <Button onClick={() => setEditing("new")}>
-              <Plus size={14} /> New vendor
-            </Button>
-          </div>
+          {canWrite && (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Add the suppliers and contractors you pay so you can record bills.
+              </p>
+              <div className="mt-4">
+                <Button onClick={() => setEditing("new")}>
+                  <Plus size={14} /> New vendor
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -183,12 +205,23 @@ export default function FinanceVendors() {
                     {v.currency}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <RowMenu
-                      vendor={v}
-                      onEdit={() => setEditing(v)}
-                      onArchive={() => archive(v)}
-                      onDelete={() => remove(v)}
-                    />
+                    {canWrite ? (
+                      <RowMenu
+                        vendor={v}
+                        onEdit={() => setEditing(v)}
+                        onArchive={() => archive(v)}
+                        onDelete={() => remove(v)}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setEditing(v)}
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                        aria-label={`View ${v.name}`}
+                        title="View details"
+                      >
+                        <Eye size={16} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -201,6 +234,7 @@ export default function FinanceVendors() {
         <VendorEditor
           companyId={company.id}
           vendor={editing === "new" ? null : editing}
+          readOnly={!canWrite}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -275,11 +309,14 @@ function RowMenu({
 function VendorEditor({
   companyId,
   vendor,
+  readOnly,
   onClose,
   onSaved,
 }: {
   companyId: string;
   vendor: Vendor | null;
+  /** Show the vendor without letting it change: the viewer has Read finance access. */
+  readOnly: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -321,7 +358,12 @@ function VendorEditor({
   }
 
   return (
-    <Modal open onClose={onClose} title={vendor ? `Edit ${vendor.name}` : "New vendor"} size="lg">
+    <Modal
+      open
+      onClose={onClose}
+      title={readOnly && vendor ? vendor.name : vendor ? `Edit ${vendor.name}` : "New vendor"}
+      size="lg"
+    >
       <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Input
@@ -330,6 +372,7 @@ function VendorEditor({
             onChange={(e) => setName(e.target.value)}
             required
             maxLength={120}
+            readOnly={readOnly}
           />
         </div>
         <Input
@@ -337,18 +380,26 @@ function VendorEditor({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           type="email"
+          readOnly={readOnly}
         />
-        <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <Input
+          label="Phone"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          readOnly={readOnly}
+        />
         <Input
           label="Tax / VAT number"
           value={taxNumber}
           onChange={(e) => setTaxNumber(e.target.value)}
+          readOnly={readOnly}
         />
         <Input
           label="Default currency (ISO)"
           value={currency}
           onChange={(e) => setCurrency(e.target.value)}
           maxLength={3}
+          readOnly={readOnly}
         />
         <div className="sm:col-span-2">
           <Textarea
@@ -356,6 +407,7 @@ function VendorEditor({
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             rows={3}
+            readOnly={readOnly}
           />
         </div>
         <div className="sm:col-span-2">
@@ -364,17 +416,31 @@ function VendorEditor({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
+            readOnly={readOnly}
           />
         </div>
-        <FormError message={error} className="sm:col-span-2" />
-        <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={busy} disabled={!name.trim()}>
-            {vendor ? "Save" : "Create vendor"}
-          </Button>
-        </div>
+        {readOnly ? (
+          <>
+            <FinanceReadOnlyNote className="sm:col-span-2" />
+            <div className="sm:col-span-2 flex justify-end pt-2">
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <FormError message={error} className="sm:col-span-2" />
+            <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button type="submit" loading={busy} disabled={!name.trim()}>
+                {vendor ? "Save" : "Create vendor"}
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </Modal>
   );

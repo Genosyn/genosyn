@@ -38,6 +38,7 @@ import {
   typedRecurringInvoiceName,
   type RecurringInvoiceNameState,
 } from "../lib/recurringInvoiceForm";
+import { canWriteFinance } from "../lib/subpages";
 import {
   defaultRecurringInvoiceName,
   RECURRING_INVOICE_NAME_MAX_LENGTH,
@@ -50,6 +51,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -96,6 +98,27 @@ const scheduleField =
   "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/25";
 
 /**
+ * `recurring-invoices/new` and `recurring-invoices/:recurringSlug/edit`.
+ * Saving either needs Full finance access, so a read-only Member who lands
+ * here gets a note instead of a form that could only be refused.
+ */
+export default function FinanceRecurringInvoiceNew() {
+  const { company } = useOutletContext<FinanceOutletCtx>();
+  const { recurringSlug } = useParams();
+  if (!canWriteFinance(company)) {
+    return (
+      <FinanceReadOnlyPage
+        company={company}
+        list={{ label: "Recurring invoices", path: "recurring-invoices" }}
+        title={recurringSlug ? "Edit schedule" : "New recurring invoice"}
+        backTo={recurringSlug ? `recurring-invoices/${recurringSlug}` : "recurring-invoices"}
+      />
+    );
+  }
+  return <RecurringInvoiceForm />;
+}
+
+/**
  * Recurring-invoice form — handles both create and edit. The lifecycle
  * controls (pause / resume / end / run now) live on the detail page.
  *
@@ -103,7 +126,7 @@ const scheduleField =
  * of their own (`lib/recurringInvoiceForm.ts`). `?customerId=` picks the
  * customer it starts with, which is how a customer's Billing tab opens it.
  */
-export default function FinanceRecurringInvoiceNew() {
+function RecurringInvoiceForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const { recurringSlug } = useParams();

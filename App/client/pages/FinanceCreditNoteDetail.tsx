@@ -9,6 +9,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -27,6 +28,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function FinanceCreditNoteDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const { creditSlug } = useParams();
   const dialog = useDialog();
   const [credit, setCredit] = React.useState<CreditNoteDetail | null>(null);
@@ -141,8 +143,13 @@ export default function FinanceCreditNoteDetail() {
     );
   }
 
-  const canVoid = credit.kind === "credit_memo" && credit.status === "issued" && credit.openCents === credit.totalCents;
-  const canApply = credit.status === "issued" && credit.openCents > 0;
+  // Each of these is a write, so a read-only Member is offered none of them.
+  const canVoid =
+    canWrite &&
+    credit.kind === "credit_memo" &&
+    credit.status === "issued" &&
+    credit.openCents === credit.totalCents;
+  const canApply = canWrite && credit.status === "issued" && credit.openCents > 0;
 
   return (
     <div className="page-shell p-8">
@@ -258,7 +265,7 @@ export default function FinanceCreditNoteDetail() {
                     {a.reversedAt ? " · reversed" : ""}
                   </span>
                 </div>
-                {!a.reversedAt && (
+                {canWrite && !a.reversedAt && (
                   <button
                     onClick={() => unapply(a.id)}
                     disabled={unapplyingId === a.id}
@@ -299,7 +306,7 @@ export default function FinanceCreditNoteDetail() {
                     {r.reversedAt ? " · reversed" : ""}
                   </span>
                 </div>
-                {!r.reversedAt && (
+                {canWrite && !r.reversedAt && (
                   <button
                     onClick={() => voidRefund(r.id)}
                     disabled={reversingRefundId === r.id}

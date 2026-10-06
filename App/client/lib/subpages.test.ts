@@ -19,6 +19,7 @@ import {
   type SubpageItem,
   type SubpageViewer,
   canOpenSubpage,
+  canWriteFinance,
   effectiveFinanceAccess,
   isCurrentSubpage,
   pagesLead,
@@ -271,6 +272,31 @@ describe("subpage visibility", () => {
     assert.equal(effectiveFinanceAccess({ role: "member" }), "none");
     assert.equal(effectiveFinanceAccess({ financeAccess: "read" }), "read");
     assert.equal(effectiveFinanceAccess({}), "none");
+  });
+
+  test("lets only Full access change finances, as the server's write gate does", () => {
+    for (const role of ["owner", "admin"] as const) {
+      for (const financeAccess of ["none", "read", "full", undefined] as const) {
+        assert.equal(canWriteFinance({ role, financeAccess }), true, `${role}, ${financeAccess}`);
+      }
+    }
+    assert.equal(canWriteFinance(MEMBER_FULL), true);
+    assert.equal(canWriteFinance(MEMBER_READ), false);
+    assert.equal(canWriteFinance(MEMBER_NONE), false);
+    assert.equal(canWriteFinance({ role: "member" }), false);
+    assert.equal(canWriteFinance({}), false);
+  });
+
+  test("offers Full-only forms in the palette by the rule Finance pages offer writes by", () => {
+    // The palette gates create forms by catalogue access; Finance pages gate
+    // their New buttons with `canWriteFinance`. One rule, so the two agree.
+    const forms = ALL_PAGES.filter((p) => p.access?.finance === "full");
+    assert.ok(forms.length >= 5, "Finance and Customers each catalogue their create forms");
+    for (const [name, viewer] of Object.entries(VIEWERS)) {
+      for (const p of forms) {
+        assert.equal(canOpenSubpage(p, viewer), canWriteFinance(viewer), `${name} → ${p.path}`);
+      }
+    }
   });
 
   test("hides exactly the pages whose own reads or writes are admin-only", () => {

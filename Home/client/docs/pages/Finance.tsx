@@ -529,8 +529,12 @@ export function Finance() {
           reconcile without restriction.
         </LI>
         <LI>
-          <Strong>Read-only</Strong> — view every finance page but change nothing. Any attempt to
-          post, edit, or send is refused by the server, not just hidden.
+          <Strong>Read-only</Strong> — view every finance page but change nothing. Pages leave out
+          the controls that would change something, such as <Strong>New invoice</Strong>,{" "}
+          <Strong>Issue &amp; send</Strong>, <Strong>Record payment</Strong>,{" "}
+          <Strong>Void</Strong>, and a proposal&apos;s <Strong>Apply</Strong>, and show settings,
+          templates, and a vendor&apos;s details for reading only. Following a saved link to a
+          create or edit form shows a note in its place, with a way back.
         </LI>
         <LI>
           <Strong>None</Strong> — the finance section is closed to them entirely. Opening Finance

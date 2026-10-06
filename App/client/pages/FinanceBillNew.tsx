@@ -12,6 +12,7 @@ import {
   Vendor,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
@@ -19,6 +20,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
+import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -42,11 +44,31 @@ function emptyLine(defaultExpenseId: string): LineRow {
 }
 
 /**
+ * `bills/new`. Recording a bill needs Full finance access, so a read-only
+ * Member who lands here gets a note instead of a form that could only be
+ * refused.
+ */
+export default function FinanceBillNew() {
+  const { company } = useOutletContext<FinanceOutletCtx>();
+  if (!canWriteFinance(company)) {
+    return (
+      <FinanceReadOnlyPage
+        company={company}
+        list={{ label: "Bills", path: "bills" }}
+        title="New bill"
+        backTo="bills"
+      />
+    );
+  }
+  return <BillForm />;
+}
+
+/**
  * Bill creator. Phase G of the Finance milestone (M19). Mirrors the
  * invoice creator but each line picks an expense account instead of a
  * product — that's the natural accountant model for inbound bills.
  */
-export default function FinanceBillNew() {
+function BillForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
 

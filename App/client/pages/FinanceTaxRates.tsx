@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { api, TaxRate } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -18,10 +19,12 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  *
  * Phase E will replace this with a composable jurisdictional tax engine
  * — for now, every company defines its own flat list of named rates and
- * each invoice line snapshots whichever one was applied.
+ * each invoice line snapshots whichever one was applied. A read-only Member
+ * sees the list, which already shows everything the editor holds.
  */
 export default function FinanceTaxRates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
   const [rates, setRates] = React.useState<TaxRate[] | null>(null);
@@ -77,9 +80,11 @@ export default function FinanceTaxRates() {
             here never changes a historical invoice.
           </p>
         </div>
-        <Button onClick={() => setEditing("new")}>
-          <Plus size={14} /> New rate
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setEditing("new")}>
+            <Plus size={14} /> New rate
+          </Button>
+        )}
       </div>
 
       {rates === null ? (
@@ -103,16 +108,20 @@ export default function FinanceTaxRates() {
                 <th className="px-4 py-2 text-left font-medium">Name</th>
                 <th className="px-4 py-2 text-right font-medium">Rate</th>
                 <th className="px-4 py-2 text-left font-medium">Inclusive</th>
-                <th className="px-4 py-2 text-right font-medium">&nbsp;</th>
+                {canWrite && <th className="px-4 py-2 text-right font-medium">&nbsp;</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {rates.map((t) => (
                 <tr key={t.id}>
                   <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
-                    <button onClick={() => setEditing(t)} className="text-left hover:underline">
-                      {t.name}
-                    </button>
+                    {canWrite ? (
+                      <button onClick={() => setEditing(t)} className="text-left hover:underline">
+                        {t.name}
+                      </button>
+                    ) : (
+                      t.name
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-200">
                     {t.ratePercent}%
@@ -120,15 +129,17 @@ export default function FinanceTaxRates() {
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {t.inclusive ? "Yes" : "No"}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => remove(t)}
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                      aria-label="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
+                  {canWrite && (
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => remove(t)}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                        aria-label="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

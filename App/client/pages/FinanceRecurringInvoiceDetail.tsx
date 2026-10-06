@@ -25,6 +25,7 @@ import {
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -46,10 +47,12 @@ function formatStamp(iso: string | null): string {
 
 /**
  * Recurring-invoice detail. Shows the schedule, the template line items,
- * and the lifecycle controls (pause / resume / end / run-now / delete).
+ * and, to Members who may change finances, the lifecycle controls
+ * (pause / resume / end / run-now / delete).
  */
 export default function FinanceRecurringInvoiceDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const { recurringSlug } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
@@ -260,89 +263,91 @@ export default function FinanceRecurringInvoiceDetail() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {ri.status !== "ended" && (
-            <Button
-              onClick={() => void runNow("run")}
-              loading={busy === "run"}
-              disabled={busy !== null}
-            >
-              <PlayCircle size={14} /> {retrying ? "Retry now" : "Run now"}
-            </Button>
-          )}
-          <Link to={`/c/${company.slug}/finance/recurring-invoices/${ri.slug}/edit`}>
-            <Button variant="secondary" disabled={busy !== null}>
-              <Pencil size={14} /> Edit
-            </Button>
-          </Link>
-          <Menu
-            align="right"
-            width={208}
-            trigger={({ ref, onClick }) => (
+        {canWrite && (
+          <div className="flex flex-wrap items-center gap-2">
+            {ri.status !== "ended" && (
               <Button
-                ref={ref}
-                variant="secondary"
-                onClick={onClick}
+                onClick={() => void runNow("run")}
+                loading={busy === "run"}
                 disabled={busy !== null}
-                aria-label="More actions"
               >
-                <MoreHorizontal size={14} />
+                <PlayCircle size={14} /> {retrying ? "Retry now" : "Run now"}
               </Button>
             )}
-          >
-            {(close) => (
-              <>
-                {ri.status === "active" && (
+            <Link to={`/c/${company.slug}/finance/recurring-invoices/${ri.slug}/edit`}>
+              <Button variant="secondary" disabled={busy !== null}>
+                <Pencil size={14} /> Edit
+              </Button>
+            </Link>
+            <Menu
+              align="right"
+              width={208}
+              trigger={({ ref, onClick }) => (
+                <Button
+                  ref={ref}
+                  variant="secondary"
+                  onClick={onClick}
+                  disabled={busy !== null}
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal size={14} />
+                </Button>
+              )}
+            >
+              {(close) => (
+                <>
+                  {ri.status === "active" && (
+                    <MenuItem
+                      icon={<Pause size={14} />}
+                      label="Pause schedule"
+                      onSelect={() => {
+                        close();
+                        patchStatus("paused");
+                      }}
+                    />
+                  )}
+                  {ri.status === "paused" && (
+                    <MenuItem
+                      icon={<Play size={14} />}
+                      label="Resume schedule"
+                      onSelect={() => {
+                        close();
+                        patchStatus("active");
+                      }}
+                    />
+                  )}
                   <MenuItem
-                    icon={<Pause size={14} />}
-                    label="Pause schedule"
+                    icon={<Copy size={14} />}
+                    label="Duplicate"
                     onSelect={() => {
                       close();
-                      patchStatus("paused");
+                      duplicate();
                     }}
                   />
-                )}
-                {ri.status === "paused" && (
+                  {ri.status !== "ended" && (
+                    <MenuItem
+                      icon={<Ban size={14} />}
+                      label="End schedule"
+                      onSelect={() => {
+                        close();
+                        endSchedule();
+                      }}
+                    />
+                  )}
+                  <MenuSeparator />
                   <MenuItem
-                    icon={<Play size={14} />}
-                    label="Resume schedule"
+                    icon={<Trash2 size={14} className="text-red-500" />}
+                    label={<span className="text-red-600 dark:text-red-400">Delete</span>}
                     onSelect={() => {
                       close();
-                      patchStatus("active");
+                      destroy();
                     }}
                   />
-                )}
-                <MenuItem
-                  icon={<Copy size={14} />}
-                  label="Duplicate"
-                  onSelect={() => {
-                    close();
-                    duplicate();
-                  }}
-                />
-                {ri.status !== "ended" && (
-                  <MenuItem
-                    icon={<Ban size={14} />}
-                    label="End schedule"
-                    onSelect={() => {
-                      close();
-                      endSchedule();
-                    }}
-                  />
-                )}
-                <MenuSeparator />
-                <MenuItem
-                  icon={<Trash2 size={14} className="text-red-500" />}
-                  label={<span className="text-red-600 dark:text-red-400">Delete</span>}
-                  onSelect={() => {
-                    close();
-                    destroy();
-                  }}
-                />
-              </>
-            )}
-          </Menu>
-        </div>
+                </>
+              )}
+            </Menu>
+          </div>
+        )}
       </div>
 
       {subsidiaries.find((item) => item.id === ri.subsidiaryId)?.archived && (
@@ -363,7 +368,7 @@ export default function FinanceRecurringInvoiceDetail() {
           }
           busy={busy !== null}
           retryLoading={busy === "retry"}
-          onRetry={() => void runNow("retry")}
+          onRetry={canWrite ? () => void runNow("retry") : null}
         />
       )}
 
@@ -535,7 +540,7 @@ export default function FinanceRecurringInvoiceDetail() {
  * Surfaces a scheduled run that needs a person's eye: one still retrying
  * after a failed attempt, or one that issued its invoice but could not
  * email it. A run that is simply in progress, or that finished cleanly,
- * shows nothing.
+ * shows nothing. Without `onRetry` — a read-only Member — it only reports.
  */
 function RunAttention({
   run,
@@ -550,7 +555,7 @@ function RunAttention({
   invoiceUrl: string | null;
   busy: boolean;
   retryLoading: boolean;
-  onRetry: () => void;
+  onRetry: (() => void) | null;
 }) {
   const retrying = active && run.status === "pending" && run.lastError !== "";
   if (!retrying && run.status !== "failed") return null;
@@ -582,7 +587,7 @@ function RunAttention({
             </Button>
           </Link>
         )}
-        {retrying && (
+        {retrying && onRetry && (
           <Button size="sm" onClick={onRetry} loading={retryLoading} disabled={busy}>
             Retry now
           </Button>

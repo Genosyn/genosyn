@@ -8,12 +8,20 @@ import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { api, CompanyFinanceSettings } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
+import { FinanceReadOnlyNote } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const MAX_CC_EMAILS = 25;
 
+/**
+ * Finance → Settings: company-wide invoice delivery defaults. A read-only
+ * Member sees the saved addresses as a list rather than as fields they
+ * can't change.
+ */
 export default function FinanceSettings() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const [settings, setSettings] = React.useState<CompanyFinanceSettings | null>(
     null,
   );
@@ -111,6 +119,7 @@ export default function FinanceSettings() {
           Configure company-wide defaults for customer invoice delivery.
         </p>
       </div>
+      {!canWrite && <FinanceReadOnlyNote className="mb-6" />}
 
       <form onSubmit={save}>
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -122,65 +131,84 @@ export default function FinanceSettings() {
             emailed to a customer, including recurring invoices and resends.
           </p>
 
-          <div className="mt-5 space-y-3">
-            {emails.map((email, index) => (
-              <div key={index} className="flex items-end gap-2">
-                <Input
-                  className="w-full"
-                  label={index === 0 ? "Email addresses" : undefined}
-                  type="email"
-                  required={emails.length > 1}
-                  value={email}
-                  onChange={(e) => updateEmail(index, e.target.value)}
-                  placeholder={index === 0 ? "finance@example.com" : "accounts@example.com"}
-                  autoComplete="off"
-                  maxLength={320}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-label={`Remove ${email || `email ${index + 1}`}`}
-                  onClick={() => removeEmail(index)}
-                  className="shrink-0 px-3 text-slate-500"
-                >
-                  <Trash2 size={16} />
-                </Button>
+          {canWrite ? (
+            <>
+              <div className="mt-5 space-y-3">
+                {emails.map((email, index) => (
+                  <div key={index} className="flex items-end gap-2">
+                    <Input
+                      className="w-full"
+                      label={index === 0 ? "Email addresses" : undefined}
+                      type="email"
+                      required={emails.length > 1}
+                      value={email}
+                      onChange={(e) => updateEmail(index, e.target.value)}
+                      placeholder={index === 0 ? "finance@example.com" : "accounts@example.com"}
+                      autoComplete="off"
+                      maxLength={320}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-label={`Remove ${email || `email ${index + 1}`}`}
+                      onClick={() => removeEmail(index)}
+                      className="shrink-0 px-3 text-slate-500"
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="mt-4"
-            disabled={emails.length >= MAX_CC_EMAILS}
-            onClick={() => setEmails((current) => [...current, ""])}
-          >
-            <Plus size={14} /> Add email
-          </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-4"
+                disabled={emails.length >= MAX_CC_EMAILS}
+                onClick={() => setEmails((current) => [...current, ""])}
+              >
+                <Plus size={14} /> Add email
+              </Button>
 
-          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            Leave the list empty to send invoices only to the customer and any
-            one-off Cc recipients added during a resend.
-          </p>
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Leave the list empty to send invoices only to the customer and any
+                one-off Cc recipients added during a resend.
+              </p>
+            </>
+          ) : savedEmails.length > 0 ? (
+            <ul className="mt-4 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+              {savedEmails.map((email) => (
+                <li key={email}>{email}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+              None. Invoices go only to the customer and any one-off Cc recipients added during a
+              resend.
+            </p>
+          )}
         </div>
 
-        <FormError message={error} className="mt-6" />
+        {canWrite && (
+          <>
+            <FormError message={error} className="mt-6" />
 
-        <div className="mt-6 flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy || !dirty}
-            onClick={() => setEmails(savedEmails.length > 0 ? savedEmails : [""])}
-          >
-            Reset
-          </Button>
-          <Button type="submit" loading={busy} disabled={!dirty}>
-            {busy ? "Saving…" : "Save settings"}
-          </Button>
-        </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy || !dirty}
+                onClick={() => setEmails(savedEmails.length > 0 ? savedEmails : [""])}
+              >
+                Reset
+              </Button>
+              <Button type="submit" loading={busy} disabled={!dirty}>
+                {busy ? "Saving…" : "Save settings"}
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </div>
   );

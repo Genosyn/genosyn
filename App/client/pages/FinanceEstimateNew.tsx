@@ -16,6 +16,7 @@ import {
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -24,6 +25,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -64,11 +66,32 @@ function lineRowFromExisting(l: {
 }
 
 /**
+ * `estimates/new` and `estimates/:estimateSlug/edit`. Saving either needs
+ * Full finance access, so a read-only Member who lands here gets a note
+ * instead of a form that could only be refused.
+ */
+export default function FinanceEstimateNew() {
+  const { company } = useOutletContext<FinanceOutletCtx>();
+  const { estimateSlug } = useParams();
+  if (!canWriteFinance(company)) {
+    return (
+      <FinanceReadOnlyPage
+        company={company}
+        list={{ label: "Estimates", path: "estimates" }}
+        title={estimateSlug ? "Edit estimate" : "New estimate"}
+        backTo={estimateSlug ? `estimates/${estimateSlug}` : "estimates"}
+      />
+    );
+  }
+  return <EstimateForm />;
+}
+
+/**
  * Estimate form — handles both create (no `:estimateSlug` route param)
  * and edit (param present, status must be `draft`). The detail page is
  * where lifecycle actions live; this page is line-item editing only.
  */
-export default function FinanceEstimateNew() {
+function EstimateForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const { estimateSlug } = useParams();

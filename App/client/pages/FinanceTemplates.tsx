@@ -2,11 +2,13 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { api, CompanyFinanceSettings } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
+import { FinanceReadOnlyNote } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -15,9 +17,13 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  * (so users can still tailor a specific invoice without losing their
  * template). The "from block" replaces the bare company name in the
  * From column of the printable view.
+ *
+ * A read-only Member reads the templates without placeholders, which would
+ * pass for content in a field they can't type in, and without Save.
  */
 export default function FinanceTemplates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const [settings, setSettings] = React.useState<CompanyFinanceSettings | null>(
     null,
   );
@@ -101,6 +107,7 @@ export default function FinanceTemplates() {
           footers override the default; the From block always shows.
         </p>
       </div>
+      {!canWrite && <FinanceReadOnlyNote className="mb-6" />}
 
       <form onSubmit={save} className="space-y-6">
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -109,7 +116,12 @@ export default function FinanceTemplates() {
             value={fromBlock}
             onChange={(e) => setFromBlock(e.target.value)}
             rows={6}
-            placeholder={`${company.name}\n123 Main Street\nSan Francisco, CA 94110\nTax ID: 12-3456789\naccounts@${(company.slug || "yourco").toLowerCase()}.com`}
+            readOnly={!canWrite}
+            placeholder={
+              canWrite
+                ? `${company.name}\n123 Main Street\nSan Francisco, CA 94110\nTax ID: 12-3456789\naccounts@${(company.slug || "yourco").toLowerCase()}.com`
+                : undefined
+            }
           />
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Shown in the From column on every printable invoice and
@@ -123,7 +135,12 @@ export default function FinanceTemplates() {
             value={footer}
             onChange={(e) => setFooter(e.target.value)}
             rows={4}
-            placeholder="Payment terms: Net 14 — wire details on request.\nThank you for your business."
+            readOnly={!canWrite}
+            placeholder={
+              canWrite
+                ? "Payment terms: Net 14 — wire details on request.\nThank you for your business."
+                : undefined
+            }
           />
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Used as the printable footer when an invoice or estimate has
@@ -131,24 +148,28 @@ export default function FinanceTemplates() {
           </p>
         </div>
 
-        <FormError message={error} />
+        {canWrite && (
+          <>
+            <FormError message={error} />
 
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy || !dirty}
-            onClick={() => {
-              setFromBlock(settings.defaultFromBlock);
-              setFooter(settings.defaultFooter);
-            }}
-          >
-            Reset
-          </Button>
-          <Button type="submit" loading={busy} disabled={!dirty}>
-            Save templates
-          </Button>
-        </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy || !dirty}
+                onClick={() => {
+                  setFromBlock(settings.defaultFromBlock);
+                  setFooter(settings.defaultFooter);
+                }}
+              >
+                Reset
+              </Button>
+              <Button type="submit" loading={busy} disabled={!dirty}>
+                Save templates
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </div>
   );

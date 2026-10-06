@@ -20,10 +20,18 @@ import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
+/**
+ * Card expenses: Brex card feeds, their settled transactions, and how each
+ * one posts to the ledger. A read-only Member sees all of it, with each
+ * transaction's category as text rather than a picker, and none of the
+ * controls that connect, sync, delete, or re-post.
+ */
 export default function FinanceCardExpenses() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const dialog = useDialog();
   const background = useBackgroundAction();
   const [feeds, setFeeds] = React.useState<CardFeed[] | null>(null);
@@ -202,9 +210,11 @@ export default function FinanceCardExpenses() {
             your expense, liability, and bank accounts.
           </p>
         </div>
-        <Button onClick={() => setShowNewFeed(true)}>
-          <Plus size={14} /> Connect card feed
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setShowNewFeed(true)}>
+            <Plus size={14} /> Connect card feed
+          </Button>
+        )}
       </div>
 
       {loadError ? (
@@ -219,13 +229,17 @@ export default function FinanceCardExpenses() {
           <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">
             No corporate card feed
           </h3>
-          <p className="mx-auto mt-1 max-w-lg text-sm text-slate-500 dark:text-slate-400">
-            Add a Brex Connection with Card Transactions access, then map its purchases to a
-            liability account and a default expense category.
-          </p>
-          <Button className="mt-4" onClick={() => setShowNewFeed(true)}>
-            <Plus size={14} /> Connect card feed
-          </Button>
+          {canWrite && (
+            <>
+              <p className="mx-auto mt-1 max-w-lg text-sm text-slate-500 dark:text-slate-400">
+                Add a Brex Connection with Card Transactions access, then map its purchases to a
+                liability account and a default expense category.
+              </p>
+              <Button className="mt-4" onClick={() => setShowNewFeed(true)}>
+                <Plus size={14} /> Connect card feed
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -241,12 +255,21 @@ export default function FinanceCardExpenses() {
                 </option>
               ))}
             </Select>
-            <Button variant="secondary" onClick={syncFeed} loading={syncing}>
-              <RefreshCw size={14} /> Sync
-            </Button>
-            <Button variant="secondary" onClick={deleteFeed} loading={deleting} disabled={syncing}>
-              <Trash2 size={14} /> Delete feed
-            </Button>
+            {canWrite && (
+              <>
+                <Button variant="secondary" onClick={syncFeed} loading={syncing}>
+                  <RefreshCw size={14} /> Sync
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={deleteFeed}
+                  loading={deleting}
+                  disabled={syncing}
+                >
+                  <Trash2 size={14} /> Delete feed
+                </Button>
+              </>
+            )}
             {activeFeed?.lastSyncAt && (
               <span className="text-xs text-slate-500 dark:text-slate-400">
                 Last sync: {new Date(activeFeed.lastSyncAt).toLocaleString()}
@@ -284,9 +307,11 @@ export default function FinanceCardExpenses() {
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                 No settled card transactions
               </h3>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Click Sync to pull the complete settled history from Brex.
-              </p>
+              {canWrite && (
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Click Sync to pull the complete settled history from Brex.
+                </p>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -327,6 +352,10 @@ export default function FinanceCardExpenses() {
                           <span className="text-xs text-slate-500 dark:text-slate-400">
                             Liability payment
                           </span>
+                        ) : !canWrite ? (
+                          <CategoryText
+                            account={accountById.get(transaction.expenseAccountId ?? "")}
+                          />
                         ) : (
                           <Select
                             value={transaction.expenseAccountId ?? ""}
@@ -370,15 +399,17 @@ export default function FinanceCardExpenses() {
                                 {transaction.postingError}
                               </div>
                             )}
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="mt-2"
-                              onClick={() => retryPosting(transaction)}
-                              loading={rowBusy === transaction.id}
-                            >
-                              Retry
-                            </Button>
+                            {canWrite && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="mt-2"
+                                onClick={() => retryPosting(transaction)}
+                                loading={rowBusy === transaction.id}
+                              >
+                                Retry
+                              </Button>
+                            )}
                           </div>
                         )}
                       </td>
@@ -403,6 +434,15 @@ export default function FinanceCardExpenses() {
         />
       )}
     </div>
+  );
+}
+
+/** A transaction's category, for a viewer who can't change it. */
+function CategoryText({ account }: { account: Account | undefined }) {
+  return (
+    <span className="text-xs text-slate-700 dark:text-slate-200">
+      {account ? `${account.code} ${account.name}` : "—"}
+    </span>
   );
 }
 
