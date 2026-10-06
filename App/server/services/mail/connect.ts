@@ -1,10 +1,11 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
-import { assertIntegrationAllowed } from "../../integrations/index.js";
+import { assertIntegrationAllowed, getProvider } from "../../integrations/index.js";
 import { createApiKeyConnection, deleteConnection } from "../integrations.js";
 import { registeredOauthApps } from "../oauthApps.js";
-import { hostedGoogleSignInAvailable } from "../hostedGoogleOauth.js";
+import { hostedSignInAvailability, type HostedSignInAvailability } from "../hostedOauth.js";
+import { hostedScopeGroups } from "../hostedOauthApps.js";
 import { createMailAccount, parseSenderName } from "./accounts.js";
 import { assertMailConnectionAllowed } from "./hostPolicy.js";
 import { discoverMailbox, type MailboxConnectRoute, type MailboxDiscovery } from "./discovery.js";
@@ -33,7 +34,7 @@ export type MailboxConnectOption = MailboxConnectRoute & {
   ready: boolean;
   /** Why it is not ready, when it is not. */
   blockedReason?: string;
-  /** Verified hosted sign-in, limited to Gmail, without an install OAuth app. */
+  /** Genosyn Connect will sign in, verified just now, with no OAuth app registered here. */
   hostedSignIn?: boolean;
 };
 
@@ -53,9 +54,13 @@ export type MailboxConnectPlan = Omit<MailboxDiscovery, "routes"> & {
 export async function describeMailboxConnect(email: string): Promise<MailboxConnectPlan> {
   const found = await discoverMailbox(email);
   const registered = await registeredOauthApps();
-  const hosted = !registered.has("google") && found.routes.some((route) => route.kind === "oauth" && route.provider === "google")
-    ? await hostedGoogleSignInAvailable()
-    : false;
+  const googleRoute = found.routes.find(
+    (route) => route.kind === "oauth" && route.provider === "google",
+  );
+  // Genosyn Connect is the default way into Gmail; an installation that
+  // registered its own Google app has chosen that instead.
+  const hosted =
+    googleRoute && !registered.has("google") ? await hostedSignInAvailability("google") : null;
   // A shared multi-tenant install refuses raw-TCP connectors, IMAP among them.
   // Offering the form anyway and refusing on submit would waste the person's
   // app password on a route that was never going to work here.
@@ -67,18 +72,15 @@ export async function describeMailboxConnect(email: string): Promise<MailboxConn
         : { ...route, ready: true };
     }
     const instanceApp = registered.has(route.provider);
-    const hostedSignIn = route.provider === "google" && hosted;
+    const hostedSignIn =
+      route.provider === "google" && hostedCovers(hosted, route.scopeGroups);
     const ready = instanceApp || hostedSignIn;
     return {
       ...route,
       instanceApp,
       ...(hostedSignIn ? { hostedSignIn: true } : {}),
       ready,
-      ...(ready
-        ? {}
-        : {
-            blockedReason: `No ${route.provider === "google" ? "Google" : "Microsoft"} OAuth app is registered on this install${route.provider === "google" ? ", and hosted Google sign-in is unavailable" : ""}. Ask an instance admin to add one at Admin → Integrations, then return here to sign in.`,
-          }),
+      ...(ready ? {} : { blockedReason: oauthBlockedReason(route.provider, hosted) }),
     };
   });
   // A blocked OAuth route must not sit above a working password route, or the
@@ -86,6 +88,35 @@ export async function describeMailboxConnect(email: string): Promise<MailboxConn
   options.sort((a, b) => Number(b.ready) - Number(a.ready));
   const { routes: _routes, ...rest } = found;
   return { ...rest, options };
+}
+
+function hostedCovers(hosted: HostedSignInAvailability | null, scopeGroups: string[]): boolean {
+  const workspace = getProvider("google");
+  if (hosted?.status !== "available" || !workspace) return false;
+  const covered = hostedScopeGroups(workspace, hosted.scopes);
+  return scopeGroups.length > 0 && scopeGroups.every((key) => covered.includes(key));
+}
+
+/**
+ * Why a sign-in route cannot be used here — specific enough that the person
+ * who reads it knows whom to ask for what.
+ */
+function oauthBlockedReason(
+  provider: "google" | "microsoft",
+  hosted: HostedSignInAvailability | null,
+): string {
+  if (provider !== "google") {
+    return "No Microsoft OAuth app is registered on this install. Ask an instance admin to add one at Admin → Integrations, then return here to sign in.";
+  }
+  const service = hosted?.issuer ?? "Genosyn Connect";
+  switch (hosted?.status) {
+    case "disabled":
+      return "Google sign-in needs Genosyn Connect or a Google OAuth app registered on this install, and an instance admin has turned Genosyn Connect off. Ask them to turn it on at Admin → Runtime → Hosted sign-in, or to register a Google OAuth app at Admin → Integrations.";
+    case "unreachable":
+      return `This installation could not reach ${service} to sign in with Google. Check that it can make outbound HTTPS requests and try again, or ask an instance admin to register a Google OAuth app at Admin → Integrations.`;
+    default:
+      return `${service} does not offer Gmail sign-in right now. Ask an instance admin to register a Google OAuth app at Admin → Integrations, then return here to sign in.`;
+  }
 }
 
 /** Why an IMAP mailbox cannot be connected on this deployment, or null. */

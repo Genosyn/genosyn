@@ -66,6 +66,9 @@ jobs:
               enabled: ${hosted_sign_in}
               host: connect.example.com
               tlsSecretName: ci-connect-tls
+          connect:
+            enabled: ${hosted_sign_in}
+            existingSecret: ci-connect
           YAML
           done
 
@@ -88,7 +91,7 @@ jobs:
           npm run --silent template-deploy-test > /dev/null
           npm run --silent template-deploy-prod > /dev/null
 
-      - name: Verify Connect ingress and legacy upgrade values
+      - name: Verify the Connect service, its routing and legacy upgrade values
         run: bash Helm/test-connect-ingress.sh
 
       # SMTP is not a chart value: it is configured post-boot at Admin → Email
@@ -114,10 +117,22 @@ jobs:
             --set ingress.host=x.example.com \
             --set ingress.tls.enabled=true \
             --set ingress.tls.secretName=x-tls > /dev/null
+          # Genosyn Connect beside the App, as an operator of the public
+          # sign-in service runs it.
+          helm template genosyn Helm/genosyn \
+            --set ingress.enabled=true \
+            --set ingress.host=x.example.com \
+            --set ingress.tls.enabled=true \
+            --set ingress.tls.secretName=x-tls \
+            --set ingress.connect.enabled=true \
+            --set ingress.connect.host=connect.example.com \
+            --set ingress.connect.tlsSecretName=connect-tls \
+            --set connect.enabled=true \
+            --set connect.existingSecret=connect-credentials > connect.yaml
           # SQLite shape.
           helm template genosyn Helm/genosyn \
             -f Helm/genosyn/values-selfhost.yaml > selfhost.yaml
-          if grep -Eiq 'procMount|seccompProfile|hostUsers|apparmor' default.yaml selfhost.yaml; then
+          if grep -Eiq 'procMount|seccompProfile|hostUsers|apparmor' default.yaml selfhost.yaml connect.yaml; then
             echo "no install may request sandbox privileges" >&2
             exit 1
           fi

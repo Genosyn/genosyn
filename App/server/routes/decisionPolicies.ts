@@ -28,18 +28,33 @@ decisionPoliciesRouter.use(
 const companyParamsSchema = z.object({ cid: z.string().uuid() }).strict();
 const ruleParamsSchema = z.object({ cid: z.string().uuid(), pid: z.string().uuid() }).strict();
 
+/**
+ * Every rule names the employee who answers. `deciderKind` is accepted only as
+ * `"employee"` — and may be left out — because the `"manager"` kind read the
+ * org chart's reporting line, which was removed. A rule saved with it still
+ * lists here and still keeps its askers' questions with people (see
+ * `resolveDecider`), but no request can create one or turn a rule back into
+ * one.
+ */
+const deciderKindSchema = z.literal("employee", {
+  errorMap: () => ({
+    message:
+      'Rules name the employee who answers: deciderKind must be "employee". "manager" was removed with reporting lines.',
+  }),
+});
+
 const ruleSchema = z
   .object({
     askingEmployeeId: z.string().uuid().nullable().optional(),
-    deciderKind: z.enum(["manager", "employee"]),
+    deciderKind: deciderKindSchema.default("employee"),
     deciderEmployeeId: z.string().uuid().nullable().optional(),
     sortOrder: z.number().int().min(0).max(10_000).optional(),
     enabled: z.boolean().optional(),
   })
-  .refine(
-    (r) => (r.deciderKind === "employee" ? !!r.deciderEmployeeId : !r.deciderEmployeeId),
-    "A named-employee rule needs a decider; a manager rule must not name one",
-  );
+  .refine((r) => !!r.deciderEmployeeId, {
+    message: "A rule needs the employee who answers",
+    path: ["deciderEmployeeId"],
+  });
 
 function serializeRule(rule: DecisionPolicy) {
   return {
@@ -132,12 +147,12 @@ decisionPoliciesRouter.patch(
         return res.status(400).json({ error: "Decider employee not found in this company" });
       }
       rule.deciderEmployeeId = body.deciderEmployeeId ?? null;
+      // Naming a decider is what makes a rule route, so a retired `manager`
+      // rule given one becomes an ordinary named-employee rule.
+      if (rule.deciderEmployeeId) rule.deciderKind = "employee";
     }
     if (rule.deciderKind === "employee" && !rule.deciderEmployeeId) {
-      return res.status(400).json({ error: "A named-employee rule needs a decider" });
-    }
-    if (rule.deciderKind === "manager" && rule.deciderEmployeeId) {
-      return res.status(400).json({ error: "A manager rule must not name a decider" });
+      return res.status(400).json({ error: "A rule needs the employee who answers" });
     }
     if (rule.askingEmployeeId && rule.askingEmployeeId === rule.deciderEmployeeId) {
       return res.status(400).json({ error: "An employee cannot answer its own questions" });

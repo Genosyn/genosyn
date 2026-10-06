@@ -367,8 +367,8 @@ export function Browser() {
         Visual recording captures everything rendered in the browser viewport, including a login
         form mid-sign-in and a TOTP enrollment page mid-reveal. Nothing is cut out of it, so a
         recording is limited to the people accountable for that work: for Genosyn&apos;s browser,
-        company owners and admins plus the Member the AI Employee reports to; for a Member browser,
-        that browser&apos;s exact owner and nobody else. The <em>AI Employee</em> likewise receives
+        company owners and admins; for a Member browser, that browser&apos;s exact owner and nobody
+        else. The <em>AI Employee</em> likewise receives
         unfiltered page snapshots and screenshots while it works.
       </Callout>
 

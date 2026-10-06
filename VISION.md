@@ -122,7 +122,7 @@ pays them. Everyone it hires gets:
 | The Goal | `Goal`. See [Goals](./Home/client/docs/pages/Goals.tsx). |
 | Stopping every AI Employee | A company-scope `Standdown`; only a person can lift it. See [Standdowns](./Home/client/docs/pages/Standdowns.tsx). |
 | Changing who leads | Not yet. A person can edit any AI Employee's Soul and AI Model; an AI Employee can only propose a change to its own Soul (`propose_revision`), which takes effect when an owner or admin applies it. |
-| AI CEO and executives | Not yet. The org chart exists (`AIEmployee.reportsToEmployeeId`), but no AI Employee hires or replaces another. |
+| AI CEO and executives | Not yet. No AI Employee leads, hires or replaces another, and AI Employees have no reporting lines. |
 | Checks the company cannot rewrite | `RoutineCheck`; no MCP tool writes one. See [Verification](./Home/client/docs/pages/Verification.tsx). |
 | A question for the board | `Decision`. Actions the system holds for a person are `Approval`s. See [Decisions](./Home/client/docs/pages/Decisions.tsx). |
 | Earned autonomy | `AutonomyWaiver`. See [Autonomy](./Home/client/docs/pages/Autonomy.tsx). |

@@ -92,7 +92,7 @@ describe("webhook path params", () => {
       }).success,
       true,
     );
-    // "Teams" alone is the org-chart entity. A URL that accepted it would put
+    // "Teams" alone is Genosyn's Team entity. A URL that accepted it would put
     // two unrelated nouns on the same path segment.
     assert.equal(
       chatSurfaceWebhookParamsSchema.safeParse({ provider: "teams", connectionId: UUID }).success,

@@ -12,7 +12,6 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { UUID_RE } from "./bases.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
-import { managingMemberIdForEmployee } from "./reportingLine.js";
 import { finishedRunEvidence } from "./runEvidence.js";
 import { findRoutineParticipation } from "./routineParticipation.js";
 
@@ -355,7 +354,7 @@ export async function createRevisionProposal(
           reviewRunId,
         }),
       );
-      return { proposal, employee, targetOwnerId: target.ownerEmployeeId };
+      return { proposal, employee };
     } catch (error) {
       // A normal refusal must commit the shared SQLite connection: rolling it
       // back could erase an unrelated audit write that completed while we read.
@@ -364,8 +363,7 @@ export async function createRevisionProposal(
     }
   });
   if (created instanceof RevisionError) throw created;
-  const notify = () =>
-    notifyRevisionPending(created.proposal, created.employee, created.targetOwnerId);
+  const notify = () => notifyRevisionPending(created.proposal, created.employee);
   // SQLite's single connection also serves Notification.save(array), which
   // may start its own transaction. Keep that phase in the same queue so it
   // cannot overlap the next proposal's transaction and lose a notification.
@@ -377,21 +375,13 @@ export async function createRevisionProposal(
 async function notifyRevisionPending(
   proposal: RevisionProposal,
   employee: AIEmployee,
-  targetOwnerId: string,
 ): Promise<void> {
   try {
+    // Owners and admins are the people who can apply or decline it.
     const memberships = await AppDataSource.getRepository(Membership).find({
       where: { companyId: proposal.companyId, role: In(["owner", "admin"]) },
     });
     const audience = new Set(memberships.map((m) => m.userId));
-    // The employee's manager supervises this employee without needing the
-    // admin role over everything else — the browser-recordings audience rule.
-    const manager = await managingMemberIdForEmployee(proposal.companyId, employee.id);
-    if (manager) audience.add(manager);
-    if (targetOwnerId !== employee.id) {
-      const targetManager = await managingMemberIdForEmployee(proposal.companyId, targetOwnerId);
-      if (targetManager) audience.add(targetManager);
-    }
     if (audience.size === 0) return;
     await createNotifications(
       [...audience].map((userId) => ({

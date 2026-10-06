@@ -46,6 +46,12 @@ const SUMMARY_CAP = 4_000;
  * null when no enabled rule matches or the named decider cannot serve (gone,
  * self, or brainless — a decider with no AI Model connected would hold the
  * question and answer nothing).
+ *
+ * The first matching rule decides, even when it names nobody. A retired
+ * `manager` rule — saved before reporting lines were removed — therefore
+ * still matches and leaves the question with people; it never routes, and it
+ * never hands the question to a later rule's decider that no admin chose for
+ * this asker.
  */
 export async function resolveDecider(
   companyId: string,
@@ -58,18 +64,9 @@ export async function resolveDecider(
   const rule = rules.find(
     (r) => r.askingEmployeeId === null || r.askingEmployeeId === askingEmployeeId,
   );
-  if (!rule) return null;
+  if (!rule || rule.deciderKind !== "employee") return null;
 
-  let deciderId: string | null = null;
-  if (rule.deciderKind === "manager") {
-    const asker = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: askingEmployeeId,
-      companyId,
-    });
-    deciderId = asker?.reportsToEmployeeId ?? null;
-  } else {
-    deciderId = rule.deciderEmployeeId;
-  }
+  const deciderId = rule.deciderEmployeeId;
   if (!deciderId || deciderId === askingEmployeeId) return null;
   const decider = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: deciderId,

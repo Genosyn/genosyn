@@ -118,7 +118,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "Memory that persists",
-          body: "Employees save durable Memory that is auto-injected into future runs, keep an append-only Journal, and hand work to each other along the org chart with AI-to-AI Handoffs.",
+          body: "Employees save durable Memory that is auto-injected into future runs, keep an append-only Journal, and hand work to each other with AI-to-AI Handoffs.",
         },
         {
           title: "Long runs that survive",

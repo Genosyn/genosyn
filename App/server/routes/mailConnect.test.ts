@@ -246,7 +246,7 @@ describe("working out how to connect one address", () => {
     assert.equal(oauth.provider, "google");
     assert.equal(oauth.ready, false);
     assert.equal(oauth.instanceApp, false);
-    assert.match(oauth.blockedReason ?? "", /no google oauth app is registered/i);
+    assert.match(oauth.blockedReason ?? "", /google oauth app registered on this install/i);
     assert.match(oauth.blockedReason ?? "", /Admin → Integrations/);
     assert.doesNotMatch(oauth.blockedReason ?? "", /password|IMAP/i);
     assert.equal(plan.options.length, 1);

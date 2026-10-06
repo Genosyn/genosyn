@@ -7,7 +7,7 @@ import type {
 } from "../../types.js";
 import { safeJson } from "./util.js";
 import { getPublicUrl } from "../../../services/publicUrl.js";
-import { refreshHostedGoogleToken } from "../../../services/hostedGoogleOauth.js";
+import { refreshHostedOauthToken } from "../../../services/hostedOauthTokens.js";
 
 /**
  * Provider-agnostic Google OAuth + Service-Account machinery.
@@ -342,7 +342,8 @@ async function refreshOauthToken(ctx: IntegrationRuntimeContext): Promise<void> 
   const cfg = ctx.config as GoogleOauthConfig;
   if (cfg.expiresAt > Date.now() + 60_000) return;
   if (cfg.credentialSource === "hosted") {
-    const next = await refreshHostedGoogleToken(cfg);
+    // Issued through Genosyn Connect: the service holds the client secret.
+    const next = await refreshHostedOauthToken("google", cfg);
     ctx.setConfig?.(next as unknown as IntegrationConfig);
     ctx.config = next as unknown as IntegrationConfig;
     return;

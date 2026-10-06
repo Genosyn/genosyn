@@ -165,6 +165,35 @@ takes precedence. Neither setting ever creates a second App Service.
 {{- end -}}
 
 {{/*
+The Genosyn Connect workload settings with their defaults, read defensively:
+values reused from a release older than the Connect image lack the block.
+*/}}
+{{- define "genosyn.connect" -}}
+{{- $defaults := dict "enabled" false "replicaCount" 1 "existingSecret" "" "publicUrl" "" "googleScopeGroups" "gmail" "privacyUrl" "" "termsUrl" "" "env" (list) "resources" (dict) "podAnnotations" (dict) "podLabels" (dict) "image" (dict "repository" "ghcr.io/genosyn/connect" "tag" "" "pullPolicy" "IfNotPresent") -}}
+{{- $settings := default dict .Values.connect -}}
+{{- $merged := mergeOverwrite (deepCopy $defaults) (deepCopy $settings) -}}
+{{- toYaml $merged -}}
+{{- end -}}
+
+{{- define "genosyn.connectFullname" -}}
+{{- printf "%s-connect" (include "genosyn.fullname" . | trunc 55 | trimSuffix "-") }}
+{{- end -}}
+
+{{/*
+The origin Connect builds its callback from: explicit, or the Connect host.
+*/}}
+{{- define "genosyn.connectPublicUrl" -}}
+{{- $connect := include "genosyn.connect" . | fromYaml -}}
+{{- $ingress := include "genosyn.connectIngress" . | fromYaml -}}
+{{- $explicit := toString $connect.publicUrl | trim | trimSuffix "/" -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else if $ingress.enabled -}}
+{{- printf "https://%s" $ingress.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Opt-in integrations, read defensively: values reused from an older release
 (`helm upgrade --reuse-values`) lack these blocks entirely. Each boolean helper
 renders "true" or nothing, so it can be used directly in `if`.
@@ -180,6 +209,10 @@ renders "true" or nothing, so it can be used directly in `if`.
 
 {{- define "genosyn.gke.backendConfigName" -}}
 {{- printf "%s-backend" (include "genosyn.fullname" . | trunc 55 | trimSuffix "-") }}
+{{- end -}}
+
+{{- define "genosyn.gke.connectBackendConfigName" -}}
+{{- printf "%s-connect-backend" (include "genosyn.fullname" . | trunc 47 | trimSuffix "-") }}
 {{- end -}}
 
 {{- define "genosyn.gke.frontendConfigName" -}}
@@ -350,6 +383,34 @@ runs on every render.
 {{- end -}}
 {{- end -}}
 {{- $connect := include "genosyn.connectIngress" . | fromYaml -}}
+{{- $connectService := include "genosyn.connect" . | fromYaml -}}
+{{- if and $connect.enabled (not $connectService.enabled) -}}
+{{- $problems = append $problems "ingress.connect routes the sign-in hostname to Genosyn Connect, which now runs as its own service — set connect.enabled=true and connect.existingSecret (the App no longer serves sign-in for other installations)" -}}
+{{- end -}}
+{{- if $connectService.enabled -}}
+{{- if or (not (kindIs "string" $connectService.existingSecret)) (not (trim (toString $connectService.existingSecret))) -}}
+{{- $problems = append $problems "connect.existingSecret must name a Secret holding CONNECT_GOOGLE_CLIENT_ID and CONNECT_GOOGLE_CLIENT_SECRET" -}}
+{{- end -}}
+{{- $connectUrl := include "genosyn.connectPublicUrl" . -}}
+{{- if not $connectUrl -}}
+{{- $problems = append $problems "connect.enabled needs a public address: enable ingress.connect with its host, or set connect.publicUrl" -}}
+{{- else if not (regexMatch "^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?$" $connectUrl) -}}
+{{- $problems = append $problems "connect.publicUrl must be an https:// origin with a lowercase host and no path, e.g. https://connect.example.com" -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-z]+(-[a-z]+)*( *, *[a-z]+(-[a-z]+)*)*$" (toString $connectService.googleScopeGroups)) -}}
+{{- $problems = append $problems "connect.googleScopeGroups must be a comma-separated list of scope groups, e.g. gmail,calendar" -}}
+{{- end -}}
+{{- $replicas := $connectService.replicaCount -}}
+{{- if or (not (or (kindIs "float64" $replicas) (kindIs "int" $replicas) (kindIs "int64" $replicas))) (lt (float64 $replicas) 1.0) (ne (float64 $replicas) (floor (float64 $replicas))) -}}
+{{- $problems = append $problems "connect.replicaCount must be a whole number of at least 1" -}}
+{{- end -}}
+{{- range $name := list "privacyUrl" "termsUrl" -}}
+{{- $link := toString (get $connectService $name) | trim -}}
+{{- if and $link (not (hasPrefix "https://" $link)) -}}
+{{- $problems = append $problems (printf "connect.%s must be an https:// URL" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- if $connect.enabled -}}
 {{- if not (include "genosyn.ingressTls" .) -}}
 {{- $problems = append $problems "ingress.connect.enabled requires ingress.enabled=true and ingress.tls.enabled=true (or gke.managedCertificate.enabled=true)" -}}

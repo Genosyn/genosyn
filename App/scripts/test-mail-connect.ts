@@ -12,7 +12,10 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright-core";
 import { createServer } from "vite";
 import { discoverMailbox } from "../server/services/mail/discovery";
-import { googleSignInPage } from "../server/services/googleSignInBroker";
+// The real Genosyn Connect pages, so the installation's popup code is proven
+// against the consent page the service actually serves.
+import { consentPage, messagePage } from "../../Connect/src/pages";
+import { canonicalProtocol } from "../../Connect/src/protocol";
 import express from "express";
 import { integrationsOauthRouter } from "../server/routes/integrationsOauth";
 
@@ -104,21 +107,27 @@ const server = await createServer({
             res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
             res.setHeader(
               "Content-Security-Policy",
-              "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'unsafe-inline'; script-src 'nonce-fixture-script'",
+              "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'nonce-fixture-style'; script-src 'nonce-fixture-script'",
             );
             res.end(
-              googleSignInPage({
+              consentPage({
+                providerName: "Google",
+                continueLabel: "Continue with Google",
+                protocol: canonicalProtocol("google"),
+                requestId: "b".repeat(43),
+                browserNonce: "n".repeat(43),
+                installationOrigin: origin,
+                access: [
+                  { label: "Gmail", description: "Read, send, draft, label and archive email." },
+                ],
+                styleNonce: "fixture-style",
                 scriptNonce: "fixture-script",
-                form: {
-                  requestId: "b".repeat(43),
-                  browserNonce: "n".repeat(43),
-                  installationOrigin: origin,
-                },
+                links: { privacy: null, terms: null },
               }),
             );
             return;
           }
-          if (url.pathname === "/api/google-sign-in/authorize") {
+          if (url.pathname === "/api/connect/google/authorize") {
             let raw = "";
             for await (const chunk of req) raw += chunk.toString();
             const body = new URLSearchParams(raw);
@@ -130,7 +139,19 @@ const server = await createServer({
             );
             state.hostedComplete = true;
             res.setHeader("content-type", "text/html");
-            res.end(googleSignInPage({ detail: "Gmail sign-in is complete. Return to Genosyn." }));
+            res.setHeader(
+              "Content-Security-Policy",
+              "default-src 'none'; style-src 'nonce-fixture-style'",
+            );
+            res.end(
+              messagePage({
+                title: "Google is connected",
+                detail: "Gmail sign-in is complete. Return to Genosyn.",
+                tone: "ok",
+                styleNonce: "fixture-style",
+                links: { privacy: null, terms: null },
+              }),
+            );
             return;
           }
           if (!url.pathname.startsWith("/api/")) return next();
@@ -361,7 +382,7 @@ add(
     await discover(page);
     await assertNoPassword(page);
     await form(page)
-      .getByText(/Genosyn handles Google sign-in/)
+      .getByText(/Genosyn Connect handles Google sign-in/)
       .waitFor();
     await page.screenshot({
       path: path.join(output, "mail-connect-hosted-gmail.png"),

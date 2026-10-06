@@ -1,0 +1,38 @@
+{
+  "name": "@genosyn/connect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Genosyn Connect — hosted OAuth sign-in for self-hosted Genosyn installations",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "eslint . --ext .ts --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "tsx --test \"tests/**/*.test.ts\""
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "pg": "^8.20.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/node": "^22.19.17",
+    "@types/pg": "^8.20.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "eslint": "^8.57.1",
+    "prettier": "^3.8.2",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
+  }
+}

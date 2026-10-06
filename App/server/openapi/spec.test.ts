@@ -133,6 +133,28 @@ test("Recurring invoice names default to the customer on create and stay put on 
   assert.match(edit.description ?? "", /never renames the schedule/);
 });
 
+test("an AI Employee carries its Team and no reporting line", () => {
+  const document = buildOpenApiDocument();
+  const employee = document.components?.schemas?.Employee as SchemaShape | undefined;
+  assert.ok(employee?.properties, "the Employee schema is published");
+  assert.ok(employee.properties.teamId, "the Team stays");
+  assert.equal(employee.properties.reportsToEmployeeId, undefined);
+  assert.equal(employee.properties.reportsToUserId, undefined);
+});
+
+test("no operation or schema still describes reporting lines", () => {
+  // Browser-recording access used to extend to the Member an AI Employee
+  // reported to; it is owners and admins (or a Member browser's own owner).
+  const text = JSON.stringify(buildOpenApiDocument());
+  assert.doesNotMatch(text, /reportsTo|reporting line|reporting-line|employee reports to/i);
+  const collection = operationAt(
+    buildOpenApiDocument(),
+    "/api/companies/{cid}/runs/{runId}/browser-recordings",
+    "get",
+  );
+  assert.match(collection.description ?? "", /requires an owner or admin role/);
+});
+
 test("Routine browser recordings document cookie-only metadata and range streaming", () => {
   const document = buildOpenApiDocument();
   const collection = operationAt(

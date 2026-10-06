@@ -120,9 +120,13 @@ export type IntegrationCatalogEntry = {
      * all. Several integrations can share one app — registering `google`
      * covers Workspace, Analytics, and Search Console together. */
     instanceApp?: boolean;
-    /** Verified hosted Gmail sign-in. Only the Google Workspace entry may
-     * carry this, and only its mail scope group uses the hosted app. */
+    /** Genosyn Connect can sign in to this Integration — verified, and
+     * resolved per request in `listCatalog` like `instanceApp`, never
+     * declared by providers. Never set alongside `instanceApp`. */
     hostedSignIn?: boolean;
+    /** The scope groups Genosyn Connect offers in full; the others need an
+     * OAuth client of the installation's own. */
+    hostedScopeGroups?: string[];
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];

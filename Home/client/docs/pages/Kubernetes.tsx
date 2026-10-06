@@ -147,10 +147,10 @@ export function Kubernetes() {
         <LI>
           <Strong>Production:</Strong> <Code>app.genosyn.com</Code>, namespace{" "}
           <Code>genosyn-prod</Code>, TLS Secret <Code>genosyn-prod-tls</Code>, and a single-node
-          Postgres database with a 100Gi volume. The same App and Ingress serve{" "}
-          <Code>connect.genosyn.com</Code> using <Code>genosyn-connect-tls</Code>; that host exposes
-          only the <Code>/api/connect</Code> namespace and six legacy Gmail sign-in paths. Both
-          domains share one address.
+          Postgres database with a 100Gi volume. The same Ingress serves{" "}
+          <Code>connect.genosyn.com</Code> using <Code>genosyn-connect-tls</Code>, routed entirely to
+          the separate <DocLink to="/docs/connect">Genosyn Connect</DocLink> Deployment; none of that
+          host reaches the App. Both domains share one address.
         </LI>
       </UL>
       <P>
@@ -197,21 +197,46 @@ GENOSYN_PROD_KUBE_CONTEXT=your-prod-context GENOSYN_BOOTSTRAP_ADMIN_EMAIL=operat
         <Code>Admin → General</Code>, and keep it at <Code>https://app.genosyn.com</Code>. Verify
         DNS and HTTPS before opening registration, then verify the configured operator and set{" "}
         <Code>Admin → Email transport</Code> for verification and recovery messages. OAuth apps
-        belong at <Code>Admin → Integrations</Code>. For hosted sign-in, set{" "}
-        <Strong>Admin → Runtime → Hosted sign-in → Hosted sign-in address</Strong> to{" "}
-        <Code>https://connect.genosyn.com</Code> before enabling hosting. Register Google&apos;s new{" "}
-        <Code>https://connect.genosyn.com/api/connect/google/callback</Code> alongside the
-        App&apos;s ordinary Google redirect URI; retain the legacy{" "}
-        <Code>/api/google-sign-in/callback</Code> for older installations. Test leaves the extra
-        host off.
+        belong at <Code>Admin → Integrations</Code>. Test leaves the Connect host off.
+      </P>
+
+      <H3 id="connect">Running Genosyn Connect</H3>
+      <P>
+        Only the operator of a public sign-in service runs{" "}
+        <DocLink to="/docs/connect">Genosyn Connect</DocLink>; an ordinary installation leaves it off
+        and its App uses <Code>https://connect.genosyn.com</Code>. To run it beside the App, create
+        a Secret with the Google OAuth client, then enable both the workload and its hostname:
+      </P>
+      <Pre lang="bash">{`kubectl -n genosyn-prod create secret generic genosyn-connect \
+  --from-literal=CONNECT_GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com \
+  --from-literal=CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-...`}</Pre>
+      <Pre lang="yaml">{`ingress:
+  connect:
+    enabled: true
+    host: connect.genosyn.com
+    tlsSecretName: genosyn-connect-tls
+connect:
+  enabled: true
+  existingSecret: genosyn-connect
+  googleScopeGroups: gmail
+  privacyUrl: https://genosyn.com/privacy
+  termsUrl: https://genosyn.com/terms`}</Pre>
+      <P>
+        The chart runs <Code>ghcr.io/genosyn/connect</Code> at the chart&apos;s version as a
+        non-root, read-only Deployment with no volume, and routes the whole Connect host to it. One
+        replica keeps sign-ins in memory; for more, add <Code>CONNECT_DATABASE_URL</Code> (Postgres)
+        and <Code>CONNECT_SECRET</Code> to the Secret and raise <Code>connect.replicaCount</Code>.
+        Register <Code>https://connect.genosyn.com/api/connect/google/callback</Code> and the legacy{" "}
+        <Code>/api/google-sign-in/callback</Code> with Google. A profile that enables{" "}
+        <Code>ingress.connect</Code> without <Code>connect.enabled</Code> fails to render: the App no
+        longer serves sign-in for other installations.
       </P>
       <P>
-        New profiles use <Code>ingress.connect.enabled</Code>, <Code>host</Code>, and{" "}
+        Hostname settings use <Code>ingress.connect.enabled</Code>, <Code>host</Code>, and{" "}
         <Code>tlsSecretName</Code>. Legacy <Code>ingress.gmailSignIn</Code> values still work: each
         supplied <Code>connect</Code> field, even <Code>enabled: false</Code>, overrides its legacy
         counterpart, and unspecified ones inherit it. The Connect host needs its own TLS Secret and
-        a distinct hostname; its <Code>/api/connect</Code> prefix fits future providers without
-        ingress changes.
+        a distinct hostname.
       </P>
 
       <H2 id="architecture">Architecture</H2>

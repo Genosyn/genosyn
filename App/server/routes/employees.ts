@@ -15,7 +15,6 @@ import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { Approval } from "../db/entities/Approval.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { Team } from "../db/entities/Team.js";
-import { Membership } from "../db/entities/Membership.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Contact } from "../db/entities/Contact.js";
 import { Deal } from "../db/entities/Deal.js";
@@ -319,15 +318,14 @@ employeesRouter.get("/:eid", async (req, res) => {
 // Strict, because stripping unknown keys made an edit this route cannot apply
 // look saved: `{ "soulBody": "..." }` answered 200 and left the Soul as it was.
 // The Soul is edited through `PUT /:eid/soul`. A key not listed here is a 400
-// that names it, and nothing is written.
+// that names it, and nothing is written — which is also how the removed
+// reporting-line fields (`reportsToEmployeeId`, `reportsToUserId`) answer.
 const patchSchema = z
   .object({
     name: z.string().min(1).max(80).optional(),
     role: z.string().min(1).max(80).optional(),
     slug: z.string().min(1).max(80).optional(),
     teamId: z.string().uuid().nullable().optional(),
-    reportsToEmployeeId: z.string().uuid().nullable().optional(),
-    reportsToUserId: z.string().uuid().nullable().optional(),
     browserEnabled: z.boolean().optional(),
     // Newline-separated host globs. The materializer trims and parses;
     // empty / whitespace-only strings clear the list.
@@ -366,41 +364,6 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
         return res.status(400).json({ error: "Team not found in this company" });
       }
       emp.teamId = team.id;
-    }
-  }
-  if (body.reportsToEmployeeId !== undefined) {
-    if (body.reportsToEmployeeId === null) {
-      emp.reportsToEmployeeId = null;
-    } else {
-      if (body.reportsToEmployeeId === emp.id) {
-        return res.status(400).json({ error: "An employee cannot report to themselves" });
-      }
-      const manager = await repo.findOneBy({
-        id: body.reportsToEmployeeId,
-        companyId: emp.companyId,
-      });
-      if (!manager) {
-        return res.status(400).json({ error: "Manager not found in this company" });
-      }
-      emp.reportsToEmployeeId = manager.id;
-      // The two reporting fields are mutually exclusive — picking an AI
-      // manager clears any human one and vice-versa.
-      emp.reportsToUserId = null;
-    }
-  }
-  if (body.reportsToUserId !== undefined) {
-    if (body.reportsToUserId === null) {
-      emp.reportsToUserId = null;
-    } else {
-      const human = await AppDataSource.getRepository(Membership).findOneBy({
-        userId: body.reportsToUserId,
-        companyId: emp.companyId,
-      });
-      if (!human) {
-        return res.status(400).json({ error: "Manager not found in this company" });
-      }
-      emp.reportsToUserId = human.userId;
-      emp.reportsToEmployeeId = null;
     }
   }
   if (body.browserEnabled !== undefined) {
@@ -474,10 +437,6 @@ employeesRouter.delete("/:eid", async (req, res) => {
 
   await closeAllBrowserSessionsForEmployee(emp.id);
   await detachEmployeeFromTldrs(emp.companyId, emp.id);
-
-  // Clear reporting lines that pointed at this employee so subordinates
-  // don't carry a dangling manager reference.
-  await empRepo.update({ reportsToEmployeeId: emp.id }, { reportsToEmployeeId: null });
 
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: emp.id },

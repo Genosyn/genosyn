@@ -2,10 +2,17 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 
 /**
  * Who answers for the asking employee when a rule matches:
- *  - `manager`  — the asker's manager-employee via `AIEmployee.reportsToEmployeeId`.
- *  - `employee` — the named `deciderEmployeeId`.
+ *  - `employee` — the named `deciderEmployeeId`. The only kind a rule can be
+ *    created or edited to.
+ *  - `manager`  — retired with the org chart. It meant "the asker's manager",
+ *    read from a reporting line that no longer exists. A rule saved before
+ *    that keeps its row and its place in the order, and still matches: it
+ *    leaves the question with people, never routes it, and never lets a later
+ *    rule route it instead. Deleting it, or renaming it to a decider, is an
+ *    admin's choice — a rule that quietly vanished could hand a question to
+ *    an AI decider nobody picked for it.
  */
-export type DecisionDeciderKind = "manager" | "employee";
+export type DecisionDeciderKind = "employee" | "manager";
 
 /**
  * One row of the company's decision-rights matrix (M53). A rule says: when
@@ -37,10 +44,10 @@ export class DecisionPolicy {
   @Column({ type: "varchar", nullable: true })
   askingEmployeeId!: string | null;
 
-  @Column({ type: "varchar", default: "manager" })
+  @Column({ type: "varchar", default: "employee" })
   deciderKind!: DecisionDeciderKind;
 
-  /** The named decider for `deciderKind: "employee"`; null for `manager`. */
+  /** The named decider for `deciderKind: "employee"`; null on a retired `manager` rule. */
   @Column({ type: "varchar", nullable: true })
   deciderEmployeeId!: string | null;
 

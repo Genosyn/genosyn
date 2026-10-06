@@ -74,8 +74,6 @@ import { adminRouter } from "./routes/admin.js";
 import { customJavaScriptRouter } from "./routes/customJavaScript.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
-import { googleSignInBrokerRouter } from "./routes/googleSignInBroker.js";
-import { connectSignInRouter } from "./routes/connectSignIn.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
 // The mount path is imported rather than repeated: the same constant builds
 // the URL the operator pastes into Microsoft's or Meta's console, and a mount
@@ -344,10 +342,6 @@ async function main() {
   // inside startOauth(). Mounted before session so cross-site-redirect
   // cookie behavior doesn't matter.
   app.use("/api/integrations/oauth", integrationsOauthRouter);
-  // Fixed Google callback and proof-bound handoffs for self-hosted installs.
-  // Hosting is off by default; this router owns its browser CSRF protection.
-  app.use("/api/google-sign-in", googleSignInBrokerRouter);
-  app.use("/api/connect", connectSignInRouter);
 
   // Built-in MCP tools called by the Genosyn stdio binary we spawn alongside
   // every AI employee. Auth is a short-lived Bearer token we issued moments
@@ -426,7 +420,7 @@ async function main() {
   app.use("/api/companies/:cid", routineChecksRouter);
   // M58 — the stop button. No MCP tool in either direction; see the router.
   app.use("/api/companies/:cid", standdownsRouter);
-  // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
+  // Teams + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.
   app.use("/api/companies/:cid", teamsRouter);
   // Reusable company tags + polymorphic resource assignments.

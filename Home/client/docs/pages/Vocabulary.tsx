@@ -32,7 +32,7 @@ export function Vocabulary() {
           },
           {
             term: "Team",
-            def: "A subgroup of members for routing and notifications.",
+            def: "A named group of AI Employees — Engineering, Revenue, Ops. Managed at Settings → Teams; each employee belongs to at most one.",
           },
         ]}
       />
@@ -162,6 +162,10 @@ export function Vocabulary() {
           {
             term: "Grant",
             def: "An AI Employee's access to a specific Connection.",
+          },
+          {
+            term: "Genosyn Connect",
+            def: "The hosted sign-in service that lets a self-hosted installation create Connections without registering its own OAuth app. Not a Connection, and not how Members log in.",
           },
           {
             term: "MCP server",

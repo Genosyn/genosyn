@@ -51,6 +51,7 @@ import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { ModalCloseButton, ModalPanel, ModalScrim } from "../components/ui/ModalChrome";
+import { useFocusAfterDelete } from "../components/useFocusAfterDelete";
 import { useBases } from "./BasesLayout";
 import {
   CellEditor,
@@ -548,6 +549,7 @@ function Grid({
   const filterBtnRef = React.useRef<HTMLButtonElement>(null);
   const sortBtnRef = React.useRef<HTMLButtonElement>(null);
   const hideBtnRef = React.useRef<HTMLButtonElement>(null);
+  const addRowBtnRef = React.useRef<HTMLButtonElement>(null);
   const lastClickedRowIdRef = React.useRef<string | null>(null);
 
   // Apply the active view: filter, then sort. The unfiltered set is what the
@@ -557,6 +559,8 @@ function Grid({
     const filtered = applyFilters(records, activeView.filters, fields);
     return applySorts(filtered, activeView.sorts, fields);
   }, [activeView, fields, records]);
+
+  const focusAfterDelete = useFocusAfterDelete(visibleRecords, addRowBtnRef);
 
   // Hidden fields are stored on the view; primary fields are never hidden so
   // a row always has a recognisable label.
@@ -662,11 +666,17 @@ function Grid({
   }
 
   async function deleteRow(row: BaseRecord) {
+    // Focus follows a deleted row only for someone driving the grid from the
+    // keyboard. Nothing asks before a row goes, and a click leaves no focus
+    // ring, so a mouse user must not be left on a hidden Delete that their
+    // next Space or Enter would fire.
+    const fromKeyboard = document.activeElement?.matches(":focus-visible") ?? false;
     setDeletingRowId(row.id);
     try {
       await api.del(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows/${row.id}`,
       );
+      if (fromKeyboard) focusAfterDelete.rowDeleted(row.id);
       await onReload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the row" });
@@ -920,6 +930,7 @@ function Grid({
                     onPatchCell={(fid, v) => patchCell(r, fid, v)}
                     onDelete={() => deleteRow(r)}
                     deleting={deletingRowId === r.id}
+                    deleteButtonRef={focusAfterDelete.deleteButtonRef(r.id)}
                     onExpand={() => onOpenRecord(r.id)}
                   />
                 ))}
@@ -929,11 +940,14 @@ function Grid({
                     colSpan={visibleFields.length + 1}
                     className="bg-slate-50 dark:bg-slate-900"
                   >
+                    {/* Its focus ring is drawn inside, where the sticky header,
+                        the row numbers and the scroller's edge can't hide it. */}
                     <button
+                      ref={addRowBtnRef}
                       onClick={addRow}
                       disabled={addingRow}
                       aria-busy={addingRow || undefined}
-                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-offset-[-2px] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                     >
                       {addingRow ? <ButtonSpinner size={12} /> : <Plus size={12} />} Add row
                     </button>
@@ -1186,6 +1200,7 @@ function Row({
   onPatchCell,
   onDelete,
   deleting,
+  deleteButtonRef,
   onExpand,
 }: {
   index: number;
@@ -1198,6 +1213,7 @@ function Row({
   onPatchCell: (fieldId: string, value: unknown) => void;
   onDelete: () => void;
   deleting: boolean;
+  deleteButtonRef: React.Ref<HTMLButtonElement>;
   onExpand: () => void;
 }) {
   const [editingField, setEditingField] = React.useState<string | null>(null);
@@ -1322,11 +1338,20 @@ function Row({
           >
             <Maximize2 size={13} />
           </button>
-          {/* Also shown while its delete is in flight: the disabled button has
-              lost focus, and the pointer may have left the row. */}
+          {/* Busy rather than disabled while its delete runs, like a record's
+              comment and file rows: a disabled button drops focus, and this
+              one holds it until the row it deletes is gone. Shown while busy,
+              too, since the pointer may have left the row. */}
           <button
-            onClick={onDelete}
-            disabled={deleting}
+            ref={deleteButtonRef}
+            onClick={deleting ? undefined : onDelete}
+            onKeyDown={(e) => {
+              // Focus moves on to the next row's Delete as each row goes, so a
+              // held Enter would delete its way down the table: only a fresh
+              // press counts.
+              if (e.repeat) e.preventDefault();
+            }}
+            aria-disabled={deleting || undefined}
             aria-busy={deleting || undefined}
             className={clsx(
               "inline-flex rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 aria-busy:opacity-100 dark:hover:bg-red-950/30",

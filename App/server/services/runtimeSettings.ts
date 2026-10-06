@@ -89,14 +89,15 @@ export type RuntimeMailSettings = {
   backfillDays: number;
 };
 
-/** Shared sign-in service; explicit Integration OAuth credentials take precedence. */
+/**
+ * Genosyn Connect, the hosted sign-in service this installation uses for
+ * OAuth Integrations it has no app of its own for. An app registered at
+ * Admin → Integrations, or credentials supplied on a Connection, take
+ * precedence. Running the service itself is the separate `Connect/` image.
+ */
 export type RuntimeOauthSettings = {
   hostedSignInEnabled: boolean;
   hostedSignInUrl: string;
-  /** Only enabled on the installation operating the public sign-in service. */
-  hostSignIn: boolean;
-  /** Empty uses the installation's public URL. */
-  signInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription (M42/M44). */
@@ -209,8 +210,6 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
   oauth: {
     hostedSignInEnabled: true,
     hostedSignInUrl: "https://connect.genosyn.com",
-    hostSignIn: false,
-    signInHostUrl: "",
   },
   meetings: {
     enabled: true,
@@ -461,6 +460,13 @@ export function normalizeSignInUrl(value: string): string | null {
 /** Compatibility for callers upgrading from the Gmail-only service. */
 export const normalizeGmailSignInUrl = normalizeSignInUrl;
 
+/**
+ * Fields an installation once used to host the sign-in service inside the App.
+ * Hosting moved to the separate Connect image, so a saved row or a stale form
+ * may still carry them; they are dropped rather than refused.
+ */
+const RETIRED_OAUTH_FIELDS = ["hostSignIn", "signInHostUrl", "hostGmailSignIn", "gmailSignInHostUrl"];
+
 /** Map old saved fields without allowing them to override an explicit new value. */
 export function normalizeOauthSettingNames(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
@@ -468,14 +474,13 @@ export function normalizeOauthSettingNames(raw: unknown): unknown {
   for (const [canonical, legacy] of [
     ["hostedSignInEnabled", "gmailSignInEnabled"],
     ["hostedSignInUrl", "gmailSignInUrl"],
-    ["hostSignIn", "hostGmailSignIn"],
-    ["signInHostUrl", "gmailSignInHostUrl"],
   ]) {
     if (!Object.hasOwn(normalized, canonical) && Object.hasOwn(normalized, legacy)) {
       normalized[canonical] = normalized[legacy];
     }
     delete normalized[legacy];
   }
+  for (const retired of RETIRED_OAUTH_FIELDS) delete normalized[retired];
   return normalized;
 }
 
@@ -490,25 +495,9 @@ export function parseOauthSettings(raw: unknown): RuntimeOauthSettings {
       "oauth.hostedSignInUrl must be an HTTPS origin; using the default",
     );
   }
-  const hostCandidate = o.signInHostUrl;
-  let signInHostUrl: string | null = null;
-  if (hostCandidate === undefined) {
-    signInHostUrl = d.signInHostUrl;
-  } else if (typeof hostCandidate === "string" && hostCandidate.length <= 2048) {
-    signInHostUrl = hostCandidate.trim() ? normalizeSignInUrl(hostCandidate) : "";
-  }
-  if (signInHostUrl === null) {
-    warnOnce(
-      "oauth.signInHostUrl",
-      "oauth.signInHostUrl must be empty or an HTTPS origin; hosting is disabled",
-    );
-  }
   return {
     hostedSignInEnabled: boolField(o, "oauth", "hostedSignInEnabled", d.hostedSignInEnabled),
     hostedSignInUrl: hostedSignInUrl ?? d.hostedSignInUrl,
-    hostSignIn:
-      boolField(o, "oauth", "hostSignIn", d.hostSignIn) && signInHostUrl !== null,
-    signInHostUrl: signInHostUrl ?? d.signInHostUrl,
   };
 }
 
@@ -676,8 +665,6 @@ type RuntimeSettingsTestPatch = Omit<RuntimeSettingsOverrides, "oauth"> & {
   oauth?: Partial<RuntimeOauthSettings> & {
     gmailSignInEnabled?: boolean;
     gmailSignInUrl?: string;
-    hostGmailSignIn?: boolean;
-    gmailSignInHostUrl?: string;
   };
 };
 let testOverrides: RuntimeSettingsOverrides = {};

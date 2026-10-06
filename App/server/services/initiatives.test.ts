@@ -119,6 +119,20 @@ describe("proposeInitiative", () => {
     for (let n = 2; n <= 5; n++) await propose(`Initiative ${n}`);
     await assert.rejects(propose("Initiative 6"), /pending review/);
   });
+
+  test("pages every owner and admin, and no plain Member", async () => {
+    // Accepting an Initiative is an admin's call; with reporting lines gone
+    // there is no Member an employee "reports to" who should hear first.
+    const adminId = testId("admin");
+    const memberId = testId("member");
+    await insert(Membership, { companyId, userId: adminId, role: "admin" });
+    await insert(Membership, { companyId, userId: memberId, role: "member" });
+    await propose();
+    const bells = await AppDataSource.getRepository(Notification).findBy({
+      kind: "initiative_pending",
+    });
+    assert.deepEqual(bells.map((bell) => bell.userId).sort(), [adminId, ownerId].sort());
+  });
 });
 
 describe("acceptInitiative", () => {

@@ -106,28 +106,32 @@ export function Integrations() {
       <H2 id="instance-oauth-apps">Google sign-in and your own OAuth apps</H2>
       <P>
         For Gmail, open <Strong>Email</Strong>, enter your address, and choose{" "}
-        <Strong>Continue with Google</Strong>. Self-hosted installations can use Genosyn&apos;s
-        hosted Gmail sign-in service without creating a Google Cloud project, once that service is
-        available. It handles Google consent and token renewal; email reads and sends go directly
-        between your installation and Google. Credentials are stored encrypted on your installation;
-        token renewal sends the refresh credential to the original sign-in service.
+        <Strong>Continue with Google</Strong>. No Google Cloud project is needed, even on a
+        self-hosted installation: <DocLink to="/docs/connect">Genosyn Connect</DocLink> handles
+        Google&apos;s consent and token renewal, while email reads and sends go directly between
+        your installation and Google. The same applies in <Strong>Settings → Integrations</Strong>{" "}
+        to every Google product Connect offers — the connect form says which, and asks for nothing
+        to set up when you pick only those. Credentials are stored encrypted on your installation;
+        renewing access sends the refresh token to the Connect service that issued it.
       </P>
       <P>
-        An instance admin manages this at <Strong>Admin → Runtime → Hosted sign-in</Strong>. Turning
-        off <Strong>Use hosted sign-in</Strong> stops new hosted sign-ins without revoking
-        existing Connections. Changing the service URL affects new Connections; existing ones keep
-        using the service that issued their credentials. Only use a replacement service you trust
-        with those credentials. The shared service is designed for additional sign-in providers; currently it supports Google for Gmail. This does not change Member login.
+        An instance admin manages this at <Strong>Admin → Runtime → Hosted sign-in</Strong>, which
+        also shows whether Connect is reachable and what it offers. Turning off{" "}
+        <Strong>Use Genosyn Connect</Strong> stops new sign-ins through it without revoking existing
+        Connections. Changing the service URL affects new Connections; existing ones keep renewing
+        through the service that issued them. Only use a replacement service you trust with those
+        credentials. This does not change Member login.
       </P>
       <P>
-        For independent Gmail sign-in or other OAuth integrations, register an app{" "}
+        To use your own app instead — for products Connect does not offer, your own consent
+        screen, or your own API quota — or for other OAuth integrations, register an app{" "}
         <Strong>once for the whole install</Strong>. Open{" "}
         <Strong>Admin → Integrations</Strong>, pick a provider, copy the redirect URI it shows into
         the provider&apos;s console, and paste back the Client ID and Client Secret. From then on,
         every company on the instance connects that provider by clicking it and approving on the
         provider&apos;s own screen — there is no ID to create and nothing to paste. Connecting a
         Google Workspace Connection becomes: click <Strong>Google Workspace</Strong>, tick the products it may
-        touch, approve. A locally registered Google app takes precedence over hosted Gmail sign-in.
+        touch, approve. A locally registered Google app takes precedence over Genosyn Connect.
         (A mailbox that is not on Google needs no registration at all — see{" "}
         <Strong>Email account (IMAP)</Strong> below.)
       </P>

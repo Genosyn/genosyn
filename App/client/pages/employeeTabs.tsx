@@ -342,8 +342,8 @@ export function SoulSettingsPage() {
 }
 
 /**
- * General settings for an employee — name, role, slug, and profile picture.
- * Slug edits rename the on-disk employee directory (so credential paths
+ * General settings for an employee — name, role, slug, profile picture, and
+ * team. Slug edits rename the on-disk employee directory (so credential paths
  * stay stable) and bounce the URL once the PATCH lands. The avatar uploader
  * round-trips through the multipart POST on `/employees/:eid/avatar`.
  */
@@ -355,7 +355,7 @@ export function GeneralSettingsPage() {
       <div className="flex flex-col gap-4">
         <EmployeeAvatarCard company={company} emp={emp} />
         <EmployeeBasicsCard company={company} emp={emp} />
-        <EmployeeOrgCard company={company} emp={emp} />
+        <EmployeeTeamCard company={company} emp={emp} />
         <EmployeeDangerZoneCard company={company} emp={emp} />
       </div>
     </>
@@ -728,33 +728,30 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
   );
 }
 
-function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) {
+/**
+ * The Team this employee belongs to. Teams are created and named at
+ * Settings → Teams; this card only picks one. It used to be an "Org chart"
+ * card with a Reports-to picker beside the Team — reporting lines were
+ * removed, so the PATCH carries `teamId` alone.
+ */
+function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee }) {
   const [teams, setTeams] = React.useState<Team[] | null>(null);
-  const [peers, setPeers] = React.useState<Employee[] | null>(null);
   const [teamId, setTeamId] = React.useState<string>(emp.teamId ?? "");
-  const [reportsTo, setReportsTo] = React.useState<string>(emp.reportsToEmployeeId ?? "");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setTeamId(emp.teamId ?? "");
-    setReportsTo(emp.reportsToEmployeeId ?? "");
-  }, [emp.id, emp.teamId, emp.reportsToEmployeeId]);
+  }, [emp.id, emp.teamId]);
 
   React.useEffect(() => {
     api
       .get<Team[]>(`/api/companies/${company.id}/teams`)
       .then((list) => setTeams(list.filter((t) => !t.archivedAt)))
       .catch(() => setTeams([]));
-    api
-      .get<Employee[]>(`/api/companies/${company.id}/employees`)
-      .then((list) => setPeers(list.filter((e) => e.id !== emp.id)))
-      .catch(() => setPeers([]));
-  }, [company.id, emp.id]);
+  }, [company.id]);
 
-  const dirty =
-    (teamId || null) !== (emp.teamId ?? null) ||
-    (reportsTo || null) !== (emp.reportsToEmployeeId ?? null);
+  const dirty = (teamId || null) !== (emp.teamId ?? null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -764,7 +761,6 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
     try {
       await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
         teamId: teamId || null,
-        reportsToEmployeeId: reportsTo || null,
       });
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
     } catch (err) {
@@ -778,11 +774,10 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
     <Card>
       <CardBody className="flex flex-col gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Org chart</div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Team</div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            The team this employee belongs to and who they report to. Manager is used by the{" "}
-            <code className="font-mono">create_handoff</code>{" "}
-            <code className="font-mono">toManager: true</code> shortcut.
+            The team this employee belongs to, shown on their card in the Employees list. Create
+            and rename teams in Settings → Teams.
           </div>
         </div>
         <form className="flex flex-col gap-3" onSubmit={submit}>
@@ -790,6 +785,7 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-medium text-slate-700 dark:text-slate-300">Team</span>
             <Select
+              aria-label="Team"
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={teamId}
               onChange={(e) => setTeamId(e.target.value)}
@@ -799,22 +795,6 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
               {(teams ?? []).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-slate-700 dark:text-slate-300">Reports to</span>
-            <Select
-              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-              value={reportsTo}
-              onChange={(e) => setReportsTo(e.target.value)}
-              disabled={!peers}
-            >
-              <option value="">— No manager —</option>
-              {(peers ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.role})
                 </option>
               ))}
             </Select>

@@ -388,6 +388,65 @@ describe("stall sweep", () => {
     assert.equal((await notifications("revision_stale")).length, 1);
   });
 
+  test("overdue handoffs and stale revisions page every owner and admin, and no plain Member", async () => {
+    // Both used to add the Member at the top of the employee's reporting line.
+    // Reporting lines are gone: the people who can step in are the owners and
+    // admins, read from live memberships.
+    const { companyId, employeeId, ownerId } = await scenario();
+    const admin = await insert(User, {
+      email: `admin-${companyId}@example.test`,
+      passwordHash: "x",
+      name: "Ana Admin",
+    });
+    const member = await insert(User, {
+      email: `member-${companyId}@example.test`,
+      passwordHash: "x",
+      name: "Mo Member",
+    });
+    await insert(Membership, { companyId, userId: admin.id, role: "admin" });
+    await insert(Membership, { companyId, userId: member.id, role: "member" });
+    const receiver = await insert(AIEmployee, {
+      companyId,
+      name: "Kim",
+      slug: `kim-${companyId.slice(3, 11)}`,
+      role: "Ops",
+      soulBody: "",
+    });
+    const handoff = await insert(Handoff, {
+      companyId,
+      fromEmployeeId: employeeId,
+      toEmployeeId: receiver.id,
+      title: "Reconcile the March statements",
+      body: "",
+      status: "pending",
+      dueAt: new Date(Date.now() - DAY_MS),
+    });
+    const proposal = await insert(RevisionProposal, {
+      companyId,
+      employeeId: receiver.id,
+      kind: "soul",
+      targetLabel: "Soul",
+      baseBody: "a",
+      proposedBody: "b",
+      rationale: "r",
+      status: "pending",
+    });
+    await AppDataSource.getRepository(RevisionProposal).update(
+      { id: proposal.id },
+      { createdAt: new Date(Date.now() - 2 * DAY_MS) },
+    );
+
+    await sweepStalledWork(new Date());
+
+    const expected = [admin.id, ownerId].sort();
+    const overdue = await notifications("handoff_overdue");
+    assert.deepEqual(overdue.map((row) => row.userId).sort(), expected);
+    assert.ok(overdue.every((row) => row.entityId === handoff.id));
+    const stale = await notifications("revision_stale");
+    assert.deepEqual(stale.map((row) => row.userId).sort(), expected);
+    assert.ok(stale.every((row) => row.entityId === proposal.id));
+  });
+
   test("nothing is said about rows that are still fresh or already settled", async () => {
     const { companyId, employeeId } = await scenario();
     // Fresh: pending, but nowhere near the threshold.

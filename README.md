@@ -62,6 +62,10 @@ to upgrade.
 On Kubernetes, install the Helm chart from `oci://ghcr.io/genosyn/charts` — see the
 [Kubernetes guide](https://genosyn.com/docs/kubernetes).
 
+Gmail connects with one click even on `localhost`: [Genosyn Connect](https://genosyn.com/docs/connect)
+handles Google sign-in, so there is no OAuth app to register. Prefer your own? Register it and
+Connect is never used. The service is in [`Connect/`](Connect/) if you want to run it yourself.
+
 📖 Next: [connect a model and hire your first employee](https://genosyn.com/docs).
 
 ---

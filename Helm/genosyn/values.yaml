@@ -74,9 +74,9 @@ ingress:
       server: https://acme-v02.api.letsencrypt.org/directory
       # Optional ACME account email for the certificate authority's notices.
       email: ""
-  # Optional hosted sign-in hostname on this same Ingress and App Service.
-  # Routes /api/connect and the six legacy /api/google-sign-in endpoints only.
-  # The App public URL stays ingress.host. Requires ingress + TLS above.
+  # Optional Genosyn Connect hostname on this same Ingress, routed to the
+  # Connect service below (connect.enabled) — never to the App. The App public
+  # URL stays ingress.host. Requires ingress + TLS above.
   # Effective defaults: enabled: false, host: "", tlsSecretName: "".
   # Each supplied field overrides legacy ingress.gmailSignIn, including false
   # or an empty string. Keep this empty map to preserve legacy upgrade values.
@@ -132,6 +132,50 @@ gke:
     # Keeps an existing ManagedCertificate's name when adopting it. Empty uses
     # the release's full name.
     name: ""
+
+# Genosyn Connect, the hosted OAuth sign-in service (Connect/ in the source
+# repository, image ghcr.io/genosyn/connect). It holds one registered OAuth app
+# per provider so self-hosted installations can connect Gmail and other
+# Integrations without registering their own. Only the operator of a public
+# sign-in service runs it — Genosyn runs connect.genosyn.com — so an ordinary
+# installation leaves this off; its App already uses that service.
+#
+# Enable it with ingress.connect, which routes that hostname here. The service
+# keeps no data beyond ten-minute sign-ins and needs no volume.
+connect:
+  enabled: false
+  image:
+    repository: ghcr.io/genosyn/connect
+    # Empty means "this chart's appVersion".
+    tag: ""
+    pullPolicy: IfNotPresent
+  # One replica keeps sign-ins in memory; a restart costs only those in flight.
+  # More replicas need a shared store: put CONNECT_DATABASE_URL (Postgres) and
+  # CONNECT_SECRET in existingSecret, or sign-ins will fail across pods.
+  replicaCount: 1
+  # Required: a pre-created Secret in the release namespace whose keys become
+  # the service's environment — CONNECT_GOOGLE_CLIENT_ID and
+  # CONNECT_GOOGLE_CLIENT_SECRET, plus CONNECT_SECRET and CONNECT_DATABASE_URL
+  # for more than one replica. The chart never renders these values.
+  existingSecret: ""
+  # The HTTPS origin people and Google's redirects reach. Empty uses
+  # https://<ingress.connect.host>.
+  publicUrl: ""
+  # Google products to offer, as Connect scope groups (gmail, calendar, drive,
+  # docs, tasks, contacts, directory, chat, meet, analytics, search-console,
+  # ads). Offer only what your Google app is verified for.
+  googleScopeGroups: gmail
+  # Linked from Connect's pages. Google's app verification asks for both.
+  privacyUrl: ""
+  termsUrl: ""
+  # Extra environment variables, verbatim pod-spec syntax.
+  env: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+  podAnnotations: {}
+  podLabels: {}
 
 # The /app/data volume. This must persist even when the database is Postgres:
 # it holds materialized git checkouts, browser state, tool artifacts, and

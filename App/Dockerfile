@@ -149,7 +149,7 @@ RUN node --input-type=module -e 'const { config } = await import("./dist/config.
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing
 # it only through the in-process list/search/read Help tools. The root context
-# is deliberate: App, Home, CLI, docs, and delivery workflows all
+# is deliberate: App, Home, CLI, Connect, docs, and delivery workflows all
 # belong to the product context an AI Employee may need to explain.
 COPY --chown=node:node \
   AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md VERSION VISION.md \
@@ -157,6 +157,7 @@ COPY --chown=node:node \
 COPY --chown=node:node App ./.genosyn-source/App
 COPY --chown=node:node Home ./.genosyn-source/Home
 COPY --chown=node:node CLI ./.genosyn-source/CLI
+COPY --chown=node:node Connect ./.genosyn-source/Connect
 COPY --chown=node:node .github ./.genosyn-source/.github
 # `App/config.ts` may contain deployment secrets in source-built images. Help
 # does not belong in the Help snapshot. Help then reads only files named by an

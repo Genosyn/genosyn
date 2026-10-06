@@ -296,17 +296,10 @@ export const resolveEmployee: AskAiResolver = async ({ companyId, ref }) => {
       take: 30,
     }),
   ]);
-  const manager = employee.reportsToEmployeeId
-    ? await AppDataSource.getRepository(AIEmployee).findOneBy({
-        id: employee.reportsToEmployeeId,
-        companyId,
-      })
-    : null;
   const body = [
     facts([
       ["Name", `${employee.name} (@${employee.slug}, id ${employee.id})`],
       ["Role", employee.role],
-      ["Reports to", manager ? `${manager.name} (@${manager.slug})` : null],
       ["Browser", employee.browserEnabled ? "enabled" : "disabled"],
     ]),
     "",

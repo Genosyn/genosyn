@@ -2,7 +2,6 @@ import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { AppDataSource } from "../db/datasource.js";
 
 import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
-import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Attachment } from "../db/entities/Attachment.js";
@@ -156,7 +155,6 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.delete(TldrDismissal, { userId });
 
     // ── 2. Authored content — preserve the row, unlink the author ──────
-    await m.update(AIEmployee, { reportsToUserId: userId }, { reportsToUserId: null });
     await m.update(Approval, { decidedByUserId: userId }, { decidedByUserId: null });
     await m.update(AccountingPeriod, { closedById: userId }, { closedById: null });
     await m.update(Attachment, { uploadedByUserId: userId }, { uploadedByUserId: null });

@@ -1586,14 +1586,33 @@ export function OauthOrServiceAccountModal({
   const [error, setError] = React.useState<string | null>(null);
   const [waitingForOauth, setWaitingForOauth] = React.useState(false);
   const oauthController = React.useRef<AbortController | null>(null);
-  const hostedAvailable = entry?.provider === "google" && !!entry.oauth?.hostedSignIn;
+  // Genosyn Connect, the hosted sign-in service, is the default way in when
+  // this instance registered no app. It may offer only some of the products:
+  // picking one it does not offer means bringing an OAuth client of your own.
+  const hostedGroups = entry?.oauth?.hostedSignIn ? (entry.oauth.hostedScopeGroups ?? []) : [];
+  const hostedAvailable = !instanceAppAvailable && hostedGroups.length > 0;
+  const hostedLabels = (entry?.oauth?.scopeGroups ?? [])
+    .filter((group) => hostedGroups.includes(group.key))
+    .map((group) => group.label);
+  const uncoveredLabels = (entry?.oauth?.scopeGroups ?? [])
+    .filter((group) => selectedScopeGroups.includes(group.key) && !hostedGroups.includes(group.key))
+    .map((group) => group.label);
   const usesHostedSignIn =
     !usesInstanceApp &&
     !ownClient &&
     hostedAvailable &&
-    selectedScopeGroups.length === 1 &&
-    selectedScopeGroups[0] === "mail";
+    selectedScopeGroups.length > 0 &&
+    uncoveredLabels.length === 0;
   const usesSharedApp = usesInstanceApp || usesHostedSignIn;
+  // Back to Genosyn Connect: keep what it offers, and if that leaves nothing
+  // chosen, start from everything it offers.
+  function switchToHostedSignIn() {
+    setOwnClient(false);
+    setSelectedScopeGroups((current) => {
+      const kept = current.filter((key) => hostedGroups.includes(key));
+      return kept.length > 0 ? kept : hostedGroups;
+    });
+  }
 
   React.useEffect(
     () => () => {
@@ -1644,16 +1663,24 @@ export function OauthOrServiceAccountModal({
         .map((group) => group.key);
       const stored = reconnect?.scopeGroups ?? [];
       const preferred = (initialScopeGroups ?? []).filter((key) => allGroupKeys.includes(key));
+      // A fresh hosted Connection starts from the defaults Genosyn Connect
+      // can grant, so the first thing on screen needs no client setup.
+      const offered =
+        initialMode === "oauth" && entry.oauth?.hostedSignIn && !entry.oauth.instanceApp
+          ? (entry.oauth.hostedScopeGroups ?? [])
+          : [];
+      const startingKeys = defaultGroupKeys.length > 0 ? defaultGroupKeys : allGroupKeys;
+      const hostedStart = startingKeys.filter((key) => offered.includes(key));
       setSelectedScopeGroups(
         stored.length > 0
           ? stored
           : preferred.length > 0
             ? preferred
-            : entry.oauth?.hostedSignIn && !entry.oauth.instanceApp
-              ? ["mail"]
-              : defaultGroupKeys.length > 0
-                ? defaultGroupKeys
-                : allGroupKeys,
+            : offered.length > 0
+              ? hostedStart.length > 0
+                ? hostedStart
+                : offered
+              : startingKeys,
       );
     }
   }, [
@@ -1973,7 +2000,7 @@ export function OauthOrServiceAccountModal({
                     <p className="font-medium">Nothing to set up</p>
                     <p className="mt-1">
                       {usesHostedSignIn
-                        ? "Genosyn handles Google sign-in and token renewal. Your mailbox syncs directly with Google on this installation."
+                        ? `Genosyn Connect handles ${oauthSetup.consentTitle} sign-in and token renewal, so there is no OAuth app to register. Your data syncs directly between this installation and ${oauthSetup.consentTitle}.`
                         : `This Genosyn instance already has a registered ${entry.name} app. Pick what it may access below, then continue to sign in.`}
                     </p>
                     <button
@@ -1987,6 +2014,14 @@ export function OauthOrServiceAccountModal({
                 ) : (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
                     <p className="font-medium">Set up an OAuth Client ID first</p>
+                    {hostedAvailable && !ownClient && uncoveredLabels.length > 0 && (
+                      <p className="mt-1">
+                        Genosyn Connect offers {hostedLabels.join(", ")} without any setup.{" "}
+                        {uncoveredLabels.join(", ")}{" "}
+                        {uncoveredLabels.length === 1 ? "needs" : "need"} an OAuth client of your
+                        own.
+                      </p>
+                    )}
                     <ol className="mt-1 list-decimal space-y-0.5 pl-4">
                       <li>{oauthSetup.consoleStep}</li>
                       <li>
@@ -2002,13 +2037,13 @@ export function OauthOrServiceAccountModal({
                         type="button"
                         className="mt-1.5 font-medium underline underline-offset-2"
                         onClick={() => {
-                          setOwnClient(false);
-                          if (!instanceAppAvailable) setSelectedScopeGroups(["mail"]);
+                          if (instanceAppAvailable) setOwnClient(false);
+                          else switchToHostedSignIn();
                         }}
                       >
                         {instanceAppAvailable
                           ? "Use this instance’s registered app instead"
-                          : "Use Genosyn’s Gmail sign-in instead"}
+                          : `Use Genosyn Connect for ${hostedLabels.join(", ")} instead`}
                       </button>
                     ) : (
                       <p className="mt-1.5">
@@ -2082,11 +2117,24 @@ export function OauthOrServiceAccountModal({
               </>
             )}
             <ScopeGroupPicker
+              // A Connection made through Genosyn Connect reconnects through it,
+              // so it can only choose among what the service offers.
               groups={(entry.oauth?.scopeGroups ?? []).filter(
-                (group) => !reconnect?.hostedSignIn || group.key === "mail",
+                (group) =>
+                  !reconnect?.hostedSignIn ||
+                  (hostedGroups.length > 0
+                    ? hostedGroups.includes(group.key)
+                    : reconnect.scopeGroups.includes(group.key)),
               )}
               selected={selectedScopeGroups}
               onToggle={toggleScopeGroup}
+              needsOwnClient={
+                !isReconnect && hostedAvailable && !ownClient
+                  ? (entry.oauth?.scopeGroups ?? [])
+                      .map((group) => group.key)
+                      .filter((key) => !hostedGroups.includes(key))
+                  : []
+              }
             />
             <FormError message={error} />
             {waitingForOauth && (
@@ -2607,6 +2655,7 @@ function ScopeGroupPicker({
   groups,
   selected,
   onToggle,
+  needsOwnClient = [],
 }: {
   groups: {
     key: string;
@@ -2617,6 +2666,8 @@ function ScopeGroupPicker({
   }[];
   selected: string[];
   onToggle: (key: string) => void;
+  /** Groups Genosyn Connect does not offer, marked before anyone picks one. */
+  needsOwnClient?: string[];
 }) {
   if (groups.length === 0) return null;
   return (
@@ -2653,6 +2704,11 @@ function ScopeGroupPicker({
                   {g.required && (
                     <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       Required
+                    </span>
+                  )}
+                  {needsOwnClient.includes(g.key) && (
+                    <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      Own OAuth client
                     </span>
                   )}
                 </span>

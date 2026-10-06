@@ -684,13 +684,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         between them.
       </P>
       <Callout kind="warn" title="Recordings follow the Browser access boundary">
-        A recording made in Genosyn&apos;s browser is available to company owners and admins, and to
-        the Member the AI Employee reports to — supervising an employee&apos;s work should not
-        require the admin role over everything else. Where that employee reports to another AI
-        Employee, the line is followed upward to the first human on it. A recording made in a{" "}
-        <DocLink to="/docs/member-browsers">Member browser</DocLink> is available only to that
-        browser&apos;s exact owner, regardless of company role or org chart. Recordings are kept
-        whole: the video shows whatever the page rendered, sign-in screens included.
+        A recording made in Genosyn&apos;s browser is available to company owners and admins. A
+        recording made in a <DocLink to="/docs/member-browsers">Member browser</DocLink> is
+        available only to that browser&apos;s exact owner, regardless of company role. Recordings
+        are kept whole: the video shows whatever the page rendered, sign-in screens included.
       </Callout>
       <UL>
         <LI>
@@ -741,8 +738,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         A Run that ends <Strong>Failed</Strong> or <Strong>Error</Strong> with no retry still
-        scheduled sends a bell (and web push) notification to the company&apos;s owners and admins
-        and to the Member the employee reports to, deep-linked to the Run log. The Home page
+        scheduled sends a bell (and web push) notification to the company&apos;s owners and admins,
+        deep-linked to the Run log. The Home page
         additionally shows a <Strong>Routines needing attention</Strong> panel for anything that
         broke in the last 24 hours — clicking a row there opens that Run&apos;s log over Home rather
         than sending you to the routine — and every <Strong>Journal</Strong> entry for a Run links
@@ -809,8 +806,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
       </UL>
       <P>
-        An <Code>off goal</Code> verdict marks the Run <Strong>Failed</Strong> and notifies admins
-        and the employee&apos;s manager the same way a failure does — convincing-but-wrong is
+        An <Code>off goal</Code> verdict marks the Run <Strong>Failed</Strong> and notifies owners
+        and admins the same way a failure does — convincing-but-wrong is
         exactly the failure mode a green checkmark hides. The verdict also lands in the
         employee&apos;s Journal entry for the Run, so the employee itself learns from past outcomes
         instead of only seeing that runs &quot;finished&quot;. <Code>unclear</Code> and{" "}
