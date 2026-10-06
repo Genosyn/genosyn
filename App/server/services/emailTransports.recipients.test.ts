@@ -92,6 +92,11 @@ describe("SendGrid recipients", () => {
       () => sendViaProvider(SENDGRID, message({ cc: '"Doe, Zoë", bob@example.com' })),
       { message: 'Cc contains an invalid email address: "Doe, Zoë"' },
     );
+    // The unclosed quote swallows the comma. This used to go to doe alone.
+    await assert.rejects(
+      () => sendViaProvider(SENDGRID, message({ to: '"Doe <doe@example.com>, bob@example.com' })),
+      { message: 'To contains an invalid email address: "Doe <doe@example.com>, bob@example.com' },
+    );
     assert.equal(bodies.length, 0, "nothing should reach SendGrid");
   });
 });
