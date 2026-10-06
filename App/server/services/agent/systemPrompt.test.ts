@@ -25,6 +25,7 @@ function compose(args: {
   policiesContext?: string;
   surface?: "chat" | "routine";
   memoryContext?: string;
+  resourcesContext?: string;
 }): string {
   return composeEmployeeSystemPrompt({
     co: { name: "Acme", mission: args.mission ?? "", vision: args.vision ?? "" } as Company,
@@ -38,6 +39,7 @@ function compose(args: {
     signingContext: "",
     revenueContext: "",
     marketingContext: "",
+    resourcesContext: args.resourcesContext ?? "",
     opening: "You are Ada.",
     surface: args.surface ?? "routine",
     routineId: args.surface === "chat" ? undefined : "routine-id",
@@ -80,6 +82,24 @@ describe("employee system prompt charter layer", () => {
     assert.match(prompt, /## Company policies/);
     assert.ok(prompt.indexOf("## Company policies") < prompt.indexOf("## Soul"));
     assert.doesNotMatch(compose({}), /## Company policies/);
+  });
+
+  test("a read-only Resources block rides with the other access briefings, on both surfaces", () => {
+    const block = "\n## Resources\nYour access to the Resources library is **read only**.";
+    for (const surface of ["chat", "routine"] as const) {
+      const prompt = compose({ surface, resourcesContext: block });
+      assert.match(
+        prompt,
+        /## Resources\nYour access to the Resources library is \*\*read only\*\*/,
+      );
+      assert.ok(prompt.indexOf("## Resources") > prompt.indexOf("## Soul"));
+      assert.ok(
+        prompt.indexOf("## Resources") < prompt.indexOf("## Current Standdown status"),
+        "the current Standdown state stays last",
+      );
+      // Read + write is the default and adds nothing to any prompt.
+      assert.doesNotMatch(compose({ surface }), /## Resources/);
+    }
   });
 });
 

@@ -28,6 +28,7 @@ import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import { contextUsagePercent, isContextUsageHigh } from "./agent/contextUsage.js";
 import type {
@@ -660,11 +661,13 @@ async function prepareRoutineRun(
         log.line("[repos] automatic repository sync is disabled for this Run");
       }
       const financeContext = await composeFinanceContext(emp.id);
-      const [signingContext, revenueContext, marketingContext] = await Promise.all([
-        composeSigningContext({ companyId: co.id, employeeId: emp.id }),
-        composeRevenueContext(emp.id),
-        composeMarketingContext(emp.id),
-      ]);
+      const [signingContext, revenueContext, marketingContext, resourcesContext] =
+        await Promise.all([
+          composeSigningContext({ companyId: co.id, employeeId: emp.id }),
+          composeRevenueContext(emp.id),
+          composeMarketingContext(emp.id),
+          composeResourceLibraryContext(emp.id),
+        ]);
       if (deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
@@ -681,6 +684,7 @@ async function prepareRoutineRun(
         signingContext,
         revenueContext,
         marketingContext,
+        resourcesContext,
         surface: "routine",
         routineId: routine.id,
         parallelDelegationAvailable,

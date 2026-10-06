@@ -47,6 +47,9 @@ export function composeEmployeeSystemPrompt(args: {
   signingContext: string;
   revenueContext: string;
   marketingContext: string;
+  /** The "## Resources" block from `services/resourceLibraryAccess.ts` — only
+   * for an employee set to read only; "" otherwise. */
+  resourcesContext: string;
   /** The one line the two seams genuinely disagree on. */
   opening: string;
   surface: PromptSurface;
@@ -71,6 +74,7 @@ export function composeEmployeeSystemPrompt(args: {
     signingContext,
     revenueContext,
     marketingContext,
+    resourcesContext,
   } = args;
   const parts: string[] = [];
 
@@ -109,6 +113,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (signingContext) parts.push(signingContext);
   if (revenueContext) parts.push(revenueContext);
   if (marketingContext) parts.push(marketingContext);
+  if (resourcesContext) parts.push(resourcesContext);
 
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);

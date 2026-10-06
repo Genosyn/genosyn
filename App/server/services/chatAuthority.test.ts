@@ -15,6 +15,7 @@ describe("interactive chat prompt authority", () => {
       signing: false,
       revenue: false,
       marketing: false,
+      resources: false,
       extraSystem: false,
       taggedReferences: false,
       privilegedToolSources: false,
@@ -36,6 +37,9 @@ describe("interactive chat prompt authority", () => {
     assert.equal(access.signing, true);
     assert.equal(access.revenue, true);
     assert.equal(access.marketing, true);
+    // A read-only Resources briefing only narrows what the employee attempts,
+    // and the Member can already see the setting on the Resources page.
+    assert.equal(access.resources, true);
     assert.equal(access.finance, false);
     assert.equal(access.memory, false);
     assert.equal(access.repositories, false);

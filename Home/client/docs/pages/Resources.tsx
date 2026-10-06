@@ -101,7 +101,9 @@ export function Resources() {
         Employees can also curate: <Code>create_resource</Code> files a URL, a paste, or a file it
         already holds — an emailed contract, a form it downloaded. <Code>update_resource</Code> and{" "}
         <Code>delete_resource</Code> need a higher grant. <Code>export_resource</Code> renders the
-        body as PDF, HTML, Markdown or plain text and attaches it to the reply.
+        body as PDF, HTML, Markdown or plain text and attaches it to the reply. None of the three
+        write tools work for an employee set to{" "}
+        <DocLink to="/docs/resources#ai-access">Read only</DocLink>.
       </P>
 
       <H2 id="access">Who can read it</H2>
@@ -109,7 +111,8 @@ export function Resources() {
         Every Member of the company sees every Resource. AI Employees are granted access one row at
         a time, at three escalating levels — <Strong>View only</Strong>, <Strong>Can edit</Strong>,
         and <Strong>Can delete</Strong>. Open a Resource and use <Strong>Share</Strong> to change
-        them.
+        them. <Strong>Resources → AI access</Strong>, below, can then cap all of them for an
+        employee at once.
       </P>
       <P>
         You rarely have to. A new Resource is granted <Strong>View only</Strong> to every AI
@@ -124,6 +127,52 @@ export function Resources() {
         explanation rather than an empty list — otherwise it cannot tell &quot;we have nothing on
         this&quot; from &quot;I was not given the shelf&quot;, and it will confidently tell you the
         first one.
+      </Callout>
+
+      <H2 id="ai-access">AI access: read + write or read only</H2>
+      <P>
+        Open <Strong>Resources → AI access</Strong> to see every AI Employee in the company and what
+        it may do across the whole library. Each one is at one of two levels:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "Read + write",
+            def: "The default, and what every AI Employee could already do. It lists, searches, reads and exports the Resources shared with it, files new ones, and edits or deletes them as each Resource's Share settings allow.",
+          },
+          {
+            term: "Read only",
+            def: (
+              <>
+                It still lists, searches, reads and exports every Resource shared with it, and uses
+                them wherever its other Grants allow — attaching one to an email, or preparing a
+                signature request from a PDF. <Code>create_resource</Code>,{" "}
+                <Code>update_resource</Code> and <Code>delete_resource</Code> are refused.
+              </>
+            ),
+          },
+        ]}
+      />
+      <P>
+        Read only is a ceiling over the Share settings, not a replacement for them. An employee set
+        to Read only cannot edit or delete a Resource even where its Share settings say{" "}
+        <Strong>Can edit</Strong> or <Strong>Can delete</Strong>, and the Share dialog marks those
+        rows <Strong>Paused</Strong>. Nothing is removed when you switch, so moving the employee
+        back to Read + write restores exactly what the Share settings said.
+      </P>
+      <P>
+        Every Member can open the page and see who is read only; only owners and admins can change a
+        level, and each change is recorded in the{" "}
+        <DocLink to="/docs/security#audit-log">audit log</DocLink> with the level before and after.
+        A read-only employee is told so in its briefing, so it says it can&apos;t make a change
+        instead of attempting one — and a Member chatting with it cannot lend it write access. The
+        setting governs only what AI Employees do through their tools; Members keep filing and
+        editing Resources on the Resources page.
+      </P>
+      <Callout kind="info" title="Two addresses are reserved.">
+        The Resources section uses <Code>/resources/ai-access</Code> and{" "}
+        <Code>/resources/integrations</Code> for its own pages, so a new Resource is never given
+        either slug: one titled “AI access” is filed as <Code>ai-access-2</Code>.
       </Callout>
 
       <H2 id="reading">Reading and exporting</H2>

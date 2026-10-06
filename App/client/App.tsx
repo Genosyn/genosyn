@@ -116,6 +116,7 @@ import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
 import ResourcesLayout from "./pages/ResourcesLayout";
+import ResourcesAiAccess from "./pages/ResourcesAiAccess";
 import RepositoriesLayout from "./pages/RepositoriesLayout";
 import RepositoriesIndex from "./pages/RepositoriesIndex";
 import RepositoryOverview from "./pages/RepositoryOverview";
@@ -578,8 +579,10 @@ function CompanyRoutes({
 
           {/* Resources (M18) — knowledge ingestion. URL / ebook / paste →
             extracted text, queryable by AI employees via MCP tools. */}
-          <Route path="resources" element={<ResourcesLayout />}>
+          <Route path="resources" element={<ResourcesLayout company={company} />}>
             <Route index element={<ResourcesIndex company={company} />} />
+            {/* Static beats `:slug`, and `ai-access` is a reserved Resource slug. */}
+            <Route path="ai-access" element={<ResourcesAiAccess />} />
             <Route path=":slug" element={<ResourceDetail company={company} />} />
           </Route>
 

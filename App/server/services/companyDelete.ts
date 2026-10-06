@@ -136,6 +136,7 @@ import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
 import { EmployeeResourceGrant } from "../db/entities/EmployeeResourceGrant.js";
+import { EmployeeResourceLibraryGrant } from "../db/entities/EmployeeResourceLibraryGrant.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
@@ -433,6 +434,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(RealtimeEvent, { companyId });
     await m.delete(AdSpendEvent, { companyId });
     await m.delete(EmployeeFinanceGrant, { companyId });
+    await m.delete(EmployeeResourceLibraryGrant, { companyId });
     await m.delete(FinanceProposal, { companyId });
     await m.delete(CustomerCreditApplication, { companyId });
     await m.delete(CustomerRefund, { companyId });

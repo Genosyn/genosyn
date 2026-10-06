@@ -22,6 +22,7 @@ import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type {
@@ -315,6 +316,7 @@ export type InteractiveChatContextAccess = {
   signing: boolean;
   revenue: boolean;
   marketing: boolean;
+  resources: boolean;
   extraSystem: boolean;
   taggedReferences: boolean;
   privilegedToolSources: boolean;
@@ -351,6 +353,7 @@ export function resolveInteractiveChatContextAccess(
     signing: companyContext,
     revenue: companyContext,
     marketing: companyContext,
+    resources: companyContext,
     extraSystem: companyContext,
     taggedReferences: companyContext,
     privilegedToolSources,
@@ -749,7 +752,7 @@ export async function streamChatWithEmployee(
         : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
-    const [signingContext, revenueContext, marketingContext] = await Promise.all([
+    const [signingContext, revenueContext, marketingContext, resourcesContext] = await Promise.all([
       contextAccess.signing && !repositoryWork
         ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
         : Promise.resolve(""),
@@ -758,6 +761,9 @@ export async function streamChatWithEmployee(
         : Promise.resolve(""),
       contextAccess.marketing && !repositoryWork
         ? composeMarketingContext(emp.id)
+        : Promise.resolve(""),
+      contextAccess.resources && !repositoryWork
+        ? composeResourceLibraryContext(emp.id)
         : Promise.resolve(""),
     ]);
     const effectiveSkills = contextAccess.soulAndSkills ? skills : [];
@@ -784,6 +790,7 @@ export async function streamChatWithEmployee(
             signingContext,
             revenueContext,
             marketingContext,
+            resourcesContext,
             surface: "chat",
             parallelDelegationAvailable,
             codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,

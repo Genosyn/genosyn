@@ -28,6 +28,7 @@ import {
   Laptop,
   Layers,
   LayoutTemplate,
+  Library,
   LineChart,
   Link2,
   ListVideo,
@@ -318,6 +319,27 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Table2,
       rail: false,
       keywords: ["create a base", "create base", "add base", "new table"],
+    },
+  ],
+  resources: [
+    {
+      label: "Library",
+      path: "/resources",
+      icon: Library,
+      keywords: ["resource library", "documents", "ebooks", "articles", "reference material"],
+    },
+    {
+      label: "AI access",
+      path: "/resources/ai-access",
+      icon: Bot,
+      keywords: [
+        "resource grants",
+        "ai employee access",
+        "read only",
+        "read and write",
+        "who can edit resources",
+        "permissions",
+      ],
     },
   ],
   pipelines: [

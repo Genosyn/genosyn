@@ -14,6 +14,7 @@ import {
   RESOURCE_ACCESS_RANK,
 } from "../db/entities/EmployeeResourceGrant.js";
 import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
+import { EmployeeResourceLibraryGrant } from "../db/entities/EmployeeResourceLibraryGrant.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { andWhereTokens, orWhereTokens, scoreLabel, tokenizeQuery } from "./likeSearch.js";
@@ -89,13 +90,25 @@ export const resourceUploadMiddleware = multer({
   },
 });
 
+/**
+ * Slugs a Resource may never take, because the Resources section already
+ * spends them on pages of its own: `/resources/ai-access` and
+ * `/resources/integrations` sit beside `/resources/:slug`, and the static route
+ * wins. Without this a Resource titled "AI access" would slug to `ai-access`
+ * and its detail page could never be opened. Reserving them here — where slugs
+ * are minted — keeps those URLs unambiguous, as `RESERVED_FOLDER_SLUGS` does
+ * for Routine folders.
+ */
+export const RESERVED_RESOURCE_SLUGS = new Set(["ai-access", "integrations"]);
+
 export async function uniqueResourceSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Resource);
-  let slug = base || "resource";
+  const root = base || "resource";
+  let slug = root;
   let n = 1;
-  while (await repo.findOneBy({ companyId, slug })) {
+  while (RESERVED_RESOURCE_SLUGS.has(slug) || (await repo.findOneBy({ companyId, slug }))) {
     n += 1;
-    slug = `${base}-${n}`;
+    slug = `${root}-${n}`;
   }
   return slug;
 }
@@ -851,8 +864,10 @@ export async function grantAllResourcesToEmployee(
   return missing.length;
 }
 
-/** Drop every Resource grant an employee holds. Called when it is fired, so
- *  the share modal stops listing a row for someone who no longer exists. */
+/** Drop every Resource grant an employee holds — per-Resource and library-wide
+ *  (Resources → AI access). Called when it is fired, so the share modal stops
+ *  listing a row for someone who no longer exists. */
 export async function deleteResourceGrantsForEmployee(employeeId: string): Promise<void> {
   await AppDataSource.getRepository(EmployeeResourceGrant).delete({ employeeId });
+  await AppDataSource.getRepository(EmployeeResourceLibraryGrant).delete({ employeeId });
 }
