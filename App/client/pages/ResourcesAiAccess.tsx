@@ -39,6 +39,23 @@ const LEVEL_ICONS: Record<ResourceLibraryAccessLevel, React.ReactNode> = {
   write: <PenLine size={14} />,
 };
 
+/**
+ * Each level keeps one colour on the legend and on the selected toggle, so a
+ * long roster can be scanned for the read-only exceptions at a glance.
+ */
+const LEVEL_STYLES: Record<ResourceLibraryAccessLevel, { chip: string; selected: string }> = {
+  read: {
+    chip: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300",
+    selected:
+      "bg-white text-amber-700 shadow-sm ring-1 ring-amber-200 dark:bg-slate-900 dark:text-amber-300 dark:ring-amber-500/30",
+  },
+  write: {
+    chip: "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300",
+    selected:
+      "bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:bg-slate-900 dark:text-indigo-300 dark:ring-indigo-500/30",
+  },
+};
+
 export default function ResourcesAiAccess() {
   const { company } = useOutletContext<ResourcesOutletCtx>();
   const background = useBackgroundAction();
@@ -129,7 +146,12 @@ export default function ResourcesAiAccess() {
             className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"
           >
             <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span
+                className={
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg " +
+                  LEVEL_STYLES[level.value].chip
+                }
+              >
                 {LEVEL_ICONS[level.value]}
               </span>
               <div className="min-w-0 flex-1">
@@ -302,7 +324,7 @@ function AccessToggle({
     <div
       role="radiogroup"
       aria-label={`Resources access for ${employeeName}`}
-      className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-slate-800/60"
+      className="inline-flex gap-0.5 rounded-lg border border-slate-200 bg-slate-100/70 p-0.5 dark:border-slate-700 dark:bg-slate-800/60"
     >
       {RESOURCE_LIBRARY_LEVELS.map((level, index) => {
         const active = level.value === value;
@@ -322,8 +344,8 @@ function AccessToggle({
             className={
               "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed " +
               (active
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
-                : "text-slate-500 enabled:hover:text-slate-800 dark:text-slate-400 dark:enabled:hover:text-slate-200") +
+                ? LEVEL_STYLES[level.value].selected
+                : "text-slate-400 enabled:hover:text-slate-700 dark:text-slate-500 dark:enabled:hover:text-slate-200") +
               (disabled && !active ? " opacity-60" : "")
             }
           >
