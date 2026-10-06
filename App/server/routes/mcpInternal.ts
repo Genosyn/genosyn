@@ -12509,8 +12509,13 @@ async function findEmployeeBySlugOrId(
   idOrSlug: string,
 ): Promise<AIEmployee | null> {
   const repo = AppDataSource.getRepository(AIEmployee);
-  const byId = await repo.findOneBy({ id: idOrSlug, companyId });
-  if (byId) return byId;
+  // `id` is a uuid column: on Postgres a slug like "kim" raises 22P02 rather
+  // than matching nothing, so only a uuid-shaped handle may reach it. The
+  // slug — the form create_handoff asks for — goes straight to the fallback.
+  if (UUID_RE.test(idOrSlug)) {
+    const byId = await repo.findOneBy({ id: idOrSlug, companyId });
+    if (byId) return byId;
+  }
   return repo.findOneBy({ companyId, slug: idOrSlug.toLowerCase() });
 }
 
