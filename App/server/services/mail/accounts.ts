@@ -30,6 +30,7 @@ import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integra
 import { getProfile } from "./gmailClient.js";
 import { parseImapConnectionConfig, releaseImapConnection } from "./imapClient.js";
 import type { MailAccountProvider } from "../../db/entities/MailAccount.js";
+import { MAX_SENDER_NAME_LENGTH, normalizeSenderName } from "../../../shared/mailSenderName.js";
 
 /**
  * MailAccount lifecycle + the credential seam between the Email section and
@@ -43,6 +44,52 @@ import type { MailAccountProvider } from "../../db/entities/MailAccount.js";
  * rotated. For an `imap` Connection it is simply a decrypt: an app password
  * does not rotate.
  */
+
+/** Why a Gmail mailbox has no sender name of its own here. */
+export const GMAIL_SENDER_NAME_MESSAGE =
+  "Gmail sets the sender name for this mailbox. Change it in Gmail under Settings → Accounts → Send mail as.";
+
+/**
+ * A sender name as typed, made into the one stored: whitespace collapsed and
+ * trimmed, and empty meaning "send the bare address". Throws, in a sentence a
+ * person can act on, for a name that cannot be one.
+ *
+ * Control characters are refused rather than quietly dropped. The MIME
+ * composer would neutralize them anyway — that is its header-injection guard —
+ * but a name that arrives with a NUL in it is a broken client or a probe, and
+ * either deserves to be told rather than to have its input edited.
+ */
+export function parseSenderName(raw: string): string {
+  const name = normalizeSenderName(raw);
+  if (name.length > MAX_SENDER_NAME_LENGTH) {
+    throw new Error(`A sender name can be at most ${MAX_SENDER_NAME_LENGTH} characters.`);
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(name)) {
+    throw new Error("A sender name can only contain printable characters.");
+  }
+  return name;
+}
+
+/**
+ * Set the name recipients see beside this mailbox's address, and return the
+ * saved row. Applies to the next message sent — including drafts already
+ * waiting, which the IMAP adapter restamps as it sends them.
+ *
+ * A targeted update rather than a full save, for the reason the status route
+ * gives: a sync pass writing the same row must not be overwritten by a
+ * settings change, nor the other way round.
+ */
+export async function updateMailAccountSenderName(
+  account: MailAccount,
+  raw: string,
+): Promise<MailAccount> {
+  const senderName = parseSenderName(raw);
+  if (senderName && account.provider !== "imap") throw new Error(GMAIL_SENDER_NAME_MESSAGE);
+  const repo = AppDataSource.getRepository(MailAccount);
+  await repo.update(account.id, { senderName });
+  return repo.findOneByOrFail({ id: account.id });
+}
 
 /** Which mailbox backend a Connection's provider implies. */
 export function mailProviderForConnection(provider: string): MailAccountProvider {
@@ -125,9 +172,13 @@ export async function createMailAccount(args: {
   companyId: string;
   connectionId: string;
   createdByUserId: string | null;
+  /** The name recipients see beside the address. IMAP only — see
+   * `MailAccount.senderName`. Omitted or empty sends the bare address. */
+  senderName?: string;
   /** Deterministic race-test seam; production callers omit it. */
   beforePersist?: () => Promise<void>;
 }): Promise<MailAccount> {
+  const senderName = parseSenderName(args.senderName ?? "");
   const repo = AppDataSource.getRepository(MailAccount);
   const existing = await repo.findOneBy({ connectionId: args.connectionId });
   if (existing) {
@@ -136,6 +187,7 @@ export async function createMailAccount(args: {
   const conn = await getConnection(args.companyId, args.connectionId);
   if (!conn) throw new Error("Connection not found");
   const provider = mailProviderForConnection(conn.provider);
+  if (senderName && provider !== "imap") throw new Error(GMAIL_SENDER_NAME_MESSAGE);
 
   let address: string;
   let encryptedConfigSnapshot: string;
@@ -175,6 +227,7 @@ export async function createMailAccount(args: {
         connectionId: args.connectionId,
         provider,
         address,
+        senderName,
         status: "active",
         statusMessage: "",
         historyId: "",
@@ -232,6 +285,9 @@ export type MailAccountDTO = {
   /** Which backend drives this mailbox — the UI words a few things per-provider. */
   provider: MailAccount["provider"];
   address: string;
+  /** The name beside the address in `From`. Empty sends the bare address;
+   * always empty on Gmail, which takes the name from its own settings. */
+  senderName: string;
   status: string;
   statusMessage: string;
   lastSyncAt: string | null;
@@ -256,6 +312,7 @@ export function serializeMailAccount(a: MailAccount): MailAccountDTO {
     connectionId: a.connectionId,
     provider: a.provider,
     address: a.address,
+    senderName: a.senderName,
     status: a.status,
     statusMessage: a.statusMessage,
     lastSyncAt: a.lastSyncAt ? a.lastSyncAt.toISOString() : null,

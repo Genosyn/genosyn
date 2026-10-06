@@ -6,7 +6,7 @@ import { createApiKeyConnection, deleteConnection } from "../integrations.js";
 import { registeredOauthApps } from "../oauthApps.js";
 import { hostedSignInAvailability, type HostedSignInAvailability } from "../hostedOauth.js";
 import { hostedScopeGroups } from "../hostedOauthApps.js";
-import { createMailAccount } from "./accounts.js";
+import { createMailAccount, parseSenderName } from "./accounts.js";
 import { assertMailConnectionAllowed } from "./hostPolicy.js";
 import { discoverMailbox, type MailboxConnectRoute, type MailboxDiscovery } from "./discovery.js";
 
@@ -137,6 +137,12 @@ export type ImapConnectInput = {
   imapPort?: number;
   smtpHost?: string;
   smtpPort?: number;
+  /**
+   * The name recipients see beside the address — the "Your name" every mail
+   * client asks for when an account is added. Optional; it lives on the
+   * mailbox rather than in the credential, so it survives a reconnect.
+   */
+  senderName?: string;
 };
 
 /**
@@ -155,6 +161,9 @@ export async function connectImapMailbox(args: {
   userId: string | null;
   input: ImapConnectInput;
 }): Promise<{ connection: IntegrationConnection; account: MailAccount }> {
+  // First, and before any network: a name that would be refused at the last
+  // step must not cost the person a credential check and a rolled-back row.
+  const senderName = parseSenderName(args.input.senderName ?? "");
   // Before the Connection row exists: a hosted tenant must not be able to
   // store an endpoint pointing into the operator's network, whether or not
   // anything ever connects to it. The defaults mirror
@@ -192,6 +201,7 @@ export async function connectImapMailbox(args: {
       companyId: args.companyId,
       connectionId: connection.id,
       createdByUserId: args.userId,
+      senderName,
     });
     return { connection, account };
   } catch (error) {

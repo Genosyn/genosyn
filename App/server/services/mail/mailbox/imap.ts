@@ -31,8 +31,10 @@ import {
 import {
   buildMimeBuffer,
   generateMessageId,
+  refreshFromHeader,
   stripBccHeader,
   type MimeFields,
+  type MimeMailbox,
 } from "../mime.js";
 import {
   CANONICAL_LABELS,
@@ -45,6 +47,17 @@ import {
   type MessageRef,
   type ThreadRef,
 } from "./types.js";
+
+/**
+ * The adapter's two doors to the network, in the seam shape the mail services
+ * already use. Production omits it and gets the pooled IMAP connection and a
+ * real SMTP submission; a test hands in an in-memory server and keeps the
+ * bytes that would have gone over the wire.
+ */
+export type ImapMailboxDependencies = {
+  withImap?: typeof withImap;
+  smtpSend?: typeof smtpSend;
+};
 
 /**
  * Any IMAP/SMTP mailbox, behind the neutral {@link Mailbox} interface.
@@ -80,6 +93,7 @@ export class ImapMailbox implements Mailbox {
   constructor(
     private readonly account: MailAccount,
     private readonly config: ImapConnectionConfig,
+    private readonly dependencies: ImapMailboxDependencies = {},
   ) {}
 
   get displayName(): string {
@@ -89,7 +103,23 @@ export class ImapMailbox implements Mailbox {
   // ───────────────────────────── plumbing ─────────────────────────────
 
   private run<T>(work: (client: ImapFlow) => Promise<T>): Promise<T> {
-    return withImap(this.account.id, this.config, work);
+    return (this.dependencies.withImap ?? withImap)(this.account.id, this.config, work);
+  }
+
+  private submit(args: Parameters<typeof smtpSend>[0]): Promise<void> {
+    return (this.dependencies.smtpSend ?? smtpSend)(args);
+  }
+
+  /**
+   * Who mail from this mailbox is from: the address, and the sender name set
+   * for it in Email settings (`MailAccount.senderName`, empty for none).
+   *
+   * Read off the account row the adapter was built with, and every caller
+   * loads that row fresh for the operation, so a rename applies to the very
+   * next message rather than to the next adapter somebody happens to cache.
+   */
+  private sender(): MimeMailbox {
+    return { address: this.config.address, name: this.account.senderName };
   }
 
   /**
@@ -493,11 +523,16 @@ export class ImapMailbox implements Mailbox {
    * Sent has to carry the same one — a mismatch is how a sent message and the
    * reply to it end up in two different conversations. `Bcc` is the one header
    * that differs between the two copies; see `stripBccHeader`.
+   *
+   * `From` carries the mailbox's sender name when one is set, which is the
+   * only place a recipient ever sees it. The SMTP envelope sender stays the
+   * bare address — it is what bounces return to and what SPF checks, and a
+   * name has no meaning there.
    */
   private envelopeFor(mime: MimeFields): MimeFields {
     return {
       ...mime,
-      from: mime.from ?? this.config.address,
+      from: mime.from ?? this.sender(),
       date: mime.date ?? new Date(),
       messageId: mime.messageId ?? generateMessageId(this.config.address),
     };
@@ -540,7 +575,7 @@ export class ImapMailbox implements Mailbox {
   async sendMessage(args: { mime: MimeFields; thread?: ThreadRef }): Promise<MailboxMessage> {
     const mime = this.envelopeFor(args.mime);
     const raw = buildMimeBuffer(mime);
-    await smtpSend({
+    await this.submit({
       config: this.config,
       // The copy on the wire carries no `Bcc` header; the copy filed in Sent
       // below keeps it. See `stripBccHeader`.
@@ -611,7 +646,7 @@ export class ImapMailbox implements Mailbox {
   async sendDraft(draftRef: DraftRef): Promise<MailboxMessage> {
     const at = decodeLocation(draftRef);
     if (!at) throw new Error("That draft can no longer be found on the server.");
-    const raw = await this.run(async (client) => {
+    const stored = await this.run(async (client) => {
       const lock = await this.lockAt(client, at);
       try {
         const message = await client.fetchOne(String(at.uid), { uid: true, source: true }, {
@@ -625,11 +660,15 @@ export class ImapMailbox implements Mailbox {
         lock.release();
       }
     });
+    // The draft carries the sender name the mailbox had when it was written,
+    // which can be days stale by the time a reviewed draft is sent. What goes
+    // out — and what is filed in Sent — is the name it has now.
+    const raw = refreshFromHeader(stored, this.sender());
     // The stored draft carries its `Bcc` header — that is how the person sees
     // who they blind-copied — so the recipients come off it before it is
     // stripped for the wire.
     const recipients = recipientsFromRaw(raw);
-    await smtpSend({
+    await this.submit({
       config: this.config,
       raw: stripBccHeader(raw),
       envelope: { from: this.config.address, to: recipients },

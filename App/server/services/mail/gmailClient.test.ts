@@ -12,10 +12,12 @@ import {
   gmailSyncErrorMessage,
   isGmailTimeoutError,
   isRetryableGmailReadError,
+  parseAddress,
   sendMessage,
   stripHtml,
   updateDraft,
 } from "./gmailClient.js";
+import { formatMailbox } from "./mime.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -698,5 +700,87 @@ describe("decodeHtmlEntities", () => {
 
   test("keeps HTML stripping entity decoding behavior", () => {
     assert.equal(stripHtml("<p>Tom &amp; Jerry. It&#39;s fine.</p>"), "Tom & Jerry. It's fine.");
+  });
+});
+
+describe("parseAddress", () => {
+  test("reads an ordinary name and address", () => {
+    assert.deepEqual(parseAddress('"Ada Lovelace" <ada@acme.com>'), {
+      name: "Ada Lovelace",
+      email: "ada@acme.com",
+    });
+    assert.deepEqual(parseAddress("Ada Lovelace <ada@acme.com>"), {
+      name: "Ada Lovelace",
+      email: "ada@acme.com",
+    });
+  });
+
+  test("reads a bare address, or an angle address with no name, as unnamed", () => {
+    assert.deepEqual(parseAddress(" ada@acme.com "), { name: "", email: "ada@acme.com" });
+    assert.deepEqual(parseAddress("<ada@acme.com>"), { name: "", email: "ada@acme.com" });
+  });
+
+  test("keeps a comma inside a quoted name", () => {
+    assert.deepEqual(parseAddress('"Monroe, Avery" <avery@example.com>'), {
+      name: "Monroe, Avery",
+      email: "avery@example.com",
+    });
+  });
+
+  test("unescapes quotes in a quoted name instead of losing the address", () => {
+    // This used to fail to match and store the whole header as the sender's
+    // address, so the mailbox's own sent mail stopped counting as its own.
+    assert.deepEqual(parseAddress('"Avery \\"AJ\\" Monroe" <avery@example.com>'), {
+      name: 'Avery "AJ" Monroe',
+      email: "avery@example.com",
+    });
+  });
+
+  test("decodes RFC 2047 names, which is how an IMAP server hands them over", () => {
+    assert.deepEqual(parseAddress("=?UTF-8?Q?Jos=C3=A9_Garc=C3=ADa?= <jose@example.es>"), {
+      name: "José García",
+      email: "jose@example.es",
+    });
+    assert.deepEqual(parseAddress('"=?UTF-8?B?WsO2w6s=?=" <zoe@example.com>'), {
+      name: "Zöë",
+      email: "zoe@example.com",
+    });
+  });
+
+  test("takes the address from the last angle group, so a bracket in the name cannot swallow it", () => {
+    assert.deepEqual(parseAddress('"Ops <billing>" <ops@example.com>'), {
+      name: "Ops <billing>",
+      email: "ops@example.com",
+    });
+  });
+
+  test("keeps a decoded name on one line", () => {
+    assert.deepEqual(parseAddress("=?UTF-8?Q?Ada=0D=0ABcc:_x@evil.example?= <ada@acme.com>"), {
+      name: "Ada Bcc: x@evil.example",
+      email: "ada@acme.com",
+    });
+  });
+
+  test("leaves a value it cannot read as it was", () => {
+    assert.deepEqual(parseAddress("<>"), { name: "", email: "<>" });
+    assert.deepEqual(parseAddress("Ada <ada@acme.com"), { name: "", email: "Ada <ada@acme.com" });
+  });
+
+  test("reads back every name the composer writes", () => {
+    for (const name of [
+      "Avery Monroe",
+      "Monroe, Avery",
+      "A. Monroe (Ops)",
+      'Avery "AJ" Monroe',
+      "Back\\slash Ops",
+      "Ops @ Acme; Inc. <billing>",
+      "Zoë Ödegaard",
+      "李雷 · 运营",
+      "Avery 🚀 Monroe",
+    ]) {
+      // Unfolded, as `headersFromLines` hands the mirror a header.
+      const header = formatMailbox({ address: "avery@example.com", name }).replace(/\r\n /g, " ");
+      assert.deepEqual(parseAddress(header), { name, email: "avery@example.com" }, name);
+    }
   });
 });

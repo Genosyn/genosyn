@@ -9,6 +9,7 @@ import {
   type MailboxConnectOption,
   type MailboxConnectPlan,
 } from "../../lib/mail";
+import { MAX_SENDER_NAME_LENGTH, normalizeSenderName } from "../../../shared/mailSenderName";
 import { Button } from "../ui/Button";
 import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
@@ -83,6 +84,8 @@ export function ConnectMailboxForm({
 
   // Password step
   const [password, setPassword] = React.useState("");
+  const [senderName, setSenderName] = React.useState("");
+  const senderNameHintId = React.useId();
   const [advanced, setAdvanced] = React.useState(false);
   const [imapHost, setImapHost] = React.useState("");
   const [imapPort, setImapPort] = React.useState("");
@@ -173,6 +176,7 @@ export function ConnectMailboxForm({
         imapPort: Number(imapPort) || undefined,
         smtpHost: smtpHost.trim() || undefined,
         smtpPort: Number(smtpPort) || undefined,
+        senderName: normalizeSenderName(senderName) || undefined,
       });
       setPassword("");
       await onConnected(account);
@@ -307,6 +311,23 @@ export function ConnectMailboxForm({
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
           />
+          {/* The "Your name" every mail client asks for when an account is
+              added: an IMAP server keeps no name, so without it recipients see
+              a bare address. Optional, and editable later in Email settings. */}
+          <div className="space-y-1">
+            <Input
+              label="Sender name"
+              value={senderName}
+              maxLength={MAX_SENDER_NAME_LENGTH}
+              autoComplete="off"
+              aria-describedby={senderNameHintId}
+              onChange={(e) => setSenderName(e.target.value)}
+            />
+            <p id={senderNameHintId} className="text-xs text-slate-500 dark:text-slate-400">
+              Optional. Recipients see it beside {plan.email}. Leave it empty to show just the
+              address.
+            </p>
+          </div>
           <button
             type="button"
             className="text-xs text-slate-500 underline hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"

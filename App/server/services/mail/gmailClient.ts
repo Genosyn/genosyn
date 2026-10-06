@@ -8,7 +8,14 @@
  */
 
 import { setTimeout as delay } from "node:timers/promises";
-import { buildMimeString, toBase64Url, type MimeAttachment, type MimeFields } from "./mime.js";
+import {
+  buildMimeString,
+  decodeMimeWords,
+  displayNameText,
+  toBase64Url,
+  type MimeAttachment,
+  type MimeFields,
+} from "./mime.js";
 
 // Re-exported so the many call sites that import these from the mail client
 // keep working; the definitions live in the transport-neutral `mime.ts`.
@@ -611,9 +618,26 @@ export function headerValue(headers: GmailHeader[] | undefined, name: string): s
   return headers?.find((h) => h.name.toLowerCase() === lower)?.value ?? "";
 }
 
-/** `"Ada Lovelace" <ada@acme.com>` → { name: "Ada Lovelace", email: "ada@acme.com" } */
+/**
+ * `"Ada Lovelace" <ada@acme.com>` → { name: "Ada Lovelace", email: "ada@acme.com" }
+ *
+ * The name comes back as the text a mail client would show: quotes and
+ * backslash escapes removed, RFC 2047 words decoded. Gmail's API has already
+ * decoded its headers; an IMAP server has not, and without the decode a sender
+ * called Zoë — or a mailbox's own sender name, on the copy filed in Sent —
+ * reads `=?UTF-8?B?…?=`. The address is the last angle group, so a name that
+ * itself contains a quote or a bracket cannot swallow it. A value that does
+ * not end in one is a bare address.
+ */
 export function parseAddress(value: string): { name: string; email: string } {
-  const m = value.match(/^\s*(?:"?([^"<]*)"?\s*)?<([^>]+)>\s*$/);
-  if (m) return { name: (m[1] ?? "").trim(), email: m[2].trim() };
-  return { name: "", email: value.trim() };
+  const trimmed = value.trim();
+  const open = trimmed.lastIndexOf("<");
+  const email = open >= 0 && trimmed.endsWith(">") ? trimmed.slice(open + 1, -1).trim() : "";
+  if (!email) return { name: "", email: trimmed };
+  const name = decodeMimeWords(displayNameText(trimmed.slice(0, open)))
+    // A decoded word can carry anything, a line break included; a name is one line.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\s\u0000-\u001f\u007f]+/g, " ")
+    .trim();
+  return { name, email };
 }

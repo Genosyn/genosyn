@@ -519,6 +519,29 @@ add("other services still connect with a password and discovered servers", async
     smtpPort: 465,
   });
 });
+add("a password mailbox can be given the sender name recipients see", async (page) => {
+  await discover(page, "owner@fastmail.com");
+  await page.getByLabel("Password", { exact: true }).fill("fixture-app-password");
+  const senderName = page.getByLabel("Sender name", { exact: true });
+  // Optional, like every mail client's "Your name", and bounded like the API.
+  assert.equal(await senderName.inputValue(), "");
+  assert.equal(await senderName.getAttribute("maxlength"), "100");
+  assert.equal(await senderName.getAttribute("autocomplete"), "off");
+  await form(page)
+    .getByText(/Recipients see it beside owner@fastmail\.com/)
+    .waitFor();
+  await senderName.fill("  Avery   Monroe ");
+  await form(page).getByRole("button", { name: "Connect mailbox", exact: true }).click();
+  await page.getByRole("status").getByText("Connected owner@fastmail.com").waitFor();
+  assert.equal(state.calls[1].path, `${base}/mail/connect/imap`);
+  assert.equal(state.calls[1].body.senderName, "Avery Monroe");
+  assert.equal(state.calls[1].body.password, "fixture-app-password");
+});
+add("Gmail sign-in asks for no sender name, because Gmail keeps its own", async (page) => {
+  await discover(page);
+  await form(page).getByText("Continue with Google", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Sender name", { exact: true }).count(), 0);
+});
 add(
   "changing a password mailbox to Gmail removes password fields on mobile",
   async (page) => {
