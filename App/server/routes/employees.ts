@@ -31,6 +31,7 @@ import {
   grantAllResourcesToEmployee,
 } from "../services/resources.js";
 import { deleteExploreGrantsForEmployee, grantExploreToEmployee } from "../services/explore.js";
+import { deleteRoutineAccessForEmployee } from "../services/routineAccess.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
@@ -515,6 +516,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   // "Unknown" row for everyone the company had ever fired.
   await deleteResourceGrantsForEmployee(emp.id);
   await deleteExploreGrantsForEmployee(emp.id);
+  await deleteRoutineAccessForEmployee(emp.id);
   await AppDataSource.getRepository(VaultItem).update(
     { createdByEmployeeId: emp.id },
     { createdByEmployeeId: null },

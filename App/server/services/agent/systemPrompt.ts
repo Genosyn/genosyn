@@ -1,5 +1,6 @@
 import type { AIEmployee } from "../../db/entities/AIEmployee.js";
 import type { Company } from "../../db/entities/Company.js";
+import type { RoutineAccessLevel } from "../../db/entities/EmployeeRoutineGrant.js";
 import type { Skill } from "../../db/entities/Skill.js";
 import { getAgentSettings } from "../runtimeSettings.js";
 import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
@@ -50,6 +51,9 @@ export function composeEmployeeSystemPrompt(args: {
   /** The "## Resources" block from `services/resourceLibraryAccess.ts` — only
    * for an employee set to read only; "" otherwise. */
   resourcesContext: string;
+  /** The employee's effective Routines → AI access (`services/routineAccess.ts`),
+   * which decides how the tools briefing describes the Routine writers. */
+  routineAccess: RoutineAccessLevel;
   /** The one line the two seams genuinely disagree on. */
   opening: string;
   surface: PromptSurface;
@@ -89,7 +93,12 @@ export function composeEmployeeSystemPrompt(args: {
     "Notice opportunities to improve your own work as you complete it. Use get_own_work_review to examine actual outcomes and prior review feedback. For a worthwhile durable improvement, read the current document and stage a concrete Revision proposal with source evidence and a measurable expected benefit. Reuse pending suggestions, respect rejections, and keep unchanged reviews quiet. Propose changes to your own Soul, Skills, or Routine brief for human review. Your successful Ask AI contributions also let you suggest a brief improvement to that exact Routine: read its current complete document with get_participating_routine, preserve the owner and cite finished target Runs. Participation never grants direct editing or authority over another employee's Soul, Skills, Checks or criteria; do not silently apply them or weaken Checks, acceptance criteria, or authority to make results look better. After a change is applied, compare later results before claiming it helped.",
   );
   parts.push(
-    toolsBriefing(args.surface, args.parallelDelegationAvailable, args.codingToolsAvailable),
+    toolsBriefing(
+      args.surface,
+      args.parallelDelegationAvailable,
+      args.codingToolsAvailable,
+      args.routineAccess,
+    ),
   );
   // The company's mission and vision are the topmost layer of intent — the
   // charter every employee steers by, with the Goals block carrying the
@@ -185,11 +194,17 @@ export function composeRepositoryWorkSystemPrompt(args: {
  * chat: `#`-tagged resources, uploaded attachments, and the pre-write checklist
  * for a teammate's ambiguous request. A routine's brief is written in advance
  * and there is nobody to ask.
+ *
+ * The Routines line follows Routines → AI access. At read + write it is the
+ * usual "use the writers, never duplicate"; at read + run the writers are not
+ * in the working set at all (`gatherEmployeeTools`), so the line says what is
+ * refused and what still works instead of promising tools that would only 403.
  */
 export function toolsBriefing(
   surface: PromptSurface,
   parallelDelegationAvailable: boolean,
   codingToolsAvailable = codingRuntimeAvailability().available,
+  routineAccess: RoutineAccessLevel = "write",
 ): string {
   const isChat = surface === "chat";
   // When discovery is off (the revert flag), every tool is loaded and there is
@@ -263,9 +278,17 @@ export function toolsBriefing(
 
   lines.push(
     '- Routines — scheduled recurring AI work. Genosyn calls these **Routines**, never "tasks". ' +
-      "`create_routine` to schedule one; `update_routine` to rename, re-schedule, rewrite, or " +
-      "pause/resume one in place — **never create a duplicate to change one** — and " +
-      "`delete_routine` to remove one for good.",
+      (routineAccess === "write"
+        ? "`create_routine` to schedule one; `update_routine` to rename, re-schedule, rewrite, or " +
+          "pause/resume one in place — **never create a duplicate to change one** — and " +
+          "`delete_routine` to remove one for good."
+        : "An owner or admin has set your access to Routines to **read + run** (Routines → AI " +
+          "access): read any Routine and its Runs with `list_routines`, `get_routine`, `list_runs` " +
+          "and `get_run_report`, and your Routines keep running, but `create_routine`, " +
+          "`update_routine` and `delete_routine` are refused for every Routine, yours or a " +
+          "teammate's, and so is a schedule trigger on a Pipeline. When work calls for a Routine " +
+          "change, say so plainly and leave it to a Member instead of retrying. To suggest a " +
+          "better brief for a Routine you own, stage a Revision proposal with `propose_revision`."),
     "- One-off work: `create_project`, `create_todo`, `update_todo`.",
     "- `add_journal_entry` to log decisions on your own diary (the last ~7 days are " +
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +

@@ -316,6 +316,9 @@ describe("rails drawn from the catalogue", () => {
     "client/pages/CustomersLayout.tsx": "customers",
     "client/pages/SignatureLayout.tsx": "signatures",
     "client/pages/ResourcesLayout.tsx": "resources",
+    // Folders and employee filters are drawn by hand (NavLinks with live
+    // counts); its fixed pages — Routines → AI access — come from here.
+    "client/pages/RoutinesLayout.tsx": "routines",
     "client/pages/TldrsLayout.tsx": "tldrs",
     "client/pages/VaultLayout.tsx": "vault",
     "client/pages/SettingsLayout.tsx": "settings",

@@ -7,6 +7,7 @@ import { EmployeeFinanceGrant } from "../../db/entities/EmployeeFinanceGrant.js"
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeResourceLibraryGrant } from "../../db/entities/EmployeeResourceLibraryGrant.js";
 import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js";
+import { EmployeeRoutineGrant } from "../../db/entities/EmployeeRoutineGrant.js";
 import { Routine } from "../../db/entities/Routine.js";
 import { Run } from "../../db/entities/Run.js";
 import {
@@ -157,6 +158,34 @@ test("a Resources write cannot be retried once the employee is read only; reads 
     { accessLevel: "write" },
   );
   await preflight(["create_resource", "update_resource", "delete_resource"]);
+});
+
+test("a Routine write cannot be retried once the employee is read + run; reads and Run tools still can", async () => {
+  const writers = ["create_routine", "update_routine", "delete_routine"];
+  const stillWorking = [
+    "list_routines",
+    "get_routine",
+    "list_runs",
+    "get_run_report",
+    "save_run_checkpoint",
+    "mark_run_failed",
+  ];
+  // Read + write is the default, so a fresh employee passes without any row.
+  await preflight([...writers, ...stillWorking]);
+  await insert(EmployeeRoutineGrant, { companyId, employeeId: employee.id, accessLevel: "run" });
+  await preflight(stillWorking);
+  for (const tool of writers) {
+    await assert.rejects(preflight([tool, "get_routine"]), (error: unknown) => {
+      assert.ok(error instanceof RetryPreflightError);
+      assert.deepEqual(error.missingTools, [tool]);
+      return true;
+    });
+  }
+  await AppDataSource.getRepository(EmployeeRoutineGrant).update(
+    { employeeId: employee.id },
+    { accessLevel: "write" },
+  );
+  await preflight(writers);
 });
 
 test("preflight fails closed when current Grants cannot be read", async (t) => {

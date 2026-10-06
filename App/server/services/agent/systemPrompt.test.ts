@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import type { AIEmployee } from "../../db/entities/AIEmployee.js";
 import type { Company } from "../../db/entities/Company.js";
+import type { RoutineAccessLevel } from "../../db/entities/EmployeeRoutineGrant.js";
 import type { Run } from "../../db/entities/Run.js";
 import { STATIC_TOOLS } from "../../mcp/toolManifest.js";
 import { runBatchBrief } from "../runBatchBudget.js";
@@ -26,6 +27,7 @@ function compose(args: {
   surface?: "chat" | "routine";
   memoryContext?: string;
   resourcesContext?: string;
+  routineAccess?: RoutineAccessLevel;
 }): string {
   return composeEmployeeSystemPrompt({
     co: { name: "Acme", mission: args.mission ?? "", vision: args.vision ?? "" } as Company,
@@ -40,6 +42,7 @@ function compose(args: {
     revenueContext: "",
     marketingContext: "",
     resourcesContext: args.resourcesContext ?? "",
+    routineAccess: args.routineAccess ?? "write",
     opening: "You are Ada.",
     surface: args.surface ?? "routine",
     routineId: args.surface === "chat" ? undefined : "routine-id",
@@ -100,6 +103,61 @@ describe("employee system prompt charter layer", () => {
       // Read + write is the default and adds nothing to any prompt.
       assert.doesNotMatch(compose({ surface }), /## Resources/);
     }
+  });
+});
+
+describe("Routines → AI access in the tools briefing", () => {
+  /** The always-loaded Routines bullet, wherever it sits in the prompt. */
+  function routinesLine(prompt: string): string {
+    const line = prompt.split("\n").find((entry) => entry.startsWith("- Routines — "));
+    assert.ok(line, "the tools briefing always describes Routines");
+    return line;
+  }
+
+  for (const surface of ["chat", "routine"] as const) {
+    test(`${surface}: read + write keeps the writers and the never-duplicate rule`, () => {
+      const line = routinesLine(compose({ surface }));
+      assert.equal(line, routinesLine(compose({ surface, routineAccess: "write" })));
+      assert.match(line, /`create_routine` to schedule one/);
+      assert.match(line, /never create a duplicate to change one/);
+      assert.match(line, /`delete_routine` to remove one for good/);
+      assert.doesNotMatch(line, /read \+ run/);
+    });
+
+    test(`${surface}: read + run names every refused writer and what still works`, () => {
+      const prompt = compose({ surface, routineAccess: "run" });
+      const line = routinesLine(prompt);
+      assert.match(line, /never "tasks"/, "the vocabulary rule survives");
+      assert.match(line, /\*\*read \+ run\*\* \(Routines → AI access\)/);
+      for (const tool of ["create_routine", "update_routine", "delete_routine"]) {
+        assert.ok(line.includes(`\`${tool}\``), `${tool} is named as refused`);
+      }
+      assert.match(line, /are refused for every Routine, yours or a teammate's/);
+      assert.match(line, /schedule trigger on a Pipeline/);
+      for (const tool of ["list_routines", "get_routine", "list_runs", "get_run_report"]) {
+        assert.ok(line.includes(`\`${tool}\``), `${tool} is named as still working`);
+      }
+      assert.match(line, /your Routines keep running/);
+      assert.match(line, /`propose_revision`/);
+      // It never tells a restricted employee to reach for a writer.
+      assert.doesNotMatch(prompt, /`create_routine` to schedule one/);
+      assert.doesNotMatch(prompt, /`update_routine` to rename/);
+      // No second, contradicting block elsewhere.
+      assert.equal(prompt.split("\n").filter((l) => l.startsWith("- Routines — ")).length, 1);
+    });
+  }
+
+  test("the restriction is the only difference between the two prompts", () => {
+    const write = compose({ surface: "routine", routineAccess: "write" });
+    const run = compose({ surface: "routine", routineAccess: "run" });
+    // The Standdown block stamps the time it was composed, which differs
+    // between two calls; every other line must match exactly.
+    const strip = (prompt: string) =>
+      prompt
+        .split("\n")
+        .filter((line) => !line.startsWith("- Routines — ") && !line.startsWith("Checked at: "))
+        .join("\n");
+    assert.equal(strip(run), strip(write));
   });
 });
 

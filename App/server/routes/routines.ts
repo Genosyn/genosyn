@@ -9,6 +9,10 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
+import {
+  ROUTINE_ACCESS_LEVELS,
+  type RoutineAccessLevel,
+} from "../db/entities/EmployeeRoutineGrant.js";
 import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
@@ -64,6 +68,12 @@ import {
 import { resolveFolderForCompany, RoutineFolderError } from "../services/routineFolders.js";
 import { emitResourceChange } from "../services/resourceEvents.js";
 import { getRoutineActivity, ROUTINE_ACTIVITY_MAX_WINDOW_MS } from "../services/routineActivity.js";
+import {
+  RoutineAccessNotFoundError,
+  getRoutineAccessRow,
+  listRoutineAccess,
+  setRoutineAccess,
+} from "../services/routineAccess.js";
 
 const activityParamsSchema = z.object({ cid: z.string().uuid() });
 const activityQuerySchema = z
@@ -249,6 +259,79 @@ routinesRouter.get("/routines/activity", validateQuery(activityQuerySchema), asy
   const { from, to } = req.query as z.infer<typeof activityQuerySchema>;
   res.json(await getRoutineActivity({ companyId: cid, from: new Date(from), to: new Date(to) }));
 });
+
+// ----- AI access -----
+//
+// Routines → AI access: whether each AI Employee may change Routines at all
+// (run < write; no row means write). Enforced at the MCP seam — see
+// `services/routineAccess.ts`. Registered before `/routines/:rid`, which would
+// otherwise answer `GET /routines/ai-access` as a Routine lookup. Reading the
+// roster is open to every Member; changing a level is owner/admin through the
+// `requireCompanyRoleForMutations("admin")` guard this router already applies
+// to every `/routines` path.
+
+const aiAccessListParamsSchema = z.object({ cid: z.string().uuid() }).strict();
+const aiAccessEmployeeParamsSchema = z
+  .object({ cid: z.string().uuid(), employeeId: z.string().uuid() })
+  .strict();
+const aiAccessBodySchema = z
+  .object({
+    accessLevel: z.enum(ROUTINE_ACCESS_LEVELS as [RoutineAccessLevel, ...RoutineAccessLevel[]]),
+  })
+  .strict();
+
+routinesRouter.get(
+  "/routines/ai-access",
+  validateParams(aiAccessListParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { cid } = req.params as z.infer<typeof aiAccessListParamsSchema>;
+      res.json({ rows: await listRoutineAccess(cid) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * PUT because the caller states the level an employee should hold; every
+ * employee already holds one, so there is nothing to create or revoke.
+ * Audited only when the level actually moves.
+ */
+routinesRouter.put(
+  "/routines/ai-access/:employeeId",
+  validateParams(aiAccessEmployeeParamsSchema),
+  validateBody(aiAccessBodySchema),
+  async (req, res, next) => {
+    try {
+      const { cid, employeeId } = req.params as z.infer<typeof aiAccessEmployeeParamsSchema>;
+      const body = req.body as z.infer<typeof aiAccessBodySchema>;
+      let change;
+      try {
+        change = await setRoutineAccess(cid, employeeId, body.accessLevel);
+      } catch (err) {
+        if (err instanceof RoutineAccessNotFoundError) {
+          return res.status(404).json({ error: "Employee not found" });
+        }
+        throw err;
+      }
+      if (change.changed) {
+        await recordAudit({
+          companyId: cid,
+          actorUserId: req.userId ?? null,
+          action: "routine.ai_access.update",
+          targetType: "employee",
+          targetId: change.employee.id,
+          targetLabel: change.employee.name,
+          metadata: { accessLevel: change.accessLevel, previousAccessLevel: change.previous },
+        });
+      }
+      res.json({ row: await getRoutineAccessRow(cid, change.employee.id) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 routinesRouter.get("/employees/:eid/routines", async (req, res) => {
   const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);

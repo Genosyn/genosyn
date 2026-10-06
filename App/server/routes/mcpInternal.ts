@@ -224,6 +224,11 @@ import {
   getParticipatingRoutine,
   findRoutineParticipation,
 } from "../services/routineParticipation.js";
+import {
+  ROUTINE_WRITE_TOOLS,
+  routineWriteRefusalForActor,
+  routineWriteRefusalForOwner,
+} from "../services/routineAccess.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
@@ -1025,9 +1030,13 @@ const TOOL_PATH_RE = /^\/tools\/([a-z0-9_]+)$/;
  *
  *  1. A company policy forbidding the tool refuses the call and records a
  *     `policy.violation` AuditEvent. One small indexed query per call.
- *  2. The web tools mark the turn's token tainted — at dispatch, which is
+ *  2. Routines → AI access refuses a Routine write the employee may not make
+ *     (see {@link routineWriteRefusal}). Before the taint gate on purpose: the
+ *     Routine writers are taint sinks, and a call that can only be refused
+ *     must not be held for a human whose approval could not let it through.
+ *  3. The web tools mark the turn's token tainted — at dispatch, which is
  *     strictly more conservative than on success.
- *  3. A tainted turn calling a high-risk sink has the verbatim call queued
+ *  4. A tainted turn calling a high-risk sink has the verbatim call queued
  *     as a `tainted_tool` Approval instead of executed. The body snapshot is
  *     unvalidated here on purpose: the replay re-enters this router and the
  *     sink's own zod schema re-validates it.
@@ -1048,6 +1057,8 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
         error: `The company policy "${policy.title}" forbids ${toolName}. Do not retry or work around it — raise a Decision if you believe the policy is wrong here.`,
       });
     }
+    const routineRefusal = await routineWriteRefusal(req, toolName);
+    if (routineRefusal) return res.status(403).json({ error: routineRefusal });
     if (getAgentSettings().taintPolicy !== "off" && req.mcpToken) {
       if (WEB_TAINT_SOURCES.has(toolName)) markTokenTainted(req.mcpToken);
       if (taintGateApplies(req.mcpToken, toolName)) {
@@ -8405,6 +8416,58 @@ async function resolveRoutine(
   return { ok: true, routine, owner };
 }
 
+/**
+ * Routines → AI access (`services/routineAccess.ts`) for the three Routine
+ * writers: why this call may not write, or null when it may — and null for
+ * every other tool. Run from the Policy/taint middleware near the top of this
+ * file, so it refuses before the taint gate, before validation, and before any
+ * handler work. A Routine write therefore needs two things:
+ *
+ *  1. The calling employee holds read + write. A read + run employee is refused
+ *     every write, its own Routines included, before anything is looked up —
+ *     whoever drives the turn: a Member's delegated chat cannot lend it write
+ *     access, just as a Member's Finance access cannot raise a Finance Grant.
+ *  2. The employee the Routine belongs to — or would belong to, for
+ *     `create_routine` with an `employeeSlug` — holds read + write too. A read
+ *     + run employee's Routines change only through a Member, so it cannot hand
+ *     the change to a teammate that may write.
+ *
+ * The target is resolved from the raw body the same way the handler will. A
+ * body the handler would reject, or a Routine it would not find, is passed
+ * through so the handler answers it exactly as it always has. Each handler
+ * asks again once it holds the owner ({@link routineOwnerWriteRefusal}), so the
+ * rule holds even for a dispatch this middleware's exact-name match misses.
+ */
+async function routineWriteRefusal(req: McpRequest, toolName: string): Promise<string | null> {
+  if (!(ROUTINE_WRITE_TOOLS as readonly string[]).includes(toolName)) return null;
+  const self = req.mcpEmployee!;
+  const co = req.mcpCompany!;
+  const actorRefusal = await routineWriteRefusalForActor(self.id);
+  if (actorRefusal) return actorRefusal;
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const employeeSlug = typeof body.employeeSlug === "string" ? body.employeeSlug : undefined;
+  let owner: AIEmployee | null = null;
+  if (toolName === "create_routine") {
+    owner = await resolveEmployee(co, self, employeeSlug);
+  } else if (typeof body.routineId === "string") {
+    const found = await resolveRoutine(co, self, body.routineId, employeeSlug);
+    owner = found.ok ? found.owner : null;
+  }
+  if (!owner || owner.id === self.id) return null;
+  return routineWriteRefusalForOwner(owner);
+}
+
+/** Both checks of {@link routineWriteRefusal}, for a handler that already resolved the owner. */
+async function routineOwnerWriteRefusal(
+  self: AIEmployee,
+  owner: AIEmployee,
+): Promise<string | null> {
+  const actorRefusal = await routineWriteRefusalForActor(self.id);
+  if (actorRefusal) return actorRefusal;
+  return owner.id === self.id ? null : routineWriteRefusalForOwner(owner);
+}
+
 mcpInternalRouter.post(
   "/tools/list_routines",
   validateBody(employeeRefSchema),
@@ -8512,6 +8575,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const target = await resolveEmployee(co, self, body.employeeSlug);
     if (!target) return res.status(404).json({ error: "Employee not found" });
+    const refusal = await routineOwnerWriteRefusal(self, target);
+    if (refusal) return res.status(403).json({ error: refusal });
 
     const repo = AppDataSource.getRepository(Routine);
     const dup = await repo
@@ -8613,6 +8678,8 @@ mcpInternalRouter.post(
     const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
     if (!found.ok) return res.status(found.status).json({ error: found.error });
     const { routine, owner } = found;
+    const refusal = await routineOwnerWriteRefusal(self, owner);
+    if (refusal) return res.status(403).json({ error: refusal });
 
     if (body.name !== undefined && body.name.trim() !== routine.name) {
       const dup = await repo
@@ -8691,6 +8758,8 @@ mcpInternalRouter.post(
     const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
     if (!found.ok) return res.status(found.status).json({ error: found.error });
     const { routine, owner } = found;
+    const refusal = await routineOwnerWriteRefusal(self, owner);
+    if (refusal) return res.status(403).json({ error: refusal });
     markBrowserRecordingRoutineDeleting(routine.id);
 
     const runs = await AppDataSource.getRepository(Run).find({
@@ -9416,6 +9485,8 @@ mcpInternalRouter.post(
  * the model, like the field it was told was optional being required after all.
  */
 const PIPELINE_AUTHORING_NOTES: Partial<Record<PipelineNodeKind, string>> = {
+  "trigger.schedule":
+    "Needs write access to Routines (Routines → AI access): a schedule makes the pipeline recurring work.",
   "trigger.todoCreated":
     "You must name a Project you can read. Left empty this watches every Project, including restricted ones.",
   "trigger.emailReceived":

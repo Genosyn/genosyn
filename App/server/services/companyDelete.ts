@@ -174,6 +174,7 @@ import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineFolder } from "../db/entities/RoutineFolder.js";
+import { EmployeeRoutineGrant } from "../db/entities/EmployeeRoutineGrant.js";
 import { Goal } from "../db/entities/Goal.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
@@ -593,6 +594,7 @@ export async function deleteCompanyCascade(args: {
     // After the routines themselves (deleted with their employees above), so a
     // folder is never removed while something still points at it.
     await m.delete(RoutineFolder, { companyId });
+    await m.delete(EmployeeRoutineGrant, { companyId });
     await m.delete(Goal, { companyId });
     await m.delete(RunLesson, { companyId });
     await m.delete(RevisionProposal, { companyId });

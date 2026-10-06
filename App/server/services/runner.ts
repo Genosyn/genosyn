@@ -29,6 +29,7 @@ import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
+import { getRoutineAccess } from "./routineAccess.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import { contextUsagePercent, isContextUsageHigh } from "./agent/contextUsage.js";
 import type {
@@ -668,6 +669,9 @@ async function prepareRoutineRun(
           composeMarketingContext(emp.id),
           composeResourceLibraryContext(emp.id),
         ]);
+      // Routines → AI access never stops a Run; it only changes how the tools
+      // briefing describes the Routine writers this Run may not use.
+      const routineAccess = await getRoutineAccess(emp.id);
       if (deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
@@ -685,6 +689,7 @@ async function prepareRoutineRun(
         revenueContext,
         marketingContext,
         resourcesContext,
+        routineAccess,
         surface: "routine",
         routineId: routine.id,
         parallelDelegationAvailable,

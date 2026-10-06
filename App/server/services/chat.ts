@@ -23,6 +23,8 @@ import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
+import { getRoutineAccess } from "./routineAccess.js";
+import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type {
@@ -766,6 +768,12 @@ export async function streamChatWithEmployee(
         ? composeResourceLibraryContext(emp.id)
         : Promise.resolve(""),
     ]);
+    // Routines → AI access shapes the tools briefing below, so it is read only
+    // when that prompt is composed. The setting holds whoever drives the turn.
+    const routineAccess =
+      contextAccess.soulAndSkills && !repositoryWork
+        ? await getRoutineAccess(emp.id)
+        : DEFAULT_ROUTINE_ACCESS;
     const effectiveSkills = contextAccess.soulAndSkills ? skills : [];
     const helpSource =
       contextAccess.soulAndSkills && options.surface === "help" ? createGenosynHelpSource() : null;
@@ -791,6 +799,7 @@ export async function streamChatWithEmployee(
             revenueContext,
             marketingContext,
             resourcesContext,
+            routineAccess,
             surface: "chat",
             parallelDelegationAvailable,
             codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,

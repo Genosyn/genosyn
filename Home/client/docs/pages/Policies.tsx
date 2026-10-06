@@ -155,7 +155,9 @@ export function Policies() {
         tools an injection would use to persist itself on a schedule — does not execute it. The
         verbatim call is held as an <Strong>Approval</Strong> (kind <Code>tainted_tool</Code>) in
         the same Approvals inbox as everything else, and the employee is told to carry on with its
-        unheld work. Reads are never gated — a tainted turn can keep researching freely.
+        unheld work. Reads are never gated — a tainted turn can keep researching freely. A Routine
+        write that <DocLink to="/docs/routines#ai-access">Routines → AI access</DocLink> refuses is
+        refused outright instead of held, since no approval could let it through.
       </P>
       <UL>
         <LI>
