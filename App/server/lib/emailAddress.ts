@@ -72,16 +72,39 @@ const ADDRESS_RE =
   /^[^\s<>(),;:\\"[\]@]+@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
 
 /**
+ * True when a double quote in `value` is never closed. Inside the quotes a
+ * backslash escapes the next character, so `"Foo \"Q"` is closed — the same
+ * reading {@link parseAddressList} gives a recipient list.
+ */
+function hasUnclosedQuote(value: string): boolean {
+  let inQuotes = false;
+  let escaped = false;
+  for (const char of value) {
+    if (escaped) escaped = false;
+    else if (inQuotes && char === "\\") escaped = true;
+    else if (char === '"') inQuotes = !inQuotes;
+  }
+  return inQuotes;
+}
+
+/**
  * Pull the address out of a header value and lowercase it.
  *
  * Accepts `a@b.com`, `<a@b.com>`, `Foo Bar <a@b.com>`, and `"Bar, Foo"
  * <a@b.com>`. Returns null for anything else — including a value carrying more
- * than one address, because picking one of them would be a guess.
+ * than one address, because picking one of them would be a guess, and a value
+ * with a quote that never closes, because then nothing says where the name
+ * ends.
  */
 export function normalizeEmail(input: string | null | undefined): string | null {
   if (typeof input !== "string") return null;
   let value = input.trim();
   if (!value) return null;
+
+  // Past an unclosed quote everything is name, brackets and commas included:
+  // `"Doe <doe@x.com>, bob@x.com` is two recipients run together, and taking
+  // the bracketed group out of it would quietly drop the other one.
+  if (hasUnclosedQuote(value)) return null;
 
   // `Display Name <addr>` — take the last bracketed group, since a display
   // name may itself contain brackets.
@@ -130,9 +153,11 @@ export function isRoleAddress(input: string | null | undefined): boolean {
  * separate recipients, which is why this is a small state machine rather
  * than `value.split(",")`. A backslash inside the quotes escapes the next
  * character, so `"Foo \"Q" <a@b.com>` is one quoted name — the way the mail
- * headers Genosyn writes and mirrors spell a name holding a quote. Unparseable
- * entries are reported separately so a caller can surface them instead of
- * quietly mailing fewer people than the user typed.
+ * headers Genosyn writes and mirrors spell a name holding a quote. A quote that
+ * never closes swallows every separator after it, so the rest of the list comes
+ * back as one invalid entry. Unparseable entries are reported separately so a
+ * caller can surface them instead of quietly mailing fewer people than the
+ * user typed.
  */
 export function parseAddressList(input: string | null | undefined): {
   addresses: string[];
@@ -172,6 +197,10 @@ export function parseAddressList(input: string | null | undefined): {
     }
     current += char;
   }
+  // A quote still open here swallowed every separator after it, so this last
+  // part may be several recipients run together. normalizeEmail refuses a
+  // value whose quote never closes, so the part is reported below as written
+  // rather than read as whichever bracketed address it happens to hold.
   parts.push(current);
 
   const seen = new Set<string>();

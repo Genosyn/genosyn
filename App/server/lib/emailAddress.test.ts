@@ -38,6 +38,22 @@ describe("normalizeEmail", () => {
     assert.equal(normalizeEmail("foo@example.com>"), null);
   });
 
+  test("rejects a quote that never closes instead of reading past it", () => {
+    // Past the open quote the bracket is part of the name, so reading an
+    // address out of it is a guess — and with two recipients run together
+    // behind the quote, a guess that drops one of them.
+    assert.equal(normalizeEmail('"Doe <doe@example.com>'), null);
+    assert.equal(normalizeEmail('"Doe <doe@example.com>, bob@example.com'), null);
+    // The only quote that could close the name is escaped.
+    assert.equal(normalizeEmail('"Doe \\" <doe@example.com>'), null);
+  });
+
+  test("an escaped quote stays inside a quoted name that closes", () => {
+    assert.equal(normalizeEmail('"Ann \\"Q" <q@example.com>'), "q@example.com");
+    // An escaped backslash escapes nothing after it, so this quote closes.
+    assert.equal(normalizeEmail('"Ann \\\\" <q@example.com>'), "q@example.com");
+  });
+
   test("rejects non-strings, empty, and whitespace", () => {
     assert.equal(normalizeEmail(null), null);
     assert.equal(normalizeEmail(undefined), null);
@@ -162,6 +178,45 @@ describe("parseAddressList", () => {
   test("a comma inside angle brackets does not split either", () => {
     const r = parseAddressList("Foo <foo@x.com>, Bar <bar@y.com>");
     assert.deepEqual(r.addresses, ["foo@x.com", "bar@y.com"]);
+  });
+
+  test("an escaped quote does not end a quoted name, and the closing quote does", () => {
+    // With an odd number of escaped quotes, flipping on every quote left the
+    // rest of the list inside the name.
+    const r = parseAddressList('"Ann \\"Q" <q@x.com>, b@y.com');
+    assert.deepEqual(r.addresses, ["q@x.com", "b@y.com"]);
+    assert.deepEqual(r.invalid, []);
+    // An escaped backslash does not escape the quote after it.
+    assert.deepEqual(parseAddressList('"Ann \\\\" <q@x.com>, b@y.com'), {
+      addresses: ["q@x.com", "b@y.com"],
+      invalid: [],
+    });
+  });
+
+  test("an unclosed quote is reported whole, not read as the address it swallowed", () => {
+    // The quote swallows the comma, so bob@x.com is in the same entry as
+    // doe@x.com. Reading the bracketed address out of it dropped bob unreported.
+    assert.deepEqual(parseAddressList('"Doe <doe@x.com>, bob@x.com'), {
+      addresses: [],
+      invalid: ['"Doe <doe@x.com>, bob@x.com'],
+    });
+    // Recipients before the quote opened still parse.
+    assert.deepEqual(parseAddressList('a@y.com, "Doe <doe@x.com>, bob@x.com'), {
+      addresses: ["a@y.com"],
+      invalid: ['"Doe <doe@x.com>, bob@x.com'],
+    });
+    // An escaped quote cannot close it.
+    assert.deepEqual(parseAddressList('"Doe \\" <doe@x.com>, bob@x.com'), {
+      addresses: [],
+      invalid: ['"Doe \\" <doe@x.com>, bob@x.com'],
+    });
+  });
+
+  test("an unclosed quote with no bracketed address is reported too", () => {
+    assert.deepEqual(parseAddressList('"Doe, bob@x.com'), {
+      addresses: [],
+      invalid: ['"Doe, bob@x.com'],
+    });
   });
 
   test("de-duplicates, because mailing someone twice in one send is visible to them", () => {
