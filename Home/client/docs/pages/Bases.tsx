@@ -44,6 +44,14 @@ export function Bases() {
         is the record&apos;s title wherever the record is referenced.
       </P>
       <P>
+        To act on several rows at once, select them with the checkbox that takes a row&apos;s
+        number when you hover the row or Tab into it (a touch screen always shows it). Shift-click
+        selects a range, and the checkbox in the header selects every row in the view; then delete
+        them together from the bar that appears at the bottom of the screen. <Code>Esc</Code>{" "}
+        closes whatever is open over the grid first — one menu, popover, or dialog per press — and
+        clears the selection only once nothing is.
+      </P>
+      <P>
         Open a table&apos;s chevron menu in the Base sidebar to rename, archive, or permanently
         delete it. Archived tables move under <Strong>Archived</Strong> in the sidebar, where
         Members can still review, restore, or delete them. Archiving immediately removes the table
