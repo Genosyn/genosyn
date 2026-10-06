@@ -203,9 +203,17 @@ async function seedResource(
   });
   const grant = options.grant === undefined ? "read" : options.grant;
   if (grant !== null) {
-    await insert(EmployeeResourceGrant, { employeeId: ada.id, resourceId: resource.id, accessLevel: grant });
+    await insert(EmployeeResourceGrant, {
+      employeeId: ada.id,
+      resourceId: resource.id,
+      accessLevel: grant,
+    });
   }
-  await insert(EmployeeResourceGrant, { employeeId: bob.id, resourceId: resource.id, accessLevel: "read" });
+  await insert(EmployeeResourceGrant, {
+    employeeId: bob.id,
+    resourceId: resource.id,
+    accessLevel: "read",
+  });
   return resource;
 }
 
@@ -282,7 +290,10 @@ describe("reads never answer to the library setting", () => {
       const read = await aiCall("get_resource", { resourceSlug: unshared.slug });
       assert.equal(read.status, 403, String(state));
       assert.equal(read.body.error, "No access to that resource");
-      const exported = await aiCall("export_resource", { resourceSlug: unshared.slug, format: "md" });
+      const exported = await aiCall("export_resource", {
+        resourceSlug: unshared.slug,
+        format: "md",
+      });
       assert.equal(exported.status, 403, String(state));
       const listed = await aiCall<{ total: number; note?: string }>("list_resources");
       assert.equal(listed.body.total, 0);
@@ -385,10 +396,7 @@ describe("a read-only employee is refused every write", () => {
     const grants = await AppDataSource.getRepository(EmployeeResourceGrant).find({
       where: { resourceId: own.id },
     });
-    assert.deepEqual(
-      grants.map((grant) => grant.accessLevel).sort(),
-      ["delete", "read"],
-    );
+    assert.deepEqual(grants.map((grant) => grant.accessLevel).sort(), ["delete", "read"]);
     assert.deepEqual(await sideEffectCounts(), before);
   });
 
@@ -470,7 +478,9 @@ describe("read + write leaves the per-Resource Share settings in charge", () => 
         const removed = await aiCall("delete_resource", { resourceSlug: forDelete.slug });
         assert.equal(removed.status, DELETE_EXPECTED[level].status, `delete with ${level}`);
         assert.equal(removed.body.error, DELETE_EXPECTED[level].error, `delete with ${level}`);
-        const survives = await AppDataSource.getRepository(Resource).findOneBy({ id: forDelete.id });
+        const survives = await AppDataSource.getRepository(Resource).findOneBy({
+          id: forDelete.id,
+        });
         assert.equal(Boolean(survives), DELETE_EXPECTED[level].status !== 200, `row with ${level}`);
       }
     });
@@ -516,10 +526,18 @@ describe("read + write leaves the per-Resource Share settings in charge", () => 
       await AppDataSource.getRepository(JournalEntry).count({ where: { employeeId: ada.id } }),
       1,
     );
-    const bobReads = await aiCall("get_resource", { resourceSlug: created.body.resource.slug }, bobToken);
+    const bobReads = await aiCall(
+      "get_resource",
+      { resourceSlug: created.body.resource.slug },
+      bobToken,
+    );
     assert.equal(bobReads.status, 200, bobReads.body.error);
     assertReadOnlyRefusal(
-      await aiCall("update_resource", { resourceSlug: created.body.resource.slug, title: "x" }, bobToken),
+      await aiCall(
+        "update_resource",
+        { resourceSlug: created.body.resource.slug, title: "x" },
+        bobToken,
+      ),
       "bob update",
     );
   });
@@ -646,7 +664,9 @@ describe("find_tools sees the ceiling", () => {
 describe("a read-only employee can still use what it reads", () => {
   test("a PDF Resource it can read still becomes a signing draft", async () => {
     const pdf = await PDFDocument.create();
-    pdf.addPage([612, 792]).drawText("Mutual non-disclosure agreement", { x: 48, y: 730, size: 18 });
+    pdf
+      .addPage([612, 792])
+      .drawText("Mutual non-disclosure agreement", { x: 48, y: 730, size: 18 });
     const bytes = Buffer.from(await pdf.save());
     const storageKey = `${randomUUID()}.pdf`;
     const dir = path.join(companyDir(company.slug), "resources");

@@ -94,7 +94,9 @@ export default function ResourcesAiAccess() {
 
   function changeLevel(row: ResourceLibraryAccessRow, level: ResourceLibraryAccessLevel) {
     if (row.accessLevel === level) return;
-    setRows((current) => (current ? withResourceLibraryAccess(current, row.employee.id, level) : current));
+    setRows((current) =>
+      current ? withResourceLibraryAccess(current, row.employee.id, level) : current,
+    );
     background(
       () =>
         api.put<{ row: ResourceLibraryAccessRow | null }>(`${base}/${row.employee.id}`, {
@@ -183,9 +185,9 @@ export default function ResourcesAiAccess() {
       <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
         <Info size={15} className="mt-0.5 shrink-0 text-slate-400" />
         <p>
-          Read only overrides each Resource&apos;s Share settings: the employee cannot edit or delete
-          a Resource even where it was given Can edit or Can delete. Those settings are kept, and
-          apply again as soon as you switch the employee back to Read + write.
+          Read only overrides each Resource&apos;s Share settings: the employee cannot edit or
+          delete a Resource even where it was given Can edit or Can delete. Those settings are kept,
+          and apply again as soon as you switch the employee back to Read + write.
         </p>
       </div>
 

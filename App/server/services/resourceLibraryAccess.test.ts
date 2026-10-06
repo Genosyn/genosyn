@@ -97,7 +97,16 @@ describe("effectiveResourceLibraryAccess", () => {
   });
 
   test("a value this build does not know fails closed to read only", () => {
-    for (const unknown of ["admin", "owner", "", "WRITE", "Write", "toString", "__proto__", "edit"]) {
+    for (const unknown of [
+      "admin",
+      "owner",
+      "",
+      "WRITE",
+      "Write",
+      "toString",
+      "__proto__",
+      "edit",
+    ]) {
       assert.equal(effectiveResourceLibraryAccess(unknown), "read", `"${unknown}" must not widen`);
     }
   });
@@ -123,7 +132,12 @@ describe("RESOURCE_WRITE_TOOLS", () => {
    * let a read-only employee write.
    */
   test("every Resources tool is classified as a read or a write", () => {
-    const reads = new Set(["list_resources", "search_resources", "get_resource", "export_resource"]);
+    const reads = new Set([
+      "list_resources",
+      "search_resources",
+      "get_resource",
+      "export_resource",
+    ]);
     const writes = new Set<string>(RESOURCE_WRITE_TOOLS);
     const unclassified = TOOL_DOMAINS.resources.tools.filter(
       (name) => !reads.has(name) && !writes.has(name),

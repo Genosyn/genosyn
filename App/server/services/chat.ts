@@ -752,21 +752,20 @@ export async function streamChatWithEmployee(
         : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
-    const [signingContext, revenueContext, marketingContext, resourcesContext] =
-      await Promise.all([
-        contextAccess.signing && !repositoryWork
-          ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
-          : Promise.resolve(""),
-        contextAccess.revenue && !repositoryWork
-          ? composeRevenueContext(emp.id)
-          : Promise.resolve(""),
-        contextAccess.marketing && !repositoryWork
-          ? composeMarketingContext(emp.id)
-          : Promise.resolve(""),
-        contextAccess.resources && !repositoryWork
-          ? composeResourceLibraryContext(emp.id)
-          : Promise.resolve(""),
-      ]);
+    const [signingContext, revenueContext, marketingContext, resourcesContext] = await Promise.all([
+      contextAccess.signing && !repositoryWork
+        ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
+        : Promise.resolve(""),
+      contextAccess.revenue && !repositoryWork
+        ? composeRevenueContext(emp.id)
+        : Promise.resolve(""),
+      contextAccess.marketing && !repositoryWork
+        ? composeMarketingContext(emp.id)
+        : Promise.resolve(""),
+      contextAccess.resources && !repositoryWork
+        ? composeResourceLibraryContext(emp.id)
+        : Promise.resolve(""),
+    ]);
     const effectiveSkills = contextAccess.soulAndSkills ? skills : [];
     const helpSource =
       contextAccess.soulAndSkills && options.surface === "help" ? createGenosynHelpSource() : null;

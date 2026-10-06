@@ -249,7 +249,10 @@ const aiAccessEmployeeParamsSchema = z
 const aiAccessBodySchema = z
   .object({
     accessLevel: z.enum(
-      RESOURCE_LIBRARY_ACCESS_LEVELS as [ResourceLibraryAccessLevel, ...ResourceLibraryAccessLevel[]],
+      RESOURCE_LIBRARY_ACCESS_LEVELS as [
+        ResourceLibraryAccessLevel,
+        ...ResourceLibraryAccessLevel[],
+      ],
     ),
   })
   .strict();

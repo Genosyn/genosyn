@@ -195,7 +195,12 @@ describe("GET /resources/ai-access", () => {
 
   test("lists only this company's employees and reflects stored levels", async () => {
     await put(ada.id, "read");
-    await call("PUT", `/resources/ai-access/${outsider.id}`, { accessLevel: "read" }, otherCompany.id);
+    await call(
+      "PUT",
+      `/resources/ai-access/${outsider.id}`,
+      { accessLevel: "read" },
+      otherCompany.id,
+    );
     const rows = await list();
     assert.deepEqual(
       rows.map((row) => [row.employee.name, row.accessLevel, row.isDefault]),
@@ -227,7 +232,10 @@ describe("GET /resources/ai-access", () => {
     });
     const res = await call<{ rows?: Row[]; title?: string }>("GET", "/resources/ai-access");
     assert.equal(res.status, 200);
-    assert.ok(Array.isArray(res.body.rows), `expected the access list, got ${JSON.stringify(res.body)}`);
+    assert.ok(
+      Array.isArray(res.body.rows),
+      `expected the access list, got ${JSON.stringify(res.body)}`,
+    );
     assert.equal(res.body.title, undefined);
   });
 });
@@ -449,7 +457,9 @@ describe("Resources filed from now on never take the section's own slugs", () =>
     assert.equal(detail.status, 200);
     assert.equal(detail.body.title, "AI access");
     // And the page's own route still answers with the access list.
-    assert.ok(Array.isArray((await call<{ rows: Row[] }>("GET", "/resources/ai-access")).body.rows));
+    assert.ok(
+      Array.isArray((await call<{ rows: Row[] }>("GET", "/resources/ai-access")).body.rows),
+    );
   });
 
   test("a Resource titled “Integrations” is filed as integrations-2", async () => {

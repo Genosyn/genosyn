@@ -87,7 +87,9 @@ await context.route("**/api/**", async (route) => {
     puts.push({ employeeId: put[1], body });
     if (putFailure) return route.fulfill({ status: 403, json: { error: putFailure } });
     rows = rows.map((row) =>
-      row.employee.id === put[1] ? { ...row, accessLevel: body.accessLevel, isDefault: false } : row,
+      row.employee.id === put[1]
+        ? { ...row, accessLevel: body.accessLevel, isDefault: false }
+        : row,
     );
     return route.fulfill({ json: { row: rows.find((row) => row.employee.id === put[1]) ?? null } });
   }
@@ -114,7 +116,10 @@ await context.route("**/api/**", async (route) => {
     });
   }
   if (pathname === "/api/companies/company/tags") return route.fulfill({ json: [] });
-  return route.fulfill({ status: 404, json: { error: `Unhandled ${request.method()} ${pathname}` } });
+  return route.fulfill({
+    status: 404,
+    json: { error: `Unhandled ${request.method()} ${pathname}` },
+  });
 });
 
 function radio(page: Page, employeeName: string, label: string) {
@@ -147,7 +152,11 @@ try {
   const sidebar = page.locator("aside").first();
   await sidebar.getByRole("link", { name: "Library", exact: true }).waitFor();
   await sidebar.getByRole("link", { name: "AI access", exact: true }).waitFor();
-  assert.equal(await checked("Ada Lovelace"), "Read + write", "untouched employees default to write");
+  assert.equal(
+    await checked("Ada Lovelace"),
+    "Read + write",
+    "untouched employees default to write",
+  );
   assert.equal(await checked("Bob Writer"), "Read only");
   assert.equal(await checked("Cy Archivist"), "Read only");
   await page.getByText("2 of 3 read only", { exact: true }).waitFor();
@@ -235,7 +244,9 @@ try {
   // Ada: Can delete at read + write. Bob: Can edit but read only. Cy: read
   // only and not yet shared this Resource.
   rows = initialRows();
-  await page.goto(`${fixture.origin}/?path=/c/acme/resources/handbook`, { waitUntil: "networkidle" });
+  await page.goto(`${fixture.origin}/?path=/c/acme/resources/handbook`, {
+    waitUntil: "networkidle",
+  });
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const share = page.getByRole("dialog");
   await share.getByText("Share with AI employees", { exact: true }).waitFor();
@@ -244,7 +255,10 @@ try {
     .getByText("Paused — Read only under AI access", { exact: true })
     .waitFor();
   assert.equal(
-    await share.locator("li", { hasText: "Ada Lovelace" }).getByText(/Paused/).count(),
+    await share
+      .locator("li", { hasText: "Ada Lovelace" })
+      .getByText(/Paused/)
+      .count(),
     0,
     "Ada holds read + write, so her Can delete applies",
   );
@@ -283,9 +297,15 @@ try {
   );
   const output = path.resolve(root, "../output/playwright");
   await fs.mkdir(output, { recursive: true });
-  await page.screenshot({ path: path.join(output, "resources-ai-access-mobile.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(output, "resources-ai-access-mobile.png"),
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.screenshot({ path: path.join(output, "resources-ai-access-desktop.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(output, "resources-ai-access-desktop.png"),
+    fullPage: true,
+  });
 
   assert.deepEqual(errors, []);
   console.log(

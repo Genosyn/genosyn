@@ -102,7 +102,8 @@ export function Resources() {
         already holds — an emailed contract, a form it downloaded. <Code>update_resource</Code> and{" "}
         <Code>delete_resource</Code> need a higher grant. <Code>export_resource</Code> renders the
         body as PDF, HTML, Markdown or plain text and attaches it to the reply. None of the three
-        write tools work for an employee set to <DocLink to="/docs/resources#ai-access">Read only</DocLink>.
+        write tools work for an employee set to{" "}
+        <DocLink to="/docs/resources#ai-access">Read only</DocLink>.
       </P>
 
       <H2 id="access">Who can read it</H2>
@@ -160,10 +161,10 @@ export function Resources() {
         back to Read + write restores exactly what the Share settings said.
       </P>
       <P>
-        Every Member can open the page and see who is read only; only owners and admins can change
-        a level, and each change is recorded in the{" "}
-        <DocLink to="/docs/security#audit-log">audit log</DocLink> with the level before and after. A
-        read-only employee is told so in its briefing, so it says it can&apos;t make a change
+        Every Member can open the page and see who is read only; only owners and admins can change a
+        level, and each change is recorded in the{" "}
+        <DocLink to="/docs/security#audit-log">audit log</DocLink> with the level before and after.
+        A read-only employee is told so in its briefing, so it says it can&apos;t make a change
         instead of attempting one — and a Member chatting with it cannot lend it write access. The
         setting governs only what AI Employees do through their tools; Members keep filing and
         editing Resources on the Resources page.

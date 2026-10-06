@@ -88,7 +88,10 @@ describe("employee system prompt charter layer", () => {
     const block = "\n## Resources\nYour access to the Resources library is **read only**.";
     for (const surface of ["chat", "routine"] as const) {
       const prompt = compose({ surface, resourcesContext: block });
-      assert.match(prompt, /## Resources\nYour access to the Resources library is \*\*read only\*\*/);
+      assert.match(
+        prompt,
+        /## Resources\nYour access to the Resources library is \*\*read only\*\*/,
+      );
       assert.ok(prompt.indexOf("## Resources") > prompt.indexOf("## Soul"));
       assert.ok(
         prompt.indexOf("## Resources") < prompt.indexOf("## Current Standdown status"),

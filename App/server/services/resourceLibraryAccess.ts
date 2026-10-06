@@ -29,7 +29,11 @@ import {
  * `get_resource`, `export_resource`) answer only to per-Resource Grants and are
  * never affected by this setting.
  */
-export const RESOURCE_WRITE_TOOLS = ["create_resource", "update_resource", "delete_resource"] as const;
+export const RESOURCE_WRITE_TOOLS = [
+  "create_resource",
+  "update_resource",
+  "delete_resource",
+] as const;
 
 /**
  * The 403 a read-only employee gets from a write tool. It names the setting and

@@ -416,9 +416,9 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
       where: { employeeId },
     });
     if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
-    const resourceLibrary = await AppDataSource.getRepository(
-      EmployeeResourceLibraryGrant,
-    ).findOne({ where: { employeeId } });
+    const resourceLibrary = await AppDataSource.getRepository(EmployeeResourceLibraryGrant).findOne(
+      { where: { employeeId } },
+    );
     // Exactly `read`, not "anything that is not write": an unknown level stays
     // live here like the signing branch above — the route gate fails closed on
     // it anyway, and a ranking hint prefers a wasted call to a hidden tool.

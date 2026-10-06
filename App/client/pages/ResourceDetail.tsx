@@ -976,9 +976,9 @@ function ShareModal({
   const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>([]);
   // Resources → AI access, so a level this employee cannot use right now can
   // say so. Advisory only: if it fails to load, the modal works as before.
-  const [libraryLevels, setLibraryLevels] = React.useState<
-    Map<string, ResourceLibraryAccessLevel>
-  >(() => new Map());
+  const [libraryLevels, setLibraryLevels] = React.useState<Map<string, ResourceLibraryAccessLevel>>(
+    () => new Map(),
+  );
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
