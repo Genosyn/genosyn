@@ -6,12 +6,16 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
+import { parseAddressList } from "../../lib/emailAddress.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import { FakeMailbox } from "../../test/fakeMailbox.js";
+import { messageAddresses } from "./addressIndex.js";
 import type { GmailHeader, GmailMessage } from "./gmailClient.js";
-import { encodeLocation } from "./imapModel.js";
+import { parseSource } from "./imapClient.js";
+import { encodeLocation, mailboxMessageFrom } from "./imapModel.js";
 import { toMailboxMessage } from "./mailbox/gmail.js";
 import type { MailboxLabel, MailboxMessage } from "./mailbox/types.js";
+import { buildMimeString, type MimeFields } from "./mime.js";
 import {
   columnHasLabel,
   columnToLabelIds,
@@ -358,6 +362,83 @@ describe("upsertMailMessage location", () => {
   });
 });
 
+// ───────────────────────── encoded header text ─────────────────────────
+
+/**
+ * An IMAP server hands a header over exactly as it was sent, so a subject or a
+ * name outside ASCII arrives as RFC 2047 words, which the adapter decodes.
+ * These run its output through the write path, because the thread list, the
+ * thread, search and an AI Employee's mail reads all read these columns, never
+ * the headers.
+ */
+describe("upsertMailMessage with an IMAP message's encoded header text", () => {
+  async function imapMessage(fields: MimeFields): Promise<MailboxMessage> {
+    return mailboxMessageFrom({
+      parsed: await parseSource(Buffer.from(buildMimeString(fields), "utf8")),
+      folder: { path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
+      flags: [],
+      location: { folder: "INBOX", uidValidity: "7", uid: 1 },
+      hasBodies: true,
+    });
+  }
+
+  test("stores the subject and recipients as the text they read, and titles the thread with it", async () => {
+    const account = await mailAccount({ provider: "imap" });
+    const message = await imapMessage({
+      from: { address: "adne@x.com", name: "Ådne Ström" },
+      to: "Zoë Ödegaard <zoe@x.com>",
+      cc: '"Doe, Zoë" <doe@x.com>',
+      bcc: "Åsa <asa@x.com>",
+      subject: "Café — devis",
+      bodyText: "Voici le devis.",
+      messageId: "<devis-1@x.com>",
+    });
+
+    const { row } = await upsertMailMessage(account, message);
+    const thread = await recomputeThread(account, message.threadRef);
+
+    const stored = await reread(row.id);
+    assert.equal(stored.subject, "Café — devis");
+    assert.equal(stored.toEmails, "Zoë Ödegaard <zoe@x.com>");
+    assert.equal(stored.ccEmails, '"Doe, Zoë" <doe@x.com>');
+    assert.equal(stored.bccEmails, "Åsa <asa@x.com>");
+    assert.equal(stored.fromName, "Ådne Ström");
+    assert.equal(stored.fromEmail, "adne@x.com");
+    assert.equal(stored.messageIdHeader, "<devis-1@x.com>");
+    assert.equal(thread?.subject, "Café — devis");
+  });
+
+  test("keeps a decoded name holding a comma or a quote one recipient wide", async () => {
+    // Review approvals check a draft's recipients with parseAddressList, and
+    // the address index reads the stored lists with it. Decoded in place,
+    // `Doe, Zoë` would be two recipients — one of them invalid — and `Åsa "Q`
+    // a quote that swallows the address after it.
+    const account = await mailAccount({ provider: "imap" });
+    const message = await imapMessage({
+      from: { address: "adne@x.com" },
+      to: '"Doe, Zoë" <doe@x.com>, "Åsa \\"Q" <q@x.com>, plain@x.com',
+      subject: "Recipients",
+      bodyText: "Hi.",
+      messageId: "<recipients-1@x.com>",
+    });
+
+    const { row } = await upsertMailMessage(account, message);
+
+    const stored = await reread(row.id);
+    assert.equal(stored.toEmails, '"Doe, Zoë" <doe@x.com>, "Åsa \\"Q" <q@x.com>, plain@x.com');
+    assert.deepEqual(parseAddressList(stored.toEmails), {
+      addresses: ["doe@x.com", "q@x.com", "plain@x.com"],
+      invalid: [],
+    });
+    assert.deepEqual(messageAddresses(stored).sort(), [
+      "adne@x.com",
+      "doe@x.com",
+      "plain@x.com",
+      "q@x.com",
+    ]);
+  });
+});
+
 // ───────────────────────── upsertGmailMessage ─────────────────────────
 
 describe("upsertGmailMessage", () => {
@@ -651,6 +732,26 @@ describe("recomputeThread", () => {
     assert.equal(thread?.subject, "August invoice");
     assert.equal(thread?.snippet, "Paid, thanks.");
     assert.deepEqual(thread?.lastMessageAt, new Date("2026-08-15T11:00:00Z"));
+  });
+
+  test("names a conversation the mailbox only sent by its first recipient, comma and all", async () => {
+    // With nobody but the mailbox itself on the From lines, the list row is
+    // named after whoever the newest message went to — and a quoted name
+    // holds a comma that is not the end of that recipient.
+    const account = await mailAccount();
+    await seedThread(account, [
+      {
+        ref: "m-1",
+        labelIds: ["SENT"],
+        headers: headers({
+          From: SELF,
+          To: '"Doe, Zoë" <doe@x.com>, Bob <bob@acme.com>',
+          Subject: "Devis",
+        }),
+      },
+    ]);
+
+    assert.equal((await recomputeThread(account, "t-1"))?.participants, "Doe, Zoë");
   });
 
   test("flags the conversation when any one message carried an attachment", async () => {

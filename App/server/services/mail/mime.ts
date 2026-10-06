@@ -28,9 +28,10 @@ import { parseAddressList } from "../../lib/emailAddress.js";
  * grammar is easy to get subtly wrong: a display name with a comma in it must
  * be quoted or it becomes two recipients, a quote inside one must be escaped,
  * and a name outside ASCII must be RFC 2047-encoded rather than quoted.
- * {@link formatMailbox} is the one writer of that grammar, and
- * {@link displayNameText} and {@link decodeMimeWords} read it back, so a name
- * survives the trip through a mail server and into the mirror unchanged.
+ * {@link formatMailbox} is the one writer of that grammar — for the wire, and
+ * in the decoded form the mirror stores — and {@link displayNameText},
+ * {@link decodeMimeWords} and {@link decodeAddressList} read it back, so a
+ * name survives the trip through a mail server and into the mirror unchanged.
  */
 
 /** One address with the name shown beside it — the shape of `From`. */
@@ -367,20 +368,29 @@ function encodeHeader(s: string): string {
  *
  * Control characters collapse to a space first. That is the header-injection
  * guard: no name, however it was typed, can end this line and begin another.
+ *
+ * `decoded` writes the form a header takes once it has been read — the form
+ * Gmail's API hands over and the mirror stores. A name outside ASCII is then
+ * written as itself rather than encoded, and quoted by the same rule as an
+ * ASCII one, so `Doe, Zoë` still reads as one recipient. That form is for
+ * reading, never for the wire: replying through {@link buildMimeString}
+ * encodes it again.
  */
-export function formatMailbox(mailbox: MimeMailbox): string {
+export function formatMailbox(mailbox: MimeMailbox, options: { decoded?: boolean } = {}): string {
   const address = stripCrlf(mailbox.address);
   const name = stripCrlf(mailbox.name ?? "");
   if (!name) return address;
-  return `${encodeDisplayName(name)} <${address}>`;
+  return `${encodeDisplayName(name, options.decoded === true)} <${address}>`;
 }
 
 /** An atom's characters (RFC 5322 §3.2.3) and the spaces between atoms. */
 const PLAIN_DISPLAY_NAME = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]+$/;
+/** The same, plus the characters outside ASCII that RFC 6532 lets an atom hold. */
+const PLAIN_DECODED_DISPLAY_NAME = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ \u0080-\uffff]+$/;
 
-function encodeDisplayName(name: string): string {
-  if (/[^\x20-\x7e]/.test(name)) return encodeHeader(name);
-  if (PLAIN_DISPLAY_NAME.test(name)) return name;
+function encodeDisplayName(name: string, decoded: boolean): string {
+  if (!decoded && /[^\x20-\x7e]/.test(name)) return encodeHeader(name);
+  if ((decoded ? PLAIN_DECODED_DISPLAY_NAME : PLAIN_DISPLAY_NAME).test(name)) return name;
   return `"${name.replace(/[\\"]/g, "\\$&")}"`;
 }
 
@@ -425,7 +435,7 @@ function encodeAddressList(value: string): string {
 }
 
 /** Split a recipient list on the commas outside quoted names and angle addresses. */
-function splitAddressList(value: string): string[] {
+export function splitAddressList(value: string): string[] {
   const entries: string[] = [];
   let current = "";
   let quoted = false;
@@ -503,6 +513,63 @@ export function decodeMimeWords(value: string): string {
         : (decodeCharset(piece.charset, Buffer.concat(piece.bytes)) ?? piece.source),
     )
     .join("");
+}
+
+/**
+ * An unstructured header's text — `Subject` — with its RFC 2047 words
+ * decoded. A value with nothing encoded in it is returned exactly as written.
+ */
+export function decodeHeaderText(value: string): string {
+  if (!value.includes("=?")) return value;
+  return (
+    decodeMimeWords(value)
+      // A decoded word can carry anything, a line break included; a header is one line.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+      .trim()
+  );
+}
+
+/**
+ * A display name as written in a header, read back as the one line of text a
+ * mail client shows: quotes and escapes removed, RFC 2047 words decoded —
+ * including the ones broken senders put inside quotes.
+ */
+export function decodeDisplayName(raw: string): string {
+  return (
+    decodeMimeWords(displayNameText(raw))
+      // A decoded word can carry anything, a line break included; a name is one line.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\s\u0000-\u001f\u007f]+/g, " ")
+      .trim()
+  );
+}
+
+/**
+ * An address-list header — `From`, `To`, `Cc` — with the RFC 2047 words in
+ * its display names decoded, and still an address list.
+ *
+ * Decoding the whole value in place would not be one. A name sent as
+ * `=?UTF-8?Q?Doe=2C_Zo=C3=AB?=` reads `Doe, Zoë`, and the comma its encoding
+ * kept safe would split one recipient into two for every parser downstream; a
+ * decoded `"` would open a quote that never closes. So each recipient whose
+ * name holds an encoded word is read back by {@link decodeDisplayName} and
+ * written again by {@link formatMailbox} in its decoded form, which quotes
+ * whatever needs quoting. Every other recipient is kept exactly as written,
+ * and so is a value with nothing encoded in it.
+ */
+export function decodeAddressList(value: string): string {
+  if (!value.includes("=?")) return value;
+  return splitAddressList(value)
+    .map((entry) => {
+      const named = /^(.*?)\s*<([^<>]*)>$/.exec(entry);
+      if (!named || !named[1].includes("=?")) return entry;
+      return formatMailbox(
+        { name: decodeDisplayName(named[1]), address: named[2] },
+        { decoded: true },
+      );
+    })
+    .join(", ");
 }
 
 /** RFC 2047's `Q` encoding: `_` is a space, `=XX` is one byte, the rest is itself. */

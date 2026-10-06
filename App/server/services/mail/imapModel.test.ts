@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { parseAddressList } from "../../lib/emailAddress.js";
+import { headerValue } from "./gmailClient.js";
+import { parseSource } from "./imapClient.js";
 import {
   attachmentsFrom,
   canonicalLabelForFolder,
@@ -23,6 +26,7 @@ import {
   type ParsedSource,
 } from "./imapModel.js";
 import { CANONICAL_LABELS } from "./mailbox/types.js";
+import { buildMimeString } from "./mime.js";
 
 /**
  * The decisions that make an IMAP mailbox behave like the rest of the Email
@@ -334,9 +338,70 @@ describe("headersFromLines", () => {
     assert.deepEqual(headers, [{ name: "References", value: "<a@x> <b@x> <c@x>" }]);
   });
 
-  test("keeps the raw value rather than a decoded one", () => {
+  test("keeps a header with nothing encoded in it exactly as the sender wrote it", () => {
     const headers = headersFromLines([{ key: "to", line: 'To: "Ada, L" <ada@x.com>' }]);
     assert.equal(headerOf(headers, "To"), '"Ada, L" <ada@x.com>');
+  });
+
+  test("decodes an encoded subject into the text a reader sees", () => {
+    // Gmail's API decodes before it answers; an IMAP server hands over the
+    // bytes, and the list, the thread, search and every AI Employee read would
+    // show `=?UTF-8?B?…?=`. The space that folds two encoded words together is
+    // not part of the text.
+    const headers = headersFromLines([
+      { key: "subject", line: "Subject: Re: =?UTF-8?B?Q2Fmw6kg4oCU?=\r\n =?utf-8?Q?_devis?=" },
+    ]);
+    assert.equal(headerOf(headers, "Subject"), "Re: Café — devis");
+  });
+
+  test("keeps a decoded subject on one line, whatever its words carried", () => {
+    const smuggled = Buffer.from("Invoice\r\nBcc: attacker@evil.example").toString("base64");
+    const headers = headersFromLines([
+      { key: "subject", line: `Subject: =?UTF-8?B?${smuggled}?=` },
+    ]);
+    assert.equal(headerOf(headers, "Subject"), "Invoice Bcc: attacker@evil.example");
+  });
+
+  test("decodes the names in address headers and quotes the ones that need it", () => {
+    // Decoded in place, the comma and the quote these names' encoding kept
+    // safe would become a second recipient and a quote that never closes —
+    // and a draft replying to everyone would fail its recipient check. Each
+    // encoded name is read back and written again instead; the recipients
+    // around it keep their bytes.
+    const headers = headersFromLines([
+      { key: "from", line: "From: =?UTF-8?Q?=C3=85dne_Str=C3=B6m?= <adne@x.com>" },
+      {
+        key: "to",
+        line: "To: =?UTF-8?Q?Doe=2C_Zo=C3=AB?= <zoe@x.com>,\r\n =?UTF-8?Q?=C3=85sa_=22Q?= <q@x.com>, plain@x.com",
+      },
+      { key: "cc", line: 'Cc: "Ada, L" <ada@x.com>, =?ISO-8859-1?Q?Ren=E9?= <rene@x.com>' },
+    ]);
+    assert.equal(headerOf(headers, "From"), "Ådne Ström <adne@x.com>");
+    assert.equal(
+      headerOf(headers, "To"),
+      '"Doe, Zoë" <zoe@x.com>, "Åsa \\"Q" <q@x.com>, plain@x.com',
+    );
+    assert.equal(headerOf(headers, "Cc"), '"Ada, L" <ada@x.com>, René <rene@x.com>');
+    assert.deepEqual(parseAddressList(headerOf(headers, "To")), {
+      addresses: ["zoe@x.com", "q@x.com", "plain@x.com"],
+      invalid: [],
+    });
+  });
+
+  test("leaves every header a reader does not see byte for byte", () => {
+    // Rows are keyed on Message-ID and conversations on References and
+    // In-Reply-To, so those reach the mirror exactly as sent — even when they
+    // hold something shaped like an encoded word.
+    const lines = [
+      { key: "message-id", line: "Message-ID: <=?utf-8?q?a?=@x.com>" },
+      { key: "references", line: "References: <=?utf-8?q?root?=@x.com> <b@x.com>" },
+      { key: "in-reply-to", line: "In-Reply-To: <=?utf-8?q?b?=@x.com>" },
+      { key: "list-id", line: "List-Id: =?UTF-8?Q?Caf=C3=A9?= <cafe.lists.x.com>" },
+    ];
+    assert.deepEqual(
+      headersFromLines(lines).map((h) => h.value),
+      lines.map((l) => l.line.slice(l.line.indexOf(":") + 1).trim()),
+    );
   });
 
   test("skips a line with no colon instead of storing a nameless header", () => {
@@ -505,5 +570,27 @@ describe("mailboxMessageFrom", () => {
       hasBodies: true,
     });
     assert.equal(message.bodyHtml, "");
+  });
+
+  test("hands over the subject and recipients of the bytes decoded, as Gmail's API does", async () => {
+    // Built and parsed the way the sync engine reads a message off the server.
+    const raw = buildMimeString({
+      subject: "Café — devis",
+      to: "Zoë Ödegaard <zoe@x.com>",
+      from: { address: "a@x.com" },
+      bodyText: "Voici le devis.",
+    });
+    // On the wire both are encoded words; that is what the server hands back.
+    assert.match(raw, /^Subject: =\?UTF-8\?B\?/m);
+    assert.match(raw, /^To: =\?UTF-8\?B\?/m);
+    const message = mailboxMessageFrom({
+      parsed: await parseSource(Buffer.from(raw, "utf8")),
+      folder: INBOX,
+      flags: [],
+      location,
+      hasBodies: true,
+    });
+    assert.equal(headerValue(message.headers, "Subject"), "Café — devis");
+    assert.equal(headerValue(message.headers, "To"), "Zoë Ödegaard <zoe@x.com>");
   });
 });

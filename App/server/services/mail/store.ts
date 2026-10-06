@@ -6,6 +6,7 @@ import { MailLabel } from "../../db/entities/MailLabel.js";
 import { headerValue, parseAddress, type GmailMessage } from "./gmailClient.js";
 import { toMailboxMessage } from "./mailbox/gmail.js";
 import type { Mailbox, MailboxLabel, MailboxMessage } from "./mailbox/types.js";
+import { splitAddressList } from "./mime.js";
 import { createRevenueDocumentCandidatesForMessage } from "../revenue/documentCapture.js";
 
 /**
@@ -252,7 +253,8 @@ function summarizeParticipants(account: MailAccount, messages: MailMessage[]): s
   }
   if (seen.size === 0) {
     const newest = messages[messages.length - 1];
-    const first = newest.toEmails.split(",")[0]?.trim();
+    // Not a plain split on commas: a quoted name such as `"Doe, Zoë"` holds one.
+    const first = splitAddressList(newest.toEmails)[0];
     if (first) {
       const parsed = parseAddress(first);
       seen.set(parsed.email || first, parsed.name || parsed.email || first);
