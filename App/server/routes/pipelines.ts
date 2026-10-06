@@ -22,6 +22,7 @@ import {
 import { NODE_CATALOG } from "../services/pipelines/catalog.js";
 import { PipelineGraph } from "../services/pipelines/types.js";
 import { recordAudit } from "../services/audit.js";
+import { UUID_RE } from "../services/bases.js";
 import { PIPELINE_LOG_MAX_BYTES } from "../services/pipelines/log.js";
 import { graphForStarter } from "../services/pipelines/starters.js";
 import { getProvider, listProviderIds } from "../integrations/index.js";
@@ -177,8 +178,12 @@ pipelinesRouter.post("/pipelines", validateBody(createSchema), async (req, res) 
 
 async function loadPipeline(cid: string, idOrSlug: string): Promise<Pipeline | null> {
   const repo = AppDataSource.getRepository(Pipeline);
+  // `id` is a uuid column: on Postgres a slug raises 22P02 rather than
+  // matching nothing, and the detail page opens a Pipeline by its slug. Only a
+  // uuid-shaped handle may reach the id lookup; `resolvePipeline` in
+  // mcpInternal.ts guards the same way.
   return (
-    (await repo.findOneBy({ id: idOrSlug, companyId: cid })) ||
+    (UUID_RE.test(idOrSlug) ? await repo.findOneBy({ id: idOrSlug, companyId: cid }) : null) ??
     (await repo.findOneBy({ slug: idOrSlug, companyId: cid }))
   );
 }

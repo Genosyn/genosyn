@@ -13,6 +13,7 @@ import { BaseField } from "../db/entities/BaseField.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
+import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
@@ -26,7 +27,10 @@ import { errorHandler } from "../middleware/error.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { persistTestSession } from "../test/userSession.js";
+import { withNonUuidIdLookups } from "../test/uuidLookups.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
+import { pipelinesRouter } from "./pipelines.js";
 
 /**
  * AI employees authoring Pipelines.
@@ -66,6 +70,13 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use("/internal/mcp", mcpInternalRouter);
+  // The Pipelines page, signed in as the company's owner.
+  app.use(async (req, _res, next) => {
+    (req as unknown as { session: unknown }).session = { userId: owner.id, sessionVersion: 0 };
+    await persistTestSession(req);
+    next();
+  });
+  app.use("/api/companies/:cid", pipelinesRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, resolve);
@@ -109,6 +120,21 @@ async function tool<T = Record<string, unknown>>(
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(args),
+  });
+  const text = await response.text();
+  return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
+}
+
+/** The owner's own request to the Pipelines HTTP routes, as the builder makes it. */
+async function humanCall<T = Record<string, unknown>>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: T }> {
+  const response = await fetch(`${baseUrl}/api/companies/${company.id}${path}`, {
+    method,
+    headers: body === undefined ? {} : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
@@ -973,5 +999,145 @@ describe("company scoping and authority", () => {
     });
     assert.equal(write.status, 403);
     assert.match(write.body.error, /owner or admin/);
+  });
+});
+
+/**
+ * `pipelines.id` and `channels.id` are uuid columns on Postgres, where a slug
+ * compared to one raises 22P02 and the request never answers. SQLite returns no
+ * rows instead, so each of these also pins that no slug reaches the id lookup.
+ */
+describe("a Pipeline or channel named by slug", () => {
+  const otherCompany = () =>
+    insert(Company, { name: "Other", slug: `other-${randomUUID()}`, ownerId: owner.id });
+
+  test("the Pipelines page opens a Pipeline by slug or id, never another company's", async () => {
+    const mine = await insert(Pipeline, {
+      companyId: company.id,
+      name: "Nightly digest",
+      slug: "nightly-digest",
+      description: "",
+      enabled: true,
+      graphJson: '{"nodes":[],"edges":[]}',
+    });
+    const theirs = await insert(Pipeline, {
+      companyId: (await otherCompany()).id,
+      name: "Theirs",
+      slug: "theirs",
+      description: "",
+      enabled: true,
+      graphJson: '{"nodes":[],"edges":[]}',
+    });
+
+    const { result, nonUuidIds } = await withNonUuidIdLookups(Pipeline, async () => {
+      const outcomes: Array<[string, number, string | null]> = [];
+      for (const handle of [mine.slug, mine.id, theirs.slug, theirs.id, "nobody"]) {
+        const opened = await humanCall<{ id?: string }>("GET", `/pipelines/${handle}`);
+        outcomes.push([handle, opened.status, opened.body.id ?? null]);
+      }
+      return outcomes;
+    });
+    assert.deepEqual(result, [
+      [mine.slug, 200, mine.id],
+      [mine.id, 200, mine.id],
+      [theirs.slug, 404, null],
+      [theirs.id, 404, null],
+      ["nobody", 404, null],
+    ]);
+    assert.deepEqual(nonUuidIds, [], "each of these is a 22P02 on Postgres");
+  });
+
+  test("every Pipelines route that takes a handle accepts the slug", async () => {
+    const created = await humanCall<{ slug: string; graph: { nodes: Step[] } }>(
+      "POST",
+      "/pipelines",
+      { name: "Receiver", startWith: "webhook" },
+    );
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    const { slug, graph } = created.body;
+    const hook = graph.nodes.find((node) => node.type === "trigger.webhook")?.id;
+
+    const { result, nonUuidIds } = await withNonUuidIdLookups(Pipeline, async () => {
+      const statuses: Array<[string, number]> = [];
+      for (const [method, path, body] of [
+        ["PATCH", "", { description: "Edited by slug" }],
+        ["POST", "/run", {}],
+        ["GET", "/runs", undefined],
+        ["POST", "/webhook-token", { nodeId: hook }],
+        ["DELETE", "", undefined],
+      ] as const) {
+        const response = await humanCall(method, `/pipelines/${slug}${path}`, body);
+        statuses.push([`${method} ${path}`.trim(), response.status]);
+      }
+      return statuses;
+    });
+    assert.deepEqual(result, [
+      ["PATCH", 200],
+      ["POST /run", 200],
+      ["GET /runs", 200],
+      ["POST /webhook-token", 200],
+      ["DELETE", 200],
+    ]);
+    assert.deepEqual(nonUuidIds, [], "each of these is a 22P02 on Postgres");
+    assert.equal(await AppDataSource.getRepository(Pipeline).count(), 0);
+  });
+
+  test("a channel step finds its channel by slug or id, only in this company", async () => {
+    const general = await insert(Channel, {
+      companyId: company.id,
+      kind: "public",
+      name: "General",
+      slug: "general",
+    });
+    const other = await otherCompany();
+    // The same slug in another company: a step naming "general" still posts here.
+    const theirGeneral = await insert(Channel, {
+      companyId: other.id,
+      kind: "public",
+      name: "General",
+      slug: "general",
+    });
+    await insert(Channel, { companyId: other.id, kind: "public", name: "Lounge", slug: "lounge" });
+
+    const { result, nonUuidIds } = await withNonUuidIdLookups(Channel, async () => {
+      const outcomes: Array<[string, number, string | null]> = [];
+      for (const handle of ["general", general.id, theirGeneral.id, "lounge"]) {
+        // Saving resolves the step's channel to check access; running resolves
+        // it again to post. Both go through the same lookup.
+        const created = await tool<PipelineBody>("create_pipeline", {
+          name: `Post to ${handle}`,
+          graph: graphOf(
+            { id: "t", type: "trigger.manual" },
+            {
+              id: "post",
+              type: "action.sendMessage",
+              config: { channelIdOrSlug: handle, content: `Hello via ${handle}` },
+            },
+          ),
+        });
+        if (created.status !== 200) {
+          outcomes.push([handle, created.status, created.body.refusedSteps?.[0]?.reason ?? null]);
+          continue;
+        }
+        const run = await tool<{ run?: { status: string } }>("run_pipeline", {
+          pipelineId: created.body.pipeline.id,
+        });
+        outcomes.push([handle, run.status, run.body.run?.status ?? null]);
+      }
+      return outcomes;
+    });
+    assert.deepEqual(result, [
+      ["general", 200, "completed"],
+      [general.id, 200, "completed"],
+      [theirGeneral.id, 403, `Channel "${theirGeneral.id}" not found.`],
+      ["lounge", 403, 'Channel "lounge" not found.'],
+    ]);
+    assert.deepEqual(nonUuidIds, [], "each of these is a 22P02 on Postgres");
+
+    const posted = await AppDataSource.getRepository(ChannelMessage).find();
+    assert.deepEqual(
+      posted.map((message) => message.channelId),
+      [general.id, general.id],
+    );
   });
 });

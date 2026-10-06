@@ -12,6 +12,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import { UUID_RE } from "./bases.js";
 import { broadcastToCompany } from "./realtime.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "./uploads.js";
 import { streamChatWithEmployee, ChatTurn } from "./chat.js";
@@ -1734,7 +1735,13 @@ export async function findChannelBySlugOrId(
   idOrSlug: string,
 ): Promise<Channel | null> {
   const { channels } = repos();
-  const byId = await channels.findOneBy({ id: idOrSlug, companyId });
-  if (byId) return byId;
+  // `id` is a uuid column: on Postgres a slug like "general" raises 22P02
+  // rather than matching nothing, so only a uuid-shaped handle may reach it.
+  // The slug — what the MCP channel tools and pipeline steps are usually
+  // given — goes straight to the fallback.
+  if (UUID_RE.test(idOrSlug)) {
+    const byId = await channels.findOneBy({ id: idOrSlug, companyId });
+    if (byId) return byId;
+  }
   return channels.findOneBy({ companyId, slug: idOrSlug });
 }

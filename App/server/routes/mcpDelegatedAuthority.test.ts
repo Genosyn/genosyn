@@ -25,6 +25,7 @@ import { errorHandler } from "../middleware/error.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { recordAttachmentBytes } from "../services/uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { withNonUuidIdLookups } from "../test/uuidLookups.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 let server: Server;
@@ -638,6 +639,65 @@ describe("interactive MCP authority", () => {
         .sort(),
       [`ai:${employee.id}`, `user:${company.ownerId}`].sort(),
     );
+  });
+});
+
+describe("workspace channel handles", () => {
+  /**
+   * The channel tools take a slug or a UUID, and a slug is what an AI Employee
+   * usually holds. `channels.id` is a uuid column on Postgres, where a slug
+   * compared to it raises 22P02 and the tool call never answers. SQLite returns
+   * no rows instead, so the spy is what pins that no slug reaches the id lookup.
+   */
+  test("a slug or an id finds this company's channel, never another company's", async () => {
+    const room = await createWorkspaceChannel({ name: "company-room", kind: "public" });
+    const otherCompany = await insert(Company, {
+      name: "Other Co",
+      slug: "other-co",
+      ownerId: "other-owner",
+    });
+    const theirRoom = await createWorkspaceChannel({
+      companyId: otherCompany.id,
+      name: "company-room",
+      kind: "public",
+    });
+    await createWorkspaceChannel({ companyId: otherCompany.id, name: "lounge", kind: "public" });
+
+    const handles = [
+      "company-room", // this company's slug, which the other company uses too
+      room.id,
+      theirRoom.id,
+      "lounge", // a slug only the other company has
+    ];
+    const { result, nonUuidIds } = await withNonUuidIdLookups(Channel, async () => {
+      const statuses: Record<string, number[]> = {};
+      for (const [tool, args] of [
+        ["send_workspace_message", { content: "Shipped" }],
+        ["rename_workspace_channel", { topic: "Launch week" }],
+        ["archive_workspace_channel", {}],
+      ] as const) {
+        statuses[tool] = [];
+        for (const channel of handles) {
+          statuses[tool].push((await call(tool, { channel, ...args })).status);
+        }
+      }
+      return statuses;
+    });
+    assert.deepEqual(result, {
+      send_workspace_message: [200, 200, 404, 404],
+      rename_workspace_channel: [200, 200, 404, 404],
+      archive_workspace_channel: [200, 200, 404, 404],
+    });
+    assert.deepEqual(nonUuidIds, [], "each of these is a 22P02 on Postgres");
+
+    const messages = await AppDataSource.getRepository(ChannelMessage).find();
+    assert.deepEqual(
+      messages.map((message) => message.channelId),
+      [room.id, room.id],
+    );
+    const theirs = await AppDataSource.getRepository(Channel).findOneByOrFail({ id: theirRoom.id });
+    assert.equal(theirs.topic, "company-room topic");
+    assert.equal(theirs.archivedAt, null);
   });
 });
 
