@@ -127,10 +127,13 @@ import {
   generateInvoiceFromRecurring,
   hydrateRecurringInvoices,
   loadRecurringInvoiceBySlug,
+  nameForNewRecurringInvoice,
   processRecurringInvoiceRun,
+  RECURRING_INVOICE_NAME_REQUIRED_ERROR,
   registerRecurringInvoice,
   replaceRecurringInvoiceLines,
 } from "../services/recurringInvoices.js";
+import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
 import { renderCustomerStatementHtmlForCompany } from "../services/customerStatementHtml.js";
@@ -4000,7 +4003,12 @@ const recurringLineDraftSchema = z.object({
 export const recurringInvoiceCreateSchema = z.object({
   subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid(),
-  name: z.string().min(1).max(200),
+  name: z
+    .string()
+    .trim()
+    .max(RECURRING_INVOICE_NAME_MAX_LENGTH)
+    .optional()
+    .describe("Schedule name. Omitted or blank, the schedule is named after its customer."),
   cronExpr: z
     .string()
     .min(1)
@@ -4050,6 +4058,8 @@ financeRouter.post(
       companyId: cid,
     });
     if (!customer) return res.status(400).json({ error: "Invalid customer" });
+    const name = nameForNewRecurringInvoice(body.name, customer);
+    if (!name) return res.status(400).json({ error: RECURRING_INVOICE_NAME_REQUIRED_ERROR });
 
     let subsidiaryId: string | null;
     try {
@@ -4065,7 +4075,7 @@ financeRouter.post(
       customerId: customer.id,
       subsidiaryId,
       slug,
-      name: body.name,
+      name,
       cronExpr: body.cronExpr,
       frequency: body.frequency ?? "monthly",
       intervalCount: body.intervalCount ?? 1,
@@ -4102,7 +4112,13 @@ financeRouter.get("/recurring-invoices/:slug", async (req, res) => {
 export const recurringInvoicePatchSchema = z.object({
   subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid().optional(),
-  name: z.string().min(1).max(200).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name can't be blank")
+    .max(RECURRING_INVOICE_NAME_MAX_LENGTH)
+    .optional()
+    .describe("New schedule name; it cannot be blank. Omit it to keep the current name."),
   cronExpr: z
     .string()
     .min(1)

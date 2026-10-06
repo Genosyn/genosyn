@@ -70,7 +70,9 @@ export class RecurringInvoice {
   @Column({ type: "varchar" })
   slug!: string;
 
-  /** Human label shown in the list, e.g. "Monthly retainer · Acme". */
+  /** Human label shown in the list, e.g. "Acme Corp". A new schedule takes
+   *  its customer's name unless one is given (`shared/recurringInvoiceName.ts`);
+   *  changing the customer later never renames it. */
   @Column({ type: "varchar" })
   name!: string;
 

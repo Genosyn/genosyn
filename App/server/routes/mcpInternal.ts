@@ -430,11 +430,14 @@ import {
   applyRecurringInvoiceStatus,
   hydrateRecurringInvoices,
   loadRecurringInvoiceBySlug,
+  nameForNewRecurringInvoice,
+  RECURRING_INVOICE_NAME_REQUIRED_ERROR,
   registerRecurringInvoice,
   replaceRecurringInvoiceLines,
   type HydratedRecurringInvoice,
   uniqueRecurringInvoiceSlug,
 } from "../services/recurringInvoices.js";
+import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import {
   createEstimateDraft,
   displayEstimateStatus,
@@ -2126,7 +2129,12 @@ mcpInternalRouter.post(
 const recurringInvoiceMutationFields = {
   customerSlug: z.string().min(1).max(200).optional(),
   subsidiaryId: z.string().uuid().nullable().optional(),
-  name: z.string().min(1).max(200).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name can't be blank")
+    .max(RECURRING_INVOICE_NAME_MAX_LENGTH)
+    .optional(),
   cronExpr: z
     .string()
     .min(1)
@@ -2151,7 +2159,9 @@ const createRecurringInvoiceSchema = z
   .object({
     ...recurringInvoiceMutationFields,
     customerSlug: z.string().min(1).max(200),
-    name: z.string().min(1).max(200),
+    // Optional on create: left out or blank, the schedule is named after its
+    // customer, as the New recurring invoice form pre-fills it.
+    name: z.string().trim().max(RECURRING_INVOICE_NAME_MAX_LENGTH).optional(),
     cronExpr: z
       .string()
       .min(1)
@@ -2195,6 +2205,8 @@ mcpInternalRouter.post(
     if (!customer) {
       return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
     }
+    const name = nameForNewRecurringInvoice(body.name, customer);
+    if (!name) return res.status(400).json({ error: RECURRING_INVOICE_NAME_REQUIRED_ERROR });
     if (body.autoSend === true && !customer.email.trim()) {
       return res.status(400).json({
         error:
@@ -2226,7 +2238,7 @@ mcpInternalRouter.post(
           customerId: customer.id,
           subsidiaryId: issuer.subsidiaryId,
           slug: await uniqueRecurringInvoiceSlug(companyId, manager),
-          name: body.name,
+          name,
           cronExpr: body.cronExpr,
           frequency: body.frequency,
           intervalCount: body.intervalCount ?? 1,

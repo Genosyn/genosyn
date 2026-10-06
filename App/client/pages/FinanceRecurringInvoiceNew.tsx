@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -28,6 +28,20 @@ import {
 } from "../lib/schedule";
 import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
+import {
+  changeRecurringInvoiceNameCustomer,
+  existingRecurringInvoiceName,
+  initialRecurringInvoiceCustomer,
+  initialRecurringInvoiceName,
+  recurringInvoiceNameToSave,
+  requestedRecurringInvoiceCustomerId,
+  typedRecurringInvoiceName,
+  type RecurringInvoiceNameState,
+} from "../lib/recurringInvoiceForm";
+import {
+  defaultRecurringInvoiceName,
+  RECURRING_INVOICE_NAME_MAX_LENGTH,
+} from "../../shared/recurringInvoiceName";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -84,12 +98,18 @@ const scheduleField =
 /**
  * Recurring-invoice form — handles both create and edit. The lifecycle
  * controls (pause / resume / end / run now) live on the detail page.
+ *
+ * A new schedule is named after its customer until the person types a name
+ * of their own (`lib/recurringInvoiceForm.ts`). `?customerId=` picks the
+ * customer it starts with, which is how a customer's Billing tab opens it.
  */
 export default function FinanceRecurringInvoiceNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const { recurringSlug } = useParams();
   const isEdit = Boolean(recurringSlug);
+  const [searchParams] = useSearchParams();
+  const requestedCustomerId = isEdit ? null : requestedRecurringInvoiceCustomerId(searchParams);
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -101,7 +121,10 @@ export default function FinanceRecurringInvoiceNew() {
   const [subsidiaryId, setSubsidiaryId] = React.useState("");
   const [savedSubsidiaryId, setSavedSubsidiaryId] = React.useState<string | null>(null);
   const [customerId, setCustomerId] = React.useState("");
-  const [name, setName] = React.useState("");
+  const [requestedCustomerUnavailable, setRequestedCustomerUnavailable] = React.useState(false);
+  const [name, setName] = React.useState<RecurringInvoiceNameState>(() =>
+    initialRecurringInvoiceName(null),
+  );
   const [schedule, setSchedule] = React.useState<ScheduleParts>(defaultScheduleParts);
   const [daysUntilDue, setDaysUntilDue] = React.useState(14);
   const [autoSend, setAutoSend] = React.useState(false);
@@ -135,7 +158,7 @@ export default function FinanceRecurringInvoiceNew() {
           setSubsidiaryId(existing.subsidiaryId ?? "");
           setSavedSubsidiaryId(existing.subsidiaryId);
 
-          setName(existing.name);
+          setName(existingRecurringInvoiceName(existing.name));
           setSchedule({
             ...cronToParts(existing.cronExpr),
             intervalCount: existing.intervalCount ?? 1,
@@ -150,10 +173,14 @@ export default function FinanceRecurringInvoiceNew() {
           setLines(
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
-        } else if (c.length > 0) {
-          setCustomerId(c[0].id);
-          setCurrency(c[0].currency || "USD");
-          setName(`Monthly retainer — ${c[0].name}`);
+        } else {
+          const initial = initialRecurringInvoiceCustomer(c, requestedCustomerId);
+          setRequestedCustomerUnavailable(initial.requestedUnavailable);
+          if (initial.customer) {
+            setCustomerId(initial.customer.id);
+            setCurrency(initial.customer.currency || "USD");
+          }
+          setName(initialRecurringInvoiceName(initial.customer));
         }
         setReady(true);
       } catch (err) {
@@ -161,13 +188,14 @@ export default function FinanceRecurringInvoiceNew() {
         setReady(true);
       }
     })();
-  }, [company.id, recurringSlug, isEdit]);
+  }, [company.id, recurringSlug, isEdit, requestedCustomerId]);
 
   function changeCustomer(id: string) {
     setCustomerId(id);
-    const c = customers?.find((x) => x.id === id);
+    setRequestedCustomerUnavailable(false);
+    const c = customers?.find((x) => x.id === id) ?? null;
     if (c?.currency) setCurrency(c.currency);
-    if (!isEdit && c) setName(`Monthly retainer — ${c.name}`);
+    setName((current) => changeRecurringInvoiceNameCustomer(current, c));
   }
 
   function patchLine(idx: number, patch: Partial<LineRow>) {
@@ -227,8 +255,12 @@ export default function FinanceRecurringInvoiceNew() {
     return { subtotal, tax, total };
   }, [lines, taxRates]);
 
+  const selectedCustomer = customers?.find((c) => c.id === customerId) ?? null;
+  const customerName = defaultRecurringInvoiceName(selectedCustomer);
+  const nameToSave = recurringInvoiceNameToSave(name, selectedCustomer);
+
   const canSave =
-    !!customerId && !!name.trim() && lines.some((l) => l.description.trim().length > 0);
+    !!customerId && !!nameToSave && lines.some((l) => l.description.trim().length > 0);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -251,7 +283,7 @@ export default function FinanceRecurringInvoiceNew() {
       const body = {
         customerId,
         subsidiaryId: subsidiaryId || null,
-        name: name.trim(),
+        name: nameToSave,
         cronExpr: partsToCron(schedule),
         frequency: schedule.frequency,
         intervalCount: schedule.intervalCount,
@@ -413,25 +445,39 @@ export default function FinanceRecurringInvoiceNew() {
           />
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Monthly retainer — Acme"
-            required
-          />
-          <Select
-            label="Customer"
-            value={customerId}
-            onChange={(e) => changeCustomer(e.target.value)}
-            required
-          >
-            {customers?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {customerOptionLabel(c)}
-              </option>
-            ))}
-          </Select>
+          <div className="min-w-0">
+            <Input
+              label="Name"
+              value={name.value}
+              onChange={(e) => setName(typedRecurringInvoiceName(e.target.value))}
+              placeholder={customerName || "Name this schedule"}
+              maxLength={RECURRING_INVOICE_NAME_MAX_LENGTH}
+            />
+            {!name.value.trim() && customerName && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Leave blank to use the customer&apos;s name.
+              </p>
+            )}
+          </div>
+          <div className="min-w-0">
+            <Select
+              label="Customer"
+              value={customerId}
+              onChange={(e) => changeCustomer(e.target.value)}
+              required
+            >
+              {customers?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {customerOptionLabel(c)}
+                </option>
+              ))}
+            </Select>
+            {requestedCustomerUnavailable && !customerId && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                The customer you came from is archived or no longer exists. Choose who to bill.
+              </p>
+            )}
+          </div>
           <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               Schedule

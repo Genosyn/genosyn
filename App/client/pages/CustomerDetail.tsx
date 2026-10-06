@@ -41,6 +41,7 @@ import {
   type CustomerTab,
 } from "../lib/customerOverview";
 import { meetingsApi, type Meeting } from "../lib/meetings";
+import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { describeCron } from "../lib/schedule";
 import { normalizeEnvelopeList, type SignatureEnvelope } from "../lib/signing";
 import { Breadcrumbs } from "../components/AppShell";
@@ -991,7 +992,7 @@ export default function CustomerDetail() {
             title="Recurring invoices"
             count={recurring.length}
             newLabel="New recurring invoice"
-            newTo={`${financeBase}/recurring-invoices/new`}
+            newTo={newRecurringInvoicePath(financeBase, customer.id)}
             emptyText="No recurring invoices for this customer yet."
           >
             {recurring.length > 0 && (
