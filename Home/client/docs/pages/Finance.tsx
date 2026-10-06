@@ -26,6 +26,10 @@ export function Finance() {
           and email / print-to-PDF rendering.
         </LI>
         <LI>
+          <Strong>Subsidiaries</Strong> — legal entities you can select as the issuer of invoices,
+          estimates, and recurring invoices, with their own address, tax details, and footer.
+        </LI>
+        <LI>
           <Strong>Customer statements</Strong> — per-customer account activity, balances, and aging,
           with print and PDF output.
         </LI>
@@ -51,6 +55,42 @@ export function Finance() {
           balance sheet / cash flow reports, bank-feed reconciliation, and accounting periods.
         </LI>
       </UL>
+
+      <H2 id="subsidiaries">Invoice from different legal entities</H2>
+      <P>
+        Open <Code>Finance → Subsidiaries → Add subsidiary</Code>. An owner or admin enters the
+        entity&apos;s <Code>Legal name</Code>, <Code>Registered address</Code>, country, tax / VAT
+        and registration numbers, and contact details. The optional <Code>Default footer</Code>
+        holds that entity&apos;s payment terms or bank details.
+      </P>
+      <P>
+        On a new invoice, estimate, or recurring invoice, choose the entity under{" "}
+        <Code>Issued by</Code>. <Code>Company default</Code> keeps the usual company issuer. You can
+        change this choice while editing a draft or recurring schedule. A document&apos;s own footer
+        takes precedence; leave it blank to use the selected subsidiary&apos;s footer. Currency
+        remains a separate choice, initially taken from the customer.
+      </P>
+      <P>
+        Each invoice and estimate saves a copy of its issuer details. Editing a subsidiary later
+        does not rewrite those documents, their PDFs, or an estimate converted to an invoice.
+        Recurring invoices use the subsidiary&apos;s current details when each new invoice is
+        created. <Code>Archive</Code> removes an entity from new selections;{" "}
+        <Code>Show archived</Code> and <Code>Reactivate</Code> bring it back without deleting its
+        history. A recurring schedule cannot create another invoice using an archived subsidiary;
+        choose an active issuer or reactivate it to continue billing.
+      </P>
+      <P>
+        Subsidiaries identify the legal issuer on documents. Numbering, the ledger, reports, and
+        email delivery settings stay shared across the company; adding one does not create separate
+        accounting books. Invoice CSV exports include <Code>Subsidiary ID</Code> and{" "}
+        <Code>Issued by</Code> columns, with the saved issuer name.
+      </P>
+      <P>
+        An AI Employee with Finance access can discover issuing entities through{" "}
+        <Code>list_subsidiaries</Code>. With <Strong>Invoicing</Strong> access, it can provide the
+        chosen <Code>subsidiaryId</Code> when creating an invoice, estimate, or recurring schedule.
+        Only an owner or admin can create or edit the subsidiaries themselves.
+      </P>
 
       <H2 id="estimates">Estimates (quotations)</H2>
       <P>
@@ -253,19 +293,45 @@ export function Finance() {
         <Strong>Record the excess as an on-account customer credit</Strong> in the payment dialog:
         the balance-due portion posts as a normal payment and the overage becomes a credit (
         <Code>DR Bank / CR Customer Credits</Code>) you can apply to their next invoice or refund.
-        Without that tick, overpayment is refused, exactly as before.
+        Until you tick it, <Code>Record payment</Code> stays disabled for any amount above the
+        balance due. On an invoice that&apos;s already paid, <Code>Record payment</Code> is in the{" "}
+        <Code>More actions</Code> menu and the whole amount becomes a credit.
       </P>
 
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a
-        template. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
+        template, or click <Code>New recurring invoice</Code> on a customer&apos;s{" "}
+        <DocLink to="/docs/customers#overview">Billing tab</DocLink> to start one with that customer
+        already picked. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
         <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{" "}
         <Strong>quarters</Strong> or <Strong>years</Strong>, on the day and at the time you set —
         and compose the line items just like a normal invoice. The count lets you say{" "}
         <Code>every 2 weeks</Code> or <Code>every 3 months</Code>, not just every one. A
         plain-English summary (for example <Code>Every 2 weeks on Monday at 9:00 AM</Code>) appears
         beneath the picker so you can confirm the cadence before saving.
+      </P>
+      <P>
+        The list shows what each schedule bills per run, tax included, with its currency, and
+        whether each run creates a draft or issues and emails the invoice. The same schedules appear
+        on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
+      </P>
+
+      <H3 id="recurring-names">Naming a schedule</H3>
+      <P>
+        A new schedule&apos;s <Strong>Name</Strong> starts as its customer&apos;s name. Until you
+        type a name of your own, picking another customer renames it to match; once you have typed
+        one, changing the customer leaves it alone. Clear the field to hand the name back to the
+        customer: a schedule saved with an empty name takes the customer&apos;s name, and the next
+        customer you pick fills the field in again. Editing a schedule never renames it, even when
+        you move it to another customer. If the customer you started from is archived, the form
+        picks no customer and asks you to choose one rather than billing someone else.
+      </P>
+      <P>
+        The API and AI Employees follow the same rule. <Code>name</Code> is optional when creating a
+        schedule with <Code>POST /api/companies/:cid/recurring-invoices</Code> or the{" "}
+        <Code>create_recurring_invoice</Code> tool: left out or blank, it becomes the
+        customer&apos;s name. An edit that sends a name must send one that isn&apos;t blank.
       </P>
 
       <H3 id="recurring-modes">Draft vs auto-send</H3>
@@ -277,6 +343,25 @@ export function Finance() {
         same path a human-sent invoice takes, so the email log captures it identically.
       </P>
 
+      <H3 id="recurring-reliability">Failed runs and downtime</H3>
+      <P>
+        Each scheduled run is recorded before any work starts, so a crash, restart, or outage
+        cannot lose it. When the server comes back, it bills what came due while it was down
+        (several missed slots collapse into one invoice) and finishes any run it was in the middle
+        of. It continues that run&apos;s invoice rather than creating a second one, so a customer is
+        never billed twice for the same slot.
+      </P>
+      <P>
+        If creating, issuing, or emailing the invoice fails, Genosyn retries it automatically after
+        1, 5, and 15 minutes, then 1, 3, and 6 hours, and every 6 hours after that until it succeeds.
+        Email stops after six failed attempts, or at once when no email transport is configured;
+        the invoice stays issued and you send it from its page. Meanwhile the list marks the
+        schedule <Strong>Retrying</Strong> or <Strong>Email not sent</Strong>, and the detail page
+        shows the error and the time of the next attempt. A schedule starts its next run only after
+        the current one finishes. Pausing or ending the schedule stops a run that hasn&apos;t
+        finished.
+      </P>
+
       <H3 id="recurring-ai-employees">Using an AI Employee</H3>
       <P>
         An AI Employee with <Strong>Invoicing</Strong> Finance access can list and inspect recurring
@@ -285,13 +370,16 @@ export function Finance() {
         <Code>get_recurring_invoice</Code>, <Code>create_recurring_invoice</Code>, and{" "}
         <Code>update_recurring_invoice</Code>. AI-created schedules are draft-only by default: each
         tick creates an invoice for a Member to review. The employee must set <Code>autoSend</Code>
-        explicitly to issue and email every future invoice automatically.
+        explicitly to issue and email every future invoice automatically. A schedule the employee
+        doesn&apos;t name is named after its customer, as in the form.
       </P>
 
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
       <P>
         From the detail page, <Code>Run now</Code> generates an invoice immediately without
-        consuming the scheduled slot, useful for catch-up runs or testing the template. The{" "}
+        consuming the scheduled slot, useful for catch-up runs or testing the template. While a
+        scheduled run is retrying, the button reads <Code>Retry now</Code> and finishes that run
+        instead of creating an extra invoice. The{" "}
         <Code>More actions</Code> menu holds the lifecycle controls: <Code>Pause</Code> stops
         scheduled runs without losing the template and <Code>Resume</Code> restarts the next tick
         from now; <Code>End</Code> is terminal — the schedule becomes read-only but every invoice it
@@ -494,17 +582,17 @@ export function Finance() {
         <Code>Finance → Estimates</Code>, using the customer&apos;s currency and a thirty-day
         validity window by default. Creating the estimate assigns no number, changes no ledger
         balance, and sends no email. When asked to issue the quotation, the employee can use{" "}
-        <Code>issue_estimate</Code>. This performs the same action as marking it Sent in Finance:
-        it assigns a permanent number and slug and removes <Code>DRAFT</Code> from future PDFs.
-        It sends no email and has no ledger effect. Until issued, the PDF stays marked{" "}
+        <Code>issue_estimate</Code>. This performs the same action as marking it Sent in Finance: it
+        assigns a permanent number and slug and removes <Code>DRAFT</Code> from future PDFs. It
+        sends no email and has no ledger effect. Until issued, the PDF stays marked{" "}
         <Code>DRAFT</Code>, even if the employee is authorized to send that preliminary quotation.
       </P>
       <P>
         To email the quotation directly to the customer on file, the employee can use{" "}
         <Code>send_estimate</Code>, which issues a draft if needed and uses the company&apos;s
         transactional email transport. Sending must be authorized by the employee&apos;s
-        instructions and delivery settings; work restricted to preparing drafts cannot send.
-        To reply on an existing email thread instead, issue the estimate first, then attach its
+        instructions and delivery settings; work restricted to preparing drafts cannot send. To
+        reply on an existing email thread instead, issue the estimate first, then attach its
         returned <Code>estimate.slug</Code> using <Code>estimateSlug</Code> on the Email tools.
         Issuing replaces the draft slug, so subsequent reads and attachments must use the new one.
         Replace an old draft PDF attachment before sending: an email draft holds a snapshot that
@@ -525,10 +613,10 @@ export function Finance() {
       <P>
         Granted employees use granular built-in Finance tools, reached through{" "}
         <Code>find_tools</Code> and <Code>call_tool</Code>. The read tools (
-        <Code>list_estimates</Code>, <Code>get_estimate</Code>, <Code>list_finance_products</Code>,
-        <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
-        <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>,{" "}
-        <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need{" "}
+        <Code>list_subsidiaries</Code>, <Code>list_estimates</Code>, <Code>get_estimate</Code>,{" "}
+        <Code>list_finance_products</Code>, <Code>list_invoices</Code>, <Code>get_invoice</Code>,{" "}
+        <Code>list_customers</Code>, <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>
+        , <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need{" "}
         <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>issue_estimate</Code>,{" "}
         <Code>send_estimate</Code>, <Code>create_recurring_invoice</Code>,{" "}
         <Code>update_recurring_invoice</Code>, and the invoice lifecycle (

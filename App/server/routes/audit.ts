@@ -13,16 +13,12 @@ import {
   onRoutePaths,
 } from "../middleware/auth.js";
 import { validateQuery } from "../middleware/validate.js";
-import { requireCompanyFeature } from "../services/entitlements.js";
 
 /**
  * Company audit trail. Read-only — events are written by {@link recordAudit}
  * at the route seam. The list endpoint hydrates actor info so the UI can
- * render "Alice approved routine X" without extra round-trips.
- *
- * READING is gated on the `auditLog` feature (Scale plan / Enterprise
- * license, M56); `recordAudit` keeps WRITING regardless, so the history
- * exists the day the company upgrades.
+ * render "Alice approved routine X" without extra round-trips. Reading the
+ * log is admin-only.
  *
  * ## Why this grew filters (M58)
  *
@@ -35,15 +31,15 @@ import { requireCompanyFeature } from "../services/entitlements.js";
  * day. The filters below are the whole difference between an append-only log
  * and a usable one.
  *
- * A Run's *own* effects are deliberately NOT behind the entitlement — see
- * `routes/routines.ts`. Reading the company's whole history is the paid
- * feature; reading what one Run did is part of trusting the Run at all.
+ * A Run's *own* effects are deliberately readable by every member — see
+ * `routes/routineChecks.ts`. Reading the company's whole history is an admin's
+ * investigation tool; reading what one Run did is part of trusting the Run at
+ * all.
  */
 export const auditRouter = Router({ mergeParams: true });
 auditRouter.use(requireAuth);
 auditRouter.use(requireCompanyMember);
 auditRouter.use(onRoutePaths(["/audit"], requireCompanyRole("admin")));
-auditRouter.use(onRoutePaths(["/audit"], requireCompanyFeature("auditLog")));
 
 const auditQuerySchema = z
   .object({

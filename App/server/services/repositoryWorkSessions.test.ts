@@ -19,6 +19,7 @@ import { User } from "../db/entities/User.js";
 import { recordAttachmentBytes, discardUnboundAttachment } from "./uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { repositoryWorkSessionCandidates } from "./repositoryWorkSessionModels.js";
+import { workSessionCommandAvailability } from "./repositoryCommandRun.js";
 import {
   CHAT_HARD_TIMEOUT_MS,
   type ChatResult,
@@ -83,7 +84,7 @@ let dataDir: string;
 const originalDataDir = config.dataDir;
 const codingTools = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...codingTools };
@@ -928,6 +929,30 @@ describe("a session that does work", () => {
     assert.equal(session.status, "ready");
     await assert.rejects(() => readRepositoryFile(repository, "docs/plan.md"), /not found/);
     assert.deepEqual((await repositoryStatus(repository)).changes, []);
+  });
+
+  // 2026-10-02: restarting the self-hosted model server ended every turn
+  // working on it. A session's turn now waits for the server and says so.
+  test("waits out a model server restart and records the wait in its feed", async () => {
+    let waitForModel: boolean | undefined;
+    const session = await start((async (...args: Parameters<typeof chatWithEmployee>) => {
+      waitForModel = args[4]?.waitForModel;
+      args[4]?.activity?.onModelOutage?.({ state: "waiting", waitedMs: 0 });
+      args[4]?.activity?.onModelOutage?.({ state: "answered", waitedMs: 330_000 });
+      return stubChat(() => {})(...args);
+    }) as typeof chatWithEmployee);
+    assert.equal(waitForModel, true);
+    const events = await AppDataSource.getRepository(RepositoryWorkSessionEvent).find({
+      where: { sessionId: session.id, kind: "retry" },
+      order: { ordinal: "ASC" },
+    });
+    assert.deepEqual(
+      events.map((event) => event.summary),
+      [
+        "The AI Model's server stopped answering; the session waits for it",
+        "The AI Model's server answered again after 6 min; continuing",
+      ],
+    );
   });
 
   test("records an empty outcome when the employee commits nothing", async () => {
@@ -2176,6 +2201,30 @@ describe("session authority", () => {
 });
 
 describe("the briefing an employee receives", () => {
+  test("says how to run a newer Node the repository needs, when commands can run", () => {
+    const nodeRequirement = {
+      major: 26,
+      spec: ">=26",
+      source: "package.json engines.node" as const,
+    };
+    const withCommands = composeWorkSystemPrompt(
+      { ...repository, kind: "code", commandMode: "allowlist" },
+      "s",
+      { nodeRequirement },
+    );
+    if (workSessionCommandAvailability({ commandMode: "allowlist" }).available) {
+      assert.match(withCommands, /### Node version/);
+      assert.match(withCommands, /npx -y -p node@26 -- npm test/);
+    }
+    const withoutCommands = composeWorkSystemPrompt(
+      { ...repository, kind: "code", commandMode: "off" },
+      "s",
+      { nodeRequirement },
+    );
+    assert.doesNotMatch(withoutCommands, /### Node version/);
+    assert.doesNotMatch(composeWorkSystemPrompt(repository, "s"), /### Node version/);
+  });
+
   test("names the session and tells the employee it must commit", () => {
     const prompt = composeWorkSystemPrompt(repository, "session-123");
     assert.match(prompt, /session-123/);
@@ -2222,10 +2271,12 @@ describe("the briefing an employee receives", () => {
  */
 describe("a session that can run commands", () => {
   beforeEach(() => {
-    codingTools.executionMode = "bubblewrap";
+    codingTools.executionMode = "host";
+    codingTools.allowUnsafeHostExecution = true;
   });
   after(() => {
     codingTools.executionMode = "disabled";
+    codingTools.allowUnsafeHostExecution = false;
   });
 
   test("tells the employee to verify its own work before committing", () => {

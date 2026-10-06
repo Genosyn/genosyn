@@ -27,16 +27,21 @@ import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
-import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import {
-  activeStanddownFor,
-  serializeStanddown,
-  StanddownError,
-} from "../services/standdowns.js";
+  startManualRoutineRun,
+  getLiveRunSnapshot,
+  RUN_LOG_MAX_BYTES,
+} from "../services/runner.js";
+import { ManualRoutineStartError } from "../services/routineManualStart.js";
+import { activeStanddownFor, serializeStanddown, StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { resumeRoutineRun, RunManualResumeError } from "../services/runManualResume.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
-import { publicRun, runContinuationView } from "../services/runContinuationView.js";
+import {
+  loadRunFollowUps,
+  publicRun,
+  runContinuationView,
+} from "../services/runContinuationView.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { memberManagesEmployee } from "../services/reportingLine.js";
@@ -57,7 +62,6 @@ import {
   validateCompanyTagIds,
 } from "../services/tags.js";
 import { resolveFolderForCompany, RoutineFolderError } from "../services/routineFolders.js";
-import { PlanLimitError, assertRoutineCapacity } from "../services/entitlements.js";
 import { emitResourceChange } from "../services/resourceEvents.js";
 import { getRoutineActivity, ROUTINE_ACTIVITY_MAX_WINDOW_MS } from "../services/routineActivity.js";
 
@@ -150,6 +154,7 @@ function employeeSummary(emp: AIEmployee): EmployeeSummary {
  * would both come back; the Map below keeps the first and drops the tie.
  */
 async function lastRunByRoutine(
+  companyId: string,
   routineIds: string[],
 ): Promise<Map<string, ReturnType<typeof publicRun>>> {
   if (routineIds.length === 0) return new Map();
@@ -178,8 +183,10 @@ async function lastRunByRoutine(
     )
     .getMany();
   const byRoutine = new Map<string, ReturnType<typeof publicRun>>();
+  const followUps = await loadRunFollowUps(companyId, runs);
   for (const run of runs)
-    if (!byRoutine.has(run.routineId)) byRoutine.set(run.routineId, publicRun(run));
+    if (!byRoutine.has(run.routineId))
+      byRoutine.set(run.routineId, publicRun(run, followUps.get(run.id)));
   return byRoutine;
 }
 
@@ -201,7 +208,10 @@ routinesRouter.get("/routines", async (req, res) => {
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: In([...byId.keys()]) },
   });
-  const lastRuns = await lastRunByRoutine(routines.map((r) => r.id));
+  const lastRuns = await lastRunByRoutine(
+    cid,
+    routines.map((r) => r.id),
+  );
   const tags = await tagsByResourceIds(
     cid,
     "routine",
@@ -283,14 +293,6 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
       .status(409)
       .json({ error: "A routine with that name already exists for this employee" });
   }
-  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
-  // its Routine count. 402 so the client can offer the upgrade path.
-  try {
-    await assertRoutineCapacity(co.id);
-  } catch (err) {
-    if (!(err instanceof PlanLimitError)) throw err;
-    return res.status(402).json({ error: err.message });
-  }
   try {
     await validateCompanyTagIds(co.id, body.tagIds ?? []);
     await resolveFolderForCompany(co.id, body.folderId ?? null);
@@ -338,55 +340,61 @@ async function loadRoutine(cid: string, rid: string) {
   return { routine: r, emp, co };
 }
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
-  cronExpr: cronExprSchema.optional(),
-  enabled: z.boolean().optional(),
-  timeoutSec: z
-    .number()
-    .int()
-    .min(10)
-    .max(6 * 60 * 60)
-    .optional(),
-  requiresApproval: z.boolean().optional(),
-  // Null inherits the employee's active model; a string pins one of the
-  // employee's own models to this routine. Ownership is checked below.
-  modelId: z.string().uuid().nullable().optional(),
-  // Three-valued: null inherits the employee's `browserEnabled`; explicit
-  // boolean overrides for this routine only.
-  browserEnabledOverride: z.boolean().nullable().optional(),
-  memberBrowserId: z.string().uuid().nullable().optional(),
-  // Reliability. Defaults catch up once after downtime and disable ordinary
-  // failure/timeout retries. A future initial scheduled Run on an enabled,
-  // ungated routine marked interrupted is the safety exception: one durable
-  // recovery attempt is due an hour later. Higher configured limits bound
-  // interruptions later in the retry chain.
-  catchUpPolicy: z.enum(["once", "skip"]).optional(),
-  maxAttempts: z.number().int().min(1).max(5).optional(),
-  retryBackoffSec: z
-    .number()
-    .int()
-    .min(10)
-    .max(6 * 60 * 60)
-    .optional(),
-  retryOnTimeout: z.boolean().optional(),
-  // The Routine's definition of done. Empty string clears it, which also
-  // switches the post-Run outcome check off for future Runs.
-  acceptanceCriteria: z.string().max(4_000).optional(),
-  // Tags aren't a Routine column — they're assignments in the shared catalog,
-  // so the create route already accepts these. Editing them here keeps the
-  // routine's own endpoint symmetric instead of forcing a second call to the
-  // generic PUT /tags/resources/routine/:rid. Passing the array replaces the
-  // whole set; omitting it leaves existing assignments untouched.
-  tagIds: z.array(z.string().uuid()).max(20).optional(),
-  // Re-file this routine. Null unfiles it; a uuid must name a folder in the
-  // same company as the owning employee. See `POST /routines/move` for the
-  // bulk version the Routines list uses.
-  folderId: z.string().uuid().nullable().optional(),
-  // The Goal this routine's work serves (M51). Null clears the link; a uuid
-  // must name a goal in the same company as the owning employee.
-  goalId: z.string().uuid().nullable().optional(),
-});
+// Strict, because stripping unknown keys made an edit this route cannot apply
+// look saved: `{ "body": "..." }` answered 200 and left the brief as it was.
+// The brief is edited through `PUT /routines/:rid/readme`. A key not listed
+// here is a 400 that names it, and nothing is written.
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    cronExpr: cronExprSchema.optional(),
+    enabled: z.boolean().optional(),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(10)
+      .max(6 * 60 * 60)
+      .optional(),
+    requiresApproval: z.boolean().optional(),
+    // Null inherits the employee's active model; a string pins one of the
+    // employee's own models to this routine. Ownership is checked below.
+    modelId: z.string().uuid().nullable().optional(),
+    // Three-valued: null inherits the employee's `browserEnabled`; explicit
+    // boolean overrides for this routine only.
+    browserEnabledOverride: z.boolean().nullable().optional(),
+    memberBrowserId: z.string().uuid().nullable().optional(),
+    // Reliability. Defaults catch up once after downtime and disable ordinary
+    // failure/timeout retries. A future initial scheduled Run on an enabled,
+    // ungated routine marked interrupted is the safety exception: one durable
+    // recovery attempt is due an hour later. Higher configured limits bound
+    // interruptions later in the retry chain.
+    catchUpPolicy: z.enum(["once", "skip"]).optional(),
+    maxAttempts: z.number().int().min(1).max(5).optional(),
+    retryBackoffSec: z
+      .number()
+      .int()
+      .min(10)
+      .max(6 * 60 * 60)
+      .optional(),
+    retryOnTimeout: z.boolean().optional(),
+    // The Routine's definition of done. Empty string clears it, which also
+    // switches the post-Run outcome check off for future Runs.
+    acceptanceCriteria: z.string().max(4_000).optional(),
+    // Tags aren't a Routine column — they're assignments in the shared catalog,
+    // so the create route already accepts these. Editing them here keeps the
+    // routine's own endpoint symmetric instead of forcing a second call to the
+    // generic PUT /tags/resources/routine/:rid. Passing the array replaces the
+    // whole set; omitting it leaves existing assignments untouched.
+    tagIds: z.array(z.string().uuid()).max(20).optional(),
+    // Re-file this routine. Null unfiles it; a uuid must name a folder in the
+    // same company as the owning employee. See `POST /routines/move` for the
+    // bulk version the Routines list uses.
+    folderId: z.string().uuid().nullable().optional(),
+    // The Goal this routine's work serves (M51). Null clears the link; a uuid
+    // must name a goal in the same company as the owning employee.
+    goalId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
 
 routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
@@ -598,7 +606,7 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
 routinesRouter.get("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  const lastRuns = await lastRunByRoutine([found.routine.id]);
+  const lastRuns = await lastRunByRoutine(found.co.id, [found.routine.id]);
   const tags = await tagsForResource(found.co.id, "routine", found.routine.id);
   const standdown = activeStanddownFor(found.co.id, {
     employeeId: found.emp.id,
@@ -613,20 +621,28 @@ routinesRouter.get("/routines/:rid", async (req, res) => {
   });
 });
 
-routinesRouter.get("/routines/:rid/readme", async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  res.json({ content: found.routine.body });
+routinesRouter.get("/routines/:rid/readme", async (req, res, next) => {
+  try {
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    res.json({ content: found.routine.body });
+  } catch (err) {
+    next(err);
+  }
 });
 
 const readmeSchema = z.object({ content: z.string() });
 
-routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
-  await AppDataSource.getRepository(Routine).save(found.routine);
-  res.json({ ok: true });
+routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (req, res, next) => {
+  try {
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
+    await AppDataSource.getRepository(Routine).save(found.routine);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
@@ -654,46 +670,28 @@ routinesRouter.post("/routines/:rid/webhook", validateBody(webhookSchema), async
   res.json(r);
 });
 
-routinesRouter.post("/routines/:rid/run", async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  await recordAudit({
-    companyId: found.co.id,
-    actorUserId: req.userId ?? null,
-    action: "routine.run.manual",
-    targetType: "routine",
-    targetId: found.routine.id,
-    targetLabel: found.routine.name,
-  });
-  // Return as soon as the Run row exists so the UI can open a tail-log modal
-  // and poll /runs/:runId/log while the child process is still alive. The
-  // completion promise is left to settle in the background; errors are
-  // captured on the Run row, so we just swallow rejections here.
-  //
-  // The *start* can refuse, though, and that has to be answered rather than
-  // thrown: Express 4 does not catch a rejected async handler, so an
-  // uncaught refusal here takes the process down. A Standdown makes that a
-  // routine occurrence rather than a theoretical one — pressing "Run now" on a
-  // stopped Routine is exactly what a person does when they have forgotten it
-  // is stopped, and they deserve the reason back, not a dead server.
-  let run: Run;
-  let completion: Promise<Run>;
+routinesRouter.post("/routines/:rid/run", async (req, res, next) => {
   try {
-    ({ run, completion } = await startRoutineRun(found.routine));
-  } catch (err) {
-    if (err instanceof StanddownError) {
-      return res.status(409).json({ error: err.message });
-    }
-    // eslint-disable-next-line no-console
-    console.error("[run] could not start:", err);
-    return res.status(500).json({
-      error: err instanceof Error ? err.message : "Could not start the run.",
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.run.manual",
+      targetType: "routine",
+      targetId: found.routine.id,
+      targetLabel: found.routine.name,
     });
+    // A repeated request opens the accepted Run; losing an HTTP response must
+    // not silently enqueue another occurrence of the same Routine.
+    const run = await startManualRoutineRun(found.routine, found.co.id);
+    res.json(publicRun(run));
+  } catch (err) {
+    if (err instanceof StanddownError) return res.status(409).json({ error: err.message });
+    if (err instanceof ManualRoutineStartError)
+      return res.status(err.status).json({ error: err.message });
+    next(err);
   }
-  completion.catch((err) => {
-    console.error("[run]", err);
-  });
-  res.json(publicRun(run));
 });
 
 /**
@@ -734,7 +732,8 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
     .orderBy("run.startedAt", "DESC")
     .take(50)
     .getMany();
-  res.json(runs.map(publicRun));
+  const followUps = await loadRunFollowUps(found.co.id, runs);
+  res.json(runs.map((run) => publicRun(run, followUps.get(run.id))));
 });
 
 const runRecordingParamsSchema = z
@@ -912,52 +911,59 @@ routinesRouter.get(
  * endpoint never has to worry about runaway sizes. Status fields ride
  * along so callers can poll a single endpoint to drive a live-log modal.
  */
-routinesRouter.get("/runs/:runId/log", async (req, res) => {
-  const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
-  if (!run) return res.status(404).json({ error: "Not found" });
-  // Confirm the caller has access to the parent routine (company scope).
-  const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
-  if (!found) return res.status(404).json({ error: "Not found" });
+routinesRouter.get("/runs/:runId/log", async (req, res, next) => {
+  try {
+    const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
+    if (!run) return res.status(404).json({ error: "Not found" });
+    // Confirm the caller has access to the parent routine (company scope).
+    const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
+    if (!found) return res.status(404).json({ error: "Not found" });
 
-  const live = getLiveRunSnapshot(run.id);
-  const content = live ? live.content : (run.logContent ?? "");
-  const size = live ? live.size : Buffer.byteLength(content, "utf8");
-  const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
-  const browserRecordings = await recordingsVisibleToRequester(req, run);
+    const live = getLiveRunSnapshot(run.id);
+    const content = live ? live.content : (run.logContent ?? "");
+    const size = live ? live.size : Buffer.byteLength(content, "utf8");
+    const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
+    const browserRecordings = await recordingsVisibleToRequester(req, run);
+    const followUps = await loadRunFollowUps(found.co.id, [run]);
 
-  res.json({
-    content,
-    truncated,
-    size,
-    live: live !== null,
-    status: run.status,
-    errorKind: run.errorKind,
-    failureReason: run.failureReason,
-    diagnostics: readRunDiagnostics(run),
-    exitCode: run.exitCode,
-    startedAt: run.startedAt,
-    finishedAt: run.finishedAt,
-    // So the live-log modal can say "retrying in 2m" without a second request.
-    retryAt: run.retryAt,
-    ...runContinuationView(run),
-    attempt: run.attempt,
-    // The outcome check lands shortly after a completed run finalizes; polling
-    // this endpoint picks the verdict up without a second request.
-    outcomeVerdict: run.outcomeVerdict,
-    outcomeNote: run.outcomeNote,
-    checksVerdict: run.checksVerdict,
-    checkRemediations: run.checkRemediations,
-    // True while a verdict is still owed — the routine declares acceptance
-    // criteria and this completed run has not been graded yet. The live-log
-    // modal polls on this rather than guessing how long a check takes.
-    awaitingOutcome:
-      run.status === "completed" &&
-      run.outcomeVerdict === null &&
-      found.routine.acceptanceCriteria.trim().length > 0,
-    tokensIn: run.tokensIn,
-    tokensOut: run.tokensOut,
-    browserRecordings,
-  });
+    res.json({
+      content,
+      truncated,
+      size,
+      live: live !== null,
+      status: run.status,
+      errorKind: run.errorKind,
+      failureReason: run.failureReason,
+      diagnostics: readRunDiagnostics(run),
+      exitCode: run.exitCode,
+      queuedAt: run.createdAt,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      // So the live-log modal can say "retrying in 2m" without a second request.
+      retryAt: run.retryAt,
+      ...runContinuationView(run, followUps.get(run.id)),
+      attempt: run.attempt,
+      // The outcome check lands shortly after a completed run finalizes; polling
+      // this endpoint picks the verdict up without a second request.
+      outcomeVerdict: run.outcomeVerdict,
+      outcomeNote: run.outcomeNote,
+      checksVerdict: run.checksVerdict,
+      checkRemediations: run.checkRemediations,
+      // True while a verdict is still owed — the routine declares acceptance
+      // criteria and this completed run has not been graded yet. The live-log
+      // modal polls on this rather than guessing how long a check takes.
+      awaitingOutcome:
+        run.status === "completed" &&
+        run.outcomeVerdict === null &&
+        found.routine.acceptanceCriteria.trim().length > 0,
+      tokensIn: run.tokensIn,
+      tokensOut: run.tokensOut,
+      browserRecordings,
+    });
+  } catch (err) {
+    // Express 4 does not forward rejected async reads to the error handler.
+    next(err);
+  }
 });
 
 /**

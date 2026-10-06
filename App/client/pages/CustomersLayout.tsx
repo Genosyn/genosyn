@@ -1,14 +1,16 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
-import { Contact2, FileSignature, Users } from "lucide-react";
+import { Contact2 } from "lucide-react";
 import { Company } from "../lib/api";
-import { ContextualLayout, SidebarLink } from "../components/AppShell";
+import { ContextualLayout } from "../components/AppShell";
+import { SectionRailLinks } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/customers/*`. Customers used to live inside
  * the Finance section; they now stand alone as their own top-level section
  * (accounts + signed contracts), since they're a CRM concern that outgrew
- * the invoicing context.
+ * the invoicing context. Rail links come from the subpage catalogue
+ * (`lib/subpages.ts`) the ⌘K palette also searches.
  *
  * Children read `company` from Outlet context so each page can build
  * `/api/companies/:cid/...` URLs without re-deriving it from the route.
@@ -19,8 +21,6 @@ export type CustomersOutletCtx = {
 };
 
 export default function CustomersLayout({ company }: { company: Company }) {
-  const base = `/c/${company.slug}/customers`;
-
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
@@ -29,12 +29,7 @@ export default function CustomersLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SidebarLink to={base} end icon={<Users size={14} />} label="Customers" />
-        <SidebarLink
-          to={`${base}/contracts`}
-          icon={<FileSignature size={14} />}
-          label="Contracts"
-        />
+        <SectionRailLinks section="customers" companySlug={company.slug} />
       </nav>
     </div>
   );

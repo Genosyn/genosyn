@@ -54,6 +54,10 @@ WORKDIR /app
 # SSH-auth repos run `ssh` via GIT_SSH_COMMAND); curl is a common utility the
 # `bash` tool reaches for, and is also how the Chrome apt key is fetched below.
 #
+# libatomic1 lets a work session run a newer Node than this image's through
+# `npx -p node@<major>`: Node 23 and later link against it, and the slim base
+# image does not ship it (see services/repositoryNodeVersion.ts).
+#
 # smbclient backs the `smb` backup destination kind, which pushes archives to a
 # NAS with no mount required. It's here rather than as an npm dependency
 # because every JS SMB client tops out at SMB 2.1 and none of them implement
@@ -63,7 +67,7 @@ WORKDIR /app
 # clear error if the binary is ever absent.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      bash bubblewrap ca-certificates curl ffmpeg git openssh-client \
+      bash ca-certificates curl ffmpeg git libatomic1 openssh-client \
       pulseaudio pulseaudio-utils smbclient \
     && rm -rf /var/lib/apt/lists/*
 
@@ -138,11 +142,9 @@ COPY --from=build /build/App/config.ts ./config.ts
 # Meet notetaker, then execs CMD.
 COPY --chmod=0755 App/docker-entrypoint.sh /usr/local/bin/genosyn-entrypoint
 
-# Host command execution is the default and needs no namespace privileges.
-# Keep bubblewrap installed for operators who explicitly select isolation.
-RUN command -v bwrap >/dev/null \
-    && bwrap --version >/dev/null \
-    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "host" || !config.agent.codingTools.allowUnsafeHostExecution) throw new Error("Expected stock host execution to be enabled");'
+# AI Employee commands run on the host in the stock image, with no namespace
+# privileges. Fail the build if the compiled config ever ships otherwise.
+RUN node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "host" || !config.agent.codingTools.allowUnsafeHostExecution) throw new Error("Expected stock host execution to be enabled");'
 
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing
@@ -150,7 +152,7 @@ RUN command -v bwrap >/dev/null \
 # is deliberate: App, Home, CLI, docs, and delivery workflows all
 # belong to the product context an AI Employee may need to explain.
 COPY --chown=node:node \
-  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md VERSION \
+  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md VERSION VISION.md \
   ./.genosyn-source/
 COPY --chown=node:node App ./.genosyn-source/App
 COPY --chown=node:node Home ./.genosyn-source/Home

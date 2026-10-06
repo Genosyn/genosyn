@@ -15,15 +15,19 @@ import type {
   Approval,
   Decision,
   Employee,
+  EmployeeQueueItem,
+  EmployeeWorkQueue,
   HomeApproval,
   HomeChannel,
   HomeData,
   HomeFailedRun,
   Notification,
   Run,
+  RunStatus,
   WorkEntry,
   WorkTimeline,
 } from "../client/lib/api";
+import { runExplanationPrompt } from "../client/lib/runStatus";
 import { browserTestVite } from "./browserTestVite";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,9 +44,12 @@ const server = await createServer({
     {
       name: "home-layout-browser-fixture",
       configureServer(dev) {
-        dev.middlewares.use("/__home_layout", async (_request, response) => {
+        // Served at Home's own path so window.location agrees with the
+        // MemoryRouter, as it does under the app's BrowserRouter: Ask AI keeps
+        // the records an ask() brought only while window.location is unchanged.
+        dev.middlewares.use("/c/company", async (_request, response) => {
           const html = await dev.transformIndexHtml(
-            "/__home_layout",
+            "/c/company",
             '<html><meta name="viewport" content="width=device-width, initial-scale=1"><div id="root"></div>' +
               `<script type="module" src="/@fs${root}/scripts/homeLayoutHarness.tsx"></script></html>`,
           );
@@ -205,6 +212,7 @@ function notification(id: string, title: string): Notification {
 
 function failedRun(changes: Partial<HomeFailedRun> = {}): HomeFailedRun {
   return {
+    followUpRun: null,
     runId: "failed-run",
     routineId: "customer-update",
     routineName: "Daily customer update",
@@ -218,13 +226,8 @@ function failedRun(changes: Partial<HomeFailedRun> = {}): HomeFailedRun {
   };
 }
 
-const failureExplanation =
-  "## What happened\n\nThe mailbox rejected the update because **the Connection expired**.\n\n" +
-  "## What to do next\n\nReconnect the mailbox, then check for a sent message before retrying.";
 const failureTranscript =
   "[08:00:01] Looking up customer requests.\n[08:00:05] Mailbox rejected the request: Connection expired.";
-const failureFollowup =
-  "The recorded evidence shows no sent message. Reconnect the mailbox and confirm its Sent folder before retrying.";
 
 function homeData(
   employeeCount: number,
@@ -315,6 +318,19 @@ function timeline(employees: Employee[], query: URLSearchParams, working = false
       : [],
   };
 }
+function queueItem(changes: Partial<EmployeeQueueItem> = {}): EmployeeQueueItem {
+  return {
+    id: "queued-1",
+    runId: "queued-1",
+    routine: { id: "routine-1", name: "Review customer requests", slug: "review-customers" },
+    triggerKind: "schedule",
+    queuedAt: "2026-09-09T08:55:00.000Z",
+    availableAt: null,
+    position: null,
+    blockedReason: null,
+    ...changes,
+  };
+}
 type FixtureOptions = {
   count?: number;
   width?: number;
@@ -325,6 +341,9 @@ type FixtureOptions = {
   rosterError?: boolean;
   workError?: boolean;
   holdWork?: boolean;
+  workQueue?: EmployeeWorkQueue;
+  queueError?: boolean;
+  holdQueue?: boolean;
   holdMarkRead?: boolean;
   markReadError?: boolean;
   holdNotificationMarkAll?: boolean;
@@ -346,14 +365,10 @@ type FixtureOptions = {
   allowReview?: boolean;
   decisionAnswerError?: boolean;
   failedRuns?: HomeFailedRun[];
+  runRetry?: "same" | "new" | "network-error";
   allowRunResume?: boolean;
   runResumeError?: boolean;
-  holdExplanation?: boolean;
-  explanationError?: boolean;
-  explanationOptionsError?: boolean;
-  noExplanationEmployees?: boolean;
   longFailureTranscript?: boolean;
-  longRunExplanation?: boolean;
   live?: boolean;
 };
 async function open(options: FixtureOptions = {}) {
@@ -368,6 +383,7 @@ async function open(options: FixtureOptions = {}) {
     if (!sessionStorage.getItem("home-fixture-started")) {
       for (const key of Object.keys(localStorage))
         if (key.startsWith("genosyn.decisionFollowUps.v1:")) localStorage.removeItem(key);
+      localStorage.removeItem("genosyn.askAi.open");
       sessionStorage.setItem("home-fixture-started", "1");
     }
     localStorage.setItem("genosyn.pushPromptDismissed", "1");
@@ -377,9 +393,9 @@ async function open(options: FixtureOptions = {}) {
   if (options.brokenAvatar) employees[0].avatarKey = "missing";
   let rosterError = options.rosterError ?? false;
   let workError = options.workError ?? false;
+  let workQueue = options.workQueue;
+  let queueError = options.queueError ?? false;
   let decisionAnswerError = options.decisionAnswerError ?? false;
-  let explanationError = options.explanationError ?? false;
-  let explanationOptionsError = options.explanationOptionsError ?? false;
   let failedRuns = options.failedRuns ?? [];
   const runHistory = [...failedRuns];
   let decisions = options.decisions ?? (options.quiet ? [] : [decision()]);
@@ -414,6 +430,10 @@ async function open(options: FixtureOptions = {}) {
   const workGate = new Promise<void>((resolve) => {
     releaseWork = resolve;
   });
+  let releaseQueue: () => void = () => {};
+  const queueGate = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
   let releaseMarkRead: () => void = () => {};
   const markReadGate = new Promise<void>((resolve) => {
     releaseMarkRead = resolve;
@@ -426,14 +446,6 @@ async function open(options: FixtureOptions = {}) {
   let releaseHome: () => void = () => {};
   const homeGate = new Promise<void>((resolve) => {
     releaseHome = resolve;
-  });
-  let releaseExplanation: () => void = () => {};
-  const explanationGate = new Promise<void>((resolve) => {
-    releaseExplanation = resolve;
-  });
-  let markExplanationStarted: () => void = () => {};
-  const explanationStarted = new Promise<void>((resolve) => {
-    markExplanationStarted = resolve;
   });
   const reads: string[] = [];
   const writes: string[] = [];
@@ -455,6 +467,26 @@ async function open(options: FixtureOptions = {}) {
     if (request.method() === "POST") {
       if (options.live && url.pathname === "/api/companies/company/workspace/ws-token")
         return route.fulfill({ json: { token: "fixture-token" } });
+      const retrying = failedRuns.find(
+        (item) => url.pathname === `/api/companies/company/routines/${item.routineId}/run`,
+      );
+      if (options.runRetry && retrying) {
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: null });
+        if (options.runRetry === "network-error") return route.abort("failed");
+        return route.fulfill({
+          json: { id: options.runRetry === "same" ? retrying.runId : "new-run" },
+        });
+      }
+      const dismissing = failedRuns.find(
+        (item) => url.pathname === `/api/companies/company/runs/${item.runId}/dismiss`,
+      );
+      if (options.runRetry && dismissing) {
+        writes.push(`${request.method()} ${url.pathname}`);
+        mutations.push({ path: url.pathname, body: null });
+        failedRuns = failedRuns.filter((item) => item.runId !== dismissing.runId);
+        return route.fulfill({ json: { ok: true } });
+      }
       const resuming = failedRuns.find(
         (item) => url.pathname === `/api/companies/company/runs/${item.runId}/resume`,
       );
@@ -492,41 +524,6 @@ async function open(options: FixtureOptions = {}) {
         });
         failedRuns = failedRuns.filter((item) => item.runId !== resuming.runId);
         return route.fulfill({ json: resumed });
-      }
-      const explaining = failedRuns.find(
-        (item) => url.pathname === `/api/companies/company/runs/${item.runId}/explanation`,
-      );
-      if (explaining) {
-        writes.push(`${request.method()} ${url.pathname}`);
-        mutations.push({ path: url.pathname, body: request.postDataJSON() });
-        markExplanationStarted();
-        if (options.holdExplanation) await explanationGate;
-        if (explanationError)
-          return route.fulfill({
-            contentType: "text/event-stream",
-            body: `event: error\ndata: ${JSON.stringify({ error: "The AI Model is unavailable. Please try again." })}\n\n`,
-          });
-        const requested = request.postDataJSON() as { employeeId?: string; message?: string };
-        assert.equal(requested.employeeId, undefined, "the server chooses this Run's AI Employee");
-        const employee = employees.find((item) => item.id === explaining.employee?.id);
-        assert.ok(employee, "an explanation requires the AI Employee who ran this Routine");
-        const response = {
-          explanation: requested.message
-            ? failureFollowup
-            : failureExplanation +
-              (options.longRunExplanation
-                ? Array.from(
-                    { length: 16 },
-                    (_, index) =>
-                      `\n\n### Evidence ${index + 1}\n\nThe recorded mailbox request was rejected. Check the Connection and the Sent folder before retrying this Run.`,
-                  ).join("")
-                : ""),
-          employee: { id: employee.id, name: employee.name, slug: employee.slug },
-        };
-        return route.fulfill({
-          contentType: "text/event-stream",
-          body: `event: explanation\ndata: ${JSON.stringify(response)}\n\n`,
-        });
       }
       const answering = decisions.find(
         (item) => url.pathname === `/api/companies/company/decisions/${item.id}/decide`,
@@ -664,24 +661,6 @@ async function open(options: FixtureOptions = {}) {
     const failure = runHistory.find((item) =>
       url.pathname.startsWith(`/api/companies/company/runs/${item.runId}/`),
     );
-    if (failure && url.pathname.endsWith("/explanation")) {
-      if (explanationOptionsError)
-        return route.fulfill({
-          status: 503,
-          json: { error: "Could not load this Run's AI Employee." },
-        });
-      const employee = options.noExplanationEmployees
-        ? undefined
-        : employees.find((item) => item.id === failure.employee?.id);
-      return route.fulfill({
-        json: {
-          employees: employee
-            ? [{ id: employee.id, name: employee.name, slug: employee.slug }]
-            : [],
-          defaultEmployeeId: employee?.id ?? null,
-        },
-      });
-    }
     if (failure && url.pathname.endsWith("/log"))
       return route.fulfill({
         json: {
@@ -698,6 +677,7 @@ async function open(options: FixtureOptions = {}) {
           hasUnfinishedWork: failure.hasUnfinishedWork,
           retryAt: failure.retryAt,
           continuationPending: failure.continuationPending,
+          followUpRun: failure.followUpRun,
           exitCode: failure.exitCode,
           startedAt: failure.startedAt,
           finishedAt: failure.status === "running" ? null : "2026-09-09T08:00:06.000Z",
@@ -742,6 +722,30 @@ async function open(options: FixtureOptions = {}) {
         });
       return route.fulfill({ json: timeline(employees, url.searchParams, options.working) });
     }
+    const queueMatch = /^\/api\/companies\/company\/employees\/([^/]+)\/work-queue$/.exec(
+      url.pathname,
+    );
+    if (queueMatch) {
+      if (options.holdQueue) await queueGate;
+      if (queueError)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Routine Runs are temporarily unavailable." },
+        });
+      return route.fulfill({
+        json:
+          workQueue?.employeeId === queueMatch[1]
+            ? workQueue
+            : {
+                employeeId: queueMatch[1],
+                current: null,
+                running: [],
+                runningCount: 0,
+                pending: [],
+                pendingCount: 0,
+              },
+      });
+    }
     if (
       options.brokenAvatar &&
       url.pathname === "/api/companies/company/employees/employee-1/avatar"
@@ -754,7 +758,7 @@ async function open(options: FixtureOptions = {}) {
   if (options.longNames) query.set("longNames", "1");
   if (options.role) query.set("role", options.role);
   if (options.live) query.set("live", "1");
-  await page.goto(`${origin}/__home_layout?${query}`, {
+  await page.goto(`${origin}/c/company?${query}`, {
     waitUntil: "commit",
     timeout: 60000,
   });
@@ -793,25 +797,20 @@ async function open(options: FixtureOptions = {}) {
     writes,
     mutations,
     releaseWork,
+    releaseQueue,
     releaseMarkRead,
     releaseNotificationMarkAll,
     releaseHome,
-    releaseExplanation,
-    explanationStarted,
     recover: () => {
       rosterError = false;
       workError = false;
+      queueError = false;
       homeError = false;
       markReadError = false;
       decisionAnswerError = false;
-      explanationError = false;
-      explanationOptionsError = false;
     },
     failHome: () => {
       homeError = true;
-    },
-    failExplanation: () => {
-      explanationError = true;
     },
     holdNextHome: () => {
       holdNextHome = true;
@@ -836,7 +835,12 @@ async function open(options: FixtureOptions = {}) {
       assert.ok(row);
       reviewDetails.set(id, { ...row, ...changes });
     },
-    emitResourceEvent: (kind: "decision" | "approval") => {
+    setQueue: (value: EmployeeWorkQueue) => {
+      workQueue = value;
+    },
+    emitResourceEvent: (
+      kind: "decision" | "approval" | "run" | "routine" | "employee" | "standdown",
+    ) => {
       for (const socket of sockets)
         socket.send(JSON.stringify({ type: "resource.changed", kind, scopeIds: [] }));
     },
@@ -962,6 +966,35 @@ async function openDay(page: Page, index = 0, key?: string) {
   await dialog.waitFor();
   return dialog;
 }
+const askAiProbe = (page: Page) => page.locator('output[aria-label="Ask AI request"]');
+async function askAiState(page: Page) {
+  return JSON.parse((await askAiProbe(page).textContent()) ?? "null") as {
+    open: boolean;
+    refs: Array<{ kind: string; id: string }>;
+    prompt: string | null;
+    employeeIds: string[] | null;
+    requestRefs: Array<{ kind: string; id: string }> | null;
+  };
+}
+/** Ask AI is open about exactly this Run, with the question its status implies. */
+async function asksAiAbout(page: Page, runId: string, status: RunStatus) {
+  const run = [{ kind: "run", id: runId }];
+  const expected = {
+    open: true,
+    refs: run,
+    prompt: runExplanationPrompt(status),
+    employeeIds: null,
+    requestRefs: run,
+  };
+  await page
+    .waitForFunction(
+      (text) => document.querySelector('output[aria-label="Ask AI request"]')?.textContent === text,
+      JSON.stringify(expected),
+      { timeout: 5000 },
+    )
+    .catch(() => undefined);
+  assert.deepEqual(await askAiState(page), expected);
+}
 let checks = 0;
 const filters = process.argv.slice(2).map((value) => value.toLowerCase());
 async function check(name: string, run: () => Promise<void>) {
@@ -984,6 +1017,72 @@ async function check(name: string, run: () => Promise<void>) {
 }
 try {
   await fs.mkdir(output, { recursive: true });
+  for (const response of ["same", "new", "network-error"] as const) {
+    await check(
+      `Home Retry acceptance handles ${response} without hiding unfinished cleanup`,
+      async () => {
+        const { page, mutations } = await open({
+          quiet: true,
+          role: "admin",
+          runRetry: response,
+          failedRuns: [failedRun({ status: "error", errorKind: "interrupted" })],
+        });
+        const panel = card(page, "Routines needing attention");
+        await panel
+          .getByRole("button", { name: "Retry Daily customer update", exact: true })
+          .click();
+        const confirmation = page.getByRole("dialog", {
+          name: "Run Daily customer update again?",
+          exact: true,
+        });
+        await confirmation.getByText(/Review its recorded reason, log, and Effects/).waitFor();
+        assert.equal(await confirmation.getByText(/server stopped/).count(), 0);
+        assert.equal(mutations.length, 0, "confirmation alone performs no work");
+        await confirmation.getByRole("button", { name: "Retry", exact: true }).click();
+        if (response === "same") {
+          const modal = page.getByRole("dialog", {
+            name: "Run: Daily customer update",
+            exact: true,
+          });
+          await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+          await page.keyboard.press("Escape");
+          await modal.waitFor({ state: "detached" });
+          await panel
+            .getByRole("button", { name: "Retry Daily customer update", exact: true })
+            .waitFor();
+          assert.deepEqual(
+            mutations.map((entry) => entry.path),
+            ["/api/companies/company/routines/customer-update/run"],
+          );
+        } else if (response === "new") {
+          await panel.waitFor({ state: "detached" });
+          assert.deepEqual(
+            mutations.map((entry) => entry.path),
+            [
+              "/api/companies/company/routines/customer-update/run",
+              "/api/companies/company/runs/failed-run/dismiss",
+            ],
+          );
+        } else {
+          const error = page.getByRole("dialog", {
+            name: "Couldn’t run Daily customer update again",
+            exact: true,
+          });
+          await error.waitFor();
+          await page.keyboard.press("Escape");
+          await error.waitFor({ state: "detached" });
+          await panel
+            .getByRole("button", { name: "Retry Daily customer update", exact: true })
+            .waitFor();
+          assert.deepEqual(
+            mutations.map((entry) => entry.path),
+            ["/api/companies/company/routines/customer-update/run"],
+          );
+        }
+        await page.close();
+      },
+    );
+  }
   for (const width of [1440, 390]) {
     await check(
       `Resume unfinished work confirms a fresh time window without a token limit and follows the Run at ${width}px`,
@@ -1120,94 +1219,73 @@ try {
       await page.close();
     },
   );
-  for (const width of [1440, 390, 320]) {
+  for (const width of [1440, 390]) {
     await check(
-      `Run explanation opens once, renders markdown and preserves the log at ${width}px`,
+      `Why did it fail? asks Ask AI about that Run without opening a modal at ${width}px`,
       async () => {
-        const fixture = await open({
+        const { page, mutations, writes } = await open({
           width,
           quiet: true,
           count: 2,
-          failedRuns: [failedRun({ employee: roster(2)[1] })],
-          holdExplanation: true,
-          longFailureTranscript: width === 1440,
+          failedRuns: [
+            failedRun({
+              employee: {
+                id: "employee-2",
+                name: "Employee 2",
+                slug: "employee-2",
+                avatarKey: null,
+              },
+            }),
+          ],
         });
-        const { page, mutations } = fixture;
+        assert.deepEqual(
+          await askAiState(page),
+          { open: false, refs: [], prompt: null, employeeIds: null, requestRefs: null },
+          "Ask AI stays closed until the Member asks",
+        );
         const panel = card(page, "Routines needing attention");
-        const explain = panel.getByRole("button", { name: /^Why did it fail\?/ });
-        await explain.click();
-        const modal = page.getByRole("dialog", { name: "Run: Daily customer update", exact: true });
-        await modal.getByRole("status").waitFor();
-        await fixture.explanationStarted;
+        await panel
+          .getByRole("button", { name: "Why did it fail? Daily customer update", exact: true })
+          .click();
+        await asksAiAbout(page, "failed-run", "failed");
+        assert.equal(await page.getByRole("dialog").count(), 0, "asking never opens the Run modal");
+        assert.equal(await page.getByLabel("Opened route").count(), 0, "asking stays on Home");
+        assert.deepEqual(mutations, [], "asking neither retries nor dismisses the Run");
+        assert.deepEqual(writes, []);
         assert.equal(
-          mutations.length,
+          await panel.getByRole("link", { name: /Daily customer update/ }).count(),
           1,
-          "opening the modal starts exactly one analysis in Strict Mode",
-        );
-        assert.equal(
-          await modal.getByRole("combobox").count(),
-          0,
-          "the Run's AI Employee is fixed and never shown in a dropdown",
-        );
-        await modal
-          .getByRole("status")
-          .filter({ hasText: /Reviewing this Run/ })
-          .waitFor();
-        const message = modal.getByRole("textbox", { name: "Message Employee 2", exact: true });
-        await message.fill("Which Connection needs attention?");
-        assert.equal(
-          await modal.getByRole("button", { name: "Send", exact: true }).isDisabled(),
-          true,
-          "a question can be drafted while the initial analysis runs, but cannot be sent yet",
-        );
-        await message.press("Control+Enter");
-        assert.equal(mutations.length, 1, "the shortcut cannot send while analysis is in progress");
-        assert.equal(
-          await modal.getByRole("button", { name: "Ask AI Employee", exact: true }).count(),
-          0,
-        );
-        assert.equal(await modal.getByRole("button", { name: "Retry", exact: true }).count(), 0);
-        fixture.releaseExplanation();
-        await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-        await modal
-          .getByLabel("Conversation about this Run", { exact: true })
-          .getByText("Employee 2", { exact: true })
-          .waitFor();
-        assert.equal(await message.inputValue(), "Which Connection needs attention?");
-        assert.equal(
-          await modal.locator("strong").filter({ hasText: "the Connection expired" }).count(),
-          1,
-        );
-        await modal
-          .getByText("Reconnect the mailbox, then check for a sent message before retrying.", {
-            exact: true,
-          })
-          .waitFor();
-        assert.equal(
-          await page.getByLabel("Opened route").count(),
-          0,
-          "explanations stay in Home's modal",
+          "the failure stays on Home while Ask AI explains it",
         );
         await fits(page);
-        const bounds = await box(modal);
-        assert.ok(
-          bounds.x >= 0 && bounds.x + bounds.width <= width,
-          "explanation modal stays inside the viewport",
-        );
-        assert.equal(
-          await modal.evaluate((element) => element.scrollWidth <= element.clientWidth),
-          true,
-        );
         await page.screenshot({
-          path: path.join(output, `home-run-explanation-${width}.png`),
+          path: path.join(output, `home-run-ask-ai-${width}.png`),
           fullPage: true,
         });
-        const logTab = modal.getByRole("tab", { name: "Run log", exact: true });
-        const explanationTab = modal.getByRole("tab", { name: "Why did it fail?", exact: true });
-        assert.equal(await explanationTab.getAttribute("aria-selected"), "true");
-        await logTab.click();
-        assert.equal(await logTab.getAttribute("aria-selected"), "true");
+        await page.close();
+      },
+    );
+  }
+  for (const width of [1440, 390]) {
+    await check(
+      `Run modal shows its log directly and hands Why did it fail? to Ask AI at ${width}px`,
+      async () => {
+        const { page, mutations, writes } = await open({
+          width,
+          quiet: true,
+          failedRuns: [failedRun()],
+          longFailureTranscript: width === 1440,
+        });
+        const panel = card(page, "Routines needing attention");
+        await panel.getByRole("link", { name: /Daily customer update/ }).click();
+        const modal = page.getByRole("dialog", { name: "Run: Daily customer update", exact: true });
         await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
+        assert.equal(
+          await modal.getByRole("tablist").count(),
+          0,
+          "the log is the modal's only view",
+        );
+        assert.equal(await modal.getByRole("tab").count(), 0);
         if (width === 1440) {
           await page.waitForFunction(() => {
             const log = document.querySelector('[role="dialog"] pre');
@@ -1218,417 +1296,76 @@ try {
             );
           });
         }
-        await explanationTab.click();
-        await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-        assert.equal(
-          await message.inputValue(),
-          "Which Connection needs attention?",
-          "switching tabs preserves the unsent draft",
-        );
         assert.deepEqual(
-          mutations,
-          [
-            {
-              path: "/api/companies/company/runs/failed-run/explanation",
-              body: {},
-            },
-          ],
-          "returning from the log reuses the explanation and never retries or dismisses the Run",
+          await askAiState(page),
+          {
+            open: false,
+            refs: [{ kind: "run", id: "failed-run" }],
+            prompt: null,
+            employeeIds: null,
+            requestRefs: null,
+          },
+          "the open Run is what Ask AI would be asked about",
         );
-        assert.equal(await modal.getByRole("button", { name: "Close", exact: true }).count(), 1);
-        await modal.getByRole("button", { name: "Close", exact: true }).click();
-        await modal.waitFor({ state: "detached" });
-        assert.equal(await panel.getByText("Daily customer update", { exact: true }).count(), 1);
-        await page.close();
-      },
-    );
-  }
-  for (const width of [1440, 390, 320]) {
-    await check(
-      `Run explanation keeps its composer visible with long replies at ${width}px`,
-      async () => {
-        const { page } = await open({
-          width,
-          height: 740,
-          quiet: true,
-          failedRuns: [failedRun()],
-          longRunExplanation: true,
-        });
-        await card(page, "Routines needing attention")
-          .getByRole("button", { name: /^Why did it fail\?/ })
-          .click();
-        const modal = page.getByRole("dialog");
-        await modal.getByRole("heading", { name: "Evidence 16", exact: true }).waitFor();
-        const conversation = modal.getByLabel("Conversation about this Run", { exact: true });
-        const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
-        const send = modal.getByRole("button", { name: "Send", exact: true });
+        const bounds = await box(modal);
+        assert.ok(
+          bounds.x >= 0 && bounds.x + bounds.width <= width,
+          "the Run modal stays inside the viewport",
+        );
         assert.equal(
-          await conversation.evaluate((element) => element.scrollHeight > element.clientHeight),
+          await modal.evaluate((element) => element.scrollWidth <= element.clientWidth),
           true,
-          "long explanations scroll within the conversation",
-        );
-        const modalBounds = await box(modal);
-        const messageBounds = await box(message);
-        const sendBounds = await box(send);
-        assert.ok(messageBounds.y > modalBounds.y);
-        assert.ok(
-          sendBounds.y + sendBounds.height <= Math.min(modalBounds.y + modalBounds.height, 740),
-          "the Send button stays inside the modal and viewport",
-        );
-        await conversation.evaluate((element) => {
-          element.scrollTop = element.scrollHeight;
-        });
-        assert.ok(
-          Math.abs((await box(message)).y - messageBounds.y) < 1,
-          "scrolling the reply does not move the composer",
-        );
-        assert.ok(
-          Math.abs((await box(send)).y - sendBounds.y) < 1,
-          "scrolling the reply does not move Send",
         );
         await fits(page);
         await page.screenshot({
-          path: path.join(output, `home-run-explanation-long-${width}.png`),
+          path: path.join(output, `home-run-log-${width}.png`),
           fullPage: true,
         });
+        await modal.getByRole("button", { name: "Why did it fail?", exact: true }).click();
+        await modal.waitFor({ state: "detached" });
+        await asksAiAbout(page, "failed-run", "failed");
+        assert.equal(await page.getByRole("dialog").count(), 0, "the modal makes way for Ask AI");
+        assert.deepEqual(mutations, []);
+        assert.deepEqual(writes, []);
+        assert.equal(await panel.getByRole("link", { name: /Daily customer update/ }).count(), 1);
         await page.close();
       },
     );
   }
   await check(
-    "Run explanation preserves its reading position when returning from the log",
+    "Why did it error? asks Ask AI with Error wording for legacy operational failures",
     async () => {
-      const { page, mutations } = await open({
+      const { page, mutations, writes } = await open({
         quiet: true,
-        failedRuns: [failedRun()],
-        longRunExplanation: true,
-      });
-      await card(page, "Routines needing attention")
-        .getByRole("button", { name: /^Why did it fail\?/ })
-        .click();
-      const modal = page.getByRole("dialog");
-      await modal.getByRole("heading", { name: "Evidence 16", exact: true }).waitFor();
-      const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
-      await message.fill("Was any email sent?");
-      await modal.getByRole("button", { name: "Send", exact: true }).click();
-      await modal.getByText(failureFollowup, { exact: true }).waitFor();
-      const conversation = modal.getByLabel("Conversation about this Run", { exact: true });
-      const readingPosition = await conversation.evaluate((element) => {
-        element.scrollTop = 160;
-        return element.scrollTop;
-      });
-      assert.ok(readingPosition > 0, "the reader is partway through an earlier explanation");
-      await modal.getByRole("tab", { name: "Run log", exact: true }).click();
-      await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
-      await modal.getByRole("tab", { name: "Why did it fail?", exact: true }).click();
-      await page.evaluate(
-        () =>
-          new Promise<void>((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-          ),
-      );
-      assert.equal(
-        await conversation.evaluate((element) => element.scrollTop),
-        readingPosition,
-        "checking the log and returning keeps the reader's place when no reply arrived",
-      );
-      assert.equal(mutations.length, 2, "changing tabs does not request another explanation");
-      await page.close();
-    },
-  );
-  await check(
-    "Run explanation keeps its composer reachable in a short landscape viewport",
-    async () => {
-      const { page, mutations } = await open({
-        width: 740,
-        height: 360,
-        quiet: true,
-        failedRuns: [failedRun()],
-        longRunExplanation: true,
-      });
-      await card(page, "Routines needing attention")
-        .getByRole("button", { name: /^Why did it fail\?/ })
-        .click();
-      const modal = page.getByRole("dialog");
-      await modal.getByRole("heading", { name: "Evidence 16", exact: true }).waitFor();
-      const explanationPanel = modal.getByRole("tabpanel", {
-        name: "Why did it fail?",
-        exact: true,
-      });
-      const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
-      const send = modal.getByRole("button", { name: "Send", exact: true });
-      await send.scrollIntoViewIfNeeded();
-      assert.ok(
-        await explanationPanel.evaluate((element) => (element.parentElement?.scrollTop ?? 0) > 0),
-        "the modal body can scroll to reveal the composer on a short screen",
-      );
-      const modalBounds = await box(modal);
-      const messageBounds = await box(message);
-      const sendBounds = await box(send);
-      assert.ok(
-        messageBounds.y >= modalBounds.y &&
-          messageBounds.y + messageBounds.height <= modalBounds.y + modalBounds.height,
-        "the complete message field is reachable inside the modal",
-      );
-      assert.ok(
-        sendBounds.y >= modalBounds.y &&
-          sendBounds.y + sendBounds.height <= Math.min(modalBounds.y + modalBounds.height, 360),
-        "Send is reachable inside the modal and viewport",
-      );
-      assert.equal(
-        await send.evaluate((element) => {
-          const bounds = element.getBoundingClientRect();
-          const hit = document.elementFromPoint(
-            bounds.x + bounds.width / 2,
-            bounds.y + bounds.height / 2,
-          );
-          return hit === element || element.contains(hit);
-        }),
-        true,
-        "the Send button is not hidden behind clipped chrome",
-      );
-      await message.fill("Was any email sent?");
-      await send.click();
-      await modal.getByText(failureFollowup, { exact: true }).waitFor();
-      assert.equal(mutations.length, 2);
-      await fits(page);
-      await page.screenshot({
-        path: path.join(output, "home-run-explanation-landscape.png"),
-        fullPage: true,
-      });
-      await page.close();
-    },
-  );
-  await check(
-    "Run explanation supports inline errors and retries with its original AI Employee",
-    async () => {
-      const fixture = await open({
-        quiet: true,
-        count: 2,
         failedRuns: [
-          failedRun({
-            status: "error",
-            errorKind: "runtime",
-            failureReason: null,
-            employee: roster(2)[1],
-          }),
+          failedRun({ runId: "timeout-run", status: "timeout", routineName: "Nightly export" }),
+          failedRun({ runId: "interrupted-run", status: "interrupted" }),
         ],
-        explanationError: true,
       });
-      const { page, mutations } = fixture;
-      await card(page, "Routines needing attention")
-        .getByRole("button", { name: /^Why did it error\?/ })
+      const panel = card(page, "Routines needing attention");
+      assert.equal(await panel.getByRole("button", { name: /^Why did it error\?/ }).count(), 2);
+      assert.equal(await panel.getByRole("button", { name: /^Why did it fail\?/ }).count(), 0);
+      assert.equal((await askAiState(page)).open, false, "explaining remains an explicit action");
+      await panel
+        .getByRole("button", { name: "Why did it error? Daily customer update", exact: true })
         .click();
-      const modal = page.getByRole("dialog");
-      await modal
-        .getByRole("alert")
-        .filter({ hasText: "The AI Model is unavailable. Please try again." })
-        .waitFor();
+      await asksAiAbout(page, "interrupted-run", "interrupted");
+      assert.notEqual(runExplanationPrompt("interrupted"), runExplanationPrompt("failed"));
+      await panel.getByRole("link", { name: /Nightly export/ }).click();
+      const modal = page.getByRole("dialog", { name: "Run: Nightly export", exact: true });
+      await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
       assert.equal(
-        await page.getByRole("dialog").count(),
-        1,
-        "request failures remain in the explanation modal",
+        await modal.getByRole("button", { name: "Why did it fail?", exact: true }).count(),
+        0,
       );
-      assert.equal(await modal.getByRole("combobox").count(), 0);
-      assert.equal(await modal.getByRole("button", { name: "Try again", exact: true }).count(), 1);
-      fixture.recover();
-      await modal.getByRole("button", { name: "Try again", exact: true }).click();
-      await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-      await modal
-        .getByLabel("Conversation about this Run", { exact: true })
-        .getByText("Employee 2", { exact: true })
-        .waitFor();
-      assert.deepEqual(mutations, [
-        {
-          path: "/api/companies/company/runs/failed-run/explanation",
-          body: {},
-        },
-        {
-          path: "/api/companies/company/runs/failed-run/explanation",
-          body: {},
-        },
-      ]);
-      await page.keyboard.press("Escape");
+      await modal.getByRole("button", { name: "Why did it error?", exact: true }).click();
       await modal.waitFor({ state: "detached" });
+      await asksAiAbout(page, "timeout-run", "timeout");
+      assert.deepEqual(mutations, [], "asking about an Error performs no work");
+      assert.deepEqual(writes, []);
       await page.close();
     },
   );
-  for (const shortcut of ["Control+Enter", "Meta+Enter"]) {
-    await check(
-      `Run explanation accepts ${shortcut} follow-up chat and retains its conversation beside the log`,
-      async () => {
-        const { page, mutations } = await open({ quiet: true, failedRuns: [failedRun()] });
-        await card(page, "Routines needing attention")
-          .getByRole("button", { name: /^Why did it fail\?/ })
-          .click();
-        const modal = page.getByRole("dialog");
-        await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-        const message = modal.getByRole("textbox", { name: "Message Jamie Mallers", exact: true });
-        await message.fill("Was any email sent?");
-        await message.press(shortcut);
-        await modal.getByText(failureFollowup, { exact: true }).waitFor();
-        await modal.getByText("Was any email sent?", { exact: true }).waitFor();
-        assert.equal(
-          await modal.getByRole("heading", { name: "What happened", exact: true }).count(),
-          1,
-        );
-        assert.equal(await message.inputValue(), "", "sending a follow-up clears the composer");
-        assert.equal(mutations.length, 2);
-        const followup = mutations[1].body as {
-          employeeId?: string;
-          message: string;
-          history: Array<{ role: string; content: string }>;
-        };
-        assert.equal(mutations[1].path, "/api/companies/company/runs/failed-run/explanation");
-        assert.equal(followup.employeeId, undefined);
-        assert.equal(followup.message, "Was any email sent?");
-        assert.ok(
-          followup.history.some(
-            (item) => item.role === "assistant" && item.content === failureExplanation,
-          ),
-          "the follow-up includes the initial explanation for context",
-        );
-        await modal.getByRole("tab", { name: "Run log", exact: true }).click();
-        await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
-        await modal.getByRole("tab", { name: "Why did it fail?", exact: true }).click();
-        await modal.getByText(failureFollowup, { exact: true }).waitFor();
-        assert.equal(
-          mutations.length,
-          2,
-          "switching panels preserves the conversation without resending",
-        );
-        await page.close();
-      },
-    );
-  }
-  await check(
-    "Run explanation retries a failed follow-up with the same employee and message",
-    async () => {
-      const fixture = await open({
-        quiet: true,
-        count: 2,
-        failedRuns: [failedRun({ employee: roster(2)[1] })],
-      });
-      const { page, mutations } = fixture;
-      await card(page, "Routines needing attention")
-        .getByRole("button", { name: /^Why did it fail\?/ })
-        .click();
-      const modal = page.getByRole("dialog");
-      await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-      fixture.failExplanation();
-      const message = modal.getByRole("textbox", { name: "Message Employee 2", exact: true });
-      await message.fill("Was any email sent?");
-      await modal.getByRole("button", { name: "Send", exact: true }).click();
-      await modal.getByRole("alert").waitFor();
-      assert.equal(await message.inputValue(), "Was any email sent?");
-      assert.equal(await modal.getByRole("combobox").count(), 0);
-      fixture.recover();
-      await modal.getByRole("button", { name: "Try again", exact: true }).click();
-      await modal.getByText(failureFollowup, { exact: true }).waitFor();
-      assert.equal(mutations.length, 3);
-      assert.deepEqual(
-        mutations[2],
-        mutations[1],
-        "retry preserves the failed question and history",
-      );
-      assert.equal((mutations[2].body as { employeeId?: string }).employeeId, undefined);
-      assert.equal(
-        await modal
-          .getByLabel("Conversation about this Run", { exact: true })
-          .getByText("Employee 2", { exact: true })
-          .count(),
-        2,
-      );
-      assert.equal(await modal.getByText("Was any email sent?", { exact: true }).count(), 1);
-      assert.equal(await message.inputValue(), "");
-      await page.close();
-    },
-  );
-  await check("Run explanation can recover when its AI Employee fails to load", async () => {
-    const fixture = await open({
-      quiet: true,
-      failedRuns: [failedRun()],
-      explanationOptionsError: true,
-    });
-    const { page, mutations } = fixture;
-    await card(page, "Routines needing attention")
-      .getByRole("button", { name: /^Why did it fail\?/ })
-      .click();
-    const modal = page.getByRole("dialog");
-    await modal
-      .getByRole("alert")
-      .filter({ hasText: "Could not load this Run's AI Employee." })
-      .waitFor();
-    assert.deepEqual(mutations, [], "the model is not called before its AI Employee is known");
-    fixture.recover();
-    await modal.getByRole("button", { name: "Try again", exact: true }).click();
-    await modal.getByRole("heading", { name: "What happened", exact: true }).waitFor();
-    assert.equal(mutations.length, 1);
-    await page.close();
-  });
-  await check("Run explanation can close while analysis is in progress", async () => {
-    const fixture = await open({ quiet: true, failedRuns: [failedRun()], holdExplanation: true });
-    const { page, mutations } = fixture;
-    await card(page, "Routines needing attention")
-      .getByRole("button", { name: /^Why did it fail\?/ })
-      .click();
-    const modal = page.getByRole("dialog");
-    await modal.getByRole("status").waitFor();
-    await fixture.explanationStarted;
-    const aborted = page.waitForEvent("requestfailed", {
-      predicate: (request) => request.method() === "POST" && request.url().endsWith("/explanation"),
-    });
-    await page.keyboard.press("Escape");
-    await modal.waitFor({ state: "detached" });
-    fixture.releaseExplanation();
-    await aborted;
-    await page.getByRole("heading", { name: "Routines needing attention", exact: true }).waitFor();
-    assert.equal(await page.getByRole("dialog").count(), 0);
-    assert.equal(mutations.length, 1);
-    await page.close();
-  });
-  await check("Run explanation never falls back when its AI Employee cannot analyze", async () => {
-    const { page, mutations } = await open({
-      quiet: true,
-      count: 2,
-      failedRuns: [failedRun()],
-      noExplanationEmployees: true,
-    });
-    await card(page, "Routines needing attention")
-      .getByRole("button", { name: /^Why did it fail\?/ })
-      .click();
-    const modal = page.getByRole("dialog");
-    await modal
-      .getByText(
-        "The AI Employee who ran this Routine needs a connected AI Model to explain this Run. You can still read the Run log.",
-        { exact: true },
-      )
-      .waitFor();
-    assert.deepEqual(mutations, []);
-    assert.equal(await modal.getByRole("combobox").count(), 0);
-    assert.equal(await modal.getByRole("textbox").count(), 0);
-    assert.equal(
-      await modal.getByRole("button", { name: "Ask AI Employee", exact: true }).count(),
-      0,
-    );
-    await modal.getByRole("tab", { name: "Run log", exact: true }).click();
-    await modal.locator("pre").filter({ hasText: failureTranscript }).waitFor();
-    await page.close();
-  });
-  await check("Run explanation uses Error wording for legacy operational failures", async () => {
-    const { page, mutations } = await open({
-      quiet: true,
-      failedRuns: [
-        failedRun({ runId: "timeout-run", status: "timeout" }),
-        failedRun({ runId: "interrupted-run", status: "interrupted" }),
-      ],
-    });
-    const panel = card(page, "Routines needing attention");
-    assert.equal(await panel.getByRole("button", { name: /^Why did it error\?/ }).count(), 2);
-    assert.equal(await panel.getByRole("button", { name: /^Why did it fail\?/ }).count(), 0);
-    assert.deepEqual(mutations, [], "analysis remains an explicit action");
-    await page.close();
-  });
   for (const count of [1, 2, 3, 4]) {
     await check(`${count} Home counters fill every responsive row`, async () => {
       const { page } = await open({
@@ -3019,6 +2756,259 @@ try {
     assert.equal(await greeting(fixture.page).getByRole("alert").count(), 0);
     await fixture.page.close();
   });
+  for (const width of [1440, 390, 320]) {
+    await check(
+      `employee Routine Runs stay above the calendar and show concurrent work at ${width}px`,
+      async () => {
+        const fixture = await open({
+          width,
+          dark: width === 320,
+          workQueue: {
+            employeeId: "employee-1",
+            current: null,
+            running: [
+              queueItem({
+                id: "active",
+                runId: "active",
+                routine: {
+                  id: "active-routine",
+                  name: "Morning customer briefing",
+                  slug: "morning-briefing",
+                },
+              }),
+              queueItem({
+                id: "active-2",
+                runId: "active-2",
+                routine: {
+                  id: "active-routine-2",
+                  name: "Review product feedback",
+                  slug: "product-feedback",
+                },
+              }),
+            ],
+            runningCount: 2,
+            pending: [
+              queueItem(),
+              queueItem({
+                id: "queued-2",
+                triggerKind: "retry",
+                routine: { id: "routine-2", name: "Refresh customer notes", slug: "refresh-notes" },
+                availableAt: "2026-09-09T10:30:00.000Z",
+              }),
+              queueItem({
+                id: "queued-3",
+                triggerKind: "continuation",
+                routine: { id: "routine-3", name: "Finish weekly report", slug: "weekly-report" },
+                blockedReason: "Waiting for the employee Standdown to be lifted.",
+              }),
+            ],
+            pendingCount: 3,
+          },
+        });
+        try {
+          const day = await openDay(fixture.page);
+          const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+          await queue.getByText("2 running · 3 pending", { exact: true }).waitFor();
+          await queue.getByText("Working now", { exact: true }).waitFor();
+          assert.equal(
+            await queue
+              .getByRole("link", { name: "Morning customer briefing", exact: true })
+              .getAttribute("href"),
+            "/c/company/routines/employee-1/morning-briefing?run=active",
+          );
+          const pending = queue.getByRole("list", { name: "Pending Routines", exact: true });
+          assert.deepEqual(await pending.getByRole("link").allTextContents(), [
+            "Review customer requests",
+            "Refresh customer notes",
+            "Finish weekly report",
+          ]);
+          assert.equal(await pending.locator("[aria-label^='Queue position']").count(), 0);
+          const running = queue.getByRole("list", { name: "Running Routines", exact: true });
+          assert.deepEqual(await running.getByRole("link").allTextContents(), [
+            "Morning customer briefing",
+            "Review product feedback",
+          ]);
+          assert.equal(
+            await running
+              .getByRole("link", { name: "Review product feedback", exact: true })
+              .getAttribute("href"),
+            "/c/company/routines/employee-1/product-feedback?run=active-2",
+          );
+          await pending.getByText(/Waiting until/).waitFor();
+          await pending
+            .getByText("Waiting for the employee Standdown to be lifted.", { exact: true })
+            .waitFor();
+          await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
+          const queueHeading = await box(
+            queue.getByRole("heading", { name: "Routine Runs", exact: true }),
+          );
+          const bounds = await box(day);
+          assert.ok(
+            queueHeading.y > bounds.y && queueHeading.y < bounds.y + bounds.height / 2,
+            "opening the calendar never scrolls the queue away",
+          );
+          assert.equal(
+            await day.evaluate((element) => element.scrollWidth > element.clientWidth),
+            false,
+            "modal has no horizontal overflow",
+          );
+          await fixture.page.screenshot({
+            path: path.join(output, `employee-routine-runs-${width}.png`),
+            fullPage: true,
+          });
+          const before = fixture.reads.filter((url) => url.includes("/work-queue")).length;
+          await day.getByRole("button", { name: "Previous day", exact: true }).click();
+          await day.getByRole("heading", { name: /Tuesday/ }).waitFor();
+          assert.equal(
+            fixture.reads.filter((url) => url.includes("/work-queue")).length,
+            before,
+            "changing calendar date does not reload or replace the queue",
+          );
+          await queue.getByText("2 running · 3 pending", { exact: true }).waitFor();
+          assert.deepEqual(fixture.writes, []);
+        } finally {
+          await fixture.page.close();
+        }
+      },
+    );
+  }
+  await check(
+    "employee Routine Runs refresh after a Run finishes while an earlier day stays selected",
+    async () => {
+      const first = queueItem();
+      const second = queueItem({
+        id: "queued-2",
+        runId: "queued-2",
+        routine: { id: "routine-2", name: "Refresh customer notes", slug: "refresh-notes" },
+      });
+      const fixture = await open({
+        live: true,
+        workQueue: {
+          employeeId: "employee-1",
+          current: first,
+          running: [first, second],
+          runningCount: 2,
+          pending: [],
+          pendingCount: 0,
+        },
+      });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue.getByText("2 running · 0 pending", { exact: true }).waitFor();
+        await day.getByRole("button", { name: "Previous day", exact: true }).click();
+        fixture.setQueue({
+          employeeId: "employee-1",
+          current: second,
+          running: [second],
+          runningCount: 1,
+          pending: [],
+          pendingCount: 0,
+        });
+        fixture.emitResourceEvent("run");
+        await queue.getByText("1 running · 0 pending", { exact: true }).waitFor();
+        await queue.getByText("No Routines waiting.", { exact: true }).waitFor();
+        assert.equal(
+          await queue.getByRole("link", { name: "Review customer requests", exact: true }).count(),
+          0,
+        );
+        assert.equal(
+          await queue
+            .getByRole("link", { name: "Refresh customer notes", exact: true })
+            .getAttribute("href"),
+          "/c/company/routines/employee-1/refresh-notes?run=queued-2",
+        );
+        assert.equal(await day.getByLabel("Work day", { exact: true }).inputValue(), "2026-09-08");
+      } finally {
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "employee Routine Runs loading and empty states leave recorded work usable",
+    async () => {
+      const fixture = await open({ holdQueue: true });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue
+          .getByRole("status")
+          .getByText("Loading Routine Runs…", { exact: true })
+          .waitFor();
+        await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
+        fixture.releaseQueue();
+        await queue.getByText("No active or pending Routines.", { exact: true }).waitFor();
+        assert.equal(await queue.getByText("Working now", { exact: true }).count(), 0);
+      } finally {
+        fixture.releaseQueue();
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "employee Routine Runs expands a long preview without hiding its full pending count",
+    async () => {
+      const fixture = await open({
+        width: 390,
+        workQueue: {
+          employeeId: "employee-1",
+          current: null,
+          running: [],
+          runningCount: 0,
+          pending: Array.from({ length: 7 }, (_, index) =>
+            queueItem({ id: `queued-${index + 1}` }),
+          ),
+          pendingCount: 120,
+        },
+      });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue.getByText("0 running · 120 pending", { exact: true }).waitFor();
+        assert.equal(await queue.getByRole("listitem").count(), 5);
+        await queue
+          .getByText("Showing the first 5 of 120 pending Routines.", { exact: true })
+          .waitFor();
+        await queue.getByRole("button", { name: "Show 2 more", exact: true }).click();
+        assert.equal(await queue.getByRole("listitem").count(), 7);
+        await queue
+          .getByText("Showing the first 7 of 120 pending Routines.", { exact: true })
+          .waitFor();
+        await queue.getByRole("button", { name: "Show fewer", exact: true }).click();
+        assert.equal(await queue.getByRole("listitem").count(), 5);
+        await day.getByRole("button", { name: "Go to first work", exact: true }).click();
+        const firstWork = await box(day.getByText(/Jamie Mallers replied in/));
+        const bounds = await box(day);
+        assert.ok(
+          firstWork.y > bounds.y && firstWork.y < bounds.y + bounds.height,
+          "recorded work is reachable beside a long queue",
+        );
+      } finally {
+        await fixture.page.close();
+      }
+    },
+  );
+  await check(
+    "employee Routine Runs failure is inline and retries independently of the calendar",
+    async () => {
+      const fixture = await open({ queueError: true, width: 320 });
+      try {
+        const day = await openDay(fixture.page);
+        const queue = day.getByRole("region", { name: "Routine Runs", exact: true });
+        await queue
+          .getByRole("alert")
+          .getByText("Routine Runs are temporarily unavailable.", { exact: true })
+          .waitFor();
+        await day.getByLabel("Jamie Mallers's hourly work timeline", { exact: true }).waitFor();
+        fixture.recover();
+        await queue.getByRole("button", { name: "Try again", exact: true }).click();
+        await queue.getByText("No active or pending Routines.", { exact: true }).waitFor();
+        assert.equal(await queue.getByRole("alert").count(), 0);
+      } finally {
+        await fixture.page.close();
+      }
+    },
+  );
   await check("empty roster leaves the greeting and full-width all-clear card", async () => {
     const { page } = await open({ count: 0, quiet: true });
     assert.equal(await work(page).count(), 0);

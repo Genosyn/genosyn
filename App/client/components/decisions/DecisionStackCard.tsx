@@ -31,9 +31,18 @@ export function DecisionStackCard({
   canAnswer?: boolean;
   onEditingChange?: (id: string, editing: boolean) => void;
 }) {
+  const [retrying, setRetrying] = React.useState(false);
   const close = () => {
     followUps.close(item.key);
     void onResolved();
+  };
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      await followUps.refresh();
+    } finally {
+      setRetrying(false);
+    }
   };
   if (item.kind === "loading") {
     return (
@@ -47,7 +56,7 @@ export function DecisionStackCard({
         )}
         <div className="flex gap-2">
           {item.error && (
-            <Button size="sm" variant="secondary" onClick={() => void followUps.refresh()}>
+            <Button size="sm" variant="secondary" loading={retrying} onClick={() => void retry()}>
               Retry timeline
             </Button>
           )}
@@ -66,7 +75,7 @@ export function DecisionStackCard({
   const refreshNotice = item.refreshError ? (
     <div className="mt-4 space-y-2">
       <FormError message={`Showing the last update. ${item.refreshError}`} />
-      <Button size="sm" variant="secondary" onClick={() => void followUps.refresh()}>
+      <Button size="sm" variant="secondary" loading={retrying} onClick={() => void retry()}>
         Retry timeline
       </Button>
     </div>

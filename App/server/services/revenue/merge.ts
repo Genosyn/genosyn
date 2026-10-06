@@ -1288,7 +1288,7 @@ async function addAliases(
     .innerJoin(
       RevenueCustomField,
       "field",
-      "field.id = value.fieldId AND field.companyId = value.companyId",
+      "CAST(field.id AS text) = value.fieldId AND field.companyId = value.companyId",
     )
     .where("value.companyId = :companyId", { companyId: operation.companyId })
     .andWhere("value.resourceType = :resourceType", { resourceType: type })

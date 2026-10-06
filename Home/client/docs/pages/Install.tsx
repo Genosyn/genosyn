@@ -57,7 +57,7 @@ export function Install() {
         It&apos;s a short, readable shell script. Open{" "}
         <a
           href="/install.sh"
-          className="font-medium text-ink underline decoration-hairline underline-offset-2"
+          className="font-medium text-ink underline decoration-line-strong underline-offset-2"
         >
           /install.sh
         </a>{" "}
@@ -106,11 +106,11 @@ export function Install() {
         volume above keeps it across container restarts and upgrades.
       </P>
       <Callout kind="info" title="OpenCode is included; host coding works by default.">
-        AI work uses the bundled OpenCode runtime, with commands running inside the App container
-        under the App process user. The default needs no additional Docker security options or Linux
-        user namespaces. Optional bubblewrap isolation is available through
-        <DocLink to="/docs/self-hosting"> Configuration</DocLink>; selecting it also requires
-        Docker&apos;s namespace and <Code>/proc</Code> options.
+        AI work uses the bundled OpenCode runtime. Commands run directly inside the App container
+        with the App process user&apos;s filesystem and network authority; there is no OS sandbox,
+        and the container keeps Docker&apos;s standard security profile with no extra options. To
+        stop command execution, set the execution mode to <Code>disabled</Code> in{" "}
+        <DocLink to="/docs/self-hosting#config-ts">Configuration</DocLink>.
       </Callout>
 
       <H2 id="next-steps">Next steps</H2>
@@ -147,7 +147,8 @@ export function Install() {
       </P>
       <Pre lang="bash">{`genosyn upgrade --backup`}</Pre>
       <P>
-        Automatic updates use the default path without a backup after first self-upgrading the CLI.
+        Automatic updates use the default path without a backup, after first updating their own
+        copy of the CLI.
         See <DocLink to="/docs/cli">CLI reference</DocLink> for every flag.
       </P>
 

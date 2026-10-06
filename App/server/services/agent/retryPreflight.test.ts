@@ -5,6 +5,7 @@ import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { EmployeeBaseGrant } from "../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeFinanceGrant } from "../../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
+import { EmployeeResourceLibraryGrant } from "../../db/entities/EmployeeResourceLibraryGrant.js";
 import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js";
 import { Routine } from "../../db/entities/Routine.js";
 import { Run } from "../../db/entities/Run.js";
@@ -133,6 +134,29 @@ test("tools spanning Revenue, Finance and Email check each standing Grant indepe
     accessLevel: "full",
   });
   await preflight(["propose_finance_commercial_values"]);
+});
+
+test("a Resources write cannot be retried once the employee is read only; reads still can", async () => {
+  // Read + write is the default, so a fresh employee passes without any row.
+  await preflight(["create_resource", "update_resource", "delete_resource", "get_resource"]);
+  await insert(EmployeeResourceLibraryGrant, {
+    companyId,
+    employeeId: employee.id,
+    accessLevel: "read",
+  });
+  await preflight(["list_resources", "search_resources", "get_resource", "export_resource"]);
+  for (const tool of ["create_resource", "update_resource", "delete_resource"]) {
+    await assert.rejects(preflight([tool]), (error: unknown) => {
+      assert.ok(error instanceof RetryPreflightError);
+      assert.deepEqual(error.missingTools, [tool]);
+      return true;
+    });
+  }
+  await AppDataSource.getRepository(EmployeeResourceLibraryGrant).update(
+    { employeeId: employee.id },
+    { accessLevel: "write" },
+  );
+  await preflight(["create_resource", "update_resource", "delete_resource"]);
 });
 
 test("preflight fails closed when current Grants cannot be read", async (t) => {

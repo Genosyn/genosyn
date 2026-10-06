@@ -1,8 +1,10 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { Plus, Repeat } from "lucide-react";
+import { FileText, Plus, Repeat, Send } from "lucide-react";
 import {
   api,
+  financeSubsidiaries,
+  Subsidiary,
   formatMoney,
   RecurringInvoiceListItem,
   RecurringInvoiceStatus,
@@ -50,16 +52,18 @@ export default function FinanceRecurringInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const [rows, setRows] = React.useState<RecurringInvoiceListItem[] | null>(null);
+  const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
   const reload = React.useCallback(() => {
-    api
-      .get<RecurringInvoiceListItem[]>(
-        `/api/companies/${company.id}/recurring-invoices`,
-      )
-      .then((list) => {
+    Promise.all([
+      api.get<RecurringInvoiceListItem[]>(`/api/companies/${company.id}/recurring-invoices`),
+      financeSubsidiaries.list(company.id),
+    ])
+      .then(([list, issuers]) => {
         setRows(list);
+        setSubsidiaries(issuers);
         setLoadError(null);
       })
       .catch((err: unknown) => {
@@ -110,9 +114,8 @@ export default function FinanceRecurringInvoices() {
             Recurring invoices
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Schedule an invoice template to bill on a repeating cadence — e.g.
-            monthly retainers or annual licences. Each run creates a fresh
-            invoice.
+            Schedule an invoice template to bill on a repeating cadence — e.g. monthly retainers or
+            annual licences. Each run creates a fresh invoice.
           </p>
         </div>
         <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
@@ -173,63 +176,102 @@ export default function FinanceRecurringInvoices() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium">Name</th>
-                <th className="px-4 py-2 text-left font-medium">Customer</th>
-                <th className="px-4 py-2 text-left font-medium">Schedule</th>
-                <th className="px-4 py-2 text-left font-medium">Status</th>
-                <th className="px-4 py-2 text-left font-medium">Next run</th>
-                <th className="px-4 py-2 text-right font-medium">Runs</th>
-                <th className="px-4 py-2 text-left font-medium">Currency</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filtered.map((r) => (
-                <tr
-                  key={r.id}
-                  className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  onClick={() =>
-                    navigate(
-                      `/c/${company.slug}/finance/recurring-invoices/${r.slug}`,
-                    )
-                  }
-                >
-                  <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
-                    {r.name}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
-                    {r.customer?.name ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {describeCron(r.cronExpr, r.intervalCount)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={
-                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
-                        STATUS_BADGE[r.status]
-                      }
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {r.status === "active" ? formatRelative(r.nextRunAt) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                    {r.runsCreated}
-                    {r.maxRuns ? ` / ${r.maxRuns}` : ""}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                    {formatMoney(0, r.currency).replace(/[\d.,]/g, "").trim() ||
-                      r.currency}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium">Name</th>
+                  <th className="px-4 py-2 text-left font-medium">Customer</th>
+                  <th className="px-4 py-2 text-left font-medium">Schedule</th>
+                  <th className="px-4 py-2 text-left font-medium">Each run</th>
+                  <th className="px-4 py-2 text-left font-medium">Status</th>
+                  <th className="px-4 py-2 text-left font-medium">Next run</th>
+                  <th className="px-4 py-2 text-right font-medium">Runs</th>
+                  <th className="px-4 py-2 text-right font-medium">Amount</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filtered.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    onClick={() =>
+                      navigate(`/c/${company.slug}/finance/recurring-invoices/${r.slug}`)
+                    }
+                  >
+                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
+                      {r.name}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
+                      {r.customer?.name ?? "—"}
+                      <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+                        Issued by{" "}
+                        {r.subsidiaryId
+                          ? (subsidiaries.find((item) => item.id === r.subsidiaryId)?.name ??
+                            "Subsidiary unavailable")
+                          : company.name}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {describeCron(r.cronExpr, r.intervalCount)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {r.autoSend ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Send size={13} className="text-indigo-500" /> Issue + email
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <FileText size={13} className="text-slate-400" /> Draft only
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                          STATUS_BADGE[r.status]
+                        }
+                      >
+                        {r.status}
+                      </span>
+                      {r.status === "active" &&
+                        r.latestRun?.status === "pending" &&
+                        r.latestRun.lastError && (
+                          <div
+                            className="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                            title={r.latestRun.lastError}
+                          >
+                            Retrying
+                          </div>
+                        )}
+                      {r.latestRun?.status === "failed" && (
+                        <div
+                          className="mt-1 text-xs text-red-600 dark:text-red-400"
+                          title={r.latestRun.lastError}
+                        >
+                          Email not sent
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {r.status === "active" ? formatRelative(r.nextRunAt) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-200">
+                      {r.runsCreated}
+                      {r.maxRuns ? ` / ${r.maxRuns}` : ""}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
+                      {formatMoney(r.totalCents, r.currency)}
+                      <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">
+                        {r.currency}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

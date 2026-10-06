@@ -35,7 +35,8 @@ import {
   RetryPreflightError,
   type RetryCapabilityRecorder,
 } from "./retryPreflight.js";
-import { residentOnlyRegistry } from "./tools/toolRegistry.js";
+import { residentOnlyRegistry, type ToolRegistry } from "./tools/toolRegistry.js";
+import type { RunDeadlineNotice } from "../runDeadlineNotice.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
 import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
@@ -75,6 +76,8 @@ export type EmployeeAgentParams = {
   bashTimeoutMs: number;
   /** Max model turns before we stop; null leaves the turn bounded by its caller's deadline. */
   maxSteps: number | null;
+  /** Wait out a self-hosted model server's restart; defaults to unbounded turns. */
+  waitForModel?: boolean;
   routineId?: string;
   conversationId?: string;
   runId?: string;
@@ -111,6 +114,11 @@ export type EmployeeAgentParams = {
    * {@link ToolScope}.
    */
   toolScope?: ToolScope;
+  /**
+   * A Routine Run's time check, shown beside tool results as its deadline
+   * nears. Delegated workers inherit it because they share that deadline.
+   */
+  toolResultNotice?: RunDeadlineNotice;
 };
 
 export type EmployeeAgentResult =
@@ -177,6 +185,21 @@ function trimToProviderCap(
   return kept;
 }
 
+/**
+ * Show a Run's time check beside tool results. Only the top-level Run can save
+ * its own checkpoint; a delegated worker is told to record its evidence instead.
+ */
+function attachResultNotice(
+  registry: ToolRegistry,
+  params: Pick<EmployeeAgentParams, "toolResultNotice" | "delegationDepth">,
+): void {
+  const notice = params.toolResultNotice;
+  if (!notice) return;
+  const canCheckpoint =
+    (params.delegationDepth ?? 0) === 0 && Boolean(registry.resolve("save_run_checkpoint"));
+  registry.resultNotice = () => notice({ canCheckpoint });
+}
+
 export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
   try {
     return await withCompanyAgentCapacity(params.employeeId, params.signal, (signal) =>
@@ -227,6 +250,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   // Workers forward cost/retry observations, but never replace the parent's context reading.
   params = { ...params, callbacks: diagnostics.callbacks };
   const deferredLocalTools: AgentTool[] = params.toolScope?.surfaceOnly ? [] : [diagnostics.tool];
+  let delegationTool: ReturnType<typeof createParallelDelegationTool> | undefined;
   const localTools: AgentTool[] = selectSurfaceTools(params.extraTools ?? [], {
     authority: params.extraToolsAuthority,
     allowPrivileged,
@@ -238,7 +262,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   if (
     allowPrivileged &&
     !params.toolScope?.surfaceOnly &&
-    supportsParallelDelegation(params.model.authMode, delegationDepth)
+    supportsParallelDelegation(params.model, delegationDepth)
   ) {
     const recoveryScope = await resolveRecoveryScope(params.genosynToken);
     const resultStore: ParallelResultStore = recoveryScope
@@ -246,45 +270,41 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       : createParallelResultStore();
     deferredLocalTools.push(
       ...guardPrivilegedTools(
-        [createParallelWorkResultTool(resultStore)],
+        [createParallelWorkResultTool(resultStore, { signal: params.signal })],
         params.authorizePrivilegedToolCall,
       ),
     );
-    localTools.push(
-      ...guardPrivilegedTools(
-        [
-          createParallelDelegationTool({
-            budget: delegationBudget,
-            resultStore,
-            signal: params.signal,
-            runBrief: (brief, resultId) =>
-              runDelegatedBrief(
-                {
-                  ...params,
-                  recoveryGrantObserver:
-                    resultId && resultStore.captureGrants
-                      ? (grants) => resultStore.captureGrants!(resultId, grants)
-                      : undefined,
-                },
-                brief,
-                delegationBudget,
-              ),
-            preflight: async (briefs) => {
-              try {
-                await params.recoveryRecorder?.check(
-                  briefs.flatMap((brief) => brief.requiredTools ?? []),
-                );
-                return null;
-              } catch (error) {
-                if (error instanceof RetryPreflightError) return error.message;
-                throw error;
-              }
-            },
-          }),
-        ],
-        params.authorizePrivilegedToolCall,
-      ),
-    );
+    delegationTool = createParallelDelegationTool({
+      budget: delegationBudget,
+      resultStore,
+      signal: params.signal,
+      onBackgroundWork: params.callbacks?.onBackgroundWork,
+      runBrief: (brief, resultId, signal) =>
+        runDelegatedBrief(
+          {
+            ...params,
+            signal,
+            recoveryGrantObserver:
+              resultId && resultStore.captureGrants
+                ? (grants) => resultStore.captureGrants!(resultId, grants)
+                : undefined,
+          },
+          brief,
+          delegationBudget,
+        ),
+      preflight: async (briefs) => {
+        try {
+          await params.recoveryRecorder?.check(
+            briefs.flatMap((brief) => brief.requiredTools ?? []),
+          );
+          return null;
+        } catch (error) {
+          if (error instanceof RetryPreflightError) return error.message;
+          throw error;
+        }
+      },
+    });
+    localTools.push(...guardPrivilegedTools([delegationTool], params.authorizePrivilegedToolCall));
   }
 
   if (params.model.authMode === "subscription") {
@@ -333,6 +353,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     params.model.provider === "openai" ? (nativeCoding ? 112 : 128) : null,
     params.callbacks,
   );
+  attachResultNotice(gathered.registry, params);
   diagnostics.setRegistry(gathered.registry);
 
   try {
@@ -361,6 +382,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       messages: params.messages,
       registry: gathered.registry,
       maxSteps: params.maxSteps,
+      waitForModel: params.waitForModel,
       cwd: params.cwd,
       toolEnv: params.toolEnv,
       bashTimeoutMs: params.bashTimeoutMs,
@@ -390,6 +412,10 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     };
   } finally {
     try {
+      // A tool's bounded pending response must not let its workers outlive a
+      // normally ending parent. Stop and join them before releasing its tools,
+      // MCP token, capacity slot, or the caller's deadline timer.
+      await delegationTool?.close();
       await params.recoveryRecorder?.flush();
     } finally {
       await gathered.close();
@@ -512,6 +538,7 @@ async function runSubscriptionEmployeeAgent(
       128,
       params.callbacks,
     );
+    attachResultNotice(gathered.registry, params);
     diagnostics.setRegistry(gathered.registry);
 
     const recorder = await prepareRetryCapabilities({
@@ -605,6 +632,8 @@ async function runDelegatedBrief(
         scopedCallId(callId),
       ),
     onModelRetry: parent.callbacks?.onModelRetry,
+    onModelOutage: parent.callbacks?.onModelOutage,
+    onServedModelChange: parent.callbacks?.onServedModelChange,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
     onToolsTrimmed: parent.callbacks?.onToolsTrimmed,

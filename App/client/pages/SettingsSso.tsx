@@ -20,20 +20,17 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { FormError, FormSuccess } from "../components/ui/FormError";
-import { FeatureGateCard } from "../components/FeatureGateCard";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
 import { errorMessage } from "../lib/errors";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
- * Settings → Single sign-on (M56 Phase B). A company on Genosyn Cloud's
- * Scale plan registers its own Google / OpenID Connect client here, and its
- * members sign in from `/login/sso/<companySlug>`. Below Scale the page
- * shows the upgrade gate with a read-only teaser — the server's 402 on
- * enabling remains the backstop. Imitates Admin → SSO closely: same form,
- * same blank-keeps-stored secret, plus the auto-join toggle and the login
- * URL members use.
+ * Settings → Single sign-on. A company registers its own Google / OpenID
+ * Connect client here, and its members sign in from
+ * `/login/sso/<companySlug>`. Imitates Admin → SSO closely: same form, same
+ * blank-keeps-stored secret, plus the auto-join toggle and the login URL
+ * members use.
  */
 
 const FIELD_CLASS =
@@ -73,13 +70,13 @@ export function SettingsSso() {
   const [saving, setSaving] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
   const [resetting, setResetting] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
   const dialog = useDialog();
 
-  const hasFeature = company.entitlements.features.sso;
   const base = `/api/companies/${company.id}/sso`;
 
   const reload = React.useCallback(async () => {
@@ -96,63 +93,6 @@ export function SettingsSso() {
   React.useEffect(() => {
     reload();
   }, [reload]);
-
-  if (!hasFeature) {
-    // On Genosyn Cloud the way up is the Scale plan and this page's
-    // per-company login URL; on a self-hosted install "Scale" does not exist —
-    // the path is a Genosyn Enterprise license, and SSO is the instance-wide
-    // sign-in a master admin configures at Admin → SSO.
-    const cloud = company.entitlements.edition === "cloud";
-    return (
-      <>
-        <TopBar title="Single sign-on" />
-        <div className="flex flex-col gap-4">
-          <FeatureGateCard feature="sso" entitlements={company.entitlements} company={company} />
-          <Card>
-            <CardHeader>
-              <h2 className="text-sm font-semibold">
-                {cloud ? "What you get on Scale" : "What you get with Genosyn Enterprise"}
-              </h2>
-            </CardHeader>
-            <CardBody>
-              <ul className="flex flex-col gap-1.5 text-sm text-slate-500 dark:text-slate-400">
-                <li>
-                  Members sign in through your Google Workspace or any OpenID Connect provider
-                  &mdash; Okta, Keycloak, Microsoft Entra ID, Auth0.
-                </li>
-                {cloud ? (
-                  <>
-                    <li>
-                      A dedicated sign-in page for your company at{" "}
-                      <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                        /login/sso/{company.slug}
-                      </code>
-                      .
-                    </li>
-                    <li>
-                      Optional auto-join: anyone your identity provider vouches for becomes a
-                      Member on first sign-in.
-                    </li>
-                  </>
-                ) : (
-                  <>
-                    <li>
-                      Single sign-on for the whole install, configured by a master admin at Admin
-                      &rarr; SSO.
-                    </li>
-                    <li>
-                      Optional auto-provisioning: people your identity provider vouches for get an
-                      account on first sign-in.
-                    </li>
-                  </>
-                )}
-              </ul>
-            </CardBody>
-          </Card>
-        </div>
-      </>
-    );
-  }
 
   if (!data || !draft) {
     return (
@@ -242,6 +182,15 @@ export function SettingsSso() {
     }
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const copyUrl = async (label: string, value: string) => {
     setCopyNotice(null);
     try {
@@ -260,7 +209,7 @@ export function SettingsSso() {
       <TopBar
         title="Single sign-on"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -268,6 +217,14 @@ export function SettingsSso() {
 
       <div className="flex flex-col gap-4">
         <FormError message={loadError} />
+        {!data.allowedByInstance && (
+          <Card className="border border-amber-200 dark:border-amber-500/30">
+            <CardBody className="text-sm text-slate-600 dark:text-slate-300">
+              Company single sign-on isn&apos;t allowed on this install yet. You can prepare the
+              settings below; a master admin can allow it at Admin → SSO before you turn it on.
+            </CardBody>
+          </Card>
+        )}
         <StatusBanner data={data} />
 
         <Card>
@@ -288,7 +245,8 @@ export function SettingsSso() {
                   size="sm"
                   variant="ghost"
                   onClick={resetToDefault}
-                  disabled={resetting || saving}
+                  loading={resetting}
+                  disabled={saving}
                 >
                   <RotateCcw size={12} />
                   {resetting ? "Resetting…" : "Reset"}
@@ -461,12 +419,12 @@ export function SettingsSso() {
                   size="sm"
                   variant="secondary"
                   onClick={checkIssuer}
-                  disabled={checking}
+                  loading={checking}
                 >
                   <ShieldCheck size={14} />
                   {checking ? "Checking…" : "Check issuer"}
                 </Button>
-                <Button type="submit" size="sm" disabled={!dirty || saving}>
+                <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
                   {saving ? "Saving…" : "Save SSO settings"}
                 </Button>
               </div>

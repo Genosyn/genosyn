@@ -16,7 +16,6 @@ import { Card, CardBody } from "../components/ui/Card";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
-import { FeatureGateCard } from "../components/FeatureGateCard";
 import { Select } from "../components/ui/Select";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
@@ -31,11 +30,6 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
  * without any way to ask it. An AI Employee's rows also rendered as "System"
  * until now, which made the most interesting actor in the table the one it
  * could not name.
- *
- * The reading surface is edition/plan-gated (M56): without the `auditLog`
- * entitlement we show the upgrade card and never fetch — the server keeps
- * writing events regardless, so history exists the day they upgrade. Reading
- * what ONE Run did is deliberately not gated; that lives on the Run itself.
  */
 
 const PAGE_SIZE = 200;
@@ -51,7 +45,6 @@ const ACTOR_KINDS: { value: AuditActorKind | ""; label: string }[] = [
 
 export default function AuditLog() {
   const { company } = useOutletContext<SettingsOutletCtx>();
-  const gated = !company.entitlements.features.auditLog;
   const [rows, setRows] = React.useState<AuditEvent[] | null>(null);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -64,7 +57,6 @@ export default function AuditLog() {
   const filterKey = JSON.stringify(filters);
 
   const reload = React.useCallback(async () => {
-    if (gated) return;
     try {
       const page = await api.get<AuditPage>(
         `/api/companies/${company.id}/audit${auditQuery({ ...filters, take: PAGE_SIZE })}`,
@@ -80,19 +72,18 @@ export default function AuditLog() {
     // `filterKey` stands in for `filters` so a new object with identical values
     // does not re-fetch on every keystroke elsewhere in the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id, gated, filterKey]);
+  }, [company.id, filterKey]);
 
   React.useEffect(() => {
     reload();
   }, [reload]);
 
   React.useEffect(() => {
-    if (gated) return;
     api
       .get<{ employees: typeof employees }>(`/api/companies/${company.id}/audit/actors`)
       .then((r) => setEmployees(r.employees))
       .catch(() => setEmployees([]));
-  }, [company.id, gated]);
+  }, [company.id]);
 
   // The audit log is written on essentially every human/AI mutation, so it is
   // the one page that reflects the whole company's activity as it happens.
@@ -116,19 +107,6 @@ export default function AuditLog() {
 
   const set = (patch: AuditFilters) => setFilters((f) => ({ ...f, ...patch }));
   const filtered = Object.values(filters).some((v) => v !== undefined && v !== "");
-
-  if (gated) {
-    return (
-      <>
-        <TopBar title="Audit log" />
-        <FeatureGateCard
-          feature="auditLog"
-          entitlements={company.entitlements}
-          company={company}
-        />
-      </>
-    );
-  }
 
   return (
     <>

@@ -1023,7 +1023,7 @@ export const ROLES: RoleDef[] = [
       {
         icon: "lock",
         title: "Commands follow your policy",
-        body: "Commands start in the work session's own worktree, with the Repository's command policy applied. Host execution inside the App container is the default; bubblewrap is optional. Review and delivery remain explicit steps.",
+        body: "Commands start in the work session's own worktree, with the Repository's command policy applied. They run on the host, inside the App container, not in an OS sandbox. Review and delivery remain explicit steps.",
       },
       {
         icon: "gitFork",
@@ -1048,7 +1048,7 @@ export const ROLES: RoleDef[] = [
       },
       {
         q: "Where does the code actually run?",
-        a: "In the work session's worktree. The default host mode runs inside the App container with the App process user's authority. You can choose optional bubblewrap isolation or disable command execution.",
+        a: "In the work session's worktree. The default host mode runs inside the App container with the App process user's authority, with no OS sandbox. An operator can disable command execution instead.",
       },
       {
         q: "Does it get my repository credentials?",

@@ -12,7 +12,7 @@ import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
@@ -43,6 +43,8 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
   const [pairing, setPairing] = React.useState<{ browser: MemberBrowser; code: string } | null>(
     null,
   );
+  const [revokingId, setRevokingId] = React.useState<string | null>(null);
+  const [rePairingId, setRePairingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -87,15 +89,19 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
       variant: "danger",
     });
     if (!ok) return;
+    setRevokingId(browser.id);
     try {
       await api.del(`/api/companies/${companyId}/member-browsers/${browser.id}`);
       void reload();
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t disconnect ${browser.name}` });
+    } finally {
+      setRevokingId(null);
     }
   }
 
   async function rePair(browser: MemberBrowser) {
+    setRePairingId(browser.id);
     try {
       const { pairingCode } = await api.post<{ pairingCode: string }>(
         `/api/companies/${companyId}/member-browsers/${browser.id}/pairing-code`,
@@ -105,6 +111,8 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
       void reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create a new pairing code" });
+    } finally {
+      setRePairingId(null);
     }
   }
 
@@ -149,6 +157,8 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
                   key={browser.id}
                   companyId={companyId}
                   browser={browser}
+                  revoking={revokingId === browser.id}
+                  rePairing={rePairingId === browser.id}
                   onChanged={reload}
                   onRevoke={() => revoke(browser)}
                   onRePair={() => rePair(browser)}
@@ -206,12 +216,16 @@ function StatusDot({ browser }: { browser: MemberBrowser }) {
 function BrowserRow({
   companyId,
   browser,
+  revoking,
+  rePairing,
   onChanged,
   onRevoke,
   onRePair,
 }: {
   companyId: string;
   browser: MemberBrowser;
+  revoking: boolean;
+  rePairing: boolean;
   onChanged: () => void | Promise<void>;
   onRevoke: () => void;
   onRePair: () => void;
@@ -246,10 +260,22 @@ function BrowserRow({
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={onRePair} title="Get a new pairing code">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onRePair}
+            loading={rePairing}
+            title="Get a new pairing code"
+          >
             <Unplug size={14} />
           </Button>
-          <Button size="sm" variant="ghost" onClick={onRevoke} title="Disconnect">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onRevoke}
+            loading={revoking}
+            title="Disconnect"
+          >
             <Trash2 size={14} />
           </Button>
         </div>
@@ -271,12 +297,14 @@ function BrowserDetail({
   const [allowedHosts, setAllowedHosts] = React.useState(browser.allowedHosts ?? "");
   const [approvalRequired, setApprovalRequired] = React.useState(browser.approvalRequired);
   const [allowUnattended, setAllowUnattended] = React.useState(browser.allowUnattended);
-  const [saving, setSaving] = React.useState(false);
+  const [saving, setSaving] = React.useState<null | "hosts" | "switch">(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [grantees, setGrantees] = React.useState<MemberBrowserGrantee[] | null>(null);
   const [grantsError, setGrantsError] = React.useState<string | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [picking, setPicking] = React.useState("");
+  const [granting, setGranting] = React.useState(false);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
 
   const hostsDirty = (browser.allowedHosts ?? "") !== allowedHosts;
 
@@ -309,8 +337,8 @@ function BrowserDetail({
     setAllowUnattended(browser.allowUnattended);
   }, [browser.approvalRequired, browser.allowUnattended]);
 
-  async function patch(body: Record<string, unknown>) {
-    setSaving(true);
+  async function patch(body: Record<string, unknown>, field: "hosts" | "switch") {
+    setSaving(field);
     setSaveError(null);
     try {
       const updated = await api.patch<MemberBrowser>(
@@ -325,7 +353,7 @@ function BrowserDetail({
       setSaveError(errorMessage(err));
       await onChanged();
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   }
 
@@ -358,8 +386,9 @@ function BrowserDetail({
           <Button
             size="sm"
             className="mt-2"
-            disabled={saving}
-            onClick={() => patch({ allowedHosts })}
+            loading={saving === "hosts"}
+            disabled={saving !== null}
+            onClick={() => patch({ allowedHosts }, "hosts")}
           >
             Save list
           </Button>
@@ -379,9 +408,9 @@ function BrowserDetail({
           <Checkbox
             label="Ask me before submitting a form"
             checked={approvalRequired}
-            disabled={saving}
+            disabled={saving !== null}
             onChange={(e) => {
-              void patch({ approvalRequired: e.target.checked });
+              void patch({ approvalRequired: e.target.checked }, "switch");
             }}
           />
           Ask me before submitting a form
@@ -390,9 +419,9 @@ function BrowserDetail({
           <Checkbox
             label="Let scheduled Routines use this browser"
             checked={allowUnattended}
-            disabled={saving}
+            disabled={saving !== null}
             onChange={(e) => {
-              void patch({ allowUnattended: e.target.checked });
+              void patch({ allowUnattended: e.target.checked }, "switch");
             }}
           />
           Let scheduled Routines use this browser
@@ -431,8 +460,11 @@ function BrowserDetail({
                   type="button"
                   aria-label={`Remove ${g.name}`}
                   className="text-slate-400 hover:text-rose-500"
+                  disabled={removingId === g.employeeId}
+                  aria-busy={removingId === g.employeeId || undefined}
                   onClick={async () => {
                     setGrantsError(null);
+                    setRemovingId(g.employeeId);
                     try {
                       await api.del(
                         `/api/companies/${companyId}/member-browsers/${browser.id}/grants/${g.employeeId}`,
@@ -440,10 +472,12 @@ function BrowserDetail({
                       void reloadGrants();
                     } catch (err) {
                       setGrantsError(errorMessage(err));
+                    } finally {
+                      setRemovingId(null);
                     }
                   }}
                 >
-                  <Trash2 size={12} />
+                  {removingId === g.employeeId ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                 </button>
               </li>
             ))}
@@ -468,9 +502,11 @@ function BrowserDetail({
             <Button
               size="sm"
               variant="secondary"
+              loading={granting}
               disabled={!picking}
               onClick={async () => {
                 setGrantsError(null);
+                setGranting(true);
                 try {
                   await api.post(
                     `/api/companies/${companyId}/member-browsers/${browser.id}/grants`,
@@ -480,6 +516,8 @@ function BrowserDetail({
                   void reloadGrants();
                 } catch (err) {
                   setGrantsError(errorMessage(err));
+                } finally {
+                  setGranting(false);
                 }
               }}
             >
@@ -560,7 +598,7 @@ function CreateModal({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !name.trim()}>
+          <Button type="submit" loading={busy} disabled={!name.trim()}>
             {busy ? "Creating…" : "Create"}
           </Button>
         </div>

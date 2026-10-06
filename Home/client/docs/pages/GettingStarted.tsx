@@ -74,8 +74,8 @@ export function GettingStarted() {
       </OL>
       <P>
         Genosyn supports Claude through an Anthropic API key, OpenAI API keys, and custom
-        OpenAI-compatible endpoints. Eligible ChatGPT subscription access is also available on
-        trusted single-tenant installs. Credentials are encrypted when stored. See{" "}
+        OpenAI-compatible endpoints. Eligible ChatGPT subscription access is also available for
+        OpenAI. Credentials are encrypted when stored. See{" "}
         <DocLink to="/docs/models">AI Models</DocLink> for the available connection methods.
       </P>
       <Callout kind="info" title="You can connect a model later.">

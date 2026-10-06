@@ -514,8 +514,8 @@ export default function RepositoryOverview() {
                       Verify the clone URL and available sign-in before assigning work.
                     </p>
                   </div>
-                  <Button variant="secondary" onClick={test} disabled={testing}>
-                    {testing ? <Spinner size={14} /> : <Plug size={14} />}
+                  <Button variant="secondary" onClick={test} loading={testing}>
+                    <Plug size={14} />
                     {testing ? "Testing…" : "Test connection"}
                   </Button>
                 </div>

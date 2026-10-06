@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   Ban,
   Copy,
@@ -14,9 +15,12 @@ import {
 } from "lucide-react";
 import {
   api,
+  financeSubsidiaries,
+  Subsidiary,
   formatMoney,
   Invoice,
   RecurringInvoice,
+  RecurringInvoiceRunSummary,
   RecurringInvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
@@ -50,16 +54,23 @@ export default function FinanceRecurringInvoiceDetail() {
   const navigate = useNavigate();
   const dialog = useDialog();
   const [ri, setRi] = React.useState<RecurringInvoice | null>(null);
+  const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<
+    null | "status" | "run" | "retry" | "duplicate" | "delete"
+  >(null);
 
   const reload = React.useCallback(async () => {
     if (!recurringSlug) return;
     try {
-      const fresh = await api.get<RecurringInvoice>(
-        `/api/companies/${company.id}/recurring-invoices/${recurringSlug}`,
-      );
+      const [fresh, issuers] = await Promise.all([
+        api.get<RecurringInvoice>(
+          `/api/companies/${company.id}/recurring-invoices/${recurringSlug}`,
+        ),
+        financeSubsidiaries.list(company.id),
+      ]);
       setRi(fresh);
+      setSubsidiaries(issuers);
       setLoadError(null);
     } catch (err) {
       setLoadError(errorMessage(err, "Could not load the recurring invoice"));
@@ -74,7 +85,7 @@ export default function FinanceRecurringInvoiceDetail() {
 
   async function patchStatus(next: RecurringInvoiceStatus) {
     if (!ri) return;
-    setBusy(true);
+    setBusy("status");
     try {
       const updated = await api.patch<RecurringInvoice>(
         `/api/companies/${company.id}/recurring-invoices/${ri.slug}`,
@@ -84,13 +95,13 @@ export default function FinanceRecurringInvoiceDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t update the schedule" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function runNow() {
+  async function runNow(from: "run" | "retry") {
     if (!ri) return;
-    setBusy(true);
+    setBusy(from);
     try {
       const result = await api.post<{
         recurringInvoice: RecurringInvoice;
@@ -108,24 +119,23 @@ export default function FinanceRecurringInvoiceDetail() {
       }
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t run the schedule" });
+      void reload();
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function duplicate() {
     if (!ri) return;
-    setBusy(true);
+    setBusy("duplicate");
     try {
       const copy = await api.post<RecurringInvoice>(
         `/api/companies/${company.id}/recurring-invoices/${ri.slug}/duplicate`,
       );
-      navigate(
-        `/c/${company.slug}/finance/recurring-invoices/${copy.slug}`,
-      );
+      navigate(`/c/${company.slug}/finance/recurring-invoices/${copy.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t duplicate the schedule" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -152,15 +162,13 @@ export default function FinanceRecurringInvoiceDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
-      await api.del(
-        `/api/companies/${company.id}/recurring-invoices/${ri.slug}`,
-      );
+      await api.del(`/api/companies/${company.id}/recurring-invoices/${ri.slug}`);
       navigate(`/c/${company.slug}/finance/recurring-invoices`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the schedule" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -192,9 +200,11 @@ export default function FinanceRecurringInvoiceDetail() {
     );
   }
 
-  const totalPreview = ri.lines.reduce((sum, l) => {
-    return sum + Math.round(l.quantity * l.unitPriceCents);
-  }, 0);
+  const customerUrl = ri.customer ? `/c/${company.slug}/customers/${ri.customer.slug}` : null;
+  const retrying = ri.status === "active" && ri.latestRun?.status === "pending";
+  // A run still in flight may already have created its invoice; that one is
+  // newer than the last finished run's.
+  const latestInvoiceSlug = ri.latestRun?.invoiceSlug || ri.lastInvoiceSlug;
 
   return (
     <div className="page-shell p-8">
@@ -237,20 +247,31 @@ export default function FinanceRecurringInvoiceDetail() {
               <Repeat size={12} className="mr-1 inline" />
               {describeCron(ri.cronExpr, ri.intervalCount)}
               {" — billing "}
-              <span className="font-medium text-slate-700 dark:text-slate-300">
-                {ri.customer?.name ?? "—"}
-              </span>
+              {customerUrl ? (
+                <Link
+                  to={customerUrl}
+                  className="font-medium text-slate-700 hover:text-indigo-600 hover:underline dark:text-slate-300 dark:hover:text-indigo-400"
+                >
+                  {ri.customer?.name}
+                </Link>
+              ) : (
+                <span className="font-medium text-slate-700 dark:text-slate-300">—</span>
+              )}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {ri.status !== "ended" && (
-            <Button onClick={runNow} disabled={busy}>
-              <PlayCircle size={14} /> Run now
+            <Button
+              onClick={() => void runNow("run")}
+              loading={busy === "run"}
+              disabled={busy !== null}
+            >
+              <PlayCircle size={14} /> {retrying ? "Retry now" : "Run now"}
             </Button>
           )}
           <Link to={`/c/${company.slug}/finance/recurring-invoices/${ri.slug}/edit`}>
-            <Button variant="secondary" disabled={busy}>
+            <Button variant="secondary" disabled={busy !== null}>
               <Pencil size={14} /> Edit
             </Button>
           </Link>
@@ -262,7 +283,7 @@ export default function FinanceRecurringInvoiceDetail() {
                 ref={ref}
                 variant="secondary"
                 onClick={onClick}
-                disabled={busy}
+                disabled={busy !== null}
                 aria-label="More actions"
               >
                 <MoreHorizontal size={14} />
@@ -312,11 +333,7 @@ export default function FinanceRecurringInvoiceDetail() {
                 <MenuSeparator />
                 <MenuItem
                   icon={<Trash2 size={14} className="text-red-500" />}
-                  label={
-                    <span className="text-red-600 dark:text-red-400">
-                      Delete
-                    </span>
-                  }
+                  label={<span className="text-red-600 dark:text-red-400">Delete</span>}
                   onSelect={() => {
                     close();
                     destroy();
@@ -327,6 +344,28 @@ export default function FinanceRecurringInvoiceDetail() {
           </Menu>
         </div>
       </div>
+
+      {subsidiaries.find((item) => item.id === ri.subsidiaryId)?.archived && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          This schedule uses an archived subsidiary and cannot create new invoices. Edit the
+          schedule to choose an active issuer, or reactivate the subsidiary.
+        </div>
+      )}
+
+      {ri.latestRun && (
+        <RunAttention
+          run={ri.latestRun}
+          active={ri.status === "active"}
+          invoiceUrl={
+            ri.latestRun.invoiceSlug
+              ? `/c/${company.slug}/finance/invoices/${ri.latestRun.invoiceSlug}`
+              : null
+          }
+          busy={busy !== null}
+          retryLoading={busy === "retry"}
+          onRetry={() => void runNow("retry")}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -342,17 +381,10 @@ export default function FinanceRecurringInvoiceDetail() {
             <Row label="Last run" value={formatStamp(ri.lastRunAt)} />
             <Row
               label="Runs created"
-              value={
-                ri.maxRuns
-                  ? `${ri.runsCreated} / ${ri.maxRuns}`
-                  : String(ri.runsCreated)
-              }
+              value={ri.maxRuns ? `${ri.runsCreated} / ${ri.maxRuns}` : String(ri.runsCreated)}
             />
             {ri.endsOn && (
-              <Row
-                label="Ends on"
-                value={new Date(ri.endsOn).toISOString().slice(0, 10)}
-              />
+              <Row label="Ends on" value={new Date(ri.endsOn).toISOString().slice(0, 10)} />
             )}
           </dl>
         </div>
@@ -362,7 +394,30 @@ export default function FinanceRecurringInvoiceDetail() {
             Billing
           </h3>
           <dl className="space-y-2 text-sm">
-            <Row label="Customer" value={ri.customer?.name ?? "—"} />
+            <Row
+              label="Issued by"
+              value={
+                ri.subsidiaryId
+                  ? (subsidiaries.find((item) => item.id === ri.subsidiaryId)?.name ??
+                    "Subsidiary unavailable")
+                  : company.name
+              }
+            />
+            <Row
+              label="Customer"
+              value={
+                customerUrl ? (
+                  <Link
+                    to={customerUrl}
+                    className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {ri.customer?.name}
+                  </Link>
+                ) : (
+                  "—"
+                )
+              }
+            />
             <Row label="Email" value={ri.customer?.email || "—"} />
             <Row label="Currency" value={ri.currency} />
             <Row label="Days until due" value={`${ri.daysUntilDue} days`} />
@@ -370,10 +425,7 @@ export default function FinanceRecurringInvoiceDetail() {
               label="Auto-send"
               value={ri.autoSend ? "Issue + email each tick" : "Create draft only"}
             />
-            <Row
-              label="Total per invoice"
-              value={formatMoney(totalPreview, ri.currency)}
-            />
+            <Row label="Total per invoice" value={formatMoney(ri.totalCents, ri.currency)} />
           </dl>
         </div>
 
@@ -381,9 +433,9 @@ export default function FinanceRecurringInvoiceDetail() {
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Latest run
           </h3>
-          {ri.lastInvoiceSlug ? (
+          {latestInvoiceSlug ? (
             <Link
-              to={`/c/${company.slug}/finance/invoices/${ri.lastInvoiceSlug}`}
+              to={`/c/${company.slug}/finance/invoices/${latestInvoiceSlug}`}
               className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
             >
               Open last generated invoice →
@@ -436,20 +488,13 @@ export default function FinanceRecurringInvoiceDetail() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {ri.lines.map((l) => (
                 <tr key={l.id}>
-                  <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
-                    {l.description}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {l.quantity}
-                  </td>
+                  <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{l.description}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{l.quantity}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatMoney(l.unitPriceCents, ri.currency)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {formatMoney(
-                      Math.round(l.quantity * l.unitPriceCents),
-                      ri.currency,
-                    )}
+                    {formatMoney(Math.round(l.quantity * l.unitPriceCents), ri.currency)}
                   </td>
                 </tr>
               ))}
@@ -486,15 +531,74 @@ export default function FinanceRecurringInvoiceDetail() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/**
+ * Surfaces a scheduled run that needs a person's eye: one still retrying
+ * after a failed attempt, or one that issued its invoice but could not
+ * email it. A run that is simply in progress, or that finished cleanly,
+ * shows nothing.
+ */
+function RunAttention({
+  run,
+  active,
+  invoiceUrl,
+  busy,
+  retryLoading,
+  onRetry,
+}: {
+  run: RecurringInvoiceRunSummary;
+  active: boolean;
+  invoiceUrl: string | null;
+  busy: boolean;
+  retryLoading: boolean;
+  onRetry: () => void;
+}) {
+  const retrying = active && run.status === "pending" && run.lastError !== "";
+  if (!retrying && run.status !== "failed") return null;
+  return (
+    <div className="mb-6 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 sm:flex-row sm:items-start sm:justify-between dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+      <div className="flex gap-2">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+        <div>
+          <p className="font-medium">
+            {retrying
+              ? `The run scheduled for ${formatStamp(run.scheduledFor)} hasn’t finished yet`
+              : `The run scheduled for ${formatStamp(run.scheduledFor)} needs attention`}
+          </p>
+          <p className="mt-0.5">{run.lastError}</p>
+          {retrying && (
+            <p className="mt-0.5 text-xs opacity-80">
+              Genosyn retries automatically
+              {run.retryAt ? ` — next attempt ${formatStamp(run.retryAt)}` : ""}. Retrying finishes
+              this run; it never bills the customer a second time.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {invoiceUrl && (
+          <Link to={invoiceUrl}>
+            <Button variant="secondary" size="sm">
+              Open invoice
+            </Button>
+          </Link>
+        )}
+        {retrying && (
+          <Button size="sm" onClick={onRetry} loading={retryLoading} disabled={busy}>
+            Retry now
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
         {label}
       </dt>
-      <dd className="text-right text-sm text-slate-800 dark:text-slate-100">
-        {value}
-      </dd>
+      <dd className="text-right text-sm text-slate-800 dark:text-slate-100">{value}</dd>
     </div>
   );
 }

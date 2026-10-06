@@ -137,7 +137,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
             <MarkdownEditor value={content} onChange={setContent} rows={16} onSave={save} />
             <FormError message={error} />
             <div className="flex items-center gap-2">
-              <Button onClick={save} disabled={saving || !dirty}>
+              <Button onClick={save} loading={saving} disabled={!dirty}>
                 {saving ? "Saving…" : "Save Soul"}
               </Button>
               <span className="text-xs text-slate-400 dark:text-slate-500">⌘S to save</span>
@@ -530,6 +530,7 @@ function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employe
                           variant="ghost"
                           size="sm"
                           className="ml-auto"
+                          loading={revoking === waiver.id}
                           disabled={revoking !== null}
                           onClick={() => void revoke(waiver)}
                         >
@@ -659,6 +660,7 @@ function EmployeeWakeupsCard({ company, emp }: { company: Company; emp: Employee
                   variant="ghost"
                   size="sm"
                   className="shrink-0"
+                  loading={cancelling === wakeup.id}
                   disabled={cancelling !== null}
                   onClick={() => void cancel(wakeup)}
                 >
@@ -717,7 +719,7 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
               cannot be undone.
             </p>
           </div>
-          <Button variant="danger" size="sm" disabled={deleting} onClick={remove}>
+          <Button variant="danger" size="sm" loading={deleting} onClick={remove}>
             <Trash2 size={12} /> {deleting ? "Deleting…" : "Delete employee"}
           </Button>
         </div>
@@ -818,7 +820,7 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
             </Select>
           </label>
           <div className="flex justify-end pt-1">
-            <Button type="submit" disabled={!dirty || saving}>
+            <Button type="submit" loading={saving} disabled={!dirty}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -831,6 +833,7 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
 function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee }) {
   const [avatarKey, setAvatarKey] = React.useState<string | null>(emp.avatarKey ?? null);
   const [uploading, setUploading] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -871,11 +874,14 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
 
   async function remove() {
     setError(null);
+    setRemoving(true);
     try {
       await api.del(`/api/companies/${company.id}/employees/${emp.id}/avatar`);
       setAvatarKey(null);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -914,12 +920,18 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
               size="sm"
               variant="secondary"
               onClick={() => fileRef.current?.click()}
-              disabled={uploading}
+              loading={uploading}
             >
               <Camera size={12} /> {uploading ? "Uploading…" : "Upload new"}
             </Button>
             {avatarKey && (
-              <Button size="sm" variant="ghost" onClick={remove} disabled={uploading}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={remove}
+                loading={removing}
+                disabled={uploading}
+              >
                 Remove
               </Button>
             )}
@@ -1016,7 +1028,7 @@ function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee 
             </p>
           </div>
           <div className="flex justify-end pt-1">
-            <Button type="submit" disabled={!dirty || saving}>
+            <Button type="submit" loading={saving} disabled={!dirty}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -1181,7 +1193,8 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
               <div className="mt-2 flex justify-end">
                 <Button
                   variant="secondary"
-                  disabled={!hostsDirty || savingHosts}
+                  loading={savingHosts}
+                  disabled={!hostsDirty}
                   onClick={saveHosts}
                 >
                   {savingHosts ? "Saving…" : "Save allow list"}
@@ -1395,6 +1408,7 @@ function ModelCard({
   const dialog = useDialog();
   const connected = model.status === "connected";
   const [activating, setActivating] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
   const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
 
   async function activate() {
@@ -1419,11 +1433,14 @@ function ModelCard({
       });
       if (!ok) return;
     }
+    setRemoving(true);
     try {
       await api.del(`${base}/${model.id}`);
       onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t remove the model" });
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -1474,12 +1491,12 @@ function ModelCard({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {!model.isActive && (
-              <Button size="sm" variant="ghost" onClick={activate} disabled={activating}>
-                {activating ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              <Button size="sm" variant="ghost" onClick={activate} loading={activating}>
+                <Check size={14} />
                 Make active
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={disconnect}>
+            <Button size="sm" variant="ghost" onClick={disconnect} loading={removing}>
               <Unplug size={14} /> {connected ? "Remove" : "Cancel"}
             </Button>
           </div>
@@ -1497,6 +1514,9 @@ function ModelCard({
 
         {connected && model.authMode !== "subscription" && (
           <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />
+        )}
+        {connected && model.authMode !== "subscription" && (
+          <RunConcurrencyPanel company={company} emp={emp} model={model} onChanged={onChanged} />
         )}
 
         <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
@@ -1550,7 +1570,7 @@ function ContextWindowPanel({
 }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(String(model.contextWindow ?? ""));
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "probe" | "save" | "clear">(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
@@ -1558,7 +1578,7 @@ function ContextWindowPanel({
   async function probe() {
     setError(null);
     setNotice(null);
-    setBusy(true);
+    setBusy("probe");
     try {
       const updated = await api.post<AIModel>(`${base}/refresh`);
       // Neither outcome shows on its own: a probe that came back empty leaves
@@ -1573,14 +1593,14 @@ function ContextWindowPanel({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function save(next: number | null) {
     setError(null);
     setNotice(null);
-    setBusy(true);
+    setBusy(next === null ? "clear" : "save");
     try {
       await api.put(`${base}/context-window`, { contextWindow: next });
       setEditing(false);
@@ -1588,7 +1608,7 @@ function ContextWindowPanel({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1629,8 +1649,14 @@ function ContextWindowPanel({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {model.contextWindowProbeable && (
-            <Button size="sm" variant="ghost" onClick={probe} disabled={busy}>
-              {busy ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={probe}
+              loading={busy === "probe"}
+              disabled={busy !== null}
+            >
+              <Plug size={14} />
               Ask the provider
             </Button>
           )}
@@ -1642,13 +1668,19 @@ function ContextWindowPanel({
                 setDraft(String(model.contextWindow ?? ""));
                 setEditing(true);
               }}
-              disabled={busy}
+              disabled={busy !== null}
             >
               <Edit3 size={14} /> Set manually
             </Button>
           )}
           {model.contextWindowSource === "manual" && !editing && (
-            <Button size="sm" variant="ghost" onClick={() => save(null)} disabled={busy}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => save(null)}
+              loading={busy === "clear"}
+              disabled={busy !== null}
+            >
               <X size={14} /> Clear
             </Button>
           )}
@@ -1676,15 +1708,20 @@ function ContextWindowPanel({
               autoFocus
             />
           </div>
-          <Button type="submit" size="sm" disabled={busy || !draftValid}>
-            {busy ? "Saving…" : "Save"}
+          <Button
+            type="submit"
+            size="sm"
+            loading={busy === "save"}
+            disabled={busy !== null || !draftValid}
+          >
+            {busy === "save" ? "Saving…" : "Save"}
           </Button>
           <Button
             type="button"
             size="sm"
             variant="ghost"
             onClick={() => setEditing(false)}
-            disabled={busy}
+            disabled={busy !== null}
           >
             Cancel
           </Button>
@@ -1695,6 +1732,101 @@ function ContextWindowPanel({
           </p>
         </form>
       )}
+    </div>
+  );
+}
+
+const RUN_CONCURRENCY_CHOICES = [1, 2, 3, 4, 6, 8];
+
+/**
+ * How many Routine Runs may use this model at once.
+ *
+ * A local model server is usually one GPU: Runs served in parallel slow each
+ * other down, and each one's time limit keeps running while it waits for the
+ * model. Runs beyond this limit wait in the queue instead and start, with
+ * their whole time limit, when another finishes. The limit is shared by every
+ * AI Employee that points at the same endpoint.
+ */
+function RunConcurrencyPanel({
+  company,
+  emp,
+  model,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
+  const value = model.maxConcurrentRuns === null ? "default" : String(model.maxConcurrentRuns);
+  const choices =
+    model.maxConcurrentRuns && !RUN_CONCURRENCY_CHOICES.includes(model.maxConcurrentRuns)
+      ? [...RUN_CONCURRENCY_CHOICES, model.maxConcurrentRuns].sort((a, b) => a - b)
+      : RUN_CONCURRENCY_CHOICES;
+
+  async function save(next: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.put(`${base}/run-concurrency`, {
+        maxConcurrentRuns: next === "default" ? null : Number(next),
+      });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const limit = model.effectiveMaxConcurrentRuns;
+  const source =
+    model.concurrencySource === "local-default"
+      ? "default for a model server on this machine or a private network"
+      : model.concurrencySource === "configured"
+        ? "set by hand"
+        : "default for a hosted model";
+
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
+            Concurrent Routine Runs
+          </div>
+          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <span className="tabular-nums text-slate-700 dark:text-slate-200">
+              {limit === null ? "No limit" : `${limit} at a time`}
+            </span>{" "}
+            · {source}
+          </div>
+          <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+            Routines beyond the limit wait in the queue and start when a Run on this model
+            finishes; their time limit starts then. Lower it when a local model slows down under
+            parallel work.
+          </div>
+        </div>
+        <div className="w-36 shrink-0">
+          <Select
+            aria-label="Concurrent Routine Runs"
+            value={value}
+            disabled={busy}
+            onChange={(e) => save(e.target.value)}
+          >
+            <option value="default">Default</option>
+            {choices.map((n) => (
+              <option key={n} value={String(n)}>
+                {n} at a time
+              </option>
+            ))}
+            <option value="0">No limit</option>
+          </Select>
+        </div>
+      </div>
+      <FormError message={error} className="mt-2" />
     </div>
   );
 }
@@ -1948,8 +2080,7 @@ function SubscriptionPanel({
 
       <div className="flex flex-wrap gap-2">
         {deviceSignInAvailable && !deviceRunning && (
-          <Button type="button" size="sm" onClick={startDeviceSignIn} disabled={starting}>
-            {starting && <Loader2 size={14} className="animate-spin" />}
+          <Button type="button" size="sm" onClick={startDeviceSignIn} loading={starting}>
             {starting
               ? "Starting…"
               : connected || deviceSession?.status === "succeeded"
@@ -1963,7 +2094,7 @@ function SubscriptionPanel({
             size="sm"
             variant="secondary"
             onClick={cancelDeviceSignIn}
-            disabled={cancelling}
+            loading={cancelling}
           >
             {cancelling ? "Cancelling…" : "Cancel sign-in"}
           </Button>
@@ -1998,7 +2129,8 @@ function SubscriptionPanel({
               <Button
                 type="submit"
                 size="sm"
-                disabled={savingToken || accessToken.trim().length === 0}
+                loading={savingToken}
+                disabled={accessToken.trim().length === 0}
               >
                 {savingToken
                   ? "Testing connection…"
@@ -2062,7 +2194,7 @@ function ApiKeyPanel({
       </div>
       <FormError message={error} />
       <div>
-        <Button type="submit" disabled={saving || key.length === 0}>
+        <Button type="submit" loading={saving} disabled={key.length === 0}>
           {saving ? "Testing connection…" : "Connect AI Model"}
         </Button>
       </div>
@@ -2126,11 +2258,10 @@ function CustomEndpointPanel({
           required
         />
         <Input
-          label="Model id"
+          label="Model id (optional)"
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
-          placeholder="qwen2.5-coder:32b"
-          required
+          placeholder="Blank: the model the server serves"
         />
       </div>
       <Input
@@ -2146,11 +2277,12 @@ function CustomEndpointPanel({
       />
       <div className="text-xs text-slate-500 dark:text-slate-400">
         Point this employee at a self-hosted OpenAI-compatible server. Base URL + key are stored
-        encrypted at rest.
+        encrypted at rest. Leave the model id blank on a server that serves one model, such as
+        vLLM: Genosyn uses that model, and follows it if the server is restarted with another.
       </div>
       <FormError message={error} />
       <div>
-        <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
+        <Button type="submit" loading={saving} disabled={baseURL.length === 0}>
           {saving ? "Testing connection…" : connected ? "Update endpoint" : "Save & connect"}
         </Button>
       </div>
@@ -2182,6 +2314,7 @@ export function JournalPage() {
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
@@ -2235,11 +2368,14 @@ export function JournalPage() {
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(id);
     try {
       await api.del(`${base}/journal/${id}`);
       setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the entry" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -2286,7 +2422,7 @@ export function JournalPage() {
             />
             <FormError message={error} />
             <div>
-              <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
+              <Button type="submit" size="sm" loading={saving} disabled={title.trim().length === 0}>
                 <BookText size={14} /> {saving ? "Saving…" : "Add entry"}
               </Button>
             </div>
@@ -2310,6 +2446,7 @@ export function JournalPage() {
               <JournalEntryRow
                 key={e.id}
                 entry={e}
+                deleting={deletingId === e.id}
                 onSave={(patch) => updateEntry(e.id, patch)}
                 onDelete={() => remove(e.id)}
               />
@@ -2323,10 +2460,12 @@ export function JournalPage() {
 
 function JournalEntryRow({
   entry,
+  deleting,
   onSave,
   onDelete,
 }: {
   entry: JournalEntryT;
+  deleting: boolean;
   onSave: (patch: { title?: string; body?: string }) => Promise<boolean>;
   onDelete: () => void;
 }) {
@@ -2401,7 +2540,7 @@ function JournalEntryRow({
             </div>
             {editing && (
               <div className="mt-2 flex gap-1.5">
-                <Button size="sm" onClick={save} disabled={saving || !draftTitle.trim()}>
+                <Button size="sm" onClick={save} loading={saving} disabled={!draftTitle.trim()}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
                 <Button
@@ -2420,7 +2559,13 @@ function JournalEntryRow({
               <Button size="sm" variant="ghost" onClick={start} aria-label="Edit entry">
                 <Edit3 size={12} />
               </Button>
-              <Button size="sm" variant="ghost" onClick={onDelete} aria-label="Delete entry">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                loading={deleting}
+                aria-label="Delete entry"
+              >
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -2443,6 +2588,7 @@ export function MemoryPage() {
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
@@ -2506,11 +2652,14 @@ export function MemoryPage() {
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(id);
     try {
       await api.del(`${base}/memory/${id}`);
       setItems((prev) => (prev ? prev.filter((x) => x.id !== id) : prev));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the memory" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -2545,7 +2694,7 @@ export function MemoryPage() {
             />
             <FormError message={error} />
             <div>
-              <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
+              <Button type="submit" size="sm" loading={saving} disabled={title.trim().length === 0}>
                 <Plus size={14} /> {saving ? "Saving…" : "Add memory"}
               </Button>
             </div>
@@ -2569,6 +2718,7 @@ export function MemoryPage() {
               <MemoryRow
                 key={m.id}
                 item={m}
+                deleting={deletingId === m.id}
                 onSave={(patch) => update(m.id, patch)}
                 onDelete={() => remove(m.id)}
               />
@@ -2582,10 +2732,12 @@ export function MemoryPage() {
 
 function MemoryRow({
   item,
+  deleting,
   onSave,
   onDelete,
 }: {
   item: MemoryItem;
+  deleting: boolean;
   onSave: (patch: { title?: string; body?: string }) => Promise<boolean>;
   onDelete: () => void;
 }) {
@@ -2656,7 +2808,7 @@ function MemoryRow({
             </div>
             {editing && (
               <div className="mt-2 flex gap-1.5">
-                <Button size="sm" onClick={save} disabled={saving || !draftTitle.trim()}>
+                <Button size="sm" onClick={save} loading={saving} disabled={!draftTitle.trim()}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
                 <Button
@@ -2675,7 +2827,13 @@ function MemoryRow({
               <Button size="sm" variant="ghost" onClick={start} aria-label="Edit memory">
                 <Edit3 size={12} />
               </Button>
-              <Button size="sm" variant="ghost" onClick={onDelete} aria-label="Delete memory">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                loading={deleting}
+                aria-label="Delete memory"
+              >
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -2695,6 +2853,7 @@ export function McpPage() {
   const { company, emp } = useCtx();
   const [servers, setServers] = React.useState<McpServer[] | null>(null);
   const [adding, setAdding] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
   const base = `/api/companies/${company.id}/employees/${emp.id}/mcp`;
@@ -2725,11 +2884,14 @@ export function McpPage() {
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(id);
     try {
       await api.del(`${base}/${id}`);
       setServers((prev) => (prev ? prev.filter((s) => s.id !== id) : prev));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the MCP server" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -2783,6 +2945,7 @@ export function McpPage() {
                     size="sm"
                     variant="ghost"
                     onClick={() => remove(s.id)}
+                    loading={deletingId === s.id}
                     aria-label="Delete MCP server"
                   >
                     <Trash2 size={12} />
@@ -2997,7 +3160,7 @@ function NewMcpModal({
         </div>
         <FormError message={error} />
         <div className="flex gap-2">
-          <Button type="submit" disabled={saving || !name.trim()}>
+          <Button type="submit" loading={saving} disabled={!name.trim()}>
             {saving ? "Saving…" : "Add server"}
           </Button>
           <Button type="button" variant="secondary" onClick={onClose}>

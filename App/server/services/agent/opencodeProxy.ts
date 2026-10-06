@@ -2,18 +2,115 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
-import type { OpenCodeModel } from "./opencodeConfig.js";
+import { setTimeout as sleep } from "node:timers/promises";
+import { SELF_HOSTED_RESPONSE_WAIT_MS, type OpenCodeModel } from "./opencodeConfig.js";
+import type { ModelOutage } from "./types.js";
+import { endpointAnswers } from "../modelAvailability.js";
+import { outboundAgent } from "../outboundNetworkPolicy.js";
+import { listServedModels, type ServedModel } from "../servedModels.js";
 
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
+
+/**
+ * How long one forwarded request waits for a self-hosted model server that has
+ * stopped answering. OpenCode abandons a request that has no response headers
+ * after SELF_HOSTED_RESPONSE_WAIT_MS, so the wait ends first, with a 503 asking
+ * for an immediate retry; the retry waits again. With OpenCode's five retries,
+ * a work turn rides out an outage of about 25 minutes.
+ */
+export const OUTAGE_HOLD_MS = 4 * 60_000;
+/** How often a held request asks whether the server answers again. */
+export const OUTAGE_PROBE_MS = 5_000;
+/** Statuses a gateway in front of a stopped model server answers with. */
+const OUTAGE_STATUSES = new Set([502, 503, 504]);
+
+/**
+ * Send one request to a self-hosted model server, waiting while the server is
+ * down. A refused or broken connection, or a gateway error while the server's
+ * model list does not answer either, holds the request: the server is asked
+ * again every few seconds and the request is sent again once it answers. Any
+ * other response — including an error from a server that still answers —
+ * returns at once, because waiting would not change it. Returns null when the
+ * server has not answered within `holdMs`.
+ */
+export async function sendThroughOutage(args: {
+  send: () => Promise<Response>;
+  answers: () => Promise<boolean>;
+  signal: AbortSignal;
+  holdMs?: number;
+  probeMs?: number;
+  onWait?: () => void;
+}): Promise<Response | null> {
+  const holdMs = args.holdMs ?? OUTAGE_HOLD_MS;
+  const probeMs = args.probeMs ?? OUTAGE_PROBE_MS;
+  const started = Date.now();
+  for (;;) {
+    let response: Response | null = null;
+    try {
+      response = await args.send();
+    } catch (error) {
+      if (args.signal.aborted) throw error;
+    }
+    if (response && !OUTAGE_STATUSES.has(response.status)) return response;
+    if (response && (await args.answers())) return response;
+    await response?.body?.cancel().catch(() => {});
+    args.onWait?.();
+    for (;;) {
+      if (Date.now() - started >= holdMs) return null;
+      await sleep(probeMs, undefined, { signal: args.signal });
+      if (await args.answers()) break;
+    }
+  }
+}
+
+/** The one model a server serves, when it is not `current`; null otherwise. */
+async function soleOtherServedModel(
+  baseURL: string,
+  apiKey: string,
+  current: string,
+): Promise<ServedModel | null> {
+  try {
+    const served = await listServedModels(baseURL, apiKey);
+    return served.length === 1 && served[0].id !== current ? served[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The request body with its model replaced; unreadable bodies are sent as they are. */
+function withModel(body: Buffer<ArrayBuffer>, id: string): Buffer<ArrayBuffer> {
+  try {
+    return Buffer.from(JSON.stringify({ ...(JSON.parse(body.toString()) as object), model: id }));
+  } catch {
+    return body;
+  }
+}
 
 /**
  * Forward provider wire traffic without exposing the real API key to native
  * coding commands. OpenCode still owns the provider SDK and complete model
  * loop; this endpoint only authenticates and forwards bytes for one turn.
+ *
+ * With `holdOutages`, a request to a self-hosted (custom) endpoint waits while
+ * that server is down instead of failing: a model server restarting for an
+ * upgrade or after a crash would otherwise end every Run working on it.
+ *
+ * A custom endpoint that answers 404 for the model, while serving exactly one
+ * other model, has been restarted with that model; every turn moves to it
+ * rather than failing on the old id (see `services/servedModels.ts`).
  */
 export async function serveOpenCodeModel(
   model: OpenCodeModel,
   signal?: AbortSignal,
+  options: {
+    holdOutages?: boolean;
+    onOutage?: (outage: ModelOutage) => void;
+    onServedModelChange?: (change: { from: string; to: ServedModel }) => void;
+    holdMs?: number;
+    probeMs?: number;
+    /** Tests only: overrides SELF_HOSTED_RESPONSE_WAIT_MS. */
+    responseWaitMs?: number;
+  } = {},
 ): Promise<{
   model: OpenCodeModel;
   close(): Promise<void>;
@@ -21,6 +118,22 @@ export async function serveOpenCodeModel(
   const token = randomBytes(32).toString("hex");
   const expected = Buffer.from(token);
   const controllers = new Set<AbortController>();
+  const holdOutages = options.holdOutages === true && model.provider === "custom";
+  // OpenCode sends one model request at a time, and a held request is retried
+  // as a new one, so the outage is tracked across requests.
+  let outageSince: number | null = null;
+  // The model the server serves now, once it no longer serves `model.id`.
+  let servedId: string | null = null;
+  // A self-hosted server may take longer than undici's five minutes to start
+  // answering (see SELF_HOSTED_RESPONSE_WAIT_MS); hosted APIs keep the default.
+  const dispatcher =
+    model.provider === "custom"
+      ? outboundAgent({
+          pipelining: 0,
+          headersTimeout: options.responseWaitMs ?? SELF_HOSTED_RESPONSE_WAIT_MS,
+          bodyTimeout: options.responseWaitMs ?? SELF_HOSTED_RESPONSE_WAIT_MS,
+        })
+      : undefined;
   const upstreamBase =
     model.baseURL ??
     (model.provider === "anthropic" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
@@ -87,13 +200,53 @@ export async function serveOpenCodeModel(
         if (typeof req.headers["anthropic-beta"] === "string")
           headers["anthropic-beta"] = req.headers["anthropic-beta"];
       } else if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
-      const response = await fetch(`${upstreamBase}${endpoint}`, {
-        method: "POST",
-        headers,
-        body,
-        signal: controller.signal,
-        redirect: "manual",
-      });
+      let outgoing = servedId ? withModel(body, servedId) : body;
+      const send = () => {
+        const init = {
+          method: "POST",
+          headers,
+          body: outgoing,
+          signal: controller.signal,
+          redirect: "manual" as const,
+          ...(dispatcher ? { dispatcher } : {}),
+        };
+        return fetch(`${upstreamBase}${endpoint}`, init);
+      };
+      let response = holdOutages
+        ? await sendThroughOutage({
+            send,
+            answers: () => endpointAnswers(upstreamBase, model.apiKey),
+            signal: controller.signal,
+            holdMs: options.holdMs,
+            probeMs: options.probeMs,
+            onWait: () => {
+              if (outageSince !== null) return;
+              outageSince = Date.now();
+              options.onOutage?.({ state: "waiting", waitedMs: 0 });
+            },
+          })
+        : await send();
+      if (!response) {
+        res
+          .writeHead(503, { "Content-Type": "application/json", "retry-after-ms": "1000" })
+          .end(JSON.stringify({ error: { message: "The AI Model's server is not answering." } }));
+        return;
+      }
+      if (outageSince !== null) {
+        options.onOutage?.({ state: "answered", waitedMs: Date.now() - outageSince });
+        outageSince = null;
+      }
+      if (model.provider === "custom" && response.status === 404) {
+        const sent = servedId ?? model.id;
+        const next = await soleOtherServedModel(upstreamBase, model.apiKey, sent);
+        if (next) {
+          await response.body?.cancel().catch(() => {});
+          servedId = next.id;
+          outgoing = withModel(body, next.id);
+          options.onServedModelChange?.({ from: sent, to: next });
+          response = await send();
+        }
+      }
       const responseHeaders: Record<string, string> = {
         "Content-Type": response.headers.get("content-type") ?? "application/json",
       };
@@ -141,6 +294,7 @@ export async function serveOpenCodeModel(
       for (const controller of controllers) controller.abort();
       http.closeAllConnections();
       await new Promise<void>((resolve) => http.close(() => resolve()));
+      await dispatcher?.destroy().catch(() => {});
     },
   };
 }

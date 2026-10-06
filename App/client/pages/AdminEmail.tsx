@@ -69,6 +69,7 @@ export function AdminEmail() {
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [resetting, setResetting] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [testTo, setTestTo] = React.useState(me.email);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [formError, setFormError] = React.useState<string | null>(null);
@@ -209,12 +210,21 @@ export function AdminEmail() {
     }
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="Email transport"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -241,7 +251,8 @@ export function AdminEmail() {
                   size="sm"
                   variant="ghost"
                   onClick={clearTransport}
-                  disabled={resetting || saving}
+                  loading={resetting}
+                  disabled={saving}
                 >
                   <RotateCcw size={12} />
                   {resetting ? "Clearing…" : "Clear"}
@@ -386,7 +397,7 @@ export function AdminEmail() {
                 <span className="text-xs text-slate-400 dark:text-slate-500">
                   Source: {SOURCE_LABEL[data.source]}
                 </span>
-                <Button type="submit" size="sm" disabled={!dirty || saving}>
+                <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
                   {saving ? "Saving…" : "Save transport"}
                 </Button>
               </div>
@@ -412,12 +423,7 @@ export function AdminEmail() {
                 value={testTo}
                 onChange={(e) => setTestTo(e.target.value)}
               />
-              <Button
-                variant="secondary"
-                onClick={sendTest}
-                disabled={testing}
-                className="shrink-0"
-              >
+              <Button variant="secondary" onClick={sendTest} loading={testing} className="shrink-0">
                 <Send size={14} />
                 {testing ? "Sending…" : "Send test"}
               </Button>

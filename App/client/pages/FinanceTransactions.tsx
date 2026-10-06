@@ -31,6 +31,7 @@ import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import { useAskAi, useAskAiPageContext } from "../components/askAi/AskAiProvider";
 
 type ReviewSummary = {
   unreviewed: number;
@@ -131,7 +132,7 @@ export default function FinanceTransactions() {
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<LedgerEntry | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
-  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [bulkBusy, setBulkBusy] = React.useState<LedgerBulkAction | null>(null);
   const [bulkError, setBulkError] = React.useState<string | null>(null);
   const [confirmAction, setConfirmAction] = React.useState<"approve" | "delete" | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -244,7 +245,7 @@ export default function FinanceTransactions() {
   }
 
   function closeBulkModals() {
-    if (bulkBusy) return;
+    if (bulkBusy !== null) return;
     setConfirmAction(null);
     setPickerOpen(false);
     setBulkError(null);
@@ -264,7 +265,7 @@ export default function FinanceTransactions() {
   async function runBulk(action: LedgerBulkAction, toAccountId?: string) {
     const ids = selectedEntries.map((entry) => entry.id);
     if (ids.length === 0) return;
-    setBulkBusy(true);
+    setBulkBusy(action);
     setBulkError(null);
     try {
       const result = await api.post<LedgerBulkResult>(
@@ -289,7 +290,7 @@ export default function FinanceTransactions() {
     } catch (err) {
       reportBulkFailure(action, errorMessage(err, "Bulk action failed"));
     } finally {
-      setBulkBusy(false);
+      setBulkBusy(null);
     }
   }
 
@@ -422,7 +423,7 @@ export default function FinanceTransactions() {
                       <Button
                         size="sm"
                         onClick={() => setConfirmAction("approve")}
-                        disabled={bulkBusy}
+                        disabled={bulkBusy !== null}
                       >
                         <CheckCircle2 size={14} /> Approve
                       </Button>
@@ -432,7 +433,8 @@ export default function FinanceTransactions() {
                         size="sm"
                         variant="secondary"
                         onClick={() => void runBulk("return")}
-                        disabled={bulkBusy}
+                        loading={bulkBusy === "return"}
+                        disabled={bulkBusy !== null}
                       >
                         <Undo2 size={14} /> Return
                       </Button>
@@ -442,7 +444,7 @@ export default function FinanceTransactions() {
                         size="sm"
                         variant="secondary"
                         onClick={() => setPickerOpen(true)}
-                        disabled={bulkBusy}
+                        disabled={bulkBusy !== null}
                       >
                         <Tags size={14} /> Change category
                       </Button>
@@ -452,14 +454,14 @@ export default function FinanceTransactions() {
                         size="sm"
                         variant="danger"
                         onClick={() => setConfirmAction("delete")}
-                        disabled={bulkBusy}
+                        disabled={bulkBusy !== null}
                       >
                         <Trash2 size={14} /> Delete
                       </Button>
                     )}
                     <button
                       onClick={clearSelection}
-                      disabled={bulkBusy}
+                      disabled={bulkBusy !== null}
                       aria-label="Clear selection"
                       className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-slate-700 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                     >
@@ -534,7 +536,7 @@ export default function FinanceTransactions() {
         <BulkConfirmModal
           action={confirmAction}
           count={selectedCount}
-          busy={bulkBusy}
+          busy={bulkBusy !== null}
           error={bulkError}
           onClose={closeBulkModals}
           onConfirm={() => void runBulk(confirmAction)}
@@ -545,7 +547,7 @@ export default function FinanceTransactions() {
         <BulkCategoryModal
           accounts={accounts}
           count={selectedCount}
-          busy={bulkBusy}
+          busy={bulkBusy !== null}
           error={bulkError}
           onClose={closeBulkModals}
           onApply={(accountId) => void runBulk("recategorize", accountId)}
@@ -614,14 +616,8 @@ function BulkConfirmModal({
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant={isDelete ? "danger" : "primary"} onClick={onConfirm} disabled={busy}>
-          {busy ? (
-            <Spinner size={14} />
-          ) : isDelete ? (
-            <Trash2 size={14} />
-          ) : (
-            <CheckCircle2 size={14} />
-          )}
+        <Button variant={isDelete ? "danger" : "primary"} onClick={onConfirm} loading={busy}>
+          {isDelete ? <Trash2 size={14} /> : <CheckCircle2 size={14} />}
           {isDelete ? "Delete" : "Approve"} {count}
         </Button>
       </div>
@@ -726,8 +722,8 @@ function BulkCategoryModal({
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={() => picked && onApply(picked)} disabled={busy || !picked}>
-          {busy ? <Spinner size={14} /> : <Tags size={14} />} Apply &amp; approve
+        <Button onClick={() => picked && onApply(picked)} loading={busy} disabled={!picked}>
+          <Tags size={14} /> Apply &amp; approve
         </Button>
       </div>
     </Modal>
@@ -765,15 +761,23 @@ function TransactionReviewModal({
     ),
   );
   const [note, setNote] = React.useState(entry.reviewNote ?? "");
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "approve" | "return">(null);
   const [error, setError] = React.useState<string | null>(null);
+  // The open transaction is what Ask AI means by "this one". The modal covers
+  // the top bar, so it carries its own way in.
+  const askAi = useAskAi();
+  const askAiRef = React.useMemo(
+    () => [{ kind: "transaction" as const, id: entry.id }],
+    [entry.id],
+  );
+  useAskAiPageContext(askAiRef);
 
   const changes = entry.lines
     .filter((line) => categories[line.id] && categories[line.id] !== line.accountId)
     .map((line) => ({ lineId: line.id, accountId: categories[line.id] }));
 
   async function approve() {
-    setBusy(true);
+    setBusy("approve");
     setError(null);
     try {
       await api.post(`/api/companies/${companyId}/ledger-entries/${entry.id}/approve`, {
@@ -784,12 +788,12 @@ function TransactionReviewModal({
     } catch (err) {
       setError(errorMessage(err, "Could not approve transaction"));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function returnToQueue() {
-    setBusy(true);
+    setBusy("return");
     setError(null);
     try {
       await api.post(`/api/companies/${companyId}/ledger-entries/${entry.id}/return`, {
@@ -799,7 +803,7 @@ function TransactionReviewModal({
     } catch (err) {
       setError(errorMessage(err, "Could not return transaction"));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -825,6 +829,21 @@ function TransactionReviewModal({
           >
             {statusLabel(entry.reviewStatus)}
           </span>
+          {askAi && (
+            <div className="mt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  askAi.ask({ refs: askAiRef });
+                  onClose();
+                }}
+                title="Ask AI about this transaction"
+              >
+                <Sparkles size={13} /> Ask AI
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -874,7 +893,7 @@ function TransactionReviewModal({
                             [line.id]: event.target.value,
                           }))
                         }
-                        disabled={!canApprove || entry.reviewStatus === "approved" || busy}
+                        disabled={!canApprove || entry.reviewStatus === "approved" || busy !== null}
                         className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950"
                       >
                         {accounts
@@ -916,7 +935,7 @@ function TransactionReviewModal({
         <textarea
           value={note}
           onChange={(event) => setNote(event.target.value)}
-          disabled={!canApprove || entry.reviewStatus === "approved" || busy}
+          disabled={!canApprove || entry.reviewStatus === "approved" || busy !== null}
           maxLength={2000}
           rows={3}
           placeholder="Why the categories are correct, or what needs another look"
@@ -934,17 +953,22 @@ function TransactionReviewModal({
       <FormError message={error} className="mt-4" />
 
       <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-        <Button variant="secondary" onClick={onClose} disabled={busy}>
+        <Button variant="secondary" onClick={onClose} disabled={busy !== null}>
           Close
         </Button>
         {canApprove && entry.reviewStatus === "ai_reviewed" && (
-          <Button variant="ghost" onClick={returnToQueue} disabled={busy}>
+          <Button
+            variant="ghost"
+            onClick={returnToQueue}
+            loading={busy === "return"}
+            disabled={busy !== null}
+          >
             <Undo2 size={14} /> Return for another look
           </Button>
         )}
         {canApprove && entry.reviewStatus !== "approved" && (
-          <Button onClick={approve} disabled={busy}>
-            {busy ? <Spinner size={14} /> : <CheckCircle2 size={14} />}
+          <Button onClick={approve} loading={busy === "approve"} disabled={busy !== null}>
+            <CheckCircle2 size={14} />
             Approve transaction
           </Button>
         )}

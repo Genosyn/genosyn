@@ -470,7 +470,7 @@ function operationAuditQuery(
     .leftJoin(
       RevenueOperationRow,
       "operationRow",
-      "operationRow.companyId = operation.companyId AND operationRow.operationId = operation.id " +
+      "operationRow.companyId = operation.companyId AND operationRow.operationId = CAST(operation.id AS text) " +
         "AND operationRow.createdAt <= :asOf",
     )
     .where("operation.companyId = :companyId", { companyId })
@@ -558,7 +558,7 @@ const operationAuditAdapter: RevenueExportAdapter<
       .addSelect("operationRow.createdAt", "row_createdAt")
       .addSelect("operationRow.updatedAt", "row_updatedAt")
       .addSelect("COALESCE(operationRow.sortOrder, -1)", "audit_sortOrder")
-      .addSelect("COALESCE(operationRow.id, '')", "audit_rowKey");
+      .addSelect("COALESCE(CAST(operationRow.id AS text), '')", "audit_rowKey");
 
     if (context.cursor) {
       if (
@@ -581,7 +581,7 @@ const operationAuditAdapter: RevenueExportAdapter<
           "AND COALESCE(operationRow.sortOrder, -1) > :cursorSortOrder) OR " +
           "(operation.createdAt = :cursorTimestamp AND operation.id = :cursorId " +
           "AND COALESCE(operationRow.sortOrder, -1) = :cursorSortOrder " +
-          "AND COALESCE(operationRow.id, '') > :cursorSubId))",
+          "AND COALESCE(CAST(operationRow.id AS text), '') > :cursorSubId))",
         {
           cursorTimestamp: timestamp,
           cursorId: context.cursor.id,
@@ -713,13 +713,13 @@ const revenueExportAdapters: {
           query.leftJoin(
             Contact,
             "evidenceSourceContact",
-            "evidenceSourceContact.id = row.sourceId AND evidenceSourceContact.companyId = row.companyId AND row.sourceType = :emailContactSourceType",
+            "CAST(evidenceSourceContact.id AS text) = row.sourceId AND evidenceSourceContact.companyId = row.companyId AND row.sourceType = :emailContactSourceType",
             { emailContactSourceType: "email" },
           );
           query.leftJoin(
             MailMessage,
             "evidenceAnySourceMessage",
-            "evidenceAnySourceMessage.id = row.sourceId AND evidenceAnySourceMessage.companyId = row.companyId AND row.sourceType = :emailMessageSourceType",
+            "CAST(evidenceAnySourceMessage.id AS text) = row.sourceId AND evidenceAnySourceMessage.companyId = row.companyId AND row.sourceType = :emailMessageSourceType",
             { emailMessageSourceType: "email" },
           );
           if (options.allowedEmailAccountIds.length === 0) {
@@ -790,7 +790,7 @@ const revenueExportAdapters: {
             .innerJoin(
               MailMessage,
               "sourceMessage",
-              "sourceMessage.id = row.mailMessageId AND sourceMessage.companyId = row.companyId",
+              "CAST(sourceMessage.id AS text) = row.mailMessageId AND sourceMessage.companyId = row.companyId",
             )
             .andWhere("sourceMessage.accountId = :accountId", {
               accountId: options.accountId,

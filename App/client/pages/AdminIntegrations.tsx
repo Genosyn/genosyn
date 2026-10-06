@@ -23,11 +23,8 @@ import { errorMessage } from "../lib/errors";
  * whole install, so nobody has to stand up a Google Cloud project just to
  * connect their mailbox.
  *
- * Without a registration here, every Connection must bring its own Client ID
- * and Secret — which meant the person connecting Gmail first had to create a
- * Google Cloud project, enable the Gmail API, configure a consent screen, and
- * register a Web OAuth client. Registering Google here reduces that to: click
- * Google, approve on Google's screen, done.
+ * Gmail can also use hosted sign-in configured at Admin → Runtime. A local
+ * registration takes precedence and covers the other Google products too.
  *
  * Secrets are write-only. The API returns whether one is on file, never the
  * value, so the field renders blank with a placeholder that says a secret is
@@ -41,6 +38,7 @@ const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-sla
 export function AdminIntegrations() {
   const [apps, setApps] = React.useState<OauthAppDescriptor[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -72,12 +70,21 @@ export function AdminIntegrations() {
 
   const configuredCount = apps.filter((a) => a.configured).length;
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="Integrations"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -97,13 +104,14 @@ export function AdminIntegrations() {
               </p>
               <p className="mt-1">
                 Every company on this instance can then connect these
-                integrations with a single click — no Google Cloud project, no
-                Client ID to paste. Without a registration, each Connection has
-                to bring its own credentials.
+                integrations with a single click. Gmail can use the hosted
+                sign-in service at Admin → Runtime without registering an app
+                here. Register Google for other Google products, or to manage
+                Gmail sign-in independently.
               </p>
               <p className="mt-1.5">
                 {configuredCount === 0
-                  ? "Nothing registered yet. Start with Google — that's the one that makes connecting email hard."
+                  ? "No local OAuth apps registered."
                   : `${configuredCount} of ${apps.length} registered.`}
               </p>
             </div>
@@ -223,7 +231,13 @@ function OauthAppCard({
               Open console <ExternalLink size={11} />
             </a>
             {app.configured && (
-              <Button size="sm" variant="ghost" onClick={clear} disabled={clearing || saving}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clear}
+                loading={clearing}
+                disabled={saving}
+              >
                 <RotateCcw size={12} />
                 {clearing ? "Removing…" : "Remove"}
               </Button>
@@ -298,7 +312,7 @@ function OauthAppCard({
           <FormError message={error} />
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={!dirty || !canSave || saving}>
+            <Button type="submit" loading={saving} disabled={!dirty || !canSave}>
               <KeyRound size={14} />
               {saving ? "Saving…" : app.configured ? "Update" : "Register"}
             </Button>

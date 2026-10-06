@@ -320,38 +320,40 @@ const effectsQuerySchema = z
 /**
  * What one Run actually changed, from the server's own ledger.
  *
- * **Not behind `requireCompanyFeature("auditLog")`, and that asymmetry is
- * deliberate.** Browsing the company's whole history is the paid feature
- * (M56): it is an investigation tool, it spans every Run and every Member, and
- * charging for it is a defensible product line. Reading what *one* Run did is
- * a different thing entirely — it is the only account of that Run the model
- * did not write, and the milestone's whole argument is that a Run's outcome
- * means nothing without it. A Community install that can see "completed" but
- * not "and here is what it changed" is back in the position M58 exists to end,
- * so putting this evidence behind a plan would sell the fix for the problem
- * while shipping the problem.
+ * **Readable by every member, unlike the admin-only company audit log, and
+ * that asymmetry is deliberate.** Browsing the company's whole history is an
+ * investigation tool that spans every Run and every Member. Reading what *one*
+ * Run did is a different thing entirely — it is the only account of that Run
+ * the model did not write, and the milestone's whole argument is that a Run's
+ * outcome means nothing without it. A member who can see "completed" but not
+ * "and here is what it changed" is back in the position M58 exists to end.
  */
 routineChecksRouter.get(
   "/routines/runs/:runId/effects",
   validateParams(runParamsSchema),
   validateQuery(effectsQuerySchema),
-  async (req, res) => {
-    const run = await loadRun(req.params.cid, req.params.runId);
-    if (!run) return res.status(404).json({ error: "Run not found" });
-    const { limit } = req.query as unknown as z.infer<typeof effectsQuerySchema>;
-    const [effects, total] = await Promise.all([
-      runEffects(run.id, { companyId: req.params.cid, limit }),
-      countEffects(run.id),
-    ]);
-    res.json({
-      effects: effects.map((e) => ({
-        action: e.action,
-        targetType: e.targetType,
-        targetId: e.targetId,
-        targetLabel: e.targetLabel,
-        at: e.at.toISOString(),
-      })),
-      total,
-    });
+  async (req, res, next) => {
+    try {
+      const run = await loadRun(req.params.cid, req.params.runId);
+      if (!run) return res.status(404).json({ error: "Run not found" });
+      const { limit } = req.query as unknown as z.infer<typeof effectsQuerySchema>;
+      const [effects, total] = await Promise.all([
+        runEffects(run.id, { companyId: req.params.cid, limit }),
+        countEffects(run.id),
+      ]);
+      res.json({
+        effects: effects.map((e) => ({
+          action: e.action,
+          targetType: e.targetType,
+          targetId: e.targetId,
+          targetLabel: e.targetLabel,
+          at: e.at.toISOString(),
+        })),
+        total,
+      });
+    } catch (err) {
+      // A failed evidence read must answer the browser, not leave it loading.
+      next(err);
+    }
   },
 );

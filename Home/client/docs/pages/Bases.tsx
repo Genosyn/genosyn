@@ -47,8 +47,8 @@ export function Bases() {
         Open a table&apos;s chevron menu in the Base sidebar to rename, archive, or permanently
         delete it. Archived tables move under <Strong>Archived</Strong> in the sidebar, where
         Members can still review, restore, or delete them. Archiving immediately removes the table
-        from AI Employee schemas and blocks row, field, record-detail, Base Assistant, and
-        automation access until a Member unarchives it. Permanent deletion also removes the
+        from AI Employee schemas and blocks row, field, record-detail, Ask AI, and automation access
+        until a Member unarchives it. Permanent deletion also removes the
         table&apos;s rows, views, comments, and attachments and cannot be undone.
       </P>
 
@@ -163,9 +163,13 @@ export function Bases() {
         restores them. See <DocLink to="/docs/integrations" /> for how Grants work across products.
       </P>
       <P>
-        The Base Assistant composer also accepts <Code>#</Code> resource tags, so you can ask it to
-        compare the current Base with a Project, Note, Resource, Customer, or any other company row
-        you can open.
+        To ask about a Base, open it — or one of its tables or records — and press{" "}
+        <Strong>Ask AI</Strong> in the top bar. A granted employee is shown the tables and fields,
+        the first rows of the table you are on, or the record you have open, and can use its Base
+        tools to change them if you ask. An employee without a Grant on this Base is told only that
+        a Base is open. Add <Code>#</Code> resource tags to compare the Base with a Project, Note,
+        Resource, Customer, or any other company row you can open. See{" "}
+        <DocLink to="/docs/ask-ai">Ask AI</DocLink>.
       </P>
       <Callout kind="info" title="Templates">
         New bases can start from a template — CRM, applicant tracking, content calendar, or project

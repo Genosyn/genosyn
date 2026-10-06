@@ -189,7 +189,7 @@ export function EmployeeStep({
             />
           </div>
           <StepFooter onBack={onBack}>
-            <Button type="submit" className="w-full sm:w-auto" disabled={creating}>
+            <Button type="submit" className="w-full sm:w-auto" loading={creating}>
               {creating ? "Hiring…" : "Hire AI Employee"}
               {!creating && <ArrowRight size={15} />}
             </Button>
@@ -273,7 +273,7 @@ export function EmployeeStep({
         <Button
           className="w-full sm:w-auto"
           onClick={continueWithModelCheck}
-          disabled={checkingModel}
+          loading={checkingModel}
         >
           {checkingModel ? "Checking…" : "Choose Routines"}
           {!checkingModel && <ArrowRight size={15} />}

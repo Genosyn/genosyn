@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowRight, ExternalLink, ShieldCheck } from "lucide-react";
 
 import { api } from "../../lib/api";
+import { connectWithOauth, type IntegrationOauthStart } from "@/lib/integrationOauth";
 import {
   mailApi,
   type MailAccount,
@@ -12,7 +13,6 @@ import { Button } from "../ui/Button";
 import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
-import { Spinner } from "../ui/Spinner";
 
 /**
  * Connecting a mailbox, from the one thing the person already knows.
@@ -62,7 +62,11 @@ export type ConnectMailboxProps = {
 type Phase =
   | { step: "address" }
   | { step: "choose"; plan: MailboxConnectPlan }
-  | { step: "password"; plan: MailboxConnectPlan; option: Extract<MailboxConnectOption, { kind: "imap" }> };
+  | {
+      step: "password";
+      plan: MailboxConnectPlan;
+      option: Extract<MailboxConnectOption, { kind: "imap" }>;
+    };
 
 export function ConnectMailboxForm({
   companyId,
@@ -74,6 +78,8 @@ export function ConnectMailboxForm({
   const [phase, setPhase] = React.useState<Phase>({ step: "address" });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [waitingForOauth, setWaitingForOauth] = React.useState(false);
+  const oauthController = React.useRef<AbortController | null>(null);
 
   // Password step
   const [password, setPassword] = React.useState("");
@@ -84,19 +90,12 @@ export function ConnectMailboxForm({
   const [smtpPort, setSmtpPort] = React.useState("");
   const [username, setUsername] = React.useState("");
 
-  React.useEffect(() => {
-    function handleOauthMessage(event: MessageEvent) {
-      // The popup is same-origin; anything else is not ours to trust.
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as { source?: string; ok?: boolean; detail?: string } | null;
-      if (!data || data.source !== "genosyn-oauth") return;
-      if (data.ok) void onConnected(null);
-      else setError(data.detail ?? "The mailbox could not be connected");
-      setBusy(false);
-    }
-    window.addEventListener("message", handleOauthMessage);
-    return () => window.removeEventListener("message", handleOauthMessage);
-  }, [onConnected]);
+  React.useEffect(
+    () => () => {
+      oauthController.current?.abort();
+    },
+    [companyId],
+  );
 
   async function lookUp(e: React.FormEvent) {
     e.preventDefault();
@@ -135,28 +134,27 @@ export function ConnectMailboxForm({
     }
     setBusy(true);
     setError(null);
+    const controller = new AbortController();
+    oauthController.current = controller;
     try {
-      const { authorizeUrl } = await api.post<{ authorizeUrl: string }>(
-        `/api/companies/${companyId}/integrations/oauth/start`,
-        {
-          provider,
-          label: email.trim(),
-          scopeGroups: option.scopeGroups,
-          // The whole point of starting here: consent is the last step, so
-          // the callback creates the mailbox rather than sending the person
-          // back to find a second Connect button.
-          linkMailbox: true,
-        },
-      );
-      const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
-      if (!popup) {
-        setError("Popup blocked — allow popups for this site and try again.");
-        setBusy(false);
-      }
-      // Otherwise the popup's postMessage finishes the job; `busy` stays on
-      // so the button cannot be pressed twice while consent is open.
+      await connectWithOauth({
+        companyId,
+        signal: controller.signal,
+        onWaiting: () => setWaitingForOauth(true),
+        start: () =>
+          api.post<IntegrationOauthStart>(`/api/companies/${companyId}/integrations/oauth/start`, {
+            provider,
+            label: email.trim(),
+            scopeGroups: option.scopeGroups,
+            linkMailbox: true,
+          }),
+      });
+      await onConnected(null);
     } catch (err) {
-      setError(errorText(err));
+      if (!controller.signal.aborted) setError(errorText(err));
+    } finally {
+      oauthController.current = null;
+      setWaitingForOauth(false);
       setBusy(false);
     }
   }
@@ -188,9 +186,9 @@ export function ConnectMailboxForm({
   if (!canConnect) {
     return (
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Connecting a mailbox stores a credential the whole company uses, so an owner or admin has
-        to do it. Ask one of them to add it — after that you can read and answer mail here like
-        anyone else.
+        Connecting a mailbox stores a credential the whole company uses, so an owner or admin has to
+        do it. Ask one of them to add it — after that you can read and answer mail here like anyone
+        else.
       </p>
     );
   }
@@ -211,8 +209,8 @@ export function ConnectMailboxForm({
           Genosyn works out the rest from the address.
         </p>
         <FormError message={error} />
-        <Button type="submit" disabled={busy || !email.trim()}>
-          {busy ? <Spinner size={13} /> : <>Continue <ArrowRight size={14} className="ml-1" /></>}
+        <Button type="submit" loading={busy} disabled={!email.trim()}>
+          Continue <ArrowRight size={14} className="ml-1" />
         </Button>
       </form>
     );
@@ -228,6 +226,7 @@ export function ConnectMailboxForm({
         </p>
         <button
           type="button"
+          disabled={busy}
           className="shrink-0 text-xs text-slate-500 underline hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           onClick={() => {
             setPhase({ step: "address" });
@@ -260,6 +259,24 @@ export function ConnectMailboxForm({
               }}
             />
           ))}
+          {plan.options.some((option) => option.kind === "oauth" && option.hostedSignIn) && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Genosyn handles Google sign-in. Your mailbox syncs directly with Google on this
+              installation.
+            </p>
+          )}
+          {waitingForOauth && (
+            <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <p role="status">Waiting for sign-in…</p>
+              <button
+                type="button"
+                className="underline"
+                onClick={() => oauthController.current?.abort()}
+              >
+                Cancel sign-in
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <form onSubmit={connectWithPassword} className="space-y-3">
@@ -332,8 +349,8 @@ export function ConnectMailboxForm({
           )}
           <FormError message={error} />
           <div className="flex items-center gap-2">
-            <Button type="submit" disabled={busy || !password}>
-              {busy ? <Spinner size={13} /> : "Connect mailbox"}
+            <Button type="submit" loading={busy} disabled={!password}>
+              Connect mailbox
             </Button>
             {plan.options.length > 1 && (
               <button
@@ -383,8 +400,13 @@ function OptionRow({
           {title}
         </span>
         {option.ready && (
-          <Button size="sm" disabled={busy} onClick={onPick}>
-            {busy ? <Spinner size={13} /> : "Continue"}
+          <Button
+            size="sm"
+            loading={busy && option.kind === "oauth"}
+            disabled={busy}
+            onClick={onPick}
+          >
+            Continue
           </Button>
         )}
       </div>

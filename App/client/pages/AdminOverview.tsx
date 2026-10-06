@@ -153,8 +153,8 @@ export function AdminOverview() {
       <TopBar
         title="Overview"
         right={
-          <Button variant="secondary" onClick={reload} disabled={loading}>
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
+          <Button variant="secondary" onClick={reload} loading={loading}>
+            <RefreshCw size={14} /> Refresh
           </Button>
         }
       />

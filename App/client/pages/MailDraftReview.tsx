@@ -12,9 +12,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Company } from "../lib/api";
 import {
-  ComposeInput,
   DRAFT_DISCARD_CHUNK,
   MailAccount,
   MailDraft,
@@ -32,6 +30,7 @@ import { errorMessage } from "../lib/errors";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { MailBulkSendDialog, type BulkProgress } from "./MailBulkSendDialog";
 import { MailDraftDrawer } from "./MailDraftDrawer";
+import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { DraftAuthorAvatar, RoutineChip, authorName } from "../components/mail/DraftAuthor";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -72,19 +71,15 @@ type PendingBulk = { action: "send" | "discard"; preview: MailDraftSendPreview }
 type MailDraftReviewProps = {
   companyId: string;
   companySlug: string;
-  company: Company;
   account: MailAccount;
   changeTick: number;
-  openCompose: (init?: Partial<ComposeInput>) => void;
 };
 
 export function MailDraftReview({
   companyId,
   companySlug,
-  company,
   account,
   changeTick,
-  openCompose,
 }: MailDraftReviewProps) {
   const dialog = useDialog();
 
@@ -118,6 +113,7 @@ export function MailDraftReview({
   const [pending, setPending] = React.useState<PendingBulk | null>(null);
   const [progress, setProgress] = React.useState<BulkProgress | null>(null);
   const [queueing, setQueueing] = React.useState(false);
+  const [preparing, setPreparing] = React.useState<string | null>(null);
   const [sendBatch, setSendBatch] = React.useState<MailDraftSendBatch | null>(null);
   /** Drafts a send refused, kept visible instead of vanishing from the queue. */
   const [failed, setFailed] = React.useState<Map<string, string>>(() => new Map());
@@ -349,7 +345,12 @@ export function MailDraftReview({
         { filter: { ...filter, sendableOnly: true }, exclude: [...selection.exclude] };
 
   /** Resolve what a batch would do, then hand it to the confirmation dialog. */
-  const openBulk = async (action: "send" | "discard", sel: MailDraftSelection) => {
+  const openBulk = async (
+    action: "send" | "discard",
+    sel: MailDraftSelection,
+    source: string | null = null,
+  ) => {
+    setPreparing(source);
     try {
       const preview = await mailApi.draftsSendPreview(companyId, account.id, sel);
       const count = action === "send" ? preview.sendable : preview.total;
@@ -365,6 +366,8 @@ export function MailDraftReview({
       setPending({ action, preview });
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t prepare that batch" });
+    } finally {
+      setPreparing(null);
     }
   };
 
@@ -451,6 +454,13 @@ export function MailDraftReview({
 
   const activeFilterCount = (employeeId ? 1 : 0) + (routineId ? 1 : 0) + (query ? 1 : 0);
   const drawerDraft = drawerId ? (rows.find((row) => row.id === drawerId) ?? null) : null;
+  // The draft under the cursor is what Ask AI means by "this draft".
+  const cursorDraft = flatRows[cursor] ?? null;
+  useAskAiPageContext(
+    cursorDraft
+      ? [{ kind: "mail_thread", id: cursorDraft.threadId, focusId: cursorDraft.id }]
+      : null,
+  );
 
   // ───────────────────────── keyboard ─────────────────────────
 
@@ -569,8 +579,9 @@ export function MailDraftReview({
           </div>
           <Button
             size="sm"
+            loading={preparing === "sendAll"}
             disabled={totals.sendable === 0 || queueing}
-            onClick={() => void openBulk("send", { filter, exclude: [] })}
+            onClick={() => void openBulk("send", { filter, exclude: [] }, "sendAll")}
           >
             <Send size={14} /> {sendActive ? "Add all to queue" : "Send all"}
             {totals.sendable > 0 ? ` (${totals.sendable})` : ""}
@@ -729,7 +740,7 @@ export function MailDraftReview({
             <Button
               variant="ghost"
               size="sm"
-              disabled={loadingMore}
+              loading={loadingMore}
               onClick={async () => {
                 setLoadingMore(true);
                 try {
@@ -739,7 +750,7 @@ export function MailDraftReview({
                 }
               }}
             >
-              {loadingMore ? <Spinner size={14} /> : "Load more drafts"}
+              Load more drafts
             </Button>
           </div>
         )}
@@ -752,10 +763,12 @@ export function MailDraftReview({
           // drafts really were left out. With hand-ticked rows the number would
           // describe drafts the person never touched.
           skipped={selection.mode === "all" ? totals.missingRecipient : 0}
-          onSend={() => void openBulk("send", selectionPayload())}
+          onSend={() => void openBulk("send", selectionPayload(), "sendSelected")}
           sendDisabled={queueing}
+          sendLoading={preparing === "sendSelected"}
           adding={sendActive}
-          onDiscard={() => void openBulk("discard", selectionPayload())}
+          onDiscard={() => void openBulk("discard", selectionPayload(), "discardSelected")}
+          discardLoading={preparing === "discardSelected"}
           onClear={clearSelection}
         />
       )}
@@ -781,13 +794,10 @@ export function MailDraftReview({
         <MailDraftDrawer
           companyId={companyId}
           companySlug={companySlug}
-          company={company}
-          account={account}
           draft={drawerDraft}
           onClose={() => setDrawerId(null)}
           onSend={sendOne}
           onDiscard={(draft) => void discardOne(draft)}
-          openCompose={openCompose}
         />
       )}
     </div>
@@ -1171,17 +1181,21 @@ function BulkBar({
   count,
   skipped,
   sendDisabled,
+  sendLoading,
   adding,
   onSend,
   onDiscard,
+  discardLoading,
   onClear,
 }: {
   count: number;
   skipped: number;
   sendDisabled: boolean;
+  sendLoading: boolean;
   adding: boolean;
   onSend: () => void;
   onDiscard: () => void;
+  discardLoading: boolean;
   onClear: () => void;
 }) {
   return (
@@ -1194,10 +1208,10 @@ function BulkBar({
           <span className="text-xs text-slate-400">{skipped} without a recipient skipped</span>
         )}
         <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
-        <Button size="sm" disabled={sendDisabled} onClick={onSend}>
+        <Button size="sm" loading={sendLoading} disabled={sendDisabled} onClick={onSend}>
           <Send size={14} /> {adding ? "Add to queue" : "Send selected"}
         </Button>
-        <Button size="sm" variant="ghost" onClick={onDiscard}>
+        <Button size="sm" variant="ghost" loading={discardLoading} onClick={onDiscard}>
           <Trash2 size={14} /> Discard
         </Button>
         <button

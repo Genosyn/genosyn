@@ -133,6 +133,14 @@ function classifyError(meta: ErrorMetadata, error: unknown): ErrorCategory {
   return "request";
 }
 
+/**
+ * Whether a formatted model failure says the service could not be reached or
+ * failed on its own side (a 5xx), rather than rejecting this request.
+ */
+export function isModelServiceUnavailable(message: string): boolean {
+  return message.startsWith(heading("network")) || message.startsWith(heading("provider"));
+}
+
 function heading(category: ErrorCategory): string {
   switch (category) {
     case "runtime":

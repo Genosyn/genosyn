@@ -35,10 +35,6 @@ import { Notification } from "../db/entities/Notification.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
 import { emitMembershipAuthorizationChange } from "../services/resourceEvents.js";
-import {
-  entitlementsForCompanies,
-  getCompanyEntitlements,
-} from "../services/entitlements.js";
 
 export const companiesRouter = Router();
 
@@ -53,8 +49,6 @@ companiesRouter.get("/", async (req, res) => {
     where: { id: In(mems.map((m) => m.companyId)) },
   });
   const byId = new Map(companies.map((c) => [c.id, c]));
-  // One batched entitlements read (M56) so the list doesn't N+1 per company.
-  const entitlements = await entitlementsForCompanies(companies.map((c) => c.id));
   const out = mems
     .map((m) => {
       const c = byId.get(m.companyId);
@@ -72,9 +66,6 @@ companiesRouter.get("/", async (req, res) => {
         // gate on, so the button and the server agree.
         financeAccess: financeAccessFor(m.role, m.financeAccess),
         requireTwoFactor: c.requireTwoFactor,
-        // Edition, plan, limits and feature flags (M56) — the client gates
-        // upgrade cards and feature surfaces on this.
-        entitlements: entitlements.get(c.id) ?? null,
       };
     })
     .filter(Boolean);
@@ -129,9 +120,6 @@ companiesRouter.post("/", requireBrowserSession, validateBody(createSchema), asy
     role: "owner",
     financeAccess: financeAccessFor("owner", undefined),
     requireTwoFactor: co.requireTwoFactor,
-    // Same shape the list rows carry (M56), so the client's company cache can
-    // be fed from either response.
-    entitlements: await getCompanyEntitlements(co.id),
   });
 });
 
@@ -145,7 +133,6 @@ companiesRouter.get("/:cid", requireCompanyMember, async (req, res) => {
     mission: co.mission,
     vision: co.vision,
     requireTwoFactor: co.requireTwoFactor,
-    entitlements: await getCompanyEntitlements(co.id),
   });
 });
 

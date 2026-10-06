@@ -51,6 +51,11 @@ import { decryptRepositorySecret } from "./repositories.js";
 import { assertSafeCredentialToken } from "./gitCredentialHelper.js";
 import { workSessionCommandAvailability } from "./repositoryCommandRun.js";
 import { AGENTS_GUIDE_FILENAME, readContributorGuide } from "./repositoryGuidance.js";
+import {
+  nodeRequirementNote,
+  repositoryNodeRequirement,
+  type RepositoryNodeRequirement,
+} from "./repositoryNodeVersion.js";
 export {
   AGENTS_GUIDE_FILENAME,
   AGENTS_GUIDE_CANDIDATES,
@@ -100,10 +105,9 @@ import { emitResourceChange } from "./resourceEvents.js";
  * credentials stay in the server-owned delivery path.
  *
  * repository_run_command follows the Repository command policy and the install's
- * execution mode. The default host mode is trusted execution as the App OS user;
- * a working directory is not an OS isolation boundary. Optional bubblewrap mode
- * confines commands to the worktree and excludes Git. Disabling commands leaves
- * the other repository operations available. See repositoryCommandPolicy.ts.
+ * execution mode. Host mode is trusted execution as the App OS user; a working
+ * directory is not an OS isolation boundary. Disabling commands leaves the
+ * other repository operations available. See repositoryCommandPolicy.ts.
  *
  * The separate per-employee checkout at `<employeeDir>/repositories/<slug>/`
  * is untouched by all of this. It still exists for open-ended chat and Routine
@@ -872,10 +876,14 @@ export async function runRepositoryWorkSession(
           repositoryWorkSessionId: session.id,
           workSurface: "repository",
           maxSteps: WORK_SESSION_MAX_STEPS,
+          // A session's turn can run for an hour; a self-hosted model server
+          // restarting meanwhile should pause it, not end it.
+          waitForModel: true,
           extraSystem: composeWorkSystemPrompt(repo, session.id, {
             revision: turn.ordinal > 1,
             agentsGuide: guide?.body ?? null,
             agentsGuideName: guide?.name,
+            nodeRequirement: repositoryNodeRequirement(directory),
           }),
           extraToolset: repositorySessionResidentTools(repo),
           signal: controller.signal,
@@ -887,6 +895,7 @@ export async function runRepositoryWorkSession(
               recorder.toolResult(name, toolResult, callId),
             onCompact: (info) => recorder.compact(info),
             onModelRetry: (info) => recorder.retry(info),
+            onModelOutage: (outage) => recorder.modelOutage(outage),
           },
         },
       );
@@ -2207,6 +2216,8 @@ export function composeWorkSystemPrompt(
     agentsGuide?: string | null;
     /** Which file the guide came from; defaults to `AGENTS.md`. */
     agentsGuideName?: string;
+    /** A newer Node the repository asks for than this runtime has. */
+    nodeRequirement?: RepositoryNodeRequirement | null;
   } = {},
 ): string {
   const subject =
@@ -2246,6 +2257,9 @@ export function composeWorkSystemPrompt(
     "",
     "### Your report",
     "Your final message is shown beside your diff. Lead with what you changed and why, in a few sentences. Then account for each applicable guide command: its working directory, whether you ran it, its recorded exit status or failure, and a concrete reason for anything skipped. Report only actual tool results as command evidence — and be plain about anything you could not verify, anything you deliberately left alone, and any judgement call you made. Never describe work you did not do or checks you did not run. Do not claim the change is merged, pushed, or opened as a pull request: delivery happens separately after this session finishes.",
+    ...(commands && options.nodeRequirement
+      ? ["", nodeRequirementNote(options.nodeRequirement)]
+      : []),
     options.revision
       ? "\nThis is a follow-up on work you already did in this same working copy. Your earlier commits are still there and are what the human is looking at, so read the files again rather than trusting your memory of them, change only what has just been asked for, and commit the change as its own commit on top."
       : "",

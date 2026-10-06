@@ -113,6 +113,7 @@ export default function RevenueSignalDetail() {
   const [form, setForm] = React.useState<SignalForm | null>(null);
   const [config, setConfig] = React.useState<Record<string, unknown>>({});
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const [connections, setConnections] = React.useState<SignalConnection[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [sequences, setSequences] = React.useState<HydratedSequence[]>([]);
@@ -251,6 +252,17 @@ export default function RevenueSignalDetail() {
     }
   }
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   if (loadError) {
     return (
       <div className="page-shell p-8">
@@ -271,11 +283,8 @@ export default function RevenueSignalDetail() {
           <Button
             variant="secondary"
             className="mt-4"
-            onClick={() =>
-              reload().catch((err: unknown) =>
-                setLoadError(err instanceof Error ? err.message : String(err)),
-              )
-            }
+            loading={retrying}
+            onClick={() => void retry()}
           >
             Try again
           </Button>
@@ -345,8 +354,8 @@ export default function RevenueSignalDetail() {
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Query</h2>
-          <Button size="sm" variant="secondary" onClick={runTest} disabled={testing}>
-            {testing ? <Spinner size={14} /> : <Play size={14} />}
+          <Button size="sm" variant="secondary" onClick={runTest} loading={testing}>
+            <Play size={14} />
             Test
           </Button>
         </header>
@@ -584,8 +593,8 @@ export default function RevenueSignalDetail() {
           )}
 
           <div className="flex justify-end">
-            <Button onClick={save} disabled={saving || !form.name.trim() || !cronOk}>
-              {saving ? <Spinner size={14} /> : <Save size={14} />}
+            <Button onClick={save} loading={saving} disabled={!form.name.trim() || !cronOk}>
+              <Save size={14} />
               Save signal
             </Button>
           </div>

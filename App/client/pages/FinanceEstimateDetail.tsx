@@ -14,13 +14,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import {
-  api,
-  displayEstimateStatus,
-  Estimate,
-  formatMoney,
-  Invoice,
-} from "../lib/api";
+import { api, displayEstimateStatus, Estimate, formatMoney, Invoice } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -29,6 +23,7 @@ import { FormSuccess } from "../components/ui/FormError";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
+import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -54,7 +49,9 @@ export default function FinanceEstimateDetail() {
   const dialog = useDialog();
   const [estimate, setEstimate] = React.useState<Estimate | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<
+    null | "issue" | "send" | "accept" | "decline" | "convert" | "void" | "duplicate" | "delete"
+  >(null);
   const [sendNotice, setSendNotice] = React.useState<string | null>(null);
 
   // True once this slug has loaded. Issuing a draft re-slugs the estimate from
@@ -68,9 +65,7 @@ export default function FinanceEstimateDetail() {
   const reload = React.useCallback(async () => {
     if (!estimateSlug) return;
     try {
-      const est = await api.get<Estimate>(
-        `/api/companies/${company.id}/estimates/${estimateSlug}`,
-      );
+      const est = await api.get<Estimate>(`/api/companies/${company.id}/estimates/${estimateSlug}`);
       setEstimate(est);
       shown.current = true;
       setLoadError(null);
@@ -90,7 +85,7 @@ export default function FinanceEstimateDetail() {
 
   async function issue() {
     if (!estimate) return;
-    setBusy(true);
+    setBusy("issue");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/issue`,
@@ -102,7 +97,7 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t issue the estimate" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -112,7 +107,7 @@ export default function FinanceEstimateDetail() {
     // a resend leaves the page byte-identical, so only that path earns a notice.
     const wasDraft = estimate.status === "draft";
     setSendNotice(null);
-    setBusy(true);
+    setBusy("send");
     try {
       const result = await api.post<{
         estimate: Estimate;
@@ -120,10 +115,7 @@ export default function FinanceEstimateDetail() {
       }>(`/api/companies/${company.id}/estimates/${estimate.slug}/send`);
       setEstimate(result.estimate);
       if (result.estimate.slug !== estimate.slug) {
-        navigate(
-          `/c/${company.slug}/finance/estimates/${result.estimate.slug}`,
-          { replace: true },
-        );
+        navigate(`/c/${company.slug}/finance/estimates/${result.estimate.slug}`, { replace: true });
       }
       if (result.send.status === "skipped") {
         void dialog.error("Set one in Settings → Email, then send again.", {
@@ -140,14 +132,14 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t send the estimate" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function accept() {
     if (!estimate) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("accept");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/accept`,
@@ -156,7 +148,7 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t mark the estimate as accepted" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -164,13 +156,12 @@ export default function FinanceEstimateDetail() {
     if (!estimate) return;
     const ok = await dialog.confirm({
       title: `Mark ${estimate.number || "estimate"} as declined?`,
-      message:
-        "The customer has chosen not to proceed. You can still void it later if needed.",
+      message: "The customer has chosen not to proceed. You can still void it later if needed.",
       confirmLabel: "Mark declined",
     });
     if (!ok) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("decline");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/decline`,
@@ -179,7 +170,7 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t mark the estimate as declined" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -193,19 +184,17 @@ export default function FinanceEstimateDetail() {
     });
     if (!ok) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("convert");
     try {
       const result = await api.post<{ estimate: Estimate; invoice: Invoice }>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/convert`,
         {},
       );
       setEstimate(result.estimate);
-      navigate(
-        `/c/${company.slug}/finance/invoices/${result.invoice.slug}`,
-      );
+      navigate(`/c/${company.slug}/finance/invoices/${result.invoice.slug}`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t convert the estimate" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -220,7 +209,7 @@ export default function FinanceEstimateDetail() {
     });
     if (!ok) return;
     setSendNotice(null);
-    setBusy(true);
+    setBusy("void");
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/void`,
@@ -229,13 +218,13 @@ export default function FinanceEstimateDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t void the estimate" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function duplicate() {
     if (!estimate) return;
-    setBusy(true);
+    setBusy("duplicate");
     try {
       const draft = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/duplicate`,
@@ -243,7 +232,7 @@ export default function FinanceEstimateDetail() {
       navigate(`/c/${company.slug}/finance/estimates/${draft.slug}/edit`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t duplicate the estimate" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -255,15 +244,13 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    setBusy(true);
+    setBusy("delete");
     try {
-      await api.del(
-        `/api/companies/${company.id}/estimates/${estimate.slug}`,
-      );
+      await api.del(`/api/companies/${company.id}/estimates/${estimate.slug}`);
       navigate(`/c/${company.slug}/finance/estimates`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the draft" });
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -297,10 +284,7 @@ export default function FinanceEstimateDetail() {
   const ds = displayEstimateStatus(estimate);
   const number = estimate.number || "DRAFT";
   const isConverted = !!estimate.invoiceId;
-  const isTerminal =
-    estimate.status === "void" ||
-    estimate.status === "declined" ||
-    isConverted;
+  const isTerminal = estimate.status === "void" || estimate.status === "declined" || isConverted;
 
   return (
     <div className="page-shell p-8">
@@ -322,9 +306,7 @@ export default function FinanceEstimateDetail() {
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            {number}
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
           <span
             className={
               "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
@@ -337,30 +319,33 @@ export default function FinanceEstimateDetail() {
         <div className="flex flex-wrap items-center gap-2">
           {estimate.status === "draft" && (
             <>
-              <Link
-                to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}
-              >
-                <Button variant="secondary" disabled={busy}>
+              <Link to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}>
+                <Button variant="secondary" disabled={busy !== null}>
                   <Pencil size={14} /> Edit
                 </Button>
               </Link>
-              <Button onClick={send} disabled={busy}>
+              <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
                 <Send size={14} /> Issue & send
               </Button>
             </>
           )}
           {estimate.status === "sent" && !isConverted && (
             <>
-              <Button variant="secondary" onClick={accept} disabled={busy}>
+              <Button
+                variant="secondary"
+                onClick={accept}
+                loading={busy === "accept"}
+                disabled={busy !== null}
+              >
                 <CheckCircle2 size={14} /> Mark accepted
               </Button>
-              <Button onClick={convert} disabled={busy}>
+              <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
                 <ArrowRight size={14} /> Convert to invoice
               </Button>
             </>
           )}
           {estimate.status === "accepted" && !isConverted && (
-            <Button onClick={convert} disabled={busy}>
+            <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
               <ArrowRight size={14} /> Convert to invoice
             </Button>
           )}
@@ -373,7 +358,7 @@ export default function FinanceEstimateDetail() {
                 ref={ref}
                 variant="secondary"
                 onClick={onClick}
-                disabled={busy}
+                disabled={busy !== null}
                 aria-label="More actions"
               >
                 <MoreHorizontal size={14} />
@@ -392,18 +377,16 @@ export default function FinanceEstimateDetail() {
                     }}
                   />
                 )}
-                {(estimate.status === "sent" ||
-                  estimate.status === "accepted") &&
-                  !isConverted && (
-                    <MenuItem
-                      icon={<Mail size={14} />}
-                      label="Resend email"
-                      onSelect={() => {
-                        close();
-                        send();
-                      }}
-                    />
-                  )}
+                {(estimate.status === "sent" || estimate.status === "accepted") && !isConverted && (
+                  <MenuItem
+                    icon={<Mail size={14} />}
+                    label="Resend email"
+                    onSelect={() => {
+                      close();
+                      send();
+                    }}
+                  />
+                )}
                 {estimate.status === "sent" && !isConverted && (
                   <MenuItem
                     icon={<XCircle size={14} />}
@@ -435,11 +418,7 @@ export default function FinanceEstimateDetail() {
                     <MenuSeparator />
                     <MenuItem
                       icon={<Ban size={14} className="text-red-500" />}
-                      label={
-                        <span className="text-red-600 dark:text-red-400">
-                          Void
-                        </span>
-                      }
+                      label={<span className="text-red-600 dark:text-red-400">Void</span>}
                       onSelect={() => {
                         close();
                         voidEstimate();
@@ -452,11 +431,7 @@ export default function FinanceEstimateDetail() {
                     <MenuSeparator />
                     <MenuItem
                       icon={<Trash2 size={14} className="text-red-500" />}
-                      label={
-                        <span className="text-red-600 dark:text-red-400">
-                          Delete
-                        </span>
-                      }
+                      label={<span className="text-red-600 dark:text-red-400">Delete</span>}
                       onSelect={() => {
                         close();
                         deleteDraft();
@@ -487,9 +462,7 @@ export default function FinanceEstimateDetail() {
                 ` on ${new Date(estimate.convertedAt).toISOString().slice(0, 10)}`}
               .
             </div>
-            <Link
-              to={`/c/${company.slug}/finance/invoices/${estimate.invoice.slug}`}
-            >
+            <Link to={`/c/${company.slug}/finance/invoices/${estimate.invoice.slug}`}>
               <Button variant="secondary">
                 Open invoice <ArrowRight size={14} />
               </Button>
@@ -501,17 +474,25 @@ export default function FinanceEstimateDetail() {
       <div className="space-y-6">
         <div>
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <InvoiceIssuerDetails issuer={estimate.issuerSnapshot} companyName={company.name} />
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
                 <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   Prepared for
                 </div>
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
-                  {estimate.customer?.name ?? "—"}
+                  {estimate.customer ? (
+                    <Link
+                      to={`/c/${company.slug}/customers/${estimate.customer.slug}`}
+                      className="hover:text-indigo-600 hover:underline dark:hover:text-indigo-400"
+                    >
+                      {estimate.customer.name}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
                 </div>
-                <div className="text-slate-500 dark:text-slate-400">
-                  {estimate.customer?.email}
-                </div>
+                <div className="text-slate-500 dark:text-slate-400">{estimate.customer?.email}</div>
                 {estimate.customer?.billingAddress.trim() && (
                   <div className="mt-1 whitespace-pre-line text-slate-500 dark:text-slate-400">
                     {estimate.customer.billingAddress}
@@ -538,27 +519,16 @@ export default function FinanceEstimateDetail() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">
-                      Description
-                    </th>
-                    <th className="w-20 px-3 py-2 text-right font-medium">
-                      Qty
-                    </th>
-                    <th className="w-32 px-3 py-2 text-right font-medium">
-                      Unit
-                    </th>
-                    <th className="w-32 px-3 py-2 text-right font-medium">
-                      Amount
-                    </th>
+                    <th className="px-3 py-2 text-left font-medium">Description</th>
+                    <th className="w-20 px-3 py-2 text-right font-medium">Qty</th>
+                    <th className="w-32 px-3 py-2 text-right font-medium">Unit</th>
+                    <th className="w-32 px-3 py-2 text-right font-medium">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {estimate.lines.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="p-6 text-center text-sm text-slate-400"
-                      >
+                      <td colSpan={4} className="p-6 text-center text-sm text-slate-400">
                         No line items
                       </td>
                     </tr>
@@ -569,8 +539,7 @@ export default function FinanceEstimateDetail() {
                           {l.description}
                           {l.taxPercent > 0 && (
                             <div className="text-xs text-slate-400">
-                              {l.taxName} {l.taxPercent}%
-                              {l.taxInclusive ? " incl." : ""}
+                              {l.taxName} {l.taxPercent}%{l.taxInclusive ? " incl." : ""}
                             </div>
                           )}
                         </td>
@@ -611,7 +580,7 @@ export default function FinanceEstimateDetail() {
               </div>
             </div>
 
-            {(estimate.notes || estimate.footer) && (
+            {(estimate.notes || estimate.footer || estimate.issuerSnapshot?.footer) && (
               <div className="mt-6 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
                 {estimate.notes && (
                   <div>
@@ -623,13 +592,13 @@ export default function FinanceEstimateDetail() {
                     </div>
                   </div>
                 )}
-                {estimate.footer && (
+                {(estimate.footer || estimate.issuerSnapshot?.footer) && (
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                       Footer
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-500 dark:text-slate-400">
-                      {estimate.footer}
+                      {estimate.footer || estimate.issuerSnapshot?.footer}
                     </div>
                   </div>
                 )}
@@ -643,36 +612,21 @@ export default function FinanceEstimateDetail() {
             Activity
           </h3>
           <ul className="mt-3 grid gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
-            <li>
-              Created {new Date(estimate.createdAt).toISOString().slice(0, 10)}
-            </li>
+            <li>Created {new Date(estimate.createdAt).toISOString().slice(0, 10)}</li>
             {estimate.sentAt && (
-              <li>
-                Sent {new Date(estimate.sentAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Sent {new Date(estimate.sentAt).toISOString().slice(0, 10)}</li>
             )}
             {estimate.acceptedAt && (
-              <li>
-                Accepted{" "}
-                {new Date(estimate.acceptedAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Accepted {new Date(estimate.acceptedAt).toISOString().slice(0, 10)}</li>
             )}
             {estimate.declinedAt && (
-              <li>
-                Declined{" "}
-                {new Date(estimate.declinedAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Declined {new Date(estimate.declinedAt).toISOString().slice(0, 10)}</li>
             )}
             {estimate.convertedAt && (
-              <li>
-                Invoiced{" "}
-                {new Date(estimate.convertedAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Invoiced {new Date(estimate.convertedAt).toISOString().slice(0, 10)}</li>
             )}
             {estimate.voidedAt && (
-              <li>
-                Voided {new Date(estimate.voidedAt).toISOString().slice(0, 10)}
-              </li>
+              <li>Voided {new Date(estimate.voidedAt).toISOString().slice(0, 10)}</li>
             )}
           </ul>
         </div>

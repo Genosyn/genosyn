@@ -75,8 +75,8 @@ export async function loadBrowserConfig(
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
   if (!employee) return BROWSER_DISABLED;
   // This runs before the coding registry is assembled. An upgrade therefore
-  // removes the legacy workspace-visible cookie file before host file tools or
-  // bubblewrapped bash can observe the employee workspace.
+  // removes the legacy workspace-visible cookie file before any coding tool can
+  // observe the employee workspace.
   await migrateLegacyBrowserStorage(employee.companyId, employee.id);
   const company = await AppDataSource.getRepository(Company).findOneBy({ id: employee.companyId });
   if (company) purgeLegacyRepositorySshFiles(employeeDir(company.slug, employee.slug));
@@ -226,11 +226,11 @@ export function specForMcpServerRow(s: McpServer): McpServerSpec | null {
 
 export function userStdioMcpAvailableFor(options: {
   multiTenant: boolean;
-  codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
+  codingToolsExecutionMode: "host" | "disabled";
 }): boolean {
   // Company-configured stdio children share the App's host authority. They
   // are available only in the trusted single-tenant host deployment; disabled
-  // and bubblewrap modes omit them regardless of the model's authentication.
+  // mode omits them regardless of the model's authentication.
   return !options.multiTenant && options.codingToolsExecutionMode === "host";
 }
 

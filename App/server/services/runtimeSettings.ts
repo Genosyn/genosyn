@@ -46,6 +46,7 @@ import {
 export const RUNTIME_SETTING_KEYS = {
   web: "runtime.web",
   mail: "runtime.mail",
+  oauth: "runtime.oauth",
   meetings: "runtime.meetings",
   browser: "runtime.browser",
   agent: "runtime.agent",
@@ -65,8 +66,11 @@ export type RuntimeWebSettings = {
    *  than disappear, so an employee can tell the human why. */
   enabled: boolean;
   /** "duckduckgo" reads the no-JavaScript HTML endpoint and needs no API key;
+   *  "searxng" asks a self-hosted SearXNG instance at `searxngUrl`;
    *  "disabled" turns search off and leaves fetch and download working. */
-  searchProvider: "duckduckgo" | "disabled";
+  searchProvider: "duckduckgo" | "searxng" | "disabled";
+  /** Base URL of a SearXNG instance with its JSON format enabled. */
+  searxngUrl: string;
   maxSearchResults: number;
   /** Bytes a page fetch or download may pull. */
   maxDocumentBytes: number;
@@ -83,6 +87,16 @@ export type RuntimeMailSettings = {
   backfillPassSeconds: number;
   /** Only-recent cap for the first import. 0 imports the whole mailbox. */
   backfillDays: number;
+};
+
+/** Shared sign-in service; explicit Integration OAuth credentials take precedence. */
+export type RuntimeOauthSettings = {
+  hostedSignInEnabled: boolean;
+  hostedSignInUrl: string;
+  /** Only enabled on the installation operating the public sign-in service. */
+  hostSignIn: boolean;
+  /** Empty uses the installation's public URL. */
+  signInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription (M42/M44). */
@@ -123,20 +137,8 @@ export type RuntimeAgentSettings = {
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
 };
 
-/**
- * Containment (M58) — the knobs on the circuit breaker that stands a Routine
- * down after it has failed for long enough that the next slot is certain to
- * fail too. Operational rather than boot-critical: an operator raising the
- * threshold during an incident must not have to edit a file and restart a
- * container, which is exactly what AGENTS.md §5 exists to prevent.
- */
+/** Settings for the sweep that finishes grading Runs with missing verdicts. */
 export type RuntimeContainmentSettings = {
-  /**
-   * Consecutive bad Runs on one Routine before the runner places a
-   * `breaker`-sourced Standdown on it. 0 disables the breaker entirely, which
-   * restores the pre-M58 behaviour of a broken Routine firing forever.
-   */
-  routineBreakerThreshold: number;
   /**
    * How stale a completed Run's missing outcome verdict has to be before the
    * re-grade sweep picks it up, in minutes. Long enough that the normal
@@ -167,6 +169,7 @@ export type RuntimeNetworkSettings = {
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
+  oauth: RuntimeOauthSettings;
   meetings: RuntimeMeetingsSettings;
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
@@ -192,6 +195,7 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
   web: {
     enabled: true,
     searchProvider: "duckduckgo",
+    searxngUrl: "",
     maxSearchResults: 8,
     maxDocumentBytes: 10 * 1024 * 1024,
     maxTextChars: 20_000,
@@ -201,6 +205,12 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     backfillThreadsPerPass: 200,
     backfillPassSeconds: 25,
     backfillDays: 0,
+  },
+  oauth: {
+    hostedSignInEnabled: true,
+    hostedSignInUrl: "https://connect.genosyn.com",
+    hostSignIn: false,
+    signInHostUrl: "",
   },
   meetings: {
     enabled: true,
@@ -222,7 +232,6 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     toolDiscovery: { enabled: true, minCatalogueSize: 40 },
   },
   containment: {
-    routineBreakerThreshold: 5,
     regradeAfterMinutes: 10,
     regradePerPass: 10,
   },
@@ -403,7 +412,8 @@ export function parseWebSettings(raw: unknown): RuntimeWebSettings {
   const d = RUNTIME_SETTINGS_DEFAULTS.web;
   return {
     enabled: boolField(o, "web", "enabled", d.enabled),
-    searchProvider: choiceField(o, "web", "searchProvider", ["duckduckgo", "disabled"] as const, d.searchProvider),
+    searchProvider: choiceField(o, "web", "searchProvider", ["duckduckgo", "searxng", "disabled"] as const, d.searchProvider),
+    searxngUrl: stringField(o, "web", "searxngUrl", d.searxngUrl, 2048),
     maxSearchResults: intField(o, "web", "maxSearchResults", d.maxSearchResults, 1, 50),
     maxDocumentBytes: intField(
       o,
@@ -432,6 +442,73 @@ export function parseMailSettings(raw: unknown): RuntimeMailSettings {
     ),
     backfillPassSeconds: intField(o, "mail", "backfillPassSeconds", d.backfillPassSeconds, 1, 600),
     backfillDays: intField(o, "mail", "backfillDays", d.backfillDays, 0, 36_500),
+  };
+}
+
+/** A sign-in service is an origin, never a credential-bearing or path URL. */
+export function normalizeSignInUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return null;
+    if (url.username || url.password || url.search || url.hash || url.pathname !== "/") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Compatibility for callers upgrading from the Gmail-only service. */
+export const normalizeGmailSignInUrl = normalizeSignInUrl;
+
+/** Map old saved fields without allowing them to override an explicit new value. */
+export function normalizeOauthSettingNames(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const normalized = { ...raw } as Record<string, unknown>;
+  for (const [canonical, legacy] of [
+    ["hostedSignInEnabled", "gmailSignInEnabled"],
+    ["hostedSignInUrl", "gmailSignInUrl"],
+    ["hostSignIn", "hostGmailSignIn"],
+    ["signInHostUrl", "gmailSignInHostUrl"],
+  ]) {
+    if (!Object.hasOwn(normalized, canonical) && Object.hasOwn(normalized, legacy)) {
+      normalized[canonical] = normalized[legacy];
+    }
+    delete normalized[legacy];
+  }
+  return normalized;
+}
+
+export function parseOauthSettings(raw: unknown): RuntimeOauthSettings {
+  const o = asRecord(normalizeOauthSettingNames(raw));
+  const d = RUNTIME_SETTINGS_DEFAULTS.oauth;
+  const candidate = stringField(o, "oauth", "hostedSignInUrl", d.hostedSignInUrl, 2048);
+  const hostedSignInUrl = normalizeSignInUrl(candidate);
+  if (!hostedSignInUrl) {
+    warnOnce(
+      "oauth.hostedSignInUrl",
+      "oauth.hostedSignInUrl must be an HTTPS origin; using the default",
+    );
+  }
+  const hostCandidate = o.signInHostUrl;
+  let signInHostUrl: string | null = null;
+  if (hostCandidate === undefined) {
+    signInHostUrl = d.signInHostUrl;
+  } else if (typeof hostCandidate === "string" && hostCandidate.length <= 2048) {
+    signInHostUrl = hostCandidate.trim() ? normalizeSignInUrl(hostCandidate) : "";
+  }
+  if (signInHostUrl === null) {
+    warnOnce(
+      "oauth.signInHostUrl",
+      "oauth.signInHostUrl must be empty or an HTTPS origin; hosting is disabled",
+    );
+  }
+  return {
+    hostedSignInEnabled: boolField(o, "oauth", "hostedSignInEnabled", d.hostedSignInEnabled),
+    hostedSignInUrl: hostedSignInUrl ?? d.hostedSignInUrl,
+    hostSignIn:
+      boolField(o, "oauth", "hostSignIn", d.hostSignIn) && signInHostUrl !== null,
+    signInHostUrl: signInHostUrl ?? d.signInHostUrl,
   };
 }
 
@@ -530,14 +607,6 @@ export function parseContainmentSettings(raw: unknown): RuntimeContainmentSettin
   const o = asRecord(raw);
   const d = RUNTIME_SETTINGS_DEFAULTS.containment;
   return {
-    routineBreakerThreshold: intField(
-      o,
-      "containment",
-      "routineBreakerThreshold",
-      d.routineBreakerThreshold,
-      0,
-      1_000,
-    ),
     regradeAfterMinutes: intField(
       o,
       "containment",
@@ -576,6 +645,7 @@ const PARSERS: {
 } = {
   web: parseWebSettings,
   mail: parseMailSettings,
+  oauth: parseOauthSettings,
   meetings: parseMeetingsSettings,
   browser: parseBrowserSettings,
   agent: parseAgentSettings,
@@ -589,6 +659,7 @@ let cache: RuntimeSettings = defaultRuntimeSettings();
 let overridden: RuntimeSettingsOverridden = {
   web: false,
   mail: false,
+  oauth: false,
   meetings: false,
   browser: false,
   agent: false,
@@ -600,6 +671,14 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 /** Test-only overlay. Wins over the cache without touching the database. */
 type RuntimeSettingsOverrides = {
   [G in RuntimeSettingsGroup]?: Partial<RuntimeSettings[G]>;
+};
+type RuntimeSettingsTestPatch = Omit<RuntimeSettingsOverrides, "oauth"> & {
+  oauth?: Partial<RuntimeOauthSettings> & {
+    gmailSignInEnabled?: boolean;
+    gmailSignInUrl?: string;
+    hostGmailSignIn?: boolean;
+    gmailSignInHostUrl?: string;
+  };
 };
 let testOverrides: RuntimeSettingsOverrides = {};
 
@@ -619,6 +698,10 @@ export function getMailSettings(): RuntimeMailSettings {
   return effective("mail");
 }
 
+export function getRuntimeOauthSettings(): RuntimeOauthSettings {
+  return effective("oauth");
+}
+
 /** Meetings. Read per heartbeat tick, per upload, and per transcription. */
 export function getMeetingsSettings(): RuntimeMeetingsSettings {
   return effective("meetings");
@@ -634,7 +717,7 @@ export function getAgentSettings(): RuntimeAgentSettings {
   return effective("agent");
 }
 
-/** Containment. Read at every Run finalization and on every heartbeat pass. */
+/** Re-grading settings. Read on every heartbeat pass. */
 export function getContainmentSettings(): RuntimeContainmentSettings {
   return effective("containment");
 }
@@ -668,6 +751,7 @@ async function refreshRuntimeSettings(): Promise<void> {
   const nextOverridden: RuntimeSettingsOverridden = {
     web: false,
     mail: false,
+    oauth: false,
     meetings: false,
     browser: false,
     agent: false,
@@ -712,6 +796,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
   return {
     web: effective("web"),
     mail: effective("mail"),
+    oauth: effective("oauth"),
     meetings: effective("meetings"),
     browser: effective("browser"),
     agent: effective("agent"),
@@ -762,7 +847,7 @@ export async function resetRuntimeSettingsGroup<G extends RuntimeSettingsGroup>(
  * Force fields on for a test without a database round-trip. Successive calls
  * accumulate; pass `null` to drop every override.
  */
-export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsOverrides | null): void {
+export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsTestPatch | null): void {
   if (patch === null) {
     testOverrides = {};
     return;
@@ -770,6 +855,13 @@ export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsOverrides 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const value = patch[group];
     if (!value) continue;
+    if (group === "oauth") {
+      testOverrides.oauth = {
+        ...testOverrides.oauth,
+        ...(normalizeOauthSettingNames(value) as Partial<RuntimeOauthSettings>),
+      };
+      continue;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (testOverrides as any)[group] = { ...(testOverrides[group] ?? {}), ...value };
   }
@@ -781,6 +873,7 @@ export function resetRuntimeSettingsCacheForTests(): void {
   overridden = {
     web: false,
     mail: false,
+    oauth: false,
     meetings: false,
     browser: false,
     agent: false,
@@ -855,6 +948,8 @@ export async function importLegacyConfigOverrides(): Promise<void> {
   const legacy = config as unknown as LegacyRuntimeConfig;
 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
+    // Hosted sign-in never lived in boot config.
+    if (group === "oauth") continue;
     const raw =
       group === "agent"
         ? legacyAgentBlock(legacy)

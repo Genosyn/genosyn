@@ -291,7 +291,7 @@ async function searchTodos(
   if (accessibleIds.size === 0) return [];
   let qb = AppDataSource.getRepository(Todo)
     .createQueryBuilder("t")
-    .innerJoin(Project, "p", "p.id = t.projectId")
+    .innerJoin(Project, "p", "CAST(p.id AS text) = t.projectId")
     .where("p.companyId = :cid", { cid: ctx.companyId })
     .andWhere("t.projectId IN (:...pids)", { pids: [...accessibleIds] })
     .andWhere("t.status != 'cancelled'");
@@ -323,7 +323,7 @@ async function searchEmployeeChildren(
 ): Promise<Scored[]> {
   let qb = AppDataSource.getRepository(kind === "skill" ? Skill : Routine)
     .createQueryBuilder("s")
-    .innerJoin(AIEmployee, "e", "e.id = s.employeeId")
+    .innerJoin(AIEmployee, "e", "CAST(e.id AS text) = s.employeeId")
     .where("e.companyId = :cid", { cid: ctx.companyId });
   qb = andWhereTokens(qb, ["s.name"], ctx.tokens);
   qb = orderByPrefixFirst(qb, "s.name", ctx.q, null)
@@ -348,7 +348,7 @@ async function searchEmployeeChildren(
 async function searchNotes(ctx: Ctx): Promise<Scored[]> {
   let qb = AppDataSource.getRepository(Note)
     .createQueryBuilder("n")
-    .innerJoin(Notebook, "nb", "nb.id = n.notebookId")
+    .innerJoin(Notebook, "nb", "CAST(nb.id AS text) = n.notebookId")
     .where("n.companyId = :cid", { cid: ctx.companyId })
     .andWhere("n.archivedAt IS NULL");
   qb = andWhereTokens(qb, ["n.title"], ctx.tokens);
@@ -382,7 +382,7 @@ async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
     .leftJoin(
       ChannelMember,
       "cm",
-      "cm.channelId = c.id AND cm.userId = :uid",
+      "cm.channelId = CAST(c.id AS text) AND cm.userId = :uid",
       { uid: userId },
     )
     .where("c.companyId = :cid", { cid: ctx.companyId })

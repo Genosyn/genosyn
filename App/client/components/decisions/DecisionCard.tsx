@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/Button";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { FormError } from "@/components/ui/FormError";
 import { Menu, MenuHeader, MenuItem } from "@/components/ui/Menu";
-import { Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import { DecisionSourceLine } from "@/components/decisions/DecisionSource";
 import { DecisionDiscussButton } from "@/components/decisions/DecisionDiscussButton";
@@ -353,11 +352,12 @@ export function DecisionCard({
                     type="submit"
                     size="sm"
                     variant={selected.tone === "danger" ? "danger" : "primary"}
+                    loading={pendingAction === "answer"}
                     disabled={busy}
                     className="w-full min-w-0 sm:w-auto"
                     title={`Confirm: ${selected.label}`}
                   >
-                    {pendingAction === "answer" ? <Spinner size={14} /> : <ArrowRight size={14} />}
+                    <ArrowRight size={14} />
                     <span className="min-w-0 truncate">Confirm: {selected.label}</span>
                   </Button>
                 )}
@@ -373,6 +373,7 @@ export function DecisionCard({
                           type="button"
                           size="sm"
                           variant="ghost"
+                          loading={pendingAction === "snooze"}
                           disabled={busy}
                           onClick={() => {
                             setError(null);
@@ -382,11 +383,7 @@ export function DecisionCard({
                           aria-expanded={open}
                           className="w-full sm:w-auto"
                         >
-                          {pendingAction === "snooze" ? (
-                            <Spinner size={14} />
-                          ) : (
-                            <Clock3 size={14} />
-                          )}
+                          <Clock3 size={14} />
                           Snooze
                           <ChevronDown
                             size={13}
@@ -415,11 +412,11 @@ export function DecisionCard({
                       type="button"
                       size="sm"
                       variant="ghost"
+                      loading={pendingAction === "dismiss"}
                       disabled={busy}
                       onClick={() => void dismiss()}
                       className="w-full sm:w-auto"
                     >
-                      {pendingAction === "dismiss" && <Spinner size={14} />}
                       Dismiss
                     </Button>
                   </div>

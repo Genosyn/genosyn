@@ -22,8 +22,9 @@ export function WorkspaceChat() {
         <Strong>×</Strong> button before sending. Text copied alongside an image is preserved.
       </P>
       <P>
-        Image attachments work in employee Chat, Workspace and Todo discussions, Help, per-email and
-        Routine Ask AI, Base Assistant, TLDR questions, and Repository work briefs and follow-ups.
+        Image attachments work in employee Chat, Workspace and Todo discussions, Help,{" "}
+        <DocLink to="/docs/ask-ai">Ask AI</DocLink>, TLDR questions, and Repository work briefs and
+        follow-ups.
         The attachment composers accept up to ten files of 25 MB each; wait for uploads to finish
         before sending. A failed send keeps the draft available to retry.
       </P>
@@ -146,13 +147,11 @@ export function WorkspaceChat() {
         chat session.
       </P>
       <P>
-        The <Strong>Ask AI</Strong> panels beside an{" "}
-        <DocLink to="/docs/email#assistant">email</DocLink> or{" "}
-        <DocLink to="/docs/routines#assistant">Routine</DocLink> also keep the composer available
-        and show a working status throughout each reply. Use <Strong>Queue message</Strong> to add
-        follow-ups with attachments, then review or remove pending messages above the composer. They
-        send in order within that conversation. A failed reply leaves its pending follow-ups queued
-        for you to resume.
+        <DocLink to="/docs/ask-ai">Ask AI</DocLink> also keeps the composer available and shows a
+        working status throughout each reply. Use <Strong>Queue message</Strong> to add follow-ups
+        with attachments, then review or remove pending messages above the composer. They send in
+        order within that conversation. A failed reply leaves its pending follow-ups queued for you
+        to resume.
       </P>
 
       <H2 id="new-context">Start a new AI context</H2>
@@ -160,8 +159,8 @@ export function WorkspaceChat() {
         Type <Code>/new</Code> by itself in an AI-employee DM to start fresh. Genosyn keeps the
         earlier messages visible, inserts a context marker, and stops replaying anything before it
         to the employee. The dedicated <DocLink to="/docs/employees">employee Chat</DocLink> uses
-        the same command to open a new conversation, while per-email Ask AI clears that email&apos;s
-        AI context.
+        the same command to open a new conversation; in Ask AI, press <Strong>+</Strong> in the
+        panel header.
       </P>
 
       <H2 id="resource-references">Tag product areas and company resources</H2>
@@ -189,8 +188,8 @@ export function WorkspaceChat() {
         the tagged row.
       </P>
       <Callout kind="tip" title="The same pattern works everywhere">
-        Product-area and resource tags are available in employee Chat, channels and DMs, per-email
-        Ask AI, Base Assistant, and Todo discussions.
+        Product-area and resource tags are available in employee Chat, channels and DMs, Ask AI, and
+        Todo discussions.
       </Callout>
     </>
   );

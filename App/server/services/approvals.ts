@@ -5,7 +5,7 @@ import { Approval } from "../db/entities/Approval.js";
 import { Routine } from "../db/entities/Routine.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import { runRoutine } from "./runner.js";
+import { startRoutineRun } from "./runner.js";
 import { decryptConnectionConfig, persistConnectionConfigIfCurrent } from "./integrations.js";
 import { getProvider } from "../integrations/index.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../integrations/types.js";
@@ -1365,7 +1365,7 @@ async function executeClaimedApproval(
     const errorMessage = err instanceof Error ? err.message : String(err);
     // eslint-disable-next-line no-console
     console.error(`[approvals] execution failed for ${approval.id}:`, err);
-    await AppDataSource.getRepository(Approval).update(
+    const failedUpdate = await AppDataSource.getRepository(Approval).update(
       {
         id: approval.id,
         companyId: approval.companyId,
@@ -1373,15 +1373,16 @@ async function executeClaimedApproval(
       },
       { status: "execution_failed", errorMessage },
     );
-    await recordAudit({
-      companyId: approval.companyId,
-      actorUserId: approval.decidedByUserId,
-      action: "approval.execute_failed",
-      targetType: "approval",
-      targetId: approval.id,
-      targetLabel: redactApprovalSummary(approval.title) ?? "",
-      metadata: { kind: approval.kind },
-    });
+    if (failedUpdate.affected === 1)
+      await recordAudit({
+        companyId: approval.companyId,
+        actorUserId: approval.decidedByUserId,
+        action: "approval.execute_failed",
+        targetType: "approval",
+        targetId: approval.id,
+        targetLabel: redactApprovalSummary(approval.title) ?? "",
+        metadata: { kind: approval.kind },
+      });
     const failed = await AppDataSource.getRepository(Approval).findOneByOrFail({
       id: approval.id,
       companyId: approval.companyId,
@@ -1399,6 +1400,15 @@ async function executeClaimedApproval(
     { status: "approved", errorMessage: null },
   );
   if (finalized.affected !== 1) {
+    // A durable Routine queue can finish the exact approved work on another
+    // process before this original caller observes its completion.
+    if (approval.kind === "proactive_work") {
+      const current = await repo.findOneByOrFail({
+        id: approval.id,
+        companyId: approval.companyId,
+      });
+      if (current.status === "approved") return { outcome: "decided", approval: current };
+    }
     throw new Error(`Approval ${approval.id} changed state while it was executing`);
   }
   return {
@@ -1605,9 +1615,10 @@ async function executeRoutineApproval(approval: Approval): Promise<void> {
     id: approval.routineId,
   });
   if (!routine) throw new Error("Routine no longer exists");
-  // Fire-and-forget — the routine runner persists progress to the Run
-  // table. The HTTP caller doesn't wait for completion.
-  runRoutine(routine, { triggerKind: "approval" }).catch((err) => {
+  // Acknowledge only once the approved occurrence is durable. Its actual work
+  // continues independently in the employee's queue.
+  const { completion } = await startRoutineRun(routine, { triggerKind: "approval" });
+  void completion.catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`[approvals] routine ${routine.id} failed post-approval:`, err);
   });

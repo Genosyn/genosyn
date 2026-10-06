@@ -2,6 +2,7 @@ import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type RunStatus =
+  | "queued"
   | "running"
   | "completed"
   | "reviewed"
@@ -73,12 +74,34 @@ export type RunTrigger =
 @Index(["status", "startedAt"])
 // The heartbeat's retry scan: terminal rows carrying a due `retryAt`.
 @Index(["retryAt"])
+@Index(["employeeId", "status", "createdAt"])
+// The live-failure roll-up asks, per failed Run, whether a continuation
+// already picked it up. Without this that probe walks the Routine's whole
+// Run history, `logContent` and all, once per failure.
+@Index(["parentRunId"])
 export class Run {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
   @Column({ type: "varchar" })
   routineId!: string;
+
+  /** Snapshot of the employee who owns this occurrence; older Runs have none. */
+  @Column({ type: "varchar", nullable: true })
+  employeeId!: string | null;
+
+  /**
+   * Active dispatch marker through final assessment. New claims use `run:<id>:<nonce>`
+   * so independent Runs never occupy a shared employee slot. The legacy column
+   * name and employee-valued claims remain compatible with existing databases.
+   */
+  @Index({ unique: true })
+  @Column({ type: "varchar", nullable: true })
+  queueActiveEmployeeId!: string | null;
+
+  /** Server-only dispatch provenance. Never included in public Run responses. */
+  @Column({ type: "text", nullable: true, select: false })
+  queueOptionsJson!: string | null;
 
   @Column({ type: dateTimeColumnType })
   startedAt!: Date;
@@ -200,10 +223,11 @@ export class Run {
   retryAt!: Date | null;
 
   /**
-   * Scheduled occurrences that elapsed while the server was unavailable and
-   * are collapsed into this one catch-up run. 0 normally. Non-zero is the only
-   * durable record that work was skipped — the scheduler advances `nextRunAt`
-   * from *now* after an outage, so the missed slots leave no other trace.
+   * Scheduled occurrences collapsed into this one catch-up run: slots that
+   * elapsed while the server was unavailable, and slots that came due while
+   * this scheduled Run was still waiting to start. 0 normally. Non-zero is the
+   * only durable record that those occurrences got no Run of their own — the
+   * scheduler advances `nextRunAt` from *now*, so they leave no other trace.
    */
   @Column({ type: "integer", default: 0 })
   missedSlots!: number;

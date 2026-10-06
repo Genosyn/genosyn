@@ -58,6 +58,7 @@ import { browserRecordingFile, browserRecordingRunDir } from "./paths.js";
 import { updateMemberBrowser } from "./memberBrowsers.js";
 import { reconcileOrphanedRuns } from "./runRecovery.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 
 const originalDataDir = config.dataDir;
 const mutableConfig = config as unknown as { dataDir: string };
@@ -70,6 +71,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   await resetBrowserRecordingsForTests();
   resetBrowserRpcActivityForTests();
   setBeforeMarkLiveCasForTests(null);
@@ -79,6 +81,7 @@ beforeEach(async () => {
 });
 
 after(async () => {
+  await waitForRoutineQueueIdle();
   await resetBrowserRecordingsForTests();
   mutableConfig.dataDir = originalDataDir;
   await closeTestDb();

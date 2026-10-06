@@ -5,6 +5,7 @@ import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/br
 import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import {
   api,
+  type CompanySsoLinkDescription,
   type CompanySsoLinkResponse,
   type CompanySsoPublicStatus,
   type LoginResponse,
@@ -155,7 +156,8 @@ export default function Login() {
             <Button
               type="button"
               variant="secondary"
-              disabled={loading || passkeyLoading}
+              loading={passkeyLoading}
+              disabled={loading}
               onClick={() => void signInWithPasskey()}
             >
               <KeyRound size={15} />
@@ -184,7 +186,7 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <Button type="submit" disabled={loading || passkeyLoading}>
+        <Button type="submit" loading={loading} disabled={passkeyLoading}>
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         {sso?.enabled && (
@@ -244,8 +246,9 @@ function companySsoStartUrl(slug: string): string {
 
 /**
  * The quiet "Sign in with your company's SSO" affordance under the password
- * form on a Genosyn Cloud install. Clicking reveals a workspace-slug input;
- * Continue is a real navigation — the server 302s off to the company's IdP.
+ * form, shown once any company on the install has turned on its own SSO.
+ * Clicking reveals a workspace-slug input; Continue is a real navigation —
+ * the server 302s off to the company's IdP.
  */
 function CompanySsoQuietEntry() {
   const [open, setOpen] = React.useState(false);
@@ -358,9 +361,10 @@ function CompanySsoEntry({
 }
 
 /**
- * Shown when a company IdP asserted an email that already belongs to a
- * Genosyn account. The email is deliberately NOT known client-side — the
- * single-use token carries everything server-side.
+ * Shown when a company IdP asserted an email that already belongs to one of
+ * its Members. The page names the company, so the person knows whose sign-in
+ * is asking for their password. The email is deliberately NOT known
+ * client-side — the single-use token carries everything server-side.
  */
 function CompanySsoLinkConfirm({
   token,
@@ -372,6 +376,22 @@ function CompanySsoLinkConfirm({
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [link, setLink] = React.useState<CompanySsoLinkDescription | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api
+      .post<CompanySsoLinkDescription>("/api/auth/sso/company/link/describe", { token })
+      .then((result) => {
+        if (!cancelled) setLink(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -400,10 +420,29 @@ function CompanySsoLinkConfirm({
     <form className="flex flex-col gap-4" onSubmit={submit}>
       <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
         <ShieldCheck size={18} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Your company&apos;s SSO matched an existing Genosyn account. Enter that account&apos;s
-          password once to link them.
-        </p>
+        <div className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
+          <p>
+            {link ? (
+              <>
+                <span className="font-medium text-slate-900 dark:text-slate-100">
+                  {link.companyName}
+                </span>{" "}
+                <span className="text-slate-500 dark:text-slate-400">({link.companySlug})</span>{" "}
+                wants to link its single sign-on at{" "}
+                <span className="font-medium text-slate-900 dark:text-slate-100">
+                  {link.issuerHost}
+                </span>{" "}
+                to your Genosyn account.
+              </>
+            ) : (
+              "A company's single sign-on wants to link to your Genosyn account."
+            )}
+          </p>
+          <p>
+            Once linked, that provider can sign you in to your whole account, in every company you
+            belong to. Enter your password only if you started this sign-in yourself.
+          </p>
+        </div>
       </div>
       <FormError message={error} />
       <Input
@@ -415,7 +454,7 @@ function CompanySsoLinkConfirm({
         required
         autoFocus
       />
-      <Button type="submit" disabled={loading}>
+      <Button type="submit" loading={loading}>
         {loading ? "Linking…" : "Link and sign in"}
       </Button>
       <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
@@ -441,13 +480,13 @@ function TwoFactorPrompt({
 }) {
   const [code, setCode] = React.useState("");
   const [recoveryMode, setRecoveryMode] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState<null | "code" | "webauthn">(null);
   const [error, setError] = React.useState<string | null>(null);
 
   async function verifyCode(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+    setLoading("code");
     try {
       await api.post(
         recoveryMode ? "/api/auth/login/two-factor/recovery" : "/api/auth/login/two-factor/totp",
@@ -457,13 +496,13 @@ function TwoFactorPrompt({
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
   async function verifyWebAuthn() {
     setError(null);
-    setLoading(true);
+    setLoading("webauthn");
     try {
       const optionsJSON = await api.post<PublicKeyCredentialRequestOptionsJSON>(
         "/api/auth/login/two-factor/webauthn/options",
@@ -475,7 +514,7 @@ function TwoFactorPrompt({
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -492,7 +531,12 @@ function TwoFactorPrompt({
       <FormError message={error} />
 
       {methods.webAuthn && (
-        <Button type="button" onClick={verifyWebAuthn} disabled={loading}>
+        <Button
+          type="button"
+          onClick={verifyWebAuthn}
+          loading={loading === "webauthn"}
+          disabled={loading !== null}
+        >
           <KeyRound size={15} />
           Use passkey or security key
         </Button>
@@ -518,8 +562,8 @@ function TwoFactorPrompt({
             required
             autoFocus
           />
-          <Button type="submit" disabled={loading}>
-            {loading ? "Verifying…" : "Verify"}
+          <Button type="submit" loading={loading === "code"} disabled={loading !== null}>
+            {loading !== null ? "Verifying…" : "Verify"}
           </Button>
         </form>
       )}

@@ -28,6 +28,8 @@ import { canProbeContextWindow } from "../services/agent/contextWindow.js";
 import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
 import { recordAudit } from "../services/audit.js";
 import { codingRuntimeAvailability } from "../services/agent/codingAvailability.js";
+import { MAX_MODEL_CONCURRENT_RUNS, modelRunCapacity } from "../services/modelRunCapacity.js";
+import { dispatchQueuedRoutineRuns } from "../services/routineQueue.js";
 import {
   cancelSubscriptionDeviceLogin,
   cancelSubscriptionDeviceLoginsForModel,
@@ -108,6 +110,12 @@ type PublicModel = {
   contextWindowSource: "probed" | "manual" | null;
   /** Can we ask this provider for the window at all? Drives the UI's affordances. */
   contextWindowProbeable: boolean;
+  /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
+  maxConcurrentRuns: number | null;
+  /** The limit Routine Runs actually get; null means no limit. */
+  effectiveMaxConcurrentRuns: number | null;
+  /** Why that limit applies: an explicit setting, the local-server default, or none. */
+  concurrencySource: "configured" | "local-default" | "unlimited";
 };
 
 type CoEmp = { co: Company; emp: AIEmployee };
@@ -149,6 +157,7 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
   const spec = PROVIDERS[m.provider];
   const connected = isModelConnected(m);
   const unavailable = spec.supportsSubscription ? subscriptionUnavailableReason() : null;
+  const capacity = modelRunCapacity(m);
   return {
     id: m.id,
     employeeId: m.employeeId,
@@ -174,6 +183,9 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     contextWindow: m.contextWindow ?? null,
     contextWindowSource: m.contextWindowSource ?? null,
     contextWindowProbeable: canProbeContextWindow(m),
+    maxConcurrentRuns: m.maxConcurrentRuns ?? null,
+    effectiveMaxConcurrentRuns: capacity.limit,
+    concurrencySource: capacity.source,
   };
 }
 
@@ -632,7 +644,8 @@ modelsRouter.post(
 // customEndpoint authMode (provider "custom"). The base URL is required; the API
 // key is optional (most local LLMs don't enforce one). `modelId` is the model
 // name the upstream server exposes; we store it as the model row's `model` too
-// so the in-process client passes it straight through.
+// so the in-process client passes it straight through. Left blank, it is the
+// model the server serves, when it serves exactly one.
 const customEndpointSchema = z.object({
   baseURL: z
     .string()
@@ -647,7 +660,7 @@ const customEndpointSchema = z.object({
         return false;
       }
     }, "baseURL must be an http(s) URL"),
-  modelId: z.string().trim().min(1).max(200),
+  modelId: z.string().trim().max(200).optional(),
   apiKey: z.string().trim().min(1).max(500).optional(),
 });
 
@@ -722,7 +735,7 @@ modelsRouter.post(
       metadata: {
         provider: m.provider,
         host: previewBaseURL(baseURL),
-        modelId,
+        modelId: verified.model,
         hasApiKey: Boolean(apiKey),
       },
     });
@@ -808,6 +821,50 @@ modelsRouter.put("/:id/context-window", validateBody(contextWindowSchema), async
   });
   res.json(await publicModel(m, ctx.emp));
 });
+
+// PUT /api/companies/:cid/employees/:eid/models/:id/run-concurrency
+//
+// How many Routine Runs may use this model's endpoint at once. A local model
+// server slows every Run it serves in parallel, and a Run's clock keeps
+// ticking while it waits for the GPU; Runs beyond the limit wait in the queue
+// instead, with their time limit starting only when they do. Null restores
+// the default (one at a time for a local endpoint), 0 removes the limit.
+const runConcurrencySchema = z
+  .object({
+    maxConcurrentRuns: z.number().int().min(0).max(MAX_MODEL_CONCURRENT_RUNS).nullable(),
+  })
+  .strict();
+
+modelsRouter.put(
+  "/:id/run-concurrency",
+  validateBody(runConcurrencySchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const { maxConcurrentRuns } = req.body as z.infer<typeof runConcurrencySchema>;
+    const m = ctx.m;
+    m.maxConcurrentRuns = maxConcurrentRuns;
+    await AppDataSource.getRepository(AIModel).update({ id: m.id }, { maxConcurrentRuns });
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.configure",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: m.provider,
+        model: m.model,
+        maxConcurrentRuns,
+        effectiveMaxConcurrentRuns: modelRunCapacity(m).limit,
+      },
+    });
+    // A higher limit admits waiting Runs now rather than at the next heartbeat.
+    void dispatchQueuedRoutineRuns();
+    res.json(await publicModel(m, ctx.emp));
+  },
+);
 
 // DELETE /api/companies/:cid/employees/:eid/models/:id — remove one model
 modelsRouter.delete("/:id", async (req, res) => {

@@ -168,7 +168,7 @@ function ProposalCard({
 }) {
   const dialog = useDialog();
   const [open, setOpen] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "apply" | "reject">(null);
 
   const payload = React.useMemo<JournalProposalPayload | null>(() => {
     try {
@@ -191,14 +191,14 @@ function ProposalCard({
     ) {
       return;
     }
-    setBusy(true);
+    setBusy("apply");
     try {
       await api.post(`/api/companies/${companyId}/finance-proposals/${proposal.id}/apply`, {});
       await onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t apply the proposal" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -209,7 +209,7 @@ function ProposalCard({
       confirmLabel: "Reject",
     });
     if (note === null) return;
-    setBusy(true);
+    setBusy("reject");
     try {
       await api.post(`/api/companies/${companyId}/finance-proposals/${proposal.id}/reject`, {
         note: note || undefined,
@@ -218,7 +218,7 @@ function ProposalCard({
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t reject the proposal" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -267,10 +267,16 @@ function ProposalCard({
         </div>
         {isPending && (
           <div className="flex shrink-0 gap-2">
-            <Button size="sm" variant="secondary" onClick={reject} disabled={busy}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={reject}
+              loading={busy === "reject"}
+              disabled={busy !== null}
+            >
               <X size={14} className="mr-1" /> Reject
             </Button>
-            <Button size="sm" onClick={apply} disabled={busy}>
+            <Button size="sm" onClick={apply} loading={busy === "apply"} disabled={busy !== null}>
               <Check size={14} className="mr-1" /> Apply
             </Button>
           </div>

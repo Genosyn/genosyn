@@ -286,10 +286,10 @@ export function ModelSetupForm({
               required
             />
             <Input
-              label="Model ID"
+              label="Model ID (optional)"
               value={customModelId}
               onChange={(e) => setCustomModelId(e.target.value)}
-              required
+              placeholder="Blank: the model the server serves"
             />
             <Input
               label="API key (optional)"
@@ -305,7 +305,8 @@ export function ModelSetupForm({
           <div>
             <Button
               type="submit"
-              disabled={saving || discovering || (isApiKey && needsKey && !apiKey.trim())}
+              loading={saving}
+              disabled={discovering || (isApiKey && needsKey && !apiKey.trim())}
             >
               {saving
                 ? authMode === "subscription" && mode === "create"

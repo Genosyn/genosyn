@@ -3,6 +3,9 @@ import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
+  financeSubsidiaries,
+  Subsidiary,
+  InvoiceIssuer,
   Customer,
   Estimate,
   EstimateLineDraft,
@@ -11,6 +14,7 @@ import {
   Product,
   TaxRate,
 } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -19,6 +23,7 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
+import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -77,10 +82,12 @@ export default function FinanceEstimateNew() {
   // the edit-mode hydrate succeeds. Spinner shows until then.
   const [ready, setReady] = React.useState(false);
 
+  const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
+  const [subsidiaryId, setSubsidiaryId] = React.useState("");
+  const [savedIssuer, setSavedIssuer] = React.useState<InvoiceIssuer | null>(null);
+  const [savedSubsidiaryId, setSavedSubsidiaryId] = React.useState<string | null>(null);
   const [customerId, setCustomerId] = React.useState("");
-  const [issueDate, setIssueDate] = React.useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [issueDate, setIssueDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [validUntil, setValidUntil] = React.useState(
     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
   );
@@ -94,37 +101,37 @@ export default function FinanceEstimateNew() {
   React.useEffect(() => {
     (async () => {
       try {
-        const [c, p, t] = await Promise.all([
+        const [c, p, t, subsidiaries] = await Promise.all([
           api.get<Customer[]>(`/api/companies/${company.id}/customers`),
           api.get<Product[]>(`/api/companies/${company.id}/products`),
           api.get<TaxRate[]>(`/api/companies/${company.id}/tax-rates`),
+          financeSubsidiaries.list(company.id),
         ]);
         setCustomers(c);
         setProducts(p);
         setTaxRates(t);
+        setSubsidiaries(subsidiaries);
         if (isEdit && estimateSlug) {
           const existing = await api.get<Estimate>(
             `/api/companies/${company.id}/estimates/${estimateSlug}`,
           );
           if (existing.status !== "draft") {
-            setLoadError(
-              "This estimate has already been issued. Only drafts can be edited.",
-            );
+            setLoadError("This estimate has already been issued. Only drafts can be edited.");
             setReady(true);
             return;
           }
           setCustomerId(existing.customerId);
+          setSubsidiaryId(existing.subsidiaryId ?? "");
+          setSavedIssuer(existing.issuerSnapshot);
+          setSavedSubsidiaryId(existing.subsidiaryId);
+
           setIssueDate(new Date(existing.issueDate).toISOString().slice(0, 10));
-          setValidUntil(
-            new Date(existing.validUntil).toISOString().slice(0, 10),
-          );
+          setValidUntil(new Date(existing.validUntil).toISOString().slice(0, 10));
           setCurrency(existing.currency);
           setNotes(existing.notes);
           setFooter(existing.footer);
           setLines(
-            existing.lines.length === 0
-              ? [emptyLine()]
-              : existing.lines.map(lineRowFromExisting),
+            existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
         } else if (c.length > 0) {
           setCustomerId(c[0].id);
@@ -200,8 +207,7 @@ export default function FinanceEstimateNew() {
     return { subtotal, tax, total };
   }, [lines, taxRates]);
 
-  const canSave =
-    !!customerId && lines.some((l) => l.description.trim().length > 0);
+  const canSave = !!customerId && lines.some((l) => l.description.trim().length > 0);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -221,6 +227,7 @@ export default function FinanceEstimateNew() {
         }));
       const body = {
         customerId,
+        subsidiaryId: subsidiaryId || null,
         issueDate: new Date(issueDate).toISOString(),
         validUntil: new Date(validUntil).toISOString(),
         currency,
@@ -234,10 +241,7 @@ export default function FinanceEstimateNew() {
               `/api/companies/${company.id}/estimates/${estimateSlug}`,
               body,
             )
-          : await api.post<Estimate>(
-              `/api/companies/${company.id}/estimates`,
-              body,
-            );
+          : await api.post<Estimate>(`/api/companies/${company.id}/estimates`, body);
       navigate(`/c/${company.slug}/finance/estimates/${est.slug}`);
     } catch (err) {
       setSaveError(errorMessage(err));
@@ -246,7 +250,7 @@ export default function FinanceEstimateNew() {
     }
   }
 
-  if (!ready || customers === null) {
+  if (!ready || (customers === null && !loadError)) {
     return (
       <div className="flex justify-center p-16">
         <Spinner size={20} />
@@ -282,7 +286,7 @@ export default function FinanceEstimateNew() {
     );
   }
 
-  if (!isEdit && customers.length === 0) {
+  if (!isEdit && customers?.length === 0) {
     return (
       <div className="mx-auto max-w-3xl p-8">
         <Breadcrumbs
@@ -349,7 +353,7 @@ export default function FinanceEstimateNew() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={busy || !canSave}>
+          <Button type="submit" loading={busy} disabled={!canSave}>
             {isEdit ? "Save changes" : "Save draft"}
           </Button>
         </div>
@@ -358,6 +362,16 @@ export default function FinanceEstimateNew() {
       <FormError message={saveError} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="mb-6 max-w-xl">
+          <InvoiceIssuerSelect
+            company={company}
+            subsidiaries={subsidiaries}
+            value={subsidiaryId}
+            onChange={setSubsidiaryId}
+            savedIssuer={savedIssuer}
+            savedSubsidiaryId={savedSubsidiaryId}
+          />
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="sm:col-span-2">
             <Select
@@ -366,9 +380,9 @@ export default function FinanceEstimateNew() {
               onChange={(e) => changeCustomer(e.target.value)}
               required
             >
-              {customers.map((c) => (
+              {customers?.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {customerOptionLabel(c)}
                 </option>
               ))}
             </Select>
@@ -398,9 +412,7 @@ export default function FinanceEstimateNew() {
 
         <div className="mt-6">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Line items
-            </h2>
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Line items</h2>
           </div>
           <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
             <table className="w-full text-sm">
@@ -426,11 +438,7 @@ export default function FinanceEstimateNew() {
                 return (
                   <tbody
                     key={l.key}
-                    className={
-                      i > 0
-                        ? "border-t border-slate-100 dark:border-slate-800"
-                        : ""
-                    }
+                    className={i > 0 ? "border-t border-slate-100 dark:border-slate-800" : ""}
                   >
                     <tr>
                       <td className="px-2 pt-2 align-top">
@@ -450,9 +458,7 @@ export default function FinanceEstimateNew() {
                       <td className="px-2 pt-2 align-top">
                         <input
                           value={l.quantityText}
-                          onChange={(e) =>
-                            patchLine(i, { quantityText: e.target.value })
-                          }
+                          onChange={(e) => patchLine(i, { quantityText: e.target.value })}
                           inputMode="decimal"
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
@@ -474,8 +480,7 @@ export default function FinanceEstimateNew() {
                           <option value="">No tax</option>
                           {taxRates.map((t) => (
                             <option key={t.id} value={t.id}>
-                              {t.name} ({t.ratePercent}%
-                              {t.inclusive ? " incl" : ""})
+                              {t.name} ({t.ratePercent}%{t.inclusive ? " incl" : ""})
                             </option>
                           ))}
                         </Select>
@@ -499,9 +504,7 @@ export default function FinanceEstimateNew() {
                       <td colSpan={6} className="px-2 pb-3 pt-2">
                         <textarea
                           value={l.description}
-                          onChange={(e) =>
-                            patchLine(i, { description: e.target.value })
-                          }
+                          onChange={(e) => patchLine(i, { description: e.target.value })}
                           placeholder="Item description"
                           rows={2}
                           className="block w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -540,27 +543,26 @@ export default function FinanceEstimateNew() {
               onChange={(e) => setFooter(e.target.value)}
               rows={3}
             />
+            {subsidiaryId && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Leave blank to use this subsidiary&apos;s footer.
+              </p>
+            )}
           </div>
         </div>
 
         <div className="mt-6 ml-auto w-72 space-y-1 text-sm">
           <div className="flex justify-between text-slate-500 dark:text-slate-400">
             <span>Subtotal</span>
-            <span className="tabular-nums">
-              {formatMoney(preview.subtotal, currency)}
-            </span>
+            <span className="tabular-nums">{formatMoney(preview.subtotal, currency)}</span>
           </div>
           <div className="flex justify-between text-slate-500 dark:text-slate-400">
             <span>Tax</span>
-            <span className="tabular-nums">
-              {formatMoney(preview.tax, currency)}
-            </span>
+            <span className="tabular-nums">{formatMoney(preview.tax, currency)}</span>
           </div>
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-slate-100">
             <span>Total</span>
-            <span className="tabular-nums">
-              {formatMoney(preview.total, currency)}
-            </span>
+            <span className="tabular-nums">{formatMoney(preview.total, currency)}</span>
           </div>
         </div>
       </div>

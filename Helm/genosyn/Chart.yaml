@@ -25,7 +25,5 @@ annotations:
   artifacthub.io/links: |
     - name: Documentation
       url: https://genosyn.com/docs/kubernetes
-    - name: Pricing
-      url: https://genosyn.com/pricing
     - name: Releases
       url: https://github.com/genosyn/genosyn/releases

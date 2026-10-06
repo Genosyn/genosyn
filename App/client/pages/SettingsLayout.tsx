@@ -1,30 +1,16 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import {
-  Activity,
-  BarChart3,
-  Building2,
-  CreditCard,
-  KeyRound,
-  Laptop,
-  Mail,
-  Network,
-  Plug,
-  Scale,
-  ScrollText,
-  Settings as SettingsIcon,
-  TerminalSquare,
-  Tags,
-  Users,
-} from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { Company, Me } from "../lib/api";
-import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
+import { Breadcrumbs, ContextualLayout } from "../components/AppShell";
+import { SectionRailLinks } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/settings/*`. Mirrors EmployeesLayout /
  * TasksLayout / BasesLayout so the company-level settings section feels
  * consistent with the rest of the app. Child routes read `company`, the
- * current user, and the refresh callback from Outlet context.
+ * current user, and the refresh callback from Outlet context. Rail links come
+ * from the subpage catalogue (`lib/subpages.ts`) the ⌘K palette searches.
  */
 
 export type SettingsOutletCtx = {
@@ -47,7 +33,6 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   secrets: "Environment secrets",
   "api-keys": "API keys",
   usage: "Usage",
-  billing: "Billing",
   sso: "Single sign-on",
   audit: "Audit log",
   "system-health": "System Health",
@@ -73,40 +58,7 @@ export default function SettingsLayout({
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Company
-        </div>
-        <SidebarLink to={`${base}/company`} icon={<Building2 size={14} />} label="Company" />
-        <SidebarLink to={`${base}/members`} icon={<Users size={14} />} label="Members" />
-        <SidebarLink to={`${base}/teams`} icon={<Network size={14} />} label="Teams" />
-        <SidebarLink to={`${base}/tags`} icon={<Tags size={14} />} label="Tags" />
-        <SidebarLink to={`${base}/policies`} icon={<Scale size={14} />} label="Policies" />
-        <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
-        <SidebarLink to={`${base}/browsers`} icon={<Laptop size={14} />} label="Browsers" />
-        <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />
-        <SidebarLink
-          to={`${base}/secrets`}
-          icon={<KeyRound size={14} />}
-          label="Environment secrets"
-        />
-        <SidebarLink to={`${base}/api-keys`} icon={<TerminalSquare size={14} />} label="API keys" />
-        <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
-        {/* Plans exist only where the operator turned instance billing on
-          (Genosyn Cloud) — a self-hosted install has no Billing page. */}
-        {me.billingEnabled && (
-          <SidebarLink to={`${base}/billing`} icon={<CreditCard size={14} />} label="Billing" />
-        )}
-        {/* Per-company SSO exists only on Genosyn Cloud (M56 Phase B) — a
-          self-hosted install configures SSO instance-wide at Admin → SSO. */}
-        {me.billingEnabled && (
-          <SidebarLink to={`${base}/sso`} icon={<KeyRound size={14} />} label="Single sign-on" />
-        )}
-        <SidebarLink to={`${base}/audit`} icon={<ScrollText size={14} />} label="Audit log" />
-        <SidebarLink
-          to={`${base}/system-health`}
-          icon={<Activity size={14} />}
-          label="System Health"
-        />
+        <SectionRailLinks section="settings" companySlug={company.slug} />
       </nav>
     </div>
   );

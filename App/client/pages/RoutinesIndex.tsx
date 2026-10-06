@@ -33,7 +33,6 @@ import {
 } from "../components/routines/RunViews";
 import { describeCronExpr } from "../lib/scheduleBuilder";
 import { RoutinesContext } from "./RoutinesLayout";
-import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders";
 import { filterRoutinesBySearch } from "../lib/routineSearch";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
@@ -84,7 +83,7 @@ function needsAttention(r: RoutineWithMeta): boolean {
 }
 
 export default function RoutinesIndex({ company }: { company: Company }) {
-  const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
+  const { routines, folders, loading, loadError, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [health, setHealth] = React.useState<Health>("all");
   const [query, setQuery] = React.useState("");
@@ -114,7 +113,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   // a slug pair and hand off to the detail page. Handled once, then stripped so
   // navigating back here doesn't bounce again.
   React.useEffect(() => {
-    if (handledDeepLinkRef.current || loading) return;
+    if (handledDeepLinkRef.current || loading || loadError) return;
     const routineId = searchParams.get("routine");
     if (!routineId) return;
     handledDeepLinkRef.current = true;
@@ -140,7 +139,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
       replace: true,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, routines]);
+  }, [loading, loadError, routines]);
 
   // Leaving a folder (or the list reloading without it) should not keep a
   // stale selection alive behind the new filter.
@@ -318,18 +317,6 @@ export default function RoutinesIndex({ company }: { company: Company }) {
         }
       />
 
-      {/* Plan-limit upsell (M56). The company-wide total is what the limit
-        counts, so this uses the full unscoped list. Informational only —
-        creation stays enabled and the server's 402 surfaces in the form. */}
-      {!loading &&
-        company.entitlements.maxRoutines !== null &&
-        routines.length >= company.entitlements.maxRoutines && (
-          <PlanLimitBanner
-            message={`Your Free plan includes ${company.entitlements.maxRoutines} Routine${company.entitlements.maxRoutines === 1 ? "" : "s"}.`}
-            company={company}
-          />
-        )}
-
       {folder && (
         <p className="-mt-2 mb-4 text-sm text-slate-500 dark:text-slate-400">
           {folder.routineCount === folder.totalRoutineCount
@@ -340,7 +327,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
 
       {loading ? (
         <Spinner />
-      ) : missingFolder ? (
+      ) : loadError && (missingFolder || routines.length === 0) ? null : missingFolder ? (
         <EmptyState
           title="That folder no longer exists"
           description="It may have been deleted or renamed away. Its routines were never deleted — they moved up to the parent folder, or to Unfiled."
@@ -663,14 +650,24 @@ function RoutineRow({
   onToggleSelected: () => void;
   onMove: (folderId: string | null) => void;
   onNewFolder: () => void;
-  onRun: () => void;
+  onRun: () => Promise<void>;
 }) {
+  const [starting, setStarting] = React.useState(false);
   const to = r.employee ? `/c/${company.slug}/routines/${r.employee.slug}/${r.slug}` : null;
   const brokenSchedule = r.enabled && r.nextRunAt === null;
   const folder = r.folderId ? (folders.find((f) => f.id === r.folderId) ?? null) : null;
   const standdownTitle = r.standdown
     ? `${r.standdown.scope === "company" ? "Company" : r.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${r.standdown.reason}`
     : undefined;
+
+  async function run() {
+    setStarting(true);
+    try {
+      await onRun();
+    } finally {
+      setStarting(false);
+    }
+  }
 
   return (
     <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-900">
@@ -821,7 +818,8 @@ function RoutineRow({
           <Button
             size="sm"
             variant="ghost"
-            onClick={onRun}
+            onClick={() => void run()}
+            loading={starting}
             disabled={!!r.standdown}
             title={standdownTitle ?? "Run now"}
           >

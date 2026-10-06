@@ -16,6 +16,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { api, Customer, Employee, Member, formatMoney } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -137,6 +138,7 @@ export default function RevenueContactDetail() {
 
   const [data, setData] = React.useState<ContactDetailResponse | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [enrolling, setEnrolling] = React.useState(false);
   const [members, setMembers] = React.useState<Member[]>([]);
@@ -260,6 +262,15 @@ export default function RevenueContactDetail() {
     );
   }
 
+  function retry() {
+    setRetrying(true);
+    reload()
+      .catch((err: unknown) => {
+        setLoadError(errorMessage(err));
+      })
+      .finally(() => setRetrying(false));
+  }
+
   if (loadError) {
     return (
       <div className="page-shell p-8">
@@ -276,7 +287,7 @@ export default function RevenueContactDetail() {
           </h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{loadError}</p>
           <div className="mt-4 flex justify-center gap-2">
-            <Button variant="secondary" onClick={load}>
+            <Button variant="secondary" onClick={retry} loading={retrying}>
               Try again
             </Button>
             <Button variant="ghost" onClick={() => navigate(contactsUrl)}>
@@ -770,7 +781,7 @@ function EditContactModal({
             <option value="">No linked account</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
+                {customerOptionLabel(account)}
               </option>
             ))}
           </Select>
@@ -831,8 +842,8 @@ function EditContactModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
-            {saving && <Spinner size={14} />} Save changes
+          <Button type="submit" loading={saving}>
+            Save changes
           </Button>
         </div>
       </form>
@@ -959,8 +970,8 @@ function EnrollModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving || !selected}>
-            {saving ? <Spinner size={14} /> : <UserPlus size={14} />} Enrol contact
+          <Button type="submit" loading={saving} disabled={!selected}>
+            <UserPlus size={14} /> Enrol contact
           </Button>
         </div>
       </form>

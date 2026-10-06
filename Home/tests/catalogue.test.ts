@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { headingId, readingMinutes, renderMarkdown } from "../client/blog/markdown.js";
+import { POSTS, postDate, TOPICS } from "../client/blog/posts.js";
 import { DOCS_FLAT, DOCS_NAV, findPageMeta } from "../client/docs/nav.js";
 import { PRODUCT_CATEGORIES, PRODUCTS, findProduct } from "../client/products/data.js";
 import { ROLES, ROLE_DISCIPLINES, findRole } from "../client/roles/data.js";
 import { SHOWCASE_USE_CASES, getUseCasesForProduct } from "../client/products/useCases.js";
+import * as VISION from "../client/vision/data.js";
 
 type SiteMetaModule = typeof import("../client/lib/siteMeta.js");
 let siteMeta: SiteMetaModule;
@@ -171,6 +174,159 @@ describe("role catalogue", () => {
   });
 });
 
+// The vision page is a story about the future, which is exactly why its
+// arithmetic and its vocabulary are checked: a vision that does not add up, or
+// that quietly renames the product's nouns, undermines the pages that are true.
+describe("vision", () => {
+  const { LETTERS } = VISION;
+
+  test("tells the letters in order, and keeps the Goal's arithmetic", () => {
+    const numbers = LETTERS.map((letter) => letter.number);
+    assert.deepEqual(numbers, [...numbers].sort((a, b) => a - b));
+    assert.equal(new Set(numbers).size, numbers.length);
+    // The Goal starts counting at the first letter with a year behind it, and
+    // every later letter should sit on (roughly) 40% a year from there.
+    const base = LETTERS.find((letter) => letter.number === 12);
+    assert.ok(base, "no year-one letter to compound from");
+    for (const letter of LETTERS.filter((item) => item.number > base.number)) {
+      const years = (letter.number - base.number) / 12;
+      const rate = Math.pow(letter.revenue / base.revenue, 1 / years) - 1;
+      assert.ok(rate > 0.38 && rate < 0.45, `No. ${letter.number} implies ${(rate * 100).toFixed(1)}% a year`);
+      assert.ok(letter.growth !== null && letter.growth >= 0.38, `No. ${letter.number}: growth off the Goal`);
+    }
+    for (const letter of LETTERS) {
+      assert.ok(letter.body.length >= 2, `No. ${letter.number}: too short`);
+      assert.ok(letter.decidedWithoutYou > 0);
+    }
+    // Every letter reports roofs first, so they add up too: they only
+    // accumulate, and only the last letter, which asks for the next Goal, has
+    // met this one.
+    for (let i = 1; i < LETTERS.length; i++) {
+      assert.ok(LETTERS[i].roofs > LETTERS[i - 1].roofs, `No. ${LETTERS[i].number}: roofs went down`);
+    }
+    for (const letter of LETTERS.slice(0, -1)) {
+      assert.ok(letter.roofs < VISION.GOAL_ROOFS, `No. ${letter.number}: Goal met too early`);
+    }
+    assert.ok(LETTERS[LETTERS.length - 1].roofs >= VISION.GOAL_ROOFS, "the last letter has not met the Goal");
+  });
+
+  // The vision is a company that runs itself, so the board is asked rarely: a
+  // board with a question in every letter is a manager by another name.
+  test("asks the board rarely, and only as choices, never approvals", () => {
+    const decisions = LETTERS.flatMap((letter) => (letter.decision ? [letter.decision] : []));
+    assert.ok(decisions.length >= 1, "no letter shows what an owner is still asked");
+    assert.ok(
+      decisions.length <= Math.floor(LETTERS.length / 2),
+      `${decisions.length} of ${LETTERS.length} letters ask the board something`,
+    );
+    for (const decision of decisions) {
+      assert.ok(decision.options.length >= 2 && decision.options.length <= 4);
+      for (const text of [decision.question, ...decision.options.map((option) => option.label)]) {
+        assert.doesNotMatch(
+          text,
+          /\b(approve|approved|approval|reject|rejected)\b/i,
+          `a board Decision phrased as an Approval — "${text}"`,
+        );
+      }
+    }
+  });
+
+  test("uses the product's nouns, and links only to real docs", () => {
+    const copy = JSON.stringify(VISION);
+    assert.doesNotMatch(copy, /\b(agents?|bots?|assistants?|tasks?|pipelines?|OKRs?|KPIs?)\b/i);
+    const docs = new Set(DOCS_FLAT.map((page) => page.path));
+    for (const keep of VISION.BOARD_KEEPS) {
+      if (keep.docsPath) assert.ok(docs.has(keep.docsPath), `${keep.name}: ${keep.docsPath}`);
+    }
+    for (const stage of VISION.ROAD) {
+      for (const item of stage.items) {
+        if (item.href) assert.ok(docs.has(item.href), `${item.label}: ${item.href}`);
+      }
+    }
+  });
+});
+
+// A post is Markdown in client/blog/posts/, listed in posts.ts. The two have
+// to agree, and what Markdown can carry onto a public page has to stay safe.
+describe("blog", () => {
+  const postsDir = fileURLToPath(new URL("../client/blog/posts/", import.meta.url));
+  const files = readdirSync(postsDir).filter((file) => file.endsWith(".md"));
+
+  test("lists every Markdown post exactly once, newest first", () => {
+    const slugs = POSTS.map((post) => post.slug);
+    assert.equal(new Set(slugs).size, slugs.length);
+    assert.deepEqual([...slugs].sort(), files.map((file) => file.replace(/\.md$/, "")).sort());
+    for (const post of POSTS) {
+      assert.match(post.slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+      assert.match(post.date, /^\d{4}-\d{2}-\d{2}$/);
+      assert.doesNotMatch(postDate(post.date), /undefined|NaN/, `${post.slug}: bad date`);
+      assert.ok(post.title.trim() && post.description.trim() && post.author.trim(), post.slug);
+      assert.ok(TOPICS.some((topic) => topic.id === post.topic), `${post.slug}: unknown topic`);
+      assert.ok(post.legend.trim(), `${post.slug}: no caption for its drawing`);
+    }
+    const dates = POSTS.map((post) => post.date);
+    assert.deepEqual(dates, [...dates].sort().reverse(), "posts are not newest first");
+  });
+
+  test("writes posts in the product's nouns", () => {
+    for (const file of files) {
+      const text = readFileSync(`${postsDir}${file}`, "utf8");
+      assert.doesNotMatch(text, /\b(agents?|bots?|assistants?|tasks?|pipelines?|OKRs?|KPIs?)\b/i, file);
+      assert.ok(readingMinutes(text) >= 1);
+    }
+  });
+
+  // A post is prose, so a renamed docs page or vision section breaks it
+  // silently. Every same-site link has to land on a registered route, and
+  // every anchor on the vision page has to be a section that exists.
+  test("links only to pages and sections that exist", () => {
+    const visionDir = fileURLToPath(new URL("../client/vision/", import.meta.url));
+    const visionSource = readdirSync(visionDir)
+      .filter((file) => file.endsWith(".tsx"))
+      .map((file) => readFileSync(`${visionDir}${file}`, "utf8"))
+      .join("\n");
+    for (const file of files) {
+      const text = readFileSync(`${postsDir}${file}`, "utf8");
+      for (const [, href] of text.matchAll(/\]\((\/[^)\s]*)\)/g)) {
+        const [path, anchor] = href.split("#");
+        assert.ok(siteMeta.findRouteHead(path), `${file}: ${href} is not a page`);
+        if (anchor) {
+          assert.equal(path, "/vision", `${file}: ${href} anchors into a page the test cannot read`);
+          assert.match(visionSource, new RegExp(`id="${anchor}"`), `${file}: no #${anchor} on the vision page`);
+        }
+      }
+    }
+  });
+
+  test("renders Markdown to safe HTML", () => {
+    const html = renderMarkdown(
+      [
+        "## Who gets to *own*",
+        "",
+        "Read [the vision](/vision), [the source](https://github.com/Genosyn/genosyn) and [this](javascript:alert(1)).",
+        "",
+        "<script>alert(1)</script>",
+        "",
+        "> A pull quote.",
+      ].join("\n"),
+    );
+    assert.match(html, /<h2 id="who-gets-to-own">Who gets to <em>own<\/em><\/h2>/);
+    assert.match(html, /<a href="\/vision">the vision<\/a>/);
+    assert.match(html, /<a href="https:\/\/github\.com\/Genosyn\/genosyn" target="_blank" rel="noreferrer">/);
+    assert.doesNotMatch(html, /javascript:/);
+    assert.doesNotMatch(html, /<script>/);
+    assert.match(html, /&lt;script&gt;/);
+    assert.match(html, /<blockquote>/);
+    assert.equal(headingId("Ownership you can check"), "ownership-you-can-check");
+  });
+
+  test("puts every post in the LLM index", () => {
+    for (const post of POSTS) {
+      assert.ok(siteMeta.llmsTxt().includes(`https://genosyn.com/blog/${post.slug}`), post.slug);
+    }
+  });
+});
+
 describe("documentation navigation", () => {
   test("has unique section labels and unique canonical page paths", () => {
     assert.equal(new Set(DOCS_NAV.map((section) => section.label)).size, DOCS_NAV.length);
@@ -197,17 +353,18 @@ describe("route metadata and LLM indexes", () => {
     assert.equal(new Set(paths).size, paths.length);
     assert.equal(
       routes.length,
-      5 + PRODUCTS.length + ROLES.length + DOCS_FLAT.length,
-      "home + products + roles + enterprise + pricing + generated product/role/docs routes",
+      5 + PRODUCTS.length + ROLES.length + POSTS.length + DOCS_FLAT.length,
+      "home + vision + products + roles + blog + generated product/role/post/docs routes",
     );
     for (const path of [
       "/",
+      "/vision",
       "/products",
       "/roles",
-      "/enterprise",
-      "/pricing",
+      "/blog",
       ...PRODUCTS.map((product) => `/products/${product.slug}`),
       ...ROLES.map((role) => `/roles/${role.slug}`),
+      ...POSTS.map((post) => `/blog/${post.slug}`),
       ...DOCS_FLAT.map((page) => page.path),
     ]) {
       const route = siteMeta.findRouteHead(`${path === "/" ? "" : path}/`);
@@ -277,6 +434,7 @@ describe("route metadata and LLM indexes", () => {
     const text = siteMeta.llmsTxt();
     assert.match(text, /^# Genosyn/m);
     assert.doesNotMatch(text, /\bundefined\b/);
+    assert.ok(text.includes("https://genosyn.com/vision"), "/vision");
     for (const role of ROLES) {
       assert.match(text, new RegExp(`https://genosyn\\.com/roles/${role.slug}`));
     }

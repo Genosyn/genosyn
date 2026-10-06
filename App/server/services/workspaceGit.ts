@@ -3,16 +3,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "../../config.js";
-import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
 import { requireCodingRuntime, type CodingExecutionMode } from "./agent/codingAvailability.js";
 
 const exec = promisify(execFile);
 const GIT_TIMEOUT_MS = 5 * 60 * 1_000;
 const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin";
-const TOKEN_ENV = /^GENOSYN_(?:GH|REPO)_TOKEN_[A-Z0-9_]+$/;
+// Connection materialization uses FORGE, Repository credentials use REPO,
+// and legacy GitHub callers use GH. Keep validation and redaction on the same
+// allowlist so an accepted credential is also scrubbed from child failures.
+const TOKEN_ENV = /^GENOSYN_(?:GH|FORGE|REPO)_TOKEN_[A-Z0-9_]+$/;
 
 export type WorkspaceGitOptions = {
-  /** Employee workspace (or a server-owned test temp dir) mounted at `/workspace`. */
+  /**
+   * Employee workspace (or a server-owned temp dir): Git's `HOME`, and the root
+   * every `.git` pointer must stay inside.
+   */
   workspaceRoot: string;
   cwd: string;
   args: string[];
@@ -32,13 +37,11 @@ export type WorkspaceGitOptions = {
    * checkout is a command-execution surface and has to be an operator
    * decision. That reasoning does not reach a tree the model cannot touch —
    * and gating it there would leave the Repository UI (browse, edit, history,
-   * commit) dead on any install whose sandbox could not start, which boot
-   * resolves to `disabled`.
+   * commit) dead on any install that disabled command execution.
    *
    * The hardening is unchanged either way: no App environment inheritance,
    * hooks off, no system or global config, `ext`/`file` protocols denied, no
    * interactive credentials, and containment checks on every `.git` pointer.
-   * An operator who configured bubblewrap still gets bubblewrap here.
    */
   serverOwned?: boolean;
 };
@@ -47,28 +50,20 @@ export type GitInvocation = {
   executable: string;
   args: string[];
   env: Record<string, string>;
-  isolated: boolean;
   /**
-   * Every secret value handed to the child, whichever way it was handed over.
-   *
-   * It cannot be recovered from `env`: in bubblewrap mode the launcher's own
-   * environment is only `PATH`, and the child's real environment is carried in
-   * `args` as `--setenv NAME value` triples. Anything scrubbing output for
-   * credentials has to be told what they are, or it silently scrubs nothing in
-   * exactly the mode the project ships.
+   * Every secret value handed to the child. Anything scrubbing output for
+   * credentials takes them from here rather than guessing from `env`.
    */
   secrets: string[];
 };
 
 /**
- * Construct a Git child with no App environment inheritance. In bubblewrap
- * mode the checkout is the only writable host path, while PID, proc and tmp
- * are private. Command-scoped config also blocks executable local config.
+ * Construct a Git child with no App environment inheritance. Command-scoped
+ * config also blocks executable local config.
  */
 export function buildWorkspaceGitInvocation(
   options: WorkspaceGitOptions,
   executionMode: CodingExecutionMode = config.agent.codingTools.executionMode,
-  bubblewrapPath: string = config.agent.codingTools.bubblewrapPath,
   allowUnsafeHostExecution: boolean = config.agent.codingTools.allowUnsafeHostExecution,
   platform: NodeJS.Platform = process.platform,
 ): GitInvocation {
@@ -102,12 +97,9 @@ export function buildWorkspaceGitInvocation(
 
   const childEnv: Record<string, string> = {
     // Apple Silicon Homebrew supplies a standalone Git without relying on
-    // Apple's developer-tool setup. Keep the namespace path unchanged.
-    PATH:
-      platform === "darwin" && executionMode !== "bubblewrap"
-        ? `/opt/homebrew/bin:${SAFE_PATH}`
-        : SAFE_PATH,
-    HOME: executionMode === "bubblewrap" ? "/workspace" : options.workspaceRoot,
+    // Apple's developer-tool setup.
+    PATH: platform === "darwin" ? `/opt/homebrew/bin:${SAFE_PATH}` : SAFE_PATH,
+    HOME: options.workspaceRoot,
     LANG: "C.UTF-8",
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "/bin/false",
@@ -124,34 +116,11 @@ export function buildWorkspaceGitInvocation(
     childEnv[`GIT_CONFIG_VALUE_${index}`] = value;
   });
 
-  const secrets = secretValuesOf(childEnv);
-
-  if (executionMode !== "bubblewrap") {
-    return {
-      executable: "git",
-      args: options.args,
-      env: childEnv,
-      isolated: false,
-      secrets,
-    };
-  }
-
   return {
-    executable: bubblewrapPath,
-    args: buildBubblewrapCommandArgs({
-      workspaceRoot: options.workspaceRoot,
-      cwd: options.cwd,
-      executable: "git",
-      args: options.args,
-      env: childEnv,
-      // Git itself needs the network, but a hostile local config remains
-      // confined to this namespace and receives no App/Codex environment.
-      unshareNetwork: false,
-    }),
-    // The bwrap launcher itself receives no App secrets either.
-    env: { PATH: SAFE_PATH },
-    isolated: true,
-    secrets,
+    executable: "git",
+    args: options.args,
+    env: childEnv,
+    secrets: secretValuesOf(childEnv),
   };
 }
 
@@ -189,10 +158,7 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
   } catch (error) {
     const command = options.args[0] ?? "(unknown)";
     if ((error as { code?: string }).code === "ENOENT") {
-      const dependency = invocation.isolated ? "bubblewrap" : "git";
-      throw new Error(
-        `${dependency} is not installed on the Genosyn server, so "git ${command}" could not run.`,
-      );
+      throw new Error(`git is not installed on the Genosyn server, so "git ${command}" could not run.`);
     }
     const detail = error as {
       stderr?: string;
@@ -203,12 +169,9 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
     const output = (detail.stderr || detail.stdout || "").toString().trim();
     if (!output) {
       // Deliberately NOT `error.message`. Node builds that as
-      // `Command failed: <argv>`, and in bubblewrap mode the argv is the bwrap
-      // one — which carries every environment entry as a literal
-      // `--setenv GENOSYN_REPO_TOKEN_CONNECTION ghs_…` triple. This branch is
-      // reached exactly when Git printed nothing, which is the timeout and
-      // signal path, so the credential would have been handed straight to the
-      // browser.
+      // `Command failed: <argv>`, and this string travels all the way to the
+      // browser. This branch is reached exactly when Git printed nothing, which
+      // is the timeout and signal path.
       if (detail.killed || detail.signal) {
         throw new Error(
           `git ${command} did not finish in time and was stopped. A very large repository can exceed the limit; try again, and check the server can reach the remote.`,
@@ -227,8 +190,7 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
  * Git does not normally echo a credential, but a remote helper, a proxy, or a
  * misconfigured URL can put one in stderr, and this string travels all the way
  * to the browser. Redaction is by value, taken from
- * {@link GitInvocation.secrets} — reading the launcher's own environment would
- * find nothing at all under bubblewrap, which is the mode that ships.
+ * {@link GitInvocation.secrets}.
  */
 export function redactSecrets(text: string, secrets: string[]): string {
   let safe = text;

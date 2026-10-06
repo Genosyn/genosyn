@@ -591,10 +591,10 @@ export function ProductPrototype({
           <Chip dept={dept} className="shrink-0">
             {dept}
           </Chip>
-          <span className="min-w-0 truncate text-[11px] text-ink">{activeUseCase.role}</span>
+          <span className="min-w-0 truncate text-[11px] text-slate-900">{activeUseCase.role}</span>
           {/* The Approval mark is ink even here, at 10px: it is the state that
               needs a person, and it takes no hue anywhere on this site. */}
-          <span className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2 py-1 text-amber-700 ring-1 ring-inset ring-amber-200 sm:flex">
+          <span className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-full bg-slate-100 px-2 py-1 text-slate-700 ring-1 ring-inset ring-slate-200 sm:flex">
             <Mark state="approval" className="h-2.5 w-2.5" />
             <span className="text-[10px] font-medium">Approvals on</span>
           </span>
@@ -685,7 +685,7 @@ export function ProductPrototype({
 function PrototypeFascia({ clock }: { clock: string }) {
   return (
     <div className="flex min-w-0 items-center gap-3 border-b border-slate-200 bg-slate-50/80 px-3 py-2">
-      <LogoMark className="h-4 w-4 shrink-0 text-indigo-600" />
+      <LogoMark className="h-4 w-4 shrink-0 text-slate-900" />
       <span className="min-w-0 truncate text-[10px] font-semibold text-slate-700">
         Northstar Labs
       </span>
@@ -708,16 +708,16 @@ function PrototypeFascia({ clock }: { clock: string }) {
  */
 function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
   const human = story.state === "decision" || story.state === "approval";
-  const stateTone = story.state === "decision" ? "text-violet-700" : "text-amber-700";
+  const stateTone = story.state === "decision" ? "text-white" : "text-slate-900";
 
   return (
     <div className="prototype-story-entry absolute inset-x-0 bottom-0 flex items-center gap-2.5 border-t border-slate-200 bg-white px-3 py-2 shadow-sm">
       <span
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
-          human ? (story.state === "decision" ? "bg-violet-50" : "bg-amber-50") : "bg-indigo-50"
+          human ? (story.state === "decision" ? "bg-slate-900" : "bg-white ring-1 ring-slate-900") : "bg-slate-100"
         }`}
       >
-        <Mark state={story.state} className={`h-3 w-3 ${human ? stateTone : "text-indigo-600"}`} />
+        <Mark state={story.state} className={`h-3 w-3 ${human ? stateTone : "text-slate-700"}`} />
       </span>
       <span className="min-w-0">
         <span className="block text-[10px] font-semibold text-slate-800">{story.label}</span>
@@ -771,13 +771,11 @@ function StoryStep({
   const skin = current
     ? human
       ? story.state === "decision"
-        ? "bg-violet-50 text-violet-700"
-        : "bg-amber-50 text-amber-700"
-      : "bg-indigo-50 text-indigo-700"
+        ? "bg-slate-900 text-white hover:!bg-slate-800"
+        : "bg-slate-100 text-slate-900 shadow-[inset_0_0_0_1px_rgb(15_23_42)]"
+      : "bg-slate-100 text-slate-900"
     : human
-      ? story.state === "decision"
-        ? "bg-white text-violet-600"
-        : "bg-white text-amber-600"
+      ? "bg-white text-slate-900"
       : "bg-white text-slate-500";
 
   return (
@@ -804,11 +802,7 @@ function StoryStep({
         <span
           aria-hidden
           className={`prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left ${
-            human
-              ? story.state === "decision"
-                ? "bg-violet-500"
-                : "bg-amber-500"
-              : "bg-indigo-500"
+            human && story.state === "decision" ? "bg-white" : "bg-slate-900"
           }`}
         />
       )}

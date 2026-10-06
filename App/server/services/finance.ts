@@ -17,6 +17,7 @@ import {
 import { sendEmail } from "./email.js";
 import { renderPdfAttachment } from "./htmlToPdf.js";
 import { renderInvoiceHtml } from "./invoiceHtml.js";
+import { documentIssuerFields, resolveDocumentIssuer } from "./subsidiaries.js";
 import { Company } from "../db/entities/Company.js";
 import {
   findClosedPeriodCovering,
@@ -131,6 +132,49 @@ export type LineDraft = {
   taxRateId?: string | null;
   sortOrder?: number;
 };
+
+export type CreateInvoiceDraftInput = {
+  companyId: string;
+  customerId: string;
+  subsidiaryId?: string | null;
+  issueDate?: Date;
+  dueDate?: Date;
+  currency?: string;
+  notes?: string;
+  footer?: string;
+  lines?: LineDraft[];
+  createdById?: string | null;
+};
+
+/** Validate the customer and issuer before persisting the new document. */
+export async function createInvoiceDraft(input: CreateInvoiceDraftInput): Promise<Invoice> {
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: input.customerId,
+    companyId: input.companyId,
+  });
+  if (!customer) throw new Error("Invalid customer");
+  const issuer = await resolveDocumentIssuer(input.companyId, input.subsidiaryId);
+  const issueDate = input.issueDate ?? new Date();
+  const repo = AppDataSource.getRepository(Invoice);
+  const invoice = repo.create({
+    companyId: input.companyId,
+    customerId: customer.id,
+    ...issuer,
+    slug: await draftInvoiceSlug(input.companyId),
+    numberSeq: 0,
+    number: "",
+    status: "draft",
+    issueDate,
+    dueDate: input.dueDate ?? new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000),
+    currency: input.currency ?? customer.currency ?? "USD",
+    notes: input.notes ?? "",
+    footer: input.footer ?? "",
+    createdById: input.createdById ?? null,
+  });
+  await repo.save(invoice);
+  if (input.lines?.length) await replaceInvoiceLines(invoice, input.lines);
+  return recomputeInvoiceTotals(invoice);
+}
 
 /**
  * Resolve the snapshotted tax fields for a draft line. Looks up the
@@ -646,6 +690,8 @@ export async function duplicateInvoice(
   const draft = repo.create({
     companyId: source.companyId,
     customerId: source.customerId,
+    subsidiaryId: source.subsidiaryId,
+    issuerSnapshot: source.issuerSnapshot,
     slug,
     numberSeq: 0,
     number: "",
@@ -1020,7 +1066,7 @@ export async function sendInvoiceEmail(
   const pdfAttached = Boolean(attachments?.length);
   const text =
     (message ? `${message}\n\n` : "") +
-    `Invoice ${invoice.number || "(draft)"} from your supplier — ` +
+    `Invoice ${invoice.number || "(draft)"} from ${documentIssuerFields(invoice, htmlInput).companyName || "your supplier"} — ` +
     `${formatMoney(invoice.balanceCents, invoice.currency)} due ` +
     `${invoice.dueDate.toISOString().slice(0, 10)}.\n\n` +
     (pdfAttached

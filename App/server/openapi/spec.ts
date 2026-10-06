@@ -10,6 +10,7 @@ import "./apiKeys.js";
 import "./employees.js";
 import "./routines.js";
 import "./revenue.js";
+import "./finance.js";
 
 /**
  * Assembles the final OpenAPI 3.0 document from the shared registry. The
@@ -66,7 +67,7 @@ export function buildOpenApiDocument() {
           "session cookie (used by the web UI) or a Bearer API key minted at " +
           "Settings → API keys. API keys are scoped to a single company.\n\n" +
           "**Coverage.** This document covers the canonical scripting surface: " +
-          "auth, companies, employees, routines, and the M14 api-keys endpoints. " +
+          "auth, companies, employees, routines, API keys, Revenue, and Finance document issuers. " +
           "The full surface is much larger — most routes the UI uses are not " +
           "(yet) registered here. Open an issue if there's an endpoint you want " +
           "documented.",

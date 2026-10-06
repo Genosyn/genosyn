@@ -37,7 +37,13 @@ import {
   updateServiceAccountCredentials,
 } from "../services/integrations.js";
 import { startOauth, startOauthReconnect } from "../services/oauth.js";
+import {
+  cancelHostedGoogleOauth,
+  hostedGoogleSignInAvailable,
+  pollHostedGoogleOauth,
+} from "../services/hostedGoogleOauth.js";
 import { recordAudit } from "../services/audit.js";
+import { publicOriginFromRequest } from "../services/publicUrl.js";
 import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
 import {
   isForgeProvider,
@@ -79,7 +85,11 @@ integrationsRouter.get("/catalog", async (_req, res, next) => {
   try {
     // Fold in the install-wide OAuth apps so the connect form can hide the
     // client id / secret fields for providers that already have one.
-    res.json(listCatalog({ registeredOauthApps: await registeredOauthApps() }));
+    const registered = await registeredOauthApps();
+    res.json(listCatalog({
+      registeredOauthApps: registered,
+      hostedGoogleSignIn: !registered.has("google") && await hostedGoogleSignInAvailable(),
+    }));
   } catch (err) {
     next(err);
   }
@@ -200,6 +210,7 @@ const oauthStartSchema = z.object({
 });
 
 integrationsRouter.post("/oauth/start", validateBody(oauthStartSchema), async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const { cid } = req.params as Record<string, string>;
   const body = req.body as z.infer<typeof oauthStartSchema>;
   try {
@@ -213,12 +224,43 @@ integrationsRouter.post("/oauth/start", validateBody(oauthStartSchema), async (r
       scopeGroups: body.scopeGroups,
       extraFields: body.extraFields,
       linkMailbox: body.linkMailbox,
+      // The global trusted-origin middleware already checked this browser
+      // header against the configured proxy host. Preserve the external
+      // origin when the proxy rewrites Host for its internal upstream.
+      installationOrigin: req.get("Origin") ?? publicOriginFromRequest(req) ?? undefined,
     });
     res.json(out);
   } catch (err) {
     res.status(400).json({
       error: err instanceof Error ? err.message : "Failed to start OAuth",
     });
+  }
+});
+
+const hostedOauthAttemptSchema = z.object({
+  attempt: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+
+integrationsRouter.post("/oauth/hosted/poll", validateBody(hostedOauthAttemptSchema), async (req, res) => {
+  const { cid } = req.params as Record<string, string>;
+  const { attempt } = req.body as z.infer<typeof hostedOauthAttemptSchema>;
+  res.set("Cache-Control", "no-store");
+  try {
+    res.json(await pollHostedGoogleOauth({ companyId: cid, userId: req.userId!, attempt }));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Google sign-in could not finish." });
+  }
+});
+
+integrationsRouter.post("/oauth/hosted/cancel", validateBody(hostedOauthAttemptSchema), async (req, res) => {
+  const { cid } = req.params as Record<string, string>;
+  const { attempt } = req.body as z.infer<typeof hostedOauthAttemptSchema>;
+  res.set("Cache-Control", "no-store");
+  try {
+    await cancelHostedGoogleOauth({ companyId: cid, userId: req.userId!, attempt });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Google sign-in could not be cancelled." });
   }
 });
 
@@ -425,12 +467,14 @@ integrationsRouter.post(
   async (req, res) => {
     const { cid, connId } = req.params as Record<string, string>;
     const body = req.body as z.infer<typeof reconnectOauthSchema>;
+    res.set("Cache-Control", "no-store");
     try {
       const out = await startOauthReconnect({
         companyId: cid,
         userId: req.userId!,
         connectionId: connId,
         scopeGroups: body.scopeGroups,
+        installationOrigin: req.get("Origin") ?? publicOriginFromRequest(req) ?? undefined,
       });
       res.json(out);
     } catch (err) {

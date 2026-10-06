@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { prepareMemberChatAttachmentContext } from "../services/memberChatAttachments.js";
 import { z } from "zod";
 import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -12,13 +11,11 @@ import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseView } from "../db/entities/BaseView.js";
 import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
-import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { Role } from "../db/entities/Membership.js";
 import { toSlug } from "../lib/slug.js";
-import { chatWithEmployee } from "../services/chat.js";
 import {
   buildLinkOptionsFor,
   createBaseRecordRow,
@@ -49,20 +46,8 @@ import {
   uniqueViewSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
-import {
-  PlanLimitError,
-  assertBaseTableCapacity,
-  assertCanCreateBase,
-  baseTableCapacityRemaining,
-} from "../services/entitlements.js";
 import { deleteTagAssignments } from "../services/tags.js";
-import {
-  ALL_RESOURCE_FIELD_TYPES,
-  buildResourceOptionsFor,
-  isResourceFieldType,
-  RESOURCE_TYPE_LABELS,
-  ResourceFieldType,
-} from "../services/baseResources.js";
+import { ALL_RESOURCE_FIELD_TYPES, buildResourceOptionsFor } from "../services/baseResources.js";
 import { recordAudit } from "../services/audit.js";
 import {
   baseRecordUploadMiddleware,
@@ -160,15 +145,6 @@ basesRouter.post("/bases", validateBody(createBaseSchema), async (req, res) => {
     return res.status(409).json({ error: "A base with that name already exists" });
   }
 
-  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
-  // its Base count. 402 so the client can offer the upgrade path.
-  try {
-    await assertCanCreateBase(cid);
-  } catch (err) {
-    if (!(err instanceof PlanLimitError)) throw err;
-    return res.status(402).json({ error: err.message });
-  }
-
   const slug = await uniqueBaseSlug(cid, toSlug(body.name));
   const repo = AppDataSource.getRepository(Base);
   const b = await repo.save(
@@ -182,16 +158,7 @@ basesRouter.post("/bases", validateBody(createBaseSchema), async (req, res) => {
       createdById: req.userId ?? null,
     }),
   );
-  if (template) {
-    // Plan limit (M56): the base create itself never fails on table capacity —
-    // the template's table list is capped at what the plan still allows
-    // (computed before seeding; the new base holds no tables yet), and the
-    // remainder is silently skipped.
-    const capacity = await baseTableCapacityRemaining(cid);
-    const seedable =
-      capacity === null ? template : { ...template, tables: template.tables.slice(0, capacity) };
-    await seedBaseFromTemplate(b.id, seedable);
-  }
+  if (template) await seedBaseFromTemplate(b.id, template);
   res.json(b);
 });
 
@@ -344,14 +311,6 @@ basesRouter.post("/bases/:baseSlug/tables", validateBody(createTableSchema), asy
   const body = req.body as z.infer<typeof createTableSchema>;
   if (await findBaseTableByName(b.id, body.name)) {
     return res.status(409).json({ error: "A table with that name already exists in this base" });
-  }
-  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
-  // its Base table count. 402 so the client can offer the upgrade path.
-  try {
-    await assertBaseTableCapacity(cid);
-  } catch (err) {
-    if (!(err instanceof PlanLimitError)) throw err;
-    return res.status(402).json({ error: err.message });
   }
   const slug = await uniqueTableSlug(b.id, toSlug(body.name));
   const last = await AppDataSource.getRepository(BaseTable).findOne({
@@ -1124,161 +1083,3 @@ basesRouter.get("/base-attachments/:attachmentId", async (req, res) => {
   res.sendFile(resolved.absPath);
 });
 
-// ─────────────────────────── AI assistant ────────────────────────────────────
-
-/**
- * Natural-language assistant for a Base. Picks the first AI employee that has
- * a connected model, frames the base's schema + the user's instruction, and
- * expects the employee to reply with either prose or a fenced JSON block of
- * actions the client can apply. See the prompt in `composeAssistantPrompt` for
- * the contract.
- */
-const aiSchema = z
-  .object({
-    prompt: z.string().max(2000).default(""),
-    tableId: z.string().optional(),
-    attachmentIds: z.array(z.string().uuid()).max(10).default([]),
-  })
-  .refine((body) => body.prompt.trim().length > 0 || body.attachmentIds.length > 0, {
-    message: "Message or attachment required",
-    path: ["prompt"],
-  });
-
-basesRouter.post(
-  "/bases/:baseSlug/ai",
-  requireBrowserSession,
-  validateBody(aiSchema),
-  async (req, res, next) => {
-    try {
-      const cid = (req.params as Record<string, string>).cid;
-      const b = await loadBaseBySlug(cid, req.params.baseSlug);
-      if (!b) return res.status(404).json({ error: "Base not found" });
-      const body = req.body as z.infer<typeof aiSchema>;
-
-      // Pick an AI employee for this company that has a model row. The chat
-      // service will itself error if the model is incomplete; we prefer to ask
-      // and report than to silently pick a different one.
-      const employees = await AppDataSource.getRepository(AIEmployee).find({
-        where: { companyId: cid },
-      });
-      if (employees.length === 0) {
-        return res.json({
-          status: "skipped",
-          reply:
-            "No AI employees in this company yet — hire one from the Employees tab, then connect their model to use the assistant.",
-        });
-      }
-      const models = await AppDataSource.getRepository(AIModel).find({
-        where: { employeeId: In(employees.map((e) => e.id)) },
-      });
-      const firstConnected = employees.find((e) => models.some((m) => m.employeeId === e.id));
-      if (!firstConnected) {
-        return res.json({
-          status: "skipped",
-          reply:
-            "None of your AI employees have a connected model yet. Connect one from Employees → Settings → Model to use the assistant.",
-        });
-      }
-
-      // Build a schema snapshot for the prompt.
-      const tables = await AppDataSource.getRepository(BaseTable).find({
-        where: { baseId: b.id, archivedAt: IsNull() },
-        order: { sortOrder: "ASC" },
-      });
-      if (body.tableId && !tables.some((table) => table.id === body.tableId)) {
-        return res.status(404).json({ error: "Table not found" });
-      }
-      const fields = tables.length
-        ? await AppDataSource.getRepository(BaseField).find({
-            where: { tableId: In(tables.map((t) => t.id)) },
-            order: { sortOrder: "ASC" },
-          })
-        : [];
-
-      const attachments = await prepareMemberChatAttachmentContext({
-        companyId: cid,
-        userId: req.userId!,
-        ids: body.attachmentIds,
-      });
-      let result: Awaited<ReturnType<typeof chatWithEmployee>>;
-      try {
-        result = await chatWithEmployee(
-          cid,
-          firstConnected.id,
-          [composeAssistantPrompt(b.name, tables, fields, body), attachments.text]
-            .filter(Boolean)
-            .join("\n\n"),
-          [],
-          {
-            images: attachments.images,
-            requesterUserId: req.userId!,
-            requesterSessionVersion: req.session!.sessionVersion!,
-          },
-        );
-      } finally {
-        await attachments.release();
-      }
-      res.json({
-        status: result.status,
-        reply: result.reply,
-        employee: { id: firstConnected.id, name: firstConnected.name, slug: firstConnected.slug },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-function composeAssistantPrompt(
-  baseName: string,
-  tables: BaseTable[],
-  fields: BaseField[],
-  body: z.infer<typeof aiSchema>,
-): string {
-  const fieldsByTable = new Map<string, BaseField[]>();
-  for (const f of fields) {
-    if (!fieldsByTable.has(f.tableId)) fieldsByTable.set(f.tableId, []);
-    fieldsByTable.get(f.tableId)!.push(f);
-  }
-  const schemaLines: string[] = [];
-  for (const t of tables) {
-    schemaLines.push(`- **${t.name}** (id \`${t.id}\`)`);
-    for (const f of fieldsByTable.get(t.id) ?? []) {
-      const primary = f.isPrimary ? " [primary]" : "";
-      let typeLabel: string = f.type;
-      if (f.type === "link") {
-        try {
-          const cfg = JSON.parse(f.configJson || "{}") as { targetTableId?: string };
-          const target = tables.find((x) => x.id === cfg.targetTableId);
-          typeLabel = target ? `link → ${target.name}` : "link";
-        } catch {
-          /* noop */
-        }
-      } else if (isResourceFieldType(f.type)) {
-        typeLabel = RESOURCE_TYPE_LABELS[f.type as ResourceFieldType];
-      }
-      schemaLines.push(`    - ${f.name} (${typeLabel})${primary}`);
-    }
-  }
-
-  const scope = body.tableId
-    ? `The user is looking at the table with id \`${body.tableId}\`.`
-    : "The user is viewing the base overview.";
-
-  return [
-    `You are the Base Assistant — helping a teammate shape and query an Airtable-style base called **${baseName}**.`,
-    "",
-    "## Current schema",
-    schemaLines.length ? schemaLines.join("\n") : "(no tables yet)",
-    "",
-    scope,
-    "",
-    "## How to respond",
-    "1. Answer in plain English first — be concise.",
-    "2. If the user asks for a schema/data change, suggest it in prose and do NOT execute anything. This UI applies changes manually for now.",
-    "3. Stay within the shape of this base; do not invent external integrations.",
-    "",
-    "## User request",
-    body.prompt,
-  ].join("\n");
-}

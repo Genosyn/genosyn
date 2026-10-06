@@ -143,13 +143,15 @@ test("disabled coding remains disabled with OpenCode", async (t) => {
   assert.equal(seen[0].registry.resolve("bash"), undefined);
 });
 
-test("explicit bubblewrap keeps native host tools off", async (t) => {
+test("a retired execution mode exposes no coding tools at all", async (t) => {
   const seen = capture(t);
+  // Boot narrows a stale "bubblewrap" to disabled; a turn that still saw the
+  // raw value must get neither native tools nor the shell adapter.
   Object.assign(config.agent.codingTools, { executionMode: "bubblewrap" });
   await runEmployeeAgent(params);
   assert.equal(seen[0].nativeCoding, false);
   assert.equal(seen[0].registry.resolve("read_file"), undefined);
-  assert.ok(seen[0].registry.resolve("bash"));
+  assert.equal(seen[0].registry.resolve("bash"), undefined);
 });
 
 test("the live Member authorizer is forwarded to OpenCode native tool permission requests", async (t) => {
@@ -322,3 +324,59 @@ test("worker callback IDs stay distinct when providers reuse IDs and labels acro
   assert.deepEqual(used, returned);
   assert.ok(used.every((id) => id.endsWith(":call-1") && !id.includes(params.genosynToken)));
 });
+
+for (const ending of ["normal", "error", "cancel"] as const) {
+  test(`a ${ending} parent stops and joins unfinished delegated workers`, async (t) => {
+    const controller = new AbortController();
+    let workerStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      workerStarted = resolve;
+    });
+    let releaseWorker!: () => void;
+    const workerDone = new Promise<void>((resolve) => {
+      releaseWorker = resolve;
+    });
+    let workerSignal: AbortSignal | undefined;
+    let cleaned = false;
+    let delegation: Promise<unknown> | undefined;
+    let calls = 0;
+    const pendingGroups: number[] = [];
+    t.mock.method(agentRuntime, "run", async (input: Parameters<typeof agentRuntime.run>[0]) => {
+      if (calls++ === 0) {
+        delegation = input.registry.resolve("delegate_parallel_work")!.run({
+          tasks: [{ label: "Slow source", instruction: "Read this bounded source" }],
+        });
+        await started;
+        if (ending === "error") throw new Error("Parent model failed");
+        if (ending === "cancel") controller.abort(new Error("Original deadline reached"));
+        return {
+          finalText: "Parent finished",
+          steps: 1,
+          stopReason: ending === "cancel" ? "aborted" : "end_turn",
+        };
+      }
+      workerSignal = input.signal;
+      workerSignal?.addEventListener("abort", releaseWorker, { once: true });
+      workerStarted();
+      await workerDone;
+      cleaned = true;
+      return { finalText: "Partial evidence", steps: 1, stopReason: "aborted" };
+    });
+    try {
+      const result = await runEmployeeAgent({
+        ...params,
+        signal: controller.signal,
+        callbacks: { onBackgroundWork: (pending) => pendingGroups.push(pending) },
+      });
+      assert.equal(result.status, ending === "error" ? "error" : "ok");
+      assert.equal(controller.signal.aborted, ending === "cancel");
+      assert.equal(workerSignal?.aborted, true);
+      assert.equal(cleaned, true, "worker cleanup must finish before its parent returns");
+      assert.deepEqual(pendingGroups, [1, 0]);
+      await delegation;
+    } finally {
+      releaseWorker();
+      await delegation;
+    }
+  });
+}

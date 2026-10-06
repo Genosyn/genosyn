@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { after, afterEach, before, beforeEach, describe, test } from "node:test";
+import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import {
   MAX_SESSION_COMMAND_OUTPUT,
@@ -14,74 +14,58 @@ import {
 /**
  * Running a command for a Repository work session.
  *
- * The optional bubblewrap suites stand a shim in for the `bwrap` binary,
- * which a developer machine may not have. The shim honours the two parts of
- * the invocation these tests are about — `--setenv` and everything after `--`
- * — and ignores the namespace flags, which have their own construction suite
- * in `agent/bubblewrap.test.ts`. Everything else on the path is the real code:
- * the gate, the allowlist, the spawn, the timeout, the output ceiling.
+ * Commands run on the host, so these tests spawn real shells. Everything on
+ * the path is the real code: the gate, the allowlist, the spawn, the timeout,
+ * the output ceiling.
  */
 
 const mutableCodingConfig = config.agent.codingTools as {
   enabled: boolean;
-  executionMode: "host" | "bubblewrap" | "disabled";
-  bubblewrapPath: string;
+  executionMode: "host" | "disabled";
   allowUnsafeHostExecution: boolean;
 };
 const original = { ...mutableCodingConfig };
 
-let shimDirectory = "";
-let argvLog = "";
-
-before(async () => {
-  shimDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-bwrap-shim-"));
-  argvLog = path.join(shimDirectory, "argv.log");
-  const shim = path.join(shimDirectory, "bwrap");
-  await fs.writeFile(
-    shim,
-    [
-      "#!/bin/bash",
-      "# Test double for bwrap: record the invocation, apply --setenv, then run",
-      "# whatever follows `--`. The recording is how a test can assert on flags",
-      "# the sandbox would have applied for real but this shim ignores.",
-      `printf '%s\\n' "$@" > ${JSON.stringify(argvLog)}`,
-      "while [ $# -gt 0 ]; do",
-      '  case "$1" in',
-      '    --setenv) export "$2"="$3"; shift 3 ;;',
-      "    --) shift; break ;;",
-      "    *) shift ;;",
-      "  esac",
-      "done",
-      'exec "$@"',
-      "",
-    ].join("\n"),
-    { mode: 0o755 },
-  );
+before(() => {
   mutableCodingConfig.enabled = true;
-  mutableCodingConfig.executionMode = "bubblewrap";
-  mutableCodingConfig.bubblewrapPath = shim;
+  mutableCodingConfig.executionMode = "host";
+  mutableCodingConfig.allowUnsafeHostExecution = true;
 });
 
-after(async () => {
+after(() => {
   Object.assign(mutableCodingConfig, original);
-  if (shimDirectory) await fs.rm(shimDirectory, { recursive: true, force: true });
 });
 
 async function worktree(t: { after: (fn: () => void | Promise<void>) => void }): Promise<string> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-session-"));
-  // A real session worktree's `.git` is a pointer file, and the runner asks
-  // bubblewrap to bind it read-only. `--ro-bind-try` must not care that the
-  // shim ignores it, but the path should exist as it does in production.
+  // A real session worktree's `.git` is a pointer file; keep one so the paths
+  // these tests resolve look like production.
   await fs.writeFile(path.join(directory, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   return directory;
+}
+
+/** A command that leaves evidence if it runs, for tests proving it did not. */
+async function sentinel(
+  t: { after: (fn: () => void | Promise<void>) => void },
+): Promise<{ command: string; ran: () => Promise<boolean> }> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-spawn-sentinel-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, "spawned");
+  return {
+    command: `touch ${JSON.stringify(file)}`,
+    ran: () => fs.stat(file).then(
+      () => true,
+      () => false,
+    ),
+  };
 }
 
 const OPEN_REPO = { commandMode: "all" as const, allowedCommands: "" };
 const LISTED_REPO = { commandMode: "allowlist" as const, allowedCommands: "" };
 
 describe("whether a session may run commands at all", () => {
-  test("yes on a bubblewrap install whose repository allows them", () => {
+  test("yes on a host install whose repository allows them", () => {
     assert.deepEqual(workSessionCommandAvailability({ commandMode: "allowlist" }), {
       available: true,
     });
@@ -93,24 +77,12 @@ describe("whether a session may run commands at all", () => {
     assert.match(decision.available ? "" : decision.reason, /does not let AI employees run/);
   });
 
-  test("yes in enabled host mode, with no sandbox executable needed", () => {
-    mutableCodingConfig.executionMode = "host";
-    mutableCodingConfig.allowUnsafeHostExecution = true;
-    try {
-      const decision = workSessionCommandAvailability({ commandMode: "all" });
-      assert.deepEqual(decision, { available: true });
-    } finally {
-      mutableCodingConfig.executionMode = "bubblewrap";
-      mutableCodingConfig.allowUnsafeHostExecution = original.allowUnsafeHostExecution;
-    }
-  });
-
   test("no when the install cannot execute commands at all", () => {
     mutableCodingConfig.executionMode = "disabled";
     try {
       assert.equal(workSessionCommandAvailability({ commandMode: "all" }).available, false);
     } finally {
-      mutableCodingConfig.executionMode = "bubblewrap";
+      mutableCodingConfig.executionMode = "host";
     }
   });
 });
@@ -184,12 +156,6 @@ describe("running one", () => {
       assert.equal(result.exitCode, 0, result.output);
       assert.match(result.output, new RegExp(`checked ${cwd}`));
       assert.equal(result.cwd, cwd);
-      const argv = (await fs.readFile(argvLog, "utf8")).split("\n");
-      const bind = argv.indexOf("--bind");
-      assert.deepEqual(argv.slice(bind, bind + 3), ["--bind", directory, "/workspace"]);
-      const chdir = argv.indexOf("--chdir");
-      assert.deepEqual(argv.slice(chdir, chdir + 2), ["--chdir", `/workspace/${cwd}`]);
-      assert.ok(argv.includes("/workspace/.git"), "the root Git pointer remains protected");
     }
   });
 
@@ -274,33 +240,20 @@ describe("running one", () => {
     assert.equal(result.aborted, true);
   });
 
-  test("asks for a sandbox rooted at the worktree, with .git read-only", async (t) => {
-    const directory = await worktree(t);
-    await runWorkSessionCommand({ repo: OPEN_REPO, directory, command: "true" });
-    const argv = (await fs.readFile(argvLog, "utf8")).split("\n");
-    const bind = argv.indexOf("--bind");
-    assert.notEqual(bind, -1);
-    assert.deepEqual(argv.slice(bind, bind + 3), ["--bind", directory, "/workspace"]);
-    const readOnly = argv.indexOf("--ro-bind-try", bind);
-    assert.notEqual(readOnly, -1, "the .git pointer is not bound read-only");
-    assert.deepEqual(argv.slice(readOnly, readOnly + 3), [
-      "--ro-bind-try",
-      path.join(directory, ".git"),
-      "/workspace/.git",
-    ]);
-  });
-
   test("does not start a login shell, which would run a profile the employee wrote", async (t) => {
     const directory = await worktree(t);
-    // `$HOME` inside the sandbox is this worktree, which the employee writes
-    // through `repository_write_file`. `bash -lc` would source a
-    // `.bash_profile` it had just written on every command — running code that
-    // never appeared in the command and never met the repository's list.
-    await runWorkSessionCommand({ repo: OPEN_REPO, directory, command: "true" });
-    const argv = (await fs.readFile(argvLog, "utf8")).split("\n");
-    const separator = argv.indexOf("--");
-    assert.notEqual(separator, -1);
-    assert.deepEqual(argv.slice(separator + 1, separator + 3), ["bash", "-c"]);
+    // The worktree is what the employee writes through `repository_write_file`.
+    // `bash -lc` would source a profile it had just written on every command —
+    // running code that never appeared in the command and never met the
+    // repository's list.
+    const result = await runWorkSessionCommand({
+      repo: OPEN_REPO,
+      directory,
+      command: "shopt -q login_shell && echo login || echo plain",
+    });
+    assert.ok(!isCommandRefusal(result));
+    if (isCommandRefusal(result)) return;
+    assert.equal(result.output.trim(), "plain");
   });
 
   test("does not corrupt a multi-byte character that lands on the head ceiling", async (t) => {
@@ -355,15 +308,15 @@ describe("refusing one", () => {
   ]) {
     test(`refuses an invalid working directory ${JSON.stringify(cwd)} without spawning`, async (t) => {
       const directory = await worktree(t);
-      await fs.writeFile(argvLog, "not invoked");
+      const spawned = await sentinel(t);
       const result = await runWorkSessionCommand({
         repo: OPEN_REPO,
         directory,
         cwd,
-        command: "true",
+        command: spawned.command,
       });
       assert.ok(isCommandRefusal(result));
-      assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+      assert.equal(await spawned.ran(), false);
     });
   }
 
@@ -371,16 +324,16 @@ describe("refusing one", () => {
     test(`refuses a missing or non-directory working directory ${cwd}`, async (t) => {
       const directory = await worktree(t);
       await fs.writeFile(path.join(directory, "marker.txt"), "a file");
-      await fs.writeFile(argvLog, "not invoked");
+      const spawned = await sentinel(t);
       const result = await runWorkSessionCommand({
         repo: OPEN_REPO,
         directory,
         cwd,
-        command: "true",
+        command: spawned.command,
       });
       assert.ok(isCommandRefusal(result));
       assert.match(isCommandRefusal(result) ? result.refused : "", /existing directory/);
-      assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+      assert.equal(await spawned.ran(), false);
     });
   }
 
@@ -388,38 +341,37 @@ describe("refusing one", () => {
     const directory = await worktree(t);
     const outside = await worktree(t);
     await fs.symlink(outside, path.join(directory, "outside"));
-    await fs.writeFile(argvLog, "not invoked");
+    const spawned = await sentinel(t);
     const result = await runWorkSessionCommand({
       repo: OPEN_REPO,
       directory,
       cwd: "outside",
-      command: "true",
+      command: spawned.command,
     });
     assert.ok(isCommandRefusal(result));
     assert.match(isCommandRefusal(result) ? result.refused : "", /escapes the repository/);
-    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+    assert.equal(await spawned.ran(), false);
   });
 
   test("refuses a directory alias into managed Git metadata", async (t) => {
     const directory = await worktree(t);
     await fs.mkdir(path.join(directory, "nested", ".git"), { recursive: true });
     await fs.symlink("nested/.git", path.join(directory, "git-alias"));
-    await fs.writeFile(argvLog, "not invoked");
+    const spawned = await sentinel(t);
     const result = await runWorkSessionCommand({
       repo: OPEN_REPO,
       directory,
       cwd: "git-alias",
-      command: "true",
+      command: spawned.command,
     });
     assert.ok(isCommandRefusal(result));
     assert.match(isCommandRefusal(result) ? result.refused : "", /\.git directory is managed/);
-    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+    assert.equal(await spawned.ran(), false);
   });
 
   test("a package directory does not broaden the repository's allowed commands", async (t) => {
     const directory = await worktree(t);
     await fs.mkdir(path.join(directory, "App"));
-    await fs.writeFile(argvLog, "not invoked");
     const result = await runWorkSessionCommand({
       repo: { commandMode: "allowlist", allowedCommands: "npm run lint" },
       directory,
@@ -428,7 +380,7 @@ describe("refusing one", () => {
     });
     assert.ok(isCommandRefusal(result));
     assert.match(isCommandRefusal(result) ? result.refused : "", /not on this repository's list/);
-    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
+    await assert.rejects(fs.stat(path.join(directory, "App", "should-not-run.txt")));
   });
 
   test("a command the repository's list does not cover never spawns", async (t) => {
@@ -470,12 +422,7 @@ describe("host commands used by OpenCode work sessions", () => {
     mutableCodingConfig.executionMode = "host";
     mutableCodingConfig.allowUnsafeHostExecution = true;
   });
-  afterEach(() => {
-    mutableCodingConfig.executionMode = "bubblewrap";
-    mutableCodingConfig.allowUnsafeHostExecution = original.allowUnsafeHostExecution;
-  });
-
-  test("runs an allowed package script in a nested package without launching bubblewrap", async (t) => {
+  test("runs an allowed package script in a nested package", async (t) => {
     const directory = await worktree(t);
     const cwd = "packages/company site";
     await fs.mkdir(path.join(directory, cwd), { recursive: true });
@@ -486,7 +433,6 @@ describe("host commands used by OpenCode work sessions", () => {
         scripts: { test: "node -e \"console.log('host package passed')\"" },
       }),
     );
-    await fs.writeFile(argvLog, "not invoked");
     const result = await runWorkSessionCommand({
       repo: LISTED_REPO,
       directory,
@@ -497,7 +443,6 @@ describe("host commands used by OpenCode work sessions", () => {
     assert.equal(result.exitCode, 0, result.output);
     assert.equal(result.cwd, cwd);
     assert.match(result.output, /host package passed/);
-    assert.equal(await fs.readFile(argvLog, "utf8"), "not invoked");
   });
 
   test("captures stdout, stderr, and a failing exit status", async (t) => {

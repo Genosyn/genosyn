@@ -39,7 +39,7 @@ export default function Reset() {
           minLength={12}
           required
         />
-        <Button type="submit" disabled={loading}>
+        <Button type="submit" loading={loading}>
           {loading ? "Saving…" : "Reset password"}
         </Button>
       </form>

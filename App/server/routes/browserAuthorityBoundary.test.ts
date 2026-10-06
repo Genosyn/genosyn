@@ -16,6 +16,7 @@ import { hashApiToken } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { apiKeysRouter } from "./apiKeys.js";
+import { askAiRouter } from "./askAi.js";
 import { basesRouter } from "./bases.js";
 import { browserSessionsRouter } from "./browserSessions.js";
 import { repositoriesRouter } from "./repositories.js";
@@ -62,6 +63,7 @@ before(async () => {
   app.use("/api/companies/:cid", repositoriesRouter);
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid", apiKeysRouter);
+  app.use("/api/companies/:cid", askAiRouter);
   app.use(errorHandler);
 
   await new Promise<void>((resolve) => {
@@ -168,7 +170,7 @@ describe("browser-only interactive Member authority", () => {
         path: `/employees/${employee.id}/conversations/${id}/messages`,
         body: { message: "do this", attachmentIds: [], modelId: null },
       },
-      { path: "/bases/missing/ai", body: { prompt: "change the base" } },
+      { path: `/ask-ai/conversations/${id}/messages`, body: { message: "change the base" } },
       { path: `/workspace/channels/${id}/messages`, body: { content: "@analyst help" } },
       {
         path: `/todos/${id}/comments`,
@@ -177,10 +179,6 @@ describe("browser-only interactive Member authority", () => {
       {
         path: "/projects/missing/todos",
         body: { title: "Run this", assigneeEmployeeId: employee.id },
-      },
-      {
-        path: `/mail/accounts/${id}/assistant/messages`,
-        body: { message: "summarize", threadId: id, employeeId: employee.id },
       },
       {
         path: `/mail/threads/${id}/handovers`,

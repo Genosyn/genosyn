@@ -21,6 +21,7 @@ import {
   StanddownError,
   activeStanddownFor,
   assertNotStoodDown,
+  composeStanddownContext,
   interruptCoveredRuns,
   liftStanddown,
   listStanddowns,
@@ -242,6 +243,90 @@ describe("assertNotStoodDown", () => {
   });
 });
 
+describe("composeStanddownContext", () => {
+  test("identifies an authorized Run and treats remembered stops as historical", () => {
+    const context = composeStanddownContext(companyId, {
+      employeeId: ada.id,
+      routineId: adaRoutine.id,
+    });
+    assert.match(context, /## Current Standdown status/);
+    assert.match(context, /Checked at: \d{4}-\d{2}-\d{2}T/);
+    assert.ok(context.includes(`Company ID: ${companyId}`));
+    assert.ok(context.includes(`AI Employee ID: ${ada.id}`));
+    assert.ok(context.includes(`Routine ID: ${adaRoutine.id}`));
+    assert.match(context, /No active company, AI Employee, or Routine Standdown covers this Run/);
+    assert.match(context, /Journal entries, Memory, Workstreams, prior Run reports, and checkpoints are historical/);
+    assert.match(context, /Do not fail the Run, save a blocked checkpoint, or request another lift solely because historical text/);
+    assert.match(context, /Current Grants, Policies, and Approvals still apply/);
+    assert.match(context, /Only humans place or lift Standdowns/);
+  });
+
+  test("a Routine stop covers its Run but not other Routines or the employee's conversation", async () => {
+    const standdown = await placeStanddown({
+      companyId,
+      scope: "routine",
+      scopeId: adaRoutine.id,
+      reason: "Review this sweep.",
+      placedByUserId: ownerId,
+    });
+    const blocked = composeStanddownContext(companyId, {
+      employeeId: ada.id,
+      routineId: adaRoutine.id,
+    });
+    assert.match(blocked, /An active Routine Standdown covers this work/);
+    assert.ok(blocked.includes(`Standdown ID: ${standdown.id}`));
+    assert.match(blocked, /Reason: Review this sweep\./);
+    assert.match(blocked, /Do not perform work covered by this Standdown/);
+    assert.match(blocked, /A company owner or admin must lift it/);
+    const anotherRoutine = await makeRoutine(ada, "Ada follow-up");
+    assert.match(
+      composeStanddownContext(companyId, { employeeId: ada.id, routineId: anotherRoutine.id }),
+      /No active company, AI Employee, or Routine Standdown covers this Run/,
+    );
+    assert.match(
+      composeStanddownContext(companyId, { employeeId: ada.id }),
+      /No active company or AI Employee Standdown covers this conversation\. A Routine Standdown applies only to that Routine/,
+    );
+    await liftStanddown({ standdown, userId: ownerId, reason: "Resume this sweep." });
+    assert.match(
+      composeStanddownContext(companyId, { employeeId: ada.id, routineId: adaRoutine.id }),
+      /No active company, AI Employee, or Routine Standdown covers this Run/,
+    );
+  });
+
+  test("reports the remaining covering stop after overlapping Standdowns are lifted", async () => {
+    const employeeStop = await placeStanddown({
+      companyId,
+      scope: "employee",
+      scopeId: ada.id,
+      reason: "Review Ada's work.",
+      placedByUserId: ownerId,
+    });
+    const companyStop = await placeStanddown({
+      companyId,
+      scope: "company",
+      reason: "Company incident.",
+      placedByUserId: ownerId,
+    });
+    const target = { employeeId: ada.id, routineId: adaRoutine.id };
+    assert.ok(composeStanddownContext(companyId, target).includes(`Standdown ID: ${companyStop.id}`));
+    await liftStanddown({ standdown: companyStop, userId: ownerId });
+    const remaining = composeStanddownContext(companyId, target);
+    assert.match(remaining, /An active AI Employee Standdown covers this work/);
+    assert.ok(remaining.includes(`Standdown ID: ${employeeStop.id}`));
+    assert.ok(!remaining.includes(companyStop.id));
+    assert.match(
+      composeStanddownContext(otherCompanyId, { employeeId: strangerEmployee.id }),
+      /No active company or AI Employee Standdown covers this conversation/,
+    );
+    await liftStanddown({ standdown: employeeStop, userId: ownerId });
+    assert.match(
+      composeStanddownContext(companyId, target),
+      /No active company, AI Employee, or Routine Standdown covers this Run/,
+    );
+  });
+});
+
 describe("placeStanddown", () => {
   test("is idempotent per scope rather than stacking a second row", async () => {
     const first = await placeStanddown({
@@ -344,14 +429,23 @@ describe("placeStanddown", () => {
     assert.equal((await listStanddowns(companyId)).length, 0);
   });
 
-  test("trims an oversized reason rather than refusing the stop", async () => {
+  test("trims an oversized reason and keeps scope and history visible in the Journal preview", async () => {
     const standdown = await placeStanddown({
       companyId,
-      scope: "company",
+      scope: "routine",
+      scopeId: adaRoutine.id,
       reason: `  ${"x".repeat(3000)}  `,
       placedByUserId: ownerId,
     });
     assert.equal(standdown.reason.length, 2000);
+    const entry = await AppDataSource.getRepository(JournalEntry).findOneByOrFail({
+      employeeId: ada.id,
+    });
+    const preview = entry.body.slice(0, 500);
+    assert.match(preview, /covers only this Routine/);
+    assert.match(preview, /does not stand down its AI Employee/);
+    assert.match(preview, /historical Journal entry/);
+    assert.match(preview, /current Standdown status is authoritative/);
   });
 
   test("updates the cache synchronously — no refresh in between", async () => {
@@ -417,7 +511,7 @@ describe("placeStanddown", () => {
   });
 
   test("does not journal an employee outside the standdown's scope", async () => {
-    await placeStanddown({
+    const standdown = await placeStanddown({
       companyId,
       scope: "routine",
       scopeId: adaRoutine.id,
@@ -427,6 +521,41 @@ describe("placeStanddown", () => {
     const journal = await AppDataSource.getRepository(JournalEntry).find();
     assert.equal(journal.length, 1);
     assert.equal(journal[0].employeeId, ada.id);
+    assert.equal(journal[0].title, "Routine stood down");
+    assert.ok(journal[0].body.includes(`Standdown ID: ${standdown.id}`));
+    assert.ok(journal[0].body.includes(`Scope: routine\nTarget: Routine ${adaRoutine.name} (${adaRoutine.id})`));
+    assert.match(journal[0].body, /covers only this Routine/);
+    assert.match(journal[0].body, /does not stand down its AI Employee or the employee's other work/);
+    assert.match(journal[0].body, /historical Journal entry/);
+    assert.match(journal[0].body, /current Standdown status is authoritative/);
+    assert.doesNotMatch(journal[0].body, /Nothing you are scheduled for will run/);
+  });
+
+  test("employee and company Journal entries identify their distinct targets", async () => {
+    const employeeStop = await placeStanddown({
+      companyId,
+      scope: "employee",
+      scopeId: ada.id,
+      reason: "Review this employee.",
+      placedByUserId: ownerId,
+    });
+    const companyStop = await placeStanddown({
+      companyId,
+      scope: "company",
+      reason: "Review the company.",
+      placedByUserId: ownerId,
+    });
+    const entries = await AppDataSource.getRepository(JournalEntry).findBy({ employeeId: ada.id });
+    const employeeEntry = entries.find((entry) => entry.body.includes(employeeStop.id));
+    const companyEntry = entries.find((entry) => entry.body.includes(companyStop.id));
+    assert.ok(employeeEntry);
+    assert.ok(companyEntry);
+    assert.equal(employeeEntry.title, "AI Employee stood down");
+    assert.ok(employeeEntry.body.includes(`Scope: employee\nTarget: AI Employee Ada (${ada.id})`));
+    assert.match(employeeEntry.body, /covers all AI work by this AI Employee in this company/);
+    assert.equal(companyEntry.title, "Company AI work stood down");
+    assert.ok(companyEntry.body.includes(`Scope: company\nTarget: Company ${companyId}`));
+    assert.match(companyEntry.body, /covers all AI work in this company/);
   });
 
   test("a breaker-placed standdown enforces exactly like a human's", async () => {
@@ -469,6 +598,43 @@ describe("placeStanddown", () => {
 });
 
 describe("liftStanddown", () => {
+  test("the lift Journal entry names only the lifted stop and preserves overlapping stops", async () => {
+    const routineStop = await placeStanddown({
+      companyId,
+      scope: "routine",
+      scopeId: adaRoutine.id,
+      reason: "Review the sweep.",
+      placedByUserId: ownerId,
+    });
+    const employeeStop = await placeStanddown({
+      companyId,
+      scope: "employee",
+      scopeId: ada.id,
+      reason: "Review all Ada's work.",
+      placedByUserId: ownerId,
+    });
+    await liftStanddown({
+      standdown: routineStop,
+      userId: ownerId,
+      reason: `Sweep reviewed. ${"x".repeat(2000)}`,
+    });
+    const entries = await AppDataSource.getRepository(JournalEntry).findBy({ employeeId: ada.id });
+    const lifted = entries.find((entry) => entry.title === "Routine Standdown lifted");
+    assert.ok(lifted);
+    assert.ok(lifted.body.includes(`Standdown ID: ${routineStop.id}`));
+    assert.ok(lifted.body.includes(`Scope: routine\nTarget: Routine ${adaRoutine.name} (${adaRoutine.id})`));
+    assert.match(lifted.body, /Sweep reviewed\./);
+    assert.match(lifted.body, /Other overlapping Standdowns are unchanged and may still block work/);
+    assert.match(lifted.body, /historical Journal entry/);
+    assert.match(lifted.body, /current Standdown status is authoritative/);
+    const preview = lifted.body.slice(0, 500);
+    assert.match(preview, /Other overlapping Standdowns are unchanged and may still block work/);
+    assert.match(preview, /historical Journal entry/);
+    assert.match(preview, /current Standdown status is authoritative/);
+    const blocked = workBlocked(companyId, { employeeId: ada.id, routineId: adaRoutine.id });
+    assert.equal(blocked.blocked && blocked.standdownId, employeeStop.id);
+  });
+
   test("lifts exactly once under a double call and enforces nothing afterwards", async () => {
     const standdown = await placeStanddown({
       companyId,

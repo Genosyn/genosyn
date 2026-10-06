@@ -55,9 +55,6 @@ import { AdminRuntime } from "./pages/AdminRuntime";
 import { AdminIntegrations } from "./pages/AdminIntegrations";
 import { AdminSignups } from "./pages/AdminSignups";
 import { AdminSSO } from "./pages/AdminSSO";
-import { AdminBilling } from "./pages/AdminBilling";
-import { AdminLicense } from "./pages/AdminLicense";
-import { AdminLicenses } from "./pages/AdminLicenses";
 import { AdminBackup } from "./pages/AdminBackup";
 import { AdminUsers } from "./pages/AdminUsers";
 import { AdminCompanies } from "./pages/AdminCompanies";
@@ -66,7 +63,6 @@ import { SettingsMemberBrowsers } from "./pages/SettingsMemberBrowsers";
 import { PRODUCT_INTEGRATION_KEYS, type ProductIntegrationKey } from "./lib/productIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsTags } from "./pages/SettingsTags";
-import { SettingsBilling } from "./pages/SettingsBilling";
 import { SettingsSso } from "./pages/SettingsSso";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
 import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
@@ -120,6 +116,7 @@ import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
 import ResourcesLayout from "./pages/ResourcesLayout";
+import ResourcesAiAccess from "./pages/ResourcesAiAccess";
 import RepositoriesLayout from "./pages/RepositoriesLayout";
 import RepositoriesIndex from "./pages/RepositoriesIndex";
 import RepositoryOverview from "./pages/RepositoryOverview";
@@ -196,6 +193,7 @@ import FinanceEstimateNew from "./pages/FinanceEstimateNew";
 import FinanceEstimateDetail from "./pages/FinanceEstimateDetail";
 import FinanceTemplates from "./pages/FinanceTemplates";
 import FinanceSettings from "./pages/FinanceSettings";
+import FinanceSubsidiaries from "@/pages/FinanceSubsidiaries";
 import FinanceAiAccess from "./pages/FinanceAiAccess";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
@@ -289,7 +287,7 @@ export default function App() {
         ) : auth.status === "anon" ? (
           <Routes>
             <Route path="/login" element={<Login />} />
-            {/* Company SSO entry (M56 Phase B) — same page, seeded with the
+            {/* Company SSO entry — same page, seeded with the
               workspace slug so it can offer "Continue with …" directly. */}
             <Route path="/login/sso/:companySlug" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
@@ -312,11 +310,15 @@ export default function App() {
               an invitation until that flow completes. */}
             <Route
               path="/login"
-              element={<FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />}
+              element={
+                <FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />
+              }
             />
             <Route
               path="/signup"
-              element={<FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />}
+              element={
+                <FullPageRedirect to={invitationPath(invitationTokenFromSearch(location.search))} />
+              }
             />
             <Route path="/login/sso/:companySlug" element={<FullPageRedirect to="/" />} />
             <Route path="/forgot" element={<FullPageRedirect to="/" />} />
@@ -577,8 +579,10 @@ function CompanyRoutes({
 
           {/* Resources (M18) — knowledge ingestion. URL / ebook / paste →
             extracted text, queryable by AI employees via MCP tools. */}
-          <Route path="resources" element={<ResourcesLayout />}>
+          <Route path="resources" element={<ResourcesLayout company={company} />}>
             <Route index element={<ResourcesIndex company={company} />} />
+            {/* Static beats `:slug`, and `ai-access` is a reserved Resource slug. */}
+            <Route path="ai-access" element={<ResourcesAiAccess />} />
             <Route path=":slug" element={<ResourceDetail company={company} />} />
           </Route>
 
@@ -714,6 +718,7 @@ function CompanyRoutes({
             <Route path="currencies" element={<FinanceCurrencies />} />
             <Route path="templates" element={<FinanceTemplates />} />
             <Route path="settings" element={<FinanceSettings />} />
+            <Route path="subsidiaries" element={<FinanceSubsidiaries />} />
             <Route path="ai-access" element={<FinanceAiAccess />} />
             <Route path="periods" element={<FinancePeriods />} />
             <Route path="vendors" element={<FinanceVendors />} />
@@ -768,11 +773,7 @@ function CompanyRoutes({
             <Route path="secrets" element={<SettingsSecrets />} />
             <Route path="api-keys" element={<SettingsApiKeys />} />
             <Route path="usage" element={<Usage />} />
-            {/* Plans & billing (M56) — only reachable on installs with
-              instance billing enabled; the sidebar link is gated the same way. */}
-            <Route path="billing" element={<SettingsBilling />} />
-            {/* Per-company SSO (M56 Phase B) — Scale-plan feature; the page
-              itself shows the upgrade gate below Scale. */}
+            {/* Per-company SSO — the company's own Google / OIDC client. */}
             <Route path="sso" element={<SettingsSso />} />
             <Route path="audit" element={<AuditLog />} />
             <Route path="system-health" element={<SettingsSystemHealth />} />
@@ -813,13 +814,9 @@ function CompanyRoutes({
             <Route path="integrations" element={<AdminIntegrations />} />
             <Route path="signups" element={<AdminSignups />} />
             <Route path="sso" element={<AdminSSO />} />
-            {/* Editions, plans & billing (M56). */}
-            <Route path="billing" element={<AdminBilling />} />
-            <Route path="license" element={<AdminLicense />} />
             <Route path="backup" element={<AdminBackup />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="companies" element={<AdminCompanies />} />
-            <Route path="licenses" element={<AdminLicenses />} />
           </Route>
 
           {/* Legacy redirects: Routines and Skills used to be per-employee tabs. */}

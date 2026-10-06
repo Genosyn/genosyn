@@ -60,7 +60,7 @@ export async function findLiveRunFailures({
         .subQuery()
         .select("1")
         .from(Run, "continuation")
-        .where("continuation.parentRunId = run.id")
+        .where("continuation.parentRunId = CAST(run.id AS text)")
         .andWhere("continuation.routineId = run.routineId")
         .andWhere("continuation.triggerKind = :continuationTrigger")
         .andWhere(
@@ -84,7 +84,12 @@ export async function findLiveRunFailures({
     })
     .setParameter("completedStatus", "completed" satisfies RunStatus)
     .setParameter("continuationTrigger", "continuation")
-    .setParameter("continuationStatuses", ["running", "completed", ...FAILED_RUN_STATUSES])
+    .setParameter("continuationStatuses", [
+      "queued",
+      "running",
+      "completed",
+      ...FAILED_RUN_STATUSES,
+    ])
     .setParameter("reviewedContinuationStatus", "reviewed" satisfies RunStatus)
     .setParameter("reviewedContinuationScope", true)
     .orderBy("run.startedAt", "DESC");

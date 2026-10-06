@@ -6,7 +6,13 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { AssistantMessage, Event, Part } from "@opencode-ai/sdk/v2";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
-import { buildOpenCodeConfig, openCodePromptParts } from "./opencodeConfig.js";
+import {
+  buildOpenCodeConfig,
+  CUSTOM_MODEL_OUTPUT_LIMIT,
+  OPENCODE_REPAIR_TOOL,
+  openCodePromptParts,
+  SELF_HOSTED_RESPONSE_WAIT_MS,
+} from "./opencodeConfig.js";
 import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
 import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
@@ -42,7 +48,12 @@ test("long MCP tool names stay inside the provider limit without collisions", ()
 test("OpenCode config confines scoped turns and keeps coding tools an explicit choice", () => {
   const cfg = configuration();
   assert.deepEqual(cfg.enabled_providers, ["genosyn-model"]);
-  assert.deepEqual(cfg.permission, { "*": "deny", "genosyn_*": "allow" });
+  assert.deepEqual(cfg.permission, {
+    "*": "deny",
+    invalid: "allow",
+    doom_loop: "allow",
+    "genosyn_*": "allow",
+  });
   assert.equal(cfg.agent?.genosyn?.steps, 8);
   assert.equal(cfg.agent?.general?.disable, true);
   assert.equal(cfg.agent?.title?.disable, true);
@@ -54,6 +65,34 @@ test("OpenCode config confines scoped turns and keeps coding tools an explicit c
   assert.equal((native.permission as Record<string, string>).bash, "ask");
   assert.equal((native.permission as Record<string, string>).task, undefined);
   assert.equal((native.permission as Record<string, string>).question, undefined);
+});
+
+/**
+ * OpenCode 1.18.31 drops a tool when the last permission rule matching its name
+ * is a `"*"` pattern with action `"deny"` (rules apply in insertion order and
+ * `*` matches any run of characters). Mirror that rule to prove its tool-call
+ * repair target stays registered while every unlisted tool stays removed.
+ */
+function openCodeDisablesTool(permission: Record<string, string>, tool: string): boolean {
+  const matches = (name: string, pattern: string) =>
+    new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(
+      name,
+    );
+  const rule = Object.entries(permission)
+    .reverse()
+    .find(([pattern]) => matches(tool, pattern));
+  return rule?.[1] === "deny";
+}
+
+test("OpenCode keeps its tool-call repair target while unlisted tools stay removed", () => {
+  for (const nativeCoding of [false, true]) {
+    const permission = configuration(nativeCoding).permission as Record<string, string>;
+    assert.equal(openCodeDisablesTool(permission, OPENCODE_REPAIR_TOOL), false);
+    assert.equal(openCodeDisablesTool(permission, "genosyn_find_tools"), false);
+    for (const tool of ["task", "question", "webfetch", "skill", "call_tool"])
+      assert.equal(openCodeDisablesTool(permission, tool), true, tool);
+    assert.equal(openCodeDisablesTool(permission, "bash"), !nativeCoding);
+  }
 });
 
 test("unlimited turns omit OpenCode's native step ceiling", () => {
@@ -100,6 +139,23 @@ test("provider mapping preserves Responses, Anthropic effort and endpoint model 
   );
 });
 
+// 2026-10-02: a saturated vLLM took over five minutes to start answering Routine
+// steps, and OpenCode abandoned each one at five minutes and sent it again.
+test("a custom endpoint gets longer to start answering than a hosted API", () => {
+  const options = (provider: "custom" | "anthropic") =>
+    buildOpenCodeConfig({
+      model: { ...model, provider },
+      maxSteps: 4,
+      nativeCoding: false,
+      mcp: { url: "http://localhost/mcp", token: "secret" },
+    }).provider?.["genosyn-model"]?.options;
+  assert.ok(SELF_HOSTED_RESPONSE_WAIT_MS > 5 * 60_000, "longer than OpenCode's own five minutes");
+  assert.equal(options("custom")?.headerTimeout, SELF_HOSTED_RESPONSE_WAIT_MS);
+  assert.equal(options("custom")?.chunkTimeout, SELF_HOSTED_RESPONSE_WAIT_MS);
+  assert.equal(options("anthropic")?.headerTimeout, undefined);
+  assert.equal(options("anthropic")?.chunkTimeout, undefined);
+});
+
 test("OpenAI limits inherit published output caps and reserve input for small windows", () => {
   assert.deepEqual(openCodeModelLimits({ context: 128000, output: 16384 }, 128000), {
     context: 128000,
@@ -129,6 +185,21 @@ test("unknown context stays unknown and legacy Anthropic models keep their outpu
     context: 0,
     output: 4096,
   });
+});
+
+test("custom endpoints with a known window leave reasoning models room to think", () => {
+  const limitFor = (contextWindow: number | null, provider: "custom" | "anthropic" = "custom") =>
+    buildOpenCodeConfig({
+      model: { ...model, provider, id: "qwen", contextWindow },
+      maxSteps: null,
+      nativeCoding: false,
+      mcp: { url: "", token: "" },
+    }).provider?.["genosyn-model"].models?.qwen.limit;
+  assert.deepEqual(limitFor(262144), { context: 262144, output: CUSTOM_MODEL_OUTPUT_LIMIT });
+  assert.deepEqual(limitFor(65536), { context: 65536, output: 16384 }, "a quarter of the window");
+  assert.deepEqual(limitFor(32000), { context: 32000, output: 8000 });
+  assert.deepEqual(limitFor(null), { context: 0, output: 8192 }, "an unknown window stays small");
+  assert.deepEqual(limitFor(262144, "anthropic"), { context: 262144, output: 8192 });
 });
 
 test("child environment excludes ambient credentials and repository configuration", () => {
@@ -478,6 +549,50 @@ test("MCP serves resident tools, dispatches deferred tools, and preserves images
     assert.equal(failure.isError, true);
     assert.equal(seen[0], "observe");
     assert.equal(seen[2], "failure");
+  } finally {
+    await client.close();
+    await endpoint.close();
+  }
+});
+
+test("a Run's time check reaches the model beside the tool output, never inside it", async () => {
+  const checkpoint = JSON.stringify({ ok: true, state: "continue" });
+  const registry = residentOnlyRegistry([
+    {
+      name: "save_run_checkpoint",
+      description: "Save progress.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => ({ content: checkpoint }),
+    },
+  ]);
+  const notices = ["[Time check] About 9 minutes remain.", null];
+  registry.resultNotice = () => notices.shift() ?? null;
+  const recorded: string[] = [];
+  const endpoint = await serveOpenCodeTools({
+    registry,
+    callbacks: { onToolResult: (_name, result) => recorded.push(result.content) },
+  });
+  const client = new Client({ name: "fixture", version: "1" });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(endpoint.url), {
+        requestInit: { headers: { Authorization: `Bearer ${endpoint.token}` } },
+      }),
+    );
+    const withNotice = await client.callTool({ name: "save_run_checkpoint", arguments: {} });
+    assert.deepEqual(withNotice.content, [
+      { type: "text", text: checkpoint },
+      { type: "text", text: "[Time check] About 9 minutes remain." },
+    ]);
+    const quiet = await client.callTool({ name: "save_run_checkpoint", arguments: {} });
+    assert.deepEqual(quiet.content, [{ type: "text", text: checkpoint }]);
+    assert.deepEqual(recorded, [checkpoint, checkpoint], "the runner parses the tool's own output");
+
+    registry.resultNotice = () => {
+      throw new Error("a broken note");
+    };
+    const unaffected = await client.callTool({ name: "save_run_checkpoint", arguments: {} });
+    assert.deepEqual(unaffected.content, [{ type: "text", text: checkpoint }]);
   } finally {
     await client.close();
     await endpoint.close();
@@ -908,7 +1023,11 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 test("native permissions recheck Member authority, and scoped turns deny them", async () => {
-  for (const nativeCoding of [false, true]) {
+  for (const { nativeCoding, denial, reply } of [
+    { nativeCoding: false, denial: null, reply: "reject" },
+    { nativeCoding: true, denial: "Member authority was removed.", reply: "reject" },
+    { nativeCoding: true, denial: null, reply: "once" },
+  ]) {
     let checked = 0;
     const runtime = await fakeOpenCode(async (emit) => {
       emit({
@@ -932,16 +1051,91 @@ test("native permissions recheck Member authority, and scoped turns deny them", 
         nativeCoding,
         authorizePrivilegedToolCall: async () => {
           checked++;
-          return "Member authority was removed.";
+          return denial;
         },
       });
-      assert.equal(runtime.permissions[0].reply, "reject");
+      assert.equal(runtime.permissions[0].reply, reply);
       assert.equal(checked, nativeCoding ? 1 : 0);
     } finally {
       await runtime.close();
     }
   }
 });
+
+for (const ending of ["cancelled", "completed"] as const) {
+  for (const lateResult of ["allow", "reject"] as const) {
+    test(
+      `a ${ending} session stops waiting for native authorization before its late ${lateResult}`,
+      { timeout: 15_000 },
+      async () => {
+        const controller = new AbortController();
+        let checked = false;
+        let settled = false;
+        let finishAuthorization!: () => void;
+        const authorization = new Promise<string | null>((resolve, reject) => {
+          finishAuthorization = () => {
+            settled = true;
+            if (lateResult === "allow") resolve(null);
+            else reject(new Error("The delayed authority check failed."));
+          };
+        });
+        const runtime = await fakeOpenCode(async (emit) => {
+          emit({
+            id: "permission",
+            type: "permission.asked",
+            properties: {
+              id: "request",
+              sessionID: "session",
+              permission: "bash",
+              patterns: ["echo example"],
+              metadata: {},
+              always: [],
+            },
+          });
+          await waitFor(() => checked);
+          if (ending === "cancelled") await waitFor(() => runtime.aborts === 1);
+          return { info: assistant(), parts: [] };
+        });
+        const turn = runOpenCodeSession(runtime.connection, "fixture", {
+          ...turnParams(),
+          signal: controller.signal,
+          nativeCoding: true,
+          authorizePrivilegedToolCall: () => {
+            checked = true;
+            return authorization;
+          },
+        });
+        void turn.catch(() => {});
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await waitFor(() => checked);
+          if (ending === "cancelled") controller.abort(new Error("Original Run deadline reached"));
+          const result = await Promise.race([
+            turn,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("Session teardown waited for the blocked authorizer.")),
+                3000,
+              );
+            }),
+          ]);
+          assert.equal(result.stopReason, ending === "cancelled" ? "aborted" : "end_turn");
+          assert.equal(settled, false, "cleanup must finish while the authority check is pending");
+          assert.equal(runtime.aborts, ending === "cancelled" ? 1 : 0);
+          assert.deepEqual(runtime.permissions, [], "pending authority must never grant access");
+          finishAuthorization();
+          await authorization.catch(() => null);
+          assert.deepEqual(runtime.permissions, [], "late authority cannot reopen the ended turn");
+        } finally {
+          clearTimeout(timer);
+          finishAuthorization();
+          await turn.catch(() => {});
+          await runtime.close();
+        }
+      },
+    );
+  }
+}
 
 test("step limit aborts the external session and reports unfinished work", async () => {
   const runtime = await fakeOpenCode(async (emit) => {
@@ -988,6 +1182,13 @@ test("unlimited external sessions continue beyond the former 100-step ceiling", 
       );
     }
     await waitFor(() => observedSteps === 125);
+    const report: Part = {
+      id: "report",
+      sessionID: "session",
+      messageID: "assistant",
+      type: "text",
+      text: "Finished after 125 tool steps.",
+    };
     const finish: Part = {
       id: "finish",
       sessionID: "session",
@@ -997,7 +1198,7 @@ test("unlimited external sessions continue beyond the former 100-step ceiling", 
       cost: 0,
       tokens: assistant().tokens,
     };
-    return { info: assistant(), parts: [finish] };
+    return { info: assistant(), parts: [report, finish] };
   });
   try {
     const result = await runOpenCodeSession(runtime.connection, "fixture", {
@@ -1007,6 +1208,8 @@ test("unlimited external sessions continue beyond the former 100-step ceiling", 
     });
     assert.equal(result.stopReason, "end_turn");
     assert.equal(result.steps, 126);
+    assert.equal(result.finalText, "Finished after 125 tool steps.");
+    assert.equal(runtime.prompts, 1, "a turn that reports is not asked again");
     assert.equal(runtime.aborts, 0);
   } finally {
     await runtime.close();

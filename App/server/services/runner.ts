@@ -15,6 +15,7 @@ import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
 import { selfReviewToolScope } from "./proactive/reviewPolicy.js";
+import { createRunDeadlineNotice } from "./runDeadlineNotice.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
@@ -27,9 +28,16 @@ import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import { contextUsagePercent, isContextUsageHigh } from "./agent/contextUsage.js";
-import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
+import type {
+  CompactionInfo,
+  ModelOutage,
+  ToolDeferralInfo,
+  ToolTrimInfo,
+  TurnUsage,
+} from "./agent/types.js";
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
@@ -56,23 +64,26 @@ import {
 import type { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import {
   StanddownError,
-  placeStanddown,
   registerRunInterrupter,
   unregisterRunInterrupter,
   workBlocked,
 } from "./standdowns.js";
-import { getContainmentSettings } from "./runtimeSettings.js";
 import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
-import { runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
+import { createRunBatchNotice, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
 import { manualResumeEligibility, RunManualResumeError } from "./runManualResume.js";
 import {
   checkpointAdvanced,
   continuationBrief,
   continuationEligibility,
+  creditedQueueWaitMs,
   readRunCheckpoint,
   CONTINUATION_DELAY_MS,
+  MAX_RUN_CONTINUATIONS,
+  minContinuationWindowMs,
 } from "./runContinuation.js";
+import { QueuedRoutineIneligibleError, registerQueuedRun } from "./routineQueue.js";
+import { findAcceptedManualRoutineRun, persistManualRoutineRun } from "./routineManualStart.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -140,6 +151,8 @@ export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): 
  * and saw what happened.
  */
 export type StartRunOptions = {
+  /** Server-only: an accepted occurrence retains its original restricted work surface. */
+  queuePolicy?: Pick<Routine, "selfReviewOnly" | "mailDeliveryMode">;
   /** Server-only: an admin grants a fresh time window to this saved unfinished work. */
   resumeFromRunId?: string;
   /** Internal: resume an owned durable checkpoint within its original limits. */
@@ -166,8 +179,8 @@ export type StartRunOptions = {
 };
 
 /**
- * Begin a run and return the saved Run row immediately (status `running`),
- * along with a `completion` promise that resolves once the agent finishes and
+ * Persist and independently dispatch a Run, returning its durable row immediately
+ * (initially `queued`) and a `completion` promise that resolves once the agent finishes and
  * the row has been finalized. The durable log is registered in
  * {@link liveBuffers} for the lifetime of the run so polling clients can tail
  * output, while periodic snapshots are checkpointed to the DB for crash
@@ -177,13 +190,59 @@ export async function startRoutineRun(
   routine: Routine,
   opts: StartRunOptions = {},
 ): Promise<{ run: Run; completion: Promise<Run> }> {
+  return prepareRoutineRun(routine, opts);
+}
+
+/** Direct Member requests open accepted work instead of duplicating an uncertain start. */
+export async function startManualRoutineRun(routine: Routine, companyId: string): Promise<Run> {
+  const existing = await findAcceptedManualRoutineRun(routine, companyId);
+  if (existing) return existing;
+  const { run, completion } = await prepareRoutineRun(routine, {}, undefined, companyId);
+  // A reused Run keeps its original caller's waiter, even on another process.
+  completion?.catch((error) => {
+    console.error("[run]", error);
+  });
+  return run;
+}
+
+/** Dispatch-only execution seam: the caller must own this Run's durable claim. */
+export async function executeQueuedRoutineRun(
+  routine: Routine,
+  queued: Run,
+  opts: StartRunOptions,
+): Promise<Run> {
+  return (await prepareRoutineRun(routine, opts, queued)).completion;
+}
+
+async function prepareRoutineRun(
+  routine: Routine,
+  opts: StartRunOptions,
+  queued?: Run,
+): Promise<{ run: Run; completion: Promise<Run> }>;
+async function prepareRoutineRun(
+  routine: Routine,
+  opts: StartRunOptions,
+  queued: undefined,
+  manualCompanyId: string,
+): Promise<{ run: Run; completion: Promise<Run> | null }>;
+async function prepareRoutineRun(
+  routine: Routine,
+  opts: StartRunOptions,
+  queued?: Run,
+  manualCompanyId?: string,
+): Promise<{ run: Run; completion: Promise<Run> | null }> {
+  const retainQueuePolicy = (): void => {
+    routine.selfReviewOnly ||= !!opts.queuePolicy?.selfReviewOnly;
+    routine.mailDeliveryMode ||= opts.queuePolicy?.mailDeliveryMode ?? null;
+  };
+  retainQueuePolicy();
   if (browserRunCreationBlocked({ employeeId: routine.employeeId, routineId: routine.id })) {
     throw new Error("This Routine is being removed.");
   }
   // The Routine's timeout is an absolute wall-clock budget, not merely an
   // agent-loop timer. Capture it before model resolution, lease acquisition,
   // and every other start prerequisite, then persist this exact boundary.
-  const startedAt = new Date();
+  const startedAt = queued?.startedAt ?? new Date();
   const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
   const runRepo = AppDataSource.getRepository(Run);
   const empRepo = AppDataSource.getRepository(AIEmployee);
@@ -240,21 +299,38 @@ export async function startRoutineRun(
     )
       throw new RunManualResumeError("This Run cannot resume unfinished work.");
   } else if (opts.triggerKind === "continuation" || opts.continuationFromRunId) {
+    // A queued continuation is judged as of when it joined the queue: its wait
+    // for a busy AI Model does not spend the time its parent left.
+    const judgedAt = new Date(Date.now() - (queued ? creditedQueueWaitMs(queued) : 0));
     if (
       !continuationParent ||
       opts.triggerKind !== "continuation" ||
       proactiveApproval ||
-      !continuationEligibility(continuationParent, routine).eligible
+      !continuationEligibility(continuationParent, routine, judgedAt).eligible
     ) {
       throw new Error("This Run cannot start an automatic continuation.");
     }
   }
 
+  // A retry repeats the attempt it follows, so it keeps at least that
+  // attempt's review scope; it is never wider than the work being repeated.
+  const retriedAttempt =
+    !queued && opts.triggerKind === "retry" && opts.parentRunId
+      ? await runRepo.findOne({
+          where: { id: opts.parentRunId, routineId: routine.id },
+          select: { id: true, continuationReviewOnly: true },
+        })
+      : null;
+
   const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
+    ...(queued ? { id: queued.id, createdAt: queued.createdAt } : { createdAt: startedAt }),
     routineId: routine.id,
+    employeeId: emp.id,
+    queueActiveEmployeeId: queued?.queueActiveEmployeeId ?? null,
+    queueOptionsJson: JSON.stringify({ ...opts, beforeRunPersist: undefined }),
     startedAt,
-    status: "running",
+    status: queued ? "running" : "queued",
     errorKind: null,
     failureReason: null,
     logContent: "",
@@ -271,7 +347,9 @@ export async function startRoutineRun(
       ? (continuationParent.continuationOriginTriggerKind ?? continuationParent.triggerKind)
       : null,
     continuationReviewOnly:
+      !!queued?.continuationReviewOnly ||
       !!continuationParent?.continuationReviewOnly ||
+      !!retriedAttempt?.continuationReviewOnly ||
       routineNeedsWorkReview(
         routine,
         continuationParent?.continuationOriginTriggerKind ??
@@ -280,10 +358,11 @@ export async function startRoutineRun(
           "manual",
       ),
     continuationDeadlineAt:
-      continuationParent && !manualResume
+      queued?.continuationDeadlineAt ??
+      (continuationParent && !manualResume
         ? (continuationParent.continuationDeadlineAt ??
           new Date(continuationParent.startedAt.getTime() + timeoutMs))
-        : new Date(startedAt.getTime() + timeoutMs),
+        : new Date(startedAt.getTime() + timeoutMs)),
     continuationTokensUsed:
       continuationParent && !manualResume
         ? (continuationParent.continuationTokensUsed ?? 0) +
@@ -292,7 +371,28 @@ export async function startRoutineRun(
         : 0,
   });
   let saved: Run;
-  await opts.beforeRunPersist?.();
+  if (!queued) await opts.beforeRunPersist?.();
+  if (queued) {
+    const current = await AppDataSource.getRepository(Routine).findOneBy({ id: routine.id });
+    if (!current || current.employeeId !== emp.id) {
+      throw new QueuedRoutineIneligibleError(
+        "The Routine was removed or reassigned before its queued work could start.",
+      );
+    }
+    if (
+      ["schedule", "retry", "event", "webhook", "continuation"].includes(run.triggerKind) &&
+      (!current.enabled || current.requiresApproval)
+    ) {
+      throw new QueuedRoutineIneligibleError(
+        "The Routine's enabled state or approval requirement changed before starting.",
+      );
+    }
+    Object.assign(routine, current);
+    retainQueuePolicy();
+    const latestStop = workBlocked(co.id, { employeeId: emp.id, routineId: routine.id });
+    if (latestStop.blocked)
+      throw new StanddownError("This Routine was stood down before starting.");
+  }
   if (manualResume) {
     const currentParent = await runRepo.findOneBy({ id: parentId!, routineId: routine.id });
     if (
@@ -306,14 +406,37 @@ export async function startRoutineRun(
     routine,
     run.continuationOriginTriggerKind ?? run.triggerKind,
   );
+  run.queueOptionsJson = JSON.stringify({
+    ...opts,
+    beforeRunPersist: undefined,
+    queuePolicy: {
+      selfReviewOnly: routine.selfReviewOnly,
+      mailDeliveryMode: routine.mailDeliveryMode,
+    },
+  });
   if (browserRunCreationBlocked(runAuthority)) {
     throw new Error("This Routine is being removed.");
   }
-  saved = await runRepo.save(run);
+  if (queued) {
+    // A removed Routine/employee must not be resurrected by a slow setup save.
+    const updated = await runRepo.update(
+      { id: queued.id, status: "running", queueActiveEmployeeId: queued.queueActiveEmployeeId! },
+      run,
+    );
+    if (updated.affected !== 1) throw new Error("The queued Run was removed before starting.");
+    saved = run;
+  } else if (manualCompanyId) {
+    const accepted = await persistManualRoutineRun(run, manualCompanyId);
+    if (!accepted.created) return { run: accepted.run, completion: null };
+    saved = accepted.run;
+  } else {
+    saved = await runRepo.save(run);
+  }
   if (browserRunCreationBlocked(runAuthority)) {
     await runRepo.delete({ id: saved.id }).catch(() => undefined);
     throw new Error("This Routine is being removed.");
   }
+  if (!queued) return { run: saved, completion: registerQueuedRun(saved) };
   const deadlineAtMs = Math.min(
     saved.startedAt.getTime() + timeoutMs,
     saved.continuationDeadlineAt?.getTime() ?? Infinity,
@@ -363,12 +486,13 @@ export async function startRoutineRun(
         ? [
             manualResume
               ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh time window and no total model-token limit; deadline ${new Date(deadlineAtMs).toISOString()}.`
-              : `[continuation] Resuming ${continuationParent.id}; original deadline ${new Date(deadlineAtMs).toISOString()}.`,
+              : `[continuation] Resuming ${continuationParent.id}; shared deadline ${new Date(deadlineAtMs).toISOString()}.`,
           ]
         : []),
       ...(missedSlots > 0
-        ? [`missed=${missedSlots} scheduled occurrence(s) while the server was unavailable`]
+        ? [`missed=${missedSlots} more scheduled occurrence(s) covered by this run`]
         : []),
+      ...queueWaitLine(saved),
       "",
     ].join("\n") + "\n",
   );
@@ -409,7 +533,7 @@ export async function startRoutineRun(
         await settleAfterRun(routine.id, saved.finishedAt);
         await journalQuietly(emp.id, routine, saved);
         await contractAutonomyOnBadRun({ run: saved, employee: emp });
-        await updateRoutineBreaker(saved, routine, co.id, emp.id);
+        await updateRoutineFailureCount(saved, routine);
       }
     } finally {
       liveBuffers.delete(saved.id);
@@ -439,14 +563,7 @@ export async function startRoutineRun(
       await settleAfterRun(routine.id, saved.finishedAt);
       await journalQuietly(emp.id, routine, saved);
       await contractAutonomyOnBadRun({ run: saved, employee: emp });
-      // The breaker has to see this. A timeout is the *characteristic* shape of
-      // the failure it exists for — a deleted integration, a renamed report, a
-      // Connection whose token expired all hang rather than returning a tidy
-      // provider error — and every one of this function's four callers returns
-      // straight out of the completion body, so leaving the count to the happy
-      // path meant the breaker never fired on exactly the population it was
-      // built for.
-      await updateRoutineBreaker(saved, routine, co.id, emp.id);
+      await updateRoutineFailureCount(saved, routine);
       return saved;
     };
     try {
@@ -510,13 +627,11 @@ export async function startRoutineRun(
       }
 
       const parallelDelegationAvailable =
-        deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model.authMode);
+        deliveryPolicy.allowPrivilegedToolSources && supportsParallelDelegation(model);
       const unavailableCodingTools =
         !deliveryPolicy.allowPrivilegedToolSources || !codingRuntimeAvailability().available
           ? [...CODING_TOOL_NAMES]
-          : config.agent.codingTools.executionMode === "bubblewrap"
-            ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-            : [];
+          : [];
       const unavailableSkillTools = [
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
@@ -546,11 +661,13 @@ export async function startRoutineRun(
         log.line("[repos] automatic repository sync is disabled for this Run");
       }
       const financeContext = await composeFinanceContext(emp.id);
-      const [signingContext, revenueContext, marketingContext] = await Promise.all([
-        composeSigningContext({ companyId: co.id, employeeId: emp.id }),
-        composeRevenueContext(emp.id),
-        composeMarketingContext(emp.id),
-      ]);
+      const [signingContext, revenueContext, marketingContext, resourcesContext] =
+        await Promise.all([
+          composeSigningContext({ companyId: co.id, employeeId: emp.id }),
+          composeRevenueContext(emp.id),
+          composeMarketingContext(emp.id),
+          composeResourceLibraryContext(emp.id),
+        ]);
       if (deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
@@ -567,10 +684,11 @@ export async function startRoutineRun(
         signingContext,
         revenueContext,
         marketingContext,
+        resourcesContext,
         surface: "routine",
+        routineId: routine.id,
         parallelDelegationAvailable,
         codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
-        isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
         opening:
           `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — ` +
           `your Soul, your Memory, and your Skills.`,
@@ -619,7 +737,7 @@ export async function startRoutineRun(
         : deliveryMessage;
       const userMessage = [
         scopedMessage,
-        runBatchBrief(),
+        runBatchBrief({ continuationCount: saved.continuationCount, deadlineAtMs }),
         continuationParent ? continuationBrief(continuationParent, manualResume) : "",
       ]
         .filter(Boolean)
@@ -654,7 +772,29 @@ export async function startRoutineRun(
       const controller = new AbortController();
       let timedOut = false;
       let batchYielded = false;
+      let backgroundWork = 0;
       const inFlightTools = new Map<string, number>();
+      // Whether this Run may hand unfinished work to a fresh Run at all, and
+      // whether a continue checkpoint saved now could do so.
+      const canContinue = () =>
+        routine.enabled &&
+        !routine.requiresApproval &&
+        !routine.selfReviewOnly &&
+        saved.triggerKind !== "approval" &&
+        !proactiveApproval;
+      const canHandOff = () =>
+        canContinue() &&
+        saved.continuationCount < MAX_RUN_CONTINUATIONS &&
+        deadlineAtMs >
+          Date.now() + Math.max(CONTINUATION_DELAY_MS, minContinuationWindowMs(routine.timeoutSec));
+      const deadlineNotice = createRunDeadlineNotice({
+        deadlineAtMs,
+        budgetMs: Math.max(1, routine.timeoutSec) * 1000,
+      });
+      const batchNotice = createRunBatchNotice({
+        tokens: () => saved.tokensIn + saved.tokensOut,
+        canHandOff,
+      });
       // A Standdown placed while this Run is in flight aborts it (M58) — a stop
       // that only takes effect at the next slot is not a stop. The registry
       // lives in `standdowns.ts` rather than here so the predicate and the
@@ -704,8 +844,12 @@ export async function startRoutineRun(
                 })
               : undefined,
             toolScope: selfReviewToolScope(routine.selfReviewOnly),
+            toolResultNotice: (context) => deadlineNotice(context) ?? batchNotice(context),
             signal: controller.signal,
             callbacks: {
+              onBackgroundWork: (pendingGroups) => {
+                backgroundWork = pendingGroups;
+              },
               onModelRetry: (retry) =>
                 log.line(
                   `\n[model] ${retry.reason}; retrying attempt ${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${(retry.delayMs / 1000).toFixed(1)}s`,
@@ -734,17 +878,21 @@ export async function startRoutineRun(
                 if (
                   !controller.signal.aborted &&
                   inFlightTools.size === 0 &&
+                  backgroundWork === 0 &&
                   shouldYieldRunBatch({
                     toolName: name,
                     result: r,
                     tokensThisRun: saved.tokensIn + saved.tokensOut,
                     continuationCount: saved.continuationCount,
                     deadlineAtMs,
-                    canContinue:
-                      routine.enabled &&
-                      !routine.requiresApproval &&
-                      !routine.selfReviewOnly &&
-                      !proactiveApproval,
+                    minWindowMs: minContinuationWindowMs(routine.timeoutSec),
+                    previousCheckpoint:
+                      saved.triggerKind === "continuation"
+                        ? continuationParent
+                          ? readRunCheckpoint(continuationParent)
+                          : null
+                        : undefined,
+                    canContinue: canContinue(),
                   })
                 ) {
                   batchYielded = true;
@@ -763,6 +911,9 @@ export async function startRoutineRun(
                 log.line(usageLine(u, model.contextWindow));
               },
               onCompact: (c) => log.line(compactLine(c)),
+              onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
+              onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
+              onServedModelChange: (change) => log.line(`\n${servedModelLine(change)}`),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
             },
@@ -798,7 +949,7 @@ export async function startRoutineRun(
         if (finalization.persisted) {
           await settleAfterRun(routine.id, saved.finishedAt);
           await journalQuietly(emp.id, routine, saved);
-          await updateRoutineBreaker(saved, routine, co.id, emp.id);
+          await updateRoutineFailureCount(saved, routine);
         }
         return saved;
       }
@@ -824,6 +975,23 @@ export async function startRoutineRun(
         log.line("\n[failed] The AI Model stopped before the work finished.");
         saved.status = "failed";
         diagnostics.fail("The AI Model stopped before the work finished.", "work");
+        saved.exitCode = null;
+      } else if (result.stopReason === "length") {
+        // The provider cut the response off at its output ceiling, so the
+        // tool call or report it was writing never happened. That is a model
+        // limit, not finished work, however quiet the transcript looks.
+        if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
+        log.line(`\n[error] ${OUTPUT_LIMIT_STOP}`);
+        saved.status = "error";
+        saved.errorKind = "runtime";
+        diagnostics.fail(OUTPUT_LIMIT_STOP, "model");
+        saved.exitCode = null;
+      } else if (!result.finalText.trim()) {
+        // The model ended its turn with no reply, even after being asked to
+        // continue or report. Nothing says the work was done, so it was not.
+        log.line(`\n[failed] ${NO_REPORT_STOP}`);
+        saved.status = "failed";
+        diagnostics.fail(NO_REPORT_STOP, "work");
         saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
@@ -964,10 +1132,7 @@ export async function startRoutineRun(
       if (reflect && !saved.retryAt) {
         await reflectOnRun({ run: saved, routine, employee: emp, model });
       }
-      // The breaker (M58). Same seam and same reasoning as the demotion above:
-      // tightening happens where the evidence appears, never on a sweep that
-      // might not run.
-      await updateRoutineBreaker(saved, routine, co.id, emp.id);
+      await updateRoutineFailureCount(saved, routine);
       return saved;
     } catch (err) {
       if (deadlineReached()) {
@@ -986,14 +1151,14 @@ export async function startRoutineRun(
       await settleAfterRun(routine.id, saved.finishedAt);
       await journalQuietly(emp.id, routine, saved);
       await contractAutonomyOnBadRun({ run: saved, employee: emp });
-      // Same reason as the timeout path: a Run that threw is a failed Run, and
-      // a Routine whose every attempt throws is precisely what the breaker is
-      // watching for.
-      await updateRoutineBreaker(saved, routine, co.id, emp.id);
+      await updateRoutineFailureCount(saved, routine);
       return saved;
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
       unregisterRunInterrupter(saved.id);
+      // Recovery may have won before the normal terminal finalizer. Its early
+      // return still owns this log timer and must drain it before queue cleanup.
+      await log.stopCheckpointing();
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
@@ -1067,7 +1232,7 @@ async function finalizeRunFromRunning(
         const previous = parent ? readRunCheckpoint(parent) : null;
         if (!previous || !checkpointAdvanced(checkpoint, previous)) {
           run.continuationStopReason =
-            "The continuation made no measurable progress from its saved checkpoint.";
+            "The saved checkpoint did not advance beyond the previous Run.";
         }
       }
       const eligible = continuationEligibility(run, routine);
@@ -1292,14 +1457,27 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
  * owns also keeps a concurrent settings edit from being clobbered.
  */
 async function touchRoutine(routineId: string, at: Date | null): Promise<void> {
+  if (!at) return;
   const repo = AppDataSource.getRepository(Routine);
-  const fresh = await repo.findOneBy({ id: routineId });
-  if (!fresh) return;
-  // Recompute nextRunAt from the moment the run finished. Collapses any missed
-  // slots that elapsed during a long-running invocation into a single future
-  // tick, so the heartbeat doesn't immediately refire the stale slot.
-  const next = fresh.enabled ? nextRunFor(fresh.cronExpr, at ?? new Date()) : fresh.nextRunAt;
-  await repo.update({ id: routineId }, { lastRunAt: at, nextRunAt: next });
+  for (;;) {
+    const fresh = await repo.findOneBy({ id: routineId });
+    if (!fresh || (fresh.lastRunAt && fresh.lastRunAt >= at)) return;
+    // Collapse elapsed slots without rewinding one already advanced by the
+    // heartbeat. A concurrent schedule edit is re-read before another attempt.
+    let next = fresh.enabled ? nextRunFor(fresh.cronExpr, at) : fresh.nextRunAt;
+    if (next && fresh.nextRunAt && fresh.nextRunAt > next) next = fresh.nextRunAt;
+    const updated = await repo.update(
+      {
+        id: routineId,
+        enabled: fresh.enabled,
+        cronExpr: fresh.cronExpr,
+        lastRunAt: fresh.lastRunAt ?? IsNull(),
+        nextRunAt: fresh.nextRunAt ?? IsNull(),
+      },
+      { lastRunAt: at, nextRunAt: next },
+    );
+    if (updated.affected === 1) return;
+  }
 }
 
 /**
@@ -1458,6 +1636,10 @@ async function runCheckPhase(args: {
               })
             : undefined,
         toolScope: selfReviewToolScope(args.routine.selfReviewOnly),
+        toolResultNotice: createRunDeadlineNotice({
+          deadlineAtMs: args.deadlineAtMs,
+          budgetMs: Math.max(1, args.routine.timeoutSec) * 1000,
+        }),
         signal: controller.signal,
         callbacks: {
           onText: (delta) => log.write(delta),
@@ -1473,6 +1655,8 @@ async function runCheckPhase(args: {
             tokensIn += u.inputTokens;
             tokensOut += u.outputTokens;
           },
+          onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
+          onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
         },
       });
       if (
@@ -1488,7 +1672,7 @@ async function runCheckPhase(args: {
         args.diagnostics.fail(result.error, "model");
         log.line(`\n[checks] remediation turn failed: ${result.error}`);
         log.line(workSummaryLogLine(""));
-      } else if (result.stopReason !== "max_steps" && result.stopReason !== "aborted") {
+      } else if (!["max_steps", "aborted", "length"].includes(result.stopReason ?? "")) {
         log.line(workSummaryLogLine(result.finalText));
       } else {
         incomplete = true;
@@ -1544,24 +1728,12 @@ function describeCheckPhase(phase: {
 }
 
 /**
- * The circuit breaker (M58).
- *
- * A Routine that is permanently broken — a deleted integration, a renamed
- * report, a Connection whose token expired — used to fire on its cron forever,
- * failing identically and burning model spend every slot for as long as nobody
- * looked. The counter lives on the row so it survives a restart, and it is
- * maintained here rather than on a sweep for the same reason autonomy demotion
- * is: the evidence exists exactly once, at this moment.
+ * Keep the failure streak for diagnostics. Repeated failures do not place a
+ * Standdown: the Routine keeps its schedule and configured retries.
  */
-async function updateRoutineBreaker(
-  run: Run,
-  routine: Routine,
-  companyId: string,
-  employeeId: string,
-): Promise<void> {
+async function updateRoutineFailureCount(run: Run, routine: Routine): Promise<void> {
   try {
-    // A retry is still owed: the chain has not finished failing yet, and
-    // counting each attempt would trip the breaker in a single bad hour.
+    // A retry is still owed: count the failed chain once it is exhausted.
     if (run.retryAt) return;
     const clean =
       run.status === "completed" &&
@@ -1569,37 +1741,19 @@ async function updateRoutineBreaker(
       run.outcomeVerdict !== "off_goal";
     const repo = AppDataSource.getRepository(Routine);
     if (clean) {
-      if (routine.consecutiveFailures === 0) return;
       await repo.update({ id: routine.id }, { consecutiveFailures: 0 });
       return;
     }
     // Defensive rather than reachable: `startRoutineRun` returns a skipped Run
     // long before this point. Kept because "no model connected" is not a
     // failure of the Routine's own work, and a future caller that does reach
-    // here with one must not trip the breaker on it.
+    // here with one must not count it as a failure.
     if (run.status === "skipped" || run.status === "reviewed") return;
-    const threshold = getContainmentSettings().routineBreakerThreshold;
-    const next = (routine.consecutiveFailures ?? 0) + 1;
-    await repo.update({ id: routine.id }, { consecutiveFailures: next });
-    if (threshold <= 0 || next < threshold) return;
-    await placeStanddown({
-      companyId,
-      scope: "routine",
-      scopeId: routine.id,
-      source: "breaker",
-      reason:
-        `${next} consecutive failed Runs — the most recent finished ${run.status}` +
-        `${run.checksVerdict === "failed" ? " with failing checks" : ""}` +
-        `${run.outcomeVerdict === "off_goal" ? " and off goal" : ""}. ` +
-        "Fix the cause and return this Routine to work.",
-      placedByUserId: null,
-    });
+    await repo.increment({ id: routine.id }, "consecutiveFailures", 1);
   } catch (err) {
-    // The breaker is a safety net. A net that can fail a Run it was watching
-    // would be worse than no net.
+    // Diagnostic bookkeeping must not fail the Run it is recording.
     // eslint-disable-next-line no-console
-    console.error(`[runner] breaker update failed for routine ${routine.id}:`, err);
-    void employeeId;
+    console.error(`[runner] failure count update failed for routine ${routine.id}:`, err);
   }
 }
 
@@ -1720,10 +1874,57 @@ function composeRoutineMessage(
     ...(missedSlots > 0
       ? [
           "",
-          `This run is catching up: ${missedSlots} scheduled occurrence(s) were missed while ` +
-            "the server was unavailable. Cover the whole period since the last run rather than " +
-            "only the most recent interval, and say so in your output.",
+          `This run is catching up: it also stands in for ${missedSlots} scheduled ` +
+            "occurrence(s) that did not get their own run, because the server was unavailable " +
+            "or they came due while this run waited to start. Cover the whole period since the " +
+            "last run rather than only the most recent interval, and say so in your output.",
         ]
       : []),
   ].join("\n");
+}
+
+const SILENT_STOP_LINE =
+  "The AI Model stopped without a reply or a tool call; asked it to continue the work or report.";
+const NO_REPORT_STOP =
+  "The AI Model ended its turn without a final report, so this Run cannot show the work was done.";
+
+/** The log line for a self-hosted server that now serves a different model. */
+export function servedModelLine(change: { from: string; to: string }): string {
+  return `[model] The AI Model's server now serves only ${change.to}, not ${change.from}; this AI Model uses ${change.to} from now on.`;
+}
+
+/** The log line for a self-hosted AI Model's server stopping and answering again. */
+export function modelOutageLine(outage: ModelOutage): string {
+  if (outage.state === "waiting")
+    return "[model] The AI Model's server stopped answering. This Run waits for it and continues once it answers; the wait counts against its time limit.";
+  const waited =
+    outage.waitedMs < 60_000
+      ? `${Math.max(1, Math.round(outage.waitedMs / 1000))}s`
+      : `${Math.round(outage.waitedMs / 60_000)}m`;
+  return `[model] The AI Model's server answered again after ${waited}; continuing.`;
+}
+
+const OUTPUT_LIMIT_STOP =
+  "The AI Model's response was cut off at its output limit before the work finished. Reasoning models can spend that allowance thinking; if this repeats, set the model's context window on its card (a known window allows longer responses) or ask for less in one Run.";
+
+/**
+ * How long an accepted Run waited before it was claimed — usually for its AI
+ * Model to finish other Runs. The wait never counts against its time limit.
+ */
+export function queueWaitLine(
+  run: Pick<Run, "createdAt" | "startedAt" | "continuationCount">,
+): string[] {
+  if (!run.createdAt || !run.startedAt) return [];
+  const waitedMs = run.startedAt.getTime() - run.createdAt.getTime();
+  if (waitedMs < 60_000) return [];
+  const minutes = Math.round(waitedMs / 60_000);
+  const waited =
+    minutes < 60
+      ? `${minutes}m`
+      : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+  return [
+    run.continuationCount > 0
+      ? `[queue] Waited ${waited} in the queue before starting; the shared deadline moved by the same time.`
+      : `[queue] Waited ${waited} in the queue before starting; the time limit started when this Run did.`,
+  ];
 }

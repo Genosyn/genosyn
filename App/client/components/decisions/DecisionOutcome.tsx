@@ -19,7 +19,6 @@ import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
 import { Button } from "../ui/Button";
 import { clsx } from "../ui/clsx";
 import { FormError } from "../ui/FormError";
-import { Spinner } from "../ui/Spinner";
 import { DecisionPickup } from "./DecisionPickup";
 import { DecisionSourceLine } from "./DecisionSource";
 import { DecisionDiscussButton } from "./DecisionDiscussButton";
@@ -275,11 +274,11 @@ export function DecisionOutcome({
               type="button"
               size="sm"
               variant="secondary"
-              disabled={restoring}
+              loading={restoring}
               onClick={() => void restore()}
               className="w-full sm:w-auto"
             >
-              {restoring ? <Spinner size={14} /> : <RotateCcw size={14} />}
+              <RotateCcw size={14} />
               Undismiss
             </Button>
           )}

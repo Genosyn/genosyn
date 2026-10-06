@@ -2,6 +2,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { AskAiProvider, useAskAi, type AskAiRequest } from "@/components/askAi/AskAiProvider";
 import { CompanySocketProvider, useCompanySocket } from "@/components/CompanySocket";
 import { DialogProvider } from "@/components/ui/Dialog";
 import { ThemeProvider } from "@/components/Theme";
@@ -35,6 +36,33 @@ function SocketStatus() {
   return <output data-socket-status={status} hidden />;
 }
 
+/**
+ * What Home handed to Ask AI. The real panel is not mounted (it would load
+ * conversations the fixture does not serve), so this takes pending requests
+ * the way the panel does and exposes them with the panel's context records.
+ */
+function AskAiProbe() {
+  const askAi = useAskAi();
+  const [request, setRequest] = React.useState<AskAiRequest | null>(null);
+  const pendingVersion = askAi?.pendingVersion ?? 0;
+  const takePending = askAi?.takePending;
+  React.useEffect(() => {
+    const taken = takePending?.();
+    if (taken) setRequest(taken);
+  }, [pendingVersion, takePending]);
+  return (
+    <output aria-label="Ask AI request" hidden>
+      {JSON.stringify({
+        open: askAi?.open ?? false,
+        refs: askAi?.refs ?? [],
+        prompt: request?.prompt ?? null,
+        employeeIds: request?.employeeIds ?? null,
+        requestRefs: request?.refs ?? null,
+      })}
+    </output>
+  );
+}
+
 function Harness() {
   const routes = (
     <Routes>
@@ -57,7 +85,10 @@ createRoot(document.getElementById("root")!).render(
       <ThemeProvider>
         <DialogProvider>
           <ChatSessionsProvider>
-            <Harness />
+            <AskAiProvider>
+              <AskAiProbe />
+              <Harness />
+            </AskAiProvider>
           </ChatSessionsProvider>
         </DialogProvider>
       </ThemeProvider>

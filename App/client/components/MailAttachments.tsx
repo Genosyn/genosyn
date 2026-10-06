@@ -2,7 +2,7 @@ import React from "react";
 import { Paperclip, X } from "lucide-react";
 import { StagedAttachment, mailApi } from "../lib/mail";
 import { errorMessage } from "../lib/errors";
-import { Spinner } from "./ui/Spinner";
+import { ButtonSpinner } from "./ui/Spinner";
 import { useDialog } from "./ui/Dialog";
 
 /**
@@ -80,9 +80,10 @@ export function AttachmentBar({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
+        aria-busy={uploading || undefined}
         className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
       >
-        {uploading ? <Spinner size={12} /> : <Paperclip size={12} />} Attach
+        {uploading ? <ButtonSpinner size={12} /> : <Paperclip size={12} />} Attach
       </button>
       <input
         ref={inputRef}

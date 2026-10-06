@@ -5,7 +5,6 @@ import {
   Ban,
   CheckCircle2,
   Download,
-  FileText,
   Loader2,
   Receipt,
   RotateCcw,
@@ -25,6 +24,7 @@ import {
   RunEffect,
   RunEffectList,
   RunErrorKind,
+  RunFollowUp,
   RunLog,
   RunOutcomeVerdict,
   RunStatus,
@@ -34,9 +34,15 @@ import { FormError } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
 import { errorMessage } from "@/lib/errors";
 import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording";
-import { RunExplanation, runExplanationLabel } from "@/components/routines/RunExplanation";
+import { useAskAi, useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
-import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
+import {
+  runExplanationLabel,
+  runExplanationPrompt,
+  runNeedsAttention,
+  runStatusHint,
+  runStatusLabel,
+} from "@/lib/runStatus";
 
 /**
  * Shared rendering for Runs — one execution of a Routine. Lives here rather
@@ -46,6 +52,8 @@ import { runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatu
  */
 
 const RUN_STATUS_STYLE: Record<RunStatus, string> = {
+  queued:
+    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
   reviewed:
     "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
   running:
@@ -108,7 +116,35 @@ export function RunFailureNotice({ reason }: { reason?: string | null }) {
 export function RunContinuationNotice({
   continuationPending,
   continuationStopReason,
-}: Pick<Run, "continuationPending" | "continuationStopReason">) {
+  followUpRun,
+  onOpenRun,
+}: Pick<Run, "continuationPending" | "continuationStopReason" | "followUpRun"> & {
+  onOpenRun?: (run: RunFollowUp) => void;
+}) {
+  if (followUpRun) {
+    const continuation = followUpRun.triggerKind === "continuation";
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+        <p className="font-medium text-slate-800 dark:text-slate-200">
+          {runFollowUpLabel(followUpRun)}
+        </p>
+        <p className="mt-1 text-slate-600 dark:text-slate-300">
+          This historical Run keeps its own result. Later work has a separate Run; open it to review
+          its progress, Checks and Effects.
+        </p>
+        {onOpenRun && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-2"
+            onClick={() => onOpenRun(followUpRun)}
+          >
+            Open {continuation ? "continuation" : "follow-up Run"}
+          </Button>
+        )}
+      </div>
+    );
+  }
   if (!continuationPending && !continuationStopReason?.trim()) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
@@ -122,6 +158,12 @@ export function RunContinuationNotice({
       </p>
     </div>
   );
+}
+
+export function runFollowUpLabel(run: RunFollowUp): string {
+  if (!run.isLatest) return "Later work exists";
+  if (run.retryPending) return "Further work scheduled";
+  return `${run.triggerKind === "continuation" ? "Continuation" : "Follow-up"} ${runStatusLabel(run.status)}`;
 }
 
 export function RunReviewNotice({ companySlug }: { companySlug: string }) {
@@ -369,8 +411,10 @@ export function RunLogPane({
 /** Keep queued continuation controls current as well as Run and video state. */
 export function runLogNeedsPolling(log: RunLog): boolean {
   return (
+    log.status === "queued" ||
     log.status === "running" ||
     log.continuationPending === true ||
+    followUpNeedsPolling(log.followUpRun) ||
     // The outcome check runs after the transcript is final, so a completed run
     // on a routine with acceptance criteria lands its verdict a moment after
     // the status does. Keep polling until it arrives, or the chip would only
@@ -380,6 +424,33 @@ export function runLogNeedsPolling(log: RunLog): boolean {
       (recording) => recording.status === "recording" || recording.status === "finalizing",
     )
   );
+}
+
+/** A parent stays current while its later work can still change or hand off. */
+export function followUpNeedsPolling(run: RunFollowUp | null | undefined): boolean {
+  return (
+    !!run &&
+    (!run.isLatest ||
+      run.status === "queued" ||
+      run.status === "running" ||
+      run.retryPending ||
+      run.awaitingOutcome)
+  );
+}
+
+/** Apply a newly received log's scheduling metadata without copying its transcript. */
+export function mergeRunContinuationState(run: Run, log: RunLog): Run {
+  return {
+    ...run,
+    status: log.status ?? run.status,
+    errorKind: log.errorKind,
+    retryAt: log.retryAt,
+    hasUnfinishedWork: log.hasUnfinishedWork,
+    continuationPending: log.continuationPending,
+    continuationCount: log.continuationCount,
+    continuationStopReason: log.continuationStopReason,
+    followUpRun: log.followUpRun,
+  };
 }
 
 /** `2.4 MB` — recording metadata without making the browser fetch the video. */
@@ -644,6 +715,14 @@ function EvidenceLoading({ label }: { label: string }) {
   );
 }
 
+type RunEvidenceProps = {
+  companyId: string;
+  runId: string;
+  /** Change this to re-read evidence for the same Run without clearing it. */
+  reloadKey?: string;
+  className?: string;
+};
+
 /**
  * Every Check result on one Run, in the order they ran.
  *
@@ -653,18 +732,13 @@ function EvidenceLoading({ label }: { label: string }) {
  * attention than it returns. The Checks verdict chip is hidden for the same
  * reason, so the two agree.
  */
-export function RunChecksStrip({
-  companyId,
-  runId,
-  /** Change this to re-read — a live Run lands its results at the very end. */
-  reloadKey,
-  className = "",
-}: {
-  companyId: string;
-  runId: string;
-  reloadKey?: string;
-  className?: string;
-}) {
+export function RunChecksStrip(props: RunEvidenceProps) {
+  // Evidence belongs to an exact company and Run. Reset every state field in
+  // the same render when that identity changes, before its next read settles.
+  return <RunChecksStripContent key={JSON.stringify([props.companyId, props.runId])} {...props} />;
+}
+
+function RunChecksStripContent({ companyId, runId, reloadKey, className = "" }: RunEvidenceProps) {
   const [results, setResults] = React.useState<RunCheckResult[] | null>(null);
   const [coverage, setCoverage] = React.useState<RunCheckResultList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -786,17 +860,11 @@ export function RunChecksStrip({
  * three emails and updated the deal" is a narration again; five lines naming
  * the action, the thing, and the minute are a ledger.
  */
-export function RunEffectsPane({
-  companyId,
-  runId,
-  reloadKey,
-  className = "",
-}: {
-  companyId: string;
-  runId: string;
-  reloadKey?: string;
-  className?: string;
-}) {
+export function RunEffectsPane(props: RunEvidenceProps) {
+  return <RunEffectsPaneContent key={JSON.stringify([props.companyId, props.runId])} {...props} />;
+}
+
+function RunEffectsPaneContent({ companyId, runId, reloadKey, className = "" }: RunEvidenceProps) {
   const [data, setData] = React.useState<RunEffectList | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -836,8 +904,8 @@ export function RunEffectsPane({
       {!error && data === null && <EvidenceLoading label="Loading effects…" />}
       {!error && data !== null && shown === 0 && (
         <p className="px-3 py-4 text-xs text-slate-400 dark:text-slate-500">
-          This run changed nothing. Nothing it may have read, said, or decided appears here — only
-          writes do.
+          No changes appear in Effects. Browser or other external actions may only appear in the Run
+          log. Verify their current state before repeating them.
         </p>
       )}
       {!error && data !== null && shown > 0 && (
@@ -888,9 +956,8 @@ type RunLiveModalProps = {
   routine: Pick<Routine, "id" | "name">;
   run: Run;
   onClose: () => void;
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   onResumed?: (run: Run) => void | Promise<void>;
-  initialView?: "log" | "explanation";
 };
 
 export function RunLiveModal(props: RunLiveModalProps) {
@@ -901,11 +968,11 @@ export function RunLiveModal(props: RunLiveModalProps) {
       {...props}
       key={run.id}
       run={run}
-      initialView={run.id === props.run.id ? props.initialView : "log"}
       onResumed={async (next) => {
         setResumed({ sourceRunId: props.run.id, run: next });
         await props.onResumed?.(next);
       }}
+      onOpenRun={(next) => setResumed({ sourceRunId: props.run.id, run: next })}
     />
   );
 }
@@ -917,18 +984,24 @@ function RunLiveModalContent({
   onClose,
   onRetry,
   onResumed,
-  initialView = "log",
-}: RunLiveModalProps & { onResumed: (run: Run) => void | Promise<void> }) {
+  onOpenRun,
+}: RunLiveModalProps & {
+  onResumed: (run: Run) => void | Promise<void>;
+  onOpenRun: (run: RunFollowUp) => void;
+}) {
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const preRef = React.useRef<HTMLPreElement>(null);
   const userScrolledRef = React.useRef(false);
-  const [view, setView] = React.useState(initialView);
-  const [explanationOpened, setExplanationOpened] = React.useState(initialView === "explanation");
-
-  const tabsId = React.useId();
+  const askAi = useAskAi();
+  // While this Run is open, Ask AI's "this" means it.
+  const runRef = React.useMemo(() => [{ kind: "run" as const, id: initialRun.id }], [initialRun.id]);
+  useAskAiPageContext(runRef);
+  const [cancelling, setCancelling] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const status: RunStatus = log?.status ?? initialRun.status;
-  const isTerminal = status !== "running";
+  const isQueued = status === "queued";
+  const isTerminal = !isQueued && status !== "running";
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
   // Both evidence panels are one-shot reads, so they need a reason to look
   // again. Checks land as the loop returns and the ledger keeps growing until
@@ -969,9 +1042,9 @@ function RunLiveModalContent({
   // — reading mid-log shouldn't get yanked out from under them.
   React.useEffect(() => {
     const el = preRef.current;
-    if (!el || view !== "log" || userScrolledRef.current) return;
+    if (!el || userScrolledRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [log?.content, view]);
+  }, [log?.content]);
 
   function handleScroll() {
     const el = preRef.current;
@@ -983,11 +1056,23 @@ function RunLiveModalContent({
   // Stop an automatic re-attempt without pausing the whole routine — the way
   // out when a human has decided to fix this failure by hand.
   async function cancelRetry() {
+    setCancelling(true);
     try {
       await api.post(`/api/companies/${company.id}/runs/${initialRun.id}/cancel-retry`, {});
       setLog((cur) => (cur ? { ...cur, retryAt: null, continuationPending: false } : cur));
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await onRetry?.();
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -997,10 +1082,15 @@ function RunLiveModalContent({
   const finishedAt = log ? log.finishedAt : initialRun.finishedAt;
   const exitCode = log ? log.exitCode : initialRun.exitCode;
   const needsAttention = runNeedsAttention(status);
+  const followUpRun = log ? log.followUpRun : initialRun.followUpRun;
   const metrics = [
     {
       label: "Duration",
-      value: isTerminal ? formatDuration(startedAt, finishedAt ?? null) : "In progress",
+      value: isQueued
+        ? "Waiting"
+        : isTerminal
+          ? formatDuration(startedAt, finishedAt ?? null)
+          : "In progress",
     },
     { label: "Tokens", value: tokens > 0 ? formatTokens(tokens) : "—" },
     { label: "Attempt", value: String(log?.attempt ?? initialRun.attempt ?? 1) },
@@ -1009,27 +1099,6 @@ function RunLiveModalContent({
       value: exitCode === null || exitCode === undefined ? "—" : String(exitCode),
     },
   ];
-
-  function selectView(next: "log" | "explanation") {
-    if (next === "explanation") setExplanationOpened(true);
-    setView(next);
-  }
-
-  function navigateTabs(event: React.KeyboardEvent<HTMLButtonElement>) {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const tabs = Array.from(
-      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-    );
-    const current = tabs.indexOf(event.currentTarget);
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? tabs.length - 1
-          : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-    tabs[next]?.focus();
-  }
 
   return (
     <Modal
@@ -1059,11 +1128,31 @@ function RunLiveModalContent({
               )}
               {!isTerminal && (
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Continues if you close this window
+                  {isQueued
+                    ? "Stays queued if you close this window"
+                    : "Continues if you close this window"}
                 </span>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {askAi && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    // The modal covers the panel, so hand the Run over and
+                    // get out of the way; it stays in Ask AI's context.
+                    askAi.ask({
+                      refs: runRef,
+                      prompt: needsAttention ? runExplanationPrompt(status) : undefined,
+                    });
+                    onClose();
+                  }}
+                  title="Ask AI about this Run"
+                >
+                  <Sparkles size={13} /> {needsAttention ? runExplanationLabel(status) : "Ask AI"}
+                </Button>
+              )}
               <RunResumeButton
                 company={company}
                 routineName={routine.name}
@@ -1074,16 +1163,17 @@ function RunLiveModalContent({
                   hasUnfinishedWork: log?.hasUnfinishedWork ?? initialRun.hasUnfinishedWork,
                   retryAt: log ? log.retryAt : initialRun.retryAt,
                   continuationPending: log?.continuationPending ?? initialRun.continuationPending,
+                  followUpRun,
                 }}
                 onResumed={onResumed}
               />
-              {log?.retryAt ? (
-                <Button variant="secondary" size="sm" onClick={cancelRetry}>
+              {log?.retryAt && !followUpRun ? (
+                <Button variant="secondary" size="sm" loading={cancelling} onClick={cancelRetry}>
                   <Ban size={13} />{" "}
                   {log.continuationPending ? "Cancel continuation" : "Cancel retry"}
                 </Button>
-              ) : onRetry && isTerminal && needsAttention ? (
-                <Button variant="secondary" size="sm" onClick={onRetry}>
+              ) : onRetry && isTerminal && needsAttention && followUpRun === null ? (
+                <Button variant="secondary" size="sm" loading={retrying} onClick={retry}>
                   <RotateCcw size={13} /> Retry
                 </Button>
               ) : null}
@@ -1123,63 +1213,10 @@ function RunLiveModalContent({
             </div>
           )}
         </div>
-        {needsAttention && (
-          <div
-            role="tablist"
-            aria-label="Run details"
-            className="flex shrink-0 gap-5 border-b border-slate-200 px-4 sm:px-5 dark:border-slate-800"
-          >
-            {(
-              [
-                { id: "log", label: "Run log", icon: FileText },
-                { id: "explanation", label: runExplanationLabel(status), icon: Sparkles },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                id={`${tabsId}-${tab.id}`}
-                aria-controls={`${tabsId}-${tab.id}-panel`}
-                aria-selected={view === tab.id}
-                tabIndex={view === tab.id ? 0 : -1}
-                onClick={() => selectView(tab.id)}
-                onKeyDown={navigateTabs}
-                className={
-                  "-mb-px inline-flex items-center gap-2 border-b-2 py-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:text-sm " +
-                  (view === tab.id
-                    ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-300"
-                    : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200")
-                }
-              >
-                <tab.icon size={14} aria-hidden="true" /> {tab.label}
-              </button>
-            ))}
-          </div>
-        )}
         {error && <FormError message={error} className="mx-4 mt-3 sm:mx-5" />}
-        {explanationOpened && (
-          <div
-            hidden={view !== "explanation"}
-            role="tabpanel"
-            id={`${tabsId}-explanation-panel`}
-            aria-labelledby={`${tabsId}-explanation`}
-            className="min-h-0 flex-1 [@media(max-height:500px)]:min-h-[380px] [@media(max-height:500px)]:shrink-0"
-          >
-            <RunExplanation
-              key={`${company.id}:${initialRun.id}`}
-              companyId={company.id}
-              runId={initialRun.id}
-              active={view === "explanation"}
-            />
-          </div>
-        )}
         <div
-          hidden={view !== "log"}
-          role={needsAttention ? "tabpanel" : undefined}
-          id={`${tabsId}-log-panel`}
-          aria-labelledby={needsAttention ? `${tabsId}-log` : undefined}
-          tabIndex={view === "log" ? 0 : -1}
+          tabIndex={0}
+          aria-label="Run log"
           className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5 [@media(max-height:500px)]:min-h-[300px] [@media(max-height:500px)]:shrink-0"
         >
           <RunContinuationNotice
@@ -1187,6 +1224,8 @@ function RunLiveModalContent({
             continuationStopReason={
               log?.continuationStopReason ?? initialRun.continuationStopReason
             }
+            followUpRun={followUpRun}
+            onOpenRun={followUpRun?.id !== initialRun.id ? onOpenRun : undefined}
           />
           {status === "reviewed" && <RunReviewNotice companySlug={company.slug} />}
           <RunFailureNotice reason={log?.failureReason ?? initialRun.failureReason} />
@@ -1232,7 +1271,13 @@ function RunLiveModalContent({
               loading={log === null && !error}
               preRef={preRef}
               onScroll={handleScroll}
-              placeholder={log === null ? "Starting…" : "Waiting for output…"}
+              placeholder={
+                isQueued
+                  ? "Waiting to start. If a Standdown covers this Run, it resumes after the Standdown is lifted."
+                  : log === null
+                    ? "Starting…"
+                    : "Waiting for output…"
+              }
               className="max-h-[45vh] min-h-[240px]"
             />
             {recordings.length > 0 && (

@@ -4,6 +4,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
+import { AskAiMessage } from "../db/entities/AskAiMessage.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { UUID_RE } from "./bases.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
@@ -31,15 +32,42 @@ export async function findRoutineParticipation(
   });
   if (!owner || routine.id === proactiveId(companyId, owner.id, "improve-own-work", null))
     return null;
-  const receipt = await manager.getRepository(RoutineChatMessage).findOne({
-    where: { companyId, employeeId, routineId, role: "assistant", status: "ok" },
-    select: ["id", "createdAt"],
-    order: { createdAt: "DESC", id: "DESC" },
-  });
-  return receipt ? { routine, owner, receipt } : null;
+  // A finished answer in Ask AI with this Routine (or one of its Runs) in
+  // view, or one from the per-Routine chat it replaced. The newest wins.
+  const [legacy, askAi] = await Promise.all([
+    manager.getRepository(RoutineChatMessage).findOne({
+      where: { companyId, employeeId, routineId, role: "assistant", status: "ok" },
+      select: ["id", "createdAt"],
+      order: { createdAt: "DESC", id: "DESC" },
+    }),
+    manager.getRepository(AskAiMessage).findOne({
+      where: {
+        companyId,
+        employeeId,
+        contextKind: "routine",
+        contextId: routineId,
+        role: "assistant",
+        status: "ok",
+      },
+      select: ["id", "createdAt"],
+      order: { createdAt: "DESC", id: "DESC" },
+    }),
+  ]);
+  const receipt =
+    legacy && askAi
+      ? legacy.createdAt.getTime() >= askAi.createdAt.getTime()
+        ? legacy
+        : askAi
+      : (legacy ?? askAi);
+  return receipt
+    ? { routine, owner, receipt: { id: receipt.id, createdAt: receipt.createdAt } }
+    : null;
 }
 
-/** No transcript content is selected. Clearing the conversation removes participation. */
+/**
+ * No transcript content is selected. Deleting the Ask AI conversation (or
+ * clearing a legacy Routine chat) removes the participation it recorded.
+ */
 export async function listParticipatingRoutines(
   companyId: string,
   employeeId: string,
@@ -51,29 +79,67 @@ export async function listParticipatingRoutines(
     !(await AppDataSource.getRepository(AIEmployee).existsBy({ id: employeeId, companyId }))
   )
     throw new RoutineParticipationError("AI Employee not found");
-  const rows = await AppDataSource.getRepository(RoutineChatMessage)
-    .createQueryBuilder("receipt")
-    .innerJoin(Routine, "routine", "CAST(routine.id AS text) = receipt.routineId")
-    .innerJoin(AIEmployee, "owner", "CAST(owner.id AS text) = routine.employeeId")
-    .select("receipt.routineId", "routineId")
-    .addSelect("MAX(receipt.createdAt)", "participatedAt")
-    .where("receipt.companyId = :companyId AND receipt.employeeId = :employeeId", {
-      companyId,
-      employeeId,
-    })
-    .andWhere("receipt.role = :role AND receipt.status = :status", {
-      role: "assistant",
-      status: "ok",
-    })
-    .andWhere("owner.companyId = :companyId AND routine.employeeId != :employeeId")
-    .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
-      selfReviewOnly: false,
-    })
-    .groupBy("receipt.routineId")
-    .orderBy('"participatedAt"', "DESC")
-    .addOrderBy("receipt.routineId", "DESC")
-    .limit(boundedLimit + 1)
-    .getRawMany<{ routineId: string; participatedAt: string }>();
+  // Receipts live in two tables: Ask AI answers that had the Routine (or one
+  // of its Runs) in view, and the per-Routine chat Ask AI replaced. Both are
+  // filtered the same way, then merged on the newest receipt per Routine.
+  const [legacyRows, askAiRows] = await Promise.all([
+    AppDataSource.getRepository(RoutineChatMessage)
+      .createQueryBuilder("receipt")
+      .innerJoin(Routine, "routine", "CAST(routine.id AS text) = receipt.routineId")
+      .innerJoin(AIEmployee, "owner", "CAST(owner.id AS text) = routine.employeeId")
+      .select("receipt.routineId", "routineId")
+      .addSelect("MAX(receipt.createdAt)", "participatedAt")
+      .where("receipt.companyId = :companyId AND receipt.employeeId = :employeeId", {
+        companyId,
+        employeeId,
+      })
+      .andWhere("receipt.role = :role AND receipt.status = :status", {
+        role: "assistant",
+        status: "ok",
+      })
+      .andWhere("owner.companyId = :companyId AND routine.employeeId != :employeeId")
+      .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
+        selfReviewOnly: false,
+      })
+      .groupBy("receipt.routineId")
+      .orderBy('"participatedAt"', "DESC")
+      .addOrderBy("receipt.routineId", "DESC")
+      .limit(boundedLimit + 1)
+      .getRawMany<{ routineId: string; participatedAt: string | Date }>(),
+    AppDataSource.getRepository(AskAiMessage)
+      .createQueryBuilder("receipt")
+      .innerJoin(Routine, "routine", "CAST(routine.id AS text) = receipt.contextId")
+      .innerJoin(AIEmployee, "owner", "CAST(owner.id AS text) = routine.employeeId")
+      .select("receipt.contextId", "routineId")
+      .addSelect("MAX(receipt.createdAt)", "participatedAt")
+      .where("receipt.companyId = :companyId AND receipt.employeeId = :employeeId", {
+        companyId,
+        employeeId,
+      })
+      .andWhere("receipt.contextKind = :contextKind", { contextKind: "routine" })
+      .andWhere("receipt.role = :role AND receipt.status = :status", {
+        role: "assistant",
+        status: "ok",
+      })
+      .andWhere("owner.companyId = :companyId AND routine.employeeId != :employeeId")
+      .andWhere("(routine.selfReviewOnly IS NULL OR routine.selfReviewOnly = :selfReviewOnly)", {
+        selfReviewOnly: false,
+      })
+      .groupBy("receipt.contextId")
+      .orderBy('"participatedAt"', "DESC")
+      .addOrderBy("receipt.contextId", "DESC")
+      .limit(boundedLimit + 1)
+      .getRawMany<{ routineId: string; participatedAt: string | Date }>(),
+  ]);
+  const newest = new Map<string, number>();
+  for (const row of [...legacyRows, ...askAiRows]) {
+    const at = new Date(row.participatedAt).getTime();
+    newest.set(row.routineId, Math.max(newest.get(row.routineId) ?? -Infinity, at));
+  }
+  const rows = [...newest.entries()]
+    .map(([routineId, at]) => ({ routineId, at }))
+    .sort((a, b) => b.at - a.at || (a.routineId < b.routineId ? 1 : -1))
+    .slice(0, boundedLimit + 1);
   const current = await Promise.all(
     rows
       .slice(0, boundedLimit)

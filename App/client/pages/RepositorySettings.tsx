@@ -36,6 +36,7 @@ export default function RepositorySettings() {
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
   const [connectOpen, setConnectOpen] = React.useState(false);
   const [connections, setConnections] = React.useState<RepositoryForgeConnection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = React.useState(false);
@@ -138,12 +139,15 @@ export default function RepositorySettings() {
     });
     if (!ok) return;
     setDeleteError(null);
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/repositories/${currentRepo.slug}`);
       await reload();
       navigate(`/c/${company.slug}/repositories`);
     } catch (err) {
       setDeleteError(errorMessage(err));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -280,8 +284,7 @@ export default function RepositorySettings() {
           {changed && !saving && (
             <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>
           )}
-          <Button onClick={save} disabled={saving || !changed}>
-            {saving && <Spinner size={14} />}
+          <Button onClick={save} loading={saving} disabled={!changed}>
             {saving ? "Saving…" : "Save changes"}
           </Button>
         </div>
@@ -297,7 +300,7 @@ export default function RepositorySettings() {
               Removes it from Genosyn and revokes all access. The remote is not touched.
             </div>
           </div>
-          <Button variant="danger" onClick={remove}>
+          <Button variant="danger" onClick={remove} loading={deleting}>
             <Trash2 size={14} /> Delete repository
           </Button>
         </div>

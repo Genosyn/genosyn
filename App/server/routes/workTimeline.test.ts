@@ -7,13 +7,20 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
+import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
+import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { AppDataSource } from "../db/datasource.js";
+import type { WorkEntry } from "../services/employeeWorkTimeline.js";
 import { auditRouter } from "./audit.js";
 import { workTimelineRouter } from "./workTimeline.js";
 
@@ -25,10 +32,10 @@ import { workTimelineRouter } from "./workTimeline.js";
  * that silently accepts `hours=999` is the difference between "a glance at
  * today" and "the whole history through a route that is not the audit log".
  *
- * The second is the entitlement asymmetry, which is the whole reason this
- * endpoint exists separately at all. `GET /audit` is admin-gated and behind a
- * paid feature; this is neither, and the test that proves it sits next to the
- * test that proves the audit log still is.
+ * The second is the role asymmetry, which is the whole reason this endpoint
+ * exists separately at all. `GET /audit` is admin-gated; this is not, and the
+ * test that proves it sits next to the test that proves the audit log still
+ * is.
  */
 
 let server: Server;
@@ -118,6 +125,9 @@ type TimelineBody = {
     title: string;
     detail: string;
     active: boolean;
+    subject: string;
+    source: WorkEntry["source"];
+    analysis?: WorkEntry["analysis"];
     run: {
       summary: string | null;
       outcomeVerdict: string | null;
@@ -153,6 +163,132 @@ async function seedRun(overrides: Partial<Run> = {}): Promise<Run> {
   });
 }
 
+async function seedEmailAnalysis(sourceCompanyId = company.id) {
+  const account = await insert(MailAccount, {
+    companyId: sourceCompanyId,
+    connectionId: "timeline-mail-connection",
+    address: "support@example.test",
+  });
+  const thread = await insert(MailThread, {
+    companyId: sourceCompanyId,
+    accountId: account.id,
+    gmailThreadId: "timeline-thread",
+    subject: "Thread subject",
+    participants: "Ada <ada@example.test>",
+  });
+  const message = await insert(MailMessage, {
+    companyId: sourceCompanyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailThreadId: thread.gmailThreadId,
+    gmailMessageId: "timeline-message",
+    subject: "Estimate for the September rollout",
+    fromName: "Ada",
+    fromEmail: "ada@example.test",
+    bodyText: "PRIVATE_FULL_EMAIL_BODY",
+  });
+  const startedAt = new Date(Date.now() - 120_000);
+  const finishedAt = new Date(startedAt.getTime() + 30_000);
+  const analysis = await insert(MailInboundAnalysis, {
+    companyId: sourceCompanyId,
+    accountId: account.id,
+    threadId: thread.id,
+    messageId: message.id,
+    employeeId: employee.id,
+    status: "succeeded",
+    category: "quote_request",
+    summary: "A newer verdict must not replace the recorded one.",
+    actionsJson: JSON.stringify([{ kind: "draft_reply", bodyText: "PRIVATE_ACTION_BODY" }]),
+    finishedAt,
+    updatedAt: finishedAt,
+  });
+  const event = await insert(AuditEvent, {
+    companyId: company.id,
+    actorKind: "ai",
+    actorEmployeeId: employee.id,
+    action: "mail.analysis.completed",
+    targetType: "mail_inbound_analysis",
+    targetId: analysis.id,
+    targetLabel: "Do not trust a raw audit label token=label-secret",
+    createdAt: finishedAt,
+    metadataJson: JSON.stringify({
+      messageId: message.id,
+      mailThreadId: thread.id,
+      accountId: account.id,
+      attemptStartedAt: startedAt.toISOString(),
+      privatePayload: "PRIVATE_AUDIT_PAYLOAD",
+      analysisSnapshot: {
+        version: 1,
+        status: "completed",
+        durationMs: 30_000,
+        category: "quote_request",
+        summary: "Ada requested an estimate. token=summary-secret",
+        suggestedActions: ["Prepare an estimate"],
+        bodyText: "PRIVATE_SNAPSHOT_BODY",
+      },
+    }),
+  });
+  return { account, thread, message, analysis, event };
+}
+
+describe("email analysis timeline response", () => {
+  test("ordinary Members receive the recorded review and email link without raw payloads", async () => {
+    const { account, thread, event } = await seedEmailAnalysis();
+    const { status, body } = await call<TimelineBody>("GET", "/work-timeline");
+    assert.equal(status, 200);
+    const entry = body.entries.find((entry) => entry.id === `effect:${event.id}`)!;
+    assert.equal(entry.subject, "Estimate for the September rollout");
+    assert.equal(entry.source?.kind, "mail_thread");
+    assert.equal(entry.source?.id, thread.id);
+    assert.equal(entry.source?.accountId, account.id);
+    assert.equal(entry.analysis?.status, "completed");
+    assert.equal(entry.analysis?.category, "quote_request");
+    assert.equal(entry.analysis?.resultAvailable, true);
+    assert.equal(entry.analysis?.durationMs, 30_000);
+    assert.match(entry.analysis?.summary ?? "", /Ada requested an estimate/);
+    assert.match(entry.analysis?.summary ?? "", /redacted/);
+    assert.deepEqual(entry.analysis?.suggestedActions, ["Prepare an estimate"]);
+    assert.doesNotMatch(
+      JSON.stringify(body),
+      /PRIVATE_|summary-secret|label-secret|newer verdict|metadataJson|actionsJson|bodyText/,
+    );
+    assert.equal((await call("GET", "/audit")).status, 403);
+  });
+
+  test("a non-Member cannot access an enriched review", async () => {
+    await seedEmailAnalysis();
+    actingUserId = outsider.id;
+    const { status, body } = await call("GET", "/work-timeline");
+    assert.equal(status, 403);
+    assert.doesNotMatch(JSON.stringify(body), /Ada|September|support@example|PRIVATE_/);
+  });
+
+  test("an audit reference into another company exposes no email or result details", async () => {
+    const { event } = await seedEmailAnalysis(otherCompany.id);
+    const { status, body } = await call<TimelineBody>("GET", "/work-timeline");
+    assert.equal(status, 200);
+    const entry = body.entries.find((entry) => entry.id === `effect:${event.id}`)!;
+    assert.equal(entry.source, null);
+    assert.equal(entry.subject, "");
+    assert.equal(entry.analysis?.resultAvailable, false);
+    assert.doesNotMatch(
+      JSON.stringify(body),
+      /Ada|September|example\.test|PRIVATE_|summary-secret|label-secret|newer verdict/,
+    );
+  });
+
+  test("deleting the source message removes the preview and source link", async () => {
+    const { message, event } = await seedEmailAnalysis();
+    await AppDataSource.getRepository(MailMessage).delete(message.id);
+    const { body } = await call<TimelineBody>("GET", "/work-timeline");
+    const entry = body.entries.find((entry) => entry.id === `effect:${event.id}`)!;
+    assert.equal(entry.source, null);
+    assert.equal(entry.subject, "");
+    assert.equal(entry.analysis?.resultAvailable, false);
+    assert.doesNotMatch(JSON.stringify(body), /Ada|September|example\.test|PRIVATE_|label-secret/);
+  });
+});
+
 describe("work timeline authorization", () => {
   test("an unauthenticated caller is rejected", async () => {
     actingUserId = null;
@@ -170,8 +306,8 @@ describe("work timeline authorization", () => {
 
   test("an ordinary member reads it, while the audit log still refuses them", async () => {
     // The asymmetry is the point. Browsing the company's whole history is an
-    // admin tool behind a paid feature; seeing what your own AI employees did
-    // today is the minimum needed to trust them, and is neither.
+    // admin tool; seeing what your own AI employees did today is the minimum
+    // needed to trust them, and is not.
     await seedRun();
     const timeline = await call<TimelineBody>("GET", "/work-timeline");
     assert.equal(timeline.status, 200);

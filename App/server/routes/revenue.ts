@@ -769,6 +769,7 @@ const activityListQuery = z.object({
   actorUserId: z.string().uuid().optional(),
   actorEmployeeId: z.string().uuid().optional(),
   includeRelatedDeals: boolQuery,
+  includeRelatedRecords: boolQuery,
 });
 
 revenueRouter.get(

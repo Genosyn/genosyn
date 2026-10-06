@@ -23,7 +23,7 @@ import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 const CLASSIFICATION_LABEL: Record<RevenueClassification["kind"], string> = {
@@ -77,6 +77,7 @@ export default function RevenueSetup() {
   const [addField, setAddField] = React.useState<RevenueResourceType | null>(null);
   const [editingField, setEditingField] = React.useState<RevenueCustomField | null>(null);
   const [installingPreset, setInstallingPreset] = React.useState(false);
+  const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -100,11 +101,14 @@ export default function RevenueSetup() {
     id: string,
     archived: boolean,
   ) {
+    setArchivingId(id);
     try {
       await api.patch(`${base}/${path}/${id}`, { archived });
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setArchivingId(null);
     }
   }
 
@@ -127,11 +131,14 @@ export default function RevenueSetup() {
   }
 
   async function archiveStage(stage: DealStage) {
+    setArchivingId(stage.id);
     try {
       await api.del(`${base}/stages/${stage.id}`);
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setArchivingId(null);
     }
   }
 
@@ -234,10 +241,12 @@ export default function RevenueSetup() {
                   <button
                     type="button"
                     onClick={() => void archiveStage(stage)}
+                    disabled={archivingId === stage.id}
+                    aria-busy={archivingId === stage.id || undefined}
                     className="rounded p-1 text-slate-400 hover:text-rose-600"
                     aria-label={`Archive ${stage.name}`}
                   >
-                    <Trash2 size={14} />
+                    {archivingId === stage.id ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}
                   </button>
                 </div>
               ))}
@@ -289,10 +298,18 @@ export default function RevenueSetup() {
                               onClick={() =>
                                 void setArchived("classifications", row.id, !row.archivedAt)
                               }
+                              disabled={archivingId === row.id}
+                              aria-busy={archivingId === row.id || undefined}
                               className="text-slate-400 hover:text-rose-600"
                               aria-label={`${row.archivedAt ? "Restore" : "Archive"} ${row.label}`}
                             >
-                              {row.archivedAt ? <RotateCcw size={11} /> : <Trash2 size={11} />}
+                              {archivingId === row.id ? (
+                                <ButtonSpinner size={11} />
+                              ) : row.archivedAt ? (
+                                <RotateCcw size={11} />
+                              ) : (
+                                <Trash2 size={11} />
+                              )}
                             </button>
                           </span>
                         ))}
@@ -317,7 +334,7 @@ export default function RevenueSetup() {
                 size="sm"
                 variant="secondary"
                 onClick={() => void installPreset()}
-                disabled={installingPreset}
+                loading={installingPreset}
               >
                 <Sparkles size={14} /> {installingPreset ? "Installing…" : "Add migration fields"}
               </Button>
@@ -366,10 +383,18 @@ export default function RevenueSetup() {
                             onClick={() =>
                               void setArchived("custom-fields", field.id, !field.archivedAt)
                             }
+                            disabled={archivingId === field.id}
+                            aria-busy={archivingId === field.id || undefined}
                             className="text-slate-400 hover:text-rose-600"
                             aria-label={`${field.archivedAt ? "Restore" : "Archive"} ${field.name}`}
                           >
-                            {field.archivedAt ? <RotateCcw size={14} /> : <Trash2 size={14} />}
+                            {archivingId === field.id ? (
+                              <ButtonSpinner size={14} />
+                            ) : field.archivedAt ? (
+                              <RotateCcw size={14} />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
                           </button>
                         </div>
                       ))}
@@ -449,16 +474,20 @@ function AddClassificationModal({
   onAdded: () => void;
 }) {
   const [label, setLabel] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!kind) return;
+    setSaving(true);
     try {
       await api.post(`${base}/classifications`, { kind, label });
       setLabel("");
       onAdded();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -474,7 +503,9 @@ function AddClassificationModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Add value</Button>
+          <Button type="submit" loading={saving}>
+            Add value
+          </Button>
         </div>
       </form>
     </Modal>
@@ -498,10 +529,12 @@ function AddCustomFieldModal({
   const [fieldType, setFieldType] = React.useState<RevenueCustomFieldType>("text");
   const [options, setOptions] = React.useState("");
   const [required, setRequired] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!resourceType) return;
+    setSaving(true);
     try {
       await api.post(`${base}/custom-fields`, {
         resourceType,
@@ -518,6 +551,8 @@ function AddCustomFieldModal({
       onAdded();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -564,7 +599,9 @@ function AddCustomFieldModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Create field</Button>
+          <Button type="submit" loading={saving}>
+            Create field
+          </Button>
         </div>
       </form>
     </Modal>
@@ -583,6 +620,7 @@ function EditClassificationModal({
   onSaved: () => void;
 }) {
   const [label, setLabel] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     setLabel(row?.label ?? "");
@@ -591,11 +629,14 @@ function EditClassificationModal({
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!row) return;
+    setSaving(true);
     try {
       await api.patch(`${base}/classifications/${row.id}`, { label });
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -612,7 +653,9 @@ function EditClassificationModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Save</Button>
+          <Button type="submit" loading={saving}>
+            Save
+          </Button>
         </div>
       </form>
     </Modal>
@@ -633,6 +676,7 @@ function EditCustomFieldModal({
   const [name, setName] = React.useState("");
   const [options, setOptions] = React.useState("");
   const [required, setRequired] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     setName(field?.name ?? "");
@@ -648,6 +692,7 @@ function EditCustomFieldModal({
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!field) return;
+    setSaving(true);
     try {
       await api.patch(`${base}/custom-fields/${field.id}`, {
         name,
@@ -660,6 +705,8 @@ function EditCustomFieldModal({
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -692,7 +739,9 @@ function EditCustomFieldModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Save</Button>
+          <Button type="submit" loading={saving}>
+            Save
+          </Button>
         </div>
       </form>
     </Modal>
@@ -715,6 +764,7 @@ function StageModal({
   const [kind, setKind] = React.useState<DealStage["kind"]>("open");
   const [color, setColor] = React.useState("#94a3b8");
   const [description, setDescription] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     const current = stage && stage !== "new" ? stage : null;
@@ -728,6 +778,7 @@ function StageModal({
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!stage) return;
+    setSaving(true);
     try {
       const body = {
         name,
@@ -741,6 +792,8 @@ function StageModal({
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -792,7 +845,9 @@ function StageModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Save stage</Button>
+          <Button type="submit" loading={saving}>
+            Save stage
+          </Button>
         </div>
       </form>
     </Modal>

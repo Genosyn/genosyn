@@ -11,7 +11,7 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { api, type Company, type PipelineRunDetail, type PipelineRunSummary } from "@/lib/api";
@@ -113,11 +113,12 @@ export function PipelineRuns({
             type="button"
             onClick={() => void loadRuns()}
             disabled={refreshing}
+            aria-busy={refreshing || undefined}
             className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="Refresh run history"
             aria-label="Refresh run history"
           >
-            <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? <ButtonSpinner size={15} /> : <RefreshCw size={15} />}
           </button>
         </div>
 

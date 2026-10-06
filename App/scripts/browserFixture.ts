@@ -6,7 +6,9 @@ import { build, preview } from "vite";
 
 export async function startBrowserFixture(harness: string, port: number) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const fixtureRoot = await fs.mkdtemp(path.join(root, "node_modules/.browser-fixture-"));
+  // Keep fixture HTML in this worktree even when node_modules is a shared symlink.
+  await fs.mkdir(path.join(root, ".tmp"), { recursive: true });
+  const fixtureRoot = await fs.mkdtemp(path.join(root, ".tmp/browser-fixture-"));
   try {
     await fs.writeFile(
       path.join(fixtureRoot, "index.html"),

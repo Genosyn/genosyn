@@ -6,7 +6,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { RoutineTrigger } from "../db/entities/RoutineTrigger.js";
 import { LIVE_SYNC_KINDS } from "../db/subscribers/resourceChangeSubscriber.js";
 import { registerRoutineTriggerSink } from "./resourceEvents.js";
-import { runRoutine } from "./runner.js";
+import { startRoutineRun } from "./runner.js";
 import { recordAudit } from "./audit.js";
 import { notifyApprovalPending } from "./notifications.js";
 import { workBlocked } from "./standdowns.js";
@@ -152,7 +152,8 @@ async function fireTrigger(trigger: RoutineTrigger): Promise<void> {
     });
     return;
   }
-  runRoutine(routine, { triggerKind: "event" }).catch((err) => {
+  const { completion } = await startRoutineRun(routine, { triggerKind: "event" });
+  void completion.catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`[triggers] routine ${routine.id} failed:`, err);
   });

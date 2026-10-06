@@ -178,10 +178,10 @@ export function Vault() {
         closed.
       </Callout>
       <Callout kind="info" title="Host coding shares the App process authority">
-        Vault Grants govern access through Genosyn&apos;s tools. The default host coding mode is not
-        an OS sandbox: a command can access files and services available to the App process user.
-        Select optional bubblewrap or disable coding when that process-level separation is required.
-        See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
+        Vault Grants govern access through Genosyn&apos;s tools. Host coding is not an OS sandbox:
+        a command can access files and services available to the App process user, and Genosyn has
+        no isolation mode. Set the execution mode to <Code>disabled</Code> when commands must not
+        run at all. See <DocLink to="/docs/self-hosting#config-ts">Configuration</DocLink>.
       </Callout>
       <P>
         With Manage, <Code>update_vault_login</Code> can change the title, username, or private
@@ -293,13 +293,8 @@ export function Vault() {
         event identifying the Member, Vault item, action, and time, without recording the secret
         itself. Creating, updating, deleting, sharing, granting, and AI use are audited too. Review
         the history under <Strong>Settings → Audit log</Strong> when investigating access or
-        rotating a credential.
+        rotating a credential — see <DocLink to="/docs/security#audit-log">the audit log</DocLink>.
       </P>
-      <Callout kind="info" title="The Audit log page is gated.">
-        Reading the Audit log needs the Scale plan on Genosyn Cloud, or a Genosyn Enterprise license
-        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and{" "}
-        <DocLink to="/docs/enterprise-license" />.
-      </Callout>
       <UL>
         <LI>Do not paste a Vault value into Chat; Grant the item and use a governed action.</LI>
         <LI>

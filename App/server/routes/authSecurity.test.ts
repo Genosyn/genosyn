@@ -11,6 +11,7 @@ import { generate } from "otplib";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
+import { AppSetting } from "../db/entities/AppSetting.js";
 import { AuthFlowState } from "../db/entities/AuthFlowState.js";
 import { AuthRateLimit } from "../db/entities/AuthRateLimit.js";
 import { Company } from "../db/entities/Company.js";
@@ -36,6 +37,7 @@ import {
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
 import { setPublicUrl } from "../services/publicUrl.js";
+import { SSO_SETTING_KEY } from "../services/ssoSettings.js";
 import { authRouter } from "./auth.js";
 import { adminRouter } from "./admin.js";
 import { companiesRouter } from "./companies.js";
@@ -581,10 +583,12 @@ describe("company control-plane browser authority", () => {
 });
 
 describe("credential recovery and identity changes", () => {
-  test("password reset is single-use and revokes sessions plus personal API keys", async () => {
+  test("password reset is single-use and revokes sessions, API keys, and SSO pairings", async () => {
     const { user, company } = await createMember("owner");
     user.resetToken = hashToken("reset-secret");
     user.resetExpiresAt = new Date(Date.now() + 60_000);
+    user.ssoIssuer = "https://company-idp.test";
+    user.ssoSubject = "pre-recovery-subject";
     await AppDataSource.getRepository(User).save(user);
     const { key } = await createApiKey(user.id, company.id);
 
@@ -595,6 +599,8 @@ describe("credential recovery and identity changes", () => {
     const updated = await AppDataSource.getRepository(User).findOneByOrFail({ id: user.id });
     assert.equal(updated.sessionVersion, 1);
     assert.equal(await bcrypt.compare("new-password-value-123", updated.passwordHash), true);
+    assert.equal(updated.ssoIssuer, null);
+    assert.equal(updated.ssoSubject, null);
     assert.ok(
       (await AppDataSource.getRepository(ApiKey).findOneByOrFail({ id: key.id })).revokedAt,
     );
@@ -606,6 +612,33 @@ describe("credential recovery and identity changes", () => {
       ).status,
       400,
     );
+  });
+
+  test("password reset keeps the pairing from the operator's own instance SSO", async () => {
+    await AppDataSource.getRepository(AppSetting).save({
+      key: SSO_SETTING_KEY,
+      value: JSON.stringify({
+        enabled: true,
+        provider: "oidc",
+        issuer: "https://instance-idp.test",
+        clientId: "instance-client",
+        encryptedClientSecret: "stored",
+      }),
+    });
+    const { user } = await createMember("owner");
+    user.resetToken = hashToken("instance-reset");
+    user.resetExpiresAt = new Date(Date.now() + 60_000);
+    user.ssoIssuer = "https://instance-idp.test";
+    user.ssoSubject = "instance-subject";
+    await AppDataSource.getRepository(User).save(user);
+
+    const response = await call("POST", "/api/auth/reset", {
+      body: { token: "instance-reset", password: "new-password-value-123" },
+    });
+    assert.equal(response.status, 200);
+    const updated = await AppDataSource.getRepository(User).findOneByOrFail({ id: user.id });
+    assert.equal(updated.ssoIssuer, "https://instance-idp.test");
+    assert.equal(updated.ssoSubject, "instance-subject");
   });
 
   test("email changes require the current password and remain pending until the new mailbox confirms", async () => {

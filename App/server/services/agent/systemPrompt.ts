@@ -1,9 +1,9 @@
 import type { AIEmployee } from "../../db/entities/AIEmployee.js";
 import type { Company } from "../../db/entities/Company.js";
 import type { Skill } from "../../db/entities/Skill.js";
-import { config } from "../../../config.js";
 import { getAgentSettings } from "../runtimeSettings.js";
 import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
+import { composeStanddownContext } from "../standdowns.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 import { codingRuntimeAvailability } from "./codingAvailability.js";
 
@@ -47,15 +47,18 @@ export function composeEmployeeSystemPrompt(args: {
   signingContext: string;
   revenueContext: string;
   marketingContext: string;
+  /** The "## Resources" block from `services/resourceLibraryAccess.ts` — only
+   * for an employee set to read only; "" otherwise. */
+  resourcesContext: string;
   /** The one line the two seams genuinely disagree on. */
   opening: string;
   surface: PromptSurface;
+  /** Include the Routine's narrow Standdown when briefing a Run. */
+  routineId?: string;
   /** Subscription turns serialize on a model lock and cannot delegate. */
   parallelDelegationAvailable: boolean;
   /** Whether this turn receives any built-in coding tool. */
   codingToolsAvailable: boolean;
-  /** Bubblewrap mode keeps every coding operation inside its namespace. */
-  isolatedCodingTools: boolean;
   /** Per-skill declared toolsets, keyed by skill id, for the Skill headings. */
   skillToolsets?: Map<string, string[]>;
 }): string {
@@ -71,6 +74,7 @@ export function composeEmployeeSystemPrompt(args: {
     signingContext,
     revenueContext,
     marketingContext,
+    resourcesContext,
   } = args;
   const parts: string[] = [];
 
@@ -85,12 +89,7 @@ export function composeEmployeeSystemPrompt(args: {
     "Notice opportunities to improve your own work as you complete it. Use get_own_work_review to examine actual outcomes and prior review feedback. For a worthwhile durable improvement, read the current document and stage a concrete Revision proposal with source evidence and a measurable expected benefit. Reuse pending suggestions, respect rejections, and keep unchanged reviews quiet. Propose changes to your own Soul, Skills, or Routine brief for human review. Your successful Ask AI contributions also let you suggest a brief improvement to that exact Routine: read its current complete document with get_participating_routine, preserve the owner and cite finished target Runs. Participation never grants direct editing or authority over another employee's Soul, Skills, Checks or criteria; do not silently apply them or weaken Checks, acceptance criteria, or authority to make results look better. After a change is applied, compare later results before claiming it helped.",
   );
   parts.push(
-    toolsBriefing(
-      args.surface,
-      args.parallelDelegationAvailable,
-      args.codingToolsAvailable,
-      args.isolatedCodingTools,
-    ),
+    toolsBriefing(args.surface, args.parallelDelegationAvailable, args.codingToolsAvailable),
   );
   // The company's mission and vision are the topmost layer of intent — the
   // charter every employee steers by, with the Goals block carrying the
@@ -114,6 +113,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (signingContext) parts.push(signingContext);
   if (revenueContext) parts.push(revenueContext);
   if (marketingContext) parts.push(marketingContext);
+  if (resourcesContext) parts.push(resourcesContext);
 
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
@@ -125,6 +125,11 @@ export function composeEmployeeSystemPrompt(args: {
     }
     parts.push(s.body);
   }
+
+  // History can contain an old stop even after its lift has fallen outside
+  // the bounded Journal window. End with the same current state enforcement
+  // uses, so old Memory, Skills, or Run checkpoints cannot extend that stop.
+  parts.push(composeStanddownContext(co.id, { employeeId: emp.id, routineId: args.routineId }));
 
   return parts.join("\n");
 }
@@ -185,7 +190,6 @@ export function toolsBriefing(
   surface: PromptSurface,
   parallelDelegationAvailable: boolean,
   codingToolsAvailable = codingRuntimeAvailability().available,
-  isolatedCodingTools = config.agent.codingTools.executionMode === "bubblewrap",
 ): string {
   const isChat = surface === "chat";
   // When discovery is off (the revert flag), every tool is loaded and there is
@@ -222,10 +226,15 @@ export function toolsBriefing(
         "Record completed and remaining items, a fixed review window, stable source IDs/cursors, unresolved truncated items, and the exact next step in resume. " +
         "Use state continue while actionable work remains, blocked when access or a human Decision is required, and complete only when all intended work is done. " +
         "The progressKey must identify the last fully processed item or source position; keep it unchanged if no real progress occurred. " +
-        "Work in batches of at most five source records or conversations. Save all progress in the checkpoint: after a long batch Genosyn may hand off immediately when the save succeeds, before you write a final report. " +
+        "Substantively review or process at most five source records or conversations per batch. " +
+        "Compact discovery listings may use the tool's supported bounded page sizes; retry the same page with a smaller limit if its output is truncated. " +
+        "Capture and deduplicate stable IDs and cursors from fully read pages. Record inventory coverage separately from completed substantive review. " +
+        "Save all progress in the checkpoint: after a long batch Genosyn may hand off immediately when the save succeeds, before you write a final report. " +
         "Save a final checkpoint before ending the turn. Genosyn automatically resumes actionable unfinished work in fresh Runs within the original time limit, " +
         "up to three continuations, with no total model-token limit or fixed model/tool step limit; do not schedule Wakeups to bypass the time or continuation limits. " +
-        "Resume saved progress before collecting newer work, resolve truncated evidence using smaller pages or exact-entry reads, " +
+        "Follow the Routine's stated priority and discovery requirements. Resume saved unfinished work at the priority the Routine requires. " +
+        "Preserve this occurrence's captured scope and retain inherited backlog with its original review window, without replacing explicitly required current priority work or urgent commitments. " +
+        "Resolve truncated evidence using smaller pages or exact-entry reads, " +
         "and verify existing records before repeating a write or send. Keep the verified coverage checkpoint unchanged while gaps remain. " +
         "A complete checkpoint reports your progress; it cannot pass Checks or independently verify success. Find this tool with find_tools if needed.",
       "",
@@ -244,13 +253,7 @@ export function toolsBriefing(
 
   lines.push(discovery ? "### Always loaded" : "### Your tools");
 
-  if (codingToolsAvailable && isolatedCodingTools) {
-    lines.push(
-      "- Coding: isolated `bash`, rooted at your working directory. Use shell commands for file " +
-        "reading and editing too; host-process file tools are intentionally unavailable across " +
-        "this bubblewrap deployment.",
-    );
-  } else if (codingToolsAvailable) {
+  if (codingToolsAvailable) {
     lines.push(
       "- Coding: use the coding tools supplied by your runtime to read, edit, and search files " +
         "and run commands when a command tool is available. Your working directory holds granted " +

@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError, FormSuccess } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
-import { Spinner } from "@/components/ui/Spinner";
 import { api, type BaseField, type BaseForm, type BaseFormDetail } from "@/lib/api";
 import { baseFormShareState } from "@/lib/baseForms";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -146,10 +145,11 @@ export function BaseFormShareModal({
             </p>
             <Button
               className="mt-4"
+              loading={busy === "publish"}
               disabled={busy !== null || shareState.publishBlocked}
               onClick={() => void patchForm("publish", { published: true })}
             >
-              {busy === "publish" ? <Spinner size={14} /> : <Send size={14} />}
+              <Send size={14} />
               {busy === "publish" ? "Publishing…" : "Publish form"}
             </Button>
             {form.questions.length === 0 && (
@@ -244,6 +244,7 @@ export function BaseFormShareModal({
                 </div>
                 <Button
                   variant="secondary"
+                  loading={busy === "accepting"}
                   disabled={busy !== null}
                   onClick={() =>
                     void patchForm("accepting", {
@@ -251,7 +252,6 @@ export function BaseFormShareModal({
                     })
                   }
                 >
-                  {busy === "accepting" && <Spinner size={14} />}
                   {form.acceptingResponses ? "Close form" : "Reopen form"}
                 </Button>
               </div>
@@ -269,10 +269,11 @@ export function BaseFormShareModal({
                 </div>
                 <Button
                   variant="secondary"
+                  loading={busy === "rotate"}
                   disabled={busy !== null}
                   onClick={() => void rotateLink()}
                 >
-                  {busy === "rotate" ? <Spinner size={14} /> : <RefreshCw size={14} />}
+                  <RefreshCw size={14} />
                   Reset public link
                 </Button>
               </div>

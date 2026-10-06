@@ -128,7 +128,7 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           className="!min-h-24"
           maxLength={2000}
         />
-        <Button type="submit" disabled={loading}>
+        <Button type="submit" loading={loading}>
           {loading ? "Creating…" : "Create company and continue"}
         </Button>
       </form>

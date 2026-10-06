@@ -26,8 +26,8 @@ import { clsx } from "../components/ui/clsx";
  * Admin → Runtime. The operational knobs an operator used to change by editing
  * `config.ts` and restarting the container: the open-web tools, mail sync
  * pacing, meetings, the browser Genosyn drives itself, the agent's taint
- * policy / member browsers / tool discovery, containment — the circuit breaker
- * and the re-grade sweep — and the outbound network allowlist.
+ * policy / member browsers / tool discovery, the re-grade sweep, and the
+ * outbound network allowlist.
  *
  * Each section is one group, stored as a single JSON row in `app_settings` and
  * read through a 30s cache on the server, so a save reaches every replica
@@ -133,9 +133,19 @@ const GROUPS: GroupSpec[] = [
         label: "Search provider",
         options: [
           { value: "duckduckgo", label: "DuckDuckGo (no API key)" },
+          { value: "searxng", label: "SearXNG (self-hosted)" },
           { value: "disabled", label: "Disabled" },
         ],
-        help: "Disabled turns search off and leaves page fetch and download working.",
+        help: "DuckDuckGo can start challenging a busy server, which stops search for a while. SearXNG asks several engines from your own instance. Disabled turns search off and leaves page fetch and download working.",
+      },
+      {
+        kind: "text",
+        path: "searxngUrl",
+        label: "SearXNG URL",
+        maxLength: 2048,
+        placeholder: "http://searxng:8080",
+        mono: true,
+        help: "Used when the provider is SearXNG. Enable the json format under search.formats in its settings.yml. A private address must also be on the private host allow list under Network.",
       },
       { kind: "int", path: "maxSearchResults", label: "Max search results", min: 1, max: 50 },
       {
@@ -155,6 +165,44 @@ const GROUPS: GroupSpec[] = [
         max: 1_000_000,
         unit: "characters",
         help: "Characters of page text handed to the model per fetch.",
+      },
+    ],
+  },
+  {
+    group: "oauth",
+    title: "Hosted sign-in",
+    icon: <Mailbox size={16} className="text-indigo-500" />,
+    blurb: "Connect supported Integrations through a shared sign-in service. Currently supports Google for Gmail; other providers must be added separately. This does not change how Members log into Genosyn.",
+    fields: [
+      {
+        kind: "boolean",
+        path: "hostedSignInEnabled",
+        label: "Use hosted sign-in",
+        help: "Use the service below when no local OAuth app is configured for a supported Integration. Turning this off stops new hosted sign-ins; existing Connections keep refreshing through their original service.",
+      },
+      {
+        kind: "text",
+        path: "hostedSignInUrl",
+        label: "Sign-in service URL (advanced)",
+        maxLength: 2048,
+        placeholder: "https://connect.genosyn.com",
+        mono: true,
+        help: "Only change this to a service you operate or trust with Integration credentials. It handles sign-in and token renewal. Gmail reads and sends go directly between this installation and Google. Use an HTTPS origin with no path; HTTP loopback is allowed for development. The service must be online before companies can connect.",
+      },
+      {
+        kind: "boolean",
+        path: "hostSignIn",
+        label: "Host shared sign-in on this installation",
+        help: "For the operator of the public sign-in service only. This exposes sign-in and token-renewal endpoints for other installations. Currently Google only: set a public HTTPS URL, register a Google app at Admin → Integrations, and complete Google production verification before enabling. Ordinary self-hosted installations leave this off.",
+      },
+      {
+        kind: "text",
+        path: "signInHostUrl",
+        label: "Hosted sign-in address",
+        maxLength: 2048,
+        placeholder: "https://connect.genosyn.com",
+        mono: true,
+        help: "Leave blank to use the App address. Set https://connect.genosyn.com when the sign-in service shares the SaaS deployment. Route this address to the App and register its /api/connect/google/callback URL with Google. The existing /api/google-sign-in/callback remains compatible. Hosting still needs to be enabled above.",
       },
     ],
   },
@@ -342,17 +390,8 @@ const GROUPS: GroupSpec[] = [
     title: "Containment",
     icon: <ShieldAlert size={16} className="text-indigo-500" />,
     blurb:
-      "When Genosyn stops a Routine by itself, and how it finishes grading Runs the runner never got to.",
+      "How Genosyn finishes grading Runs the runner never got to.",
     fields: [
-      {
-        kind: "int",
-        path: "routineBreakerThreshold",
-        label: "Routine breaker threshold",
-        min: 0,
-        max: 1_000,
-        unit: "consecutive bad Runs",
-        help: "After this many consecutive failed or off-goal Runs, the breaker stands the Routine down and an admin has to return it to work. 0 turns the breaker off, so a permanently broken Routine keeps firing on every slot.",
-      },
       {
         kind: "int",
         path: "regradeAfterMinutes",
@@ -513,6 +552,7 @@ function humanBytes(raw: DraftValue): string | null {
 export function AdminRuntime() {
   const [data, setData] = React.useState<RuntimeSettingsSnapshot | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -544,12 +584,21 @@ export function AdminRuntime() {
     );
   }
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="Runtime"
         right={
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={refresh} loading={refreshing}>
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -623,6 +672,19 @@ function GroupCard({
       setError(built.error);
       return;
     }
+    if (
+      spec.group === "oauth" &&
+      built.value.hostSignIn === true &&
+      readPath(value, "hostSignIn") !== true
+    ) {
+      const confirmed = await dialog.confirm({
+        title: "Host the shared sign-in service?",
+        message:
+          "Other installations will send sign-in and token-renewal requests here. Currently only Google for Gmail is supported. Configure the public sign-in address and Google OAuth app, register that address with /api/connect/google/callback, and complete Google production verification before enabling. This does not enable other providers or change Member login.",
+        confirmLabel: "Enable hosting",
+      });
+      if (!confirmed) return;
+    }
     setError(null);
     setSaving(true);
     try {
@@ -676,7 +738,13 @@ function GroupCard({
             </div>
           </div>
           {overridden && (
-            <Button size="sm" variant="ghost" onClick={resetToDefaults} disabled={busy}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={resetToDefaults}
+              loading={resetting}
+              disabled={busy}
+            >
               <RotateCcw size={12} />
               {resetting ? "Resetting…" : "Reset to defaults"}
             </Button>
@@ -707,7 +775,7 @@ function GroupCard({
           <FormError message={error} />
 
           <div className="flex justify-end pt-1">
-            <Button type="submit" size="sm" disabled={!dirty || busy}>
+            <Button type="submit" size="sm" loading={saving} disabled={!dirty || busy}>
               <Save size={14} /> {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>

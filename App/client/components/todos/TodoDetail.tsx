@@ -36,7 +36,7 @@ import { Menu, MenuHeader, MenuItem, MenuSeparator } from "@/components/ui/Menu"
 import { useBackgroundAction } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import { api } from "@/lib/api";
 import type { Employee, Member, Project, Todo, TodoComment } from "@/lib/api";
@@ -526,8 +526,8 @@ export function SubtasksSection({
               className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
             />
             {title.trim() && (
-              <Button type="submit" size="sm" disabled={busy}>
-                {busy ? "…" : "Add"}
+              <Button type="submit" size="sm" loading={busy}>
+                Add
               </Button>
             )}
           </form>
@@ -941,11 +941,16 @@ export function CommentThread({
             <button
               type="button"
               aria-label="Attach a file"
+              aria-busy={attachmentDraft.uploading > 0 || undefined}
               disabled={posting}
               onClick={() => fileInputRef.current?.click()}
               className="rounded-md p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-40"
             >
-              {attachmentDraft.uploading > 0 ? <Spinner size={13} /> : <Paperclip size={13} />}
+              {attachmentDraft.uploading > 0 ? (
+                <ButtonSpinner size={13} />
+              ) : (
+                <Paperclip size={13} />
+              )}
             </button>
             <MentionPicker value={mentionId} employees={employees} onChange={setMentionId} />
             <span className="text-[11px] text-slate-400 dark:text-slate-500">

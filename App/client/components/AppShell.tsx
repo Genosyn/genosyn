@@ -12,6 +12,7 @@ import {
   PanelLeft,
   Plug,
   ServerCog,
+  Sparkles,
   Sun,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
@@ -21,6 +22,7 @@ import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
+import { ButtonSpinner } from "./ui/Spinner";
 import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
 import { CommandRegistryProvider } from "./CommandRegistry";
 import { CompanySocketProvider } from "./CompanySocket";
@@ -29,6 +31,8 @@ import { KeyboardShortcutsProvider, useKeyboardShortcuts } from "./KeyboardShort
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useNavigationGuard } from "./NavigationGuard";
 import { useTheme, Theme } from "./Theme";
+import { ASK_AI_SHORTCUT, AskAiProvider, useAskAi } from "./askAi/AskAiProvider";
+import { AskAiPanel } from "./askAi/AskAiPanel";
 
 /**
  * App chrome:
@@ -85,6 +89,11 @@ export function AppShell({
     () => ({ open, setOpen, hasSidebar, setHasSidebar }),
     [open, hasSidebar],
   );
+  // What the palette needs to leave out pages this person can't open.
+  const paletteViewer = React.useMemo(
+    () => ({ role: current.role, financeAccess: current.financeAccess }),
+    [current.role, current.financeAccess],
+  );
 
   return (
     <CompanySocketProvider companyId={current.id}>
@@ -95,8 +104,13 @@ export function AppShell({
         {/* Outside the palette so pages can publish contextual actions into it,
             and the palette can read them, from the same tree. */}
         <CommandRegistryProvider>
-          <CommandPaletteProvider companyId={current.id} companySlug={current.slug}>
+          <CommandPaletteProvider
+            companyId={current.id}
+            companySlug={current.slug}
+            viewer={paletteViewer}
+          >
             <ContextualSidebarContext.Provider value={sidebarState}>
+              <AskAiProvider>
               <div className="flex h-full flex-col">
                 <a
                   href="#main-content"
@@ -119,13 +133,53 @@ export function AppShell({
                   current={current}
                   onCompaniesChanged={onCompaniesChanged}
                 />
-                <div className="flex min-h-0 flex-1">{children}</div>
+                <div className="flex min-h-0 flex-1">
+                  {children}
+                  <AskAiDock company={current} />
+                </div>
               </div>
+              </AskAiProvider>
             </ContextualSidebarContext.Provider>
           </CommandPaletteProvider>
         </CommandRegistryProvider>
       </KeyboardShortcutsProvider>
     </CompanySocketProvider>
+  );
+}
+
+/** The Ask AI panel, docked beside whatever page is open. */
+function AskAiDock({ company }: { company: Company }) {
+  const askAi = useAskAi();
+  if (!askAi?.open) return null;
+  // Keyed by company: switching companies starts from that company's own
+  // conversations rather than briefly showing the previous one's.
+  return <AskAiPanel key={company.id} company={company} />;
+}
+
+/**
+ * The top nav's Ask AI button. Opens a chat with any AI Employee — or several
+ * — that already knows what is on screen.
+ */
+function AskAiButton() {
+  const askAi = useAskAi();
+  if (!askAi) return null;
+  return (
+    <button
+      type="button"
+      onClick={askAi.toggle}
+      className={
+        "flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium sm:px-2.5 " +
+        (askAi.open
+          ? "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200"
+          : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800")
+      }
+      title={`Ask AI about this page (${ASK_AI_SHORTCUT})`}
+      aria-label="Ask AI"
+      aria-pressed={askAi.open}
+    >
+      <Sparkles size={15} className="text-violet-600 dark:text-violet-300" />
+      <span className="hidden sm:inline">Ask AI</span>
+    </button>
   );
 }
 
@@ -148,6 +202,7 @@ function TopNav({
   const navigationGuard = useNavigationGuard();
   const [companyOpen, setCompanyOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
+  const [loggingOut, setLoggingOut] = React.useState(false);
 
   React.useEffect(() => {
     if (!companyOpen && !userOpen) return;
@@ -161,7 +216,12 @@ function TopNav({
   }, [companyOpen, userOpen]);
 
   async function performLogout() {
-    await api.post("/api/auth/logout");
+    setLoggingOut(true);
+    try {
+      await api.post("/api/auth/logout");
+    } finally {
+      setLoggingOut(false);
+    }
     clearAssistantChatSessions();
     // Tear down the current document so trusted custom JavaScript loaded for
     // the signed-in App cannot remain resident on the sign-in screen.
@@ -265,14 +325,16 @@ function TopNav({
 
       <SectionMenu current={section} />
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        <AskAiButton />
         <button
           onClick={() => {
             const destination = `/c/${current.slug}/help`;
             if (!navigationGuard.request(destination)) navigate(destination);
           }}
+          // Phones reach Help from the section menu; the bar is full there.
           className={
-            "flex h-8 w-8 items-center justify-center rounded-md " +
+            "hidden h-8 w-8 items-center justify-center rounded-md sm:flex " +
             (sectionKey === "help"
               ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
               : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")
@@ -292,7 +354,11 @@ function TopNav({
           <Keyboard size={16} />
         </button>
         <NotificationsPanel company={current} meId={me.id} />
-        <ThemeToggle />
+        {/* Phones follow the system theme; the bar has no room for a third
+            icon there once Ask AI sits in it. */}
+        <div className="hidden sm:block">
+          <ThemeToggle />
+        </div>
         <div className="relative">
           <button
             onClick={() => {
@@ -334,9 +400,11 @@ function TopNav({
                 )}
                 <button
                   onClick={logout}
+                  disabled={loggingOut}
+                  aria-busy={loggingOut || undefined}
                   className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <LogOut size={14} /> Log out
+                  {loggingOut ? <ButtonSpinner size={14} /> : <LogOut size={14} />} Log out
                 </button>
                 <div
                   className="border-t border-slate-100 px-3 py-2 text-[11px] tabular-nums text-slate-400 dark:border-slate-700 dark:text-slate-500"
@@ -367,7 +435,7 @@ function SectionMenu({ current }: { current: SectionItem }) {
     <button
       onClick={palette.open}
       className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
-      title={`Search sections (${PALETTE_SHORTCUT})`}
+      title={`Search sections and pages (${PALETTE_SHORTCUT})`}
     >
       <span className={"flex h-5 w-5 items-center justify-center rounded " + current.iconBg}>
         <Icon size={12} />

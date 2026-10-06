@@ -57,6 +57,9 @@ import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { BackupDestination } from "./entities/BackupDestination.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
+import { IntegrationContinuation } from "./entities/IntegrationContinuation.js";
+import { AskAiConversation } from "./entities/AskAiConversation.js";
+import { AskAiMessage } from "./entities/AskAiMessage.js";
 import { EmployeeConnectionGrant } from "./entities/EmployeeConnectionGrant.js";
 import { ExternalChatIdentity } from "./entities/ExternalChatIdentity.js";
 import { EmployeeBaseGrant } from "./entities/EmployeeBaseGrant.js";
@@ -80,6 +83,7 @@ import { Handoff } from "./entities/Handoff.js";
 import { ApiKey } from "./entities/ApiKey.js";
 import { Resource } from "./entities/Resource.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
+import { EmployeeResourceLibraryGrant } from "./entities/EmployeeResourceLibraryGrant.js";
 import { Repository } from "./entities/Repository.js";
 import { RepositoryWorkSession } from "./entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "./entities/RepositoryWorkSessionTurn.js";
@@ -97,6 +101,7 @@ import { EmployeeSigningGrant } from "./entities/EmployeeSigningGrant.js";
 import { Product } from "./entities/Product.js";
 import { TaxRate } from "./entities/TaxRate.js";
 import { Invoice } from "./entities/Invoice.js";
+import { Subsidiary } from "./entities/Subsidiary.js";
 import { InvoiceLineItem } from "./entities/InvoiceLineItem.js";
 import { InvoicePayment } from "./entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "./entities/InvoiceWriteOff.js";
@@ -111,6 +116,7 @@ import { VendorRefund } from "./entities/VendorRefund.js";
 import { FinanceProposal } from "./entities/FinanceProposal.js";
 import { RecurringInvoice } from "./entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "./entities/RecurringInvoiceLineItem.js";
+import { RecurringInvoiceRun } from "./entities/RecurringInvoiceRun.js";
 import { Estimate } from "./entities/Estimate.js";
 import { EstimateLineItem } from "./entities/EstimateLineItem.js";
 import { Account } from "./entities/Account.js";
@@ -141,6 +147,8 @@ import { PushSubscription } from "./entities/PushSubscription.js";
 import { MailAccount } from "./entities/MailAccount.js";
 import { MailThread } from "./entities/MailThread.js";
 import { MailMessage } from "./entities/MailMessage.js";
+import { MailMessageAddress } from "./entities/MailMessageAddress.js";
+import { MailAddressIndexState } from "./entities/MailAddressIndexState.js";
 import { MailLabel } from "./entities/MailLabel.js";
 import { MailRule } from "./entities/MailRule.js";
 import { MailHandover } from "./entities/MailHandover.js";
@@ -212,9 +220,7 @@ import { TldrQuestion } from "./entities/TldrQuestion.js";
 import { TldrQuestionMessage } from "./entities/TldrQuestionMessage.js";
 import { TldrQuestionAction } from "./entities/TldrQuestionAction.js";
 import { TldrStandingQuestion } from "./entities/TldrStandingQuestion.js";
-import { CompanyBilling } from "./entities/CompanyBilling.js";
 import { CompanySso } from "./entities/CompanySso.js";
-import { EnterpriseLicense } from "./entities/EnterpriseLicense.js";
 
 const entities = [
   User,
@@ -279,6 +285,9 @@ const entities = [
   BackupSchedule,
   BackupDestination,
   IntegrationConnection,
+  IntegrationContinuation,
+  AskAiConversation,
+  AskAiMessage,
   EmployeeConnectionGrant,
   ExternalChatIdentity,
   EmployeeBaseGrant,
@@ -302,6 +311,7 @@ const entities = [
   ApiKey,
   Resource,
   EmployeeResourceGrant,
+  EmployeeResourceLibraryGrant,
   Repository,
   RepositoryWorkSession,
   RepositoryWorkSessionTurn,
@@ -319,6 +329,7 @@ const entities = [
   Product,
   TaxRate,
   Invoice,
+  Subsidiary,
   InvoiceLineItem,
   InvoicePayment,
   InvoiceWriteOff,
@@ -333,6 +344,7 @@ const entities = [
   FinanceProposal,
   RecurringInvoice,
   RecurringInvoiceLineItem,
+  RecurringInvoiceRun,
   Estimate,
   EstimateLineItem,
   Account,
@@ -363,6 +375,8 @@ const entities = [
   MailAccount,
   MailThread,
   MailMessage,
+  MailMessageAddress,
+  MailAddressIndexState,
   MailLabel,
   MailRule,
   MailHandover,
@@ -429,11 +443,7 @@ const entities = [
   TldrQuestionMessage,
   TldrQuestionAction,
   TldrStandingQuestion,
-  // Editions, plans & billing (M56) — per-company Cloud plan state, and the
-  // issuer-side registry of signed Enterprise licenses.
-  CompanyBilling,
-  EnterpriseLicense,
-  // Per-company SSO on a Genosyn Cloud install (M56 Phase B).
+  // Per-company SSO (M56 Phase B).
   CompanySso,
 ];
 
@@ -466,7 +476,48 @@ function buildDataSource(): DataSource {
     migrations,
     synchronize: false,
     logging: false,
+    prepareDatabase: tuneSqliteConnection,
   });
+}
+
+/** The slice of a better-sqlite3 handle {@link tuneSqliteConnection} needs. */
+export type SqlitePragmaTarget = {
+  pragma(source: string, options?: { simple?: boolean }): unknown;
+};
+
+/**
+ * Connection settings for the one SQLite handle the whole process shares.
+ *
+ * better-sqlite3 is synchronous, so every statement — and every commit's
+ * fsyncs — runs on the event loop and holds every other request until it
+ * returns. SQLite's defaults are tuned for a different shape of program:
+ *
+ * - **WAL.** The default rollback journal copies each changed page out to a
+ *   journal and fsyncs the journal and the database on every commit. WAL
+ *   appends the new pages to a log and checkpoints them in batches, so a
+ *   commit is a sequential write; readers in another process (the CLI, an
+ *   operator's `sqlite3`) also stop blocking the writer. The mode is
+ *   persistent in the file and `-wal`/`-shm` sit beside it; backups, restore
+ *   and the CLI already treat both as part of the database.
+ * - **synchronous = NORMAL**, in WAL only: commits stop fsyncing and
+ *   checkpoints still do. A power cut can lose the last few commits but never
+ *   corrupts the file. In rollback mode NORMAL is not corruption-safe, so a
+ *   database that refuses WAL (an in-memory one, a filesystem without shared
+ *   memory) keeps SQLite's FULL default.
+ * - **A 64 MiB page cache** (better-sqlite3 ships 16 MiB), so hot pages stop
+ *   round-tripping through read(2). Temporary storage stays on disk (SQLite's
+ *   default here): the mail search index lives in the `temp` schema and is
+ *   the size of a large mailbox's text (services/mail/searchIndex.ts).
+ * - **journal_size_limit** trims the WAL back after a large transaction
+ *   instead of leaving it at its high-water mark.
+ */
+export function tuneSqliteConnection(db: SqlitePragmaTarget): void {
+  const mode = db.pragma("journal_mode = WAL", { simple: true });
+  if (String(mode).toLowerCase() === "wal") {
+    db.pragma("synchronous = NORMAL");
+    db.pragma("journal_size_limit = 67108864");
+  }
+  db.pragma("cache_size = -65536");
 }
 
 export const AppDataSource = buildDataSource();
@@ -482,6 +533,51 @@ export async function initDb(): Promise<void> {
     AppDataSource.subscribers.push(new ResourceChangeSubscriber());
   }
   await runMigrationsExclusively();
+  // After the migrations, never before: an index they just created has no
+  // statistics yet, and the planner treats an unanalyzed index as selective.
+  optimizeSqliteStatistics();
+  if (!statisticsTimer && AppDataSource.options.type === "better-sqlite3") {
+    statisticsTimer = setInterval(optimizeSqliteStatistics, STATISTICS_REFRESH_MS);
+    statisticsTimer.unref();
+  }
+}
+
+const STATISTICS_REFRESH_MS = 6 * 60 * 60 * 1000;
+let statisticsTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Bring SQLite's query-planner statistics (`sqlite_stat1`) up to date.
+ *
+ * Without statistics SQLite assumes every indexed equality is selective. Here
+ * that is badly wrong: `companyId` has a handful of values across hundreds of
+ * thousands of rows, so `companyId = ? AND threadId IN (...)` was planned on
+ * the company index — reading every message in the mailbox, about a minute
+ * with the server held, to label one page of the Mail list.
+ *
+ * `PRAGMA optimize` analyzes only what needs it — a table with an index that
+ * has no statistics, or one whose row count grew 25x since it was last
+ * analyzed — so it is cheap to repeat: half a second on a 15 GB database when
+ * every table needs it, nothing measurable otherwise. The mask leaves out
+ * `0x10`, the sampled analysis: a sample of N rows caps the estimate for a
+ * column like `companyId` near N rows per value, and that low cardinality is
+ * the very thing the planner most needs to know. A no-op on Postgres, whose
+ * autovacuum keeps its own statistics.
+ *
+ * Never throws: statistics only steer the planner, so failing to refresh
+ * them must not fail a boot or a restore.
+ */
+export function optimizeSqliteStatistics(): void {
+  if (AppDataSource.options.type !== "better-sqlite3" || !AppDataSource.isInitialized) return;
+  try {
+    const db = (AppDataSource.driver as unknown as { databaseConnection: SqlitePragmaTarget })
+      .databaseConnection;
+    // `main` only: the `temp` schema holds the mail search index, whose
+    // FTS5 tables gain nothing from statistics and are large to analyze.
+    db.pragma("main.optimize = 0x10002");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[db] refreshing SQLite planner statistics failed:", err);
+  }
 }
 
 /**

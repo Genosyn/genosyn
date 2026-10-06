@@ -85,3 +85,26 @@ GPU. On a cloud VM:
 See [`.env.example`](./.env.example) for the full list. The ones you'll touch
 most: `VLLM_MODEL`, `VLLM_TOOL_PARSER` (must match the model family),
 `VLLM_TP` (GPUs to shard across), and `VLLM_MAX_MODEL_LEN`.
+
+## Tuning for Routines
+
+A Routine resends its whole conversation every step — often 100k–230k tokens —
+and writes long replies, so a few settings matter far more than for chat. For
+Qwen3.5 and later (hybrid models that ship multi-token prediction weights) on
+one 80 GB GPU, this is the configuration we run:
+
+```bash
+# .env
+VLLM_MODEL=Qwen/Qwen3.8-27B
+VLLM_TAG=v0.30.0
+VLLM_TOOL_PARSER=qwen3_coder
+VLLM_MAX_MODEL_LEN=262144
+VLLM_GPU_UTIL=0.92
+# Keep the single quotes around the JSON so it reaches vLLM as one argument.
+VLLM_EXTRA_ARGS=--reasoning-parser qwen3 --enable-prefix-caching --mamba-cache-mode align --kv-cache-dtype fp8 --max-num-seqs 32 --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
+```
+
+Use vLLM 0.30 or later with multi-token prediction: on 0.24 it crashed a
+Qwen3.8 server with prefix caching about every half hour. What each flag does,
+how to set Genosyn's context window and Concurrent Routine Runs to match, and
+what to check in the log: [Tune vLLM for Routines](https://genosyn.com/docs/open-source-models#vllm-tuning).

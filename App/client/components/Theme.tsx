@@ -45,8 +45,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(t);
   }, []);
 
-  // Apply + track system changes when in system mode.
-  React.useEffect(() => {
+  // Apply + track system changes when in system mode. A layout effect lands
+  // the class before first paint, so the launch screen never shows the wrong
+  // theme for a frame.
+  React.useLayoutEffect(() => {
     applyThemeToHtml(theme);
     setIsDark(theme === "dark" || (theme === "system" && systemPrefersDark()));
     if (theme !== "system" || !window.matchMedia) return;

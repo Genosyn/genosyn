@@ -426,12 +426,12 @@ function GoalRow({
             <Button
               variant="ghost"
               size="sm"
-              disabled={refreshing}
+              loading={refreshing}
               onClick={() => void refresh()}
               title="Run the chart now and update the current value"
               aria-label={`Refresh ${goal.title}`}
             >
-              <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+              <RefreshCw size={14} />
             </Button>
           )}
 
@@ -613,7 +613,7 @@ function GoalModal({
           <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             {goal ? "Save changes" : "Create goal"}
           </Button>
         </>
@@ -823,7 +823,7 @@ function ReportProgressModal({
           <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             Save
           </Button>
         </>

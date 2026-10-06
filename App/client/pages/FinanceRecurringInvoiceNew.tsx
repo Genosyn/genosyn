@@ -1,8 +1,10 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
+  financeSubsidiaries,
+  Subsidiary,
   Customer,
   formatMoney,
   parseMoneyToCents,
@@ -24,7 +26,22 @@ import {
   WEEKDAY_LABELS,
   withTime,
 } from "../lib/schedule";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
+import {
+  changeRecurringInvoiceNameCustomer,
+  existingRecurringInvoiceName,
+  initialRecurringInvoiceCustomer,
+  initialRecurringInvoiceName,
+  recurringInvoiceNameToSave,
+  requestedRecurringInvoiceCustomerId,
+  typedRecurringInvoiceName,
+  type RecurringInvoiceNameState,
+} from "../lib/recurringInvoiceForm";
+import {
+  defaultRecurringInvoiceName,
+  RECURRING_INVOICE_NAME_MAX_LENGTH,
+} from "../../shared/recurringInvoiceName";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -32,6 +49,7 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
+import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -80,12 +98,18 @@ const scheduleField =
 /**
  * Recurring-invoice form — handles both create and edit. The lifecycle
  * controls (pause / resume / end / run now) live on the detail page.
+ *
+ * A new schedule is named after its customer until the person types a name
+ * of their own (`lib/recurringInvoiceForm.ts`). `?customerId=` picks the
+ * customer it starts with, which is how a customer's Billing tab opens it.
  */
 export default function FinanceRecurringInvoiceNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const { recurringSlug } = useParams();
   const isEdit = Boolean(recurringSlug);
+  const [searchParams] = useSearchParams();
+  const requestedCustomerId = isEdit ? null : requestedRecurringInvoiceCustomerId(searchParams);
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -93,8 +117,14 @@ export default function FinanceRecurringInvoiceNew() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [ready, setReady] = React.useState(false);
 
+  const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
+  const [subsidiaryId, setSubsidiaryId] = React.useState("");
+  const [savedSubsidiaryId, setSavedSubsidiaryId] = React.useState<string | null>(null);
   const [customerId, setCustomerId] = React.useState("");
-  const [name, setName] = React.useState("");
+  const [requestedCustomerUnavailable, setRequestedCustomerUnavailable] = React.useState(false);
+  const [name, setName] = React.useState<RecurringInvoiceNameState>(() =>
+    initialRecurringInvoiceName(null),
+  );
   const [schedule, setSchedule] = React.useState<ScheduleParts>(defaultScheduleParts);
   const [daysUntilDue, setDaysUntilDue] = React.useState(14);
   const [autoSend, setAutoSend] = React.useState(false);
@@ -110,20 +140,25 @@ export default function FinanceRecurringInvoiceNew() {
   React.useEffect(() => {
     (async () => {
       try {
-        const [c, p, t] = await Promise.all([
+        const [c, p, t, subsidiaries] = await Promise.all([
           api.get<Customer[]>(`/api/companies/${company.id}/customers`),
           api.get<Product[]>(`/api/companies/${company.id}/products`),
           api.get<TaxRate[]>(`/api/companies/${company.id}/tax-rates`),
+          financeSubsidiaries.list(company.id),
         ]);
         setCustomers(c);
         setProducts(p);
         setTaxRates(t);
+        setSubsidiaries(subsidiaries);
         if (isEdit && recurringSlug) {
           const existing = await api.get<RecurringInvoice>(
             `/api/companies/${company.id}/recurring-invoices/${recurringSlug}`,
           );
           setCustomerId(existing.customerId);
-          setName(existing.name);
+          setSubsidiaryId(existing.subsidiaryId ?? "");
+          setSavedSubsidiaryId(existing.subsidiaryId);
+
+          setName(existingRecurringInvoiceName(existing.name));
           setSchedule({
             ...cronToParts(existing.cronExpr),
             intervalCount: existing.intervalCount ?? 1,
@@ -134,20 +169,18 @@ export default function FinanceRecurringInvoiceNew() {
           setNotes(existing.notes);
           setFooter(existing.footer);
           setMaxRunsText(existing.maxRuns != null ? String(existing.maxRuns) : "");
-          setEndsOn(
-            existing.endsOn
-              ? new Date(existing.endsOn).toISOString().slice(0, 10)
-              : "",
-          );
+          setEndsOn(existing.endsOn ? new Date(existing.endsOn).toISOString().slice(0, 10) : "");
           setLines(
-            existing.lines.length === 0
-              ? [emptyLine()]
-              : existing.lines.map(lineRowFromExisting),
+            existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
-        } else if (c.length > 0) {
-          setCustomerId(c[0].id);
-          setCurrency(c[0].currency || "USD");
-          setName(`Monthly retainer — ${c[0].name}`);
+        } else {
+          const initial = initialRecurringInvoiceCustomer(c, requestedCustomerId);
+          setRequestedCustomerUnavailable(initial.requestedUnavailable);
+          if (initial.customer) {
+            setCustomerId(initial.customer.id);
+            setCurrency(initial.customer.currency || "USD");
+          }
+          setName(initialRecurringInvoiceName(initial.customer));
         }
         setReady(true);
       } catch (err) {
@@ -155,13 +188,14 @@ export default function FinanceRecurringInvoiceNew() {
         setReady(true);
       }
     })();
-  }, [company.id, recurringSlug, isEdit]);
+  }, [company.id, recurringSlug, isEdit, requestedCustomerId]);
 
   function changeCustomer(id: string) {
     setCustomerId(id);
-    const c = customers?.find((x) => x.id === id);
+    setRequestedCustomerUnavailable(false);
+    const c = customers?.find((x) => x.id === id) ?? null;
     if (c?.currency) setCurrency(c.currency);
-    if (!isEdit && c) setName(`Monthly retainer — ${c.name}`);
+    setName((current) => changeRecurringInvoiceNameCustomer(current, c));
   }
 
   function patchLine(idx: number, patch: Partial<LineRow>) {
@@ -221,10 +255,12 @@ export default function FinanceRecurringInvoiceNew() {
     return { subtotal, tax, total };
   }, [lines, taxRates]);
 
+  const selectedCustomer = customers?.find((c) => c.id === customerId) ?? null;
+  const customerName = defaultRecurringInvoiceName(selectedCustomer);
+  const nameToSave = recurringInvoiceNameToSave(name, selectedCustomer);
+
   const canSave =
-    !!customerId &&
-    !!name.trim() &&
-    lines.some((l) => l.description.trim().length > 0);
+    !!customerId && !!nameToSave && lines.some((l) => l.description.trim().length > 0);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -246,7 +282,8 @@ export default function FinanceRecurringInvoiceNew() {
         maxRunsText.trim() === "" ? null : Math.max(1, parseInt(maxRunsText, 10) || 0);
       const body = {
         customerId,
-        name: name.trim(),
+        subsidiaryId: subsidiaryId || null,
+        name: nameToSave,
         cronExpr: partsToCron(schedule),
         frequency: schedule.frequency,
         intervalCount: schedule.intervalCount,
@@ -277,7 +314,7 @@ export default function FinanceRecurringInvoiceNew() {
     }
   }
 
-  if (!ready || customers === null) {
+  if (!ready || (customers === null && !loadError)) {
     return (
       <div className="flex justify-center p-16">
         <Spinner size={20} />
@@ -316,7 +353,7 @@ export default function FinanceRecurringInvoiceNew() {
     );
   }
 
-  if (!isEdit && customers.length === 0) {
+  if (!isEdit && customers?.length === 0) {
     return (
       <div className="mx-auto max-w-3xl p-8">
         <Breadcrumbs
@@ -389,7 +426,7 @@ export default function FinanceRecurringInvoiceNew() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={busy || !canSave}>
+          <Button type="submit" loading={busy} disabled={!canSave}>
             {isEdit ? "Save changes" : "Create schedule"}
           </Button>
         </div>
@@ -398,26 +435,49 @@ export default function FinanceRecurringInvoiceNew() {
       <FormError message={error} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Monthly retainer — Acme"
-            required
+        <div className="mb-6 max-w-xl">
+          <InvoiceIssuerSelect
+            company={company}
+            subsidiaries={subsidiaries}
+            value={subsidiaryId}
+            savedSubsidiaryId={savedSubsidiaryId}
+            onChange={setSubsidiaryId}
           />
-          <Select
-            label="Customer"
-            value={customerId}
-            onChange={(e) => changeCustomer(e.target.value)}
-            required
-          >
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="min-w-0">
+            <Input
+              label="Name"
+              value={name.value}
+              onChange={(e) => setName(typedRecurringInvoiceName(e.target.value))}
+              placeholder={customerName || "Name this schedule"}
+              maxLength={RECURRING_INVOICE_NAME_MAX_LENGTH}
+            />
+            {!name.value.trim() && customerName && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Leave blank to use the customer&apos;s name.
+              </p>
+            )}
+          </div>
+          <div className="min-w-0">
+            <Select
+              label="Customer"
+              value={customerId}
+              onChange={(e) => changeCustomer(e.target.value)}
+              required
+            >
+              {customers?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {customerOptionLabel(c)}
+                </option>
+              ))}
+            </Select>
+            {requestedCustomerUnavailable && !customerId && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                The customer you came from is archived or no longer exists. Choose who to bill.
+              </p>
+            )}
+          </div>
           <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               Schedule
@@ -432,10 +492,7 @@ export default function FinanceRecurringInvoiceNew() {
                 onChange={(e) =>
                   setSchedule({
                     ...schedule,
-                    intervalCount: Math.max(
-                      1,
-                      Math.min(99, parseInt(e.target.value, 10) || 1),
-                    ),
+                    intervalCount: Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)),
                   })
                 }
                 className={`${scheduleField} w-16 text-center tabular-nums`}
@@ -466,9 +523,7 @@ export default function FinanceRecurringInvoiceNew() {
                   <span>on</span>
                   <Select
                     value={schedule.weekday}
-                    onChange={(e) =>
-                      setSchedule({ ...schedule, weekday: Number(e.target.value) })
-                    }
+                    onChange={(e) => setSchedule({ ...schedule, weekday: Number(e.target.value) })}
                     aria-label="Day of week"
                   >
                     {WEEKDAY_LABELS.map((w, i) => (
@@ -485,9 +540,7 @@ export default function FinanceRecurringInvoiceNew() {
                   <span>in</span>
                   <Select
                     value={schedule.month}
-                    onChange={(e) =>
-                      setSchedule({ ...schedule, month: Number(e.target.value) })
-                    }
+                    onChange={(e) => setSchedule({ ...schedule, month: Number(e.target.value) })}
                     aria-label="Month"
                   >
                     {MONTH_LABELS.map((mn, i) => (
@@ -499,8 +552,7 @@ export default function FinanceRecurringInvoiceNew() {
                 </>
               )}
 
-              {schedule.frequency !== "weekly" &&
-                schedule.frequency !== "daily" && (
+              {schedule.frequency !== "weekly" && schedule.frequency !== "daily" && (
                 <>
                   <span>on the</span>
                   <Select
@@ -575,8 +627,7 @@ export default function FinanceRecurringInvoiceNew() {
             <span>
               <span className="font-medium">Auto-issue and email</span>
               <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
-                — without this, each tick creates a draft you review and send
-                manually.
+                — without this, each tick creates a draft you review and send manually.
               </span>
             </span>
           </label>
@@ -584,9 +635,7 @@ export default function FinanceRecurringInvoiceNew() {
 
         <div className="mt-6">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Line items
-            </h2>
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Line items</h2>
             <span className="text-xs text-slate-500 dark:text-slate-400">
               Copied onto every generated invoice
             </span>
@@ -610,17 +659,12 @@ export default function FinanceRecurringInvoiceNew() {
                 const rate = taxRates.find((r) => r.id === l.taxRateId);
                 let lineTotal = gross;
                 if (rate && !rate.inclusive) {
-                  lineTotal =
-                    gross + Math.round((gross * rate.ratePercent) / 100);
+                  lineTotal = gross + Math.round((gross * rate.ratePercent) / 100);
                 }
                 return (
                   <tbody
                     key={l.key}
-                    className={
-                      i > 0
-                        ? "border-t border-slate-100 dark:border-slate-800"
-                        : ""
-                    }
+                    className={i > 0 ? "border-t border-slate-100 dark:border-slate-800" : ""}
                   >
                     <tr>
                       <td className="px-2 pt-2 align-top">
@@ -640,9 +684,7 @@ export default function FinanceRecurringInvoiceNew() {
                       <td className="px-2 pt-2 align-top">
                         <input
                           value={l.quantityText}
-                          onChange={(e) =>
-                            patchLine(i, { quantityText: e.target.value })
-                          }
+                          onChange={(e) => patchLine(i, { quantityText: e.target.value })}
                           inputMode="decimal"
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
@@ -650,9 +692,7 @@ export default function FinanceRecurringInvoiceNew() {
                       <td className="px-2 pt-2 align-top">
                         <input
                           value={l.priceText}
-                          onChange={(e) =>
-                            patchLine(i, { priceText: e.target.value })
-                          }
+                          onChange={(e) => patchLine(i, { priceText: e.target.value })}
                           inputMode="decimal"
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
@@ -660,16 +700,13 @@ export default function FinanceRecurringInvoiceNew() {
                       <td className="px-2 pt-2 align-top">
                         <Select
                           value={l.taxRateId}
-                          onChange={(e) =>
-                            patchLine(i, { taxRateId: e.target.value })
-                          }
+                          onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                         >
                           <option value="">No tax</option>
                           {taxRates.map((t) => (
                             <option key={t.id} value={t.id}>
-                              {t.name} ({t.ratePercent}%
-                              {t.inclusive ? " incl" : ""})
+                              {t.name} ({t.ratePercent}%{t.inclusive ? " incl" : ""})
                             </option>
                           ))}
                         </Select>
@@ -693,9 +730,7 @@ export default function FinanceRecurringInvoiceNew() {
                       <td colSpan={6} className="px-2 pb-2">
                         <input
                           value={l.description}
-                          onChange={(e) =>
-                            patchLine(i, { description: e.target.value })
-                          }
+                          onChange={(e) => patchLine(i, { description: e.target.value })}
                           placeholder="Description"
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                         />
@@ -706,12 +741,7 @@ export default function FinanceRecurringInvoiceNew() {
               })}
             </table>
             <div className="border-t border-slate-100 bg-slate-50/40 p-2 dark:border-slate-800 dark:bg-slate-900/30">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={addLine}
-                size="sm"
-              >
+              <Button type="button" variant="secondary" onClick={addLine} size="sm">
                 <Plus size={14} /> Add line
               </Button>
             </div>
@@ -751,6 +781,11 @@ export default function FinanceRecurringInvoiceNew() {
               onChange={(e) => setFooter(e.target.value)}
               placeholder="Payment terms, bank details, thank-you note."
             />
+            {subsidiaryId && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Leave blank to use this subsidiary&apos;s footer.
+              </p>
+            )}
           </div>
         </div>
       </div>

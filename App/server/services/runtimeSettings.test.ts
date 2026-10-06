@@ -15,15 +15,19 @@ import {
   RUNTIME_SETTING_KEYS,
   getAgentSettings,
   getBrowserSettings,
+  getContainmentSettings,
   getMailSettings,
   getMeetingsSettings,
   getNetworkSettings,
+  getRuntimeOauthSettings,
   getRuntimeSettingsSnapshot,
   getWebSettings,
   importLegacyConfigOverrides,
   overrideRuntimeSettingsForTests,
+  normalizeSignInUrl,
   parseAgentSettings,
   parseNetworkSettings,
+  parseOauthSettings,
   reloadRuntimeSettings,
   resetRuntimeSettingsCacheForTests,
   resetRuntimeSettingsGroup,
@@ -99,6 +103,7 @@ describe("defaults", () => {
     assert.deepEqual(getWebSettings(), {
       enabled: true,
       searchProvider: "duckduckgo",
+      searxngUrl: "",
       maxSearchResults: 8,
       maxDocumentBytes: 10 * 1024 * 1024,
       maxTextChars: 20_000,
@@ -135,6 +140,7 @@ describe("defaults", () => {
     assert.deepEqual(snapshot.overridden, {
       web: false,
       mail: false,
+      oauth: false,
       meetings: false,
       browser: false,
       agent: false,
@@ -157,6 +163,19 @@ describe("defaults", () => {
 });
 
 describe("tolerant parse", () => {
+  test("a legacy breaker threshold is ignored while re-grade settings survive", async () => {
+    await writeRow(
+      RUNTIME_SETTING_KEYS.containment,
+      JSON.stringify({ routineBreakerThreshold: 2, regradeAfterMinutes: 15, regradePerPass: 3 }),
+    );
+
+    await reloadRuntimeSettings();
+
+    const expected = { regradeAfterMinutes: 15, regradePerPass: 3 };
+    assert.deepEqual(getContainmentSettings(), expected);
+    assert.deepEqual((await getRuntimeSettingsSnapshot()).containment, expected);
+  });
+
   test("company capacity is bounded and older rows keep the safe default", () => {
     assert.equal(parseAgentSettings({}).maxConcurrentTurnsPerCompany, 8);
     for (const value of [0, -1, 101, 1.5, "8", null]) {
@@ -214,6 +233,7 @@ describe("tolerant parse", () => {
       // Every bad value fell back; the one usable field survived.
       enabled: true,
       searchProvider: "duckduckgo",
+      searxngUrl: "",
       maxSearchResults: 3,
       maxDocumentBytes: 10 * 1024 * 1024,
       maxTextChars: 20_000,
@@ -379,6 +399,220 @@ describe("the network group", () => {
   });
 });
 
+describe("hosted sign-in settings", () => {
+  test("fresh installations use Genosyn sign-in without hosting a service", async () => {
+    await reloadRuntimeSettings();
+    assert.deepEqual(getRuntimeOauthSettings(), {
+      hostedSignInEnabled: true,
+      hostedSignInUrl: "https://connect.genosyn.com",
+      hostSignIn: false,
+      signInHostUrl: "",
+    });
+  });
+
+  test("saved Gmail settings load canonically and are rewritten only when saved", async () => {
+    const legacy = {
+      gmailSignInEnabled: false,
+      gmailSignInUrl: "https://LEGACY.example.com/",
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "https://HOST.example.com/",
+    };
+    await writeRow(RUNTIME_SETTING_KEYS.oauth, JSON.stringify(legacy));
+    await reloadRuntimeSettings();
+    const expected = {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://legacy.example.com",
+      hostSignIn: true,
+      signInHostUrl: "https://host.example.com",
+    };
+    assert.deepEqual(getRuntimeOauthSettings(), expected);
+    assert.deepEqual((await getRuntimeSettingsSnapshot()).oauth, expected);
+    assert.deepEqual(JSON.parse((await readRow(RUNTIME_SETTING_KEYS.oauth))!), legacy);
+
+    await saveRuntimeSettingsGroup("oauth", getRuntimeOauthSettings());
+    assert.deepEqual(JSON.parse((await readRow(RUNTIME_SETTING_KEYS.oauth))!), expected);
+  });
+
+  test("explicit canonical fields win over legacy fields, including false and a blank host", () => {
+    const stored = Object.freeze({
+      gmailSignInEnabled: true,
+      gmailSignInUrl: "https://legacy.example.com",
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "http://unsafe.example.com",
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://current.example.com",
+      hostSignIn: false,
+      signInHostUrl: "",
+    });
+    assert.deepEqual(parseOauthSettings(stored), {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://current.example.com",
+      hostSignIn: false,
+      signInHostUrl: "",
+    });
+    assert.equal(stored.gmailSignInUrl, "https://legacy.example.com");
+  });
+
+  test("a malformed selected host fails closed without falling back to a legacy address", () => {
+    for (const signInHostUrl of [null, 123, "http://unsafe.example.com", "https://host.example/path"]) {
+      const parsed = parseOauthSettings({
+        hostSignIn: true,
+        signInHostUrl,
+        hostGmailSignIn: true,
+        gmailSignInHostUrl: "https://legacy.example.com",
+      });
+      assert.equal(parsed.hostSignIn, false);
+      assert.equal(parsed.signInHostUrl, "");
+    }
+    assert.equal(parseOauthSettings({
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "http://unsafe.example.com",
+    }).hostSignIn, false);
+    assert.equal(parseOauthSettings({
+      hostSignIn: true,
+      signInHostUrl: "https://current.example.com",
+      gmailSignInHostUrl: "http://unsafe.example.com",
+    }).hostSignIn, true);
+  });
+
+  test("legacy test overrides expose only canonical settings and retain explicit false", () => {
+    overrideRuntimeSettingsForTests({ oauth: {
+      gmailSignInEnabled: false,
+      gmailSignInUrl: "https://legacy.example.com",
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "https://legacy-host.example.com",
+    } });
+    assert.deepEqual(getRuntimeOauthSettings(), {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://legacy.example.com",
+      hostSignIn: true,
+      signInHostUrl: "https://legacy-host.example.com",
+    });
+    overrideRuntimeSettingsForTests({ oauth: { hostSignIn: false, hostGmailSignIn: true } });
+    assert.equal(getRuntimeOauthSettings().hostSignIn, false);
+  });
+
+  test("only secure service origins and explicit development loopback are accepted", () => {
+    for (const value of [
+      "http://connect.example.com",
+      "https://user:secret@connect.example.com",
+      "https://connect.example.com/start",
+      "https://connect.example.com?token=secret",
+      "https://connect.example.com#token",
+      "ftp://connect.example.com",
+      "http://localhost.example.com",
+      "not a URL",
+    ]) {
+      assert.equal(normalizeSignInUrl(value), null, value);
+    }
+    assert.equal(
+      normalizeSignInUrl(" https://CONNECT.example.com/ "),
+      "https://connect.example.com",
+    );
+    assert.equal(normalizeSignInUrl("http://localhost:3001/"), "http://localhost:3001");
+    assert.equal(normalizeSignInUrl("http://127.0.0.1:3001"), "http://127.0.0.1:3001");
+    assert.equal(normalizeSignInUrl("http://[::1]:3001/"), "http://[::1]:3001");
+  });
+
+  test("bad stored fields fall back independently and cannot enable hosting", () => {
+    assert.deepEqual(
+      parseOauthSettings({
+        hostedSignInEnabled: false,
+        hostedSignInUrl: "http://untrusted.example.com",
+        hostSignIn: "true",
+      }),
+      {
+        hostedSignInEnabled: false,
+        hostedSignInUrl: "https://connect.genosyn.com",
+        hostSignIn: false,
+        signInHostUrl: "",
+      },
+    );
+  });
+
+  test("legacy hosting without a host address and blank canonical addresses use the installation", () => {
+    assert.deepEqual(parseOauthSettings({ hostGmailSignIn: true }), {
+      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
+      hostSignIn: true,
+    });
+    for (const signInHostUrl of [undefined, "", "   "]) {
+      const parsed = parseOauthSettings({ hostSignIn: true, signInHostUrl });
+      assert.equal(parsed.signInHostUrl, "");
+      assert.equal(parsed.hostSignIn, true);
+    }
+  });
+
+  test("a separate host address normalizes without enabling hosting or changing the consumer URL", () => {
+    for (const [value, expected] of [
+      [" https://CONNECT.example.com/ ", "https://connect.example.com"],
+      ["http://localhost:3001/", "http://localhost:3001"],
+      ["http://127.0.0.1:3001/", "http://127.0.0.1:3001"],
+      ["http://[::1]:3001/", "http://[::1]:3001"],
+    ]) {
+      const parsed = parseOauthSettings({ signInHostUrl: value });
+      assert.equal(parsed.signInHostUrl, expected);
+      assert.equal(parsed.hostedSignInUrl, RUNTIME_SETTINGS_DEFAULTS.oauth.hostedSignInUrl);
+      assert.equal(parsed.hostSignIn, false);
+    }
+  });
+
+  test("malformed stored host addresses fail closed even when hosting was enabled", async () => {
+    for (const signInHostUrl of [
+      null,
+      true,
+      123,
+      {},
+      [],
+      "x".repeat(2049),
+      "http://connect.example.com",
+      "https://user:secret@connect.example.com",
+      "https://connect.example.com/callback",
+      "https://connect.example.com?token=secret",
+      "https://connect.example.com#token",
+    ]) {
+      await writeRow(
+        RUNTIME_SETTING_KEYS.oauth,
+        JSON.stringify({
+          hostSignIn: true,
+          signInHostUrl,
+          hostedSignInUrl: "https://customer-service.example.com",
+        }),
+      );
+      await reloadRuntimeSettings();
+      assert.equal(getRuntimeOauthSettings().hostSignIn, false);
+      assert.equal(getRuntimeOauthSettings().signInHostUrl, "");
+      assert.equal(
+        getRuntimeOauthSettings().hostedSignInUrl,
+        "https://customer-service.example.com",
+      );
+      await AppDataSource.getRepository(AppSetting).delete({ key: RUNTIME_SETTING_KEYS.oauth });
+    }
+  });
+
+  test("custom settings persist, normalize, and reset through the shared cache", async () => {
+    await saveRuntimeSettingsGroup("oauth", {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://connect.example.com/",
+      hostSignIn: true,
+      signInHostUrl: " https://LOGIN.example.com/ ",
+    });
+    assert.equal(getRuntimeOauthSettings().hostedSignInUrl, "https://connect.example.com");
+    assert.equal(getRuntimeOauthSettings().signInHostUrl, "https://login.example.com");
+    assert.equal(getRuntimeOauthSettings().hostSignIn, true);
+    const stored = JSON.parse((await readRow(RUNTIME_SETTING_KEYS.oauth))!);
+    assert.equal(stored.signInHostUrl, "https://login.example.com");
+    resetRuntimeSettingsCacheForTests();
+    const snapshot = await getRuntimeSettingsSnapshot();
+    assert.equal(snapshot.oauth.hostedSignInEnabled, false);
+    assert.equal(snapshot.oauth.signInHostUrl, "https://login.example.com");
+    assert.equal(snapshot.oauth.hostSignIn, true);
+    assert.equal(snapshot.overridden.oauth, true);
+    await resetRuntimeSettingsGroup("oauth");
+    assert.equal(await readRow(RUNTIME_SETTING_KEYS.oauth), null);
+    assert.deepEqual(getRuntimeOauthSettings(), RUNTIME_SETTINGS_DEFAULTS.oauth);
+  });
+});
+
 describe("writing a group", () => {
   test("a save persists, normalizes, and updates this replica's cache at once", async () => {
     const saved = await saveRuntimeSettingsGroup("meetings", {
@@ -431,6 +665,7 @@ describe("writing a group", () => {
     await saveRuntimeSettingsGroup("web", {
       enabled: false,
       searchProvider: "disabled",
+      searxngUrl: "",
       maxSearchResults: 1,
       maxDocumentBytes: 2048,
       maxTextChars: 600,

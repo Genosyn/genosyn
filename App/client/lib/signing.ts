@@ -300,20 +300,6 @@ export function normalizeSignatureEmail(input: string): string | null {
   return value;
 }
 
-/**
- * Honest handoff text for the request-level Ask AI action. Signing tools expose
- * saved configuration and evidence, not the source PDF bytes or a mutation
- * endpoint for an existing draft.
- */
-export function signatureAiHandoffPrompt(
-  envelope: Pick<SignatureEnvelope, "id" | "title" | "status">,
-): string {
-  if (envelope.status === "draft") {
-    return `Check whether the saved setup of signature envelope "${envelope.title}" (${envelope.id}) is ready for a Member to send. Inspect its recipients, signer and completion-copy roles, routing order, expiry, and required fields using your signing tools. List anything a Member should verify or fix in the signing editor. You cannot read the source PDF contents or edit this existing draft through signing tools, so say that plainly and do not claim otherwise. Do not send, remind, or void anything unless I explicitly ask in a follow-up.`;
-  }
-  return `Summarize the current status of signature envelope "${envelope.title}" (${envelope.id}). Inspect recipient progress, routing, delivery state, and the evidence trail using your signing tools. Highlight failures or sensible next steps. Do not send a reminder or void the request unless I explicitly ask in a follow-up, and never claim to have seen private signing links or signature values.`;
-}
-
 export function signatureStatusClasses(status: SignatureEnvelopeStatus): string {
   if (status === "completed") {
     return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";

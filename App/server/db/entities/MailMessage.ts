@@ -40,6 +40,14 @@ import {
 // hundreds of thousands of rows, so neither may be a table scan.
 @Index(["accountId", "gmailThreadId"])
 @Index(["accountId", "providerLocation"])
+// The Drafts queue and every sync pass's draft-handle refresh ask for the
+// account's rows holding a handle — a dozen rows among hundreds of thousands.
+// Queried as the range `gmailDraftId > ''`, since no index serves `!=`.
+@Index(["accountId", "gmailDraftId"])
+// Every sync pass hands what it just mirrored to Revenue by arrival time
+// (`linkAccountMessagesSince`). `createdAt` sits behind both bodies in the
+// row, so without this the read crosses every body in the mailbox.
+@Index(["accountId", "createdAt"])
 export class MailMessage {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

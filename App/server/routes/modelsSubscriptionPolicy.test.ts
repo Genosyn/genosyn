@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 
@@ -26,11 +25,10 @@ import {
   CODEX_CONFIG_OVERRIDES,
   configWithSubscriptionAccessToken,
 } from "../services/codexSubscription.js";
-import { resetBubblewrapProbeCacheForTests } from "../services/runtimeSecurity.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { modelsRouter } from "./models.js";
 
-type ExecutionMode = "host" | "bubblewrap" | "disabled";
+type ExecutionMode = "host" | "disabled";
 type CodexStartOptions = Parameters<typeof CodexAppServer.start>[0];
 
 type MutableConfig = {
@@ -43,7 +41,6 @@ type MutableConfig = {
     codingTools: {
       enabled: boolean;
       executionMode: ExecutionMode;
-      bubblewrapPath: string;
     };
   };
 };
@@ -102,7 +99,6 @@ after(async () => {
   Object.assign(security, originalSecurity);
   Object.assign(codingTools, originalCodingTools);
   mutableConfig.sessionSecret = originalSessionSecret;
-  resetBubblewrapProbeCacheForTests();
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
@@ -123,8 +119,6 @@ beforeEach(async (t) => {
   mutableConfig.sessionSecret = "models-subscription-policy-session-secret-2026";
   codingTools.enabled = true;
   codingTools.executionMode = "disabled";
-  codingTools.bubblewrapPath = `/definitely-missing-bwrap-${randomUUID()}`;
-  resetBubblewrapProbeCacheForTests();
 
   user = await insert(User, {
     email: `owner-${randomUUID()}@example.com`,
@@ -454,7 +448,7 @@ describe("API model setup routes", () => {
 });
 
 describe("OpenAI subscription policy routes", () => {
-  test("stock disabled mode creates, lists, and connects a subscription model without bubblewrap", async () => {
+  test("stock disabled mode creates, lists, and connects a subscription model", async () => {
     const accessToken = `codex-test-${randomUUID()}-${randomUUID()}`;
     const created = await call<PublicModel>("POST", "/", {
       provider: "openai",
@@ -808,31 +802,10 @@ describe("OpenAI subscription policy routes", () => {
     assert.equal(listed.body[0].subscriptionShellAvailable, false);
   });
 
-  test("bubblewrap mode still fails closed when its configured executable cannot isolate", async () => {
-    codingTools.executionMode = "bubblewrap";
-    resetBubblewrapProbeCacheForTests();
-
-    const denied = await call("POST", "/", {
-      provider: "openai",
-      model: "gpt-5.4",
-      authMode: "subscription",
-    });
-    assert.equal(denied.status, 400);
-    assert.match(String(denied.body.error), /working bubblewrap/);
-    assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
-
-    await insertSubscriptionModel();
-    const listed = await call<PublicModel[]>("GET", "/");
-    assert.equal(listed.status, 200);
-    assert.equal(listed.body[0].subscriptionAvailable, false);
-    assert.match(listed.body[0].subscriptionUnavailableReason ?? "", /working bubblewrap/);
-    assert.equal(listed.body[0].subscriptionShellAvailable, false);
-  });
-
-  test("disabled coding never probes a stale bubblewrap selection", async () => {
-    codingTools.enabled = false;
-    codingTools.executionMode = "bubblewrap";
-    resetBubblewrapProbeCacheForTests();
+  test("a stale bubblewrap selection neither blocks subscriptions nor grants a shell", async () => {
+    // Boot narrows it to disabled; a value that slipped past must fail closed
+    // for the shell without taking subscription sign-in down with it.
+    (codingTools as { executionMode: string }).executionMode = "bubblewrap";
 
     const created = await call<PublicModel>("POST", "/", {
       provider: "openai",
@@ -843,53 +816,6 @@ describe("OpenAI subscription policy routes", () => {
     assert.equal(created.body.subscriptionAvailable, true);
     assert.equal(created.body.subscriptionUnavailableReason, null);
     assert.equal(created.body.subscriptionShellAvailable, false);
-  });
-
-  test("working bubblewrap reports both subscription and isolated shell availability", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-model-route-bwrap-"));
-    const executable = path.join(tempDir, "working-bwrap");
-    await fs.writeFile(
-      executable,
-      `#!/bin/sh
-set -eu
-workspace=''
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = '--bind' ]; then
-    workspace="$2"
-    shift 3
-  else
-    shift
-  fi
-done
-[ -n "$workspace" ]
-printf '%s' 'genosyn-bubblewrap-probe-v1' > "$workspace/.genosyn-bubblewrap-probe"
-`,
-      { mode: 0o700 },
-    );
-    codingTools.executionMode = "bubblewrap";
-    codingTools.bubblewrapPath = executable;
-    resetBubblewrapProbeCacheForTests();
-
-    try {
-      const created = await call<PublicModel>("POST", "/", {
-        provider: "openai",
-        model: "gpt-5.4",
-        authMode: "subscription",
-      });
-      assert.equal(created.status, 200);
-      assert.equal(created.body.subscriptionAvailable, true);
-      assert.equal(created.body.subscriptionUnavailableReason, null);
-      assert.equal(created.body.subscriptionShellAvailable, true);
-
-      const listed = await call<PublicModel[]>("GET", "/");
-      assert.equal(listed.status, 200);
-      assert.equal(listed.body[0].subscriptionAvailable, true);
-      assert.equal(listed.body[0].subscriptionUnavailableReason, null);
-      assert.equal(listed.body[0].subscriptionShellAvailable, true);
-    } finally {
-      resetBubblewrapProbeCacheForTests();
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
   });
 });
 

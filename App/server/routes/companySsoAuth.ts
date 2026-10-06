@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   confirmCompanySsoLink,
+  describeCompanySsoLink,
   finishCompanySsoLogin,
   getCompanySsoPublicStatus,
   startCompanySsoLogin,
@@ -63,6 +64,14 @@ companySsoAuthRouter.get("/:companySlug/start", async (req, res) => {
   if (!params.success) {
     return loginErrorRedirect(res, "SSO sign-in is not available for this workspace.");
   }
+  // Only this site's own sign-in page, or an address the person typed, may
+  // start a company sign-in. A company's IdP can answer without asking the
+  // person anything, so a link from another site would otherwise land the
+  // browser signed in to whichever account that IdP chose.
+  const fetchSite = req.get("sec-fetch-site");
+  if (fetchSite === "cross-site" || fetchSite === "same-site") {
+    return loginErrorRedirect(res, "Start SSO sign-in from your company's sign-in page.");
+  }
   try {
     const { authorizeUrl, browserBinding } = await startCompanySsoLogin(params.data.companySlug);
     req.session = { ...(req.session ?? {}), companySsoBrowserBinding: browserBinding };
@@ -116,6 +125,36 @@ companySsoAuthRouter.get("/callback", async (req, res) => {
   }
 });
 
+const linkDescribeSchema = z.object({
+  token: z.string().min(1).max(500),
+});
+
+// Names the company (and its unique slug — names are not unique) and the
+// identity provider on the confirm page, so the person sees whose sign-in is
+// asking for their password. The account's email stays server-side.
+companySsoAuthRouter.post(
+  "/link/describe",
+  validateBody(linkDescribeSchema),
+  async (req, res, next) => {
+    const { token } = req.body as z.infer<typeof linkDescribeSchema>;
+    try {
+      const link = await describeCompanySsoLink(token);
+      if (!link) {
+        return res
+          .status(400)
+          .json({ error: "The confirmation expired or was already used — start the SSO sign-in again." });
+      }
+      res.json({
+        companyName: link.companyName,
+        companySlug: link.companySlug,
+        issuerHost: link.issuerHost,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 const linkSchema = z.object({
   token: z.string().min(1).max(500),
   password: z.string().min(1).max(1000),
@@ -123,9 +162,16 @@ const linkSchema = z.object({
 
 companySsoAuthRouter.post("/link", validateBody(linkSchema), async (req, res, next) => {
   const { token, password } = req.body as z.infer<typeof linkSchema>;
-  // Same throttle the password login uses — this endpoint accepts a password.
-  const throttleKeys = authThrottleKeys(req, "company-sso-link");
+  // This endpoint checks the password of the account the token names, so it
+  // shares that account's password-login bucket: fresh tokens from a company
+  // IdP must not buy extra guesses against one person.
+  let throttleKeys: string[];
   try {
+    const link = await describeCompanySsoLink(token);
+    throttleKeys = [
+      ...authThrottleKeys(req, "company-sso-link"),
+      ...(link ? authThrottleKeys(req, "login", link.accountEmail) : []),
+    ];
     await assertAuthAllowed(throttleKeys);
   } catch (err) {
     if (!(err instanceof AuthRateLimitError)) return next(err);

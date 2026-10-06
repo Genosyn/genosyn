@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import ePub from "epubjs";
@@ -33,7 +33,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
@@ -44,8 +44,11 @@ import {
   ResourceGrant,
   ResourceGrantCandidate,
   ResourceGrantsResponse,
+  ResourceLibraryAccessLevel,
+  ResourceLibraryAccessResponse,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { isShareGrantPaused, resourceLibraryLevelsById } from "../lib/resourceAiAccess";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -68,6 +71,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [showShare, setShowShare] = React.useState(false);
   const [showRaw, setShowRaw] = React.useState(false);
@@ -114,6 +119,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
   async function save() {
     if (!row) return;
     setSaveError(null);
+    setSaving(true);
     try {
       const payload: Record<string, string> = {
         title: title.trim(),
@@ -128,6 +134,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
       setEditing(false);
     } catch (err) {
       setSaveError(errorMessage(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -149,11 +157,14 @@ export default function ResourceDetail({ company }: { company: Company }) {
       variant: "danger",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/resources/${row.slug}`);
       navigate(`/c/${company.slug}/resources`);
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the resource" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -264,7 +275,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
           <div className="mb-6 flex flex-wrap items-center gap-2">
             {editing ? (
               <>
-                <Button onClick={save}>
+                <Button onClick={save} loading={saving}>
                   <Save size={14} /> Save
                 </Button>
                 <Button variant="secondary" onClick={cancelEdit}>
@@ -308,10 +319,12 @@ export default function ResourceDetail({ company }: { company: Company }) {
                 <button
                   type="button"
                   onClick={remove}
+                  disabled={deleting}
+                  aria-busy={deleting || undefined}
                   title="Delete resource"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
                 >
-                  <Trash2 size={14} />
+                  {deleting ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}
                 </button>
               </>
             )}
@@ -547,11 +560,12 @@ function DownloadMenu({
       <button
         type="button"
         disabled={disabled || busy !== null}
+        aria-busy={busy !== null || undefined}
         onClick={() => setOpen((v) => !v)}
         title={disabled ? "Nothing to download yet" : "Download as…"}
         className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50 disabled:hover:border-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:disabled:hover:border-slate-700"
       >
-        {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+        {busy ? <ButtonSpinner size={14} /> : <Download size={14} />}
         {busy ? `Rendering ${busy.toUpperCase()}…` : "Download"}
         {!busy && <ChevronDown size={12} className="text-slate-400" />}
       </button>
@@ -960,23 +974,32 @@ function ShareModal({
   const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<ResourceGrant[]>([]);
   const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>([]);
-  const [busy, setBusy] = React.useState(false);
+  // Resources → AI access, so a level this employee cannot use right now can
+  // say so. Advisory only: if it fails to load, the modal works as before.
+  const [libraryLevels, setLibraryLevels] = React.useState<Map<string, ResourceLibraryAccessLevel>>(
+    () => new Map(),
+  );
+  const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     if (!open) return;
     setError(null);
     try {
-      const [g, cs] = await Promise.all([
+      const [g, cs, access] = await Promise.all([
         api.get<ResourceGrantsResponse>(
           `/api/companies/${company.id}/resources/${resource.slug}/grants`,
         ),
         api.get<ResourceGrantCandidate[]>(
           `/api/companies/${company.id}/resources/${resource.slug}/grant-candidates`,
         ),
+        api
+          .get<ResourceLibraryAccessResponse>(`/api/companies/${company.id}/resources/ai-access`)
+          .catch(() => null),
       ]);
       setGrants(g.direct);
       setCandidates(cs);
+      if (access) setLibraryLevels(resourceLibraryLevelsById(access.rows));
     } catch (err) {
       setError(errorMessage(err, "Could not load who has access"));
     }
@@ -987,7 +1010,7 @@ function ShareModal({
   }, [reload]);
 
   async function add(employeeId: string, accessLevel: ResourceAccessLevel) {
-    setBusy(true);
+    setBusy(`${employeeId}:${accessLevel}`);
     setError(null);
     try {
       await api.post<ResourceGrant>(
@@ -999,7 +1022,7 @@ function ShareModal({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -1057,7 +1080,14 @@ function ShareModal({
           <span className="font-medium">View only</span> reads it,{" "}
           <span className="font-medium">Can edit</span> also modifies it,{" "}
           <span className="font-medium">Can delete</span> can also remove it. Authors keep full
-          control of the rows they create.
+          control of the rows they create. An employee set to Read only under{" "}
+          <Link
+            to={`/c/${company.slug}/resources/ai-access`}
+            className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            AI access
+          </Link>{" "}
+          can only view, whatever its level here.
         </p>
         <FormError message={error} />
         <div>
@@ -1080,17 +1110,22 @@ function ShareModal({
                     <div className="ml-[18px] truncate text-xs text-slate-500 dark:text-slate-400">
                       {g.employee?.role ?? ""}
                     </div>
+                    {isShareGrantPaused(libraryLevels.get(g.employeeId), g.accessLevel) && (
+                      <div className="ml-[18px] mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        Paused &mdash; Read only under AI access
+                      </div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <AccessLevelMenu
                       level={g.accessLevel}
-                      busy={busy}
+                      busy={busy !== null}
                       onChange={(next) => changeLevel(g, next)}
                     />
                     <button
                       type="button"
                       onClick={() => remove(g.id)}
-                      disabled={busy}
+                      disabled={busy !== null}
                       title="Revoke access"
                       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
                     >
@@ -1122,13 +1157,19 @@ function ShareModal({
                     <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                       {c.role}
                     </div>
+                    {libraryLevels.get(c.id) === "read" && (
+                      <div className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        Read only under AI access
+                      </div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
                       size="sm"
                       variant="secondary"
                       onClick={() => add(c.id, "read")}
-                      disabled={busy}
+                      loading={busy === `${c.id}:read`}
+                      disabled={busy !== null}
                     >
                       <Plus size={12} /> View
                     </Button>
@@ -1136,11 +1177,17 @@ function ShareModal({
                       size="sm"
                       variant="secondary"
                       onClick={() => add(c.id, "edit")}
-                      disabled={busy}
+                      loading={busy === `${c.id}:edit`}
+                      disabled={busy !== null}
                     >
                       <Plus size={12} /> Edit
                     </Button>
-                    <Button size="sm" onClick={() => add(c.id, "delete")} disabled={busy}>
+                    <Button
+                      size="sm"
+                      onClick={() => add(c.id, "delete")}
+                      loading={busy === `${c.id}:delete`}
+                      disabled={busy !== null}
+                    >
                       <Plus size={12} /> Delete
                     </Button>
                   </div>

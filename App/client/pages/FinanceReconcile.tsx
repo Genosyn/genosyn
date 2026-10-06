@@ -52,6 +52,7 @@ export default function FinanceReconcile() {
   const [showNewFeed, setShowNewFeed] = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
@@ -145,12 +146,15 @@ export default function FinanceReconcile() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/bank-feeds/${activeFeed.id}`);
       setActiveFeedId("");
       reloadFeeds();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the feed" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -215,8 +219,8 @@ export default function FinanceReconcile() {
               })}
             </Select>
             {activeFeed && activeFeed.kind !== "csv" && (
-              <Button variant="secondary" onClick={syncFeed} disabled={busy}>
-                <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Sync
+              <Button variant="secondary" onClick={syncFeed} loading={busy}>
+                <RefreshCw size={14} /> Sync
               </Button>
             )}
             {activeFeed?.kind === "csv" && (
@@ -225,7 +229,7 @@ export default function FinanceReconcile() {
               </Button>
             )}
             {activeFeed && (
-              <Button variant="secondary" onClick={deleteFeed} disabled={busy}>
+              <Button variant="secondary" onClick={deleteFeed} loading={deleting} disabled={busy}>
                 <Trash2 size={14} /> Delete feed
               </Button>
             )}
@@ -346,7 +350,7 @@ function TxnRow({
 }) {
   const [open, setOpen] = React.useState(false);
   const [candidates, setCandidates] = React.useState<MatchCandidate[] | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "unmatch" | "categorize" | MatchCandidate>(null);
   const [catAccount, setCatAccount] = React.useState("");
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -375,7 +379,7 @@ function TxnRow({
   }
 
   async function matchCandidate(c: MatchCandidate) {
-    setBusy(true);
+    setBusy(c);
     try {
       const body =
         c.kind === "payment" ? { paymentId: c.paymentId } : { ledgerEntryId: c.ledgerEntryId };
@@ -384,19 +388,19 @@ function TxnRow({
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t match the transaction" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function unmatchTxn() {
-    setBusy(true);
+    setBusy("unmatch");
     try {
       await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/unmatch`);
       onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t unmatch the transaction" });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -406,7 +410,7 @@ function TxnRow({
       setError("Pick a category account first");
       return;
     }
-    setBusy(true);
+    setBusy("categorize");
     try {
       await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/categorize`, {
         accountId: catAccount,
@@ -415,7 +419,7 @@ function TxnRow({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -489,7 +493,12 @@ function TxnRow({
                   </div>
                 )}
               </div>
-              <Button variant="secondary" onClick={unmatchTxn} disabled={busy}>
+              <Button
+                variant="secondary"
+                onClick={unmatchTxn}
+                loading={busy === "unmatch"}
+                disabled={busy !== null}
+              >
                 <X size={14} /> Unmatch
               </Button>
             </div>
@@ -545,7 +554,12 @@ function TxnRow({
                   <div className="tabular-nums text-sm text-slate-900 dark:text-slate-100">
                     {formatMoney(c.amountCents, homeCurrency)}
                   </div>
-                  <Button onClick={() => matchCandidate(c)} disabled={busy} size="sm">
+                  <Button
+                    onClick={() => matchCandidate(c)}
+                    loading={busy === c}
+                    disabled={busy !== null}
+                    size="sm"
+                  >
                     Match
                   </Button>
                 </li>
@@ -572,7 +586,12 @@ function TxnRow({
                       ))}
                   </Select>
                 </div>
-                <Button variant="secondary" onClick={categorize} disabled={busy || !catAccount}>
+                <Button
+                  variant="secondary"
+                  onClick={categorize}
+                  loading={busy === "categorize"}
+                  disabled={busy !== null || !catAccount}
+                >
                   Categorize
                 </Button>
               </div>
@@ -787,8 +806,8 @@ function NewFeedModal({
           </Button>
           <Button
             type="submit"
+            loading={busy}
             disabled={
-              busy ||
               !name.trim() ||
               !accountId ||
               (kind === "stripe_payouts" && !connectionId) ||
@@ -862,7 +881,7 @@ function ImportCsvModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !file}>
+          <Button type="submit" loading={busy} disabled={!file}>
             <Upload size={14} /> Import
           </Button>
         </div>

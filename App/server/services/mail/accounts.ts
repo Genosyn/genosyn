@@ -2,6 +2,8 @@ import { AppDataSource } from "../../db/datasource.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
+import { MailMessageAddress } from "../../db/entities/MailMessageAddress.js";
+import { MailAddressIndexState } from "../../db/entities/MailAddressIndexState.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
@@ -209,6 +211,8 @@ export async function purgeMailAccountMirror(id: string): Promise<void> {
   // connection open to a server the company has just disconnected.
   await releaseImapConnection(id);
   await AppDataSource.getRepository(MailInboundAutomation).delete({ accountId: id });
+  await AppDataSource.getRepository(MailMessageAddress).delete({ accountId: id });
+  await AppDataSource.getRepository(MailAddressIndexState).delete({ accountId: id });
   await AppDataSource.getRepository(MailMessage).delete({ accountId: id });
   await AppDataSource.getRepository(MailThread).delete({ accountId: id });
   await AppDataSource.getRepository(MailLabel).delete({ accountId: id });

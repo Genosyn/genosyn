@@ -6,17 +6,29 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import os from "node:os";
 import path from "node:path";
+import { config } from "../../../config.js";
 import type { AIModel } from "../../db/entities/AIModel.js";
-import type { AgentMessage, AgentTool } from "./types.js";
+import type { AgentMessage, AgentTool, ModelOutage } from "./types.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
 import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
-import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
+import {
+  runOpenCodeSession,
+  SILENT_STOP_NUDGE,
+  SILENT_STOP_NUDGES,
+  type OpenCodeTurnParams,
+} from "./opencodeRuntime.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
-type ToolCall = { name: string; input: Record<string, unknown> };
+type ToolCall = { name: string; input: Record<string, unknown>; rawArguments?: string };
+/** Text the provider stops early, the way a server ends a response at max_tokens. */
+type TruncatedReply = { truncated: string };
+/** A reply that is all reasoning, the way vLLM's reasoning parser returns a silent stop. */
+type ReasoningOnlyReply = { reasoningOnly: string };
+/** Several tool calls in one reply, as Qwen makes when it has a batch of records to write. */
+type ParallelToolCalls = { parallel: ToolCall[] };
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const imageMessages: AgentMessage[] = [
@@ -62,7 +74,10 @@ function assertWireImage(body: Record<string, unknown>, provider: OpenCodeModel[
     );
 }
 async function fakeProvider(
-  script: (request: Record<string, unknown>, index: number) => string | ToolCall | "hang",
+  script: (
+    request: Record<string, unknown>,
+    index: number,
+  ) => string | ToolCall | TruncatedReply | ReasoningOnlyReply | ParallelToolCalls | "hang",
 ) {
   const requests: { url: string; auth?: string; body: Record<string, unknown> }[] = [];
   const server = createServer(async (req, res) => {
@@ -103,7 +118,10 @@ async function fakeProvider(
     },
   };
 }
-function chatResponse(res: ServerResponse, value: string | ToolCall) {
+function chatResponse(
+  res: ServerResponse,
+  value: string | ToolCall | TruncatedReply | ReasoningOnlyReply | ParallelToolCalls,
+) {
   const send = (
     delta: Record<string, unknown>,
     finish: string | null = null,
@@ -116,17 +134,25 @@ function chatResponse(res: ServerResponse, value: string | ToolCall) {
     send({ role: "assistant", content: value === "hang" ? "Working" : value });
     if (value === "hang") return;
     send({}, "stop", { prompt_tokens: 29, completion_tokens: 5, total_tokens: 34 });
+  } else if ("reasoningOnly" in value) {
+    send({ role: "assistant", reasoning_content: value.reasoningOnly });
+    send({}, "stop", { prompt_tokens: 29, completion_tokens: 18334, total_tokens: 18363 });
+  } else if ("truncated" in value) {
+    send({ role: "assistant", content: value.truncated });
+    send({}, "length", { prompt_tokens: 29, completion_tokens: 8192, total_tokens: 8221 });
   } else {
+    const calls = "parallel" in value ? value.parallel : [value];
     send({
       role: "assistant",
-      tool_calls: [
-        {
-          index: 0,
-          id: "tool-fixture",
-          type: "function",
-          function: { name: value.name, arguments: JSON.stringify(value.input) },
+      tool_calls: calls.map((call, index) => ({
+        index,
+        id: `tool-fixture-${index}`,
+        type: "function",
+        function: {
+          name: call.name,
+          arguments: call.rawArguments ?? JSON.stringify(call.input),
         },
-      ],
+      })),
     });
     send({}, "tool_calls", { prompt_tokens: 23, completion_tokens: 4, total_tokens: 27 });
   }
@@ -218,6 +244,7 @@ async function realTurn(
   tools: AgentTool[],
   overrides: Partial<OpenCodeTurnParams> = {},
   onServer?: (server: OpenCodeServer) => void,
+  proxyOptions?: Parameters<typeof serveOpenCodeModel>[2],
 ) {
   const params: OpenCodeTurnParams = {
     model: { provider: model.provider, contextWindow: model.contextWindow } as AIModel,
@@ -230,7 +257,7 @@ async function realTurn(
   };
   const gate = new OpenCodeToolGate(params.signal);
   const bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
-  const proxy = await serveOpenCodeModel(model, params.signal);
+  const proxy = await serveOpenCodeModel(model, params.signal, proxyOptions);
   let server: Awaited<ReturnType<typeof startOpenCodeServer>> | undefined;
   try {
     server = await startOpenCodeServer({
@@ -558,6 +585,316 @@ test(
       assert.equal(fixture.requests.length, 2);
     } finally {
       await fixture.close();
+    }
+  },
+);
+
+const customFixtureModel = (baseURL: string): OpenCodeModel => ({
+  id: "fixture",
+  provider: "custom",
+  apiKey: "private",
+  baseURL,
+  contextWindow: 32000,
+});
+
+function echoTool(calls: Array<Record<string, unknown>>): AgentTool {
+  return {
+    name: "fixture_echo",
+    description: "Verify actual tool execution",
+    inputSchema: {
+      type: "object",
+      properties: { value: { type: "string" } },
+      required: ["value"],
+    },
+    async run(input) {
+      calls.push(input);
+      return { content: "Actual tool confirmed" };
+    },
+  };
+}
+
+// Small models get tool calls wrong in two ways OpenCode can repair: a name it
+// does not know (Genosyn's prompts say `call_tool`; OpenCode says
+// `genosyn_call_tool`) and arguments that are not JSON. Both must come back to
+// the model as an explanation it can act on.
+for (const mistake of [
+  {
+    label: "an unprefixed tool name",
+    call: { name: "fixture_echo", input: { value: "actual tool" } },
+    mentions: "unavailable tool 'fixture_echo'",
+  },
+  {
+    label: "unparseable tool arguments",
+    call: { name: "genosyn_fixture_echo", input: {}, rawArguments: '{"value": "unterminated' },
+    mentions: "genosyn_fixture_echo",
+  },
+])
+  test(
+    `pinned OpenCode explains ${mistake.label} back to the model`,
+    { timeout: 180_000 },
+    async () => {
+      const calls: Array<Record<string, unknown>> = [];
+      const fixture = await fakeProvider((_body, index) =>
+        index === 0 ? mistake.call : "Recovered",
+      );
+      try {
+        const result = await realTurn(customFixtureModel(fixture.baseURL), [echoTool(calls)]);
+        assert.equal(result.finalText, "Recovered");
+        assert.equal(calls.length, 0, "a malformed call never runs a Genosyn tool");
+        assert.equal(fixture.requests.length, 2);
+        const followUp = JSON.stringify(fixture.requests[1].body);
+        assert.match(followUp, /The arguments provided to the tool are invalid/);
+        assert.ok(followUp.includes(mistake.mentions), followUp);
+        assert.doesNotMatch(followUp, /unavailable tool 'invalid'/);
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+
+test(
+  "pinned OpenCode shows a Run's time check beside a Genosyn tool result",
+  { timeout: 180_000 },
+  async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fixture = await fakeProvider((_body, index) =>
+      index === 0 ? { name: "genosyn_fixture_echo", input: { value: "actual tool" } } : "Verified",
+    );
+    try {
+      const registry = residentOnlyRegistry([echoTool(calls)]);
+      registry.resultNotice = () =>
+        "[Time check] Under 3 minutes remain before this Run's hard deadline (13:00 UTC).";
+      const result = await realTurn(customFixtureModel(fixture.baseURL), [], { registry });
+      assert.equal(result.finalText, "Verified");
+      assert.equal(calls.length, 1);
+      const followUp = JSON.stringify(fixture.requests[1].body);
+      assert.ok(followUp.includes("Actual tool confirmed"));
+      assert.ok(followUp.includes("[Time check] Under 3 minutes remain"));
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode reports a response cut off at its output limit as a length stop",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({ truncated: "First I will check the ledger and" }));
+    try {
+      const result = await realTurn(customFixtureModel(fixture.baseURL), []);
+      assert.equal(result.stopReason, "length");
+      assert.equal(fixture.requests.length, 1, "OpenCode does not continue a truncated reply");
+      assert.equal(fixture.requests[0].body.max_tokens, 8000, "a quarter of the 32K window");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+// 2026-10-02: a YouTube prospecting Run on Qwen thought for 18,334 tokens,
+// then ended its turn with no reply and no tool call, and was recorded as
+// Completed with nothing done.
+test(
+  "pinned OpenCode asks a work turn that stopped silently to continue in the same session",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider((_body, index) =>
+      index === 0
+        ? { reasoningOnly: "Next I should research the channels." }
+        : "Researched 4 channels.",
+    );
+    try {
+      const silentStops: number[] = [];
+      const result = await realTurn(customFixtureModel(fixture.baseURL), [], {
+        maxSteps: null,
+        callbacks: { onSilentStop: () => silentStops.push(fixture.requests.length) },
+      });
+      assert.equal(result.finalText, "Researched 4 channels.");
+      assert.equal(result.stopReason, "end_turn");
+      assert.deepEqual(silentStops, [1]);
+      assert.equal(fixture.requests.length, 2);
+      const nudge = JSON.stringify(fixture.requests[1].body);
+      assert.ok(nudge.includes(SILENT_STOP_NUDGE.slice(0, 60)));
+      assert.ok(nudge.includes("Verify the fixture"), "the nudge continues the same conversation");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode asks a silent work turn once and leaves a bounded turn alone",
+  { timeout: 180_000 },
+  async () => {
+    const silent = await fakeProvider(() => ({ reasoningOnly: "Still thinking." }));
+    try {
+      const result = await realTurn(customFixtureModel(silent.baseURL), [], { maxSteps: null });
+      assert.equal(result.finalText, "");
+      assert.equal(silent.requests.length, 1 + SILENT_STOP_NUDGES);
+    } finally {
+      await silent.close();
+    }
+    const bounded = await fakeProvider(() => ({ reasoningOnly: "Noted." }));
+    try {
+      const result = await realTurn(customFixtureModel(bounded.baseURL), [], { maxSteps: 4 });
+      assert.equal(result.finalText, "");
+      assert.equal(bounded.requests.length, 1, "a bounded turn such as grading is not nudged");
+    } finally {
+      await bounded.close();
+    }
+  },
+);
+
+// 2026-10-02: restarting the vLLM server behind the self-hosted Qwen model
+// ended both Runs working on it with "The AI Model request failed (HTTP 502)"
+// once OpenCode's minute of retries ran out; the server was back minutes later.
+test(
+  "pinned OpenCode waits out a self-hosted model server that stops answering mid-turn",
+  { timeout: 180_000 },
+  async () => {
+    let down = true;
+    let restart: NodeJS.Timeout | undefined;
+    const posts: boolean[] = [];
+    const upstream = createServer(async (req, res) => {
+      for await (const chunk of req) void chunk;
+      if (req.method === "POST") posts.push(down);
+      // The server comes back 1.5s after the turn's first model request.
+      if (req.method === "POST") restart ??= setTimeout(() => (down = false), 1_500);
+      if (down) {
+        res.writeHead(502, { "Content-Type": "text/plain" }).end("upstream unavailable");
+        return;
+      }
+      if (req.method === "GET") {
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ object: "list", data: [{ id: "fixture", object: "model" }] }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      chatResponse(res, "Recovered after the restart.");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const address = upstream.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      const outages: ModelOutage[] = [];
+      const retries: number[] = [];
+      const result = await realTurn(
+        customFixtureModel(`http://127.0.0.1:${address.port}/v1`),
+        [],
+        { maxSteps: null, callbacks: { onModelRetry: (retry) => retries.push(retry.attempt) } },
+        undefined,
+        { holdOutages: true, probeMs: 100, onOutage: (outage) => outages.push(outage) },
+      );
+      assert.equal(result.finalText, "Recovered after the restart.");
+      assert.deepEqual(
+        outages.map((outage) => outage.state),
+        ["waiting", "answered"],
+      );
+      assert.ok(outages[1].waitedMs >= 1_000);
+      assert.deepEqual(posts, [true, false], "the held request was sent again, once");
+      assert.deepEqual(retries, [], "OpenCode never saw the outage, so it spent no retries");
+    } finally {
+      if (restart) clearTimeout(restart);
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  },
+);
+
+// 2026-10-02: a Daily Partner Prospecting Run asked for five partnership records
+// at once with an unlisted tool name. OpenCode repairs each call into the same
+// `invalid` call, and three identical calls in a row trip its repeat guard,
+// which fell under "*": "deny": the denial failed the turn after 52 minutes.
+for (const repeated of [
+  {
+    label: "three calls to an unlisted tool",
+    calls: ["Acme", "Globex", "Initech"].map((value) => ({
+      name: "fixture_create",
+      input: { value },
+    })),
+    runs: 0,
+  },
+  {
+    label: "three identical calls to a Genosyn tool",
+    calls: [1, 2, 3].map(() => ({ name: "genosyn_fixture_echo", input: { value: "same" } })),
+    runs: 3,
+  },
+])
+  test(
+    `pinned OpenCode lets a work turn make ${repeated.label} in one reply and carry on`,
+    { timeout: 180_000 },
+    async () => {
+      const calls: Array<Record<string, unknown>> = [];
+      const fixture = await fakeProvider((_body, index) =>
+        index === 0 ? { parallel: repeated.calls } : "Recovered after repeating.",
+      );
+      try {
+        const result = await realTurn(customFixtureModel(fixture.baseURL), [echoTool(calls)], {
+          maxSteps: null,
+        });
+        assert.equal(result.finalText, "Recovered after repeating.");
+        assert.equal(result.stopReason, "end_turn");
+        assert.equal(calls.length, repeated.runs);
+        assert.equal(fixture.requests.length, 2);
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+
+// 2026-10-02: an operator asked that Genosyn pick up a new model when vLLM is
+// restarted with one; the old id is answered "The model … does not exist".
+test(
+  "pinned OpenCode carries a turn onto the one model a restarted server now serves",
+  { timeout: 180_000 },
+  async () => {
+    const posted: string[] = [];
+    const upstream = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      if (req.method === "GET") {
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ object: "list", data: [{ id: "fixture-next", object: "model" }] }));
+        return;
+      }
+      const model = (JSON.parse(Buffer.concat(chunks).toString()) as { model: string }).model;
+      posted.push(model);
+      if (model !== "fixture-next") {
+        res.writeHead(404, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            error: { message: `The model \`${model}\` does not exist.`, param: "model", code: 404 },
+          }),
+        );
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      chatResponse(res, "Answered by the new model.");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const address = upstream.address();
+    assert.ok(address && typeof address !== "string");
+    const changes: string[] = [];
+    // The server's model list is read through the outbound address check.
+    const privateHosts = [...config.security.outboundPrivateHostAllowlist];
+    config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1");
+    try {
+      const result = await realTurn(
+        customFixtureModel(`http://127.0.0.1:${address.port}/v1`),
+        [],
+        {},
+        undefined,
+        { onServedModelChange: ({ from, to }) => changes.push(`${from} -> ${to.id}`) },
+      );
+      assert.equal(result.finalText, "Answered by the new model.");
+      assert.deepEqual(changes, ["fixture -> fixture-next"]);
+      assert.deepEqual(posted, ["fixture", "fixture-next"]);
+    } finally {
+      config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...privateHosts);
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
   },
 );

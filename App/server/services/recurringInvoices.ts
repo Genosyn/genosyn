@@ -10,18 +10,28 @@ import {
   RecurringInvoiceStatus,
 } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
+import {
+  RecurringInvoiceRun,
+  RecurringInvoiceRunStatus,
+} from "../db/entities/RecurringInvoiceRun.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
+import { withSerializedTransaction } from "../db/transactions.js";
 import { computeLineTotals } from "../lib/money.js";
-import { issueInvoice, recomputeInvoiceTotals, sendInvoiceEmail } from "./finance.js";
-import { withSchedulerLease } from "./schedulerLeases.js";
+import { resolveRecurringInvoiceName } from "../../shared/recurringInvoiceName.js";
+import { issueInvoice, sendInvoiceEmail } from "./finance.js";
+import { emitResourceChange } from "./resourceEvents.js";
+import { resolveDocumentIssuer } from "./subsidiaries.js";
+import { SchedulerLeaseLostError, withSchedulerLease } from "./schedulerLeases.js";
 
 /**
  * Recurring invoices — schedule-driven invoice templates.
  *
  * Each `RecurringInvoice` carries a cron expression and a set of template
- * line items. The heartbeat (see `bootRecurringInvoices()` below) looks
- * for rows whose `nextRunAt` has come due, materializes a fresh `Invoice`
- * from the template, and advances the schedule.
+ * line items. The heartbeat (see `bootRecurringInvoices()` below) records
+ * each due slot as a `RecurringInvoiceRun`, advances the schedule, and then
+ * works the run until its invoice exists (issued and emailed, for auto-send
+ * schedules). Runs resume after a crash or restart and retry failed steps
+ * with a backoff, and a resumed run never bills the same slot twice.
  *
  * The generated invoice is a normal `Invoice` row — issuing, sending,
  * voiding, ledger posting, and reports all flow through the same code
@@ -194,6 +204,27 @@ async function uniqueDraftInvoiceSlug(companyId: string): Promise<string> {
   return `draft-${Date.now().toString(36)}`;
 }
 
+// ──────────────────────────── Naming ──────────────────────────────────
+
+/** Why a schedule created without a name is refused: nothing to name it after. */
+export const RECURRING_INVOICE_NAME_REQUIRED_ERROR =
+  "Give the schedule a name. Its customer has no name to use instead.";
+
+/**
+ * The name a new schedule is saved with: the requested one, trimmed, or its
+ * customer's when the request leaves it out or blank. That is the name the New
+ * recurring invoice form pre-fills (`shared/recurringInvoiceName.ts`). Null
+ * when neither exists. Only creating a schedule takes this default: an edit
+ * keeps the name unless it sends a new one, and changing the customer never
+ * renames a schedule.
+ */
+export function nameForNewRecurringInvoice(
+  requested: string | undefined,
+  customer: Pick<Customer, "name" | "domain" | "email">,
+): string | null {
+  return resolveRecurringInvoiceName(requested, customer) || null;
+}
+
 // ──────────────────────────── Lookups ─────────────────────────────────
 
 export async function loadRecurringInvoiceBySlug(
@@ -215,10 +246,37 @@ export type RecurringInvoiceCustomerStub = {
   email: string;
 };
 
+/** The parts of a schedule's latest run that pages show. */
+export type RecurringInvoiceRunSummary = Pick<
+  RecurringInvoiceRun,
+  "status" | "scheduledFor" | "attempts" | "retryAt" | "lastError" | "emailStatus" | "completedAt"
+> & { invoiceSlug: string | null };
+
 export type HydratedRecurringInvoice = RecurringInvoice & {
   customer: RecurringInvoiceCustomerStub | null;
   lines: RecurringInvoiceLineItem[];
+  /** What one run bills, tax included: the generated invoice's total. */
+  totalCents: number;
+  /** The most recent scheduled run, so a retrying or failed one is visible. */
+  latestRun: RecurringInvoiceRunSummary | null;
 };
+
+/** Each schedule's run with the latest `scheduledFor`. */
+async function loadLatestRuns(ids: string[]): Promise<RecurringInvoiceRun[]> {
+  return AppDataSource.getRepository(RecurringInvoiceRun)
+    .createQueryBuilder("run")
+    .where("run.recurringInvoiceId IN (:...ids)", { ids })
+    .andWhere((qb) => {
+      const latest = qb
+        .subQuery()
+        .select("MAX(other.scheduledFor)")
+        .from(RecurringInvoiceRun, "other")
+        .where("other.recurringInvoiceId = run.recurringInvoiceId")
+        .getQuery();
+      return `run.scheduledFor = ${latest}`;
+    })
+    .getMany();
+}
 
 export async function hydrateRecurringInvoices(
   companyId: string,
@@ -227,7 +285,7 @@ export async function hydrateRecurringInvoices(
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const customerIds = [...new Set(rows.map((r) => r.customerId))];
-  const [customers, lines] = await Promise.all([
+  const [customers, lines, runs] = await Promise.all([
     AppDataSource.getRepository(Customer).find({
       where: { id: In(customerIds), companyId },
       select: ["id", "name", "slug", "email"],
@@ -236,19 +294,52 @@ export async function hydrateRecurringInvoices(
       where: { recurringInvoiceId: In(ids) },
       order: { sortOrder: "ASC" },
     }),
+    loadLatestRuns(ids),
+  ]);
+  const invoiceIds = runs.flatMap((run) => (run.invoiceId ? [run.invoiceId] : []));
+  const [rates, invoices] = await Promise.all([
+    loadTaxRates(companyId, lines),
+    invoiceIds.length > 0
+      ? AppDataSource.getRepository(Invoice).find({
+          where: { id: In(invoiceIds), companyId },
+          select: ["id", "slug"],
+        })
+      : Promise.resolve([] as Invoice[]),
   ]);
   const customerById = new Map(customers.map((c) => [c.id, c]));
+  const slugByInvoiceId = new Map(invoices.map((inv) => [inv.id, inv.slug]));
+  const runByRi = new Map(runs.map((run) => [run.recurringInvoiceId, run]));
   const linesByRi = new Map<string, RecurringInvoiceLineItem[]>();
   for (const l of lines) {
     const arr = linesByRi.get(l.recurringInvoiceId) ?? [];
     arr.push(l);
     linesByRi.set(l.recurringInvoiceId, arr);
   }
-  return rows.map((r) => ({
-    ...r,
-    customer: customerById.get(r.customerId) ?? null,
-    lines: linesByRi.get(r.id) ?? [],
-  }));
+  return rows.map((r) => {
+    const riLines = linesByRi.get(r.id) ?? [];
+    const run = runByRi.get(r.id);
+    return {
+      ...r,
+      customer: customerById.get(r.customerId) ?? null,
+      lines: riLines,
+      totalCents: riLines.reduce(
+        (sum, line) => sum + priceTemplateLine(line, rates).lineTotalCents,
+        0,
+      ),
+      latestRun: run
+        ? {
+            status: run.status,
+            scheduledFor: run.scheduledFor,
+            attempts: run.attempts,
+            retryAt: run.retryAt,
+            lastError: run.lastError,
+            emailStatus: run.emailStatus,
+            completedAt: run.completedAt,
+            invoiceSlug: run.invoiceId ? (slugByInvoiceId.get(run.invoiceId) ?? null) : null,
+          }
+        : null,
+    };
+  });
 }
 
 // ──────────────────────── Line replacement ─────────────────────────────
@@ -320,6 +411,7 @@ export async function duplicateRecurringInvoice(
   const copy = repo.create({
     companyId: source.companyId,
     customerId: source.customerId,
+    subsidiaryId: source.subsidiaryId,
     slug,
     name: `${source.name} (copy)`,
     cronExpr: source.cronExpr,
@@ -368,25 +460,54 @@ export async function duplicateRecurringInvoice(
 
 // ──────────────────────────── Generation ───────────────────────────────
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+async function loadTaxRates(
+  companyId: string,
+  lines: Pick<RecurringInvoiceLineItem, "taxRateId">[],
+): Promise<Map<string, TaxRate>> {
+  const ids = [...new Set(lines.flatMap((l) => (l.taxRateId ? [l.taxRateId] : [])))];
+  if (ids.length === 0) return new Map();
+  const rates = await AppDataSource.getRepository(TaxRate).find({
+    where: { id: In(ids), companyId },
+  });
+  return new Map(rates.map((rate) => [rate.id, rate]));
+}
+
 /**
- * Materialize a fresh `Invoice` from the template. Returns the (possibly
- * already-issued, possibly already-sent) invoice plus the email send
- * result when `autoSend` is true.
- *
- * The invoice is created as a draft first so `replaceInvoiceLines` /
- * `recomputeInvoiceTotals` can run against it. We then walk it through
- * the same `issueInvoice` + `sendInvoiceEmail` paths a human would,
- * so the ledger and email log capture it identically.
+ * Price a template line exactly as the generated invoice will: snapshot its
+ * tax rate (a rate deleted since bills untaxed) and compute the line totals.
  */
-export async function generateInvoiceFromRecurring(
+function priceTemplateLine(line: RecurringInvoiceLineItem, rates: Map<string, TaxRate>) {
+  const rate = line.taxRateId ? rates.get(line.taxRateId) : undefined;
+  const tax = {
+    taxRateId: rate?.id ?? null,
+    taxName: rate?.name ?? "",
+    taxPercent: rate?.ratePercent ?? 0,
+    taxInclusive: rate?.inclusive ?? false,
+  };
+  return {
+    ...tax,
+    ...computeLineTotals({
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      taxPercent: tax.taxPercent,
+      taxInclusive: tax.taxInclusive,
+    }),
+  };
+}
+
+/**
+ * Write a draft invoice and its lines from the template in one transaction,
+ * so no crash can leave an invoice without its lines. `link` runs inside
+ * that transaction: a scheduled run uses it to attach the invoice to itself,
+ * and returning false rolls the invoice back.
+ */
+async function createInvoiceFromTemplate(
   ri: RecurringInvoice,
   actorUserId: string | null,
-  assertLeaseHeld: () => void = () => undefined,
-): Promise<{
-  invoice: Invoice;
-  emailStatus: "sent" | "skipped" | "failed" | "not_attempted";
-  emailError: string;
-}> {
+  link?: (manager: EntityManager, invoice: Invoice) => Promise<boolean>,
+): Promise<Invoice> {
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
     id: ri.customerId,
     companyId: ri.companyId,
@@ -401,89 +522,85 @@ export async function generateInvoiceFromRecurring(
   if (templateLines.length === 0) {
     throw new Error("Recurring schedule has no line items to bill");
   }
-
-  const invRepo = AppDataSource.getRepository(Invoice);
+  const issuer = await resolveDocumentIssuer(ri.companyId, ri.subsidiaryId);
+  const rates = await loadTaxRates(ri.companyId, templateLines);
+  const priced = templateLines.map((line) => ({ line, ...priceTemplateLine(line, rates) }));
   const slug = await uniqueDraftInvoiceSlug(ri.companyId);
   const issueDate = new Date();
-  const dueDate = new Date(issueDate.getTime() + ri.daysUntilDue * 24 * 60 * 60 * 1000);
-  let draft = invRepo.create({
-    companyId: ri.companyId,
-    customerId: ri.customerId,
-    slug,
-    numberSeq: 0,
-    number: "",
-    status: "draft",
-    issueDate,
-    dueDate,
-    currency: ri.currency || customer.currency || "USD",
-    notes: ri.notes,
-    footer: ri.footer,
-    createdById: actorUserId,
-  });
-  assertLeaseHeld();
-  draft = await invRepo.save(draft);
+  const totalCents = priced.reduce((sum, p) => sum + p.lineTotalCents, 0);
 
-  // Snapshot tax for each template line, then save into the invoice.
-  // Mirrors `replaceInvoiceLines` in finance.ts but reads from the
-  // template line set instead of fresh user input.
-  const lineRepo = AppDataSource.getRepository(InvoiceLineItem);
-  const taxRepo = AppDataSource.getRepository(TaxRate);
-  const newLines: InvoiceLineItem[] = [];
-  for (let i = 0; i < templateLines.length; i += 1) {
-    const t = templateLines[i];
-    let taxRateId: string | null = null;
-    let taxName = "";
-    let taxPercent = 0;
-    let taxInclusive = false;
-    if (t.taxRateId) {
-      const rate = await taxRepo.findOneBy({
-        id: t.taxRateId,
+  return withSerializedTransaction(async (manager) => {
+    const invoiceRepo = manager.getRepository(Invoice);
+    const invoice = await invoiceRepo.save(
+      invoiceRepo.create({
         companyId: ri.companyId,
-      });
-      if (rate) {
-        taxRateId = rate.id;
-        taxName = rate.name;
-        taxPercent = rate.ratePercent;
-        taxInclusive = rate.inclusive;
-      }
-    }
-    const totals = computeLineTotals({
-      quantity: t.quantity,
-      unitPriceCents: t.unitPriceCents,
-      taxPercent,
-      taxInclusive,
-    });
-    newLines.push(
-      lineRepo.create({
-        invoiceId: draft.id,
-        productId: t.productId,
-        description: t.description,
-        quantity: t.quantity,
-        unitPriceCents: t.unitPriceCents,
-        taxRateId,
-        taxName,
-        taxPercent,
-        taxInclusive,
-        ...totals,
-        sortOrder: t.sortOrder ?? i,
+        customerId: ri.customerId,
+        ...issuer,
+        slug,
+        numberSeq: 0,
+        number: "",
+        status: "draft",
+        issueDate,
+        dueDate: new Date(issueDate.getTime() + ri.daysUntilDue * DAY_MS),
+        currency: ri.currency || customer.currency || "USD",
+        notes: ri.notes,
+        footer: ri.footer,
+        // A fresh draft carries no payments or credits, so these are exactly
+        // what `recomputeInvoiceTotals` would store.
+        subtotalCents: priced.reduce((sum, p) => sum + p.lineSubtotalCents, 0),
+        taxCents: priced.reduce((sum, p) => sum + p.lineTaxCents, 0),
+        totalCents,
+        balanceCents: totalCents,
+        createdById: actorUserId,
       }),
     );
-  }
-  assertLeaseHeld();
-  await lineRepo.save(newLines);
-  assertLeaseHeld();
-  let invoice = await recomputeInvoiceTotals(draft);
+    const lineRepo = manager.getRepository(InvoiceLineItem);
+    await lineRepo.save(
+      priced.map(({ line, ...totals }, i) =>
+        lineRepo.create({
+          invoiceId: invoice.id,
+          productId: line.productId,
+          description: line.description,
+          quantity: line.quantity,
+          unitPriceCents: line.unitPriceCents,
+          ...totals,
+          sortOrder: line.sortOrder ?? i,
+        }),
+      ),
+    );
+    if (link && !(await link(manager, invoice))) {
+      throw new Error("This run was taken over by another worker before its invoice was saved");
+    }
+    return invoice;
+  });
+}
 
-  // Walk through the same lifecycle the user would. `autoSend` implies
-  // "issue and email"; otherwise the invoice stays as a fresh draft and
-  // the user can review before sending.
+/**
+ * Generate one invoice from the template right now (the "Run now" path).
+ * Returns the (possibly already-issued, possibly already-sent) invoice plus
+ * the email send result when `autoSend` is true.
+ *
+ * The invoice is created as a draft first, then walked through the same
+ * `issueInvoice` + `sendInvoiceEmail` paths a human would, so the ledger
+ * and email log capture it identically.
+ */
+export async function generateInvoiceFromRecurring(
+  ri: RecurringInvoice,
+  actorUserId: string | null,
+): Promise<{
+  invoice: Invoice;
+  emailStatus: "sent" | "skipped" | "failed" | "not_attempted";
+  emailError: string;
+}> {
+  let invoice = await createInvoiceFromTemplate(ri, actorUserId);
+
+  // `autoSend` implies "issue and email"; otherwise the invoice stays as a
+  // fresh draft and the user can review before sending.
   let emailStatus: "sent" | "skipped" | "failed" | "not_attempted" = "not_attempted";
   let emailError = "";
   if (ri.autoSend) {
-    assertLeaseHeld();
     invoice = await issueInvoice(invoice, actorUserId);
     try {
-      assertLeaseHeld();
       const result = await sendInvoiceEmail(ri.companyId, invoice, actorUserId);
       emailStatus = result.status;
       emailError = result.errorMessage;
@@ -495,68 +612,376 @@ export async function generateInvoiceFromRecurring(
   return { invoice, emailStatus, emailError };
 }
 
-// ──────────────────────────── Heartbeat ────────────────────────────────
+// ─────────────────────────── Scheduled runs ────────────────────────────
+//
+// Each due slot becomes a `RecurringInvoiceRun` row *before* any work
+// starts, and that row tracks the slot until it is billed. So a run survives
+// a crash, a restart, or a failed step, and resuming it continues the
+// invoice it already created instead of billing the customer again.
 
-/**
- * Fire one recurring schedule. Re-fetches the row so edits applied
- * between heartbeats take effect, generates the invoice, increments
- * `runsCreated`, and re-registers `nextRunAt` (or flips to `ended` if
- * the cap is now reached).
- *
- * Catches and logs errors so a single broken schedule doesn't block
- * the rest of the heartbeat.
- */
-async function tickRecurringInvoice(id: string, assertLeaseHeld: () => void): Promise<void> {
-  const repo = AppDataSource.getRepository(RecurringInvoice);
-  const fresh = await repo.findOneBy({ id });
-  if (!fresh || fresh.status !== "active") return;
-  try {
-    assertLeaseHeld();
-    const { invoice } = await generateInvoiceFromRecurring(fresh, null, assertLeaseHeld);
-    assertLeaseHeld();
-    fresh.runsCreated += 1;
-    fresh.lastRunAt = new Date();
-    fresh.lastInvoiceSlug = invoice.slug;
-    registerRecurringInvoice(fresh);
-    await repo.save(fresh);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(`[recurring-invoices] tick ${id} failed:`, err);
-  }
+/** How long one attempt holds a run. If the worker dies mid-attempt the hold
+ *  lapses and the next pass resumes the run. */
+const RUN_LOCK_MS = 5 * 60 * 1000;
+
+/** Wait after the 1st, 2nd, … failed attempt. Generation keeps retrying at
+ *  the last step for as long as the schedule stays active; email gives up
+ *  once the ladder runs out and leaves the issued invoice for a Member. */
+const RETRY_DELAYS_MS = [1, 5, 15, 60, 180, 360].map((minutes) => minutes * 60 * 1000);
+const MAX_EMAIL_ATTEMPTS = RETRY_DELAYS_MS.length;
+
+function retryDelayMs(failures: number): number {
+  const step = Math.min(Math.max(failures, 1), RETRY_DELAYS_MS.length);
+  return RETRY_DELAYS_MS[step - 1];
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Run writes go through query builders, which hand the change subscriber
+ *  no companyId, so open pages are told directly. */
+function notifyRunChange(companyId: string): void {
+  emitResourceChange(companyId, "recurringinvoice", undefined, { trigger: false });
+}
+
+export type RecurringInvoiceRunResult = {
+  run: RecurringInvoiceRun;
+  invoice: Invoice | null;
+};
+
+/** The run a schedule is still working on, if any. */
+export async function findPendingRecurringInvoiceRun(
+  recurringInvoiceId: string,
+): Promise<RecurringInvoiceRun | null> {
+  return AppDataSource.getRepository(RecurringInvoiceRun).findOne({
+    where: { recurringInvoiceId, status: "pending" },
+    order: { scheduledFor: "ASC" },
+  });
 }
 
 /**
- * One heartbeat pass. Finds active rows whose `nextRunAt` has come due,
- * advances them past now, saves, and keeps ownership while generating them.
- * An already accepted email cannot be retracted if ownership is later lost.
+ * Record a due slot as a run, then move the schedule past it. In that order
+ * a crash between the two writes is harmless: the schedule is still due on
+ * the next pass and the duplicate insert is ignored.
  *
- * The `ticking` guard prevents overlapping passes if a heartbeat
- * interval fires while the previous pass is still writing rows.
+ * A schedule has at most one run in flight. A run that is still retrying
+ * holds the next slot back, and missed slots collapse into one run, just as
+ * they do after downtime.
+ */
+async function claimDueRun(ri: RecurringInvoice, now: Date): Promise<void> {
+  const scheduledFor = ri.nextRunAt;
+  if (!scheduledFor) return;
+  const runs = AppDataSource.getRepository(RecurringInvoiceRun);
+  if ((await runs.count({ where: { recurringInvoiceId: ri.id, status: "pending" } })) > 0) {
+    return;
+  }
+  await runs
+    .createQueryBuilder()
+    .insert()
+    .values({ companyId: ri.companyId, recurringInvoiceId: ri.id, scheduledFor, status: "pending" })
+    .orIgnore()
+    .execute();
+  await AppDataSource.getRepository(RecurringInvoice).update(
+    { id: ri.id, nextRunAt: scheduledFor },
+    { nextRunAt: computeNextRun(ri, now) },
+  );
+  notifyRunChange(ri.companyId);
+}
+
+/**
+ * Hold a pending run for one attempt. Returns the hold's expiry, which every
+ * later write for this attempt must match, or null when the run is finished,
+ * held by another attempt, or (unless `ignoreBackoff`) waiting out a backoff.
+ */
+async function takeRun(runId: string, now: Date, ignoreBackoff: boolean): Promise<Date | null> {
+  const lockedUntil = new Date(now.getTime() + RUN_LOCK_MS);
+  const query = AppDataSource.getRepository(RecurringInvoiceRun)
+    .createQueryBuilder()
+    .update()
+    .set({ lockedUntil, attempts: () => "attempts + 1" })
+    .where("id = :id AND status = :pending", { id: runId, pending: "pending" })
+    .andWhere("(lockedUntil IS NULL OR lockedUntil <= :now)", { now });
+  if (!ignoreBackoff) query.andWhere("(retryAt IS NULL OR retryAt <= :now)", { now });
+  const result = await query.execute();
+  return result.affected === 1 ? lockedUntil : null;
+}
+
+/** Write to a run only while this attempt still holds it, so an attempt that
+ *  outlived its hold can never overwrite the attempt that took over. */
+async function updateHeldRun(
+  run: RecurringInvoiceRun,
+  lockedUntil: Date,
+  values: Partial<RecurringInvoiceRun>,
+  manager: EntityManager = AppDataSource.manager,
+): Promise<boolean> {
+  const result = await manager
+    .getRepository(RecurringInvoiceRun)
+    .createQueryBuilder()
+    .update()
+    .set(values)
+    .where("id = :id AND lockedUntil = :lockedUntil", { id: run.id, lockedUntil })
+    .execute();
+  return result.affected === 1;
+}
+
+async function retryRun(
+  run: RecurringInvoiceRun,
+  lockedUntil: Date,
+  delayMs: number,
+  values: Partial<RecurringInvoiceRun> & { lastError: string },
+  invoice: Invoice | null,
+): Promise<RecurringInvoiceRunResult> {
+  const update = { ...values, lockedUntil: null, retryAt: new Date(Date.now() + delayMs) };
+  await updateHeldRun(run, lockedUntil, update);
+  // eslint-disable-next-line no-console
+  console.error(
+    `[recurring-invoices] run ${run.id} attempt ${run.attempts} failed: ${values.lastError}`,
+  );
+  return { run: Object.assign(run, update), invoice };
+}
+
+/**
+ * Close a run and, when it produced an invoice, record that on the schedule
+ * in the same transaction: run count, latest invoice, and the cap / end-date
+ * checks that may end the schedule.
+ */
+async function finishRun(
+  run: RecurringInvoiceRun,
+  lockedUntil: Date,
+  status: Exclude<RecurringInvoiceRunStatus, "pending">,
+  values: Partial<RecurringInvoiceRun>,
+  invoice: Invoice | null,
+): Promise<RecurringInvoiceRunResult> {
+  const update = { ...values, status, lockedUntil: null, retryAt: null, completedAt: new Date() };
+  await withSerializedTransaction(async (manager) => {
+    if (!(await updateHeldRun(run, lockedUntil, update, manager))) return;
+    if (!invoice) return;
+    const repo = manager.getRepository(RecurringInvoice);
+    const schedule = await repo.findOneBy({ id: run.recurringInvoiceId });
+    if (!schedule) return;
+    schedule.runsCreated += 1;
+    schedule.lastRunAt = new Date();
+    schedule.lastInvoiceSlug = invoice.slug;
+    registerRecurringInvoice(schedule);
+    await repo.save(schedule);
+  });
+  return { run: Object.assign(run, update), invoice };
+}
+
+/**
+ * Take one pending run and carry it as far as it will go: create its
+ * invoice (once), issue and email it when the schedule auto-sends, then
+ * record it on the schedule. A failed step leaves the run pending with a
+ * backoff, and the next attempt resumes at that step.
+ *
+ * Returns null when the run is not available: finished, held by another
+ * attempt, or (unless `ignoreBackoff`) still waiting out a backoff.
+ */
+export async function processRecurringInvoiceRun(
+  runId: string,
+  options: {
+    ignoreBackoff?: boolean;
+    actorUserId?: string | null;
+    assertLeaseHeld?: () => void;
+  } = {},
+): Promise<RecurringInvoiceRunResult | null> {
+  const lockedUntil = await takeRun(runId, new Date(), options.ignoreBackoff ?? false);
+  if (!lockedUntil) return null;
+  const run = await AppDataSource.getRepository(RecurringInvoiceRun).findOneByOrFail({
+    id: runId,
+  });
+  try {
+    return await advanceRun(
+      run,
+      lockedUntil,
+      options.actorUserId ?? null,
+      options.assertLeaseHeld ?? (() => undefined),
+    );
+  } catch (err) {
+    // `advanceRun` records its own failures, so only a lost scheduler lease
+    // or a failing database gets here. Hand the run back so the next attempt
+    // resumes it at once instead of after the hold lapses.
+    await updateHeldRun(run, lockedUntil, { lockedUntil: null }).catch(() => undefined);
+    throw err;
+  } finally {
+    notifyRunChange(run.companyId);
+  }
+}
+
+async function advanceRun(
+  run: RecurringInvoiceRun,
+  lockedUntil: Date,
+  actorUserId: string | null,
+  assertLeaseHeld: () => void,
+): Promise<RecurringInvoiceRunResult> {
+  const schedule = await AppDataSource.getRepository(RecurringInvoice).findOneBy({
+    id: run.recurringInvoiceId,
+  });
+  let invoice = run.invoiceId
+    ? await AppDataSource.getRepository(Invoice).findOneBy({ id: run.invoiceId })
+    : null;
+  if (!schedule || schedule.status !== "active") {
+    const lastError = schedule
+      ? `Stopped because the schedule was ${schedule.status} before this run finished.`
+      : "Stopped because the schedule was deleted before this run finished.";
+    return finishRun(run, lockedUntil, "cancelled", { lastError }, invoice);
+  }
+  if (run.invoiceId && !invoice) {
+    return finishRun(
+      run,
+      lockedUntil,
+      "cancelled",
+      { lastError: "Stopped because the invoice this run created was deleted." },
+      null,
+    );
+  }
+
+  try {
+    if (!invoice) {
+      assertLeaseHeld();
+      invoice = await createInvoiceFromTemplate(schedule, actorUserId, (manager, created) =>
+        updateHeldRun(run, lockedUntil, { invoiceId: created.id }, manager),
+      );
+      run.invoiceId = invoice.id;
+    }
+    if (schedule.autoSend && invoice.status === "draft") {
+      assertLeaseHeld();
+      invoice = await issueInvoice(invoice, actorUserId);
+    }
+  } catch (err) {
+    if (err instanceof SchedulerLeaseLostError) throw err;
+    return retryRun(
+      run,
+      lockedUntil,
+      retryDelayMs(run.attempts),
+      { lastError: messageOf(err) },
+      invoice,
+    );
+  }
+
+  const needsEmail =
+    schedule.autoSend &&
+    invoice.status !== "draft" &&
+    invoice.status !== "void" &&
+    run.emailStatus !== "sent";
+  if (needsEmail) {
+    let status: "sent" | "skipped" | "failed";
+    let reason: string;
+    try {
+      assertLeaseHeld();
+      const result = await sendInvoiceEmail(schedule.companyId, invoice, actorUserId);
+      status = result.status;
+      reason = result.errorMessage;
+    } catch (err) {
+      if (err instanceof SchedulerLeaseLostError) throw err;
+      status = "failed";
+      reason = messageOf(err);
+    }
+    if (status === "skipped") {
+      // No email transport is configured; retrying cannot change that.
+      return finishRun(
+        run,
+        lockedUntil,
+        "failed",
+        {
+          emailStatus: status,
+          lastError: `Invoice ${invoice.number} was issued, but no email transport is configured, so it was not emailed. Send it from the invoice page once email is set up.`,
+        },
+        invoice,
+      );
+    }
+    if (status === "failed") {
+      const emailAttempts = run.emailAttempts + 1;
+      const why = reason || "the email provider did not accept it";
+      if (emailAttempts >= MAX_EMAIL_ATTEMPTS) {
+        return finishRun(
+          run,
+          lockedUntil,
+          "failed",
+          {
+            emailAttempts,
+            emailStatus: status,
+            lastError: `Invoice ${invoice.number} was issued, but emailing it failed ${emailAttempts} times (${why}). Send it from the invoice page.`,
+          },
+          invoice,
+        );
+      }
+      return retryRun(
+        run,
+        lockedUntil,
+        retryDelayMs(emailAttempts),
+        {
+          emailAttempts,
+          emailStatus: status,
+          lastError: `Invoice ${invoice.number} was issued; emailing it failed (${why}) and will be retried.`,
+        },
+        invoice,
+      );
+    }
+  }
+  return finishRun(
+    run,
+    lockedUntil,
+    "succeeded",
+    { emailStatus: needsEmail ? "sent" : run.emailStatus, lastError: "" },
+    invoice,
+  );
+}
+
+// ──────────────────────────── Heartbeat ────────────────────────────────
+
+/**
+ * One heartbeat pass: claim every schedule whose `nextRunAt` has come due,
+ * then work every pending run whose backoff has passed, including runs a
+ * crashed or restarted server left unfinished.
+ *
+ * The `ticking` guard prevents overlapping passes if a heartbeat interval
+ * fires while the previous pass is still working.
  */
 async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
     await withSchedulerLease("recurring-invoices", HEARTBEAT_INTERVAL_MS * 3, async (lease) => {
-      const repo = AppDataSource.getRepository(RecurringInvoice);
       const now = new Date();
-      const due = await repo.find({
+      const due = await AppDataSource.getRepository(RecurringInvoice).find({
         where: { status: "active", nextRunAt: LessThanOrEqual(now) },
       });
-      for (const r of due) {
+      for (const schedule of due) {
         lease.assertHeld();
-        const next = computeNextRun(r, now);
-        r.nextRunAt = next;
-        await repo.save(r);
-        // Generation has no separate worker claim. Keep this lease through
-        // issue/send, and fence each stage after awaited work.
+        try {
+          await claimDueRun(schedule, now);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`[recurring-invoices] could not claim ${schedule.id}:`, err);
+        }
+      }
+      const pending = await AppDataSource.getRepository(RecurringInvoiceRun).find({
+        where: { status: "pending" },
+        order: { scheduledFor: "ASC" },
+      });
+      for (const run of pending) {
+        if ((run.retryAt && run.retryAt > now) || (run.lockedUntil && run.lockedUntil > now)) {
+          continue;
+        }
         lease.assertHeld();
-        await tickRecurringInvoice(r.id, lease.assertHeld);
+        try {
+          await processRecurringInvoiceRun(run.id, { assertLeaseHeld: lease.assertHeld });
+        } catch (err) {
+          if (err instanceof SchedulerLeaseLostError) throw err;
+          // eslint-disable-next-line no-console
+          console.error(`[recurring-invoices] run ${run.id} could not be processed:`, err);
+        }
       }
     });
   } finally {
     ticking = false;
   }
+}
+
+/** One heartbeat pass, run on demand (tests drive the scheduler with it). */
+export function runRecurringInvoiceTick(): Promise<void> {
+  return tick();
 }
 
 /**
@@ -577,8 +1002,25 @@ async function initialSweep(): Promise<void> {
   }
 }
 
+/**
+ * A SQLite install runs one process, so a run still held at boot belongs to
+ * the process that just stopped. Release it so the catch-up pass resumes it
+ * now rather than when the hold lapses. (On Postgres another replica may
+ * really hold it; there the hold simply lapses.)
+ */
+async function releaseOrphanedRuns(): Promise<void> {
+  if (AppDataSource.options.type === "postgres") return;
+  await AppDataSource.getRepository(RecurringInvoiceRun)
+    .createQueryBuilder()
+    .update()
+    .set({ lockedUntil: null })
+    .where("status = :pending AND lockedUntil IS NOT NULL", { pending: "pending" })
+    .execute();
+}
+
 export async function bootRecurringInvoices(): Promise<void> {
   await initialSweep();
+  await releaseOrphanedRuns();
   if (heartbeat) clearInterval(heartbeat);
   heartbeat = setInterval(() => {
     tick().catch((err) => {
@@ -586,8 +1028,9 @@ export async function bootRecurringInvoices(): Promise<void> {
       console.error("[recurring-invoices] heartbeat failed:", err);
     });
   }, HEARTBEAT_INTERVAL_MS);
-  // Kick an immediate pass so a just-rebooted server catches up without
-  // waiting a full heartbeat interval first.
+  // Kick an immediate pass so a just-rebooted server bills what came due
+  // while it was down, and finishes what it was doing when it stopped,
+  // without waiting a full heartbeat interval first.
   tick().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[recurring-invoices] initial tick failed:", err);

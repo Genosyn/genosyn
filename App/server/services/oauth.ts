@@ -4,7 +4,6 @@ import {
   exchangeGoogleCode,
   googleRedirectUri,
   resolveScopeGroups,
-  type GoogleOauthConfig,
 } from "../integrations/providers/google/auth.js";
 import {
   buildXAuthorizeUrl,
@@ -13,41 +12,38 @@ import {
   pkceChallenge,
   resolveXScopes,
   xRedirectUri,
-  type XOauthConfig,
 } from "../integrations/providers/x.js";
 import {
   buildGithubAuthorizeUrl,
   exchangeGithubCode,
   githubRedirectUri,
   resolveGithubScopes,
-  type GithubOauthConfig,
 } from "../integrations/providers/github-oauth.js";
 import {
   buildRedditAuthorizeUrl,
   exchangeRedditCode,
   redditRedirectUri,
   resolveRedditScopes,
-  type RedditOauthConfig,
 } from "../integrations/providers/reddit.js";
 import {
   buildLinkedinAuthorizeUrl,
   exchangeLinkedinCode,
   linkedinRedirectUri,
   resolveLinkedinScopes,
-  type LinkedinOauthConfig,
 } from "../integrations/providers/linkedin.js";
 import {
   buildMicrosoftAuthorizeUrl,
   exchangeMicrosoftCode,
   microsoftRedirectUri,
   resolveMicrosoftScopes,
-  type MicrosoftOauthConfig,
 } from "../integrations/providers/microsoft-ads.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
 import { getRegisteredOauthApp } from "./oauthApps.js";
 import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
 import { AppDataSource } from "../db/datasource.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
+import { startHostedGoogleOauth, type OauthStartResult } from "./hostedGoogleOauth.js";
+import { getRuntimeOauthSettings } from "./runtimeSettings.js";
 
 /**
  * OAuth state store + provider dispatch.
@@ -130,7 +126,9 @@ export async function startOauth(args: {
   existingConnectionId?: string;
   /** See {@link OauthState.linkMailbox}. */
   linkMailbox?: boolean;
-}): Promise<{ authorizeUrl: string }> {
+  /** Server-derived origin of the browser opening hosted sign-in. */
+  installationOrigin?: string;
+}): Promise<OauthStartResult> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
   const oauth = provider.catalog.oauth;
@@ -153,6 +151,11 @@ export async function startOauth(args: {
   const clientId = credentials?.clientId ?? "";
   const clientSecret = credentials?.clientSecret ?? "";
   if (!clientId || !clientSecret) {
+    if (!suppliedId && !suppliedSecret && args.provider === "google" &&
+        args.scopeGroups.length === 1 && args.scopeGroups[0] === "mail" &&
+        getRuntimeOauthSettings().hostedSignInEnabled) {
+      return startHostedGoogleOauth(args);
+    }
     throw new Error(
       `No ${provider.catalog.name} OAuth client is available. Ask an instance admin to register one at Admin → Integrations, or supply a Client ID and Client Secret for this connection.`,
     );
@@ -296,12 +299,13 @@ export async function startOauthReconnect(args: {
   companyId: string;
   userId: string;
   connectionId: string;
+  installationOrigin?: string;
   /** Scope-group keys to request this time. Falls back to whatever was
    * persisted on the existing connection — empty array on legacy rows
    * means "no groups picked", which the route layer translates into
    * "all groups" for backward-compat sanity. */
   scopeGroups?: string[];
-}): Promise<{ authorizeUrl: string }> {
+}): Promise<OauthStartResult> {
   const conn = await getConnection(args.companyId, args.connectionId);
   if (!conn) throw new Error("Connection not found");
   if (conn.authMode !== "oauth2") {
@@ -317,16 +321,15 @@ export async function startOauthReconnect(args: {
   // and LinkedinOauthConfig all expose `clientId` / `clientSecret` /
   // `scopeGroups`; that is the only shape this function cares about, so a
   // structural narrowing covers every OAuth provider.
-  const cfg = decryptConnectionConfig(conn) as Pick<
-    GoogleOauthConfig &
-      XOauthConfig &
-      GithubOauthConfig &
-      RedditOauthConfig &
-      LinkedinOauthConfig &
-      MicrosoftOauthConfig,
-    "clientId" | "clientSecret" | "scopeGroups"
-  >;
-  if (!cfg.clientId || !cfg.clientSecret) {
+  const cfg = decryptConnectionConfig(conn) as {
+    clientId?: string;
+    clientSecret?: string;
+    scopeGroups?: string[];
+    credentialSource?: string;
+    tokenBrokerUrl?: string;
+    tokenBrokerPath?: string;
+  };
+  if (cfg.credentialSource !== "hosted" && (!cfg.clientId || !cfg.clientSecret)) {
     throw new Error(
       "Stored OAuth client credentials are missing — disconnect and create a new connection.",
     );
@@ -353,6 +356,22 @@ export async function startOauthReconnect(args: {
     // Legacy Connections may pre-date persisted scope groups. Preserve their
     // mailbox capability instead of silently starting an identity-only flow.
     if (!scopeGroups.includes("mail")) scopeGroups = [...scopeGroups, "mail"];
+  }
+  if (cfg.credentialSource === "hosted") {
+    if (conn.provider !== "google" || !cfg.tokenBrokerUrl ||
+        scopeGroups.length !== 1 || scopeGroups[0] !== "mail") {
+      throw new Error("Hosted Google sign-in supports Gmail only. Use your own OAuth client for other Google products.");
+    }
+    return startHostedGoogleOauth({
+      companyId: args.companyId,
+      userId: args.userId,
+      label: conn.label,
+      existingConnectionId: conn.id,
+      linkMailbox: !!linkedMailbox,
+      tokenBrokerUrl: cfg.tokenBrokerUrl,
+      tokenBrokerPath: cfg.tokenBrokerPath,
+      installationOrigin: args.installationOrigin,
+    });
   }
   // A Connection created from the install-wide app should follow that app when
   // its secret is rotated — otherwise rotating would quietly break every
@@ -406,6 +425,9 @@ export async function finishOauth(args: {
   const provider = getProvider(args.state.provider);
   if (!provider || !provider.buildOauthConfig) {
     throw new Error(`Provider ${args.state.provider} cannot finish OAuth`);
+  }
+  if (provider.catalog.oauth?.app !== args.app) {
+    throw new Error("The OAuth callback does not match the sign-in that was started.");
   }
   let tokens;
   let userInfo: Record<string, unknown>;

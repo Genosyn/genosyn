@@ -9,6 +9,7 @@ import {
   formatMoney,
   parseMoneyToCents,
 } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -967,14 +968,25 @@ function DealTable({
   );
 }
 
-function ErrorPanel({ title, onRetry }: { title: string; onRetry: () => void }) {
+function ErrorPanel({ title, onRetry }: { title: string; onRetry: () => Promise<unknown> }) {
+  const [retrying, setRetrying] = React.useState(false);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
       <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         Something went wrong fetching this.
       </p>
-      <Button variant="secondary" className="mt-4" onClick={onRetry}>
+      <Button variant="secondary" className="mt-4" loading={retrying} onClick={() => void retry()}>
         Try again
       </Button>
     </div>
@@ -1170,7 +1182,7 @@ function NewDealModal({
             <option value="">No account yet</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {customerOptionLabel(c)}
               </option>
             ))}
           </Select>
@@ -1234,7 +1246,7 @@ function NewDealModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !title.trim()}>
+          <Button type="submit" loading={busy} disabled={!title.trim()}>
             {busy ? "Creating…" : "Create deal"}
           </Button>
         </div>

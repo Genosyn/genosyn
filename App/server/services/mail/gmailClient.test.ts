@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import { afterEach, describe, test } from "node:test";
 
 import {
@@ -411,6 +412,265 @@ describe("Gmail sync read retries", () => {
       true,
     );
   });
+});
+
+describe("Gmail read cancellation and method safety", () => {
+  test("an aborted caller performs no HTTP request or retry wait", async () => {
+    const controller = new AbortController();
+    const reason = new Error("network work was cancelled by the caller");
+    controller.abort(reason);
+    let calls = 0;
+    let waits = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return json({ ok: true });
+    };
+
+    await assert.rejects(
+      gmailFetch(
+        "token",
+        "/test",
+        { signal: controller.signal },
+        {
+          retry: "read",
+          sleep: async () => {
+            waits += 1;
+          },
+        },
+      ),
+      (error: unknown) => error === reason,
+    );
+    assert.equal(calls, 0);
+    assert.equal(waits, 0);
+  });
+
+  test("caller cancellation interrupts an in-flight fetch without retrying", async () => {
+    const controller = new AbortController();
+    const reason = new Error("fetch failed because the caller stopped");
+    let calls = 0;
+    let waits = 0;
+    globalThis.fetch = async (_input, init) => {
+      calls += 1;
+      const signal = init?.signal;
+      assert.ok(signal);
+      assert.notEqual(signal, controller.signal);
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        queueMicrotask(() => controller.abort(reason));
+      });
+    };
+
+    await assert.rejects(
+      gmailFetch(
+        "token",
+        "/test",
+        { signal: controller.signal },
+        {
+          retry: "read",
+          sleep: async () => {
+            waits += 1;
+          },
+        },
+      ),
+      (error: unknown) => error === reason,
+    );
+    assert.equal(calls, 1);
+    assert.equal(waits, 0);
+  });
+
+  test("cancellation after response headers prevents reading a completed response body", async () => {
+    const controller = new AbortController();
+    const reason = new Error("Run stopped");
+    let bodyReads = 0;
+    globalThis.fetch = async () => {
+      const response = json({ ok: true });
+      response.text = async () => {
+        bodyReads += 1;
+        return "{}";
+      };
+      controller.abort(reason);
+      return response;
+    };
+    await assert.rejects(
+      gmailFetch("token", "/test", { signal: controller.signal }, { retry: "read" }),
+      (error: unknown) => error === reason,
+    );
+    assert.equal(bodyReads, 0);
+  });
+
+  test("cancellation during response decoding cannot return stale success", async () => {
+    const controller = new AbortController();
+    const reason = new Error("Run stopped during response read");
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      const response = json({ ok: true });
+      response.text = async () => {
+        controller.abort(reason);
+        return '{"ok":true}';
+      };
+      return response;
+    };
+    await assert.rejects(
+      gmailFetch("token", "/test", { signal: controller.signal }, { retry: "read" }),
+      (error: unknown) => error === reason,
+    );
+    assert.equal(calls, 1);
+  });
+
+  test(
+    "caller cancellation interrupts the real Retry-After wait and removes its listener",
+    { timeout: 2_000 },
+    async () => {
+      const controller = new AbortController();
+      const reason = new Error("Run stopped during backoff");
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        setImmediate(() => controller.abort(reason));
+        return json(
+          { error: { message: "Try later" } },
+          {
+            status: 429,
+            headers: { "retry-after": "10" },
+          },
+        );
+      };
+      await assert.rejects(
+        gmailFetch("token", "/test", { signal: controller.signal }, { retry: "read" }),
+        (error: unknown) => error === reason,
+      );
+      assert.equal(calls, 1);
+      assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+    },
+  );
+
+  test("a caller cancelled as a retry wait ends cannot start another request", async () => {
+    const controller = new AbortController();
+    const reason = new Error("Run stopped at the retry boundary");
+    let calls = 0;
+    let waits = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return json({ error: { message: "Busy" } }, { status: 503 });
+    };
+    await assert.rejects(
+      gmailFetch(
+        "token",
+        "/test",
+        { signal: controller.signal },
+        {
+          retry: "read",
+          sleep: async (_delayMs, signal) => {
+            waits += 1;
+            assert.equal(signal, controller.signal);
+            controller.abort(reason);
+          },
+        },
+      ),
+      (error: unknown) => error === reason,
+    );
+    assert.equal(calls, 1);
+    assert.equal(waits, 1);
+  });
+
+  test("each retry composes a fresh timeout with the same live caller signal", async () => {
+    const controller = new AbortController();
+    const signals: AbortSignal[] = [];
+    globalThis.fetch = async (_input, init) => {
+      assert.ok(init?.signal);
+      signals.push(init.signal);
+      if (signals.length < 3) throw new DOMException("Request timed out", "TimeoutError");
+      return json({ ok: true });
+    };
+    assert.deepEqual(
+      await gmailFetch(
+        "token",
+        "/test",
+        { signal: controller.signal },
+        {
+          retry: "read",
+          sleep: async () => {},
+        },
+      ),
+      { ok: true },
+    );
+    assert.equal(signals.length, 3);
+    assert.equal(new Set(signals).size, 3);
+    assert.ok(signals.every((signal) => signal !== controller.signal && !signal.aborted));
+    assert.equal(controller.signal.aborted, false);
+  });
+
+  test("a DNS failure after the exact retry budget retains its identity, code, and cause", async () => {
+    const cause = Object.assign(new Error("getaddrinfo EAI_AGAIN gmail.googleapis.com"), {
+      code: "EAI_AGAIN",
+    });
+    const failure = new TypeError("fetch failed", { cause });
+    let calls = 0;
+    let waits = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw failure;
+    };
+    await assert.rejects(
+      gmailFetch(
+        "token",
+        "/test",
+        {},
+        {
+          retry: "read",
+          sleep: async () => {
+            waits += 1;
+          },
+        },
+      ),
+      (error: unknown) =>
+        error instanceof TypeError &&
+        error === failure &&
+        error.cause === cause &&
+        cause.code === "EAI_AGAIN",
+    );
+    assert.equal(calls, 4);
+    assert.equal(waits, 3);
+  });
+
+  test("GET requests still require explicit retry opt-in", async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw new TypeError("fetch failed");
+    };
+    await assert.rejects(gmailFetch("token", "/test"), /fetch failed/);
+    assert.equal(calls, 1);
+  });
+
+  for (const method of ["POST", "PUT", "PATCH", "DELETE", "HEAD"]) {
+    test(`${method} cannot be retried even if a caller accidentally opts in`, async () => {
+      let calls = 0;
+      let waits = 0;
+      globalThis.fetch = async (_input, init) => {
+        calls += 1;
+        assert.equal(init?.method, method);
+        return json({ error: { message: "Backend busy" } }, { status: 503 });
+      };
+      await assert.rejects(
+        gmailFetch(
+          "token",
+          "/test",
+          { method },
+          {
+            retry: "read",
+            sleep: async () => {
+              waits += 1;
+            },
+          },
+        ),
+        (error: unknown) => error instanceof GmailApiError && error.status === 503,
+      );
+      assert.equal(calls, 1);
+      assert.equal(waits, 0);
+    });
+  }
 });
 
 describe("decodeHtmlEntities", () => {

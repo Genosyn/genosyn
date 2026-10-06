@@ -9,7 +9,6 @@ import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
-import { Spinner } from "@/components/ui/Spinner";
 
 /** Company-wide entry points into the existing Repository review workbench. */
 export function RepositoryWorkCard({
@@ -229,10 +228,11 @@ export function RepositoryWorkCard({
                 variant="ghost"
                 className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
                 aria-label={`Throw away ${item.title}`}
+                loading={discardingId === item.id}
                 disabled={discardingId !== null}
                 onClick={() => void discard(item)}
               >
-                {discardingId === item.id ? <Spinner size={13} /> : <Trash2 size={13} />}
+                <Trash2 size={13} />
                 Throw away
               </Button>
             </div>
@@ -242,7 +242,7 @@ export function RepositoryWorkCard({
       {(error || offset.current < total) && (
         <div className="space-y-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
           <FormError message={error} />
-          <Button size="sm" variant="secondary" disabled={loading} onClick={() => void showMore()}>
+          <Button size="sm" variant="secondary" loading={loading} onClick={() => void showMore()}>
             {loading
               ? "Loading…"
               : error

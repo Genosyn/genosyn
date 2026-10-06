@@ -9,66 +9,101 @@ import {
   redactSecrets,
 } from "./workspaceGit.js";
 
-/**
- * The redaction this guards used to read `invocation.env`, which under
- * bubblewrap holds only PATH — so it scrubbed nothing in the mode that ships.
- */
-test("a bubblewrap invocation still reports the secrets handed to the child", () => {
-  const invocation = buildWorkspaceGitInvocation(
-    {
-      workspaceRoot: "/tmp/workspace",
-      cwd: "/tmp/workspace/checkout",
-      args: ["push"],
-      extraEnv: { GENOSYN_REPO_TOKEN_CONNECTION: "ghs_SUPERSECRETVALUE" },
-      serverOwned: true,
-    },
-    "bubblewrap",
-    "/usr/bin/bwrap",
-    false,
-  );
+const credentialNames = [
+  "GENOSYN_GH_TOKEN_CONNECTION",
+  "GENOSYN_REPO_TOKEN_CONNECTION",
+  "GENOSYN_FORGE_TOKEN_01234567_89AB_4CDE_8F01_23456789ABCD",
+];
 
-  assert.deepEqual(invocation.env, { PATH: "/usr/local/bin:/usr/bin:/bin" });
-  assert.ok(
-    invocation.secrets.includes("ghs_SUPERSECRETVALUE"),
-    "the token is carried in argv, so redaction has to be told about it separately",
-  );
-  assert.equal(
-    redactSecrets("fatal: could not read ghs_SUPERSECRETVALUE", invocation.secrets),
-    "fatal: could not read «redacted»",
-  );
+for (const mode of ["host", "disabled"] as const) {
+  for (const name of credentialNames) {
+    test(`${mode} Git accepts and redacts the server-held ${name} credential`, () => {
+      const token = "fixture-only-forge-credential";
+      const invocation = buildWorkspaceGitInvocation(
+        {
+          workspaceRoot: "/srv/employee",
+          cwd: "/srv/employee",
+          args: ["fetch", "https://github.com/acme/repo.git"],
+          extraEnv: { [name]: token },
+          serverOwned: true,
+        },
+        mode,
+        true,
+      );
+      assert.equal(invocation.env[name], token);
+      assert.equal(invocation.args.includes(token), false);
+      assert.ok(invocation.secrets.includes(token));
+      assert.equal(
+        redactSecrets(`fatal: ${token} rejected; detail=${token}`, invocation.secrets),
+        "fatal: «redacted» rejected; detail=«redacted»",
+      );
+    });
+  }
+}
+
+test("allowing forge credentials does not admit arbitrary environment names or malformed suffixes", () => {
+  for (const name of [
+    "GENOSYN_FORGE_TOKEN_",
+    "GENOSYN_FORGE_TOKEN_lowercase",
+    "GENOSYN_FORGE_TOKEN_A-B",
+    "GENOSYN_FORGE_TOKEN_A=VALUE",
+    "GENOSYN_FORGE_TOKEN_A\nPATH",
+    "GENOSYN_FORGE_TOKEN_A;COMMAND",
+    "GENOSYN_FORGED_TOKEN_CONNECTION",
+    "GENOSYN_OTHER_TOKEN_CONNECTION",
+    "GENOSYN_FORGE_TOKEN",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_VALUE_0",
+    "GIT_ASKPASS",
+    "PATH",
+    "CODEX_ACCESS_TOKEN",
+  ]) {
+    assert.throws(
+      () =>
+        buildWorkspaceGitInvocation(
+          {
+            workspaceRoot: "/srv/employee",
+            cwd: "/srv/employee",
+            args: ["fetch"],
+            extraEnv: { [name]: "fixture-secret-never-echoed" },
+            serverOwned: true,
+          },
+          "host",
+        ),
+      (error: Error) => {
+        assert.match(error.message, /Git environment variable is not allowed/);
+        assert.doesNotMatch(error.message, /fixture-secret-never-echoed/);
+        return true;
+      },
+      name,
+    );
+  }
 });
 
-test("bubblewrapped Git receives private namespaces and an explicit environment", () => {
-  const invocation = buildWorkspaceGitInvocation(
-    {
-      workspaceRoot: "/srv/employee",
-      cwd: "/srv/employee/repositories/app",
-      args: ["fetch", "https://github.com/example/app.git"],
-      extraEnv: { GENOSYN_REPO_TOKEN_123: "repo-token" },
-      credentialHelper: "!trusted-helper",
-    },
-    "bubblewrap",
-    "/usr/bin/bwrap",
-  );
-
-  assert.equal(invocation.executable, "/usr/bin/bwrap");
-  assert.equal(invocation.isolated, true);
-  assert.deepEqual(invocation.env, { PATH: "/usr/local/bin:/usr/bin:/bin" });
-  assert.ok(invocation.args.includes("--unshare-pid"));
-  assert.ok(invocation.args.includes("--clearenv"));
-  assert.ok(invocation.args.includes("/tmp"));
-  assert.ok(invocation.args.includes("/workspace"));
-  assert.ok(invocation.args.includes("/etc/passwd"));
-  assert.ok(invocation.args.includes("/etc/group"));
-  assert.ok(invocation.args.includes("GENOSYN_REPO_TOKEN_123"));
-  assert.ok(invocation.args.includes("protocol.ext.allow"));
-  assert.ok(invocation.args.includes("credential.helper"));
-  assert.deepEqual(invocation.args.slice(-3), [
-    "git",
-    "fetch",
-    "https://github.com/example/app.git",
-  ]);
-});
+for (const name of credentialNames) {
+  test(`${name} rejects credential line breaks and NUL without disclosing the value`, () => {
+    for (const character of ["\0", "\r", "\n", "\r\n"]) {
+      assert.throws(
+        () =>
+          buildWorkspaceGitInvocation(
+            {
+              workspaceRoot: "/srv/employee",
+              cwd: "/srv/employee",
+              args: ["fetch"],
+              extraEnv: { [name]: `fixture-secret${character}injected-value` },
+              serverOwned: true,
+            },
+            "host",
+          ),
+        (error: Error) => {
+          assert.match(error.message, /Invalid Git (?:token )?environment value/);
+          assert.doesNotMatch(error.message, /fixture-secret|injected-value/);
+          return true;
+        },
+      );
+    }
+  });
+}
 
 test("workspace Git never inherits arbitrary App or Codex environment variables", () => {
   const invocation = buildWorkspaceGitInvocation(
@@ -78,24 +113,32 @@ test("workspace Git never inherits arbitrary App or Codex environment variables"
       args: ["status"],
     },
     "host",
-    "/usr/bin/bwrap",
     true,
   );
 
-  assert.equal(invocation.isolated, false);
+  assert.equal(invocation.executable, "git");
   assert.equal("CODEX_ACCESS_TOKEN" in invocation.env, false);
   assert.equal("DATABASE_URL" in invocation.env, false);
+  assert.equal(invocation.env.HOME, "/srv/employee");
   assert.equal(invocation.env.GIT_CONFIG_GLOBAL, "/dev/null");
   assert.equal(invocation.env.GIT_SSH_COMMAND, "/bin/false");
+  // The command-scoped hardening rides in the environment, not in argv.
+  const keys = Array.from(
+    { length: Number(invocation.env.GIT_CONFIG_COUNT) },
+    (_value, index) => invocation.env[`GIT_CONFIG_KEY_${index}`],
+  );
+  for (const key of ["core.hooksPath", "protocol.ext.allow", "protocol.file.allow"]) {
+    assert.ok(keys.includes(key), key);
+  }
+  assert.deepEqual(invocation.args, ["status"]);
 });
 
-test("macOS host Git can use Homebrew while Linux and bubblewrap retain their trusted paths", () => {
+test("macOS Git can use Homebrew while Linux keeps the trusted path", () => {
   for (const [platform, mode] of [
     ["darwin", "host"],
     ["darwin", "disabled"],
     ["linux", "host"],
-    ["linux", "bubblewrap"],
-    ["darwin", "bubblewrap"],
+    ["linux", "disabled"],
   ] as const) {
     const invocation = buildWorkspaceGitInvocation(
       {
@@ -105,22 +148,14 @@ test("macOS host Git can use Homebrew while Linux and bubblewrap retain their tr
         serverOwned: true,
       },
       mode,
-      "/usr/bin/bwrap",
       true,
       platform,
     );
     const basePath = "/usr/local/bin:/usr/bin:/bin";
     assert.equal(
       invocation.env.PATH,
-      platform === "darwin" && mode !== "bubblewrap" ? `/opt/homebrew/bin:${basePath}` : basePath,
+      platform === "darwin" ? `/opt/homebrew/bin:${basePath}` : basePath,
     );
-    if (mode === "bubblewrap") {
-      const pathArgument = invocation.args.findIndex(
-        (value, index) => value === "--setenv" && invocation.args[index + 1] === "PATH",
-      );
-      assert.ok(pathArgument >= 0);
-      assert.equal(invocation.args[pathArgument + 2], basePath);
-    }
   }
 });
 
@@ -133,7 +168,6 @@ test("command-scoped credential helpers receive the HTTPS repository path", () =
       credentialHelper: "!trusted-helper",
     },
     "host",
-    "/usr/bin/bwrap",
     true,
   );
   const count = Number(invocation.env.GIT_CONFIG_COUNT);
@@ -156,7 +190,8 @@ test("workspace Git rejects unsafe environment entries and disabled execution", 
           args: ["status"],
           extraEnv: { CODEX_ACCESS_TOKEN: "must-not-pass" },
         },
-        "bubblewrap",
+        "host",
+        true,
       ),
     /not allowed/,
   );
@@ -170,7 +205,6 @@ test("workspace Git rejects unsafe environment entries and disabled execution", 
           extraEnv: { GENOSYN_REPO_TOKEN_1: "token\nInjected: value" },
         },
         "host",
-        "/usr/bin/bwrap",
         true,
       ),
     /Invalid Git token environment value/,
@@ -197,13 +231,12 @@ test("workspace Git host execution requires the separate unsafe-host acknowledge
   };
 
   assert.throws(
-    () => buildWorkspaceGitInvocation(options, "host", "/usr/bin/bwrap", false),
-    /explicitly acknowledge host execution/i,
+    () => buildWorkspaceGitInvocation(options, "host", false),
+    /allowUnsafeHostExecution/,
   );
 
-  const acknowledged = buildWorkspaceGitInvocation(options, "host", "/usr/bin/bwrap", true);
+  const acknowledged = buildWorkspaceGitInvocation(options, "host", true);
   assert.equal(acknowledged.executable, "git");
-  assert.equal(acknowledged.isolated, false);
 });
 
 test("workspace Git rejects gitdir and commondir pointers outside the employee workspace", (t) => {

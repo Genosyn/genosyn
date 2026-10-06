@@ -22,6 +22,7 @@ import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type {
@@ -206,7 +207,7 @@ type ChatBaseOptions = {
    */
   activity?: Pick<
     StreamCallbacks,
-    "onText" | "onToolUse" | "onToolResult" | "onCompact" | "onModelRetry"
+    "onText" | "onToolUse" | "onToolResult" | "onCompact" | "onModelRetry" | "onModelOutage"
   >;
   /**
    * Ceiling on model turns for this call. Chat's default suits a reply; a
@@ -224,6 +225,12 @@ type ChatBaseOptions = {
    * would refuse anyway. See `agent/tools/index.ts` for the scope.
    */
   workSurface?: "repository";
+  /**
+   * Wait out a self-hosted model server that stops answering instead of
+   * failing the turn. For background work such as a Repository work session;
+   * a Member waiting on a chat reply is better told promptly.
+   */
+  waitForModel?: boolean;
   /**
    * Receives how full the model's context window is after every model turn.
    * Unlike `onProgress` this is not a control the employee can reach — it is
@@ -309,6 +316,7 @@ export type InteractiveChatContextAccess = {
   signing: boolean;
   revenue: boolean;
   marketing: boolean;
+  resources: boolean;
   extraSystem: boolean;
   taggedReferences: boolean;
   privilegedToolSources: boolean;
@@ -345,6 +353,7 @@ export function resolveInteractiveChatContextAccess(
     signing: companyContext,
     revenue: companyContext,
     marketing: companyContext,
+    resources: companyContext,
     extraSystem: companyContext,
     taggedReferences: companyContext,
     privilegedToolSources,
@@ -700,15 +709,13 @@ export async function streamChatWithEmployee(
     const parallelDelegationAvailable =
       privilegedToolSourcesAllowed &&
       !options.mailDeliveryMode &&
-      supportsParallelDelegation(model.authMode);
+      supportsParallelDelegation(model);
     const unavailableCodingTools =
       !privilegedToolSourcesAllowed ||
       Boolean(options.mailDeliveryMode) ||
       !codingRuntimeAvailability().available
         ? [...CODING_TOOL_NAMES]
-        : config.agent.codingTools.executionMode === "bubblewrap"
-          ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-          : [];
+        : [];
     const unavailableSkillTools = [
       ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
       ...unavailableCodingTools,
@@ -745,7 +752,7 @@ export async function streamChatWithEmployee(
         : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
-    const [signingContext, revenueContext, marketingContext] = await Promise.all([
+    const [signingContext, revenueContext, marketingContext, resourcesContext] = await Promise.all([
       contextAccess.signing && !repositoryWork
         ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
         : Promise.resolve(""),
@@ -754,6 +761,9 @@ export async function streamChatWithEmployee(
         : Promise.resolve(""),
       contextAccess.marketing && !repositoryWork
         ? composeMarketingContext(emp.id)
+        : Promise.resolve(""),
+      contextAccess.resources && !repositoryWork
+        ? composeResourceLibraryContext(emp.id)
         : Promise.resolve(""),
     ]);
     const effectiveSkills = contextAccess.soulAndSkills ? skills : [];
@@ -780,10 +790,10 @@ export async function streamChatWithEmployee(
             signingContext,
             revenueContext,
             marketingContext,
+            resourcesContext,
             surface: "chat",
             parallelDelegationAvailable,
             codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
-            isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
             opening:
               options.surface === "help"
                 ? `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate selected you in Genosyn Help to answer a question about Genosyn. Reply in your own voice, guided by your Soul and Skills, while treating the Help briefing and shipped source as authoritative.`
@@ -887,6 +897,7 @@ export async function streamChatWithEmployee(
         genosynToken: mcpToken,
         bashTimeoutMs: 5 * 60 * 1000,
         maxSteps: options.maxSteps ?? CHAT_MAX_STEPS,
+        waitForModel: options.waitForModel,
         skillToolset: [
           ...residentNamesForSkills(effectiveSkills, unavailableSkillTools),
           ...(contextAccess.extraSystem ? (options.extraToolset ?? []) : []),
@@ -908,6 +919,7 @@ export async function streamChatWithEmployee(
             );
             options.activity?.onModelRetry?.(retry);
           },
+          onModelOutage: options.activity?.onModelOutage,
           onToolUse: options.activity?.onToolUse,
           onToolResult: options.activity?.onToolResult,
           onCompact: options.activity?.onCompact,

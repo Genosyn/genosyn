@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import dns from "node:dns/promises";
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -29,6 +30,8 @@ import {
 import { companyDir } from "../services/paths.js";
 import { recordAttachmentBytes } from "../services/uploads.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { EMPTY_SEARCH_PAGE, SEARCH_CHALLENGE_PAGE } from "../test/webSearchFixtures.js";
+import { resetSearchChallengeForTests } from "../services/webBrowsing.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 /**
@@ -245,7 +248,10 @@ describe("read_mail_attachment authority", () => {
       (await call("read_mail_attachment", { messageId: message.id, index: -1 })).status,
       400,
     );
-    assert.equal((await call("read_mail_attachment", { messageId: "not-a-uuid", index: 0 })).status, 400);
+    assert.equal(
+      (await call("read_mail_attachment", { messageId: "not-a-uuid", index: 0 })).status,
+      400,
+    );
   });
 });
 
@@ -264,9 +270,10 @@ describe("who may work with an attachment", () => {
     const res = await call("read_pdf_fields", { attachmentId: imported.id });
 
     assert.equal(res.status, 200);
-    assert.deepEqual((res.body.fields as Array<{ name: string }>).map((f) => f.name), [
-      "CompanyName",
-    ]);
+    assert.deepEqual(
+      (res.body.fields as Array<{ name: string }>).map((f) => f.name),
+      ["CompanyName"],
+    );
     cleanUp();
   });
 
@@ -427,6 +434,49 @@ describe("attaching a file to outgoing mail", () => {
 });
 
 describe("web tools", () => {
+  // Each case stands alone; a challenge must not leave the next one cooling down.
+  beforeEach(resetSearchChallengeForTests);
+  for (const [label, html, backendStatus, expectedStatus] of [
+    ["a bot challenge", SEARCH_CHALLENGE_PAGE, 202, 502],
+    ["unrecognized markup", "<html><body>Temporarily unavailable</body></html>", 200, 502],
+    ["a genuine empty search", EMPTY_SEARCH_PAGE, 200, 200],
+  ] as const) {
+    test(`search reports ${label} truthfully through the MCP HTTP boundary`, async (t) => {
+      t.mock.method(dns, "lookup", async () => [{ address: "8.8.8.8", family: 4 }]);
+      const realFetch = globalThis.fetch;
+      t.mock.method(
+        globalThis,
+        "fetch",
+        async (input: string | URL | Request, init?: RequestInit) => {
+          if (
+            new URL(input instanceof Request ? input.url : input.toString()).hostname ===
+            "html.duckduckgo.com"
+          ) {
+            return new Response(html, {
+              status: backendStatus,
+              headers: { "content-type": "text/html" },
+            });
+          }
+          return realFetch(input, init);
+        },
+      );
+      const response = await call("search_web", { query: "public forms" });
+      assert.equal(response.status, expectedStatus);
+      if (expectedStatus === 502) {
+        assert.match(response.body.error ?? "", /search is unavailable/i);
+        assert.equal(
+          response.body.results,
+          undefined,
+          "unavailable is not a successful empty list",
+        );
+        assert.equal(response.body.note, undefined, "does not advise changing query wording");
+      } else {
+        assert.deepEqual(response.body.results, []);
+        assert.match(String(response.body.note), /no usable results/i);
+      }
+    });
+  }
+
   test("refuse a URL pointed at the operator's own network", async () => {
     const res = await call("fetch_web_page", { url: "http://169.254.169.254/latest/meta-data/" });
 

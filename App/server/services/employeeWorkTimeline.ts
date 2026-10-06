@@ -1,4 +1,4 @@
-import { And, In, LessThan, MoreThanOrEqual } from "typeorm";
+import { And, In, LessThan, MoreThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -27,6 +27,8 @@ import { redactApprovalSummary, redactSensitiveText } from "./approvalRedaction.
 import { isVaultCaptureApproval } from "./approvals.js";
 import { listAccessibleProjectIds } from "./projects.js";
 import { runWorkSummary } from "./runWorkSummary.js";
+import { mailAnalysisWorkTimeline } from "./mail/analysisWorkTimeline.js";
+import type { MailAnalysisWorkDetails } from "./mail/analysisEvidence.js";
 
 /**
  * The **work timeline** — everything one AI Employee (or the whole roster)
@@ -34,10 +36,10 @@ import { runWorkSummary } from "./runWorkSummary.js";
  *
  * Home could always say what was *waiting* on a human and never what the
  * workforce had *done*. The three nearest answers were each a different
- * question: the audit log is an admin-only, entitlement-gated investigation
- * tool spanning every actor; an employee's Journal is the employee narrating
- * itself; and the failed-routines alert shows only the runs that broke. A
- * company whose roster ran cleanly all night had no way to see the night.
+ * question: the audit log is an admin-only investigation tool spanning every
+ * actor; an employee's Journal is the employee narrating itself; and the
+ * failed-routines alert shows only the runs that broke. A company whose roster
+ * ran cleanly all night had no way to see the night.
  *
  * ## Assembled, never stored
  *
@@ -137,6 +139,8 @@ export type WorkEntrySource = {
   detail: string;
 };
 
+export type WorkEntryAnalysis = MailAnalysisWorkDetails;
+
 /** Everything the Run chips on a `run` entry need, without a second request. */
 export type WorkEntryRun = {
   id: string;
@@ -184,6 +188,8 @@ export type WorkEntry = {
   detail: string;
   /** Linked provenance for a standalone change, when its source still exists. */
   source: WorkEntrySource | null;
+  /** Presentation-only result of this exact incoming email analysis attempt. */
+  analysis?: WorkEntryAnalysis | null;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;
   /** The ledger rows this entry owns, oldest first, capped for rendering. */
@@ -388,7 +394,11 @@ export async function getEmployeeWorkTimeline(params: {
   ] = await Promise.all([
     routines.length
       ? AppDataSource.getRepository(Run).find({
-          where: { routineId: In([...routineById.keys()]), startedAt: inWindow },
+          where: {
+            routineId: In([...routineById.keys()]),
+            startedAt: inWindow,
+            status: Not("queued"),
+          },
           order: { startedAt: "DESC" },
           take,
         })
@@ -559,6 +569,7 @@ export async function getEmployeeWorkTimeline(params: {
     if (r.targetType === "todo" && r.targetId && hiddenTodoIds.has(r.targetId)) return false;
     return true;
   });
+  const mailAnalysisContexts = await mailAnalysisWorkTimeline(companyId, visibleAudit);
 
   // A completed Email handover is deliberately recorded after its chat turn,
   // so it has no Conversation parent and becomes a standalone change. Keep the
@@ -843,6 +854,7 @@ export async function getEmployeeWorkTimeline(params: {
     // so it stands on its own rather than going missing.
     const employee = row.actorEmployeeId ? empById.get(row.actorEmployeeId) : undefined;
     if (!employee) continue;
+    const analysisContext = mailAnalysisContexts.get(row.id);
     entries.push({
       id: `effect:${row.id}`,
       kind: "effect",
@@ -850,13 +862,17 @@ export async function getEmployeeWorkTimeline(params: {
       endedAt: null,
       active: false,
       employee,
-      title: effect.targetLabel || row.targetId || row.action,
-      subject: effect.targetLabel,
+      title: analysisContext
+        ? `${analysisContext.analysis.status === "started" ? "Started" : analysisContext.analysis.status === "completed" ? "Completed" : "Could not complete"} email analysis${analysisContext.subject ? `: ${analysisContext.subject}` : ""}`
+        : effect.targetLabel || row.targetId || row.action,
+      subject: analysisContext ? analysisContext.subject : effect.targetLabel,
       detail: row.action,
       source:
-        row.targetType === "mail_handover" && row.targetId
+        analysisContext?.source ??
+        (row.targetType === "mail_handover" && row.targetId
           ? (mailSourceByHandoverId.get(row.targetId) ?? null)
-          : null,
+          : null),
+      analysis: analysisContext?.analysis ?? null,
       run: null,
       effects: [],
       effectCount: 0,

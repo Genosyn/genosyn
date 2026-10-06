@@ -41,6 +41,14 @@ const safeLookup: LookupFunction = (hostname, options, callback) => {
 let installed = false;
 
 /**
+ * A dispatcher under the same lookup-time policy, for requests that need
+ * their own timeouts or pooling rather than the global dispatcher's.
+ */
+export function outboundAgent(options: Omit<Agent.Options, "connect"> = {}): Agent {
+  return new Agent({ ...options, connect: { lookup: safeLookup } });
+}
+
+/**
  * Enforce the public-network policy at socket lookup time as well as URL
  * validation time. This closes the DNS-rebinding gap for fetch, provider SDKs,
  * and Node HTTP clients while preserving literal loopback calls used by the

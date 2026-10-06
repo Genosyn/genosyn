@@ -43,7 +43,7 @@ export async function listHomeRepositoryWork(params: {
     .innerJoin(
       Repository,
       "repository",
-      "repository.id = session.repositoryId AND repository.companyId = :companyId",
+      "CAST(repository.id AS text) = session.repositoryId AND repository.companyId = :companyId",
       { companyId },
     )
     .where({

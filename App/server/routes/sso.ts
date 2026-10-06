@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import { billingEnabled } from "../services/billing/billingSettings.js";
 import { getPublicSsoStatus } from "../services/ssoSettings.js";
+import { anyCompanySsoEnabled } from "../services/companySso.js";
 import { finishSsoLogin, startSsoLogin, SsoLoginError } from "../services/ssoLogin.js";
 import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 import { establishUserSession } from "../middleware/auth.js";
@@ -25,10 +25,9 @@ export const ssoRouter = Router();
 
 ssoRouter.get("/status", async (_req, res, next) => {
   try {
-    // `companySso` is true on billing-enabled (Genosyn Cloud) installs — the
-    // login page uses it to offer company SSO sign-in. Company SSO itself
-    // ships in a later phase; the field ships now (M56).
-    res.json({ ...(await getPublicSsoStatus()), companySso: await billingEnabled() });
+    // `companySso` is true once any company on this install has turned on its
+    // own SSO — the login page uses it to offer company SSO sign-in.
+    res.json({ ...(await getPublicSsoStatus()), companySso: await anyCompanySsoEnabled() });
   } catch (err) {
     next(err);
   }

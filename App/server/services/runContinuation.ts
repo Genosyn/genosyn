@@ -11,6 +11,35 @@ import { resolveMcpToken } from "./mcpTokens.js";
 // changing their ordinary retry policy or limiting steps within a Run.
 export const MAX_RUN_CONTINUATIONS = 3;
 export const CONTINUATION_DELAY_MS = 5_000;
+/**
+ * The least shared time worth handing to a continuation. A child Run spends
+ * its first minute starting up, and a slow local model can need several more
+ * for one step; one started with seconds left could only end as a timeout
+ * Error that hides the parent's honest unfinished-work report.
+ */
+export const MIN_CONTINUATION_WINDOW_MS = 5 * 60_000;
+
+/** A quarter of short budgets, never less than the scheduling delay itself. */
+export function minContinuationWindowMs(timeoutSec: number): number {
+  return Math.min(
+    MIN_CONTINUATION_WINDOW_MS,
+    Math.max(CONTINUATION_DELAY_MS, Math.floor((Math.max(1, timeoutSec) * 1000) / 4)),
+  );
+}
+
+/** A shorter wait is dispatch overhead, not a busy AI Model, and keeps the exact deadline. */
+export const QUEUE_WAIT_CREDIT_MIN_MS = 60_000;
+
+/**
+ * How long a claimed Run waited in the queue, when that wait is long enough to
+ * give back. Queue time never consumes a Run's time limit: a fresh occurrence's
+ * limit starts at its claim, and an automatic continuation's inherited deadline
+ * moves later by this much, so it keeps the working time its parent left.
+ */
+export function creditedQueueWaitMs(run: Pick<Run, "createdAt" | "startedAt">): number {
+  const waitedMs = run.startedAt.getTime() - run.createdAt.getTime();
+  return waitedMs >= QUEUE_WAIT_CREDIT_MIN_MS ? waitedMs : 0;
+}
 
 export const runCheckpointSchema = z
   .object({
@@ -40,7 +69,8 @@ export const runCheckpointSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["remaining"],
-        message: "Work with remaining items is not complete.",
+        message:
+          "A complete checkpoint leaves remaining empty. If this Run's work is done, move follow-ups for a later Run into resume; if work is still unfinished, use state continue or blocked.",
       });
     }
   });
@@ -80,9 +110,9 @@ export function continuationEligibility(
   else if (
     (run.continuationDeadlineAt?.getTime() ??
       run.startedAt.getTime() + routine.timeoutSec * 1000) <=
-    now.getTime() + CONTINUATION_DELAY_MS
+    now.getTime() + minContinuationWindowMs(routine.timeoutSec)
   ) {
-    reason = "The original Routine time limit leaves no time for another continuation.";
+    reason = "The original Routine time limit leaves too little time for another continuation.";
   }
   return { eligible: reason === null, reason };
 }
@@ -103,7 +133,7 @@ export async function saveRunCheckpoint(
   const ownership = AppDataSource.getRepository(Routine)
     .createQueryBuilder("routine")
     .select("routine.id")
-    .innerJoin(AIEmployee, "employee", "employee.id = routine.employeeId")
+    .innerJoin(AIEmployee, "employee", "CAST(employee.id AS text) = routine.employeeId")
     .where("routine.id = :routineId", { routineId: info.routineId })
     .andWhere("routine.employeeId = :employeeId", { employeeId: info.employeeId })
     .andWhere("employee.companyId = :companyId", { companyId: info.companyId });

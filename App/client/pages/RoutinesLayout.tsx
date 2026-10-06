@@ -29,6 +29,9 @@ import { useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { STANDDOWNS_CHANGED_EVENT } from "@/components/StanddownBanner";
 import { childrenByParent } from "../lib/routineFolders";
+import { errorMessage } from "../lib/errors";
+import { Button } from "../components/ui/Button";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 
 /**
  * Routines section shell — every scheduled routine in the company, in one
@@ -48,28 +51,93 @@ import { childrenByParent } from "../lib/routineFolders";
  * a routine slug is only unique per employee, so it takes both segments).
  */
 export default function RoutinesLayout({ company }: { company: Company }) {
-  const navigate = useNavigate();
-  const [routines, setRoutines] = React.useState<RoutineWithMeta[] | null>(null);
-  const [employees, setEmployees] = React.useState<Employee[]>([]);
-  const [tree, setTree] = React.useState<RoutineFolderTree | null>(null);
+  // A company switch must discard the old snapshot and editor immediately,
+  // before this company's first request or a previous company's late reply.
+  return <CompanyRoutinesLayout key={company.id} company={company} />;
+}
 
-  const refresh = React.useCallback(async () => {
-    try {
-      const [rows, roster, folderTree] = await Promise.all([
+type RoutineRefreshRequest = {
+  promise: Promise<void>;
+  queued: { promise: Promise<void>; complete: () => void } | null;
+};
+
+function CompanyRoutinesLayout({ company }: { company: Company }) {
+  const navigate = useNavigate();
+  const [snapshot, setSnapshot] = React.useState<{
+    routines: RoutineWithMeta[];
+    employees: Employee[];
+    tree: RoutineFolderTree;
+  } | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const mounted = React.useRef(true);
+  const inFlight = React.useRef<RoutineRefreshRequest | null>(null);
+
+  const refresh = React.useCallback(
+    function refreshRoutines(): Promise<void> {
+      if (!mounted.current) return Promise.resolve();
+      if (inFlight.current) {
+        if (!inFlight.current.queued) {
+          let complete!: () => void;
+          const promise = new Promise<void>((resolve) => {
+            complete = resolve;
+          });
+          inFlight.current.queued = { promise, complete };
+        }
+        // A caller refreshing after a write needs the next read, not a snapshot
+        // that may have been captured before its mutation. Do not await later
+        // notifications too: busy Runs must not keep this caller waiting forever.
+        return inFlight.current.queued.promise;
+      }
+      const request: RoutineRefreshRequest = {
+        queued: null,
+        promise: Promise.resolve(),
+      };
+      inFlight.current = request;
+      setRefreshing(true);
+      request.promise = Promise.all([
         api.get<RoutineWithMeta[]>(`/api/companies/${company.id}/routines`),
         api.get<Employee[]>(`/api/companies/${company.id}/employees`),
         api.get<RoutineFolderTree>(`/api/companies/${company.id}/routine-folders`),
-      ]);
-      setRoutines(rows);
-      setEmployees(roster);
-      setTree(folderTree);
-    } catch {
-      setRoutines([]);
-    }
-  }, [company.id]);
+      ])
+        .then(([routines, employees, tree]) => {
+          if (inFlight.current !== request) return;
+          setSnapshot({ routines, employees, tree });
+          setLoadError(null);
+        })
+        .catch((error: unknown) => {
+          if (inFlight.current !== request) return;
+          // A failed roster or folder read is not evidence that Routines were
+          // deleted. Keep the exact mounted editor and last coherent sidebar.
+          setLoadError(errorMessage(error, "The request failed."));
+        })
+        .finally(() => {
+          if (inFlight.current !== request) {
+            request.queued?.complete();
+            return;
+          }
+          inFlight.current = null;
+          setRefreshing(false);
+          // Coalesce notifications while preserving a refresh requested after
+          // a write. Publish each completed snapshot even during a busy Run.
+          if (request.queued) {
+            const { complete } = request.queued;
+            void refreshRoutines().then(complete, complete);
+          }
+        });
+      return request.promise;
+    },
+    [company.id],
+  );
 
   React.useEffect(() => {
-    refresh();
+    mounted.current = true;
+    void refresh();
+    return () => {
+      mounted.current = false;
+      inFlight.current?.queued?.complete();
+      inFlight.current = null;
+    };
   }, [refresh]);
 
   useLiveRefetch(["routine", "run", "standdown"], refresh);
@@ -81,15 +149,16 @@ export default function RoutinesLayout({ company }: { company: Company }) {
 
   const ctx = React.useMemo<RoutinesContext>(
     () => ({
-      routines: routines ?? [],
-      employees,
-      folders: tree?.folders ?? [],
-      unfiledCount: tree?.unfiledCount ?? 0,
-      maxFolderDepth: tree?.maxDepth ?? 5,
-      loading: routines === null,
+      routines: snapshot?.routines ?? [],
+      employees: snapshot?.employees ?? [],
+      folders: snapshot?.tree.folders ?? [],
+      unfiledCount: snapshot?.tree.unfiledCount ?? 0,
+      maxFolderDepth: snapshot?.tree.maxDepth ?? 5,
+      loading: snapshot === null,
+      loadError,
       refresh,
     }),
-    [routines, employees, tree, refresh],
+    [snapshot, loadError, refresh],
   );
 
   return (
@@ -97,17 +166,45 @@ export default function RoutinesLayout({ company }: { company: Company }) {
       sidebar={
         <Sidebar
           company={company}
-          routines={routines}
-          employees={employees}
-          folders={tree?.folders ?? []}
-          unfiledCount={tree?.unfiledCount ?? 0}
-          maxFolderDepth={tree?.maxDepth ?? 5}
+          routines={snapshot?.routines ?? null}
+          employees={ctx.employees}
+          folders={ctx.folders}
+          unfiledCount={ctx.unfiledCount}
+          maxFolderDepth={ctx.maxFolderDepth}
           onNew={() => navigate(`/c/${company.slug}/routines/new`)}
           onChanged={refresh}
         />
       }
     >
-      <Outlet context={ctx} />
+      <div className="flex h-full min-h-0 flex-col">
+        {loadError && (
+          <div
+            role="alert"
+            className="m-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200"
+          >
+            <div className="min-w-0 flex-1">
+              <p>
+                {snapshot
+                  ? "Could not refresh Routines. Your last loaded data and edits are still shown."
+                  : "Could not load Routines."}
+              </p>
+              <p>{loadError}</p>
+            </div>
+            <Button variant="secondary" onClick={() => void refresh()} loading={refreshing}>
+              {refreshing ? "Retrying…" : "Try again"}
+            </Button>
+          </div>
+        )}
+        {snapshot ? (
+          <Outlet context={ctx} />
+        ) : (
+          !loadError && (
+            <div className="p-6">
+              <Spinner />
+            </div>
+          )
+        )}
+      </div>
     </ContextualLayout>
   );
 }
@@ -123,6 +220,8 @@ export type RoutinesContext = {
   /** How deep folders may nest, so the UI can hide "New subfolder" at the floor. */
   maxFolderDepth: number;
   loading: boolean;
+  /** A failed refresh cannot establish that a missing resource was deleted. */
+  loadError: string | null;
   refresh: () => Promise<void>;
 };
 
@@ -153,6 +252,7 @@ function Sidebar({
   const activeFolder = params.get("folder");
   const onIndex = location.pathname === base;
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
+  const [creatingFolder, setCreatingFolder] = React.useState<null | "header" | "section">(null);
 
   const countFor = (slug: string) =>
     (routines ?? []).filter((r) => r.employee?.slug === slug).length;
@@ -163,7 +263,7 @@ function Sidebar({
 
   const childrenOf = React.useMemo(() => childrenByParent(folders), [folders]);
 
-  async function createFolder(parent: RoutineFolder | null) {
+  async function createFolder(parent: RoutineFolder | null, from?: "header" | "section") {
     const name = await dialog.prompt({
       title: parent ? `New folder in “${parent.name}”` : "New folder",
       message: parent
@@ -173,6 +273,7 @@ function Sidebar({
       confirmLabel: "Create folder",
     });
     if (!name?.trim()) return;
+    if (from) setCreatingFolder(from);
     try {
       await api.post(`/api/companies/${company.id}/routine-folders`, {
         name: name.trim(),
@@ -181,6 +282,8 @@ function Sidebar({
       await onChanged();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create that folder" });
+    } finally {
+      if (from) setCreatingFolder(null);
     }
   }
 
@@ -365,12 +468,14 @@ function Sidebar({
         </div>
         <div className="flex items-center gap-0.5">
           <button
-            onClick={() => void createFolder(null)}
+            onClick={() => void createFolder(null, "header")}
+            disabled={creatingFolder !== null}
+            aria-busy={creatingFolder === "header" || undefined}
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="New folder"
             aria-label="New folder"
           >
-            <FolderPlus size={14} />
+            {creatingFolder === "header" ? <ButtonSpinner size={14} /> : <FolderPlus size={14} />}
           </button>
           <button
             onClick={onNew}
@@ -407,19 +512,20 @@ function Sidebar({
             <Folder size={12} /> Folders
           </span>
           <button
-            onClick={() => void createFolder(null)}
+            onClick={() => void createFolder(null, "section")}
+            disabled={creatingFolder !== null}
+            aria-busy={creatingFolder === "section" || undefined}
             className="rounded p-0.5 hover:text-slate-700 dark:hover:text-slate-200"
             title="New folder"
             aria-label="New top-level folder"
           >
-            <Plus size={12} />
+            {creatingFolder === "section" ? <ButtonSpinner size={12} /> : <Plus size={12} />}
           </button>
         </div>
 
         {folders.length === 0 ? (
           <p className="px-3 pb-1 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
-            No folders yet. Group routines by the work they belong to — Finance,
-            Support, Month-end.
+            No folders yet. Group routines by the work they belong to — Finance, Support, Month-end.
           </p>
         ) : (
           <>

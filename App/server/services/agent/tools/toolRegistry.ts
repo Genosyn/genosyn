@@ -34,6 +34,19 @@ import type { AgentTool, ToolDeferralInfo } from "../types.js";
 
 export type ToolVisibility = "resident" | "deferred" | "alias";
 
+/**
+ * OpenCode shows every Genosyn tool to the model as `genosyn_<name>` (its MCP
+ * server name joined to the tool name). Models copy what they see into
+ * `call_tool`'s `name` and into a delegated worker's `requiredTools`, so the
+ * prefixed form names the same tool. No Genosyn tool's own name begins with
+ * the prefix: the MCP server name `genosyn` is reserved for these tools.
+ */
+const OPENCODE_TOOL_PREFIX = "genosyn_";
+
+export function unprefixedToolName(name: string): string {
+  return name.startsWith(OPENCODE_TOOL_PREFIX) ? name.slice(OPENCODE_TOOL_PREFIX.length) : name;
+}
+
 export type ToolRegistry = {
   /** What goes on the wire, in order. Frozen for the run. */
   resident: AgentTool[];
@@ -44,6 +57,12 @@ export type ToolRegistry = {
   visibility(name: string): ToolVisibility | undefined;
   resolve(name: string): AgentTool | undefined;
   stats: ToolDeferralInfo;
+  /**
+   * Server-written text a runtime shows the model beside a tool's own output,
+   * such as a Run's time check. It never enters the result callbacks receive,
+   * which the runner logs and parses verbatim.
+   */
+  resultNotice?: () => string | null;
 };
 
 export function buildRegistry(params: {
@@ -76,8 +95,8 @@ export function buildRegistry(params: {
     resident: params.resident,
     all,
     searchable: params.deferred,
-    visibility: (name) => visibilities.get(name),
-    resolve: (name) => all.get(name),
+    visibility: (name) => visibilities.get(name) ?? visibilities.get(unprefixedToolName(name)),
+    resolve: (name) => all.get(name) ?? all.get(unprefixedToolName(name)),
     stats: {
       resident: params.resident.length,
       deferred: params.deferred.length,
@@ -104,4 +123,13 @@ export function residentOnlyRegistry(tools: AgentTool[]): ToolRegistry {
     domains: [],
     fromSkills: [],
   });
+}
+
+/** The registry's current note, if any. A failing note never fails a tool call. */
+export function registryResultNotice(registry: ToolRegistry): string | null {
+  try {
+    return registry.resultNotice?.() || null;
+  } catch {
+    return null;
+  }
 }

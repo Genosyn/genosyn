@@ -65,6 +65,7 @@ export default function RevenueActivities() {
   const [edit, setEdit] = React.useState<ActivityRow | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const params = React.useMemo(() => {
     const next = new URLSearchParams({ limit: "200" });
@@ -113,12 +114,15 @@ export default function RevenueActivities() {
       variant: "danger",
     });
     if (!confirmed) return;
+    setDeleting(true);
     try {
       await api.del(`${baseUrl}/activities/${activity.id}`);
       setSelected(null);
       await reload();
     } catch (cause) {
       setDeleteError(errorMessage(cause));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -289,7 +293,11 @@ export default function RevenueActivities() {
                 >
                   <Pencil size={14} /> Edit
                 </Button>
-                <Button variant="danger" onClick={() => void removeActivity(selected)}>
+                <Button
+                  variant="danger"
+                  onClick={() => void removeActivity(selected)}
+                  loading={deleting}
+                >
                   <Trash2 size={14} /> Delete
                 </Button>
               </div>
@@ -381,7 +389,7 @@ function EditActivityModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void save()} disabled={saving || !occurredAt}>
+          <Button onClick={() => void save()} loading={saving} disabled={!occurredAt}>
             {saving ? "Saving…" : "Save changes"}
           </Button>
         </div>

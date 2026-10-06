@@ -6,8 +6,6 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
-import { Company } from "../db/entities/Company.js";
-import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import {
   EmployeeMailAccountGrant,
   MAIL_ACCESS_LEVELS,
@@ -78,22 +76,12 @@ import {
   summarizeMailAttachments,
 } from "../services/mail/attachments.js";
 import { stageAttachment } from "../services/mail/outbox.js";
-import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
 import {
   createMailHandover,
   handoverGrantError,
   retryMailHandover,
 } from "../services/mail/handovers.js";
-import {
-  assistantAttachments,
-  assistantRoster,
-  clearAssistantMessages,
-  lastAssistantModelId,
-  listAssistantMessages,
-  markSuggestionExecuted,
-  runAssistantTurn,
-  serializeAssistantMessage,
-} from "../services/mail/assistant.js";
+import { mailboxRoster } from "../services/mail/roster.js";
 import { columnToLabelIds } from "../services/mail/store.js";
 import {
   applyMailScope,
@@ -489,28 +477,34 @@ mailRouter.get("/mail/accounts/:aid/labels", async (req, res) => {
     where: { accountId: account.id },
     order: { name: "ASC" },
   });
-  // One in-memory pass over (labelIds, unread) computes every sidebar count.
-  // Raw rows avoid hydrating a MailThread entity for every conversation in a
-  // potentially very large mailbox. This endpoint only needs two scalar
-  // columns, and it runs repeatedly while the sidebar follows sync updates.
-  const threads = await AppDataSource.getRepository(MailThread)
+  // One grouped pass computes every sidebar count. The database folds the
+  // conversations into their distinct (labelIds, unread) combinations — a
+  // few hundred even across 200K conversations — so this endpoint, which
+  // re-runs every time the sidebar follows a sync update, no longer builds
+  // one JS object per conversation on the event loop.
+  const groups = await AppDataSource.getRepository(MailThread)
     .createQueryBuilder("t")
     .select("t.labelIds", "labelIds")
     .addSelect("t.unread", "unread")
+    .addSelect("COUNT(*)", "threads")
     .where("t.accountId = :accountId", { accountId: account.id })
-    .getRawMany<{ labelIds: string; unread: boolean | number }>();
+    .groupBy("t.labelIds")
+    .addGroupBy("t.unread")
+    .getRawMany<{ labelIds: string; unread: boolean | number; threads: number | string }>();
   let inboxUnread = 0;
   let drafts = 0;
   let starred = 0;
   const perLabel: Record<string, number> = {};
-  for (const t of threads) {
-    const inTrash = t.labelIds.includes(" TRASH ");
-    if (!inTrash && t.unread && t.labelIds.includes(" INBOX ")) inboxUnread += 1;
-    if (!inTrash && t.labelIds.includes(" DRAFT ")) drafts += 1;
-    if (!inTrash && t.labelIds.includes(" STARRED ")) starred += 1;
+  for (const g of groups) {
+    // Postgres returns COUNT(*) as a string; SQLite as a number.
+    const n = Number(g.threads);
+    const inTrash = g.labelIds.includes(" TRASH ");
+    if (!inTrash && g.unread && g.labelIds.includes(" INBOX ")) inboxUnread += n;
+    if (!inTrash && g.labelIds.includes(" DRAFT ")) drafts += n;
+    if (!inTrash && g.labelIds.includes(" STARRED ")) starred += n;
     if (inTrash) continue;
-    for (const id of columnToLabelIds(t.labelIds)) {
-      perLabel[id] = (perLabel[id] ?? 0) + 1;
+    for (const id of columnToLabelIds(g.labelIds)) {
+      perLabel[id] = (perLabel[id] ?? 0) + n;
     }
   }
   res.json({
@@ -1542,273 +1536,6 @@ mailRouter.post("/mail/handovers/:hid/retry", requireBrowserSession, async (req,
   res.json({ ok: true });
 });
 
-// ───────────────────────────── assistant ─────────────────────────────
-
-const assistantThreadQuerySchema = z
-  .object({
-    threadId: z.string().uuid(),
-    limit: z.coerce.number().int().min(1).max(200).default(100),
-  })
-  .strict();
-
-/** Panel bootstrap: this email's conversation plus everyone tag-able on it. */
-mailRouter.get("/mail/accounts/:aid/assistant", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const account = await loadAccount(cid, req.params.aid as string);
-  if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const parsed = assistantThreadQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
-  }
-  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
-    id: parsed.data.threadId,
-    accountId: account.id,
-    companyId: cid,
-  });
-  if (!thread) return res.status(404).json({ error: "Mail thread not found" });
-  const [messages, roster] = await Promise.all([
-    listAssistantMessages(account, thread.id, parsed.data.limit),
-    assistantRoster(cid, account.id),
-  ]);
-  const attachments = await assistantAttachments(messages);
-  // The employee the panel is talking to, and the brain their last answered
-  // turn ran on — so reopening the panel resumes on the same model rather
-  // than silently switching to whatever is active now.
-  const lastAnswered = [...messages].reverse().find((m) => m.role === "assistant" && m.employeeId);
-  const modelId = lastAnswered?.employeeId
-    ? await lastAssistantModelId(account.id, thread.id, lastAnswered.employeeId)
-    : null;
-  res.json({
-    messages: messages.map((m) => serializeAssistantMessage(m, attachments.get(m.id) ?? [])),
-    roster,
-    modelId,
-  });
-});
-
-mailRouter.delete("/mail/accounts/:aid/assistant/messages", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const account = await loadAccount(cid, req.params.aid as string);
-  if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const parsed = assistantThreadQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
-  }
-  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
-    id: parsed.data.threadId,
-    accountId: account.id,
-    companyId: cid,
-  });
-  if (!thread) return res.status(404).json({ error: "Mail thread not found" });
-  await clearAssistantMessages(account, thread.id);
-  res.json({ ok: true });
-});
-
-const assistantSendSchema = z
-  .object({
-    message: z.string().max(8000).default(""),
-    threadId: z.string().uuid(),
-    focusedMessageId: z.string().uuid().optional(),
-    employeeId: z.string().uuid().optional(),
-    /** Files uploaded through the route below, bound to this turn on send. */
-    attachmentIds: z.array(z.string().uuid()).max(10).optional().default([]),
-    /** Employee-owned AI Model for this turn; null inherits the active one. */
-    modelId: z.string().uuid().nullable().optional().default(null),
-  })
-  .refine((body) => body.message.trim().length > 0 || body.attachmentIds.length > 0, {
-    message: "Message or attachment required",
-    path: ["message"],
-  });
-
-/**
- * Upload a file into an email's AI chat.
- *
- * Distinct from `outbox-attachments` above, which stages bytes in memory for
- * an outgoing message. This is a chat upload: it becomes an ordinary
- * `Attachment` row bound to the human's turn, so the employee sees it in its
- * prompt with an `attachmentId` it can pass to the PDF tools — the same
- * contract employee chat and workspace channels use.
- */
-mailRouter.post(
-  "/mail/accounts/:aid/assistant/attachments",
-  async (req, res, next) => {
-    // The upload middleware writes into the company's attachment directory,
-    // which it resolves from `req.company` — the mail router doesn't set it.
-    const cid = (req.params as Record<string, string>).cid;
-    const company = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-    if (!company) return res.status(404).json({ error: "Company not found" });
-    (req as unknown as { company: Company }).company = company;
-    next();
-  },
-  uploadMiddleware.single("file"),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const account = await loadAccount(cid, req.params.aid as string);
-    if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const company = (req as unknown as { company: Company }).company;
-    const file = (req as unknown as { file?: Express.Multer.File }).file;
-    if (!file) return res.status(400).json({ error: "No file uploaded" });
-    const row = await recordAttachment({
-      companyId: company.id,
-      companySlug: company.slug,
-      file,
-      uploadedByUserId: req.userId!,
-    });
-    res.status(201).json({
-      attachment: {
-        id: row.id,
-        filename: row.filename,
-        mimeType: row.mimeType,
-        sizeBytes: Number(row.sizeBytes),
-        isImage: row.mimeType.startsWith("image/"),
-      },
-    });
-  },
-);
-
-/**
- * Download a file from an email's AI chat — either one the teammate uploaded
- * or one the employee produced. Scoped to attachments actually bound to a
- * turn of THIS mailbox's chat (plus the requester's own not-yet-sent upload),
- * so an attachment id from elsewhere in the company can't be read through
- * this route.
- */
-mailRouter.get("/mail/accounts/:aid/assistant/attachments/:attachmentId", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const account = await loadAccount(cid, req.params.aid as string);
-  if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const resolved = await resolveAttachmentFile(req.params.attachmentId as string, cid);
-  const missing = { error: "Attachment not found" };
-  if (!resolved) return res.status(404).json(missing);
-  if (resolved.row.messageId) {
-    const owner = await AppDataSource.getRepository(MailChatMessage).findOneBy({
-      id: resolved.row.messageId,
-      accountId: account.id,
-      companyId: cid,
-    });
-    if (!owner) return res.status(404).json(missing);
-  } else if (resolved.row.uploadedByUserId !== req.userId) {
-    return res.status(404).json(missing);
-  }
-  res.setHeader("content-type", resolved.row.mimeType);
-  res.setHeader("x-content-type-options", "nosniff");
-  const disposition = resolved.row.mimeType.startsWith("image/") ? "inline" : "attachment";
-  res.setHeader(
-    "content-disposition",
-    `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
-  );
-  res.sendFile(resolved.absPath);
-});
-
-/**
- * How often this stream emits an SSE keepalive comment. A turn can spend
- * minutes between visible `chunk` events while the employee reads the thread
- * and runs tools, and any idle reverse proxy in front of a self-hosted
- * Genosyn (nginx `proxy_read_timeout` 60s, Caddy, cloud load balancers at
- * 30–100s) resets a silent connection — which the browser reports as a bare
- * `network error` mid-reply. A comment line every 15s stays under those
- * timers. Same value the employee chat stream uses.
- */
-const ASSISTANT_STREAM_HEARTBEAT_MS = 15_000;
-
-/**
- * One assistant turn, streamed over SSE (same event grammar as employee
- * chat): `user` → the persisted human turn, `target` → the resolved
- * employee, `working` → the persisted in-flight assistant row, `chunk` →
- * reply text deltas, `assistant` → the finalized reply (with actions +
- * suggestions), `done` → end marker. Errors also arrive as events so the
- * client rendering stays uniform.
- *
- * The turn is not tied to this connection: once `working` has been written
- * the row owns the reply, and a client that loses the stream re-reads it
- * from the panel bootstrap instead of losing the answer.
- */
-mailRouter.post(
-  "/mail/accounts/:aid/assistant/messages",
-  requireBrowserSession,
-  validateBody(assistantSendSchema),
-  async (req, res, next) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const body = req.body as z.infer<typeof assistantSendSchema>;
-
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-
-    const writeEvent = (event: string, data: unknown) => {
-      if (res.writableEnded || res.destroyed) return;
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    const heartbeat = setInterval(() => {
-      if (!res.writableEnded && !res.destroyed) res.write(`: keepalive\n\n`);
-    }, ASSISTANT_STREAM_HEARTBEAT_MS);
-    heartbeat.unref?.();
-    res.on("close", () => clearInterval(heartbeat));
-
-    try {
-      const account = await loadAccount(cid, req.params.aid as string);
-      if (!account) {
-        writeEvent("error", { message: "Mail account not found" });
-        writeEvent("done", {});
-        return res.end();
-      }
-      const thread = await AppDataSource.getRepository(MailThread).findOneBy({
-        id: body.threadId,
-        accountId: account.id,
-        companyId: cid,
-      });
-      if (!thread) {
-        writeEvent("error", { message: "Mail thread not found" });
-        writeEvent("done", {});
-        return res.end();
-      }
-      await runAssistantTurn({
-        account,
-        message: body.message,
-        threadId: thread.id,
-        focusedMessageId: body.focusedMessageId ?? null,
-        employeeId: body.employeeId,
-        attachmentIds: body.attachmentIds,
-        modelId: body.modelId,
-        userId: req.userId!,
-        requesterSessionVersion: req.session!.sessionVersion!,
-        callbacks: {
-          onUser: (msg) => writeEvent("user", msg),
-          onTarget: (employee) => writeEvent("target", { employee }),
-          onWorking: (msg) => writeEvent("working", msg),
-          onChunk: (text) => writeEvent("chunk", { text }),
-          onAssistant: (msg) => writeEvent("assistant", msg),
-        },
-      });
-      writeEvent("done", {});
-      if (!res.writableEnded && !res.destroyed) res.end();
-    } catch (e) {
-      if (!res.writableEnded && !res.destroyed) {
-        writeEvent("error", {
-          message: e instanceof Error ? e.message : String(e),
-        });
-        writeEvent("done", {});
-        res.end();
-      } else if (!res.destroyed) {
-        next(e);
-      }
-    } finally {
-      clearInterval(heartbeat);
-    }
-  },
-);
-
-/** Stamp a suggestion button as executed (idempotence guard after reload). */
-mailRouter.post("/mail/assistant/messages/:mid/suggestions/:sid/executed", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const row = await markSuggestionExecuted(cid, req.params.mid as string, req.params.sid as string);
-  if (!row) return res.status(404).json({ error: "Suggestion not found" });
-  res.json({ message: serializeAssistantMessage(row) });
-});
-
 // ───────────────────────────── grants ─────────────────────────────
 
 async function hydrateGrants(grants: EmployeeMailAccountGrant[]): Promise<unknown[]> {
@@ -1996,7 +1723,7 @@ mailRouter.get("/mail/accounts/:aid/ai-analysis", async (req, res) => {
   const account = await loadAccount(cid, req.params.aid as string);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const [roster, reader] = await Promise.all([
-    assistantRoster(cid, account.id),
+    mailboxRoster(cid, account.id),
     resolveAnalysisReader(account),
   ]);
   res.json({

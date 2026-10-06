@@ -16,7 +16,7 @@ import {
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button, buttonClassName } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -709,13 +709,20 @@ function SessionInboxRow({
           type="button"
           onClick={() => void toggle()}
           disabled={busy}
+          aria-busy={busy || undefined}
           title={archived ? "Put this session back in the inbox" : "Archive this session"}
           aria-label={
             archived ? `Restore ${sessionTitle(session)}` : `Archive ${sessionTitle(session)}`
           }
           className="absolute right-1.5 top-2 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-slate-200 hover:text-slate-600 focus-visible:opacity-100 disabled:opacity-50 group-hover/row:opacity-100 dark:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200 [@media(hover:none)]:opacity-100"
         >
-          {archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+          {busy ? (
+            <ButtonSpinner size={13} />
+          ) : archived ? (
+            <ArchiveRestore size={13} />
+          ) : (
+            <Archive size={13} />
+          )}
         </button>
       )}
     </li>
@@ -955,10 +962,11 @@ export function NewSessionPane({
               <button
                 type="button"
                 disabled={starting || attachments.pending.length + attachments.uploading >= 10}
+                aria-busy={attachments.uploading > 0 || undefined}
                 onClick={() => fileInput.current?.click()}
                 className="mb-2 inline-flex items-center gap-1.5 text-xs text-slate-500 disabled:opacity-50"
               >
-                {attachments.uploading ? <Spinner size={13} /> : <Paperclip size={13} />}
+                {attachments.uploading ? <ButtonSpinner size={13} /> : <Paperclip size={13} />}
                 {attachments.uploading ? "Uploading…" : "Attach files or paste an image"}
               </button>
             </div>
@@ -1039,15 +1047,15 @@ export function NewSessionPane({
             </div>
             <Button
               onClick={start}
+              loading={starting}
               disabled={
-                starting ||
                 attachments.uploading > 0 ||
                 !selectedModelId ||
                 (!instruction.trim() && !attachments.pending.length)
               }
               className="w-full justify-center sm:w-auto"
             >
-              {starting ? <Spinner size={14} /> : <Sparkles size={14} />}
+              <Sparkles size={14} />
               {starting ? "Starting…" : `Start with ${selected?.name ?? "AI"}`}
             </Button>
           </div>

@@ -2,7 +2,8 @@
 
 > If you are Claude Code, Codex, opencode, goose, Cursor, Aider, or any
 > other AI agent touching this repo, read this file first. It is the single
-> source of truth for how to work here.
+> source of truth for how to work here. For where the product is going, read
+> [`VISION.md`](./VISION.md) next.
 
 ---
 
@@ -22,14 +23,45 @@ autonomously with AI employees**.
   models run through pinned **OpenCode 1.18.31**, managed headlessly through
   its SDK. Genosyn owns the company context, Grants, Approvals, tool registry,
   and persisted work; OpenCode owns the model loop, native coding tools, and
-  context management. The self-hosted default executes directly on the host
-  (inside the App container when using Docker), with no OS sandbox. Bubblewrap
-  remains an optional execution mode. A trusted, single-tenant OpenAI model
-  may instead use ChatGPT subscription access through the official pinned
-  `@openai/codex` app-server.
+  context management. AI Employee commands execute directly on the host
+  (inside the App container when using Docker), with no OS sandbox; the only
+  other execution mode is `disabled`. Installs are single-tenant — one
+  organization per install, which may still run several Companies — and
+  neither the Docker installer nor the Helm chart offers a shared multi-tenant
+  mode. A trusted, single-tenant OpenAI model may instead use ChatGPT
+  subscription access through the official pinned `@openai/codex` app-server.
 
 Use this guide for vocabulary and architecture, and the documentation in
 `Home/client/docs/pages/` and product source for shipped behavior.
+
+### Where Genosyn is going
+
+[`VISION.md`](./VISION.md) states plainly where Genosyn is going; the vision
+page (genosyn.com/vision, `Home/client/vision/`) tells the same vision as a
+story. Read it for the why behind the product: the people who own a company on
+Genosyn are its **board**, not its managers. The board writes the Goal, holds
+the keys to the reserves, reads an audited monthly letter, and keeps a switch
+that stops every AI Employee or changes who leads them. The company decides
+everything else on its own, and asks the board only what an owner must.
+
+- **It is direction, not shipped behavior.** Only what its Status section says
+  ships today exists. Never describe a "Next" or horizon item as shipped — in
+  docs, UI copy, or an AI Employee's prompts — and never build against one as
+  if it were already there.
+- **Use it to choose between designs.** When several approaches meet a
+  request, prefer the one that lets work start, finish, and be checked without
+  a person beside it, and that asks a person only what an owner must decide.
+- **Autonomy is earned, not assumed.** The vision is reached through the
+  primitives that already ship: Goals, Checks, Waivers, Approvals, Policies,
+  Budgets, and Standdowns. It never justifies weakening or removing a human
+  gate. That is a product decision for a human (§13), and §3–§12 bind every
+  change regardless.
+- **Keep it in step with the page.** When the vision changes (what the board
+  keeps, what the company decides, the road), update `VISION.md` and
+  `Home/client/vision/` in the same PR. Story details such as Sunwise's figures
+  live only on the page.
+- **It is Genosyn's own direction**, unrelated to `Company.vision`, the
+  statement a company on Genosyn writes about itself.
 
 ---
 
@@ -47,7 +79,9 @@ genosyn/
 ├── CLI/         # `genosyn` cluster-maintainer CLI (bash). Served from the
 │                # Home site at /install.sh and /genosyn via a sync step in
 │                # Home's predev/prebuild scripts.
+├── package.json # Root npm commands for SaaS Helm deployments (no dependencies).
 ├── AGENTS.md    # This file.
+├── VISION.md    # Where Genosyn is going, stated plainly. Read with this file.
 └── CLAUDE.md    # Pointer to this file.
 ```
 
@@ -65,6 +99,17 @@ Both files are copied into `Home/client/public/` by Home's `sync-cli`
 npm script (wired into `predev` and `prebuild`), so editing `CLI/` is the
 single source of truth. Bump `CLI_VERSION` in `CLI/genosyn` when you ship a
 change users should notice.
+
+`CLI/deploy-saas.sh` is the separate operator helper behind the root
+`npm run deploy-test` / `npm run deploy-prod` commands. It applies
+the private, Git-ignored `Helm/Values/test.values.yaml` or `prod.values.yaml`
+using the existing chart and an explicitly selected Kubernetes context.
+It has no cloud-specific authentication or cluster defaults and never changes
+the operator's current context. It is not part of the downloaded self-host CLI
+and is not copied to Home.
+These operator-private files may contain deployment secrets. Keep them out of
+Git, Docker build contexts, logs, and command output. Never copy their values
+into tracked examples or CI fixtures. See `Helm/Values/README.md`.
 
 Both Docker images use the repo root as their build context. Home needs the
 root because `sync-cli` reads from `../CLI/`; App needs it because in-app Help
@@ -116,9 +161,6 @@ code, UI copy, commits, and docs.
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
 | **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
 | **Revision proposal** (a staged Soul/Skill/Routine edit awaiting a human — `RevisionProposal`) | Self-modification, Patch, Suggestion |
-| **Plan** (a Genosyn Cloud pricing tier — Free / Growth / Scale on `CompanyBilling.plan`) | Tier, Package, Subscription (in product copy) |
-| **Enterprise license** (a signed key unlocking enterprise features on a self-hosted install — `EnterpriseLicense` is the issuer registry) | License key (alone), Serial, Activation code |
-| **Edition** (community / enterprise / cloud — resolved by `services/entitlements.ts`, never a build flag) | Flavor, SKU, Variant |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |
@@ -172,10 +214,15 @@ its Run brief.
 ordinary per-routine switch and is untouched. A Standdown is the emergency
 instrument: it names a scope (company / employee / routine), records who
 stopped the work and why, aborts Runs already in flight, defers rather than
-cancels what was queued, and can be placed by the circuit breaker as well as by
-a human. It is the exact inverse of a **Waiver** — a Waiver is earned, narrow,
-and widens what an AI may do without a human; a Standdown is imposed, broad, and
-stops it. Neither direction has an MCP tool: the roster must not be able to
+cancels what was queued, and is placed by a human. Repeated Run failures do not
+automatically place a Standdown. Existing Standdowns remain effective until a
+human lifts them. Current server state determines whether work is stood down;
+historical Journal entries and saved progress checkpoints do not keep a lifted
+Standdown in force. Scope matters: stopping one Routine does not stop its AI
+Employee, and lifting one Standdown does not lift another that still covers it.
+It is the exact inverse of a **Waiver** — a Waiver is earned,
+narrow, and widens what an AI may do without a human; a Standdown is imposed,
+broad, and stops it. Neither direction has an MCP tool: the roster must not be able to
 stand itself down and, far more importantly, must not be able to lift one.
 
 **"Unverified" is not "unclear".** `Run.outcomeVerdict` carries both and they
@@ -265,17 +312,17 @@ answer "what did this employee do", and the differences are the whole reason
 there are three. A **Journal** entry is written *by the employee*, through an
 MCP tool, and is its own narration. The **audit log** is the company's whole
 history — every actor, all of time, raw metadata — which is why reading it is
-admin-gated and behind the `auditLog` entitlement. A **work timeline** is
-neither: it is assembled at read time over one employee and a bounded window
-from rows the server wrote itself (`runs`, `audit_events` as the effect ledger,
-and five tables audit provably misses), it stores nothing, and it is readable
-by any Member on any plan — for the same reason a Run's own **Effects** are,
-which `routes/routineChecks.ts` states at length. A Routine entry may preview a
-bounded, redacted final report from its persisted transcript, with the outcome
-assessment as a fallback. That preview is reported work, never independent
-verification: status, outcome and Check badges retain their own meaning, and
-the Run log retains the transcript and Effects. Do not give the timeline an
-entity, add Journal entries to its sources, or route it through `GET /audit`.
+admin-gated. A **work timeline** is neither: it is assembled at read time over
+one employee and a bounded window from rows the server wrote itself (`runs`,
+`audit_events` as the effect ledger, and five tables audit provably misses), it
+stores nothing, and it is readable by any Member — for the same reason a Run's
+own **Effects** are, which `routes/routineChecks.ts` states at length. A Routine
+entry may preview a bounded, redacted final report from its persisted
+transcript, with the outcome assessment as a fallback. That preview is reported
+work, never independent verification: status, outcome and Check badges retain
+their own meaning, and the Run log retains the transcript and Effects. Do not
+give the timeline an entity, add Journal entries to its sources, or route it
+through `GET /audit`.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container
@@ -291,8 +338,8 @@ exists to prevent.
 
 - **Language:** TypeScript everywhere. No plain JS files.
 - **Backend:** Express. Do **not** introduce Nest, Fastify, tRPC, etc.
-- **ORM:** **TypeORM**. SQLite is the self-hosted default; shared SaaS uses
-  Postgres via config and the dedicated Postgres migration stream.
+- **ORM:** **TypeORM**. SQLite is the Docker default; Postgres (the Helm
+  chart's default) uses config and the dedicated Postgres migration stream.
   Do not add a second ORM or raw SQL query builder.
 - **Frontend:** React 18 + Vite + TailwindCSS + React Router + lucide-react.
   Do **not** introduce Next.js, Remix, Redux, MUI, Chakra, shadcn-as-a-dep
@@ -372,10 +419,12 @@ data/
 ├── .instance-secrets.json  # generated cookie + encryption roots (mode 0600)
 ├── .instance-secrets.required # non-secret loss-detection marker (mode 0600)
 ├── .private/
-│   ├── browser-state/<company-id>/<employee-id>.json # cookies/localStorage
+│   ├── browser-state/<company-id>/
+│   │   ├── <employee-id>.profile/ # the employee's persistent Chrome profile (mode 0700)
+│   │   └── <employee-id>.json     # exported cookie/local-storage snapshot
 │   ├── browser-recordings/<company-id>/<run-id>/ # silent per-session Routine MP4s
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
-├── app.sqlite
+├── app.sqlite              # WAL mode: app.sqlite-wal / -shm beside it while running
 └── companies/<company-slug>/employees/<emp-slug>/
     ├── repos/  code-repos/    # git working trees the coding tools operate on
     └── …                      # artifacts the agent's tools write into cwd
@@ -392,7 +441,16 @@ support bundles, or source control. Explicit strong config values remain
 supported and take precedence.
 
 Browser authentication state, Routine browser recordings, and repository SSH
-host-key caches are App-private. Silent visual recordings live under
+host-key caches are App-private. Every session an AI Employee opens in
+Genosyn's browser shares one Chrome on a persistent profile at
+`.private/browser-state/<company-id>/<employee-id>.profile/`, which holds its
+cookies, IndexedDB, cache, and history and is deleted with the employee or the
+company. The `<employee-id>.json` beside it is a one-way export of cookies and
+local storage, written on a debounce after navigation and whenever Chrome
+closes, `SIGTERM` included. It is read only to seed a brand-new profile once and
+as the cookie jar for the ephemeral fallback when the profile cannot be used.
+Never pass it back into a working profile: a stale export would overwrite the
+jar Chrome already loaded. Silent visual recordings live under
 `.private/browser-recordings/<company-id>/<run-id>/`, one MP4 per
 `BrowserSession`, and are linked from the Run log rather than exposed in an AI
 Employee's working tree. A recording from Genosyn's browser is admin-only; a
@@ -445,17 +503,16 @@ in a Work session instead of leaving them stranded as local commits.
     * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
       OpenCode's native coding tools in the default host mode. Subscription
       turns use Genosyn's coding wrappers through the official Codex runtime.
-      Commands run with the App
-      process user's filesystem and network authority: a working directory,
-      tool permission, or Grant is not an OS sandbox. Disabled mode exposes no
-      coding tools and materializes no repositories. Optional bubblewrap mode
-      uses Genosyn's scoped command tool; OpenCode's native coding tools are
-      disabled there so they cannot bypass the selected execution mode.
+      Commands run with the App process user's filesystem and network
+      authority: a working directory, tool permission, or Grant is not an OS
+      sandbox, and there is no optional one. Disabled mode exposes no coding
+      tools and materializes no repositories; a config that still selects the
+      retired `bubblewrap` mode boots as disabled rather than widening to host.
       Restricted turns also disable native coding. A **Repository work
       session** uses `repository_run_command` rooted at its worktree, applying
-      the Repository's `commandMode` and `allowedCommands` in host or optional
-      bubblewrap mode. Its worktree keeps changes separate from the Member
-      checkout, but host execution does not isolate the process. A session turn
+      the Repository's `commandMode` and `allowedCommands`. Its worktree keeps
+      changes separate from the Member checkout, but host execution does not
+      isolate the process. A session turn
       receives **only** the `repository_*` tools (`ToolScope` in
       `agent/tools/index.ts`, set by `ChatOptions.workSurface`): no employee-cwd
       `bash`, no browser, no company MCP servers, no delegation, no discovery
@@ -488,18 +545,17 @@ in a Work session instead of leaving them stranded as local commits.
       itself renders them;
 
     * any company-configured **MCP servers** (stdio/HTTP), which the agent
-      connects to as an MCP client. User-configured stdio servers are omitted
-      in disabled and bubblewrap modes; HTTP servers remain available. Host is
-      the only trusted single-tenant mode that permits user-configured stdio
-      children.
+      connects to as an MCP client. User-configured stdio servers run only in
+      host mode and are omitted in disabled mode; HTTP servers remain
+      available.
   The agent runtime lives in `server/services/agent/`. What stays on disk under
   the employee dir is only the working tree the coding tools operate on:
   materialized git repos and whatever the tools write into cwd. Browser state
   and Run recordings remain in the App-private paths above.
 - OpenAI subscription device sessions and managed refresh-token locks are
   process-local. The supported topology for this auth mode is one trusted,
-  single-tenant App process. The standard Docker installer uses host execution
-  without requiring Linux namespaces or extra Docker security options.
+  single-tenant App process. The standard Docker installer and the Helm chart
+  use host execution without Linux namespaces or extra security options.
   Subscription auth remains available in this trusted deployment. Horizontally
   scaled installs must use API-key models until the coordination primitives are
   ready. Subscription turns serialize on the per-model lock and do not expose
@@ -525,6 +581,11 @@ in a Work session instead of leaving them stranded as local commits.
 - **Styling**: Tailwind utility classes. Extract a component before you
   extract a class. No inline `style={}` unless truly dynamic.
 - **Icons**: `lucide-react` only.
+- **Section pages are catalogued.** Section rails and the ⌘K palette's page
+  search both read `client/lib/subpages.ts`. Add a new page there, with the
+  access it needs so the palette never offers it to someone who can't open it,
+  rather than as a hand-written rail link. `server/client/subpageRoutes.test.ts`
+  fails on a static route that is neither catalogued nor deliberately left out.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults. **Run
@@ -553,6 +614,24 @@ in a Work session instead of leaving them stranded as local commits.
   - App: server compiled to `dist/server/index.js`, client assets under
     `dist/client/` (served by the Express process).
   - Home: `dist/server.js` serving built client assets.
+- **SQLite queries run on the event loop.** better-sqlite3 is synchronous,
+  so one slow statement freezes every request, and a loop of awaited
+  queries never yields to I/O. Reach large tables (`mail_messages`,
+  `mail_threads`, `runs`, `audit_events`) through an index that bounds the
+  rows read. Never filter or sort many rows on a column stored after a large
+  text column — `MailMessage.bodyText`/`bodyHtml`, `Run.logContent` — since
+  SQLite then reads every body to get there; add an index instead. `!=` can't
+  use an index, so write a non-empty test as `> ''`. The planner relies on the
+  statistics `optimizeSqliteStatistics()` (`db/datasource.ts`) refreshes after
+  migrations and every six hours; without them it treats `companyId = ?` as
+  selective. `EXPLAIN QUERY PLAN` a new query against a realistically sized
+  database before shipping it.
+  Mail search's full-text index is the one structure built outside
+  migrations: `services/mail/searchIndex.ts` keeps an FTS5 table and TEMP
+  triggers in the connection's `temp` schema, rebuilt after every boot and
+  never written to `app.sqlite`. Keep it that way — anything persisted needs
+  an entity and a generated migration — and keep `temp_store` on disk, since
+  the index is the size of a mailbox's text.
 - **Schema changes require a migration, and migrations are NEVER
   hand-written.** `synchronize` is off. After editing entities, run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit
@@ -587,6 +666,11 @@ Think **Linear × Notion**. Clean, quiet, fast.
   from this codebase; do not reintroduce a toast, a snackbar, or a
   notification library. Optimistic writes report a failure the same way, from
   `useBackgroundAction()`, after rolling the row back.
+- A button that starts work the person waits on shows that it is working. Pass
+  `loading` to the `<Button>` that was pressed: it disables itself and puts a
+  spinner where its icon was. The rest of the row stays plain `disabled`, and
+  a hand-rolled `<button>` swaps its icon for `<ButtonSpinner>`. A button that
+  only greys out reads as a click that was ignored.
 - Success needs no announcement. The list re-rendering, the row updating, the
   modal closing *is* the confirmation. Only when an action changes nothing on
   screen — a test email sent, a backup queued — does it earn a `<FormSuccess>`

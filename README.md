@@ -128,11 +128,12 @@ employees work the same records, in the same queues.
 
 ## Why Genosyn
 
-- **Open source and self-hosted.** Your data, on your machine. Apache 2.0 licensed.
+- **Open source and self-hosted.** Your data, on your machine. Apache 2.0 licensed, with
+  every feature included for everyone.
 - **Bring your own AI.** An Anthropic or OpenAI key, any OpenAI-compatible or self-hosted
   endpoint, or an eligible ChatGPT plan with Codex access. Your credentials, your spend.
 - **No black box.** Souls, Skills, and Routines are markdown, and every run leaves a paper
-  trail. OpenCode runs AI work with host coding access by default; bubblewrap is optional.
+  trail. OpenCode runs AI work with host coding access, not in an OS sandbox.
 - **You keep the final say.** Sensitive actions stop for a human. Everything else keeps
   moving.
 
@@ -142,8 +143,6 @@ employees work the same records, in the same queues.
 
 - **[Documentation](https://genosyn.com/docs)** — from your first employee to self-hosting
   on Kubernetes.
-- **[Pricing](https://genosyn.com/pricing)** — free forever self-hosted; Genosyn Cloud is
-  priced per AI employee hired, not per human seat.
 - **[Contributing & developer guide](./CONTRIBUTING.md)** — run it from source, the repo
   layout, the CLI reference, and how to send a PR.
 

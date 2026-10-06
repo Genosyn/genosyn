@@ -369,7 +369,7 @@ function ProposalCard({
                     <Button
                       size="sm"
                       variant={confirm === "reject" ? "danger" : "primary"}
-                      disabled={busy}
+                      loading={busy}
                       onClick={() => void decide(confirm)}
                     >
                       {confirm === "apply" ? "Apply revision" : "Reject revision"}

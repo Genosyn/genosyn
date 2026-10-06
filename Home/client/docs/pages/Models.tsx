@@ -24,9 +24,9 @@ export function Models() {
             Every AI Employee can register one or more <Strong>AI Models</Strong> — their brains —
             and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
             an API key, point at your own OpenAI-compatible endpoint, or use eligible ChatGPT
-            subscription access for OpenAI on a trusted single-tenant install. OpenCode runs API-key
-            and custom models, with host coding access enabled by default. Switch the active model
-            any time without losing the others&apos; credentials.
+            subscription access for OpenAI. OpenCode runs API-key and custom models, with host
+            coding access enabled by default. Switch the active model any time without losing the
+            others&apos; credentials.
           </>
         }
       />
@@ -69,7 +69,7 @@ export function Models() {
         <ProviderCard
           name="OpenAI (GPT)"
           vendor="OpenAI"
-          creds="API key, or trusted single-tenant ChatGPT subscription access."
+          creds="API key, or eligible ChatGPT subscription access."
           connects="Models available to the selected OpenAI access method."
         />
         <ProviderCard
@@ -85,11 +85,13 @@ export function Models() {
         the OpenAI API — see <DocLink to="/docs/open-source-models">Open-source LLMs</DocLink> for
         that flow.
       </P>
-      <Callout kind="warn" title="Hosted network boundary">
-        Tenant-controlled endpoints are resolved through Genosyn&apos;s public-network policy:
-        private, loopback, link-local, reserved, and DNS-rebinding destinations are rejected. Keep
-        self-hosted model servers on a single-tenant deployment; shared SaaS should use a public,
-        authenticated endpoint plus an egress firewall.
+      <Callout kind="warn" title="Private endpoints must be allowed first">
+        Custom endpoints go through Genosyn&apos;s outbound network policy: private, loopback,
+        link-local, reserved, and DNS-rebinding destinations are rejected. To use a model server on
+        your own network, add its host under <Strong>Outbound network</Strong> at{" "}
+        <Code>Admin → Runtime</Code>; see{" "}
+        <DocLink to="/docs/self-hosting#private-hosts">Reaching something on your own network</DocLink>
+        .
       </Callout>
 
       <H2 id="credentials">Credentials</H2>
@@ -107,11 +109,10 @@ export function Models() {
           access through OpenCode.
         </LI>
         <LI>
-          <Strong>OpenAI subscription.</Strong> On a trusted single-tenant Genosyn deployment,
-          complete ChatGPT device sign-in or paste a Codex access token from an eligible Business or
-          Enterprise workspace. Genosyn runs this model through the pinned{" "}
-          <Code>@openai/codex</Code> app-server. It remains available with the default host
-          execution mode, optional bubblewrap, or coding disabled.
+          <Strong>OpenAI subscription.</Strong> Complete ChatGPT device sign-in or paste a Codex
+          access token from an eligible Business or Enterprise workspace. Genosyn runs this model
+          through the pinned <Code>@openai/codex</Code> app-server. It works in the default host
+          execution mode and with command execution disabled.
         </LI>
         <LI>
           <Strong>Custom.</Strong> Paste a base URL and a model id, plus an optional API key if your
@@ -151,9 +152,9 @@ export function Models() {
 
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
-        Subscription access is available on a trusted single-tenant deployment. In the add-model
-        form, choose <Strong>OpenAI / ChatGPT</Strong>, set <Strong>Connect with</Strong> to{" "}
-        <Strong>ChatGPT sign-in</Strong>, then select <Strong>Continue to ChatGPT sign-in</Strong>.
+        In the add-model form, choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
+        <Strong>Connect with</Strong> to <Strong>ChatGPT sign-in</Strong>, then select{" "}
+        <Strong>Continue to ChatGPT sign-in</Strong>.
         Genosyn uses your workspace&apos;s current default model and tests a real reply before
         marking it connected. The model card offers two official Codex authentication paths:
       </P>
@@ -187,20 +188,13 @@ export function Models() {
         </ExtLink>
         .
       </P>
-      <Callout kind="warn" title="Unavailable in shared SaaS mode">
-        When <Code>config.security.multiTenant</Code> is on, Genosyn rejects subscription model
-        creation, sign-in, and Runs. Use an OpenAI API key in shared SaaS. Subscription credentials
-        represent a person or workspace identity, and their device sessions and refresh locks are
-        process-local, so Genosyn keeps this path inside the trust boundary of one self-hosted App
-        process.
-      </Callout>
       <Callout kind="info" title="Host coding is the default">
         <Code>config.agent.codingTools.executionMode</Code> ships as <Code>host</Code>. Coding
-        commands run with the App process user&apos;s authority, inside the App container in Docker;
-        they do not require an OS sandbox or Linux user namespaces. Choose <Code>disabled</Code> to
-        omit coding and employee repository materialization, or <Code>bubblewrap</Code> to opt into
-        isolated command execution. These modes do not change Genosyn&apos;s Grant and Approval
-        checks on company tools. See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
+        commands run directly on the host with the App process user&apos;s filesystem and network
+        authority, inside the App container in Docker; there is no OS sandbox. Choose{" "}
+        <Code>disabled</Code> to omit coding and employee repository materialization. Neither mode
+        changes Genosyn&apos;s Grant and Approval checks on company tools. See{" "}
+        <DocLink to="/docs/self-hosting">Configuration</DocLink>.
       </Callout>
       <Callout kind="warn" title="Run one App replica">
         Device sessions and managed ChatGPT refresh locks currently live in one Genosyn process. Use
@@ -250,6 +244,16 @@ export function Models() {
         previous value. Subscription model cards omit these controls.
       </P>
 
+      <H2 id="concurrent-runs">Concurrent Routine Runs</H2>
+      <P>
+        The model card&apos;s <Strong>Concurrent Routine Runs</Strong> sets how many Routine Runs
+        may use the model at once. Runs beyond the limit wait in the queue and start when one
+        finishes; their time limit starts then. A <Code>Custom</Code> endpoint on this machine or a
+        private network defaults to one at a time, and everything else to no limit. Employees that
+        point at the same endpoint share its limit. See{" "}
+        <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
+      </P>
+
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
         API-key and custom-endpoint models run through OpenCode; an OpenAI subscription model runs
@@ -265,8 +269,7 @@ export function Models() {
           <Strong>Coding tools.</Strong> Ordinary employee work uses OpenCode&apos;s native file,
           search, edit, and shell tools in the default host mode. Subscription models use
           Genosyn&apos;s coding tools through Codex. Host commands execute with the App process
-          user&apos;s authority. Disabled mode omits coding entirely. Optional bubblewrap mode
-          disables native coding and supplies an isolated command tool. Restricted review turns omit
+          user&apos;s authority. Disabled mode omits coding entirely. Restricted review turns omit
           coding, and Repository work sessions use only their scoped
           <Code> repository_*</Code> tools and the Repository&apos;s command policy.
         </LI>
@@ -287,8 +290,8 @@ export function Models() {
         </LI>
         <LI>
           <Strong>Company MCP servers.</Strong> HTTP MCP servers your company has configured are
-          added alongside the built-ins. User-configured stdio servers are omitted in disabled and
-          bubblewrap modes. They are available in trusted single-tenant host mode.
+          added alongside the built-ins. User-configured stdio servers run in host mode and are
+          omitted in disabled mode.
         </LI>
       </UL>
 
@@ -395,23 +398,23 @@ function ProviderCard({
   connects: string;
 }) {
   return (
-    <div className="border border-hairline bg-white p-4">
+    <div className="rounded-2xl border border-line bg-paper-raised p-4">
       <div className="flex items-baseline justify-between gap-2">
         <div className="font-mono text-[13px] font-semibold text-ink">{name}</div>
-        <div className="text-[11px] uppercase text-muted">{vendor}</div>
+        <div className="text-[11px] uppercase text-ink-500">{vendor}</div>
       </div>
       <dl className="mt-3 space-y-2 text-[13px] leading-[1.6]">
         <div>
-          <dt className="text-[11px] font-medium uppercase tracking-wider text-muted">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-ink-500">
             Credentials
           </dt>
-          <dd className="text-ink2">{creds}</dd>
+          <dd className="text-ink-600">{creds}</dd>
         </div>
         <div>
-          <dt className="text-[11px] font-medium uppercase tracking-wider text-muted">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-ink-500">
             Connects to
           </dt>
-          <dd className="text-ink2">{connects}</dd>
+          <dd className="text-ink-600">{connects}</dd>
         </div>
       </dl>
     </div>

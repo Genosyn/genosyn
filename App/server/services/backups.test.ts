@@ -89,7 +89,7 @@ describe("backup archive generation", () => {
 /**
  * Regression coverage for the staging-snapshot leak.
  *
- * Each run stages a `VACUUM INTO` copy of the database at
+ * Each run stages a snapshot of the database at
  * `Backup/.staging-<id>.sqlite` before zipping it. That snapshot is the size of
  * the whole database, and two things used to strand copies of it forever:
  *
@@ -97,7 +97,7 @@ describe("backup archive generation", () => {
  *      (container restart, OOM killer) skips entirely — and nothing else ever
  *      looked for the leftovers;
  *   2. the cleanup unlinked only the `.sqlite`, so the rollback journal
- *      `VACUUM INTO` writes beside it survived *every* run, successful or not.
+ *      written beside it survived *every* run, successful or not.
  *
  * On a real install that reached 121 GB of stranded snapshots.
  */
@@ -141,9 +141,9 @@ async function withSqliteDriver<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Replace `AppDataSource.createQueryRunner` so `VACUUM INTO` can be observed or
- * subverted. Returns a restore function. The real runner still does the work
- * unless `onVacuum` throws.
+ * Replace `AppDataSource.createQueryRunner` so the SQL a run issues can be
+ * observed or subverted. Returns a restore function. The real runner still
+ * does the work unless `onQuery` throws.
  */
 function patchQuery(onQuery: (sql: string, params: unknown[]) => void | Promise<void>): () => void {
   type Runner = ReturnType<typeof AppDataSource.createQueryRunner>;
@@ -177,11 +177,27 @@ function patchQuery(onQuery: (sql: string, params: unknown[]) => void | Promise<
   };
 }
 
-/** {@link patchQuery} narrowed to the `VACUUM INTO` that stages the snapshot. */
-function patchVacuum(onVacuum: (dest: string) => void | Promise<void>): () => void {
-  return patchQuery(async (sql, params) => {
-    if (sql.includes("VACUUM INTO")) await onVacuum(String(params[0] ?? ""));
-  });
+/**
+ * Wrap the better-sqlite3 handle's `backup()` — the call that stages the
+ * snapshot — so a test can observe or subvert the moment it lands. Returns a
+ * restore function. The real backup still does the work unless `onSnapshot`
+ * throws.
+ */
+function patchSnapshot(onSnapshot: (dest: string) => void | Promise<void>): () => void {
+  type Handle = { backup(dest: string, ...rest: unknown[]): Promise<unknown> };
+  const handle = (AppDataSource.driver as unknown as { databaseConnection: Handle })
+    .databaseConnection;
+  const hadOwn = Object.prototype.hasOwnProperty.call(handle, "backup");
+  const original = handle.backup;
+  handle.backup = async function (this: Handle, dest: string, ...rest: unknown[]) {
+    const result = await original.call(this, dest, ...rest);
+    await onSnapshot(String(dest));
+    return result;
+  };
+  return () => {
+    if (hadOwn) handle.backup = original;
+    else delete (handle as Partial<Handle>).backup;
+  };
 }
 
 describe("staging snapshot sweep", () => {
@@ -269,10 +285,10 @@ describe("backup run staging hygiene", () => {
   test("removes the journal SQLite leaves beside the snapshot", async () => {
     getEffectiveInstanceSecrets();
 
-    // Whether `VACUUM INTO` leaves a journal is a SQLite build detail, so plant
-    // one at the moment the snapshot lands rather than depending on it.
+    // Whether writing the snapshot leaves a journal is a SQLite build detail,
+    // so plant one at the moment the snapshot lands rather than depending on it.
     let stagedJournal = "";
-    const restore = patchVacuum(async (dest) => {
+    const restore = patchSnapshot(async (dest) => {
       stagedJournal = `${dest}-journal`;
       await fs.writeFile(stagedJournal, "rollback journal");
     });
@@ -284,7 +300,7 @@ describe("backup run staging hygiene", () => {
       restore();
     }
 
-    assert.notEqual(stagedJournal, "", "the VACUUM INTO patch never fired");
+    assert.notEqual(stagedJournal, "", "the snapshot patch never fired");
     assert.equal(await exists(stagedJournal), false, "the staging journal was left behind");
   });
 
@@ -311,7 +327,7 @@ describe("backup run staging hygiene", () => {
 
     // Write the snapshot, then blow up — the shape of a run that dies after
     // staging. The `finally` must still collect it.
-    const restore = patchVacuum(async (dest) => {
+    const restore = patchSnapshot(async (dest) => {
       await fs.writeFile(dest, "half-staged snapshot");
       await fs.writeFile(`${dest}-journal`, "rollback journal");
       throw new Error("simulated snapshot failure");
@@ -351,7 +367,7 @@ describe("backup run staging hygiene", () => {
     // to archive.
     let sweptDuringRun = -1;
     let snapshotPresentDuringRun = false;
-    const restore = patchVacuum(async (dest) => {
+    const restore = patchSnapshot(async (dest) => {
       snapshotPresentDuringRun = await exists(dest);
       sweptDuringRun = sweepOrphanedStagingArtifacts();
       assert.equal(await exists(dest), true, "the live snapshot was swept out from under the run");
@@ -376,7 +392,7 @@ describe("backup run staging hygiene", () => {
     getEffectiveInstanceSecrets();
 
     let stagingPath = "";
-    const restore = patchVacuum((dest) => {
+    const restore = patchSnapshot((dest) => {
       stagingPath = dest;
     });
     try {
@@ -434,11 +450,10 @@ describe("staging snapshot lifetime", () => {
 
     let stagingPath = "";
     let snapshotLiveAfterZip: boolean | null = null;
-    const restore = patchQuery(async (sql, params) => {
-      if (sql.includes("VACUUM INTO")) {
-        stagingPath = String(params[0] ?? "");
-        return;
-      }
+    const restoreSnapshot = patchSnapshot((dest) => {
+      stagingPath = dest;
+    });
+    const restore = patchQuery(async (sql) => {
       // The first UPDATE of the backup row after the snapshot is staged is the
       // one marking it completed — the first thing the run does once the zip
       // is renamed into place, and well before delivery or retention.
@@ -453,6 +468,7 @@ describe("staging snapshot lifetime", () => {
       backup = await withSqliteDriver(() => runBackup("manual"));
     } finally {
       restore();
+      restoreSnapshot();
     }
 
     assert.notEqual(stagingPath, "", "never observed a staged snapshot");

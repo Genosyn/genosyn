@@ -2,7 +2,7 @@ import React from "react";
 import { Check, Plus, Tag, X } from "lucide-react";
 import { api, CompanyTag, TaggableResourceType } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import { Spinner } from "./ui/Spinner";
+import { ButtonSpinner, Spinner } from "./ui/Spinner";
 import { FormError } from "./ui/FormError";
 import { useBackgroundAction } from "./ui/Dialog";
 import { getTagColorOption, TagColorDot } from "./TagColorPicker";
@@ -78,14 +78,14 @@ export function TagPicker({
   const [open, setOpen] = React.useState(false);
   const [available, setAvailable] = React.useState<CompanyTag[] | null>(null);
   const [query, setQuery] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
+  const [saving, setSaving] = React.useState<null | "commit" | "create">(null);
   const [displayValue, setDisplayValue] = React.useState(value);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const background = useBackgroundAction();
 
   React.useEffect(() => {
-    if (!saving) setDisplayValue(value);
+    if (saving === null) setDisplayValue(value);
   }, [saving, value]);
 
   const load = React.useCallback(async () => {
@@ -111,11 +111,11 @@ export function TagPicker({
   }, []);
 
   function commit(next: CompanyTag[]) {
-    if (saving) return;
+    if (saving !== null) return;
     const previous = displayValue;
     setDisplayValue(next);
-    setSaving(true);
-    background(() => Promise.resolve(onChange(next)).finally(() => setSaving(false)), {
+    setSaving("commit");
+    background(() => Promise.resolve(onChange(next)).finally(() => setSaving(null)), {
       title: "Couldn’t update the tags",
       error: (error) => `${errorMessage(error)} The change was undone.`,
       onError: () => setDisplayValue(previous),
@@ -124,8 +124,8 @@ export function TagPicker({
 
   async function createTag() {
     const name = query.trim().replace(/\s+/g, " ");
-    if (!name || saving) return;
-    setSaving(true);
+    if (!name || saving !== null) return;
+    setSaving("create");
     setError(null);
     try {
       const created = await api.post<CompanyTag>(`/api/companies/${companyId}/tags`, { name });
@@ -142,7 +142,7 @@ export function TagPicker({
     } catch (err) {
       setError(errorMessage(err, "Could not create the tag"));
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   }
 
@@ -165,7 +165,7 @@ export function TagPicker({
             <button
               type="button"
               onClick={() => commit(displayValue.filter((row) => row.id !== tag.id))}
-              disabled={saving}
+              disabled={saving !== null}
               className="rounded-full p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
               aria-label={`Remove ${tag.name}`}
             >
@@ -176,10 +176,11 @@ export function TagPicker({
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
-          disabled={saving || displayValue.length >= 20}
+          disabled={saving !== null || displayValue.length >= 20}
+          aria-busy={saving !== null || undefined}
           className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-300"
         >
-          {saving ? <Spinner size={12} /> : <Plus size={12} />}
+          {saving !== null ? <ButtonSpinner size={12} /> : <Plus size={12} />}
           Add tag
         </button>
       </div>
@@ -237,9 +238,11 @@ export function TagPicker({
                   <button
                     type="button"
                     onClick={createTag}
+                    aria-busy={saving === "create" || undefined}
                     className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
                   >
-                    <Plus size={14} /> Create &quot;{query.trim()}&quot;
+                    {saving === "create" ? <ButtonSpinner size={14} /> : <Plus size={14} />} Create
+                    &quot;{query.trim()}&quot;
                   </button>
                 )}
                 {!query.trim() && filtered.length === 0 && (

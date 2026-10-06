@@ -1,15 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ExternalLink, MessageSquare, Paperclip, Send, Trash2, X } from "lucide-react";
-import { Company } from "../lib/api";
-import {
-  ComposeInput,
-  MailAccount,
-  MailDraft,
-  MailMessage,
-  mailApi,
-} from "../lib/mail";
-import { MailAssistant } from "./MailAssistant";
+import { ExternalLink, Paperclip, Send, Sparkles, Trash2, X } from "lucide-react";
+import { MailDraft, MailMessage, mailApi } from "../lib/mail";
+import { useAskAi, useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { DraftAuthorLine } from "../components/mail/DraftAuthor";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -19,32 +12,32 @@ import { clsx } from "../components/ui/clsx";
  * Deep review for one draft, on demand.
  *
  * The queue itself stays a fast scanning surface, so everything heavy lives
- * here: the full body, attachments, the message the draft is replying to, and
- * the thread-scoped AI chat. Opening it is a deliberate act — which is why the
- * assistant is not mounted for every row the cursor passes over.
+ * here: the full body, attachments, and the message the draft is replying to.
+ * The drawer covers the top nav, so it carries its own way into Ask AI: the
+ * draft under review travels along, and the employee is told which draft
+ * "this draft" means.
  */
 export function MailDraftDrawer({
   companyId,
   companySlug,
-  company,
-  account,
   draft,
   onClose,
   onSend,
   onDiscard,
-  openCompose,
 }: {
   companyId: string;
   companySlug: string;
-  company: Company;
-  account: MailAccount;
   draft: MailDraft;
   onClose: () => void;
   onSend: (draft: MailDraft) => void;
   onDiscard: (draft: MailDraft) => void;
-  openCompose: (init?: Partial<ComposeInput>) => void;
 }) {
-  const [tab, setTab] = React.useState<"draft" | "chat">("draft");
+  const askAi = useAskAi();
+  const draftRef = React.useMemo(
+    () => [{ kind: "mail_thread" as const, id: draft.threadId, focusId: draft.id }],
+    [draft.threadId, draft.id],
+  );
+  useAskAiPageContext(draftRef);
   const [messages, setMessages] = React.useState<MailMessage[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -123,6 +116,19 @@ export function MailDraftDrawer({
               {draft.missingRecipient ? "No recipient yet" : `To ${draft.toEmails}`}
             </p>
           </div>
+          {askAi && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                askAi.ask({ refs: draftRef });
+                onClose();
+              }}
+              title="Ask AI about this draft"
+            >
+              <Sparkles size={13} /> Ask AI
+            </Button>
+          )}
           <button
             onClick={onClose}
             aria-label="Close"
@@ -132,27 +138,7 @@ export function MailDraftDrawer({
           </button>
         </header>
 
-        <div className="flex shrink-0 gap-1 border-b border-slate-200 px-4 dark:border-slate-800">
-          <TabButton active={tab === "draft"} onClick={() => setTab("draft")}>
-            Draft
-          </TabButton>
-          <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
-            <MessageSquare size={13} className="mr-1.5" /> AI chat
-          </TabButton>
-        </div>
-
-        {tab === "chat" ? (
-          <div className="min-h-0 flex-1">
-            <MailAssistant
-              company={company}
-              account={account}
-              threadId={draft.threadId}
-              focusedMessageId={draft.id}
-              openCompose={openCompose}
-            />
-          </div>
-        ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <DraftAuthorLine
               author={draft.author}
               companyId={companyId}
@@ -202,8 +188,7 @@ export function MailDraftDrawer({
                 )}
               </>
             )}
-          </div>
-        )}
+        </div>
 
         <footer className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-800">
           <Link
@@ -223,30 +208,5 @@ export function MailDraftDrawer({
         </footer>
       </aside>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={clsx(
-        "-mb-px flex items-center border-b-2 px-3 py-2 text-sm font-medium transition",
-        active
-          ? "border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300"
-          : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
-      )}
-    >
-      {children}
-    </button>
   );
 }

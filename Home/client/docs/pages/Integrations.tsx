@@ -93,31 +93,42 @@ export function Integrations() {
         Brand Writer doesn&apos;t. Both employees share the same company, but the MCP surface they
         see is different.
       </Callout>
-      <Callout kind="warn" title="Process and hosted restrictions">
-        Company-configured stdio MCP servers run only in trusted single-tenant host execution mode.
-        Disabled and bubblewrap modes omit those children. HTTP MCP servers remain available. In
-        shared SaaS, Connection URLs and hosts must resolve to public addresses, including at socket
-        connection time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP
-        Postgres and MySQL Connections stay disabled until an isolated egress worker is configured.
+      <Callout kind="warn" title="Process and network restrictions">
+        Company-configured stdio MCP servers run on the host in the default host execution mode,
+        with the App process user&apos;s authority, and are omitted when command execution is
+        disabled. HTTP MCP servers remain available in both modes. Connection URLs and HTTP MCP
+        servers go through the outbound network policy, so a host on a private network must be
+        allowed first; see{" "}
+        <DocLink to="/docs/self-hosting#private-hosts">Reaching something on your own network</DocLink>
+        .
       </Callout>
 
-      <H2 id="instance-oauth-apps">Register an OAuth app once, connect with one click</H2>
+      <H2 id="instance-oauth-apps">Google sign-in and your own OAuth apps</H2>
       <P>
-        An OAuth Connection needs a client registered with the provider — a Google Cloud OAuth
-        client, a GitHub OAuth App, and so on. By default each Connection brings its own, which
-        means whoever connects a mailbox first has to create a Google Cloud project, enable the
-        Gmail API, configure a consent screen, register a Web client, and paste an ID and secret
-        into the connect form. Then do it again for the next mailbox, and again in the next company.
-        That setup, not the consent screen, is what made connecting email hard.
+        For Gmail, open <Strong>Email</Strong>, enter your address, and choose{" "}
+        <Strong>Continue with Google</Strong>. Self-hosted installations can use Genosyn&apos;s
+        hosted Gmail sign-in service without creating a Google Cloud project, once that service is
+        available. It handles Google consent and token renewal; email reads and sends go directly
+        between your installation and Google. Credentials are stored encrypted on your installation;
+        token renewal sends the refresh credential to the original sign-in service.
       </P>
       <P>
-        An instance admin can do it <Strong>once for the whole install</Strong> instead. Open{" "}
+        An instance admin manages this at <Strong>Admin → Runtime → Hosted sign-in</Strong>. Turning
+        off <Strong>Use hosted sign-in</Strong> stops new hosted sign-ins without revoking
+        existing Connections. Changing the service URL affects new Connections; existing ones keep
+        using the service that issued their credentials. Only use a replacement service you trust
+        with those credentials. The shared service is designed for additional sign-in providers; currently it supports Google for Gmail. This does not change Member login.
+      </P>
+      <P>
+        For independent Gmail sign-in or other OAuth integrations, register an app{" "}
+        <Strong>once for the whole install</Strong>. Open{" "}
         <Strong>Admin → Integrations</Strong>, pick a provider, copy the redirect URI it shows into
         the provider&apos;s console, and paste back the Client ID and Client Secret. From then on,
         every company on the instance connects that provider by clicking it and approving on the
         provider&apos;s own screen — there is no ID to create and nothing to paste. Connecting a
-        Gmail mailbox becomes: click <Strong>Google Workspace</Strong>, tick the products it may
-        touch, approve. (A mailbox that is not on Google needs no registration at all — see{" "}
+        Google Workspace Connection becomes: click <Strong>Google Workspace</Strong>, tick the products it may
+        touch, approve. A locally registered Google app takes precedence over hosted Gmail sign-in.
+        (A mailbox that is not on Google needs no registration at all — see{" "}
         <Strong>Email account (IMAP)</Strong> below.)
       </P>
       <P>
@@ -318,10 +329,10 @@ export function Integrations() {
         {CATALOG.map((c) => (
           <div
             key={c.name}
-            className="flex items-center justify-between border border-hairline bg-white px-3 py-2 text-[13px]"
+            className="flex items-center justify-between rounded-2xl border border-line bg-paper-raised px-3 py-2 text-[13px]"
           >
             <span className="font-medium text-ink">{c.name}</span>
-            <span className="text-[11px] uppercase tracking-wider text-muted">{c.kind}</span>
+            <span className="text-[11px] uppercase tracking-wider text-ink-500">{c.kind}</span>
           </div>
         ))}
       </div>
@@ -439,12 +450,20 @@ export function Integrations() {
         explicit coverage. A scan captures stable event IDs; follow <Code>nextCursor</Code> as{" "}
         <Code>cursor</Code> with unchanged repository, page size and timestamp bounds
         (<Code>since</Code> inclusive, <Code>until</Code> exclusive). Newly arriving events cannot
-        shift that saved sequence. Save <Code>resumeCursor</Code> before processing and record
+        shift that saved sequence. A new scan returns its events oldest first: GitHub keeps only
+        the newest 300, so on a busy repository the oldest leave first, and a slow scan reads them
+        before they do. Genosyn also keeps the events it has read, so a scan still returns an event
+        the feed has dropped since; after a restart it reports that event as a gap instead. Save{" "}
+        <Code>resumeCursor</Code> before processing and record
         each successfully processed event ID in a Workstream. After an interruption, pass that
         saved value as <Code>cursor</Code> and the last processed ID as <Code>afterEventId</Code>.
         Save <Code>nextCursor</Code> after the whole batch succeeds. Replaying an unacknowledged
         cursor intentionally returns the same batch; a read receipt cannot prove that its effects
-        were applied exactly once.
+        were applied exactly once. Cursors and checkpoints are short references (
+        <Code>gha3.</Code> and 20 characters) to progress Genosyn keeps for 31 days, so a model
+        has little to copy on each call. Copy them exactly: a reference Genosyn did not issue is
+        rejected before reading GitHub. Restore the original saved value when a continuation is
+        invalid; longer progress values saved before remain usable.
       </P>
       <P>
         At scan end, save <Code>checkpoint</Code> and pass it to the next scan. It excludes the
@@ -529,6 +548,13 @@ export function Integrations() {
         a <Code>nextPageToken</Code>, the employee passes that value back as <Code>pageToken</Code>{" "}
         with the same query and labels. It repeats this until Gmail omits <Code>nextPageToken</Code>
         , so busy date windows are scanned in full instead of stopping at the first 100 messages.
+      </P>
+      <P>
+        Gmail searches, message reads in every supported format, and label lists automatically
+        retry temporary network failures, timeouts, rate limits, and service errors, with short
+        pauses and up to four attempts per read request. If those attempts fail, the tool returns
+        the error and the unread work remains unfinished. Sending mail and creating drafts are
+        single-attempt operations to avoid duplicates.
       </P>
 
       <H3 id="gmail-attachments">Emailing files from Resources</H3>

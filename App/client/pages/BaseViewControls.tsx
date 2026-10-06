@@ -21,6 +21,7 @@ import {
   SelectOption,
 } from "../lib/api";
 import { Menu } from "../components/ui/Menu";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { chipClass } from "../components/BaseIcons";
 
@@ -1217,6 +1218,7 @@ export function ViewTabs({
   activeViewId,
   onSwitch,
   onCreate,
+  creating,
   onRename,
   onDelete,
 }: {
@@ -1224,6 +1226,7 @@ export function ViewTabs({
   activeViewId: string | null;
   onSwitch: (id: string) => void;
   onCreate: () => void;
+  creating: boolean;
   onRename: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
@@ -1244,9 +1247,11 @@ export function ViewTabs({
       })}
       <button
         onClick={onCreate}
+        disabled={creating}
+        aria-busy={creating || undefined}
         className="ml-1 flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-400 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/10"
       >
-        <Plus size={11} /> Add view
+        {creating ? <ButtonSpinner size={11} /> : <Plus size={11} />} Add view
       </button>
     </div>
   );

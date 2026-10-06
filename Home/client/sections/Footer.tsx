@@ -1,195 +1,177 @@
-import { ArrowRight, Terminal } from "lucide-react";
-import { Reveal } from "@/components/Reveal";
-import { GITHUB_URL } from "@/lib/constants";
+import type { ReactNode } from "react";
+import { Github } from "lucide-react";
+import { GITHUB_URL, INSTALL_DOCS_PATH } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
-import { Band, Container, Field, Note, Rail, Sheet } from "@/sections/Kit";
+import { Button, Container, CopyCommand, NightPanel, TextLink } from "@/sections/Kit";
 
-const ROLE_LINKS = [
-  ["AI SDR", "/roles/sdr"],
-  ["AI Executive Assistant", "/roles/executive-assistant"],
-  ["AI Marketer", "/roles/marketer"],
-  ["AI Support Rep", "/roles/support"],
-  ["AI Bookkeeper", "/roles/bookkeeper"],
-  ["All roles", "/roles"],
-] as const;
+const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
-const PRODUCT_LINKS = [
-  ["AI Employees", "/products/ai-employees"],
-  ["Workspace", "/products/workspace"],
-  ["Tasks", "/products/tasks"],
-  ["Revenue", "/products/revenue"],
-  ["Finance", "/products/finance"],
-  ["All products", "/products"],
-] as const;
+const COLUMNS: { title: string; links: [string, string][] }[] = [
+  {
+    title: "Product",
+    links: [
+      ["AI Employees", "/products/ai-employees"],
+      ["Workspace", "/products/workspace"],
+      ["Revenue", "/products/revenue"],
+      ["Finance", "/products/finance"],
+      ["Repositories", "/products/repositories"],
+      ["All products", "/products"],
+    ],
+  },
+  {
+    title: "Roles",
+    links: [
+      ["AI SDR", "/roles/sdr"],
+      ["AI Support Rep", "/roles/support"],
+      ["AI Bookkeeper", "/roles/bookkeeper"],
+      ["AI Engineer", "/roles/engineer"],
+      ["AI Executive Assistant", "/roles/executive-assistant"],
+      ["All roles", "/roles"],
+    ],
+  },
+  {
+    title: "Resources",
+    links: [
+      ["Documentation", "/docs"],
+      ["Install guide", INSTALL_DOCS_PATH],
+      ["Self-hosting", "/docs/self-hosting"],
+      ["Kubernetes", "/docs/kubernetes"],
+      ["CLI reference", "/docs/cli"],
+      ["Vocabulary", "/docs/vocabulary"],
+    ],
+  },
+  {
+    title: "Company",
+    links: [
+      ["Vision", "/vision"],
+      ["Blog", "/blog"],
+      ["GitHub", GITHUB_URL],
+      ["Releases", `${GITHUB_URL}/releases`],
+      ["Issues", `${GITHUB_URL}/issues`],
+      ["Contributing", `${GITHUB_URL}/blob/main/CONTRIBUTING.md`],
+      ["Apache 2.0 license", `${GITHUB_URL}/blob/main/LICENSE`],
+      ["install.sh", "/install.sh"],
+    ],
+  },
+];
 
-const RESOURCE_LINKS = [
-  ["Documentation", "/docs"],
-  ["Install guide", "/docs/install"],
-  ["Self-hosting", "/docs/self-hosting"],
-  ["CLI reference", "/docs/cli"],
-  ["Pricing", "/pricing"],
-  ["Enterprise", "/enterprise"],
-] as const;
-
-/** Shared closing action. Callers may provide their own section label. */
-export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
+/**
+ * The closing band on every marketing page: the night, once more, with the
+ * way in.
+ */
+export function ClosingCta({
+  title,
+  lede = "Hire one AI Employee, give it one Routine, and read what it did in the morning. The whole product installs on your own hardware with one command, free for everyone.",
+}: {
+  title?: ReactNode;
+  lede?: ReactNode;
+}) {
   return (
-    <Band id="install" tone="ground" open="l" close="s">
-      <Container>
-        <Reveal className="on-night grid items-center gap-8 rounded-2xl bg-slate-950 p-6 sm:p-10 lg:grid-cols-[1.3fr_1fr] lg:gap-16 lg:p-12">
-          <div>
-            <span className="text-xs font-medium uppercase tracking-widest text-indigo-300">
-              {sheet}
-            </span>
-            <h2 className="mt-5 max-w-[18ch] text-balance text-3xl font-semibold leading-tight tracking-tight text-white sm:text-4xl">
-              Give tomorrow a head start.
-            </h2>
-            <p className="mt-4 max-w-lg text-base leading-7 text-slate-300">
-              One AI Employee. One Routine. Start with the work you want off your plate and build
-              from there.
-            </p>
+    <div className="pb-2 pt-10 sm:pt-14">
+      <NightPanel id="get-started" dawn={1}>
+        <div className="mx-auto max-w-site px-5 py-20 text-center sm:px-8 sm:py-28 lg:px-12 lg:py-32">
+          <p className="kicker inline-flex items-center gap-3 text-night-muted">
+            <span aria-hidden className="h-px w-6 bg-white/50" />
+            Get started
+            <span aria-hidden className="h-px w-6 bg-white/50" />
+          </p>
+          <h2 className="mx-auto mt-7 max-w-[16ch] text-balance font-display text-display-xl text-white">
+            {title ?? (
+              <>
+                Give tomorrow a head start.
+              </>
+            )}
+          </h2>
+          <p className="mx-auto mt-7 max-w-[46ch] text-pretty text-[1.0625rem] leading-[1.6] text-night-muted sm:text-[1.1875rem]">
+            {lede}
+          </p>
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+            <Button href={INSTALL_DOCS_PATH} variant="paper" size="lg" arrow>
+              Install Genosyn
+            </Button>
+            <Button href={GITHUB_URL} external variant="outline-night" size="lg">
+              Read the source
+            </Button>
           </div>
-          <div>
-            <div className="mb-5 flex items-center gap-3 text-sm text-slate-300">
-              <Terminal aria-hidden className="h-5 w-5 text-indigo-300" />
-              Self-hosted. Open source. Yours to run.
-            </div>
-            <Link
-              href="/docs/install"
-              className="motion-button flex min-h-12 items-center justify-between gap-4 rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-900 hover:bg-indigo-50"
-            >
-              Install Genosyn <ArrowRight aria-hidden className="h-4 w-4" />
-            </Link>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-4 inline-flex items-center gap-2 text-sm text-slate-300 underline decoration-slate-600 underline-offset-4 transition-colors hover:text-white"
-            >
-              Read the source on GitHub
-              <span className="sr-only">(opens in a new tab)</span>
-            </a>
+          <CopyCommand command={INSTALL_COMMAND} night className="mx-auto mt-5 max-w-[32rem] text-left" />
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
+            <TextLink href="/docs/self-hosting" night>
+              Self-hosting guide
+            </TextLink>
+            <TextLink href="/docs/kubernetes" night>
+              Run it on Kubernetes
+            </TextLink>
           </div>
-        </Reveal>
-      </Container>
-    </Band>
-  );
-}
-
-/** Product provenance and AI-assistance disclosure. */
-export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
-  return (
-    <Band tone="surface" open="s" close="m">
-      <Container>
-        <Rail sheet={sheet} fields={[`v${__APP_VERSION__}`, "Apache-2.0"]}>
-          <div className="max-w-[54ch]">
-            <Note className="text-[1.25rem] leading-[1.65] text-ink2">
-              We build Genosyn in the open, and we run our own company on it, which is the only
-              reason we are willing to make the claim on this page. The Tuesday drawn above is a
-              sample rather than a recording. The numbers in it are the shape of a real day on a
-              small roster, not a log we exported.
-            </Note>
-            <Note className="mt-5 text-[1.0625rem] leading-[1.7] text-ink2">
-              Some parts of this software are written with AI assistance, and so are parts of this
-              site. It is open source and provided without warranty, so you can check any of it.
-              What is still not good enough: the roster ships eight worked roles and the rest are
-              yours to write, and self-hosted upgrades still want a human watching the first time.
-            </Note>
-
-            <div className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-2">
-              <Sheet>HackerBay, Inc.</Sheet>
-              <Field>{`GENOSYN v${__APP_VERSION__}`}</Field>
-              <Field>{`© ${__BUILD_YEAR__}`}</Field>
-            </div>
-          </div>
-        </Rail>
-      </Container>
-    </Band>
+        </div>
+      </NightPanel>
+    </div>
   );
 }
 
 export function Footer() {
   return (
-    <footer className="border-t border-rule bg-surface">
-      <Container className="pb-10 pt-14">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
-          <div>
-            <Logo className="text-[15px] text-ink" />
-            <p className="mt-5 max-w-sm text-[0.9375rem] leading-[1.7] text-ink2">
-              Open source, self-hosted software for running a company with AI Employees.
+    <footer className="relative overflow-hidden bg-paper">
+      <Container className="pt-16 sm:pt-20">
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)] lg:gap-16">
+          <div className="max-w-sm">
+            <Link href="/" aria-label="Genosyn home" className="inline-block text-ink transition-opacity hover:opacity-70">
+              <Logo className="text-[15px]" />
+            </Link>
+            <p className="mt-6 max-w-[26ch] text-[1.2rem] font-medium leading-[1.4] tracking-[-0.015em] text-ink">
+              The open-source workplace for AI Employees and the people they work for.
             </p>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="group mt-7 inline-flex items-center gap-2 rounded-full border border-line-strong px-4 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-paper-raised"
+            >
+              <Github aria-hidden className="h-4 w-4" />
+              Star Genosyn on GitHub
+              <span className="sr-only">{"(opens in a new tab)"}</span>
+            </a>
           </div>
 
-          <FooterColumn title="Roles" links={ROLE_LINKS} />
-          <FooterColumn title="Product" links={PRODUCT_LINKS} />
-          <FooterColumn title="Resources" links={RESOURCE_LINKS} />
-
-          <nav aria-label="Project">
-            <Sheet>Project</Sheet>
-            <ul className="mt-5 space-y-3">
-              <li>
-                <FooterLink href={GITHUB_URL} external>
-                  GitHub
-                </FooterLink>
-              </li>
-              <li>
-                <FooterLink href={`${GITHUB_URL}/issues`} external>
-                  Issues
-                </FooterLink>
-              </li>
-              <li>
-                <FooterLink href="/install.sh">install.sh</FooterLink>
-              </li>
-            </ul>
-          </nav>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-4">
+            {COLUMNS.map((column) => (
+              <nav key={column.title} aria-label={column.title}>
+                <p className="kicker text-ink-400">{column.title}</p>
+                <ul className="mt-5 space-y-3">
+                  {column.links.map(([label, href]) => (
+                    <li key={href}>
+                      <FooterLink href={href}>{label}</FooterLink>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            ))}
+          </div>
         </div>
 
-        <div className="mt-14 flex flex-col gap-3 border-t border-hairline pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <Field>{`© ${__BUILD_YEAR__} HACKERBAY, INC.`}</Field>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <Field>{`GENOSYN v${__APP_VERSION__}`}</Field>
-            <Field>BUILT IN THE OPEN</Field>
-          </div>
+        <div className="mt-16 flex flex-col gap-4 border-t border-line py-7 text-[12.5px] leading-6 text-ink-500 sm:flex-row sm:items-start sm:justify-between">
+          <p className="max-w-[62ch]">
+            {`© ${__BUILD_YEAR__} HackerBay, Inc. Genosyn is open source under Apache 2.0 and provided without warranty. Some of it, and some of this site, was written with AI assistance — the source is public so you can check.`}
+          </p>
+          <p className="shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-400">
+            {`Genosyn v${__APP_VERSION__}`}
+          </p>
         </div>
       </Container>
+
+      {/* The wordmark, set large and cropped by the page edge. */}
+      <div aria-hidden className="pointer-events-none select-none overflow-hidden">
+        <p className="-mb-[0.24em] text-center font-display text-[21vw] leading-[0.8] tracking-[-0.055em] text-ink/[0.07]">
+          Genosyn
+        </p>
+      </div>
     </footer>
   );
 }
 
-function FooterColumn({
-  title,
-  links,
-}: {
-  title: string;
-  links: ReadonlyArray<readonly [string, string]>;
-}) {
-  return (
-    <nav aria-label={title}>
-      <Sheet>{title}</Sheet>
-      <ul className="mt-5 space-y-3">
-        {links.map(([label, href]) => (
-          <li key={href}>
-            <FooterLink href={href}>{label}</FooterLink>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-function FooterLink({
-  href,
-  external,
-  children,
-}: {
-  href: string;
-  external?: boolean;
-  children: React.ReactNode;
-}) {
-  const className =
-    "text-[0.9375rem] text-slate-600 transition-colors duration-150 hover:text-slate-900";
-  if (external) {
+function FooterLink({ href, children }: { href: string; children: ReactNode }) {
+  const className = "text-[14px] text-ink-600 transition-colors duration-150 hover:text-ink";
+  if (href.startsWith("http")) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>
         {children}

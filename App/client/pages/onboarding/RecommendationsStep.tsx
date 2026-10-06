@@ -204,30 +204,6 @@ export function RecommendationsStep({
     };
   }, [load]);
 
-  React.useEffect(() => {
-    function handleOauthMessage(event: MessageEvent) {
-      // The popup is same-origin; anything else is not ours to trust.
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as {
-        source?: string;
-        ok?: boolean;
-        title?: string;
-        detail?: string;
-      } | null;
-      if (!data || data.source !== "genosyn-oauth") return;
-      if (data.ok) {
-        setOauthEntry(null);
-        load().catch((err) => setError((err as Error).message));
-      } else {
-        void dialog.error(data.detail ?? data.title ?? "Connection failed", {
-          title: "Couldn’t add the Connection",
-        });
-      }
-    }
-    window.addEventListener("message", handleOauthMessage);
-    return () => window.removeEventListener("message", handleOauthMessage);
-  }, [dialog, load]);
-
   function toggleRoutine(id: string) {
     if (addingRoutines) return;
     const selected = selectedRoutineIds.has(id);
@@ -466,7 +442,11 @@ export function RecommendationsStep({
             </div>
             <FormError message={contextError} className="mt-4" />
             <div className="mt-4 flex justify-end">
-              <Button onClick={saveCompanyContext} disabled={savingContext || !canSaveContext}>
+              <Button
+                onClick={saveCompanyContext}
+                loading={savingContext}
+                disabled={!canSaveContext}
+              >
                 {savingContext ? "Refreshing plan…" : "Save and refresh plan"}
                 {!savingContext && <Sparkles size={14} />}
               </Button>
@@ -607,7 +587,7 @@ export function RecommendationsStep({
               Continue without adding them
             </button>
           )}
-          <Button className="w-full sm:w-auto" onClick={applyAndContinue} disabled={addingRoutines}>
+          <Button className="w-full sm:w-auto" onClick={applyAndContinue} loading={addingRoutines}>
             {addingRoutines
               ? "Scheduling…"
               : selectedRoutineIds.size > 0
@@ -832,7 +812,7 @@ function IntegrationCard({
                 : `Ready for ${employee.name}`}
             </div>
           ) : integration.status === "grant_needed" ? (
-            <Button size="sm" onClick={onGrant} disabled={granting}>
+            <Button size="sm" onClick={onGrant} loading={granting}>
               {granting ? "Granting…" : `Grant ${grantConnection?.label ?? "access"}`}
               {!granting && <ArrowRight size={12} />}
             </Button>

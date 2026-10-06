@@ -6,10 +6,16 @@ on:
     branches: [main]
     paths:
       - "Helm/**"
+      - "CLI/deploy-saas.sh"
+      - "CLI/test-deploy-saas.sh"
+      - "package.json"
       - ".github/workflows/chart.yml"
   pull_request:
     paths:
       - "Helm/**"
+      - "CLI/deploy-saas.sh"
+      - "CLI/test-deploy-saas.sh"
+      - "package.json"
       - ".github/workflows/chart.yml"
   # release.yml creates the v*.*.* tag with GITHUB_TOKEN, which doesn't fire
   # the push trigger above — the release flow dispatches this workflow, same
@@ -33,23 +39,71 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # The default posture is multi-tenant SaaS, which requires the bootstrap
-      # admin email — lint renders templates, so it needs it too. SMTP is no
-      # longer a chart value: it is configured post-boot at Admin → Email
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      # Deployment profiles are operator-private and gitignored. CI creates
+      # its own disposable examples rather than depending on local files.
+      - name: Create synthetic SaaS profiles
+        run: |
+          mkdir -p Helm/Values
+          for environment in test prod; do
+            test ! -e "Helm/Values/${environment}.values.yaml"
+            hosted_sign_in=false
+            if [ "$environment" = prod ]; then hosted_sign_in=true; fi
+            cat > "Helm/Values/${environment}.values.yaml" <<YAML
+          ingress:
+            enabled: true
+            className: ""
+            annotations: {}
+            host: ${environment}.example.com
+            tls:
+              enabled: true
+              secretName: ci-${environment}-tls
+            connect:
+              enabled: ${hosted_sign_in}
+              host: connect.example.com
+              tlsSecretName: ci-connect-tls
+          YAML
+          done
+
+      - name: Verify SaaS deployment commands
+        run: npm run test:deploy
+
+      - name: Verify inline secrets and upgrade guards
+        run: bash Helm/test-inline-secrets.sh
+
+      - name: Verify portable Kubernetes resources
+        run: bash Helm/test-portability.sh
+
+      - name: Verify GKE, cert-manager and public URL integrations
+        run: bash Helm/test-integrations.sh
+
+      - name: Validate test and production SaaS profiles
+        env:
+          GENOSYN_BOOTSTRAP_ADMIN_EMAIL: ops@example.com
+        run: |
+          npm run --silent template-deploy-test > /dev/null
+          npm run --silent template-deploy-prod > /dev/null
+
+      - name: Verify Connect ingress and legacy upgrade values
+        run: bash Helm/test-connect-ingress.sh
+
+      # SMTP is not a chart value: it is configured post-boot at Admin → Email
       # transport, so nothing here sets it.
       - name: Helm lint
         run: |
-          helm lint Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com
+          helm lint Helm/genosyn
           helm lint Helm/genosyn -f Helm/genosyn/values-selfhost.yaml
 
       # Render the shapes users actually deploy, so a template regression
       # fails the PR and not the operator's upgrade.
       - name: Helm template smoke tests
         run: |
-          # Default (multi-tenant SaaS) shape with the one required flag.
-          helm template genosyn Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com > /dev/null
+          # A bare default install renders with no values at all.
+          helm template genosyn Helm/genosyn > default.yaml
           # Production trimmings: TLS ingress, external Postgres, own secrets.
           helm template genosyn Helm/genosyn \
             --set config.bootstrapMasterAdminEmail=ops@example.com \
@@ -60,38 +114,25 @@ jobs:
             --set ingress.host=x.example.com \
             --set ingress.tls.enabled=true \
             --set ingress.tls.secretName=x-tls > /dev/null
-          # Cluster without the UserNamespacesSupport gate.
-          helm template genosyn Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set sandbox.hostUsers=null > /dev/null
-          # Single-tenant self-host shape.
+          # SQLite shape.
           helm template genosyn Helm/genosyn \
             -f Helm/genosyn/values-selfhost.yaml > selfhost.yaml
-          if grep -Eq 'procMount: Unmasked|seccompProfile:|hostUsers:' selfhost.yaml; then
-            echo "self-hosted OpenCode must not require sandbox privileges" >&2
+          if grep -Eiq 'procMount|seccompProfile|hostUsers|apparmor' default.yaml selfhost.yaml; then
+            echo "no install may request sandbox privileges" >&2
             exit 1
           fi
-          # Explicit shared hosting still requires its selected isolation.
+          # The chart runs single-tenant only.
           if helm template genosyn Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set sandbox.enabled=false > /dev/null 2> shared-host.err; then
-            echo "expected shared hosting with sandbox disabled to fail" >&2
+            --set config.multiTenant=true > /dev/null 2> multi-tenant.err; then
+            echo "expected config.multiTenant=true to fail" >&2
             exit 1
           fi
-          grep -q "sandbox.enabled must be true" shared-host.err
-          # Negative test: a bare default template must fail closed with ONE
-          # aggregated message naming everything missing at once.
-          if helm template genosyn Helm/genosyn > /dev/null 2> bare-default.err; then
-            echo "expected the bare default template to fail" >&2
-            exit 1
-          fi
-          grep -q "config.bootstrapMasterAdminEmail is required" bare-default.err
-          grep -q "values-selfhost.yaml" bare-default.err
+          grep -q "runs Genosyn single-tenant only" multi-tenant.err
 
       # The rendered config.js is mounted over /app/dist/config.js and must be
       # valid plain ESM — a template typo would otherwise crash the pod on
       # import, not at `helm install`.
-      - name: Rendered config.js parses as ESM
+      - name: Verify rendered App configuration
         run: |
           # Pull the literal block out of the rendered ConfigMap: everything
           # after `config.js: |`, de-indented by its four spaces.
@@ -99,26 +140,30 @@ jobs:
             helm template genosyn Helm/genosyn -s templates/configmap.yaml "$@" \
               | awk 'f { sub(/^    /, ""); print } /^  config\.js: \|/ { f = 1 }'
           }
-          render --set config.bootstrapMasterAdminEmail=ops@example.com > default-config.mjs
+          render > default-config.mjs
           render -f Helm/genosyn/values-selfhost.yaml > selfhost-config.mjs
-          render -f Helm/genosyn/values-selfhost.yaml --set sandbox.enabled=true > isolated-selfhost-config.mjs
           node --check default-config.mjs
           node --check selfhost-config.mjs
-          node --check isolated-selfhost-config.mjs
+          for environment in test prod; do
+            render -f "Helm/Values/${environment}.values.yaml" > "${environment}-config.mjs"
+            node --check "${environment}-config.mjs"
+          done
           node --input-type=module <<'NODE'
           import assert from "node:assert/strict";
-          const { config: shared } = await import("./default-config.mjs");
+          const hostExecution = { enabled: true, executionMode: "host", allowUnsafeHostExecution: true };
+          for (const profile of ["default", "selfhost", "test", "prod"]) {
+            const { config } = await import(`./${profile}-config.mjs`);
+            assert.equal(config.security.multiTenant, false, `${profile}: single-tenant`);
+            assert.deepEqual(config.agent.codingTools, hostExecution, `${profile}: host execution`);
+            assert.equal(config.agent.browserEnabledInMultiTenant, false, `${profile}: browser key`);
+          }
           const { config: selfhost } = await import("./selfhost-config.mjs");
-          const { config: isolated } = await import("./isolated-selfhost-config.mjs");
-          assert.equal(shared.security.multiTenant, true);
-          assert.equal(shared.agent.codingTools.executionMode, "bubblewrap");
-          assert.equal(shared.agent.codingTools.allowUnsafeHostExecution, false);
-          assert.equal(selfhost.security.multiTenant, false);
-          assert.equal(selfhost.agent.codingTools.enabled, true);
-          assert.equal(selfhost.agent.codingTools.executionMode, "host");
-          assert.equal(selfhost.agent.codingTools.allowUnsafeHostExecution, true);
-          assert.equal(isolated.agent.codingTools.executionMode, "bubblewrap");
-          assert.equal(isolated.agent.codingTools.allowUnsafeHostExecution, false);
+          assert.equal(selfhost.db.driver, "sqlite");
+          for (const environment of ["test", "prod"]) {
+            const { config } = await import(`./${environment}-config.mjs`);
+            assert.equal(config.security.trustedProxyHops, 1, `${environment}: one trusted ingress proxy`);
+            assert.equal(config.db.driver, "postgres", `${environment}: Postgres`);
+          }
           NODE
 
   publish:

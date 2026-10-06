@@ -24,8 +24,12 @@ type SchemaShape = {
   additionalProperties?: boolean | SchemaShape;
   description?: string;
   enum?: unknown[];
+  format?: string;
   items?: SchemaShape;
+  maxLength?: number;
+  minLength?: number;
   oneOf?: SchemaShape[];
+  nullable?: boolean;
   properties?: Record<string, SchemaShape>;
   required?: string[];
   type?: string;
@@ -79,6 +83,54 @@ test("OpenAPI document exposes a versioned and authenticated scripting contract"
     "bearerAuth",
     "cookieAuth",
   ]);
+});
+
+test("Finance documents expose subsidiary selection and admin-managed legal entities", () => {
+  const document = buildOpenApiDocument();
+  const base = "/api/companies/{cid}/finance";
+  const list = operationAt(document, `${base}/subsidiaries`, "get");
+  const create = operationAt(document, `${base}/subsidiaries`);
+  const edit = operationAt(document, `${base}/subsidiaries/{id}`, "patch");
+  assert.match(list.description ?? "", /Read Finance/);
+  assert.match(create.description ?? "", /owner or admin/);
+  assert.ok(create.responses?.["201"]);
+  assert.match(edit.description ?? "", /snapshots remain unchanged/);
+  const patch = edit.requestBody?.content?.["application/json"]?.schema;
+  assert.equal(patch?.properties?.archived?.type, "boolean");
+
+  for (const resource of ["invoices", "estimates", "recurring-invoices"]) {
+    for (const [method, suffix] of [
+      ["post", ""],
+      ["patch", "/{slug}"],
+    ]) {
+      const operation = operationAt(document, `/api/companies/{cid}/${resource}${suffix}`, method);
+      const input = operation.requestBody?.content?.["application/json"]?.schema;
+      assert.equal(input?.properties?.subsidiaryId?.format, "uuid", `${method} ${resource}`);
+      assert.equal(input?.properties?.subsidiaryId?.nullable, true, `${method} ${resource}`);
+      assert.ok(!input?.required?.includes("subsidiaryId"));
+    }
+  }
+  assert.ok(document.components?.schemas?.DocumentIssuerSnapshot);
+  assert.ok(document.components?.schemas?.Subsidiary);
+});
+
+test("Recurring invoice names default to the customer on create and stay put on edit", () => {
+  const document = buildOpenApiDocument();
+  const create = operationAt(document, "/api/companies/{cid}/recurring-invoices");
+  const createInput = create.requestBody?.content?.["application/json"]?.schema;
+  assert.deepEqual(createInput?.required, ["customerId", "cronExpr"]);
+  assert.equal(createInput?.properties?.name?.type, "string");
+  assert.equal(createInput?.properties?.name?.maxLength, 200);
+  assert.equal(createInput?.properties?.name?.minLength, undefined);
+  assert.match(createInput?.properties?.name?.description ?? "", /named after its customer/);
+  assert.match(create.description ?? "", /blank name names the schedule after its customer/);
+
+  const edit = operationAt(document, "/api/companies/{cid}/recurring-invoices/{slug}", "patch");
+  const editInput = edit.requestBody?.content?.["application/json"]?.schema;
+  assert.equal(editInput?.required, undefined);
+  assert.equal(editInput?.properties?.name?.minLength, 1);
+  assert.equal(editInput?.properties?.name?.maxLength, 200);
+  assert.match(edit.description ?? "", /never renames the schedule/);
 });
 
 test("Routine browser recordings document cookie-only metadata and range streaming", () => {

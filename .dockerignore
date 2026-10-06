@@ -3,6 +3,8 @@
 # only COPYs Home/ and CLI/, but anything not ignored here still gets
 # uploaded to the Docker daemon on every build.
 .git
+# Operator-private deployment credentials must never enter a build context.
+Helm/Values/*.yaml
 node_modules
 **/node_modules
 **/dist

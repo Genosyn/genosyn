@@ -1,4 +1,4 @@
-{{- /* Aggregated template-time boot validation — see _helpers.tpl. */ -}}
+{{- /* Aggregated template-time validation — see _helpers.tpl. */ -}}
 {{- include "genosyn.validate" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -9,8 +9,8 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   # Recreate by default: an RWO data volume can only attach to one pod, so the
-  # old pod must terminate before the new one schedules. RollingUpdate is only
-  # valid on multi-replica RWX installs.
+  # old pod must terminate before the new one schedules — and the App expects
+  # a single process (see replicaCount in values.yaml).
   strategy:
     type: {{ .Values.strategy }}
   # The `component: app` label keeps this selector disjoint from the bundled
@@ -44,15 +44,6 @@ spec:
       # mounts it.
       securityContext:
         fsGroup: 1000
-      {{- if .Values.sandbox.enabled }}
-      {{- if not (kindIs "invalid" .Values.sandbox.hostUsers) }}
-      # Newer Kubernetes (1.31+, ProcMountType beta) only honors
-      # procMount: Unmasked inside a user-namespaced pod — hostUsers: false,
-      # which itself needs the UserNamespacesSupport feature gate. Clusters
-      # without that gate can set sandbox.hostUsers to null to omit the field.
-      hostUsers: {{ .Values.sandbox.hostUsers }}
-      {{- end }}
-      {{- end }}
       # The server drains in-flight work in about 6 seconds on SIGTERM; 15
       # leaves headroom without stalling Recreate rollouts.
       terminationGracePeriodSeconds: 15
@@ -63,52 +54,8 @@ spec:
           ports:
             - name: http
               containerPort: 8471
-          {{- if .Values.sandbox.enabled }}
-          # The bubblewrap coding sandbox creates a user namespace and mounts
-          # its own /proc — the default seccomp profile rejects the namespace
-          # flags, and the runtime's masked /proc entries block the nested
-          # mount. These two fields are the cluster equivalents of the Docker
-          # options the genosyn CLI passes. procMount: Unmasked additionally
-          # needs the ProcMountType feature gate; Pod Security admission
-          # permits neither field below the `privileged` level.
-          securityContext:
-            seccompProfile:
-              type: Unconfined
-            procMount: Unmasked
-          {{- end }}
           env:
-            # Always injected: from secrets.existingSecret when set, else the
-            # chart-generated instance secrets. Not `optional` — a missing key
-            # must block the pod, never let boot fall through to placeholders.
-            {{- $instanceSecret := .Values.secrets.existingSecret | default (include "genosyn.instanceSecretsName" .) }}
-            - name: GENOSYN_SESSION_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $instanceSecret }}
-                  key: sessionSecret
-            - name: GENOSYN_ENCRYPTION_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $instanceSecret }}
-                  key: encryptionSecret
-            {{- if .Values.config.db.postgresUrlSecret.name }}
-            - name: GENOSYN_POSTGRES_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.config.db.postgresUrlSecret.name }}
-                  key: {{ .Values.config.db.postgresUrlSecret.key | default "url" }}
-            {{- else if .Values.postgres.enabled }}
-            - name: GENOSYN_POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "genosyn.postgres.secretName" . }}
-                  key: {{ include "genosyn.postgres.secretKey" . }}
-            - name: GENOSYN_POSTGRES_URL
-              value: "postgresql://{{ .Values.postgres.username }}:$(GENOSYN_POSTGRES_PASSWORD)@{{ include "genosyn.postgres.fullname" . }}:5432/{{ .Values.postgres.database }}"
-            {{- end }}
-            {{- with .Values.env }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- include "genosyn.appEnv" . | nindent 12 }}
           volumeMounts:
             {{- if .Values.persistence.enabled }}
             - name: data
@@ -150,7 +97,7 @@ spec:
         {{- end }}
         - name: config
           configMap:
-            name: {{ include "genosyn.fullname" . }}-config
+            name: {{ include "genosyn.configName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

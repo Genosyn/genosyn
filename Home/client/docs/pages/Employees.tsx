@@ -123,9 +123,8 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
-          takes an API key; OpenAI takes an API key or, on trusted single-tenant Genosyn, eligible
-          ChatGPT subscription access; Custom takes an OpenAI-compatible endpoint. You can skip this
-          and connect one later.
+          takes an API key; OpenAI takes an API key or eligible ChatGPT subscription access; Custom
+          takes an OpenAI-compatible endpoint. You can skip this and connect one later.
         </LI>
         <LI>
           <Strong>Write the Soul.</Strong> Answer the short About questions, then review the seeded
@@ -161,15 +160,16 @@ export function Employees() {
 
       <H2 id="working-directory">Working directory</H2>
       <P>Each employee gets their own folder on disk under the company:</P>
-      <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
+      <pre className="mt-4 overflow-x-auto rounded-2xl border border-line bg-paper-raised px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink-600">
         {`data/companies/<co-slug>/employees/<emp-slug>/
 └── ...   # files enabled coding tools read and write`}
       </pre>
       <P>
         API-key and custom models use OpenCode. Ordinary employee work uses its native coding tools
-        in the default host mode, including shell commands; this directory is the starting location,
-        not an OS sandbox. Optional bubblewrap mode provides isolated commands, and disabled mode
-        omits coding and employee repository materialization. Repository work sessions use their own
+        in the default host mode, including shell commands. They run directly on the host (inside
+        the App container under Docker) with the App process user&apos;s filesystem and network
+        authority; this directory is the starting location, not an OS sandbox. Disabled mode omits
+        coding and employee repository materialization. Repository work sessions use their own
         worktrees and scoped tools. The runner captures the transcript into the Run log.
       </P>
       <P>
@@ -185,7 +185,7 @@ export function Employees() {
         official Codex app-server with a locked temporary <Code>CODEX_HOME</Code> for a login or
         Run. Managed ChatGPT sessions are materialized there; access tokens enter only the child
         process environment. Genosyn removes temporary authentication state afterward. Subscription
-        auth supports a trusted single-tenant App process in host, bubblewrap, or disabled mode.
+        auth works in host or disabled mode on a single App process.
       </P>
 
       <H3 id="org-chart">Org chart</H3>
@@ -279,6 +279,9 @@ export function Employees() {
           days are injected into every chat and routine run. For the server&apos;s own account of
           the same work, rather than the employee&apos;s, see{" "}
           <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
+          {" "}Employee-written entries allow a title of 1–200 characters and a body of up to
+          10,000 characters. Keep summaries compact and link to existing detailed records;
+          the tool advertises these limits before the employee writes an entry.
         </LI>
         <LI>
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
@@ -325,14 +328,23 @@ export function Employees() {
         day. Work details stay hidden until you choose an employee.
       </P>
       <P>
-        Choose a bubble to open the employee&apos;s <Strong>work timeline</Strong> in a popup. It
-        opens on today, with the clock down the left and work arranged through the day, like a
-        calendar&apos;s day view. Each entry says what happened and shows its result, and work
-        happening in the same hour stays readable as separate entries. Use{" "}
+        Choose a bubble to open the employee&apos;s <Strong>Routine Runs</Strong> and{" "}
+        <Strong>work timeline</Strong> in a popup. The Runs list shows Routines working now
+        and any pending work, including when a retry or continuation is waiting until later or a
+        Standdown is stopping the work. An AI Employee can run multiple Routines together, and the
+        list updates as work starts and finishes. It always shows current work, even while you
+        browse an earlier day below. A long pending list starts with five Routines; expand it to see
+        more.
+      </P>
+      <P>
+        The calendar opens on today, with the clock down the left and recorded work arranged through
+        the day, like a calendar&apos;s day view. Each entry says what happened and shows its
+        result, and work happening in the same hour stays readable as separate entries. Use{" "}
         <Strong>Previous day</Strong> and <Strong>Next day</Strong>, or choose a date with{" "}
         <Strong>Work day</Strong>, to browse today and the previous six days. Choose{" "}
         <Strong>Today</Strong> to return to the current day. Dates and times follow your
-        browser&apos;s local time, with the timezone shown above the calendar.
+        browser&apos;s local time, with the timezone shown above the calendar. Choose{" "}
+        <Strong>Go to first work</Strong> to skip the empty hours before the day&apos;s first entry.
       </P>
       <P>Everything you need to follow up stays close to the work:</P>
       <UL>
@@ -347,7 +359,7 @@ export function Employees() {
           <Strong>Employee details</Strong> opens their Settings. Close the popup to return to Home.
         </LI>
       </UL>
-      <P>Seven kinds of work land on it:</P>
+      <P>The timeline includes:</P>
       <UL>
         <LI>
           <Strong>Routine runs</Strong> show a concise outcome in the employee&apos;s day. If no
@@ -383,6 +395,15 @@ export function Employees() {
           people and mailbox it came from, says whether a Member or an Email rule started it, and
           links back to the original thread.
         </LI>
+        <LI>
+          <Strong>Email analysis</Strong> entries explain an incoming email review: the AI Employee
+          reads the message, classifies it, summarises it and suggests next steps. The card names
+          the email and mailbox, links to the conversation, and shows the recorded category,
+          summary and suggested actions when available. Suggestions are not completed actions.
+          A failed review shows its recorded reason; the card says when result details are
+          unavailable. Reviewing the same email again never replaces an earlier card&apos;s
+          result with the newer review.
+        </LI>
       </UL>
       <P>
         The roster stays visible even when the whole team is quiet, because it is also the quickest
@@ -400,9 +421,9 @@ export function Employees() {
         final report is unavailable. The employee&apos;s report does not prove the work succeeded:
         read the independent <DocLink to="/docs/verification">Checks and verdicts</DocLink> beside
         it, and open the run log for evidence. Timeline entries still come from recorded work;
-        writing a Journal entry does not create one. The work timeline is available on every plan to
-        every Member. The <DocLink to="/docs/plans-billing">audit log</DocLink> is the separate
-        admin tool for investigating every actor across all of history.
+        writing a Journal entry does not create one. The work timeline is available to every
+        Member. The <DocLink to="/docs/security#audit-log">audit log</DocLink> is the separate admin
+        tool for investigating every actor across all of history.
       </Callout>
     </>
   );

@@ -1,12 +1,9 @@
 import { Router } from "express";
-import { createOauthConnection, updateOauthConnectionConfig } from "../services/integrations.js";
 import { finishOauth, resolveOauthState, type OauthApp } from "../services/oauth.js";
-import { recordAudit } from "../services/audit.js";
-import { createMailAccount } from "../services/mail/accounts.js";
-import { queueAccountSync } from "../services/mail/sync.js";
+import { completeOauth } from "../services/completeOauth.js";
 import { oauthAuthorizationFailure } from "../services/oauthErrors.js";
-import { AppDataSource } from "../db/datasource.js";
-import { MailAccount } from "../db/entities/MailAccount.js";
+import { z } from "zod";
+import crypto from "node:crypto";
 
 const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>([
   "google",
@@ -37,24 +34,27 @@ function isOauthApp(s: string): s is OauthApp {
 export const integrationsOauthRouter = Router();
 
 integrationsOauthRouter.get("/callback/:app", async (req, res) => {
-  const app = String(req.params.app ?? "");
-  if (!isOauthApp(app)) {
+  const parsed = z.object({
+    app: z.string().min(1).max(32),
+    state: z.string().max(512).optional(),
+    code: z.string().max(8192).optional(),
+    error: z.string().max(512).optional(),
+    error_description: z.string().max(2000).optional(),
+  }).safeParse({ ...req.query, app: req.params.app });
+  if (!parsed.success || !isOauthApp(parsed.data.app)) {
     return renderClose(res, {
       ok: false,
-      title: "Unknown OAuth provider",
-      detail: `"${app}" is not recognised.`,
+      title: "Invalid OAuth callback",
+      detail: "Close this window and start the connection again.",
     });
   }
-  const rawState = String(req.query.state ?? "");
-  const rawCode = String(req.query.code ?? "");
-  const rawError = String(req.query.error ?? "");
-  const rawErrorDescription = String(req.query.error_description ?? "");
+  const { app, state: rawState, code: rawCode, error: rawError, error_description: rawErrorDescription } = parsed.data;
 
   if (rawError) {
     const failure = oauthAuthorizationFailure({
       app,
       error: rawError,
-      description: rawErrorDescription,
+      description: rawErrorDescription ?? "",
     });
     return renderClose(res, {
       ok: false,
@@ -81,44 +81,12 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
 
   try {
     const finished = await finishOauth({ app, code: rawCode, state });
-    const conn = state.existingConnectionId
-      ? await updateOauthConnectionConfig({
-          companyId: finished.companyId,
-          connectionId: state.existingConnectionId,
-          config: finished.config,
-          accountHint: finished.accountHint,
-        })
-      : await createOauthConnection({
-          companyId: finished.companyId,
-          provider: finished.provider,
-          label: finished.label,
-          config: finished.config,
-          accountHint: finished.accountHint,
-        });
-    if (!conn) {
-      return renderClose(res, {
-        ok: false,
-        title: "Connection no longer exists",
-        detail:
-          "The connection you were reconnecting was deleted while you were authorising. Close this window and start again.",
-      });
-    }
-    await recordAudit({
-      companyId: finished.companyId,
-      actorUserId: state.userId,
-      action: state.existingConnectionId ? "connection.reconnect" : "connection.create",
-      targetType: "connection",
-      targetId: conn.id,
-      targetLabel: `${conn.provider} · ${conn.label}`,
-      metadata: { provider: conn.provider, authMode: "oauth2" },
+    const { connection: conn, mailboxAddress: mailbox } = await completeOauth({
+      ...finished,
+      userId: state.userId,
+      existingConnectionId: state.existingConnectionId,
+      linkMailbox: state.linkMailbox,
     });
-    const mailbox = state.linkMailbox
-      ? await linkMailbox({
-          companyId: finished.companyId,
-          connectionId: conn.id,
-          userId: state.userId,
-        })
-      : null;
     return renderClose(res, {
       ok: true,
       title: state.existingConnectionId
@@ -138,53 +106,6 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
 });
 
 /**
- * Finish the job the person actually asked for.
- *
- * When the handshake started in the Email section, consent was the last thing
- * standing between them and a working mailbox — so create it here rather than
- * sending them back to hunt for a Connect button. A failure is deliberately
- * swallowed into `null`: the Connection is real and useful either way, the
- * mailbox step is retryable from the Email page, and a red popup would be a
- * worse answer than "connected" for something that did connect.
- */
-async function linkMailbox(args: {
-  companyId: string;
-  connectionId: string;
-  userId: string;
-}): Promise<string | null> {
-  try {
-    const existing = await AppDataSource.getRepository(MailAccount).findOneBy({
-      connectionId: args.connectionId,
-    });
-    if (existing) return existing.address;
-    const account = await createMailAccount({
-      companyId: args.companyId,
-      connectionId: args.connectionId,
-      createdByUserId: args.userId,
-    });
-    await recordAudit({
-      companyId: args.companyId,
-      actorUserId: args.userId,
-      action: "mail.account.connect",
-      targetType: "mail_account",
-      targetId: account.id,
-      targetLabel: account.address,
-      metadata: { provider: account.provider, via: "oauth" },
-    });
-    void queueAccountSync(account.id).catch(() => {});
-    return account.address;
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[oauth] connected ${args.connectionId} but could not link a mailbox: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    return null;
-  }
-}
-
-/**
  * Render a tiny HTML page that announces the result to the opener window
  * via `postMessage` and then closes itself. The parent tab listens for
  * `{ source: "genosyn-oauth", ... }` messages and refreshes its connection
@@ -202,7 +123,14 @@ function renderClose(
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  const scriptString = (value: string) => JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
   const color = payload.ok ? "#0f766e" : "#b91c1c";
+  const scriptNonce = crypto.randomBytes(18).toString("base64");
   const body = `<!doctype html>
 <html><head><meta charset="utf-8"><title>${safe(payload.title)}</title>
 <style>
@@ -216,22 +144,26 @@ function renderClose(
   <h1>${safe(payload.title)}</h1>
   <p>${safe(payload.detail)}</p>
   <p>You can close this window.</p>
-  <button onclick="window.close()">Close</button>
-  <script>
+  <button id="close">Close</button>
+  <script nonce="${scriptNonce}">
+    document.getElementById("close").addEventListener("click", () => window.close());
     try {
       if (window.opener) {
         window.opener.postMessage({
           source: "genosyn-oauth",
           ok: ${payload.ok ? "true" : "false"},
-          title: ${JSON.stringify(payload.title)},
-          detail: ${JSON.stringify(payload.detail)},
-        }, "*");
+          title: ${scriptString(payload.title)},
+          detail: ${scriptString(payload.detail)},
+        }, window.location.origin);
       }
     } catch (_e) { /* no-op */ }
     setTimeout(() => { try { window.close(); } catch (_e) {} }, 1500);
   </script>
 </body></html>`;
   res
+    .set("Cache-Control", "no-store")
+    .set("Referrer-Policy", "no-referrer")
+    .set("Content-Security-Policy", `default-src 'none'; base-uri 'none'; frame-ancestors 'none'; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'`)
     .status(payload.ok ? 200 : 400)
     .type("html")
     .send(body);

@@ -11,11 +11,9 @@ import {
   memberAvatarUrl,
 } from "../components/ui/Avatar";
 import { Menu } from "../components/ui/Menu";
-import { Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { clsx } from "../components/ui/clsx";
 import { api, Company, Employee, Member, Team } from "../lib/api";
-import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { useEmployees } from "./employeesContext";
 
 /**
@@ -83,20 +81,9 @@ export default function EmployeesIndex({ company }: { company: Company }) {
     );
   }
 
-  const maxAiEmployees = company.entitlements.maxAiEmployees;
-  const atEmployeeCap = maxAiEmployees !== null && employees.length >= maxAiEmployees;
-
   return (
     <>
       {crumbs}
-      {/* Plan-limit upsell (M56). Informational only — the hire button stays
-        enabled; the server's 402 surfaces in the wizard's own FormError. */}
-      {atEmployeeCap && (
-        <PlanLimitBanner
-          message={`Your Free plan includes ${maxAiEmployees} AI Employee${maxAiEmployees === 1 ? "" : "s"}.`}
-          company={company}
-        />
-      )}
       <div className="mb-5 flex items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
@@ -668,8 +655,8 @@ function OrgEditForm({
         </Select>
       </label>
       <div className="flex justify-end pt-1">
-        <Button type="submit" size="sm" disabled={!dirty || saving}>
-          {saving ? <Spinner size={12} /> : "Save"}
+        <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
+          Save
         </Button>
       </div>
     </form>

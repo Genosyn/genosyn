@@ -11,6 +11,7 @@ import {
   RunChecksChip,
   RunOutcomeChip,
   RunStatusChip,
+  runFollowUpLabel,
   timeAgo,
 } from "@/components/routines/RunViews";
 
@@ -28,6 +29,7 @@ export type RoutineActivityRun = Pick<
   | "continuationPending"
   | "continuationCount"
   | "continuationStopReason"
+  | "followUpRun"
   | "missedSlots"
   | "outcomeVerdict"
   | "checksVerdict"
@@ -56,59 +58,92 @@ export function RoutineActivity({
   routines: RoutineWithMeta[];
 }) {
   const [snapshot, setSnapshot] = React.useState<{
+    companyId: string;
     from: string;
     data: RoutineActivityData;
   } | null>(null);
-  const [error, setError] = React.useState(false);
+  const [errorCompanyId, setErrorCompanyId] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState(false);
-  const requestId = React.useRef(0);
-
-  const refresh = React.useCallback(async () => {
-    const id = ++requestId.current;
-    const range = todayRange();
-    try {
-      const data = await api.get<RoutineActivityData>(
-        `/api/companies/${company.id}/routines/activity?${new URLSearchParams(range)}`,
-      );
-      if (id !== requestId.current) return;
-      setSnapshot({ from: range.from, data });
-      setError(false);
-    } catch {
-      if (id !== requestId.current) return;
-      setError(true);
-    }
-  }, [company.id]);
+  const [retrying, setRetrying] = React.useState(false);
+  const refreshRef = React.useRef<(() => Promise<void>) | null>(null);
+  const refresh = React.useCallback(() => refreshRef.current?.(), []);
 
   React.useEffect(() => {
-    void refresh();
+    let disposed = false;
+    let inFlight = false;
+    let pending = false;
+    const load = async () => {
+      if (disposed) return;
+      if (inFlight) {
+        pending = true;
+        return;
+      }
+      inFlight = true;
+      const range = todayRange();
+      try {
+        const data = await api.get<RoutineActivityData>(
+          `/api/companies/${company.id}/routines/activity?${new URLSearchParams(range)}`,
+        );
+        if (disposed) return;
+        setSnapshot({ companyId: company.id, from: range.from, data });
+        setErrorCompanyId(null);
+      } catch {
+        if (!disposed) setErrorCompanyId(company.id);
+      } finally {
+        inFlight = false;
+        // Keep the reply visible even when reads are slower than polling or
+        // live events. Those refreshes need only one follow-up, not competing
+        // requests that continually invalidate each other's result.
+        if (pending && !disposed) {
+          pending = false;
+          void load();
+        }
+      }
+    };
+    refreshRef.current = load;
+    // StrictMode tears down its first setup immediately. Avoid issuing a read
+    // for that discarded lifecycle; its guarded microtask simply does nothing.
+    queueMicrotask(() => void load());
     // Socket events cover ordinary changes. Polling also handles reconnects,
     // advancing elapsed times, and a page left open across local midnight.
     const refreshVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void load();
     };
     const timer = window.setInterval(refreshVisible, 30_000);
     window.addEventListener("focus", refreshVisible);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => {
-      requestId.current += 1;
+      disposed = true;
+      refreshRef.current = null;
       window.clearInterval(timer);
       window.removeEventListener("focus", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [refresh]);
+  }, [company.id]);
   useLiveRefetch(["routine", "run"], refresh);
 
   const byId = new Map(routines.map((routine) => [routine.id, routine]));
-  const data = snapshot?.from === todayRange().from ? snapshot.data : null;
+  const data = snapshot?.companyId === company.id && snapshot.from === todayRange().from
+    ? snapshot.data
+    : null;
   const running = data?.running.filter((run) => byId.has(run.routineId)) ?? [];
   const today = data?.today.filter((item) => byId.has(item.routineId)) ?? [];
   const runCount = today.reduce((count, item) => count + item.runCount, 0);
 
-  if (error) {
+  async function retry() {
+    setRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  if (errorCompanyId === company.id) {
     return (
       <div className="mb-6 space-y-2">
         <FormError message="Couldn’t load recent Runs. Try again to see what’s running and what ran today." />
-        <Button variant="secondary" onClick={() => void refresh()}>
+        <Button variant="secondary" loading={retrying} onClick={() => void retry()}>
           Try again
         </Button>
       </div>
@@ -221,14 +256,15 @@ function ActivityRow({
 }) {
   const running = run.status === "running";
   const employee = routine.employee;
-  const href = employee
-    ? `/c/${company.slug}/routines/${employee.slug}/${routine.slug}?run=${encodeURIComponent(run.id)}`
-    : `/c/${company.slug}/routines?routine=${encodeURIComponent(routine.id)}&run=${encodeURIComponent(run.id)}`;
+  const hrefForRun = (id: string) =>
+    employee
+      ? `/c/${company.slug}/routines/${employee.slug}/${routine.slug}?run=${encodeURIComponent(id)}`
+      : `/c/${company.slug}/routines?routine=${encodeURIComponent(routine.id)}&run=${encodeURIComponent(id)}`;
   const endedAt = run.finishedAt ?? run.startedAt;
   return (
     <li className="min-w-0">
       <Link
-        to={href}
+        to={hrefForRun(run.id)}
         aria-label={`${routine.name}: ${running ? "view live Run" : "view latest Run"}`}
         className="group flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-indigo-500/50"
       >
@@ -293,6 +329,15 @@ function ActivityRow({
           className="ml-auto shrink-0 text-slate-400 group-hover:text-indigo-500"
         />
       </Link>
+      {run.followUpRun && run.followUpRun.id !== run.id && (
+        <Link
+          to={hrefForRun(run.followUpRun.id)}
+          className="mt-1 inline-block px-4 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          {runFollowUpLabel(run.followUpRun)} · Open{" "}
+          {run.followUpRun.triggerKind === "continuation" ? "continuation" : "follow-up Run"}
+        </Link>
+      )}
     </li>
   );
 }

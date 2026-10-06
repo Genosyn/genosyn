@@ -183,6 +183,18 @@ export function useModalChrome({
   const escapeRef = React.useRef(onEscape);
   escapeRef.current = onEscape;
 
+  // What had focus as the surface opened, read while rendering. By the time an
+  // effect runs, the content has usually focused its own field already — an
+  // `autoFocus`, or a child's effect — so an effect remembered that instead:
+  // every Dialog took its own button or input for the opener, found it gone on
+  // close, and sent focus to <main> even when the opener was still right there.
+  const openedFrom = React.useRef<HTMLElement | null | undefined>(undefined);
+  if (!open) openedFrom.current = undefined;
+  else if (openedFrom.current === undefined) {
+    openedFrom.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
   React.useEffect(() => {
     if (!open) return;
 
@@ -195,8 +207,8 @@ export function useModalChrome({
     if (overlays.length === 1) window.addEventListener("keydown", onKeyDown, true);
     lockPageScroll();
 
-    const restoreFocusTo =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const mountedPanel = panelRef.current;
+    const restoreFocusTo = openedFrom.current ?? null;
 
     const frame = window.requestAnimationFrame(() => {
       const panel = panelRef.current;
@@ -212,14 +224,21 @@ export function useModalChrome({
       overlays.splice(overlays.indexOf(entry), 1);
       if (overlays.length === 0) window.removeEventListener("keydown", onKeyDown, true);
       unlockPageScroll();
-      // Only if it is still on the page: the action that closed the modal has
-      // often re-rendered the row button that opened it, and focusing a
-      // detached node silently drops focus to <body>, restarting the next Tab
-      // at the top of the app. When it has genuinely gone — the Home row you
-      // opened and then resolved is the everyday case — fall back to the main
-      // region the skip link already targets, so focus lands somewhere real.
+      // A panel still on the page has not closed: StrictMode replays this
+      // cleanup straight after mount, and handing focus back then would pull
+      // it out of the panel it was just put in.
+      if (mountedPanel?.isConnected) return;
+      // Only if it can still take focus: the action that closed the modal has
+      // often re-rendered the row button that opened it, or disabled it while
+      // its work runs, and a focus() that does not take silently leaves focus
+      // on <body>, restarting the next Tab at the top of the app. When it has
+      // genuinely gone — the Home row you opened and then resolved is the
+      // everyday case — fall back to the main region the skip link already
+      // targets, so focus lands somewhere real.
       if (restoreFocusTo?.isConnected) restoreFocusTo.focus({ preventScroll: true });
-      else document.getElementById("main-content")?.focus({ preventScroll: true });
+      if (!restoreFocusTo || document.activeElement !== restoreFocusTo) {
+        document.getElementById("main-content")?.focus({ preventScroll: true });
+      }
     };
   }, [open]);
 

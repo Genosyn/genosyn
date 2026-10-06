@@ -399,6 +399,24 @@ async function assertContainedBy(outer: Locator, inner: Locator, message: string
   );
 }
 
+async function waitForComposerCaret(composer: Locator) {
+  // Autocomplete moves the caret on the next animation frame. Let that finish
+  // before fill() selects all, or its selection can be collapsed mid-replacement.
+  await composer.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(resolve)));
+  const caret = await composer.evaluate((element) => {
+    const input = element as HTMLTextAreaElement;
+    return {
+      focused: document.activeElement === input,
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      length: input.value.length,
+    };
+  });
+  assert.equal(caret.focused, true, "autocomplete returns focus to the composer");
+  assert.equal(caret.start, caret.length, "the caret follows the inserted reference");
+  assert.equal(caret.end, caret.length, "autocomplete leaves no selected draft text");
+}
+
 async function assertTranscriptIsOnlyScroller(dialog: Locator) {
   const log = dialog.getByRole("log");
   const scrollingAncestors = await log.evaluate((element) => {
@@ -575,8 +593,10 @@ try {
         await composer.press("ArrowDown");
         await composer.press("Enter");
         assert.equal(await composer.inputValue(), "@riley ");
+        await waitForComposerCaret(composer);
 
         await composer.fill("#pr");
+        assert.equal(await composer.inputValue(), "#pr");
         const resources = dialog.getByRole("listbox", {
           name: "Product areas and company resources",
           exact: true,
@@ -585,6 +605,7 @@ try {
         await assertContainedBy(dialog, resources, "the resource picker stays in the modal");
         await resources.getByRole("option", { name: /Launch plan/ }).click();
         assert.match(await composer.inputValue(), /^\[#Launch plan\]\(/);
+        await waitForComposerCaret(composer);
 
         await composer.fill("");
         await dialog.getByRole("button", { name: "Emoji", exact: true }).click();

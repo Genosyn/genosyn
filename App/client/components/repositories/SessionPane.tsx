@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
 import { Button } from "../ui/Button";
-import { Spinner } from "../ui/Spinner";
+import { ButtonSpinner, Spinner } from "../ui/Spinner";
 import { useDialog } from "../ui/Dialog";
 import { useLiveRefetch } from "../CompanySocket";
 import { ChatMarkdown } from "../ChatMarkdown";
@@ -106,6 +106,8 @@ function isNearBottom(container: HTMLElement | null): boolean {
 
 type WorkspaceView = "activity" | "changes";
 
+type SessionAction = "accept" | "acceptAndSend" | "pullRequest" | "discard" | "archive" | "stop";
+
 /**
  * Activity and Changes are the same card in both layouts; the page can show
  * both at once on a wide monitor, a docked panel shows whichever tab is
@@ -170,7 +172,7 @@ export function SessionPane({
   const [sending, setSending] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const submitting = React.useRef(false);
-  const [acting, setActing] = React.useState(false);
+  const [acting, setActing] = React.useState<SessionAction | null>(null);
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [detailError, setDetailError] = React.useState<string | null>(null);
   const [diffError, setDiffError] = React.useState<string | null>(null);
@@ -391,15 +393,15 @@ export function SessionPane({
    * them just answered a confirm dialog, so the failure goes back to the
    * surface they were already looking at.
    */
-  async function run(work: () => Promise<void>, title: string) {
+  async function run(action: SessionAction, work: () => Promise<void>, title: string) {
     setFailure(null);
-    setActing(true);
+    setActing(action);
     try {
       await work();
     } catch (err) {
       void dialog.error(err, { title });
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -447,6 +449,7 @@ export function SessionPane({
     });
     if (!ok) return;
     await run(
+      push ? "acceptAndSend" : "accept",
       async () => {
         await api.post(`${base}/sessions/${sessionId}/publish`, { push });
         await reload();
@@ -466,6 +469,7 @@ export function SessionPane({
     });
     if (!ok) return;
     await run(
+      "pullRequest",
       async () => {
         await api.post(`${base}/sessions/${sessionId}/pull-request`, {});
         await reload();
@@ -485,11 +489,15 @@ export function SessionPane({
       variant: "danger",
     });
     if (!ok) return;
-    await run(async () => {
-      await api.post(`${base}/sessions/${sessionId}/discard`);
-      await reload();
-      await onChanged();
-    }, "Couldn’t throw the work away");
+    await run(
+      "discard",
+      async () => {
+        await api.post(`${base}/sessions/${sessionId}/discard`);
+        await reload();
+        await onChanged();
+      },
+      "Couldn’t throw the work away",
+    );
   }
 
   /**
@@ -500,6 +508,7 @@ export function SessionPane({
    */
   async function toggleArchive(archive: boolean) {
     await run(
+      "archive",
       async () => {
         await api.post(`${base}/sessions/${sessionId}/archive`, { archived: archive });
         await reload();
@@ -537,7 +546,7 @@ export function SessionPane({
     });
     if (!ok) return;
     setFailure(null);
-    setActing(true);
+    setActing("stop");
     try {
       await api.post<RepositoryWorkSession>(`${base}/sessions/${sessionId}/stop`);
       await reload();
@@ -548,7 +557,7 @@ export function SessionPane({
       // here — which is an instruction to do something else, not a notice.
       setFailure(errorMessage(err));
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -584,7 +593,8 @@ export function SessionPane({
                   <button
                     type="button"
                     onClick={() => void toggleArchive(!archived)}
-                    disabled={acting}
+                    disabled={acting !== null}
+                    aria-busy={acting === "archive" || undefined}
                     title={
                       archived
                         ? "Put this session back in the inbox"
@@ -593,7 +603,13 @@ export function SessionPane({
                     aria-label={archived ? "Restore this session" : "Archive this session"}
                     className="shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                   >
-                    {archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                    {acting === "archive" ? (
+                      <ButtonSpinner size={12} />
+                    ) : archived ? (
+                      <ArchiveRestore size={12} />
+                    ) : (
+                      <Archive size={12} />
+                    )}
                   </button>
                 )}
               </div>
@@ -632,11 +648,12 @@ export function SessionPane({
                 <button
                   type="button"
                   onClick={() => void stop()}
-                  disabled={acting}
+                  disabled={acting !== null}
+                  aria-busy={acting === "stop" || undefined}
                   title="Stop this turn — committed work is kept"
                   className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  {acting ? <Spinner size={12} /> : <Square size={11} />}
+                  {acting === "stop" ? <ButtonSpinner size={11} /> : <Square size={11} />}
                   Stop
                 </button>
               )}
@@ -843,10 +860,11 @@ export function SessionPane({
                   <button
                     type="button"
                     disabled={sending || attachments.pending.length + attachments.uploading >= 10}
+                    aria-busy={attachments.uploading > 0 || undefined}
                     onClick={() => fileInput.current?.click()}
                     className="mb-2 inline-flex items-center gap-1.5 text-xs text-slate-500 disabled:opacity-50"
                   >
-                    {attachments.uploading ? <Spinner size={13} /> : <Paperclip size={13} />}
+                    {attachments.uploading ? <ButtonSpinner size={13} /> : <Paperclip size={13} />}
                     {attachments.uploading ? "Uploading…" : "Attach files or paste an image"}
                   </button>
                 </div>
@@ -860,13 +878,13 @@ export function SessionPane({
                   <Button
                     size="sm"
                     onClick={() => void send()}
+                    loading={sending}
                     disabled={
-                      sending ||
                       attachments.uploading > 0 ||
                       (!instruction.trim() && !attachments.pending.length)
                     }
                   >
-                    {sending ? <Spinner size={13} /> : <ArrowUp size={13} />}
+                    <ArrowUp size={13} />
                     {sending ? "Sending…" : "Send"}
                   </Button>
                 </div>
@@ -903,9 +921,10 @@ export function SessionPane({
                   <Button
                     size="sm"
                     onClick={() => void openPullRequest(actions.pullRequestIsUpdate)}
-                    disabled={acting}
+                    loading={acting === "pullRequest"}
+                    disabled={acting !== null}
                   >
-                    {acting ? <Spinner size={13} /> : <GitPullRequest size={13} />}
+                    <GitPullRequest size={13} />
                     {actions.pullRequestIsUpdate ? "Update pull request" : "Open pull request"}
                   </Button>
                 )}
@@ -914,7 +933,8 @@ export function SessionPane({
                     size="sm"
                     variant={actions.pullRequest ? "secondary" : "primary"}
                     onClick={() => void publish(false)}
-                    disabled={acting}
+                    loading={acting === "accept"}
+                    disabled={acting !== null}
                   >
                     <GitMerge size={13} />
                     {checkoutBranch ? `Accept into ${checkoutBranch}` : "Accept changes"}
@@ -925,7 +945,8 @@ export function SessionPane({
                     size="sm"
                     variant="secondary"
                     onClick={() => void publish(true)}
-                    disabled={acting}
+                    loading={acting === "acceptAndSend"}
+                    disabled={acting !== null}
                   >
                     <Upload size={13} /> Accept and send
                   </Button>
@@ -936,7 +957,8 @@ export function SessionPane({
                     variant="ghost"
                     className="ml-auto text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
                     onClick={() => void discard()}
-                    disabled={acting}
+                    loading={acting === "discard"}
+                    disabled={acting !== null}
                   >
                     <Trash2 size={13} /> Throw away
                   </Button>

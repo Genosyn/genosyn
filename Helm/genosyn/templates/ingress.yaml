@@ -1,9 +1,30 @@
 {{- if .Values.ingress.enabled }}
+{{- $connect := include "genosyn.connectIngress" . | fromYaml }}
+{{- /* Operator annotations win over the ones an opt-in integration adds. */}}
+{{- $annotations := deepCopy (default dict .Values.ingress.annotations) }}
+{{- if include "genosyn.gke.enabled" . }}
+{{- $gke := default dict .Values.gke }}
+{{- $gkeAnnotations := dict }}
+{{- /* Kubernetes rejects the class annotation next to spec.ingressClassName. */}}
+{{- if not .Values.ingress.className }}
+{{- $_ := set $gkeAnnotations "kubernetes.io/ingress.class" "gce" }}
+{{- end }}
+{{- if and (ne (toString $gke.redirectToHttps) "false") (include "genosyn.ingressTls" .) }}
+{{- $_ := set $gkeAnnotations "networking.gke.io/v1beta1.FrontendConfig" (include "genosyn.gke.frontendConfigName" .) }}
+{{- end }}
+{{- if include "genosyn.gke.managedCertificate" . }}
+{{- $_ := set $gkeAnnotations "networking.gke.io/managed-certificates" (include "genosyn.gke.managedCertificateName" .) }}
+{{- end }}
+{{- with $gke.staticIpName }}
+{{- $_ := set $gkeAnnotations "kubernetes.io/ingress.global-static-ip-name" . }}
+{{- end }}
+{{- $annotations = merge $annotations $gkeAnnotations }}
+{{- end }}
 {{/*
-WebSockets share port 8471 with regular HTTP. nginx and Traefik pass Upgrade
-requests through a plain Ingress rule without extra annotations; if your
-controller needs tuning (idle timeouts, buffering), add it via
-ingress.annotations in values.yaml.
+WebSockets and streamed replies share port 8471 with regular HTTP. Configure
+the selected controller's upgrade support, timeouts, buffering and query-log
+redaction through ingress.annotations or its own configuration. The standard
+Ingress API has no portable timeout setting.
 */}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -11,7 +32,7 @@ metadata:
   name: {{ include "genosyn.fullname" . }}
   labels:
     {{- include "genosyn.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -23,7 +44,12 @@ spec:
   tls:
     - hosts:
         - {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
-      secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled" .Values.ingress.tls.secretName }}
+      secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled" .Values.ingress.tls.secretName | quote }}
+    {{- if $connect.enabled }}
+    - hosts:
+        - {{ $connect.host | quote }}
+      secretName: {{ $connect.tlsSecretName | quote }}
+    {{- end }}
   {{- end }}
   rules:
     - host: {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
@@ -36,4 +62,25 @@ spec:
                 name: {{ include "genosyn.fullname" . }}
                 port:
                   number: {{ .Values.service.port }}
+    {{- if $connect.enabled }}
+    - host: {{ $connect.host | quote }}
+      http:
+        paths:
+          - path: /api/connect
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "genosyn.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+          {{- range list "status" "start" "authorize" "callback" "poll" "refresh" }}
+          - path: /api/google-sign-in/{{ . }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "genosyn.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
 {{- end }}

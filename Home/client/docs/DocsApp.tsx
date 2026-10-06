@@ -6,7 +6,6 @@ import { GettingStarted } from "@/docs/pages/GettingStarted";
 import { Help } from "@/docs/pages/Help";
 import { MobileApp } from "@/docs/pages/MobileApp";
 import { Security } from "@/docs/pages/Security";
-import { PlansBilling } from "@/docs/pages/PlansBilling";
 import { Employees } from "@/docs/pages/Employees";
 import { Soul } from "@/docs/pages/Soul";
 import { Skills } from "@/docs/pages/Skills";
@@ -29,6 +28,7 @@ import { Sequences } from "@/docs/pages/Sequences";
 import { Signals } from "@/docs/pages/Signals";
 import { Deliverability } from "@/docs/pages/Deliverability";
 import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
+import { AskAi } from "@/docs/pages/AskAi";
 import { ChatSurfaces } from "@/docs/pages/ChatSurfaces";
 import { Tldrs } from "@/docs/pages/Tldrs";
 import { Vault } from "@/docs/pages/Vault";
@@ -56,8 +56,6 @@ import { Finance } from "@/docs/pages/Finance";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
 import { Cli } from "@/docs/pages/Cli";
 import { Kubernetes } from "@/docs/pages/Kubernetes";
-import { SaasHosting } from "@/docs/pages/SaasHosting";
-import { EnterpriseLicense } from "@/docs/pages/EnterpriseLicense";
 import { Vocabulary } from "@/docs/pages/Vocabulary";
 import { NotFound } from "@/docs/pages/NotFound";
 
@@ -66,9 +64,9 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/install": Install,
   "/docs/getting-started": GettingStarted,
   "/docs/help": Help,
+  "/docs/ask-ai": AskAi,
   "/docs/mobile": MobileApp,
   "/docs/security": Security,
-  "/docs/plans-billing": PlansBilling,
   "/docs/employees": Employees,
   "/docs/soul": Soul,
   "/docs/skills": Skills,
@@ -118,8 +116,6 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/self-hosting": SelfHosting,
   "/docs/cli": Cli,
   "/docs/kubernetes": Kubernetes,
-  "/docs/enterprise-license": EnterpriseLicense,
-  "/docs/saas-hosting": SaasHosting,
   "/docs/vocabulary": Vocabulary,
 };
 

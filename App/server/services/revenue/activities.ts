@@ -70,6 +70,8 @@ export type ActivityListOptions = {
   actorEmployeeId?: string;
   /** Also include activities on deals belonging to this contact. */
   includeRelatedDeals?: boolean;
+  /** With `customerId`: also include activities on the account's contacts and deals. */
+  includeRelatedRecords?: boolean;
   limit?: number;
   offset?: number;
 };
@@ -306,7 +308,34 @@ export async function listActivities(
   }
 
   if (opts.dealId) qb.andWhere("a.dealId = :dealId", { dealId: opts.dealId });
-  if (opts.customerId) {
+  if (opts.customerId && opts.includeRelatedRecords) {
+    // `customerId` is stamped when an activity is written and never moved, so
+    // a contact or deal attached to the account later keeps its earlier
+    // history under its own id only. The account's timeline reaches it there.
+    const [contacts, deals] = await Promise.all([
+      AppDataSource.getRepository(Contact).find({
+        where: { companyId, customerId: opts.customerId },
+        select: { id: true },
+      }),
+      AppDataSource.getRepository(Deal).find({
+        where: { companyId, customerId: opts.customerId },
+        select: { id: true },
+      }),
+    ]);
+    const relatedContactIds = contacts.map((c) => c.id);
+    const relatedDealIds = deals.map((d) => d.id);
+    qb.andWhere(
+      new Brackets((w) => {
+        w.where("a.customerId = :customerId", { customerId: opts.customerId });
+        if (relatedContactIds.length > 0) {
+          w.orWhere("a.contactId IN (:...relatedContactIds)", { relatedContactIds });
+        }
+        if (relatedDealIds.length > 0) {
+          w.orWhere("a.dealId IN (:...relatedDealIds)", { relatedDealIds });
+        }
+      }),
+    );
+  } else if (opts.customerId) {
     qb.andWhere("a.customerId = :customerId", { customerId: opts.customerId });
   }
   if (opts.partnershipId) {

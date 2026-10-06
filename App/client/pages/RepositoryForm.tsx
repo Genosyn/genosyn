@@ -4,7 +4,6 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import {
   api,
@@ -296,8 +295,8 @@ export function RepoFormFields({
  * repository, and a security question asked before it is relevant is a
  * question people click past.
  *
- * The list expresses the company's command policy. Host execution has the
- * App process authority; optional bubblewrap supplies OS isolation.
+ * The list expresses the company's command policy. Commands run on the host
+ * with the App process's authority; the list is not OS isolation.
  */
 export function RepoCommandFields({
   form,
@@ -332,15 +331,13 @@ export function RepoCommandFields({
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           What an AI employee may run in a work session — the tests, the linter, the build — so it
           can check its own work before you read the diff. Commands start in the session&apos;s
-          working copy and follow this installation&apos;s execution mode. The default host mode
-          uses the App process&apos;s access; optional bubblewrap adds isolation. When command
-          execution is disabled, work sessions carry on without commands.
+          working copy and run with the App process&apos;s access. When command execution is
+          disabled on this installation, work sessions carry on without commands.
         </p>
         <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           A session&apos;s working copy holds only what git tracks, so a repository whose checks
-          need installed dependencies also need network access. Host mode uses the App
-          container&apos;s network; optional bubblewrap uses its configured network setting. The
-          employee reports any checks it could not run.
+          need installed dependencies also need network access. Commands use the App
+          container&apos;s network. The employee reports any checks it could not run.
         </p>
       </div>
 
@@ -400,10 +397,9 @@ export function RepoCommandFields({
         <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/5 dark:text-amber-200">
           <div className="text-sm font-medium">Every command is allowed</div>
           <p className="mt-1">
-            An employee can run any command in a work session on this repository. Host execution
-            uses the App process&apos;s filesystem and network access; optional bubblewrap applies
-            its configured isolation. Choose this when the repository&apos;s own tooling needs more
-            than a list can express.
+            An employee can run any command in a work session on this repository, with the App
+            process&apos;s filesystem and network access. Choose this when the repository&apos;s own
+            tooling needs more than a list can express.
           </p>
         </div>
       )}
@@ -534,8 +530,7 @@ export function RepoFormModal({
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={busy}>
-          {busy && <Spinner size={14} />}
+        <Button onClick={submit} loading={busy}>
           {busy ? "Adding…" : "Add repository"}
         </Button>
       </div>

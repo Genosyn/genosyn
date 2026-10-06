@@ -330,8 +330,8 @@ export default function PublicForm() {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 dark:border-slate-700 dark:bg-slate-950">
             <FormError message={submitError} className="mb-4" />
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <Button type="submit" disabled={submitting || form.questions.length === 0}>
-                {submitting ? <Spinner size={15} /> : <Send size={15} />}
+              <Button type="submit" loading={submitting} disabled={form.questions.length === 0}>
+                <Send size={15} />
                 {submitting ? "Submitting…" : form.submitLabel || "Submit"}
               </Button>
               <div className="flex items-center gap-1.5 text-[11px] leading-5 text-slate-400 dark:text-slate-500">

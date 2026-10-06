@@ -1,6 +1,6 @@
 import { config } from "../../../config.js";
 
-export type CodingExecutionMode = "host" | "bubblewrap" | "disabled";
+export type CodingExecutionMode = "host" | "disabled";
 
 export type CodingRuntimeSettings = {
   enabled: boolean;
@@ -12,31 +12,15 @@ export type CodingRuntimeAvailability =
   | { available: true; reason: null }
   | { available: false; reason: string };
 
-let sandboxFallbackReason: string | null = null;
+let retiredModeReason: string | null = null;
 
 /**
- * Why boot disabled an explicitly selected bubblewrap sandbox, if it did.
- * A Member reading the Repository page should see the actual cause. The
- * shipped host default does not probe or depend on bubblewrap.
+ * Why boot disabled command execution on its own, if it did: the operator
+ * configuration still selects an execution mode this build no longer has. A
+ * Member reading the Repository page should see the actual cause.
  */
-export function noteCodingSandboxFallback(reason: string | null): void {
-  sandboxFallbackReason = reason;
-}
-
-/**
- * The one thing the person reading this can do about it.
- *
- * A cause with no remedy attached is where this message used to stop, and the
- * most common cause by far is one an operator would never guess: a container
- * gets no user namespaces and no private `/proc` under a stock Docker profile,
- * so the sandbox cannot start no matter how the host kernel is configured.
- * Name the two options and the command that applies them.
- */
-export function codingSandboxRemediation(reason: string): string {
-  if (reason.startsWith("no bubblewrap executable")) {
-    return "Install bubblewrap on the host (Debian/Ubuntu: `apt-get install bubblewrap`), or run the standard Docker image, which ships it.";
-  }
-  return "Under Docker, the container has to be created with `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` — `GENOSYN_SANDBOX=1 genosyn upgrade` recreates it that way. On a bare Linux host, allow unprivileged user namespaces.";
+export function noteRetiredExecutionMode(reason: string | null): void {
+  retiredModeReason = reason;
 }
 
 /**
@@ -49,19 +33,19 @@ export function codingSandboxRemediation(reason: string): string {
 export function codingRuntimeAvailability(
   settings: CodingRuntimeSettings = config.agent.codingTools,
 ): CodingRuntimeAvailability {
-  if (!settings.enabled || settings.executionMode === "disabled") {
+  if (!settings.enabled || settings.executionMode !== "host") {
     return {
       available: false,
-      reason: sandboxFallbackReason
-        ? `Command execution is disabled: the selected coding sandbox could not start (${sandboxFallbackReason}). Bubblewrap needs Linux unprivileged user namespaces. ${codingSandboxRemediation(sandboxFallbackReason)}`
+      reason: retiredModeReason
+        ? `Command execution is disabled: ${retiredModeReason}`
         : "Command execution is disabled on this Genosyn installation.",
     };
   }
-  if (settings.executionMode === "host" && !settings.allowUnsafeHostExecution) {
+  if (!settings.allowUnsafeHostExecution) {
     return {
       available: false,
       reason:
-        "Unsafe host command execution is disabled. Use Bubblewrap isolation or explicitly acknowledge host execution in the operator configuration.",
+        "Host command execution is disabled. Set allowUnsafeHostExecution to true in the operator configuration to allow it.",
     };
   }
   return { available: true, reason: null };

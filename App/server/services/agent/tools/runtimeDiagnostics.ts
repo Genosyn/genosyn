@@ -11,7 +11,7 @@ export function createRuntimeDiagnostics(options: {
   /** Null means this turn has no step ceiling; caller cancellation still applies. */
   maxSteps: number | null;
   bashTimeoutMs: number;
-  codingMode: "host" | "bubblewrap" | "disabled";
+  codingMode: "host" | "disabled";
   nativeCoding: boolean;
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;

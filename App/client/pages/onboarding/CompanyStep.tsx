@@ -77,7 +77,8 @@ export function CompanyStep({
           <Button
             type="submit"
             className="w-full sm:w-auto"
-            disabled={saving || company.role === "member"}
+            loading={saving}
+            disabled={company.role === "member"}
           >
             {saving ? "Saving…" : "Save and continue"}
             {!saving && <ArrowRight size={15} />}

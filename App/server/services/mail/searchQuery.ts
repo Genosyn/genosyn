@@ -2,6 +2,7 @@ import { SelectQueryBuilder } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailThread } from "../../db/entities/MailThread.js";
+import { mailSearchMatch } from "./searchIndex.js";
 
 /**
  * The one mail-search grammar, shared by the human thread list and the
@@ -18,10 +19,16 @@ import { MailThread } from "../../db/entities/MailThread.js";
  *   has:attachment      at least one file
  *   is:unread / is:read / is:starred
  *   before:2026-01-31 / after:2026-01-01   (on the thread's last message)
- *   "quoted phrase"     exact-substring term, spaces preserved
+ *   "quoted phrase"     those words in that order
  *
  * Operator values can be quoted too (label:"Team Updates"). Anything that
  * doesn't parse as an operator is just a term — a query can never error.
+ *
+ * On SQLite, text values — terms, `from:`, `to:`, `subject:` — are answered
+ * by the full-text index (services/mail/searchIndex.ts), so they match whole
+ * words and the start of words: `invo` finds "invoice", `cafe` finds "Café".
+ * On Postgres, and on SQLite until that index has finished building after a
+ * boot, they match as substrings anywhere in the text.
  */
 
 export type MailSearchScope =
@@ -260,10 +267,56 @@ export function applyMailSearchFilters(
   parsed: ParsedMailQuery,
   labelId: string | null | undefined,
 ): SelectQueryBuilder<MailThread> {
+  // Every text filter in one lookup when the full-text index can answer them
+  // (services/mail/searchIndex.ts); otherwise the scanning LIKE filters.
+  const match = mailSearchMatch(parsed);
+  if (match !== null) {
+    qb = qb.andWhere(
+      "t.rowid IN (SELECT rowid FROM temp.mail_search WHERE mail_search MATCH :sqMatch)",
+      { sqMatch: match },
+    );
+  } else {
+    qb = applyTextFiltersByScan(qb, parsed);
+  }
+  if (parsed.label !== undefined) {
+    if (labelId) {
+      qb = qb.andWhere("t.labelIds LIKE :sqLabel", { sqLabel: `% ${labelId} %` });
+    } else {
+      // Unknown label — match nothing rather than everything.
+      qb = qb.andWhere("1 = 0");
+    }
+  }
+  if (parsed.hasAttachment) {
+    qb = qb.andWhere("t.hasAttachments = :sqHasAtt", { sqHasAtt: true });
+  }
+  if (parsed.isUnread !== undefined) {
+    qb = qb.andWhere("t.unread = :sqUnread", { sqUnread: parsed.isUnread });
+  }
+  if (parsed.isStarred) {
+    qb = qb.andWhere("t.labelIds LIKE :sqStar", { sqStar: "% STARRED %" });
+  }
+  if (parsed.after) {
+    qb = qb.andWhere("t.lastMessageAt >= :sqAfter", { sqAfter: parsed.after });
+  }
+  if (parsed.before) {
+    qb = qb.andWhere("t.lastMessageAt < :sqBefore", { sqBefore: parsed.before });
+  }
+  return qb;
+}
+
+/**
+ * Free-text terms, `from:`, `to:` and `subject:` as substring tests. Each
+ * term can only be ruled out by reading every message body in the thread, so
+ * a term that matches nothing reads the whole mailbox; this is what Postgres
+ * runs, and what SQLite runs until its index is ready.
+ */
+function applyTextFiltersByScan(
+  qb: SelectQueryBuilder<MailThread>,
+  parsed: ParsedMailQuery,
+): SelectQueryBuilder<MailThread> {
   // User-supplied values must not smuggle LIKE metacharacters — a bare `%`
   // term would otherwise match everything. Escaped with `\` and each clause
-  // declares ESCAPE '\' (supported by sqlite and postgres alike). The label
-  // sentinels below stay raw: those are trusted Gmail label ids.
+  // declares ESCAPE '\' (supported by sqlite and postgres alike).
   const escapeLike = (s: string) => s.replace(/[\\%_]/g, "\\$&");
   parsed.terms.forEach((term, i) => {
     const p = `term${i}`;
@@ -293,29 +346,6 @@ export function applyMailSearchFilters(
     qb = qb.andWhere("LOWER(t.subject) LIKE :sqSubject ESCAPE '\\'", {
       sqSubject: `%${escapeLike(parsed.subject)}%`,
     });
-  }
-  if (parsed.label !== undefined) {
-    if (labelId) {
-      qb = qb.andWhere("t.labelIds LIKE :sqLabel", { sqLabel: `% ${labelId} %` });
-    } else {
-      // Unknown label — match nothing rather than everything.
-      qb = qb.andWhere("1 = 0");
-    }
-  }
-  if (parsed.hasAttachment) {
-    qb = qb.andWhere("t.hasAttachments = :sqHasAtt", { sqHasAtt: true });
-  }
-  if (parsed.isUnread !== undefined) {
-    qb = qb.andWhere("t.unread = :sqUnread", { sqUnread: parsed.isUnread });
-  }
-  if (parsed.isStarred) {
-    qb = qb.andWhere("t.labelIds LIKE :sqStar", { sqStar: "% STARRED %" });
-  }
-  if (parsed.after) {
-    qb = qb.andWhere("t.lastMessageAt >= :sqAfter", { sqAfter: parsed.after });
-  }
-  if (parsed.before) {
-    qb = qb.andWhere("t.lastMessageAt < :sqBefore", { sqBefore: parsed.before });
   }
   return qb;
 }

@@ -20,7 +20,6 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
   Timer,
   Trash2,
   Webhook,
@@ -61,7 +60,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { copyToClipboard } from "../lib/clipboard";
@@ -72,6 +71,9 @@ import {
   RunChecksChip,
   RunChecksStrip,
   RunContinuationNotice,
+  followUpNeedsPolling,
+  mergeRunContinuationState,
+  runFollowUpLabel,
   RunEffectsPane,
   RunFailureNotice,
   RunLogPane,
@@ -94,7 +96,7 @@ import {
   type CheckSpecDraft,
 } from "../lib/routineChecks";
 import { RoutinesContext } from "./RoutinesLayout";
-import { RoutineAssistant } from "./RoutineAssistant";
+import { useAskAi } from "../components/askAi/AskAiProvider";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { EnabledToggle } from "./RevenueSignals";
 
@@ -115,70 +117,16 @@ const TABS: Array<[Tab, string]> = [
   ["settings", "Settings"],
 ];
 
-/**
- * Whether the Ask AI rail is open, and whether it is wound down to its 44px
- * spine. Remembered per browser rather than in the URL: opening a chat is a
- * preference about the workspace, and putting it in `?` would make every
- * shared routine link carry somebody else's panel state — and would fight
- * `?tab=` for the same history entry.
- */
-const ASSISTANT_OPEN_KEY = "genosyn.routineAssistant.open";
-const ASSISTANT_COLLAPSED_KEY = "genosyn.routineAssistant.collapsed";
-
-function readFlag(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
-  return raw === null ? fallback : raw === "1";
-}
-
-function writeFlag(key: string, value: boolean): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, value ? "1" : "0");
-}
-
 export default function RoutineDetail({ company }: { company: Company }) {
   const { empSlug, routineSlug } = useParams();
-  const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
+  const { routines, folders, loading, loadError, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
-  const [aiOpen, setAiOpen] = React.useState(() => readFlag(ASSISTANT_OPEN_KEY, false));
-  const [aiCollapsed, setAiCollapsed] = React.useState(() =>
-    readFlag(ASSISTANT_COLLAPSED_KEY, false),
-  );
+  const [startingRun, setStartingRun] = React.useState(false);
   const dialog = useDialog();
-
-  const openAssistant = React.useCallback((next: boolean) => {
-    setAiOpen(next);
-    writeFlag(ASSISTANT_OPEN_KEY, next);
-    // Reopening a panel that was closed while wound down should give the
-    // reader the panel, not the spine they can't remember collapsing.
-    if (next) {
-      setAiCollapsed(false);
-      writeFlag(ASSISTANT_COLLAPSED_KEY, false);
-    }
-  }, []);
-
-  const collapseAssistant = React.useCallback((next: boolean) => {
-    setAiCollapsed(next);
-    writeFlag(ASSISTANT_COLLAPSED_KEY, next);
-  }, []);
-
-  /** The conversation is actually on screen — open, and not wound down. */
-  const assistantShowing = aiOpen && !aiCollapsed;
-
-  /**
-   * What the header button does. From a collapsed spine it restores the
-   * conversation rather than closing the panel outright: the reader pressing
-   * "Ask AI" while a spine is showing wants the chat back, and closing it
-   * would take two more clicks to undo.
-   */
-  const toggleAssistant = React.useCallback(() => {
-    if (aiOpen && aiCollapsed) {
-      collapseAssistant(false);
-      return;
-    }
-    openAssistant(!aiOpen);
-  }, [aiOpen, aiCollapsed, collapseAssistant, openAssistant]);
+  // Ask AI docks beside every page now; with it open the routine has roughly
+  // a phone's width, and two-column tab layouts stop being two columns.
+  const askAiOpen = Boolean(useAskAi()?.open);
 
   const routine =
     routines.find((r) => r.employee?.slug === empSlug && r.slug === routineSlug) ?? null;
@@ -228,6 +176,15 @@ export default function RoutineDetail({ company }: { company: Company }) {
     }
   }
 
+  async function runNow() {
+    setStartingRun(true);
+    try {
+      await triggerRun();
+    } finally {
+      setStartingRun(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -236,6 +193,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
     );
   }
 
+  if (!routine && loadError) return null;
   if (!routine) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -257,15 +215,11 @@ export default function RoutineDetail({ company }: { company: Company }) {
 
   const emp = routine.employee;
   const brokenSchedule = routine.enabled && routine.nextRunAt === null;
-  // With the rail docked, the page has roughly a phone's width to play with.
-  // Two-column tab layouts stop being two columns at that point.
-  const compact = assistantShowing;
+  const compact = askAiOpen;
 
   return (
-    // A flex row so the Ask AI rail can dock beside the routine, the same
-    // shape the mail thread uses. `relative` anchors the rail's narrow-window
-    // takeover; the left column takes the page's scroll off `<main>` so the
-    // rail scrolls its own conversation instead of riding the page down.
+    // The left column takes the page's scroll off `<main>` so Ask AI, docked
+    // beside the page, scrolls its own conversation instead of riding along.
     <div className="relative flex h-full min-h-0 w-full">
       <div className="page-shell min-w-0 flex-1 overflow-y-auto p-6">
         <Breadcrumbs
@@ -331,17 +285,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => toggleAssistant()}
-              // "Showing" means the conversation is on screen. A rail wound
-              // down to its spine is open but not showing, so announcing it as
-              // pressed would contradict what the reader can see.
-              aria-pressed={assistantShowing}
-            >
-              <Sparkles size={14} /> Ask AI
-            </Button>
-            <Button onClick={triggerRun}>
+            <Button onClick={() => void runNow()} loading={startingRun}>
               <Play size={14} /> Run now
             </Button>
           </div>
@@ -390,7 +334,9 @@ export default function RoutineDetail({ company }: { company: Company }) {
             onOpenRun={openRun}
           />
         )}
-        {tab === "brief" && <BriefTab company={company} routine={routine} />}
+        {tab === "brief" && (
+          <BriefTab key={`${company.id}:${routine.id}`} company={company} routine={routine} />
+        )}
         {tab === "runs" && (
           <RunsTab
             company={company}
@@ -418,16 +364,6 @@ export default function RoutineDetail({ company }: { company: Company }) {
           />
         )}
       </div>
-
-      {aiOpen && (
-        <RoutineAssistant
-          company={company}
-          routine={routine}
-          collapsed={aiCollapsed}
-          onCollapsedChange={collapseAssistant}
-          onClose={() => openAssistant(false)}
-        />
-      )}
     </div>
   );
 }
@@ -445,7 +381,7 @@ function OverviewTab({
   company: Company;
   routine: RoutineWithMeta;
   folders: RoutineFolder[];
-  /** The Ask AI rail is docked, so there is no room for two columns. */
+  /** Ask AI is docked beside the page, so there is no room for two columns. */
   compact: boolean;
   onSeeRuns: () => void;
   onOpenRun: (runId: string) => void;
@@ -695,6 +631,7 @@ function LessonsCard({
   compact: boolean;
 }) {
   const [lessons, setLessons] = React.useState<RunLesson[] | null>(null);
+  const [dismissingId, setDismissingId] = React.useState<string | null>(null);
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
 
@@ -714,11 +651,14 @@ function LessonsCard({
   useLiveRefetch("routine", reload, routine.id);
 
   async function dismiss(lesson: RunLesson) {
+    setDismissingId(lesson.id);
     try {
       await api.post(`/api/companies/${company.id}/run-lessons/${lesson.id}/dismiss`, {});
       reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t dismiss the lesson" });
+    } finally {
+      setDismissingId(null);
     }
   }
 
@@ -757,7 +697,12 @@ function LessonsCard({
                   Dismissed
                 </span>
               ) : canManage ? (
-                <Button variant="ghost" size="sm" onClick={() => void dismiss(lesson)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={dismissingId === lesson.id}
+                  onClick={() => void dismiss(lesson)}
+                >
                   Dismiss
                 </Button>
               ) : null}
@@ -903,7 +848,7 @@ function CloseWorkstreamModal({
           <Button variant="secondary" type="button" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Closing…" : "Close workstream"}
           </Button>
         </>
@@ -1000,17 +945,26 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
   const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    let active = true;
+    setLoadError(null);
     api
       .get<{ content: string }>(`/api/companies/${company.id}/routines/${routine.id}/readme`)
       .then((r) => {
+        if (!active) return;
         setContent(r.content);
         setSaved(r.content);
       })
-      .catch((err: unknown) => setLoadError(errorMessage(err, "Could not load the brief")));
-  }, [company.id, routine.id]);
+      .catch((err: unknown) => {
+        if (active) setLoadError(errorMessage(err, "Could not load the brief"));
+      });
+    return () => {
+      active = false;
+    };
+  }, [company.id, routine.id, loadAttempt]);
 
   async function save() {
     if (content === null) return;
@@ -1026,7 +980,15 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
     }
   }
 
-  if (loadError) return <FormError message={loadError} />;
+  if (loadError)
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <FormError message={loadError} />
+        <Button variant="secondary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+          Retry brief
+        </Button>
+      </div>
+    );
   if (content === null) return <Spinner />;
   const dirty = content !== saved;
 
@@ -1040,7 +1002,7 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
         <MarkdownEditor value={content} onChange={setContent} rows={18} />
         <FormError message={error} />
         <div className="flex items-center gap-2">
-          <Button onClick={save} disabled={saving || !dirty}>
+          <Button onClick={save} loading={saving} disabled={!dirty}>
             {saving ? "Saving…" : "Save brief"}
           </Button>
           {dirty && (
@@ -1068,10 +1030,10 @@ function RunsTab({
 }: {
   company: Company;
   routine: RoutineWithMeta;
-  /** The Ask AI rail is docked, so the run list stacks above the log. */
+  /** Ask AI is docked beside the page, so the run list stacks above the log. */
   compact: boolean;
   initialRunId: string | null;
-  onRetry: () => void;
+  onRetry: () => Promise<void>;
 }) {
   const [runs, setRuns] = React.useState<Run[] | null>(null);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -1079,6 +1041,8 @@ function RunsTab({
   const [loadingLog, setLoadingLog] = React.useState(false);
   const [logLoadError, setLogLoadError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [starting, setStarting] = React.useState(false);
+  const [cancellingRetry, setCancellingRetry] = React.useState(false);
   const dialog = useDialog();
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
 
@@ -1126,6 +1090,14 @@ function RunsTab({
         if (cancelled) return;
         consecutiveErrors = 0;
         setLog(l);
+        // Either live list reads or log polling can observe a handoff first.
+        // Apply the latest received metadata to this exact selected Run.
+        setRuns(
+          (current) =>
+            current?.map((run) =>
+              run.id === activeId ? mergeRunContinuationState(run, l) : run,
+            ) ?? null,
+        );
         setLogLoadError(null);
         if (runLogNeedsPolling(l)) timer = setTimeout(loadLog, 1200);
       } catch (err) {
@@ -1146,6 +1118,15 @@ function RunsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id, activeId]);
 
+  async function runNow() {
+    setStarting(true);
+    try {
+      await onRetry();
+    } finally {
+      setStarting(false);
+    }
+  }
+
   if (loadError) return <FormError message={loadError} />;
   if (runs === null) return <Spinner />;
   if (runs.length === 0) {
@@ -1154,7 +1135,7 @@ function RunsTab({
         title="No runs yet"
         description="Hit Run now to trigger this routine, or wait for its schedule to fire."
         action={
-          <Button onClick={onRetry}>
+          <Button onClick={() => void runNow()} loading={starting}>
             <Play size={14} /> Run now
           </Button>
         }
@@ -1170,6 +1151,7 @@ function RunsTab({
 
   async function cancelActiveRetry() {
     if (!activeRun || !pendingRetryAt) return;
+    setCancellingRetry(true);
     try {
       await api.post(`/api/companies/${company.id}/runs/${activeRun.id}/cancel-retry`, {});
       setRuns(
@@ -1188,6 +1170,8 @@ function RunsTab({
           : "Couldn’t cancel the retry",
       });
       await loadRuns();
+    } finally {
+      setCancellingRetry(false);
     }
   }
 
@@ -1196,6 +1180,17 @@ function RunsTab({
       <RunContinuationNotice
         continuationPending={activeRun?.continuationPending}
         continuationStopReason={activeRun?.continuationStopReason}
+        followUpRun={activeRun?.followUpRun}
+        onOpenRun={
+          activeRun?.followUpRun?.id !== activeId
+            ? (next) => {
+                setRuns((current) =>
+                  current?.some((run) => run.id === next.id) ? current : [next, ...(current ?? [])],
+                );
+                setActiveId(next.id);
+              }
+            : undefined
+        }
       />
       <RunFailureNotice reason={log?.failureReason ?? activeRun?.failureReason} />
       <div
@@ -1222,6 +1217,11 @@ function RunsTab({
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
+                    {r.followUpRun && (
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {runFollowUpLabel(r.followUpRun)}
+                      </span>
+                    )}
                     {r.status !== "reviewed" && r.outcomeVerdict && (
                       <RunOutcomeChip verdict={r.outcomeVerdict} note={r.outcomeNote} size="xs" />
                     )}
@@ -1252,7 +1252,7 @@ function RunsTab({
                     {(r.missedSlots ?? 0) > 0 && (
                       <span
                         className="text-[10px] text-amber-600 dark:text-amber-400"
-                        title="Scheduled occurrences missed while the server was unavailable"
+                        title="More scheduled occurrences this Run covers: missed while the server was unavailable, or due while it waited to start"
                       >
                         +{r.missedSlots} missed
                       </span>
@@ -1262,7 +1262,9 @@ function RunsTab({
                     {new Date(r.startedAt).toLocaleString()}
                   </div>
                   <div className="text-slate-400 dark:text-slate-500">
-                    {formatDuration(r.startedAt, r.finishedAt)}
+                    {r.status === "queued"
+                      ? "Waiting to start"
+                      : formatDuration(r.startedAt, r.finishedAt)}
                   </div>
                 </button>
               </li>
@@ -1278,7 +1280,12 @@ function RunsTab({
           <RunLogPane
             log={log}
             loading={loadingLog}
-            placeholder={logLoadError ?? "(empty log)"}
+            placeholder={
+              logLoadError ??
+              ((log?.status ?? activeRun?.status) === "queued"
+                ? "Waiting to start. If a Standdown covers this Run, it resumes after the Standdown is lifted."
+                : "(empty log)")
+            }
             className="h-full max-h-[60vh] min-h-[400px]"
           />
           {recordings.length > 0 && activeId && (
@@ -1321,7 +1328,7 @@ function RunsTab({
               ? `Unfinished work will continue from saved progress ${timeUntil(pendingRetryAt)}.`
               : `Automatic recovery is scheduled ${timeUntil(pendingRetryAt)}. Cancel it before running manually to avoid two Runs.`
             : activeRun?.status === "interrupted" || activeRun?.errorKind === "interrupted"
-              ? "The log above shows activity captured before the server stopped; anything after its final line is unknown. Run it again only if repeating the work is safe."
+              ? "This Run was interrupted. Review its recorded reason, log, and Effects before running it again; work already done may repeat."
               : activeRun?.status === "failed"
                 ? "This Run did not complete its intended work. Review the reason before running it again."
                 : isRunError(activeRun?.status)
@@ -1344,16 +1351,16 @@ function RunsTab({
               }}
             />
           )}
-          {pendingRetryAt ? (
-            <Button variant="secondary" onClick={cancelActiveRetry}>
+          {pendingRetryAt && !activeRun?.followUpRun ? (
+            <Button variant="secondary" onClick={cancelActiveRetry} loading={cancellingRetry}>
               <Ban size={14} />
               {activeRun?.continuationPending ? "Cancel continuation" : "Cancel retry"}
             </Button>
-          ) : (
-            <Button variant="secondary" onClick={onRetry}>
+          ) : !followUpNeedsPolling(activeRun?.followUpRun) ? (
+            <Button variant="secondary" onClick={() => void runNow()} loading={starting}>
               <Play size={14} /> Run now
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -1435,7 +1442,9 @@ function SettingsTab({
   const [memberBrowsers, setMemberBrowsers] = React.useState<MemberBrowser[]>([]);
   const [webhookEnabled, setWebhookEnabled] = React.useState(routine.webhookEnabled);
   const [webhookToken, setWebhookToken] = React.useState(routine.webhookToken);
+  const [regenerating, setRegenerating] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [webhookError, setWebhookError] = React.useState<string | null>(null);
   const [webhookNotice, setWebhookNotice] = React.useState<string | null>(null);
@@ -1871,9 +1880,15 @@ function SettingsTab({
               <Button
                 size="sm"
                 variant="ghost"
+                loading={regenerating}
                 onClick={async () => {
-                  await toggleWebhook(false);
-                  await toggleWebhook(true);
+                  setRegenerating(true);
+                  try {
+                    await toggleWebhook(false);
+                    await toggleWebhook(true);
+                  } finally {
+                    setRegenerating(false);
+                  }
                 }}
               >
                 Regenerate token
@@ -1916,7 +1931,7 @@ function SettingsTab({
       <FormError message={error} />
 
       <div className="flex gap-2">
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={save} loading={saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -1957,6 +1972,7 @@ function SettingsTab({
           </div>
           <Button
             variant="danger"
+            loading={deleting}
             onClick={async () => {
               const ok = await dialog.confirm({
                 title: `Delete routine "${routine.name}"?`,
@@ -1966,12 +1982,15 @@ function SettingsTab({
                 variant: "danger",
               });
               if (!ok) return;
+              setDeleting(true);
               try {
                 await api.del(`/api/companies/${company.id}/routines/${routine.id}`);
                 await onSaved();
                 navigate(`/c/${company.slug}/routines`, { replace: true });
               } catch (err) {
                 void dialog.error(err, { title: "Couldn’t delete the routine" });
+              } finally {
+                setDeleting(false);
               }
             }}
           >
@@ -1996,7 +2015,7 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
   const [data, setData] = React.useState<RoutineTriggerList | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<`${"toggle" | "remove"}:${string}` | null>(null);
   const canManage = company.role === "owner" || company.role === "admin";
 
   const reload = React.useCallback(async () => {
@@ -2022,7 +2041,7 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
   useLiveRefetch("routine", reload, routine.id);
 
   async function toggle(trigger: RoutineTrigger, enabled: boolean) {
-    setBusyId(trigger.id);
+    setBusy(`toggle:${trigger.id}`);
     setRowError(null);
     try {
       await api.patch(`/api/companies/${company.id}/routine-triggers/${trigger.id}`, { enabled });
@@ -2030,12 +2049,12 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
     } catch (err) {
       setRowError(errorMessage(err, "Could not update the trigger"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
   async function remove(trigger: RoutineTrigger) {
-    setBusyId(trigger.id);
+    setBusy(`remove:${trigger.id}`);
     setRowError(null);
     try {
       await api.del(`/api/companies/${company.id}/routine-triggers/${trigger.id}`);
@@ -2043,7 +2062,7 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
     } catch (err) {
       setRowError(errorMessage(err, "Could not delete the trigger"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2093,17 +2112,22 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
                         <EnabledToggle
                           enabled={trigger.enabled}
                           label={`${trigger.enabled ? "Disable" : "Enable"} the ${trigger.kind} trigger`}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
                           onChange={(next) => void toggle(trigger, next)}
                         />
                         <button
                           type="button"
                           onClick={() => void remove(trigger)}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
+                          aria-busy={busy === `remove:${trigger.id}` || undefined}
                           aria-label={`Delete the ${trigger.kind} trigger`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-red-400"
                         >
-                          <Trash2 size={14} />
+                          {busy === `remove:${trigger.id}` ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </button>
                       </>
                     )}
@@ -2205,7 +2229,7 @@ function AddTriggerForm({
             }
           />
         </div>
-        <Button type="submit" size="sm" disabled={saving}>
+        <Button type="submit" size="sm" loading={saving}>
           {saving ? "Adding…" : "Add trigger"}
         </Button>
       </div>
@@ -2235,7 +2259,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
   const [data, setData] = React.useState<RoutineCheckList | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<`${"toggle" | "remove" | "move"}:${string}` | null>(null);
   const [editing, setEditing] = React.useState<RoutineCheck | "new" | null>(null);
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
@@ -2262,7 +2286,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
   const atLimit = checks.length >= MAX_CHECKS_PER_ROUTINE;
 
   async function toggle(check: RoutineCheck, enabled: boolean) {
-    setBusyId(check.id);
+    setBusy(`toggle:${check.id}`);
     setRowError(null);
     try {
       await api.patch(`/api/companies/${company.id}/routines/${routine.id}/checks/${check.id}`, {
@@ -2272,7 +2296,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     } catch (err) {
       setRowError(errorMessage(err, "Could not update the check"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2285,7 +2309,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
       variant: "danger",
     });
     if (!ok) return;
-    setBusyId(check.id);
+    setBusy(`remove:${check.id}`);
     setRowError(null);
     try {
       await api.del(`/api/companies/${company.id}/routines/${routine.id}/checks/${check.id}`);
@@ -2293,7 +2317,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     } catch (err) {
       setRowError(errorMessage(err, "Could not delete the check"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2305,7 +2329,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     const target = index + delta;
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
-    setBusyId(checks[index].id);
+    setBusy(`move:${checks[index].id}`);
     setRowError(null);
     try {
       await api.post(`/api/companies/${company.id}/routines/${routine.id}/checks/reorder`, {
@@ -2315,7 +2339,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
     } catch (err) {
       setRowError(errorMessage(err, "Could not reorder the checks"));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -2383,7 +2407,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <button
                           type="button"
                           onClick={() => void move(index, -1)}
-                          disabled={busyId !== null || index === 0}
+                          disabled={busy !== null || index === 0}
                           aria-label={`Move "${check.name}" earlier`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         >
@@ -2392,7 +2416,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <button
                           type="button"
                           onClick={() => void move(index, 1)}
-                          disabled={busyId !== null || index === checks.length - 1}
+                          disabled={busy !== null || index === checks.length - 1}
                           aria-label={`Move "${check.name}" later`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         >
@@ -2401,13 +2425,13 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <EnabledToggle
                           enabled={check.enabled}
                           label={`${check.enabled ? "Disable" : "Enable"} the check "${check.name}"`}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
                           onChange={(next) => void toggle(check, next)}
                         />
                         <button
                           type="button"
                           onClick={() => setEditing(check)}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
                           aria-label={`Edit the check "${check.name}"`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         >
@@ -2416,11 +2440,16 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
                         <button
                           type="button"
                           onClick={() => void remove(check)}
-                          disabled={busyId !== null}
+                          disabled={busy !== null}
+                          aria-busy={busy === `remove:${check.id}` || undefined}
                           aria-label={`Delete the check "${check.name}"`}
                           className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-red-400"
                         >
-                          <Trash2 size={14} />
+                          {busy === `remove:${check.id}` ? (
+                            <ButtonSpinner size={14} />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </button>
                       </div>
                     )}
@@ -2477,7 +2506,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
  *
  * The `command` option is disabled — with the server's own reason shown beside
  * it — wherever command execution is unavailable. Checks follow the configured
- * host or bubblewrap execution mode, so on disabled installs one could never pass,
+ * execution mode, so on disabled installs one could never pass,
  * and letting somebody author it would produce a Routine that fails forever
  * for a reason nothing on screen explains.
  */
@@ -2692,7 +2721,7 @@ function CheckEditor({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving}>
             {saving ? "Saving…" : check ? "Save check" : "Add check"}
           </Button>
         </div>

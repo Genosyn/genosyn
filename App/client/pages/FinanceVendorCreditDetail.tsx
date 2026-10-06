@@ -6,7 +6,7 @@ import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
@@ -27,6 +27,9 @@ export default function FinanceVendorCreditDetail() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showApply, setShowApply] = React.useState(false);
   const [showRefund, setShowRefund] = React.useState(false);
+  const [unapplyingId, setUnapplyingId] = React.useState<string | null>(null);
+  const [reversingId, setReversingId] = React.useState<string | null>(null);
+  const [voiding, setVoiding] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!creditSlug) return;
@@ -48,30 +51,39 @@ export default function FinanceVendorCreditDetail() {
   async function unapply(appId: string) {
     if (!credit) return;
     if (!(await dialog.confirm({ title: "Unapply this credit?", message: "The amount goes back onto the bill.", confirmLabel: "Unapply" }))) return;
+    setUnapplyingId(appId);
     try {
       setCredit(await api.del<VendorCreditDetail>(`/api/companies/${company.id}/vendor-credits/${credit.slug}/applications/${appId}`));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t unapply the credit" });
+    } finally {
+      setUnapplyingId(null);
     }
   }
 
   async function voidRefund(refundId: string) {
     if (!credit) return;
     if (!(await dialog.confirm({ title: "Reverse this refund?", message: "Reverses the cash-in entry and reopens the credit.", confirmLabel: "Reverse" }))) return;
+    setReversingId(refundId);
     try {
       setCredit(await api.del<VendorCreditDetail>(`/api/companies/${company.id}/vendor-refunds/${refundId}`));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t reverse the refund" });
+    } finally {
+      setReversingId(null);
     }
   }
 
   async function voidCredit() {
     if (!credit) return;
     if (!(await dialog.confirm({ title: `Void ${credit.number}?`, message: "Reverses the credit's postings. Only possible while nothing is applied or refunded.", variant: "danger", confirmLabel: "Void" }))) return;
+    setVoiding(true);
     try {
       setCredit(await api.post<VendorCreditDetail>(`/api/companies/${company.id}/vendor-credits/${credit.slug}/void`, {}));
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t void the credit" });
+    } finally {
+      setVoiding(false);
     }
   }
 
@@ -110,7 +122,7 @@ export default function FinanceVendorCreditDetail() {
         <div className="flex gap-2">
           {canApply && <Button onClick={() => setShowApply(true)}><Plus size={14} /> Apply to bill</Button>}
           {canApply && <Button variant="secondary" onClick={() => setShowRefund(true)}><Undo2 size={14} /> Record refund</Button>}
-          {canVoid && <Button variant="secondary" onClick={voidCredit}><Ban size={14} /> Void</Button>}
+          {canVoid && <Button variant="secondary" loading={voiding} onClick={voidCredit}><Ban size={14} /> Void</Button>}
         </div>
       </div>
 
@@ -148,8 +160,8 @@ export default function FinanceVendorCreditDetail() {
                   <span className="text-xs text-slate-500 dark:text-slate-400">→ {a.billNumber ?? "bill"} · {new Date(a.appliedAt).toISOString().slice(0, 10)}{a.reversedAt ? " · reversed" : ""}</span>
                 </div>
                 {!a.reversedAt && (
-                  <button onClick={() => unapply(a.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label="Unapply">
-                    <Trash2 size={12} />
+                  <button onClick={() => unapply(a.id)} disabled={unapplyingId === a.id} aria-busy={unapplyingId === a.id || undefined} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label="Unapply">
+                    {unapplyingId === a.id ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                   </button>
                 )}
               </li>
@@ -169,8 +181,8 @@ export default function FinanceVendorCreditDetail() {
                   <span className="text-xs text-slate-500 dark:text-slate-400">{new Date(r.refundedAt).toISOString().slice(0, 10)}{r.method ? ` · ${r.method}` : ""}{r.reversedAt ? " · reversed" : ""}</span>
                 </div>
                 {!r.reversedAt && (
-                  <button onClick={() => voidRefund(r.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label="Reverse refund">
-                    <Trash2 size={12} />
+                  <button onClick={() => voidRefund(r.id)} disabled={reversingId === r.id} aria-busy={reversingId === r.id || undefined} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label="Reverse refund">
+                    {reversingId === r.id ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                   </button>
                 )}
               </li>
@@ -222,7 +234,7 @@ function VendorApplyModal({ companyId, creditSlug, currency, maxCents, onClose, 
         <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Applying…" : "Apply"}</Button>
+          <Button onClick={submit} loading={busy}>{busy ? "Applying…" : "Apply"}</Button>
         </div>
       </div>
     </Modal>
@@ -259,7 +271,7 @@ function VendorRefundModal({ companyId, creditSlug, currency, maxCents, onClose,
         <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Recording…" : "Record refund"}</Button>
+          <Button onClick={submit} loading={busy}>{busy ? "Recording…" : "Record refund"}</Button>
         </div>
       </div>
     </Modal>

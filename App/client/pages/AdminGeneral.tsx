@@ -18,6 +18,7 @@ export function AdminGeneral() {
   const [customJavaScript, setCustomJavaScript] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [savingJavaScript, setSavingJavaScript] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [javascriptError, setJavaScriptError] = React.useState<string | null>(null);
@@ -95,12 +96,26 @@ export function AdminGeneral() {
     }
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <>
       <TopBar
         title="General"
         right={
-          <Button variant="secondary" onClick={reload} disabled={saving || savingJavaScript}>
+          <Button
+            variant="secondary"
+            onClick={refresh}
+            loading={refreshing}
+            disabled={saving || savingJavaScript}
+          >
             <RefreshCw size={14} /> Refresh
           </Button>
         }
@@ -198,7 +213,7 @@ export function AdminGeneral() {
               )}
               <FormError message={error} />
               <div className="flex justify-end">
-                <Button type="submit" disabled={!dirty || saving}>
+                <Button type="submit" loading={saving} disabled={!dirty}>
                   <Save size={14} /> {saving ? "Saving…" : "Save changes"}
                 </Button>
               </div>
@@ -260,7 +275,7 @@ export function AdminGeneral() {
               </p>
               <FormError message={javascriptError} />
               <div className="flex justify-end">
-                <Button type="submit" disabled={!javascriptDirty || savingJavaScript}>
+                <Button type="submit" loading={savingJavaScript} disabled={!javascriptDirty}>
                   <Save size={14} /> {savingJavaScript ? "Saving…" : "Save changes"}
                 </Button>
               </div>

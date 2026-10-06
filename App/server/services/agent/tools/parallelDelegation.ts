@@ -1,5 +1,8 @@
+import type { AIModel } from "../../../db/entities/AIModel.js";
+import { modelRunCapacity } from "../../modelRunCapacity.js";
 import type { AgentTool } from "../types.js";
 import { createParallelResultStore, type ParallelResultStore } from "./parallelWorkerResults.js";
+import { unprefixedToolName } from "./toolRegistry.js";
 
 export {
   createParallelResultStore,
@@ -15,6 +18,8 @@ export const MAX_DELEGATIONS_PER_TURN = 12;
 const MAX_LABEL_LENGTH = 80;
 const MAX_INSTRUCTION_LENGTH = 20_000;
 const MAX_RESULT_LENGTH = 600;
+/** Return control before a transport timeout; workers remain owned by this turn. */
+export const PARALLEL_DELEGATION_WAIT_MS = 30_000;
 
 export type DelegationBudget = { remaining: number };
 
@@ -23,12 +28,23 @@ export type DelegationBudget = { remaining: number };
  * one model lock. A parent cannot wait on a delegated copy that is waiting for
  * that same lock. Temporary workers also pass a non-zero depth so delegation
  * remains one level deep.
+ *
+ * A model that serves a limited number of Runs at once (a server on this
+ * machine or a private network by default) gets no workers either. The limit
+ * is how many long conversations its server holds well, and each worker is
+ * one more. A Weekly Customer Expansion Run on Qwen with two workers put four
+ * conversations on a GPU whose cache held about three: each evicted the cached
+ * prompt of the next one to run, and every step read 110K tokens from scratch.
  */
 export function supportsParallelDelegation(
-  authMode: "apikey" | "subscription" | "customEndpoint",
+  model: Pick<AIModel, "id" | "provider" | "authMode" | "configJson" | "maxConcurrentRuns">,
   delegationDepth = 0,
 ): boolean {
-  return authMode !== "subscription" && delegationDepth === 0;
+  return (
+    model.authMode !== "subscription" &&
+    delegationDepth === 0 &&
+    modelRunCapacity(model).limit === null
+  );
 }
 
 /** Build a worker prompt without claiming that one-level delegation is recursive. */
@@ -83,14 +99,64 @@ export function createParallelDelegationTool(params: {
   budget: DelegationBudget;
   resultStore?: ParallelResultStore;
   signal?: AbortSignal;
-  runBrief: (brief: DelegatedBrief, resultId?: string) => Promise<DelegatedBriefResult>;
+  runBrief: (
+    brief: DelegatedBrief,
+    resultId?: string,
+    signal?: AbortSignal,
+  ) => Promise<DelegatedBriefResult>;
   preflight?: (briefs: DelegatedBrief[]) => Promise<string | null>;
-}): AgentTool {
+  onBackgroundWork?: (pendingGroups: number) => void;
+}): AgentTool & { close(): Promise<void> } {
   const resultStore: ParallelResultStore = params.resultStore ?? createParallelResultStore();
+  const lifetime = new AbortController();
+  const signal = params.signal
+    ? AbortSignal.any([params.signal, lifetime.signal])
+    : lifetime.signal;
+  const active = new Set<Promise<unknown>>();
+  let pendingGroups = 0;
+  const track = <T>(work: Promise<T>): Promise<T> => {
+    active.add(work);
+    void work.then(
+      () => active.delete(work),
+      () => active.delete(work),
+    );
+    return work;
+  };
+  // Several pending delegation calls share one pool, rather than multiplying
+  // the advertised four-worker bound by the number of calls in flight.
+  let activeWorkers = 0;
+  const waiting: Array<{
+    run(): Promise<DelegatedBriefResult>;
+    resolve(result: DelegatedBriefResult): void;
+    reject(error: unknown): void;
+  }> = [];
+  const pump = () => {
+    while (waiting.length > 0 && activeWorkers < MAX_PARALLEL_DELEGATIONS) {
+      const worker = waiting.shift()!;
+      if (signal.aborted) {
+        worker.reject(new Error("The parent turn was aborted."));
+        continue;
+      }
+      activeWorkers++;
+      void Promise.resolve()
+        .then(worker.run)
+        .then(worker.resolve, worker.reject)
+        .finally(() => {
+          activeWorkers--;
+          pump();
+        });
+    }
+  };
+  const schedule = (run: () => Promise<DelegatedBriefResult>) =>
+    new Promise<DelegatedBriefResult>((resolve, reject) => {
+      waiting.push({ run, resolve, reject });
+      pump();
+    });
   return {
     name: "delegate_parallel_work",
+    executionLane: "delegation",
     description:
-      "Delegate independent briefs to copies of you with the same Grants. Include all inputs and requiredTools; workers do not see your conversation. Partition file writes because workers share a directory. At most 8 briefs per call, 12 per turn, 4 concurrent. Results persist for this Run lineage or conversation and identical completed briefs are reused. Use get_parallel_work_result to recover evidence after a timeout. Required tools are checked before workers start. Verify results before acting.",
+      "Delegate independent, self-contained briefs with your Grants. Include inputs and requiredTools; workers cannot see this conversation. Partition shared file writes. Max 8/call, 12/turn, 4 concurrent across calls. Long work returns pending result IDs; do independent work or use get_parallel_work_result (waitMs:30000), without redispatch. Verify needed results before acting or ending this turn, which stops unfinished workers. Results persist for this Run lineage/conversation; identical completed briefs are reused. Required tools are checked first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -137,56 +203,107 @@ export function createParallelDelegationTool(params: {
       required: ["tasks"],
       additionalProperties: false,
     },
-    run: async (input) => {
-      const parsed = parseInput(input);
-      if ("error" in parsed) return { content: parsed.error, isError: true };
-      if (params.signal?.aborted) {
-        return { content: "Parallel delegation was aborted before it started.", isError: true };
-      }
-      const preflightError = await params.preflight?.(parsed.tasks);
-      if (preflightError) return { content: preflightError, isError: true };
-      if (parsed.tasks.length > params.budget.remaining) {
-        return {
-          content:
-            `This turn can delegate ${params.budget.remaining} more brief` +
-            `${params.budget.remaining === 1 ? "" : "s"}; this call requested ${parsed.tasks.length}. ` +
-            "Reduce the batch or finish the remaining work yourself.",
-          isError: true,
-        };
-      }
+    run: (input) =>
+      track(
+        (async () => {
+          const parsed = parseInput(input);
+          if ("error" in parsed) return { content: parsed.error, isError: true };
+          if (signal.aborted) {
+            return { content: "Parallel delegation was aborted before it started.", isError: true };
+          }
+          const preflightError = await params.preflight?.(parsed.tasks);
+          if (preflightError) return { content: preflightError, isError: true };
+          if (parsed.tasks.length > params.budget.remaining) {
+            return {
+              content:
+                `This turn can delegate ${params.budget.remaining} more brief` +
+                `${params.budget.remaining === 1 ? "" : "s"}; this call requested ${parsed.tasks.length}. ` +
+                "Reduce the batch or finish the remaining work yourself.",
+              isError: true,
+            };
+          }
 
-      // Reserve the whole batch before starting it. A failed child still costs
-      // a model call and must not give the parent an infinite retry budget.
-      params.budget.remaining -= parsed.tasks.length;
-      const resultIds: Array<string | null> = [];
-      for (const task of parsed.tasks) resultIds.push(await resultStore.reserve(task.label, task));
-      const shouldStore = parsed.tasks.map(() => false);
-      const results = await runBounded(
-        parsed.tasks,
-        parsed.maxConcurrency,
-        async (brief, index) => {
-          const resultId = resultIds[index];
-          const reused = resultId ? await resultStore.reuse?.(resultId) : null;
-          if (!reused) shouldStore[index] = true;
-          return reused ?? params.runBrief(brief, resultId ?? undefined);
-        },
-        params.signal,
-        async (result, index) => {
-          const resultId = resultIds[index];
-          if (resultId && shouldStore[index]) await resultStore.finish(resultId, result);
-        },
-      );
-      const failed = results.filter((result) => result.status === "failed").length;
-      return {
-        content: await formatResults(
-          parsed.tasks,
-          results,
-          parsed.maxConcurrency,
-          resultIds,
-          resultStore,
-        ),
-        ...(failed === results.length ? { isError: true } : {}),
-      };
+          // Reserve the whole batch before starting it. A failed child still costs
+          // a model call and must not give the parent an infinite retry budget.
+          params.budget.remaining -= parsed.tasks.length;
+          const resultIds: Array<string | null> = [];
+          for (const task of parsed.tasks)
+            resultIds.push(await resultStore.reserve(task.label, task));
+          // Claim every newly owned reservation before starting the pool. If the
+          // parent stops, even briefs that never acquired a slot must become
+          // failed, while reused pending/completed records stay untouched.
+          const reused: Array<DelegatedBriefResult | null> = [];
+          for (const resultId of resultIds)
+            reused.push(resultId ? ((await resultStore.reuse?.(resultId)) ?? null) : null);
+          const shouldStore = reused.map((result) => result === null);
+          pendingGroups++;
+          params.onBackgroundWork?.(pendingGroups);
+          const completion = track(
+            runBounded(
+              parsed.tasks,
+              parsed.maxConcurrency,
+              async (brief, index) => {
+                const resultId = resultIds[index];
+                return (
+                  reused[index] ??
+                  schedule(() => params.runBrief(brief, resultId ?? undefined, signal))
+                );
+              },
+              signal,
+              async (result, index) => {
+                const resultId = resultIds[index];
+                if (resultId && shouldStore[index]) await resultStore.finish(resultId, result);
+              },
+            ).finally(() => {
+              pendingGroups--;
+              params.onBackgroundWork?.(pendingGroups);
+            }),
+          );
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const results = await Promise.race([
+            completion,
+            new Promise<null>((resolve) => {
+              timer = setTimeout(() => resolve(null), PARALLEL_DELEGATION_WAIT_MS);
+            }),
+          ]).finally(() => clearTimeout(timer));
+          if (results === null) {
+            const metadata = await Promise.all(
+              resultIds.map(async (id, index) => {
+                const row = id ? await resultStore.read(id, 0, 0) : null;
+                if (!row)
+                  return { resultId: id, label: parsed.tasks[index].label, available: false };
+                const { text: _text, coverage: _coverage, ...result } = row;
+                return result;
+              }),
+            );
+            return {
+              content: [
+                "Parallel delegation exceeded the initial wait. Check each result's current status below; pending means unfinished, not a tool outage.",
+                "Continue independent work, then use get_parallel_work_result with these result IDs to check status and read completed evidence. If you are waiting for a result, pass waitMs up to 30000 instead of rapidly polling. Do not repeat these briefs. Ending the parent turn stops unfinished workers; its original deadline still applies.",
+                JSON.stringify({
+                  scope: resultStore.scopeDescription ?? "Current parent turn only.",
+                  results: metadata,
+                }),
+              ].join("\n\n"),
+            };
+          }
+          const failed = results.filter((result) => result.status === "failed").length;
+          return {
+            content: await formatResults(
+              parsed.tasks,
+              results,
+              parsed.maxConcurrency,
+              resultIds,
+              resultStore,
+            ),
+            ...(failed === results.length ? { isError: true } : {}),
+          };
+        })(),
+      ),
+    async close() {
+      lifetime.abort();
+      pump();
+      while (active.size > 0) await Promise.allSettled([...active]);
     },
   };
 }
@@ -236,7 +353,14 @@ function parseInput(
       label: label.trim(),
       instruction: instruction.trim(),
       ...(Array.isArray(requiredTools)
-        ? { requiredTools: [...new Set(requiredTools.map((name: string) => name.trim()))] }
+        ? {
+            // Checked against the registry and its Grant rules by real name,
+            // whether the model wrote the name it was briefed with or the
+            // `genosyn_` form OpenCode showed it.
+            requiredTools: [
+              ...new Set(requiredTools.map((name: string) => unprefixedToolName(name.trim()))),
+            ],
+          }
         : {}),
     });
   }
@@ -294,7 +418,11 @@ async function runBounded(
     }
   };
 
-  await Promise.all(Array.from({ length: maxConcurrency }, () => worker()));
+  // A persistence failure in one worker must not release the parent's cleanup
+  // barrier while sibling workers still have live tools and credentials.
+  const settled = await Promise.allSettled(Array.from({ length: maxConcurrency }, () => worker()));
+  const failure = settled.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
   return results;
 }
 

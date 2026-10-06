@@ -21,7 +21,7 @@ const FILE_TEMP_PREFIX = ".genosyn-write-";
 const SKIP_DIRS = new Set(["node_modules", ".git", ".ssh", "dist", "build", ".next", ".cache"]);
 const PROTECTED_WORKSPACE_COMPONENTS = new Set([".git", ".ssh"]);
 
-/** Resolve `p` under `cwd`, rejecting anything that escapes the sandbox. */
+/** Resolve `p` under `cwd`, rejecting anything that escapes the working directory. */
 export function resolveInside(cwd: string, p: string): { path: string } | { error: string } {
   const target = path.resolve(cwd, p);
   const root = path.resolve(cwd);

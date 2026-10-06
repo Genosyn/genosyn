@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
-  Bot,
   Calendar,
   CheckSquare,
   CheckCircle2,
@@ -24,7 +23,7 @@ import {
   UserPlus,
   XCircle,
 } from "lucide-react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { useNavigationGuard } from "@/components/NavigationGuard";
 import { PdfCanvasRenderer } from "@/components/signatures/PdfCanvasRenderer";
@@ -33,11 +32,11 @@ import { useDialog } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
-import { api, type Customer, type Employee } from "@/lib/api";
+import { api, type Customer } from "@/lib/api";
+import { customerOptionLabel } from "@/lib/customerLabel";
 import { errorMessage } from "@/lib/errors";
 import {
   SIGNATURE_FIELD_LABELS,
@@ -54,7 +53,6 @@ import {
   normalizeEnvelopeDetail,
   reconcileSignatureDraftSave,
   recipientStatusClasses,
-  signatureAiHandoffPrompt,
   signatureDateInputToEndOfDayIso,
   signatureEditorShortcut,
   signatureFieldPageSummary,
@@ -71,7 +69,6 @@ import {
   signatureStatusClasses,
   visibleSignaturePage,
   type SignatureEnvelopeDetail,
-  type SignatureAccessLevel,
   type SignatureField,
   type SignatureFieldType,
   type SignaturePageSummary,
@@ -92,7 +89,6 @@ const FIELD_ICONS: Record<SignatureFieldType, React.ReactNode> = {
 };
 
 type DraftRecipient = SignatureRecipient & { id: string };
-type SigningAiCandidate = { employee: Employee; accessLevel: SignatureAccessLevel };
 
 function recipientColorStyle(recipientId: string): React.CSSProperties {
   return signatureRecipientColor(recipientId).cssVariables as React.CSSProperties;
@@ -131,10 +127,9 @@ export default function SignatureDetail() {
   const [selectedFieldId, setSelectedFieldId] = React.useState<string | null>(null);
   const [fieldTool, setFieldTool] = React.useState<SignatureFieldType>("signature");
   const [saving, setSaving] = React.useState(false);
-  const [acting, setActing] = React.useState(false);
-  const [preparingAiHandoff, setPreparingAiHandoff] = React.useState(false);
-  const [aiCandidates, setAiCandidates] = React.useState<SigningAiCandidate[]>([]);
-  const [selectedAiEmployeeId, setSelectedAiEmployeeId] = React.useState("");
+  const [acting, setActing] = React.useState<
+    null | "send" | "duplicate" | "void" | "delete" | `remind:${string}`
+  >(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
@@ -249,7 +244,7 @@ export default function SignatureDetail() {
   }, [dirty, saving]);
 
   React.useEffect(() => {
-    if (!isDraft || !dirty || saving || acting || remoteDraft || autosaveError) return;
+    if (!isDraft || !dirty || saving || acting !== null || remoteDraft || autosaveError) return;
     const timer = window.setTimeout(() => void autosaveRef.current?.(), 1_500);
     return () => window.clearTimeout(timer);
   }, [acting, autosaveError, detail, dirty, fields, isDraft, recipients, remoteDraft, saving]);
@@ -681,7 +676,7 @@ export default function SignatureDetail() {
     if (sendReviewBusyRef.current) return;
     sendReviewBusyRef.current = true;
     const routeGeneration = routeGenerationRef.current;
-    setActing(true);
+    setActing("send");
     try {
       for (;;) {
         const reviewed = await currentDraftForSend(routeGeneration);
@@ -756,7 +751,7 @@ export default function SignatureDetail() {
       sendDispatchingRef.current = false;
       setSendDispatching(false);
       sendReviewBusyRef.current = false;
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -766,14 +761,14 @@ export default function SignatureDetail() {
   }
 
   async function duplicate() {
-    setActing(true);
+    setActing("duplicate");
     try {
       const result = normalizeEnvelopeDetail(await api.post<unknown>(`${base}/duplicate`));
       navigate(`${routeBase}/${result.envelope.id}`);
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t duplicate the envelope" });
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -786,14 +781,14 @@ export default function SignatureDetail() {
       validate: (value) => (value ? null : "Enter a reason."),
     });
     if (!reason) return;
-    setActing(true);
+    setActing("void");
     try {
       await api.post(`${base}/void`, { reason });
       await load();
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t void the envelope" });
     } finally {
-      setActing(false);
+      setActing(null);
     }
   }
 
@@ -808,82 +803,14 @@ export default function SignatureDetail() {
     ) {
       return;
     }
-    setActing(true);
+    setActing("delete");
     try {
       await api.del(base);
       navigate(routeBase);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The draft could not be deleted.");
     } finally {
-      setActing(false);
-    }
-  }
-
-  function openAiChat(employee: Employee, current: SignatureEnvelopeDetail = detail!) {
-    setAiCandidates([]);
-    const destination = `/c/${company.slug}/employees/${employee.slug}/chat`;
-    const completeNavigation = () => {
-      const savedDetail = latestSavedDetailRef.current ?? current;
-      navigate(destination, {
-        state: { starterPrompt: signatureAiHandoffPrompt(savedDetail.envelope) },
-      });
-    };
-    if (navigationGuard.request(destination, completeNavigation)) return;
-    if (isDraft && (dirtyRef.current || saveInFlightRef.current)) {
-      void leaveDraft(destination, completeNavigation);
-      return;
-    }
-    completeNavigation();
-  }
-
-  async function askAi() {
-    setPreparingAiHandoff(true);
-    try {
-      const saved =
-        isDraft && dirtyRef.current
-          ? await saveDraft()
-          : detail
-            ? { detail, current: true }
-            : null;
-      if (!saved?.current) return;
-      const response = await api.get<unknown>(`/api/companies/${company.id}/signatures/ai-access`);
-      const rows = Array.isArray(response)
-        ? (response as Array<{
-            employee?: Employee;
-            grant?: { accessLevel?: SignatureAccessLevel };
-          }>)
-        : [];
-      const candidates = rows.flatMap((row): SigningAiCandidate[] =>
-        row.employee && row.grant?.accessLevel
-          ? [{ employee: row.employee, accessLevel: row.grant.accessLevel }]
-          : [],
-      );
-      if (candidates.length === 0) {
-        await dialog.alert({
-          title: "Give an AI Employee signing access first",
-          message: (
-            <span>
-              Open{" "}
-              <Link className="text-indigo-600 underline" to={`${routeBase}/ai-access`}>
-                AI access
-              </Link>{" "}
-              and start with Read only. That is enough to check readiness and status without
-              changing anything.
-            </span>
-          ),
-        });
-        return;
-      }
-      if (candidates.length === 1) {
-        openAiChat(candidates[0].employee, saved.detail);
-        return;
-      }
-      setAiCandidates(candidates);
-      setSelectedAiEmployeeId(candidates[0].employee.id);
-    } catch (cause) {
-      void dialog.error(cause, { title: "Couldn’t open AI help" });
-    } finally {
-      setPreparingAiHandoff(false);
+      setActing(null);
     }
   }
 
@@ -947,38 +874,33 @@ export default function SignatureDetail() {
                       : ""}
             </div>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={preparingAiHandoff || saving}
-            onClick={() => void askAi()}
-          >
-            {preparingAiHandoff ? <Spinner size={14} /> : <Bot size={14} />} Ask AI
-          </Button>
           {isDraft ? (
             <>
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={saving || !dirty}
+                loading={saving}
+                disabled={!dirty}
                 onClick={() => void saveDraft()}
               >
-                {saving ? <Spinner size={14} /> : <Save size={14} />} Save
+                <Save size={14} /> Save
               </Button>
               <Button
                 size="sm"
-                disabled={saving || acting || readinessIssues.length > 0}
+                loading={acting === "send"}
+                disabled={saving || acting !== null || readinessIssues.length > 0}
                 title={readinessIssues[0]?.message}
                 onClick={() => void sendEnvelope()}
               >
-                {acting ? <Spinner size={14} /> : <Send size={14} />} Send
+                <Send size={14} /> Send
               </Button>
             </>
           ) : (
             <Button
               variant="secondary"
               size="sm"
-              disabled={acting}
+              loading={acting === "duplicate"}
+              disabled={acting !== null}
               onClick={() => void duplicate()}
             >
               <Copy size={14} /> Duplicate
@@ -1100,7 +1022,7 @@ export default function SignatureDetail() {
           sourceUrl={envelope.status === "completed" ? `${base}/completed` : sourceUrl}
           acting={acting}
           onRemind={async (recipient) => {
-            setActing(true);
+            setActing(`remind:${recipient.id}`);
             try {
               const result = normalizeEnvelopeDetail(
                 await api.post<unknown>(`${base}/recipients/${recipient.id}/remind`),
@@ -1111,7 +1033,7 @@ export default function SignatureDetail() {
             } catch (cause) {
               void dialog.error(cause, { title: "Couldn’t send the reminder" });
             } finally {
-              setActing(false);
+              setActing(null);
             }
           }}
           onVoid={voidEnvelope}
@@ -1125,7 +1047,8 @@ export default function SignatureDetail() {
             <Button
               variant="ghost"
               size="sm"
-              disabled={acting}
+              loading={acting === "delete"}
+              disabled={acting !== null}
               onClick={() => void removeEnvelope()}
             >
               <Trash2 size={14} /> Delete draft
@@ -1135,48 +1058,6 @@ export default function SignatureDetail() {
         </div>
       )}
 
-      <Modal
-        open={aiCandidates.length > 1}
-        onClose={() => setAiCandidates([])}
-        title="Choose an AI Employee"
-      >
-        <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-          Choose who should check this request. Chat opens with a draft message for you to review;
-          nothing runs until you send it.
-        </p>
-        <Select
-          className="mt-4"
-          label="AI Employee"
-          value={selectedAiEmployeeId}
-          onChange={(event) => setSelectedAiEmployeeId(event.target.value)}
-        >
-          {aiCandidates.map((candidate) => (
-            <option key={candidate.employee.id} value={candidate.employee.id}>
-              {candidate.employee.name} · {candidate.employee.role} ·{" "}
-              {candidate.accessLevel === "read"
-                ? "Read only"
-                : candidate.accessLevel === "draft"
-                  ? "Prepare drafts"
-                  : "Send to customers"}
-            </option>
-          ))}
-        </Select>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setAiCandidates([])}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              const selected = aiCandidates.find(
-                (candidate) => candidate.employee.id === selectedAiEmployeeId,
-              );
-              if (selected) openAiChat(selected.employee);
-            }}
-          >
-            <Bot size={14} /> Open chat
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -1617,7 +1498,7 @@ function DraftEditor(props: DraftEditorProps) {
                 <option value="">No customer</option>
                 {props.customers.map((customer) => (
                   <option key={customer.id} value={customer.id}>
-                    {customer.name}
+                    {customerOptionLabel(customer)}
                   </option>
                 ))}
               </Select>
@@ -2112,7 +1993,7 @@ function SentEnvelope({
   detail: SignatureEnvelopeDetail;
   sourceUrl: string;
   completedUrl: string;
-  acting: boolean;
+  acting: string | null;
   onRemind: (recipient: SignatureRecipient) => Promise<void>;
   onVoid: () => Promise<void>;
 }) {
@@ -2193,7 +2074,8 @@ function SentEnvelope({
                     className="mt-2"
                     variant="ghost"
                     size="sm"
-                    disabled={acting}
+                    loading={acting === `remind:${recipient.id}`}
+                    disabled={acting !== null}
                     onClick={() => void onRemind(recipient)}
                   >
                     <Mail size={13} /> Send reminder
@@ -2231,7 +2113,8 @@ function SentEnvelope({
             variant="ghost"
             size="sm"
             className="mt-7 w-full text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
-            disabled={acting}
+            loading={acting === "void"}
+            disabled={acting !== null}
             onClick={() => void onVoid()}
           >
             <XCircle size={14} /> Void request

@@ -399,8 +399,8 @@ export function ConnectForgeModal({
                   <Button variant="secondary" onClick={requestClose} disabled={busy}>
                     Cancel
                   </Button>
-                  <Button onClick={createOnForge} disabled={busy || !connectionId}>
-                    {busy ? <Spinner size={14} /> : <GitFork size={14} />}
+                  <Button onClick={createOnForge} loading={busy} disabled={!connectionId}>
+                    <GitFork size={14} />
                     {busy ? "Connecting…" : "Create and push"}
                   </Button>
                 </div>
@@ -489,8 +489,8 @@ export function ConnectForgeModal({
                 <Button variant="secondary" onClick={requestClose} disabled={busy}>
                   Cancel
                 </Button>
-                <Button onClick={connectExisting} disabled={busy || !gitUrl.trim()}>
-                  {busy ? <Spinner size={14} /> : <ArrowRight size={14} />}
+                <Button onClick={connectExisting} loading={busy} disabled={!gitUrl.trim()}>
+                  <ArrowRight size={14} />
                   {busy ? "Connecting…" : "Connect and push"}
                 </Button>
               </div>

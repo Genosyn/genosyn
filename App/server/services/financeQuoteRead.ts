@@ -38,6 +38,8 @@ export async function listQuoteEstimates(
         ? { name: estimate.customer.name, slug: estimate.customer.slug }
         : null,
       currency: estimate.currency,
+      subsidiaryId: estimate.subsidiaryId,
+      issuerSnapshot: estimate.issuerSnapshot,
       totalCents: estimate.totalCents,
       issueDate: estimate.issueDate,
       validUntil: estimate.validUntil,

@@ -252,6 +252,9 @@ export default function FinanceEstimates() {
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                       {est.customer?.name ?? "—"}
+                      <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+                        Issued by {est.issuerSnapshot?.name ?? company.name}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span

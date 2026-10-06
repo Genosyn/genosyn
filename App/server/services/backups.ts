@@ -7,7 +7,8 @@ import type archiver from "archiver";
 import * as archiverRuntime from "archiver";
 import unzipper from "unzipper";
 import cron, { ScheduledTask } from "node-cron";
-import { AppDataSource } from "../db/datasource.js";
+import { AppDataSource, optimizeSqliteStatistics } from "../db/datasource.js";
+import { bootMailSearchIndex, stopMailSearchIndex } from "./mail/searchIndex.js";
 import { Backup } from "../db/entities/Backup.js";
 import { BackupSchedule, BackupFrequency } from "../db/entities/BackupSchedule.js";
 import { config } from "../../config.js";
@@ -20,8 +21,7 @@ import {
 } from "./backupDestinations.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
-import { finalizeInterruptedAssistantTurns } from "./mail/assistant.js";
-import { finalizeInterruptedAssistantTurns as finalizeInterruptedRoutineAssistantTurns } from "./routineAssistant.js";
+import { finalizeInterruptedAskAiTurns } from "./askAi/assistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./tldrQuestions.js";
 import {
   bootContextWindowRefresh,
@@ -40,8 +40,8 @@ import { bindInstanceSecretsToDatabase } from "./instanceSecretsDatabase.js";
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
  * `Backup/` folder itself and any staging artifact) into
  * `<dataDir>/Backup/backup-YYYY-MM-DD-HHMMSS.zip`. The SQLite file is first
- * snapshotted via `VACUUM INTO` so the archive captures a consistent view
- * even while the app is writing.
+ * snapshotted with SQLite's online backup API so the archive captures a
+ * consistent view even while the app is writing.
  *
  * A singleton {@link BackupSchedule} row drives the optional recurring cron.
  * The schedule is modelled as frequency + hour (and day-of-week / day-of-
@@ -65,7 +65,7 @@ const ZipArchive = (
 const PART_SUFFIX = ".part";
 
 /**
- * Prefix for the `VACUUM INTO` snapshot a run stages before zipping it.
+ * Prefix for the SQLite snapshot a run stages before zipping it.
  * Hidden, and deliberately distinct from {@link PART_SUFFIX}, so
  * {@link sweepOrphanedStagingArtifacts} can tell a stranded snapshot from a
  * half-written archive without consulting the `backups` table.
@@ -73,10 +73,10 @@ const PART_SUFFIX = ".part";
 const STAGING_PREFIX = ".staging-";
 
 /**
- * Sidecars SQLite can leave beside a database file. `VACUUM INTO` writes a
- * rollback journal next to its destination, and the cleanup used to unlink
- * only the `.sqlite` itself — so every single run, successful or not, left a
- * `.staging-<id>.sqlite-journal` behind for good.
+ * Sidecars SQLite can leave beside a database file. Writing the snapshot
+ * leaves a rollback journal next to its destination, and the cleanup used to
+ * unlink only the `.sqlite` itself — so every single run, successful or not,
+ * left a `.staging-<id>.sqlite-journal` behind for good.
  */
 const SQLITE_SIDECAR_SUFFIXES = ["-journal", "-wal", "-shm"] as const;
 
@@ -176,7 +176,7 @@ function removeStagingArtifact(stagingPath: string): void {
  * Delete staging snapshots that no live run owns.
  *
  * `runBackupInner` unlinks its own snapshot in a `finally`, but that block
- * never executes if the process dies between `VACUUM INTO` and the end of the
+ * never executes if the process dies between the snapshot and the end of the
  * run — a SIGKILL from a container restart or the OOM killer, which is exactly
  * what a backup of a large database invites. Each stranded snapshot is a full
  * copy of the database, so they dwarf the archives they were staged for and
@@ -669,7 +669,7 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
     }
     throw err;
   } finally {
-    // Sidecars as well as the snapshot: `VACUUM INTO` leaves a rollback
+    // Sidecars as well as the snapshot: writing it leaves a rollback
     // journal beside its destination, and unlinking only the `.sqlite` left
     // one behind on every run.
     removeStagingArtifact(stagingDbPath);
@@ -679,23 +679,31 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   return row;
 }
 
+/** The part of the DataSource's better-sqlite3 handle a snapshot uses. */
+type SqliteBackupHandle = { backup(destination: string): Promise<unknown> };
+
 /**
- * Snapshot SQLite to a standalone file at `dest` using `VACUUM INTO`. This
- * captures a consistent view of the DB without blocking writers. No-op when
+ * Snapshot SQLite to a standalone file at `dest` with SQLite's online backup
+ * API, on the connection that does all of this process's writing. No-op when
  * the app is configured for Postgres (operators handle that via `pg_dump`).
+ *
+ * This used to be `VACUUM INTO`. That is one statement, and better-sqlite3
+ * runs every statement synchronously on the event loop, so snapshotting a
+ * large database froze every request until it finished — minutes on a 30 GB
+ * file, every scheduled run. The backup API copies a bounded run of pages per
+ * turn of the event loop instead. It shares the writing connection, so pages
+ * written mid-copy are carried into the snapshot rather than restarting it,
+ * and the result is the same consistent point-in-time copy. It is copied page
+ * for page, free pages included, so the snapshot is the size of the live file.
  */
 async function snapshotSqlite(dest: string): Promise<void> {
   if (config.db.driver !== "sqlite") return;
-  // Clear the destination *and* its sidecars: `VACUUM INTO` refuses a path
-  // that already exists, and a journal stranded beside a fresh snapshot would
-  // be replayed into it the next time the file is opened.
+  // Clear the destination *and* its sidecars: a journal stranded beside a
+  // fresh snapshot would be replayed into it the next time the file is opened.
   removeStagingArtifact(dest);
-  const runner = AppDataSource.createQueryRunner();
-  try {
-    await runner.query(`VACUUM INTO ?`, [dest]);
-  } finally {
-    await runner.release();
-  }
+  const handle = (AppDataSource.driver as unknown as { databaseConnection: SqliteBackupHandle })
+    .databaseConnection;
+  await handle.backup(dest);
 }
 
 /**
@@ -745,27 +753,34 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
     archive.pipe(output);
 
     const root = dataRoot();
-    if (fs.existsSync(root)) {
-      walkAndAppend(archive, root, "", sqliteSnapshot);
-    }
-
-    if (sqliteSnapshot && fs.existsSync(sqliteSnapshot)) {
-      archive.file(sqliteSnapshot, { name: "app.sqlite" });
-    }
-
-    archive.finalize().catch(fail);
+    const appendAll = async () => {
+      if (fs.existsSync(root)) {
+        await walkAndAppend(archive, root, "", sqliteSnapshot);
+      }
+      if (sqliteSnapshot && fs.existsSync(sqliteSnapshot)) {
+        archive.file(sqliteSnapshot, { name: "app.sqlite" });
+      }
+      await archive.finalize();
+    };
+    appendAll().catch(fail);
   });
 }
 
-function walkAndAppend(
+/**
+ * Queue every file under `absDir`. The listing is asynchronous on purpose: a
+ * data directory holding employee checkouts runs to hundreds of thousands of
+ * files, and a synchronous walk of that holds the event loop for as long as
+ * it takes.
+ */
+async function walkAndAppend(
   archive: archiver.Archiver,
   absDir: string,
   relPrefix: string,
   sqliteSnapshot: string | null,
-): void {
+): Promise<void> {
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(absDir, { withFileTypes: true });
+    entries = await fs.promises.readdir(absDir, { withFileTypes: true });
   } catch {
     return;
   }
@@ -777,7 +792,7 @@ function walkAndAppend(
     if (relPrefix === "" && entry.name === BACKUP_DIR_NAME) continue;
 
     if (entry.isDirectory()) {
-      walkAndAppend(archive, absPath, relPath, sqliteSnapshot);
+      await walkAndAppend(archive, absPath, relPath, sqliteSnapshot);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -989,6 +1004,8 @@ export async function restoreFromBackup(id: string): Promise<{
     // but a tick that did would query the destroyed DataSource for the whole
     // extract window. Cheap to take down; re-registered below.
     stopContextWindowRefresh();
+    // The search index lives on this connection; it goes with it.
+    stopMailSearchIndex();
     await AppDataSource.destroy();
 
     // Last look before the point of no return. The checks above ran before the
@@ -997,6 +1014,7 @@ export async function restoreFromBackup(id: string): Promise<{
     // costs the install.
     if (!(await isRestorableArchive(target.filename))) {
       await AppDataSource.initialize();
+      bootMailSearchIndex();
       throw new Error(
         "Backup archive went missing or became unreadable before the restore started",
       );
@@ -1017,6 +1035,10 @@ export async function restoreFromBackup(id: string): Promise<{
 
     await AppDataSource.initialize();
     await AppDataSource.runMigrations();
+    // An archive taken before planner statistics existed restores without
+    // them; plan nothing against it until they do.
+    optimizeSqliteStatistics();
+    bootMailSearchIndex();
     await bindInstanceSecretsToDatabase();
 
     // After the restored DB comes back online it has no row for the safety
@@ -1034,11 +1056,9 @@ export async function restoreFromBackup(id: string): Promise<{
     // Rebuild in-memory schedules from the restored DB rows.
     await bootCron();
     await bootDurableChatTurnRecovery();
-    // Per-email AI chat rows captured mid-turn by the archive have no process
-    // behind them any more; close them out rather than restoring a spinner.
-    await finalizeInterruptedAssistantTurns();
-    // Same for a Routine's Ask AI rows.
-    await finalizeInterruptedRoutineAssistantTurns();
+    // Ask AI answers captured mid-turn by the archive have no process behind
+    // them any more; close them out rather than restoring a spinner.
+    await finalizeInterruptedAskAiTurns();
     // Same for TLDR question cards captured mid-answer.
     await finalizeInterruptedTldrQuestionTurns();
     bootContextWindowRefresh();
@@ -1096,7 +1116,7 @@ async function reconcileBackupHistory(): Promise<void> {
   const existing = await repo.find();
   const byName = new Map(existing.map((r) => [r.filename, r]));
 
-  // Patch up rows that were captured mid-backup. The VACUUM INTO snapshot we
+  // Patch up rows that were captured mid-backup. The SQLite snapshot we
   // ship inside each archive freezes the table while the row is still
   // `running` with sizeBytes=0; after a restore, those rows would otherwise
   // look perpetually in-flight. Promote them to completed and fill in the

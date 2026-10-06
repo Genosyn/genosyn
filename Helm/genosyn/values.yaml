@@ -1,20 +1,21 @@
 # Default values for the genosyn chart.
 #
-# The short version: the DEFAULT posture is production multi-tenant SaaS —
-# multiTenant on, Postgres, the bubblewrap sandbox granted, chart-generated
-# strong secrets. A bare `helm install` fails fast at template time with one
-# aggregated message listing the one value only you can supply
-# (config.bootstrapMasterAdminEmail).
+# The chart runs Genosyn single-tenant: one organization per install. AI
+# Employee commands run in the App container as the App user (`node`, uid
+# 1000), with that user's filesystem and network authority over every company
+# in the install. Give each unrelated organization its own install.
+#
+# A bare `helm install` works: bundled Postgres, one replica, a 20Gi data
+# volume and chart-generated strong secrets. For real use add an Ingress with
+# TLS, and set config.bootstrapMasterAdminEmail before anyone can reach it.
 #
 # There is no SMTP here on purpose. The system mail transport is configured
 # after boot at Admin → Email transport and stored encrypted in the database;
 # until it is set, boot prints a warning and verification / reset links go to
 # the pod log (`kubectl logs -n <ns> deploy/<release>`).
 #
-# Running a private single-tenant install instead? Use the commented example
-# next to this file: `helm install ... -f values-selfhost.yaml` — SQLite, no
-# bundled Postgres, no securityContext demands, the same shape as the one-line
-# Docker installer.
+# For SQLite on the data volume and no bundled Postgres — the same shape as the
+# one-line Docker installer — use `helm install ... -f values-selfhost.yaml`.
 
 image:
   repository: ghcr.io/genosyn/app
@@ -27,26 +28,29 @@ image:
 # GHCR images are public, so this is normally empty.
 imagePullSecrets: []
 
-# Keep this at 1 unless you are running shared SaaS mode. More than one
-# replica requires ALL of:
-#   - config.multiTenant: true (Postgres leases + cross-replica fan-out)
-#   - config.db.driver: postgres (SQLite cannot be shared between pods)
-#   - persistence with a ReadWriteMany StorageClass, mounted on every replica
-# A second replica against an RWO volume will simply never schedule.
+# Keep this at 1. More than one replica is not supported for Repository work
+# (its Git lock and running work sessions), ChatGPT subscription models, or
+# Member browsers: each depends on state held in one App process. The rest of
+# the App coordinates through Postgres (scheduled work, leases, live updates),
+# so a second replica would also need config.db.driver: postgres and a
+# ReadWriteMany volume mounted on every replica.
 replicaCount: 1
 
-# Recreate is correct for the default single-replica RWO install: the old pod
-# must release the volume before the new one can attach it. Switch to
-# RollingUpdate only for multi-replica RWX installs.
+# Recreate: the old pod releases the ReadWriteOnce volume before the new one
+# attaches it, and two App processes never overlap during a rollout.
 strategy: Recreate
 
 service:
   type: ClusterIP
   port: 80
+  # Optional annotations for the cluster's Service/load-balancer integration.
+  # The chart adds provider annotations only for an opt-in integration such as
+  # gke.enabled below; values given here win over them.
+  annotations: {}
 
 ingress:
   enabled: false
-  # e.g. nginx. Leave empty to use the cluster default.
+  # Name of an IngressClass installed in this cluster. Empty uses its default.
   className: ""
   # e.g. genosyn.example.com
   host: ""
@@ -54,9 +58,38 @@ ingress:
     enabled: false
     # Name of a TLS secret in the release namespace (cert-manager or hand-fed).
     secretName: ""
-  # WebSockets share port 8471 with everything else. nginx and Traefik pass
-  # Upgrade requests through a plain Ingress without extra annotations; add
-  # controller-specific tuning (timeouts, buffering) here if yours needs it.
+    # Let cert-manager issue and renew secretName, and the connect host's
+    # tlsSecretName, through this Ingress. Requires cert-manager in the
+    # cluster (a one-time cluster add-on, like the ingress controller). Each
+    # Certificate starts from a temporary self-signed certificate, so an
+    # Ingress that needs its Secret to exist (GKE) comes up before the first
+    # issuance. Point both hostnames at the Ingress address in DNS.
+    certManager:
+      enabled: false
+      # Use an existing Issuer or ClusterIssuer instead of the chart's own,
+      # e.g. { kind: ClusterIssuer, name: letsencrypt }.
+      issuerRef: {}
+      # The chart's own Issuer (when issuerRef is empty): ACME over HTTP-01,
+      # answered through this Ingress. Let's Encrypt production by default.
+      server: https://acme-v02.api.letsencrypt.org/directory
+      # Optional ACME account email for the certificate authority's notices.
+      email: ""
+  # Optional hosted sign-in hostname on this same Ingress and App Service.
+  # Routes /api/connect and the six legacy /api/google-sign-in endpoints only.
+  # The App public URL stays ingress.host. Requires ingress + TLS above.
+  # Effective defaults: enabled: false, host: "", tlsSecretName: "".
+  # Each supplied field overrides legacy ingress.gmailSignIn, including false
+  # or an empty string. Keep this empty map to preserve legacy upgrade values.
+  connect: {}
+  # connect:
+  #   enabled: true
+  #   host: connect.example.com
+  #   tlsSecretName: connect-tls
+  # WebSockets and streamed replies share port 8471 with regular HTTP. Configure
+  # the chosen ingress controller's upgrade support, timeouts, and buffering
+  # through its supported annotations or controller configuration. Kubernetes
+  # Ingress has no portable timeout field. Configure its access logs to omit
+  # query strings: OAuth callback URLs carry short-lived authorization codes.
   #
   # `/api/internal/*` is the AI Employee tool surface. The App refuses any
   # request to it that did not arrive on loopback, so publishing it is not
@@ -68,6 +101,37 @@ ingress:
   #     nginx.ingress.kubernetes.io/server-snippet: |
   #       location /api/internal { deny all; return 404; }
   annotations: {}
+
+# Opt-in integration with GKE's built-in Ingress, the external Application Load
+# Balancer that serves Ingresses with no IngressClass. Off by default, which
+# keeps every resource this chart renders portable. Enabled, the chart adds:
+#   - a BackendConfig on the App Service: the timeout below for WebSockets and
+#     streamed replies, the /api/health check, and load balancer request
+#     logging off (OAuth callback URLs carry authorization codes);
+#   - a FrontendConfig that redirects HTTP to HTTPS when the Ingress has TLS;
+#   - optionally a Google-managed certificate for ingress.host and the connect
+#     host, in place of ingress.tls Secrets and cert-manager;
+#   - security.trustedProxyHops: 2, because the load balancer appends both the
+#     client's address and its own to X-Forwarded-For.
+gke:
+  enabled: false
+  backendConfig:
+    # Seconds a request or WebSocket may stay open through the load balancer.
+    timeoutSec: 3600
+    drainingTimeoutSec: 30
+  # Redirect HTTP to HTTPS at the load balancer when the Ingress has TLS.
+  redirectToHttps: true
+  # A reserved global static IP (gcloud compute addresses create NAME --global),
+  # so DNS survives the Ingress being recreated. Empty uses an ephemeral address.
+  staticIpName: ""
+  managedCertificate:
+    # A Google-managed certificate for ingress.host and the connect host, used
+    # instead of ingress.tls. Google provisions it once every hostname resolves
+    # to the Ingress address (DNS only, not through a proxy such as Cloudflare's).
+    enabled: false
+    # Keeps an existing ManagedCertificate's name when adopting it. Empty uses
+    # the release's full name.
+    name: ""
 
 # The /app/data volume. This must persist even when the database is Postgres:
 # it holds materialized git checkouts, browser state, tool artifacts, and
@@ -83,31 +147,6 @@ persistence:
   # Use a claim you manage yourself instead of the chart creating one.
   existingClaim: ""
 
-# Optional coding isolation for self-host; required for shared SaaS. Bubblewrap
-# runs scoped commands and needs to create a user namespace and mount its
-# own /proc — a stock pod may do neither. Enabling this sets on the container:
-#     securityContext:
-#       seccompProfile: { type: Unconfined }
-#       procMount: Unmasked
-# procMount: Unmasked additionally needs the cluster's ProcMountType feature
-# gate and, depending on Kubernetes version, user namespaces (hostUsers: false)
-# or a privileged container. Pod Security admission rejects both fields below
-# the `privileged` level.
-#
-# Disabled, trusted single-tenant installs use host coding in the App container
-# without an OS sandbox. MultiTenant mode instead refuses to boot without
-# working isolation, so sandbox.enabled is mandatory
-# there (and the cluster must actually honor the fields). Enabled by default
-# because multiTenant is the default; values-selfhost.yaml turns it off.
-sandbox:
-  enabled: true
-  # Rendered as pod-spec `hostUsers` when sandbox.enabled. Newer Kubernetes
-  # (1.31+, ProcMountType beta) only honors procMount: Unmasked inside a
-  # user-namespaced pod — hostUsers: false, which needs the cluster's
-  # UserNamespacesSupport feature gate. Clusters without the gate can set
-  # this to null to omit the field entirely.
-  hostUsers: false
-
 config:
   db:
     # sqlite | postgres. Setting postgres.enabled below implies postgres.
@@ -118,16 +157,20 @@ config:
     postgresUrlSecret:
       name: ""
       key: ""
-  # Shared SaaS mode — the default. Boot refuses unless the whole checklist
-  # passes; the chart pre-validates its share at template time and reports
-  # every missing value in one aggregated error. See the multi-tenant section
-  # of the chart README. values-selfhost.yaml turns this off.
-  multiTenant: true
-  # The only email allowed to claim the first master-admin account (promotion
-  # happens only after email verification, closing the internet race during
-  # bootstrap). REQUIRED when multiTenant — a bare install fails at template
-  # time until you set it.
+  # Recommended: the email that claims the master-admin account. Register it
+  # and open its verification link (in the pod log until SMTP is set); it
+  # becomes master admin at once. Left empty, nobody is promoted until the App
+  # restarts. Every App start without a master admin promotes the earliest
+  # registered account either way, so claim it before sharing the address.
   bootstrapMasterAdminEmail: ""
+  # The public HTTPS origin, e.g. https://genosyn.example.com, which email
+  # links, OAuth callbacks and Secure session cookies follow. Empty derives it
+  # from ingress.host when the Ingress has TLS. On Postgres a post-install /
+  # post-upgrade Job stores it in the database once; an origin already changed
+  # at Admin -> General is kept. Otherwise — no origin, or SQLite, whose
+  # database the Job cannot reach — the first master admin's sign-in records
+  # its browser origin.
+  publicUrl: ""
   # Extra JavaScript spliced verbatim into the generated config.js, just
   # before the closing brace of the config object — so each line should be a
   # `key: value,` entry. A duplicate top-level key replaces the default block
@@ -146,13 +189,20 @@ config:
 secrets:
   # A pre-created secret with keys `sessionSecret` and `encryptionSecret`
   # (each a unique random string of at least 32 characters; they must differ).
-  # Left empty, the chart generates a `<fullname>-instance-secrets` Secret
-  # once with strong random values and preserves it across upgrades AND
+  # Left empty, the chart manages a `<fullname>-instance-secrets` Secret
+  # using the private values below, or fresh random values when both are empty.
+  # It preserves them across upgrades AND
   # uninstall/reinstall (`helm.sh/resource-policy: keep`) — rotating the
-  # encryptionSecret would orphan every encrypted row. Either way the app
-  # receives explicit strong secrets via env, which is what multiTenant
-  # requires (shared SaaS refuses the managed on-disk secrets file).
+  # encryptionSecret would orphan every encrypted row. Either way the App
+  # receives explicit secrets via env and writes no secrets file of its own to
+  # the data volume; it refuses to boot with weak ones.
   existingSecret: ""
+  # Optional inline values, only in a private, untracked values file. Supply
+  # both together: at least 32 characters each, and different from one another.
+  # Do not combine with existingSecret. Once the chart-managed Secret exists,
+  # these must match it exactly; a mismatch fails rather than rotating keys.
+  sessionSecret: ""
+  encryptionSecret: ""
 
 # Extra environment variables for the app container, verbatim pod-spec syntax
 # (name/value or valueFrom). Anything config.extraJs reads via process.env.*
@@ -169,8 +219,12 @@ postgres:
   image: postgres:16
   database: genosyn
   username: genosyn
+  # Optional inline bundled-Postgres password, only in a private values file.
+  # Use URL-safe characters (letters, digits, '.', '_', '~', '-'). Do not
+  # combine with passwordSecret. An existing chart-managed password must match.
+  password: ""
   # A secret holding the password under `key`. Left empty, the chart generates
-  # a random password once and preserves it across upgrades — and across
+  # or uses postgres.password once and preserves it across upgrades — and across
   # uninstall/reinstall: the generated secret carries
   # `helm.sh/resource-policy: keep` so it outlives `helm uninstall` alongside
   # the pgdata PVC, which Postgres only initialized with that password.
@@ -189,10 +243,10 @@ postgres:
 #
 # Deliberately requests without limits: requests only affect scheduling and
 # eviction order, so raising the floor cannot OOM-kill a workload that was
-# previously fine. Shared SaaS should add limits as well — one tenant's build
-# or `npm install` inside the sandbox otherwise competes freely for the node —
-# but pick them from your own measurements, because a limit that is too low
-# turns a slow Routine into a killed one.
+# previously fine. AI Employee builds and `npm install`s run inside this
+# container, so on a shared node consider limits too — but pick them from your
+# own measurements, because a limit that is too low turns a slow Routine into a
+# killed one.
 #
 #   resources:
 #     requests: { cpu: 500m, memory: 1Gi }

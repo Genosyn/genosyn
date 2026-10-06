@@ -61,6 +61,8 @@ export type ToolResult = {
 /** A tool the model can call. `run` executes it and returns text for the model. */
 export type AgentTool = ToolDef & {
   run(input: Record<string, unknown>): Promise<ToolResult>;
+  /** Server-owned orchestration waits do not hold the ordinary company write lane. */
+  executionLane?: "delegation";
   /**
    * The tool observes state and never changes it — a file read, a search, a
    * listing, a diff.
@@ -88,6 +90,8 @@ export type AgentTool = ToolDef & {
 // ---------- runtime activity ----------
 
 export type StreamCallbacks = {
+  /** Server-owned worker groups still running after a bounded tool response. */
+  onBackgroundWork?: (pendingGroups: number) => void;
   /** Human-visible reply prose, streamed token-by-token. */
   onText?: (delta: string) => void;
   /**
@@ -100,6 +104,22 @@ export type StreamCallbacks = {
   onProgress?: (progress: AgentProgress) => void;
   /** Fired before retrying a transient model-service or transport failure. */
   onModelRetry?: (info: ModelRetryInfo) => void;
+  /**
+   * Fired when a work turn starts waiting for a self-hosted AI Model's server
+   * that stopped answering, and again when it answers.
+   */
+  onModelOutage?: (outage: ModelOutage) => void;
+  /**
+   * Fired when a self-hosted server that serves a single model rejected the
+   * configured one — it was restarted with another — and the turn moved to the
+   * model it serves. The AI Model's card follows.
+   */
+  onServedModelChange?: (change: { from: string; to: string }) => void;
+  /**
+   * Fired when a work turn stopped with no reply and no tool call, just before
+   * the runtime asks the model in the same session to continue or report.
+   */
+  onSilentStop?: () => void;
   /**
    * Fired when the model decides to call a tool (before we execute it).
    *
@@ -203,6 +223,13 @@ export type TurnUsage = {
 };
 
 /** One transparent retry of the current model turn. */
+export type ModelOutage = {
+  /** `waiting` when the server stops answering; `answered` once it does again. */
+  state: "waiting" | "answered";
+  /** How long the turn waited, measured when the server answers. */
+  waitedMs: number;
+};
+
 export type ModelRetryInfo = {
   /** The provider call about to start, counting the original as attempt 1. */
   attempt: number;

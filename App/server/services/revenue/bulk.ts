@@ -249,16 +249,20 @@ async function selectedFollowUps(
     .where("row.companyId = :companyId", { companyId })
     .andWhere("row.kind = 'task'")
     .andWhere("row.dueAt IS NOT NULL")
-    .leftJoin(Deal, "taskDeal", "taskDeal.companyId = row.companyId AND taskDeal.id = row.dealId")
+    .leftJoin(
+      Deal,
+      "taskDeal",
+      "taskDeal.companyId = row.companyId AND CAST(taskDeal.id AS text) = row.dealId",
+    )
     .leftJoin(
       Contact,
       "taskContact",
-      "taskContact.companyId = row.companyId AND taskContact.id = row.contactId",
+      "taskContact.companyId = row.companyId AND CAST(taskContact.id AS text) = row.contactId",
     )
     .leftJoin(
       Partnership,
       "taskPartnership",
-      "taskPartnership.companyId = row.companyId AND taskPartnership.id = row.partnershipId",
+      "taskPartnership.companyId = row.companyId AND CAST(taskPartnership.id AS text) = row.partnershipId",
     )
     .leftJoin(
       Customer,
@@ -273,7 +277,7 @@ async function selectedFollowUps(
     .leftJoin(
       Customer,
       "dealAccount",
-      "dealAccount.companyId = row.companyId AND dealAccount.id = row.customerId",
+      "dealAccount.companyId = row.companyId AND CAST(dealAccount.id AS text) = row.customerId",
     );
   const partnershipQb = manager
     .getRepository(Partnership)
@@ -283,7 +287,7 @@ async function selectedFollowUps(
     .leftJoin(
       Customer,
       "partnershipAccount",
-      "partnershipAccount.companyId = row.companyId AND partnershipAccount.id = row.customerId",
+      "partnershipAccount.companyId = row.companyId AND CAST(partnershipAccount.id AS text) = row.customerId",
     );
 
   if (requested.length > 0) {

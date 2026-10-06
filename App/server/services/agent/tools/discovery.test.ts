@@ -7,6 +7,7 @@ import { createFindToolsTool, createCallTool } from "./discovery.js";
 import { RESIDENT_GENOSYN_TOOLS } from "./index.js";
 import { TOOL_DOMAINS } from "./toolIndex.js";
 import type { AgentTool } from "../types.js";
+import { buildRegistry } from "./toolRegistry.js";
 
 /**
  * Recall gate for `find_tools`.
@@ -484,6 +485,33 @@ describe("call_tool dispatch", () => {
     const out = await withMeta.run({ name: "find_tools", args_json: '{"query":"invoice"}' });
     assert.equal(out.isError, undefined, `call_tool(find_tools) failed: ${out.content}`);
     assert.ok(out.content.includes("catalogue"));
+  });
+
+  test("call_tool and the registry accept the genosyn_ name OpenCode shows the model", async () => {
+    const echo: AgentTool = {
+      name: "postgres_query",
+      description: "Run a query",
+      inputSchema: { type: "object", properties: {} },
+      run: async (input) => ({ content: `ran ${JSON.stringify(input)}` }),
+    };
+    const registry = buildRegistry({
+      resident: [],
+      deferred: [echo],
+      aliases: [],
+      domains: [],
+      fromSkills: [],
+    });
+    assert.equal(registry.resolve("genosyn_postgres_query"), echo);
+    assert.equal(registry.visibility("genosyn_postgres_query"), "deferred");
+    assert.equal(registry.resolve("genosyn_missing"), undefined);
+    const call = createCallTool({
+      searchable: [echo],
+      resolve: (name) => registry.resolve(name),
+      grantDead: new Set(),
+    });
+    const out = await call.run({ name: "genosyn_postgres_query", args_json: '{"sql":"select 1"}' });
+    assert.equal(out.isError, undefined, out.content);
+    assert.equal(out.content, 'ran {"sql":"select 1"}');
   });
 
   test("describeCall reports the real target, not call_tool", () => {

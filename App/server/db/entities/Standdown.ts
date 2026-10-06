@@ -9,7 +9,7 @@ export type StanddownScope = "company" | "employee" | "routine";
 
 /**
  * Who placed it. `human` is somebody pressing the button; `breaker` is the
- * consecutive-failure circuit breaker in the runner. The distinction is
+ * former consecutive-failure circuit breaker. The distinction is
  * recorded rather than modelled as two entities because lifting one is the
  * same act either way — an admin deciding the work is safe to resume.
  */
@@ -29,8 +29,8 @@ export type StanddownSource = "human" | "breaker";
  * and widens what an employee may do without a human; a Standdown is imposed,
  * broad, and stops it. `Routine.enabled` stays the ordinary per-routine
  * switch and is untouched by this — a Standdown is the emergency instrument,
- * it records who and why, and it is the same primitive whether a human pressed
- * it or the breaker tripped it.
+ * it records who and why. Historical breaker Standdowns remain effective
+ * until an admin returns the work to service.
  *
  * Vocabulary: **Standdown**, never "pause" / "hold" (the docs already say
  * "held calls" for tainted-turn Approvals) / "suspend" / "freeze". Deliberately

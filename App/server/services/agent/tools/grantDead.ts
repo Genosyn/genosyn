@@ -29,8 +29,10 @@ import {
   type EmployeeVaultAccessLevel,
 } from "../../../db/entities/EmployeeVaultGrant.js";
 import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnectionGrant.js";
+import { EmployeeResourceLibraryGrant } from "../../../db/entities/EmployeeResourceLibraryGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
 import { EXPLORE_PROVIDERS } from "../../explore.js";
+import { RESOURCE_WRITE_TOOLS } from "../../resourceLibraryAccess.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -137,6 +139,7 @@ const MEETING_GATED_TOOLS = new Set([
  * answers to an `EmployeeFinanceGrant`.
  */
 const FINANCE_TOOL_ACCESS: Record<string, FinanceAccessLevel> = {
+  list_subsidiaries: "read",
   list_finance_accounts: "read",
   list_finance_transactions: "read",
   get_finance_transaction: "read",
@@ -319,6 +322,14 @@ const REVENUE_TOOL_ACCESS: Record<string, RevenueAccessLevel> = {
 };
 const REVENUE_GATED_TOOLS = new Set(Object.keys(REVENUE_TOOL_ACCESS));
 
+/**
+ * The Resources library ceiling (Resources → AI access). The opposite shape to
+ * every set above: an employee with no row holds `write`, so these are dead
+ * only for one explicitly set to `read`. The read tools never appear — they
+ * answer to per-Resource Grants, which a hire receives for the whole library.
+ */
+const RESOURCE_WRITE_GATED_TOOLS = new Set<string>(RESOURCE_WRITE_TOOLS);
+
 /** Explore's ad-hoc database tools need at least one Connection Grant. */
 const EXPLORE_CONNECTION_GATED_TOOLS = new Set([
   "get_explore_schema",
@@ -345,6 +356,7 @@ export function assertGrantSetsResolve(): void {
     ...SIGNING_GATED_TOOLS,
     ...VAULT_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
+    ...RESOURCE_WRITE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
   ].filter((n) => !known.has(n));
   if (unknown.length > 0) {
@@ -404,6 +416,15 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
       where: { employeeId },
     });
     if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
+    const resourceLibrary = await AppDataSource.getRepository(EmployeeResourceLibraryGrant).findOne(
+      { where: { employeeId } },
+    );
+    // Exactly `read`, not "anything that is not write": an unknown level stays
+    // live here like the signing branch above — the route gate fails closed on
+    // it anyway, and a ranking hint prefers a wasted call to a hidden tool.
+    if (resourceLibrary?.accessLevel === "read") {
+      for (const t of RESOURCE_WRITE_GATED_TOOLS) dead.add(t);
+    }
     const vaultGrants = await AppDataSource.getRepository(EmployeeVaultGrant).find({
       where: { employeeId },
     });

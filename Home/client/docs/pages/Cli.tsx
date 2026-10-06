@@ -15,9 +15,9 @@ const COMMANDS: Cmd[] = [
   },
   {
     name: "upgrade",
-    flags: "[--backup] [--no-self-upgrade]",
+    flags: "[--backup] [--no-self-upgrade] [--drain-minutes N | --now]",
     blurb:
-      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. Backups are off by default; pass --backup to create a verified data backup and restore it on failure. Pass --no-self-upgrade to skip the script update.",
+      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. Running Routine Runs get up to 60 minutes to finish first while new ones wait; --drain-minutes N changes that and --now restarts without waiting. Backups are off by default; pass --backup to create a verified data backup and restore it on failure. Pass --no-self-upgrade to skip the script update.",
   },
   {
     name: "self-upgrade",
@@ -28,7 +28,7 @@ const COMMANDS: Cmd[] = [
     name: "auto-update",
     flags: "<on|off|status>",
     blurb:
-      "Enable, disable, or inspect the host's daily 03:17 automatic upgrade. Each run self-upgrades the CLI, pulls the latest image, and safely recreates the container around the existing data volume.",
+      "Enable, disable, or inspect the host's daily 03:17 automatic upgrade. Each run first updates its own copy of the CLI, without sudo, then pulls the latest image and safely recreates the container around the existing data volume. status shows the CLI version the schedule runs.",
   },
   { name: "start", blurb: "Start a stopped container." },
   { name: "stop", blurb: "Stop the running container." },
@@ -140,14 +140,14 @@ export function Cli() {
 chmod +x /usr/local/bin/genosyn`}</Pre>
 
       <H2 id="commands">Commands</H2>
-      <div className="mt-6 divide-y divide-ground overflow-hidden border border-hairline bg-white">
+      <div className="mt-6 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-paper-raised">
         {COMMANDS.map((c) => (
           <div key={c.name} className="px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="font-mono text-[13px] font-semibold text-ink">genosyn {c.name}</span>
-              {c.flags && <span className="font-mono text-[12.5px] text-muted">{c.flags}</span>}
+              {c.flags && <span className="font-mono text-[12.5px] text-ink-500">{c.flags}</span>}
             </div>
-            <p className="mt-1 text-[13.5px] leading-[1.6] text-ink2">{c.blurb}</p>
+            <p className="mt-1 text-[13.5px] leading-[1.6] text-ink-600">{c.blurb}</p>
           </div>
         ))}
       </div>
@@ -197,19 +197,9 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_CLI_URL",
             def: (
               <>
-                Fetch URL for the CLI script used by <Code>self-upgrade</Code>. Default{" "}
+                Fetch URL for the CLI script used by <Code>self-upgrade</Code> and by automatic
+                updates to refresh their copy of the CLI. Default{" "}
                 <Code>https://genosyn.com/genosyn</Code>.
-              </>
-            ),
-          },
-          {
-            term: "GENOSYN_SANDBOX",
-            def: (
-              <>
-                Default <Code>0</Code>: keep Docker&apos;s standard profile and use host coding. Set{" "}
-                <Code>1</Code> for optional bubblewrap support, adding
-                <Code> seccomp=unconfined</Code> and <Code>systempaths=unconfined</Code>. Select
-                bubblewrap execution in the boot configuration when you want that isolation.
               </>
             ),
           },
@@ -228,6 +218,15 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
               <>
                 Host directory for optional, verified pre-upgrade backups. Default{" "}
                 <Code>~/.genosyn/backups</Code>.
+              </>
+            ),
+          },
+          {
+            term: "GENOSYN_DRAIN_MINUTES",
+            def: (
+              <>
+                How long an upgrade lets running Routine Runs finish before it restarts the
+                container. Default <Code>60</Code>; <Code>0</Code> restarts without waiting.
               </>
             ),
           },
@@ -251,8 +250,38 @@ genosyn auto-update on`}</Pre>
         command to retry after cron is installed.
       </P>
       <P>
+        Each run uses the schedule&apos;s own copy of the CLI —{" "}
+        <Code>~/.genosyn/auto-update-genosyn.cli</Code> for the default container — and updates that
+        copy before anything else. The installer usually leaves <Code>/usr/local/bin/genosyn</Code>{" "}
+        owned by root, which a cron job cannot replace without a password. The copy belongs to you,
+        so every run starts from the latest CLI without <Code>sudo</Code>. The{" "}
+        <Code>genosyn</Code> you run yourself is unchanged and still updates itself during{" "}
+        <Code>genosyn upgrade</Code>. <Code>genosyn auto-update status</Code> shows the copy and its
+        version.
+      </P>
+      <Callout kind="info" title="Automatic updates set up before CLI 0.8.0">
+        They run the installed CLI, so their log may say it cannot update{" "}
+        <Code>/usr/local/bin/genosyn</Code> without sudo. Run <Code>genosyn upgrade</Code> once
+        yourself: it updates the installed CLI, asking for <Code>sudo</Code> if it needs to, and moves
+        the schedule onto its own copy, keeping the port, image, and other settings it had.
+      </Callout>
+      <P>
         Automatic updates do not create a data backup. The previous container is retained until the
         new one becomes ready and is restarted if the upgrade fails, using the current data volume.
+      </P>
+
+      <H3 id="upgrade-drain">Upgrades let running Routines finish</H3>
+      <P>
+        A restart ends every running Routine Run, and Runs on a self-hosted model often take an
+        hour or more. Before an upgrade stops the container, it gives running Runs up to 60
+        minutes to finish. Meanwhile new Runs — scheduled, manual, or continuations — wait in the
+        queue and start in the upgraded container. A Run still going when the time is up is
+        interrupted as before.
+      </P>
+      <Pre lang="bash">{`genosyn upgrade --drain-minutes 120   # give long Runs two hours
+genosyn upgrade --now                 # restart without waiting`}</Pre>
+      <P>
+        Pressing Ctrl-C while it waits cancels the upgrade and lets queued Runs start again.
       </P>
 
       <H3 id="upgrade-with-backup">Upgrade with a verified backup</H3>

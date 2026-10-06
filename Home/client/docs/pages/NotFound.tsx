@@ -23,10 +23,10 @@ export function NotFound() {
           <li key={l.href}>
             <Link
               href={l.href}
-              className="flex items-center justify-between border border-hairline bg-white px-4 py-3 text-sm font-medium text-ink transition hover:border-rule hover:"
+              className="flex items-center justify-between rounded-2xl border border-line bg-paper-raised px-4 py-3 text-sm font-medium text-ink transition hover:border-line-strong hover:"
             >
               {l.label}
-              <ArrowRight className="h-3.5 w-3.5 text-muted" />
+              <ArrowRight className="h-3.5 w-3.5 text-ink-500" />
             </Link>
           </li>
         ))}

@@ -48,9 +48,33 @@ type DiagnosticRun = Pick<
   | "outcomeVerdict"
   | "outcomeNote"
   | "continuationStopReason"
+  | "checkpointJson"
   | "finishedAt"
   | "startedAt"
 >;
+
+const UNKNOWN_FAILURE =
+  "The Run did not finish successfully. Detailed exception evidence was not recorded for this Run.";
+
+/**
+ * A Run that saved its progress and handed the rest of its work to a fresh
+ * Run (see `runContinuation.ts`) ends `failed` with no reason of its own. That
+ * is the planned handoff, not a failure — the continuation shows how the work
+ * ended — so it gets no invented failure. Shown as one, it contradicted the
+ * Run's own "Continuation scheduled" notice and told a continuation reading
+ * its parent's report that the parent had failed.
+ */
+function handedOff(run: DiagnosticRun): boolean {
+  if (run.status !== "failed" || run.errorKind) return false;
+  if (safe(run.failureReason ?? "") || safe(run.continuationStopReason ?? "")) return false;
+  if (run.checksVerdict === "failed" || run.outcomeVerdict === "off_goal") return false;
+  try {
+    const checkpoint = JSON.parse(run.checkpointJson ?? "null") as { state?: unknown } | null;
+    return checkpoint?.state === "continue";
+  } catch {
+    return false;
+  }
+}
 
 function safe(value: unknown, max = 2000): string {
   // Redact before slicing so truncation cannot expose the start of a secret.
@@ -153,6 +177,16 @@ export function readRunDiagnostics(run: DiagnosticRun): RunDiagnostics {
     toolErrors: [],
     failure: null,
   };
+  if (handedOff(run)) {
+    // Runs finished before this fix stored the invented failure; drop it on read.
+    if (
+      value.failure?.category === "unknown" &&
+      value.failure.exception === null &&
+      value.failure.message === UNKNOWN_FAILURE
+    )
+      value.failure = null;
+    return value;
+  }
   if (!value.failure && ["failed", "error", "timeout", "interrupted"].includes(run.status)) {
     const reportedReason =
       safe(run.failureReason ?? "") ||
@@ -179,7 +213,7 @@ export function readRunDiagnostics(run: DiagnosticRun): RunDiagnostics {
           ? "The Run exceeded its time budget."
           : category === "interrupted"
             ? "The Run stopped before finishing; no exception was recorded."
-            : "The Run did not finish successfully. Detailed exception evidence was not recorded for this Run.");
+            : UNKNOWN_FAILURE);
     value.failure = {
       category,
       phase: value.phase,

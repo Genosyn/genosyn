@@ -34,6 +34,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Ask any AI Employee about the product and its shipped source code.",
       },
       {
+        path: "/docs/ask-ai",
+        title: "Ask AI",
+        blurb:
+          "Ask any AI Employee — or several at once — about the record on screen, within their Grants.",
+      },
+      {
         path: "/docs/mobile",
         title: "Install on your phone",
         blurb: "Add Genosyn to your home screen as a PWA — iOS, Android, desktop.",
@@ -42,13 +48,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/security",
         title: "Account security",
         blurb:
-          "Passwordless passkey sign-in, email verification, and optional 2FA with authenticator apps and USB security keys.",
-      },
-      {
-        path: "/docs/plans-billing",
-        title: "Plans & billing",
-        blurb:
-          "Community, Enterprise, and Genosyn Cloud — the Free / Growth / Scale Plans, limits, and Stripe setup.",
+          "Passwordless passkey sign-in, email verification, 2FA with authenticator apps and USB security keys, company SSO, and the audit log.",
       },
     ],
   },
@@ -80,8 +80,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/models",
         title: "AI Models",
-        blurb:
-          "Connect API keys, a custom endpoint, or a trusted single-tenant OpenAI subscription.",
+        blurb: "Connect API keys, a custom endpoint, or an eligible ChatGPT subscription.",
       },
       {
         path: "/docs/tool-discovery",
@@ -268,7 +267,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/standdowns",
         title: "Standdowns",
         blurb:
-          "A revocable stop on all AI work at company, employee, or Routine scope — placed by a human, or tripped by the failure breaker.",
+          "A revocable stop on all AI work at company, employee, or Routine scope, placed and lifted by an owner or admin.",
       },
       {
         path: "/docs/policies",
@@ -308,7 +307,8 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/customers",
         title: "Customers",
-        blurb: "Accounts, contacts, annual contract value, statements, and signed contracts.",
+        blurb:
+          "Accounts and everything about them — emails, activity, deals, people, billing, statements, and signed contracts.",
       },
       {
         path: "/docs/pdf-forms",
@@ -345,11 +345,6 @@ export const DOCS_NAV: DocsSection[] = [
     label: "Self-hosting",
     pages: [
       {
-        path: "/docs/saas-hosting",
-        title: "Shared SaaS mode",
-        blurb: "Multi-tenant production requirements, isolation, and replica coordination.",
-      },
-      {
         path: "/docs/self-hosting",
         title: "Configuration",
         blurb: "config.ts, the runtime settings in Admin, the data directory, backups.",
@@ -359,12 +354,6 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/kubernetes",
         title: "Kubernetes",
         blurb: "Raw manifests for running Genosyn on a cluster.",
-      },
-      {
-        path: "/docs/enterprise-license",
-        title: "Enterprise licenses",
-        blurb:
-          "Unlock SSO and the Audit log on a self-hosted install with an offline-verified license key.",
       },
     ],
   },

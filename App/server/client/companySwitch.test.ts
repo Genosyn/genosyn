@@ -15,18 +15,6 @@ function company(slug = "new-company"): Company {
     role: "owner",
     financeAccess: "full",
     requireTwoFactor: false,
-    entitlements: {
-      edition: "community",
-      plan: null,
-      maxAiEmployees: null,
-      maxRoutines: null,
-      maxBases: null,
-      maxBaseTables: null,
-      maxChannels: null,
-      maxProjects: null,
-      maxTodos: null,
-      features: { sso: false, auditLog: false },
-    },
   };
 }
 

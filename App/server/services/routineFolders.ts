@@ -124,7 +124,7 @@ async function routineCountsByFolder(companyId: string): Promise<Map<string, num
     .createQueryBuilder("r")
     .select("r.folderId", "folderId")
     .addSelect("COUNT(*)", "count")
-    .innerJoin(AIEmployee, "e", "e.id = r.employeeId")
+    .innerJoin(AIEmployee, "e", "CAST(e.id AS text) = r.employeeId")
     .where("e.companyId = :companyId", { companyId })
     .andWhere("r.folderId IS NOT NULL")
     .groupBy("r.folderId")
@@ -136,7 +136,7 @@ async function routineCountsByFolder(companyId: string): Promise<Map<string, num
 export async function unfiledRoutineCount(companyId: string): Promise<number> {
   return AppDataSource.getRepository(Routine)
     .createQueryBuilder("r")
-    .innerJoin(AIEmployee, "e", "e.id = r.employeeId")
+    .innerJoin(AIEmployee, "e", "CAST(e.id AS text) = r.employeeId")
     .where("e.companyId = :companyId", { companyId })
     .andWhere("r.folderId IS NULL")
     .getCount();

@@ -273,9 +273,8 @@ export default function TldrsIndex() {
                     <Button
                       variant="secondary"
                       onClick={() => void loadMore()}
-                      disabled={loadingMore}
+                      loading={loadingMore}
                     >
-                      {loadingMore ? <Spinner size={14} /> : null}
                       {loadingMore ? "Loading…" : "Find older unread TLDRs"}
                     </Button>
                   }
@@ -315,12 +314,7 @@ export default function TldrsIndex() {
               ))}
               {hasMore && (
                 <div className="flex justify-center pt-1">
-                  <Button
-                    variant="secondary"
-                    onClick={() => void loadMore()}
-                    disabled={loadingMore}
-                  >
-                    {loadingMore ? <Spinner size={14} /> : null}
+                  <Button variant="secondary" onClick={() => void loadMore()} loading={loadingMore}>
                     {loadingMore
                       ? "Loading older TLDRs…"
                       : filter === "unread" && unloadedUnread > 0

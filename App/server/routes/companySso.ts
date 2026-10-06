@@ -14,19 +14,12 @@ import {
   describeCompanySso,
   updateCompanySso,
 } from "../services/companySso.js";
-import { featureGateMessage, getCompanyEntitlements } from "../services/entitlements.js";
 import { discoverOidcEndpoints, SsoLoginError } from "../services/ssoLogin.js";
 
 /**
- * Settings → Single sign-on (M56 Phase B) — a company's own SSO on a Genosyn
- * Cloud install, mounted under `/api/companies/:cid`.
- *
- * Reading is admin-level so the page can always render its state (including
- * the upgrade gate). Turning SSO ON is the Scale-plan feature: the PUT
- * refuses `enabled: true` without the `sso` entitlement, mirroring how the
- * instance SSO is license-gated on self-hosted installs. Saving a draft
- * configuration or turning it off is never gated — losing a plan must not
- * lock a company out of its own settings.
+ * Settings → Single sign-on (M56 Phase B) — a company's own SSO, mounted
+ * under `/api/companies/:cid`. Every route here is admin-level: reading,
+ * saving, clearing, and probing an issuer.
  */
 export const companySsoRouter = Router({ mergeParams: true });
 companySsoRouter.use(requireAuth);
@@ -73,26 +66,14 @@ companySsoRouter.put(
   async (req, res, next) => {
     const cid = req.params.cid;
     const body = req.body as z.infer<typeof ssoSchema>;
+    // The write is the only fallible-by-user step: an incomplete config that
+    // tries to enable SSO comes back as a 400 the form renders inline.
     try {
-      if (body.enabled) {
-        const entitlements = await getCompanyEntitlements(cid);
-        if (!entitlements.features.sso) {
-          return res
-            .status(402)
-            .json({ error: featureGateMessage("sso", entitlements.edition) });
-        }
-      }
-      // The write is the only fallible-by-user step: an incomplete config
-      // that tries to enable SSO comes back as a 400 the form renders inline.
-      try {
-        res.json(await updateCompanySso(cid, await companySlug(cid), body));
-      } catch (err) {
-        if (err instanceof Error && !(err instanceof TypeError)) {
-          return res.status(400).json({ error: err.message });
-        }
-        throw err;
-      }
+      res.json(await updateCompanySso(cid, await companySlug(cid), body));
     } catch (err) {
+      if (err instanceof Error && !(err instanceof TypeError)) {
+        return res.status(400).json({ error: err.message });
+      }
       next(err);
     }
   },

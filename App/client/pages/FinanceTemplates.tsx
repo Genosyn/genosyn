@@ -145,7 +145,7 @@ export default function FinanceTemplates() {
           >
             Reset
           </Button>
-          <Button type="submit" disabled={busy || !dirty}>
+          <Button type="submit" loading={busy} disabled={!dirty}>
             Save templates
           </Button>
         </div>

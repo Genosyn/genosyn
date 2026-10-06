@@ -1,28 +1,25 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { config } from "../../config.js";
 import type { Repository } from "../db/entities/Repository.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
 import {
   messageOf,
-  spawnSandboxedCommand,
-  type SandboxCommandResult,
-} from "./agent/sandboxCommandRun.js";
-import { buildSandboxShellInvocation } from "./agent/sandboxShell.js";
+  runCommandToCompletion,
+  type CommandRunResult,
+} from "./agent/commandRun.js";
+import { buildShellInvocation } from "./agent/shellInvocation.js";
 import { decideRepositoryCommand } from "./repositoryCommandPolicy.js";
 import { normalizeRepositoryPath, resolveInCheckout } from "./repositoryWorkspace.js";
 
 /**
  * Running one command inside a Repository work session's worktree.
  *
- * Commands run directly on the host by default, with the session worktree as
- * their working directory. The Repository's command policy, bounded output,
- * timeout, and cancellation apply in both host and optional bubblewrap mode.
+ * Commands run directly on the host, with the session worktree as their working
+ * directory and the App process user's authority. The Repository's command
+ * policy, bounded output, timeout, and cancellation apply to every command.
  * Genosyn continues to own checkpoint commits and delivery through its
  * Repository tools. A host working directory is not filesystem isolation.
- * When bubblewrap is selected, only the session worktree is mounted and its
- * .git pointer stays read-only.
  */
 
 /** Default ceiling for one command. Long enough for a real test suite. */
@@ -32,7 +29,7 @@ export const DEFAULT_SESSION_COMMAND_MS = 5 * 60 * 1000;
 export const MAX_SESSION_COMMAND_MS = 10 * 60 * 1000;
 
 /**
- * Output kept from one command, head and tail — see `sandboxCommandRun.ts`
+ * Output kept from one command, head and tail — see `agent/commandRun.ts`
  * for why both ends survive.
  *
  * Keep one command's evidence manageable for the runtime. The tail gets the
@@ -60,13 +57,7 @@ export const SESSION_COMMAND_ENV: Record<string, string> = {
   PYTHONUNBUFFERED: "1",
 };
 
-/**
- * `$HOME` inside an optional sandbox. Host commands get a temporary directory
- * outside the worktree so caches are not included in checkpoint commits.
- */
-export const SESSION_COMMAND_HOME = "/tmp";
-
-export type SessionCommandResult = SandboxCommandResult & {
+export type SessionCommandResult = CommandRunResult & {
   /** Actual working directory relative to the session root; `.` means root. */
   cwd: string;
 };
@@ -110,7 +101,7 @@ export function workSessionCommandAvailability(
  */
 export async function runWorkSessionCommand(args: {
   repo: Pick<Repository, "commandMode" | "allowedCommands">;
-  /** The session worktree, which remains the sandbox root. */
+  /** The session worktree. */
   directory: string;
   /** An existing directory inside the worktree, relative to its root. */
   cwd?: string;
@@ -134,20 +125,17 @@ export async function runWorkSessionCommand(args: {
   let childEnv: Record<string, string>;
   let commandDirectory: string;
   let relativeCwd: string;
-  let hostHome: string | undefined;
+  let home: string | undefined;
   try {
     const resolved = resolveCommandDirectory(args.directory, args.cwd ?? ".");
     commandDirectory = resolved.directory;
     relativeCwd = resolved.cwd;
-    if (config.agent.codingTools.executionMode === "host") {
-      hostHome = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-session-command-"));
-    }
-    const invocation = buildSandboxShellInvocation({
-      workspaceRoot: args.directory,
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-session-command-"));
+    const invocation = buildShellInvocation({
       cwd: commandDirectory,
       command: args.command.trim(),
       // No company Environment secrets here. A work session is reviewed by a
-      // human as a diff, and a secret that entered the sandbox could leave in
+      // human as a diff, and a secret handed to the command could leave in
       // one. The employee's own `bash` in its own working directory is where
       // that trade was made deliberately; this surface has not made it.
       env: { ...SESSION_COMMAND_ENV },
@@ -157,20 +145,19 @@ export async function runWorkSessionCommand(args: {
       // and never met the repository's list.
       login: false,
       // And `$HOME` is not the worktree either, or every package manager's
-      // cache would land inside it and be committed. See `SESSION_COMMAND_HOME`.
-      home: hostHome ?? SESSION_COMMAND_HOME,
-      readOnlyPaths: gitPointerOverlay(args.directory),
+      // cache would land inside it and be committed.
+      home,
     });
     executable = invocation.executable;
     spawnArgs = invocation.args;
     childEnv = invocation.env;
   } catch (error) {
-    if (hostHome) fs.rmSync(hostHome, { recursive: true, force: true });
+    if (home) fs.rmSync(home, { recursive: true, force: true });
     return { refused: `Could not prepare the command: ${messageOf(error)}` };
   }
 
   try {
-    const result = await spawnSandboxedCommand({
+    const result = await runCommandToCompletion({
       executable,
       args: spawnArgs,
       cwd: commandDirectory,
@@ -183,11 +170,11 @@ export async function runWorkSessionCommand(args: {
     });
     return { ...result, cwd: relativeCwd };
   } finally {
-    if (hostHome) fs.rmSync(hostHome, { recursive: true, force: true });
+    if (home) fs.rmSync(home, { recursive: true, force: true });
   }
 }
 
-/** Resolve the command's folder without changing what the sandbox exposes. */
+/** Resolve the command's folder inside the worktree. */
 function resolveCommandDirectory(
   directory: string,
   cwd: string,
@@ -219,23 +206,4 @@ function resolveCommandDirectory(
     { allowRoot: true },
   );
   return { directory: path.resolve(directory, relative), cwd: relative || "." };
-}
-
-/**
- * The worktree's `.git` pointer, to be re-bound read-only — but only when it
- * is a regular file, which is what a worktree's pointer is.
- *
- * `buildBubblewrapCommandArgs` resolves a bind source lexically, so handing it
- * a symlink would bind whatever the link points at into the sandbox. Nothing
- * can make `.git` a symlink today — the path tools refuse the name, and during
- * a command it is a mount point that cannot be replaced — but the guarantee
- * belongs next to the thing that depends on it rather than four files away.
- */
-function gitPointerOverlay(directory: string): string[] {
-  const pointer = path.join(directory, ".git");
-  try {
-    return fs.lstatSync(pointer).isFile() ? [pointer] : [];
-  } catch {
-    return [];
-  }
 }

@@ -1,7 +1,7 @@
 import { ArrowRight, BookHeart, CalendarClock, Sparkles } from "lucide-react";
 import { Link } from "@/lib/router";
 import { Callout, Code, DocLink, ExtLink, H2, P, PageHeader, Strong, UL, LI } from "@/docs/Prose";
-import { GITHUB_URL } from "@/lib/constants";
+import { GITHUB_URL, INSTALL_DOCS_PATH } from "@/lib/constants";
 
 export function Introduction() {
   return (
@@ -11,10 +11,10 @@ export function Introduction() {
         title="Build an autonomous company."
         lead={
           <>
-            Genosyn is an open-source, self-hostable platform for running a company with{" "}
-            <Strong>AI Employees</Strong>. Each one has a written soul, a set of skills, and
-            routines on a schedule. They wake up on their own, do the job, and report what they
-            shipped — and only the decisions that need a person come back to you.
+            Genosyn is an open-source platform for running a company with{" "}
+            <Strong>AI Employees</Strong>, on your own hardware. Each AI Employee has a written soul,
+            a set of skills, and routines on a schedule. They wake up on their own, do the job, and
+            report what they shipped — and only the decisions that need a person come back to you.
           </>
         }
       />
@@ -69,9 +69,8 @@ export function Introduction() {
         <LI>
           <Strong>Anyone</Strong> who prefers their tools open source, self-hosted, and
           bring-your-own-model: use Anthropic / OpenAI API keys, a custom OpenAI-compatible
-          endpoint, or eligible ChatGPT subscription access for OpenAI on a trusted single-tenant
-          install. The default executes coding work directly inside the App container; bubblewrap
-          isolation is optional.
+          endpoint, or eligible ChatGPT subscription access for OpenAI. Coding work runs directly
+          inside the App container, with no OS sandbox, and can be switched off.
         </LI>
       </UL>
 
@@ -92,9 +91,9 @@ export function Introduction() {
         <LI>
           <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You bring an Anthropic /
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
-          access for OpenAI on a trusted single-tenant install, then point each employee at the
-          model you choose. OpenCode is bundled, so there is no separate runtime to install. Claude
-          subscription credentials are not supported; see{" "}
+          access for OpenAI, then point each employee at the model you choose. OpenCode is
+          bundled, so there is no separate runtime to install. Claude subscription credentials
+          are not supported; see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
@@ -112,7 +111,7 @@ export function Introduction() {
           the screens stay live: a routine finishing, an employee moving a todo or leaving a
           comment, an invoice going out, a base record being written — the list or page you&apos;re
           looking at refreshes itself over a single WebSocket, no reload required. It works the same
-          across browser tabs and, in shared-SaaS mode, across replicas.
+          across browser tabs.
         </LI>
       </UL>
 
@@ -197,6 +196,18 @@ export function Introduction() {
         if you&apos;d rather click.
       </P>
       <P>
+        The palette finds the pages inside each section as well. Type &ldquo;recurring&rdquo; and{" "}
+        <DocLink to="/docs/finance">Finance</DocLink>&apos;s <Strong>Recurring invoices</Strong>{" "}
+        appears under <Strong>Pages</Strong>, beside Routines; &ldquo;members&rdquo; opens Settings →
+        Members, &ldquo;drafts&rdquo; opens your Email drafts, and &ldquo;new invoice&rdquo; opens
+        the invoice form. Each page shows the section it belongs to, and whichever group holds the
+        closest match comes first, so <Code>↵</Code> opens it. Add the section&apos;s name to narrow
+        things down: &ldquo;revenue accounts&rdquo; finds Revenue&apos;s Accounts and not
+        Finance&apos;s Chart of accounts. Pages only appear when you can open them: a Member
+        doesn&apos;t see admin-only pages such as Usage, Single sign-on, or the Audit log, and
+        Finance pages follow the finance access an owner or admin set for you on Settings → Members.
+      </P>
+      <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
         Routines. Pressing <Code>G</Code>
@@ -212,10 +223,10 @@ export function Introduction() {
         the same search interaction.
       </P>
       <P>
-        The palette searches your company&apos;s content too, not just the section list. Type two or
+        The palette searches your company&apos;s content too, not just sections and pages. Type two or
         more characters and matching AI Employees, skills, routines, notebooks, notes, bases,
         channels, projects, todos, customers, charts, dashboards, repositories, and pipelines appear
-        grouped beneath the sections. It matches <em>names</em> — plus a few fields you&apos;d
+        grouped beneath them. It matches <em>names</em> — plus a few fields you&apos;d
         naturally reach for, like a customer&apos;s email, a channel&apos;s topic, or an
         employee&apos;s role — never document bodies. Press <Code>↵</Code> to open a result; a todo
         takes you to its project&apos;s board, ticket number in hand. Results respect what you can
@@ -228,12 +239,19 @@ export function Introduction() {
         it — that&apos;s what it&apos;s there for.
       </Callout>
 
-      <div className="mt-12">
+      <div className="mt-12 flex flex-wrap items-center gap-3">
         <Link
-          href="/docs/install"
-          className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink2"
+          href={INSTALL_DOCS_PATH}
+          className="inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink-800"
         >
           Install Genosyn
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+        <Link
+          href="/docs/getting-started"
+          className="inline-flex items-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-paper-raised"
+        >
+          Onboard your first AI Employee
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
@@ -243,14 +261,14 @@ export function Introduction() {
 
 function Primitive({ icon, tag, body }: { icon: React.ReactNode; tag: string; body: string }) {
   return (
-    <div className="border border-hairline bg-white p-4">
+    <div className="rounded-2xl border border-line bg-paper-raised p-4">
       <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center bg-ground text-ink2 ring-1 ring-ink/[0.08]">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-paper text-ink-600 ring-1 ring-ink/[0.08]">
           {icon}
         </span>
-        <span className="text-[11px] font-semibold uppercase text-muted">{tag}</span>
+        <span className="text-[11px] font-semibold uppercase text-ink-500">{tag}</span>
       </div>
-      <p className="mt-3 text-[13.5px] leading-[1.6] text-ink2">{body}</p>
+      <p className="mt-3 text-[13.5px] leading-[1.6] text-ink-600">{body}</p>
     </div>
   );
 }

@@ -33,7 +33,7 @@ import {
 } from "../lib/mail";
 import { MailAnalysisCard } from "./MailAnalysisCard";
 import { MailOutletCtx } from "./MailLayout";
-import { MailAssistant } from "./MailAssistant";
+import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { Button } from "../components/ui/Button";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
@@ -182,6 +182,7 @@ export default function MailThreadView() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [handOpen, setHandOpen] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
 
   const load = React.useCallback(async () => {
     if (!threadId || activeRequestScope.current !== requestScope) return;
@@ -214,6 +215,15 @@ export default function MailThreadView() {
       else setLoadError(message);
     }
   }, [company.id, threadId, requestScope]);
+
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      await load();
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   React.useEffect(() => {
     setThread(null);
@@ -278,6 +288,15 @@ export default function MailThreadView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread?.id, thread?.unread]);
 
+  // The thread is already in the URL. Its newest unsent draft is what Ask AI
+  // should mean by "this draft".
+  const newestDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
+  useAskAiPageContext(
+    thread && newestDraftId
+      ? [{ kind: "mail_thread", id: thread.id, focusId: newestDraftId }]
+      : null,
+  );
+
   const base = `/c/${company.slug}/mail`;
 
   if (notFound) {
@@ -296,7 +315,7 @@ export default function MailThreadView() {
         {loadError ? (
           <div className="space-y-3">
             <FormError message={loadError} />
-            <Button variant="secondary" size="sm" onClick={() => void load()}>
+            <Button variant="secondary" size="sm" loading={retrying} onClick={() => void retry()}>
               Try again
             </Button>
           </div>
@@ -333,8 +352,6 @@ export default function MailThreadView() {
   };
 
   const latestAnalysis = currentMailAnalysis(analyses, thread.aiReview);
-
-  const focusedDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
 
   return (
     <div className="flex min-h-full flex-col xl:h-full xl:min-h-0 xl:flex-row xl:overflow-hidden">
@@ -444,7 +461,7 @@ export default function MailThreadView() {
           {loadError && (
             <div className="mb-3 space-y-2">
               <FormError message={loadError} />
-              <Button variant="secondary" size="sm" onClick={() => void load()}>
+              <Button variant="secondary" size="sm" loading={retrying} onClick={() => void retry()}>
                 Try again
               </Button>
             </div>
@@ -569,15 +586,6 @@ export default function MailThreadView() {
           />
         </div>
       </main>
-      <aside className="min-h-[30rem] shrink-0 border-t border-slate-200 bg-white xl:min-h-0 xl:w-[23rem] xl:border-l xl:border-t-0 dark:border-slate-800 dark:bg-slate-950">
-        <MailAssistant
-          company={company}
-          account={account}
-          threadId={thread.id}
-          focusedMessageId={focusedDraftId}
-          openCompose={openCompose}
-        />
-      </aside>
     </div>
   );
 }
@@ -943,6 +951,7 @@ function DraftCard({
             <Button
               size="sm"
               variant="secondary"
+              loading={busy === "save"}
               disabled={busy !== null || attach.uploading || !dirty}
               onClick={async () => {
                 setBusy("save");
@@ -958,7 +967,7 @@ function DraftCard({
                 }
               }}
             >
-              {busy === "save" ? <Spinner size={13} /> : "Save"}
+              Save
             </Button>
             <Button size="sm" disabled={busy !== null || attach.uploading} onClick={onSend}>
               Send
@@ -1137,6 +1146,7 @@ function HandoverCard({
 }) {
   const dialog = useDialog();
   const [showResult, setShowResult] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const statusStyle: Record<MailHandover["status"], string> = {
     pending: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
     running: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
@@ -1181,12 +1191,16 @@ function HandoverCard({
           <Button
             size="sm"
             variant="ghost"
+            loading={retrying}
             onClick={async () => {
+              setRetrying(true);
               try {
                 await mailApi.retryHandover(companyId, handover.id);
                 await onChanged();
               } catch (err) {
                 void dialog.error(err, { title: "Couldn’t retry the handover" });
+              } finally {
+                setRetrying(false);
               }
             }}
           >
@@ -1392,8 +1406,8 @@ function HandToAiModal({
             <Button variant="ghost" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={busy || !employeeId || !canDraft}>
-              {busy ? <Spinner size={14} /> : "Hand over"}
+            <Button onClick={submit} loading={busy} disabled={!employeeId || !canDraft}>
+              Hand over
             </Button>
           </div>
         </div>

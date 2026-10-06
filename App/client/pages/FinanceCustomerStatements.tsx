@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowRight, ScrollText } from "lucide-react";
 import { api, type Customer } from "@/lib/api";
+import { customerOptionLabel } from "@/lib/customerLabel";
 import { Breadcrumbs } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Button } from "@/components/ui/Button";
@@ -120,13 +121,22 @@ function CustomerSwitcher({
   onChange: (slug: string) => void;
   onRetry: () => Promise<void>;
 }) {
+  const [retrying, setRetrying] = React.useState(false);
   const active = customers?.filter((customer) => !customer.archivedAt) ?? [];
   const archived = customers?.filter((customer) => customer.archivedAt) ?? [];
 
   function optionLabel(customer: Customer): string {
-    const detail = customer.email || customer.domain;
     const archivedLabel = customer.archivedAt ? " (archived)" : "";
-    return `${customer.name}${detail ? ` — ${detail}` : ""}${archivedLabel}`;
+    return `${customerOptionLabel(customer)}${archivedLabel}`;
+  }
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
   }
 
   return (
@@ -141,7 +151,7 @@ function CustomerSwitcher({
         {error ? (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
             <span>Couldn&apos;t load customers.</span>
-            <Button variant="secondary" onClick={() => void onRetry()}>
+            <Button variant="secondary" loading={retrying} onClick={() => void retry()}>
               Try again
             </Button>
           </div>

@@ -71,8 +71,6 @@ import {
   removeAvatarFile,
   replaceAvatarFile,
 } from "../services/avatars.js";
-import { PlanLimitError, assertCanHireAiEmployee } from "../services/entitlements.js";
-import { syncSeatCount } from "../services/billing/companyBilling.js";
 import { hasCompanyDirection } from "../services/companyDirection.js";
 
 export const employeesRouter = Router({ mergeParams: true });
@@ -167,14 +165,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   if (await findEmployeeByName(co.id, body.name)) {
     return res.status(409).json({ error: "An employee with that name already exists" });
   }
-  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
-  // its headcount. 402 so the client can offer the upgrade path.
-  try {
-    await assertCanHireAiEmployee(co.id);
-  } catch (err) {
-    if (!(err instanceof PlanLimitError)) throw err;
-    return res.status(402).json({ error: err.message });
-  }
   const repo = AppDataSource.getRepository(AIEmployee);
   const slug = await uniqueEmpSlug(co.id, toSlug(body.name));
   const template = body.templateId ? findTemplate(body.templateId) : undefined;
@@ -222,9 +212,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
       await skillRepo.save(skillRow);
     }
   }
-
-  // Best-effort Stripe seat sync — never blocks the hire (M56).
-  void syncSeatCount(co.id);
 
   await recordAudit({
     companyId: co.id,
@@ -309,19 +296,13 @@ employeesRouter.post(
     if (!company) return res.status(404).json({ error: "Company not found" });
     if (!employee) return res.status(404).json({ error: "Not found" });
 
-    try {
-      const result = await applyRoutineRecommendations({
-        company,
-        employee,
-        recommendationIds: body.recommendationIds,
-        actorUserId: req.userId ?? null,
-      });
-      res.json(result);
-    } catch (err) {
-      // Plan limit (M56): the selection would exceed the Routine cap.
-      if (!(err instanceof PlanLimitError)) throw err;
-      res.status(402).json({ error: err.message });
-    }
+    const result = await applyRoutineRecommendations({
+      company,
+      employee,
+      recommendationIds: body.recommendationIds,
+      actorUserId: req.userId ?? null,
+    });
+    res.json(result);
   },
 );
 
@@ -334,19 +315,25 @@ employeesRouter.get("/:eid", async (req, res) => {
   res.json(emp);
 });
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
-  role: z.string().min(1).max(80).optional(),
-  slug: z.string().min(1).max(80).optional(),
-  teamId: z.string().uuid().nullable().optional(),
-  reportsToEmployeeId: z.string().uuid().nullable().optional(),
-  reportsToUserId: z.string().uuid().nullable().optional(),
-  browserEnabled: z.boolean().optional(),
-  // Newline-separated host globs. The materializer trims and parses;
-  // empty / whitespace-only strings clear the list.
-  browserAllowedHosts: z.string().max(4000).nullable().optional(),
-  browserApprovalRequired: z.boolean().optional(),
-});
+// Strict, because stripping unknown keys made an edit this route cannot apply
+// look saved: `{ "soulBody": "..." }` answered 200 and left the Soul as it was.
+// The Soul is edited through `PUT /:eid/soul`. A key not listed here is a 400
+// that names it, and nothing is written.
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    role: z.string().min(1).max(80).optional(),
+    slug: z.string().min(1).max(80).optional(),
+    teamId: z.string().uuid().nullable().optional(),
+    reportsToEmployeeId: z.string().uuid().nullable().optional(),
+    reportsToUserId: z.string().uuid().nullable().optional(),
+    browserEnabled: z.boolean().optional(),
+    // Newline-separated host globs. The materializer trims and parses;
+    // empty / whitespace-only strings clear the list.
+    browserAllowedHosts: z.string().max(4000).nullable().optional(),
+    browserApprovalRequired: z.boolean().optional(),
+  })
+  .strict();
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   const body = req.body as z.infer<typeof patchSchema>;
@@ -603,8 +590,6 @@ employeesRouter.delete("/:eid", async (req, res) => {
     targetLabel: emp.name,
     metadata: { role: emp.role, slug: emp.slug },
   });
-  // Best-effort Stripe seat sync — never blocks the fire (M56).
-  void syncSeatCount(emp.companyId);
   res.json({ ok: true });
 });
 

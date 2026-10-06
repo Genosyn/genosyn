@@ -1,4 +1,4 @@
-import { Code, DocLink, H2, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import { Code, DocLink, H2, H3, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Customers() {
   return (
@@ -17,6 +17,10 @@ export function Customers() {
 
       <H2 id="what-ships">What ships</H2>
       <UL>
+        <LI>
+          <Strong>Customer overview</Strong> — one page per account with every email, activity,
+          deal, person, meeting, billing document, contract, and signature request linked to it.
+        </LI>
         <LI>
           <Strong>Accounts</Strong> — prospect/customer/former status, with each domain visible in
           the customer list; website, industry, size and owner alongside billing email, phone, tax
@@ -73,15 +77,86 @@ export function Customers() {
         kept in the page URL, so browser Back and Forward restore the same view. Archived customers
         remain hidden unless <Code>Show archived</Code> is selected.
       </P>
+      <P>
+        Wherever you pick a customer — on an invoice, estimate, recurring invoice, contract,
+        signature, contact, or deal — each option shows the account&apos;s domain and billing email
+        beside its name, so similarly named accounts are easy to tell apart. Typing a domain or an
+        email address into the picker finds the account too.
+      </P>
 
       <H2 id="overview">Customer overview</H2>
       <P>
-        Click any customer&apos;s name to open their <Strong>overview</Strong> — a single page with
-        the headline numbers (annual contract value, outstanding balance, lifetime billed), an{" "}
-        <Strong>action-needed</Strong> queue that surfaces overdue and unpaid invoices and estimates
-        awaiting a response, and the full history of the account&apos;s invoices, estimates,
-        contracts, and contacts. Each row deep-links into the underlying document in{" "}
-        <DocLink to="/docs/finance">Finance</DocLink>.
+        Click any customer&apos;s name to open everything about the account on one page. The
+        header shows its status, billing email, phone, website, owner, and currency, with buttons
+        for its <Strong>Revenue</Strong> account, its <Strong>Statement</Strong>, and{" "}
+        <Strong>Edit</Strong>. The tabs below hold the rest, each with a count:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Overview</Strong> — the headline numbers (annual contract value, outstanding
+          balance, lifetime billed, open pipeline), an <Strong>action-needed</Strong> queue that
+          surfaces overdue and unpaid invoices, estimates awaiting a response, and recurring
+          invoice runs that are retrying or couldn&apos;t email their invoice, then the latest
+          emails, activity, and open deals, every account detail, the people at the account, and
+          custom fields.
+        </LI>
+        <LI>
+          <Strong>Emails</Strong> — every conversation in your connected mailboxes with the
+          customer&apos;s people. See <a href="#emails">how emails are matched</a>.
+        </LI>
+        <LI>
+          <Strong>Activity</Strong> — the account&apos;s whole timeline: emails, calls, meetings,
+          notes, tasks, deal moves, and sequence touches, including activity recorded against its
+          contacts and deals before they were linked to the account.
+        </LI>
+        <LI>
+          <Strong>Deals</Strong> — every deal with the account, open deals first, with stage,
+          owner, value, and last activity, plus the open pipeline and won totals.
+        </LI>
+        <LI>
+          <Strong>People</Strong> — the account&apos;s{" "}
+          <DocLink to="/docs/revenue">Revenue contacts</DocLink>, with their lifecycle stage and
+          latest activity, and its billing contacts.
+        </LI>
+        <LI>
+          <Strong>Meetings</Strong> — the meetings linked to the account, with their recordings,
+          transcripts, and summaries.
+        </LI>
+        <LI>
+          <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.{" "}
+          <Code>New recurring invoice</Code> opens a schedule for this customer, named after it (see{" "}
+          <DocLink to="/docs/finance#recurring-names">naming a schedule</DocLink>).
+        </LI>
+        <LI>
+          <Strong>Documents</Strong> — contracts, signature requests, and files.
+        </LI>
+      </UL>
+      <P>
+        Each row links to the record&apos;s own page — in Finance, Revenue, Mail, Meetings, or
+        Signatures — where it is edited, and the customer&apos;s name on an invoice, estimate, or
+        recurring invoice links back here. The open tab is kept in the page URL, so a shared link
+        opens the same view.
+      </P>
+
+      <H3 id="emails">How emails are matched</H3>
+      <P>
+        The Emails tab searches every mailbox connected under <Code>Mail</Code>. A conversation
+        belongs to the customer when one of its messages is from, to, or copied to the
+        customer&apos;s billing email, one of its billing contacts, a Revenue contact linked to the
+        account, or anyone at the account&apos;s <Strong>domain</Strong>, subdomains included. Blind
+        copies, unsent drafts, spam, and trash are left out. Each conversation opens in Mail, in
+        the mailbox it belongs to.
+      </P>
+      <P>
+        Genosyn indexes the addresses on every message in the background, so a new email shows up
+        here within a few minutes of reaching the mailbox. Mail already in a mailbox — after you
+        connect it, or after upgrading to this release — is indexed the same way, and until that
+        finishes the tab says some earlier conversations may not show yet.
+      </P>
+      <P>
+        A free-mail domain such as <Code>gmail.com</Code>, or a domain your own company uses, is
+        never matched as a whole: only the customer&apos;s exact addresses are. If the tab is empty,
+        add the customer&apos;s domain, billing email, or a contact with an email address.
       </P>
 
       <H2 id="statements">Statements</H2>
@@ -154,9 +229,9 @@ export function Customers() {
           filterable by customer. Upload from here and pick which account it belongs to.
         </LI>
         <LI>
-          Each customer&apos;s edit page also has a <Strong>Contracts</Strong> panel showing just
-          that account&apos;s agreements, so you can upload one while you&apos;re looking at the
-          customer.
+          Each customer&apos;s <Strong>Documents</Strong> tab, and its edit page, has a{" "}
+          <Strong>Contracts</Strong> panel showing just that account&apos;s agreements, so you can
+          upload one while you&apos;re looking at the customer.
         </LI>
       </UL>
       <P>

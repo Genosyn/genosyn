@@ -245,6 +245,7 @@ export default function RevenueIndex() {
   const [period, setPeriod] = React.useState<PeriodId>("trailing12");
   const [overview, setOverview] = React.useState<RevenueOverview | null>(null);
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   // Switching periods fires a second request while the first is in flight;
   // without this the slower (stale) response can land last and win.
   const requestSeq = React.useRef(0);
@@ -280,6 +281,15 @@ export default function RevenueIndex() {
 
   useLiveRefetch(["deal", "dealstage", "contact", "activity"], reload);
 
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="page-shell p-8">
       <div className="mb-6">
@@ -306,7 +316,12 @@ export default function RevenueIndex() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Something went wrong building the report for this period.
           </p>
-          <Button variant="secondary" className="mt-4" onClick={() => void reload()}>
+          <Button
+            variant="secondary"
+            className="mt-4"
+            loading={retrying}
+            onClick={() => void retry()}
+          >
             Try again
           </Button>
         </div>

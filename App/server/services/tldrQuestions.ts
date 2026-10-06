@@ -179,7 +179,7 @@ function clean(value: string, cap: number): string {
  * sweep timers: this timer is the sole continuation of a turn that already has
  * a `working` row waiting on it. Unref'd, the event loop can drain mid-wait,
  * the promise never settles, and the row is stranded until the recovery sweep
- * finds it. Same trade `mail/assistant.ts` makes, for the same reason.
+ * finds it. Same trade `askAi/assistant.ts` makes, for the same reason.
  */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {

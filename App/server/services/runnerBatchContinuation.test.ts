@@ -13,18 +13,21 @@ import { recordAudit } from "./audit.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { RUN_BATCH_TOKEN_TARGET } from "./runBatchBudget.js";
 import { saveRunCheckpoint, type RunCheckpoint } from "./runContinuation.js";
-import { continuationEffects } from "./runEffects.js";
+import { continuationEffects, runEffects } from "./runEffects.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { stopStanddowns } from "./standdowns.js";
 
 before(initTestDb);
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   await resetTestDb();
 });
 after(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   await closeTestDb();
 });
@@ -75,12 +78,366 @@ async function fixture(values: Partial<Routine> = {}) {
       runId: run.id,
     });
     try {
-      await saveRunCheckpoint(token, value);
+      return await saveRunCheckpoint(token, value);
     } finally {
       revokeMcpToken(token);
     }
   };
   return { company, employee, routine, current, checkpoint };
+}
+
+function priorRun(routine: Routine, values: Partial<Run> = {}) {
+  return insert(Run, {
+    routineId: routine.id,
+    status: "failed",
+    triggerKind: "schedule",
+    startedAt: new Date(Date.now() - 60_000),
+    finishedAt: new Date(Date.now() - 30_000),
+    checkpointJson: JSON.stringify(unfinished),
+    // Enough of the shared window left for a continuation to be worth starting.
+    continuationDeadlineAt: new Date(Date.now() + 10 * 60_000),
+    ...values,
+  });
+}
+
+function reportCheckpoint(params: Parameters<typeof agentRuntime.run>[0], value: RunCheckpoint) {
+  params.callbacks?.onToolResult?.("save_run_checkpoint", {
+    content: JSON.stringify({ ok: true, state: value.state, checkpoint: value }),
+  });
+}
+
+const complete: RunCheckpoint = {
+  state: "complete",
+  completed: "Reviewed all Deals and conversations in the original daily window.",
+  remaining: "",
+  resume: "",
+  progressKey: "window-complete",
+};
+
+const advanced: RunCheckpoint = {
+  ...unfinished,
+  completed: "Reviewed Deals 1 through 6 in the original daily window.",
+  remaining: "Deal 7's remaining conversations in the same window.",
+  resume: "Read Deal 7's full conversation; continue from cursor deal-6.",
+  progressKey: "deal-6",
+};
+
+for (const manualResume of [false, true]) {
+  test(`${manualResume ? "a manually resumed" : "an automatic continuation"} Run keeps working at an unchanged source cursor and can complete`, async (t) => {
+    const { company, routine, current, checkpoint } = await fixture();
+    const parent = await priorRun(
+      routine,
+      manualResume
+        ? {
+            continuationDeadlineAt: new Date(0),
+            continuationCount: 3,
+          }
+        : {},
+    );
+    let workTurns = 0;
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      if (params.registry.resolve("submit_lesson"))
+        return { finalText: "No lesson submitted.", steps: 1, stopReason: "end_turn" };
+      workTurns++;
+      const active = await current();
+      for (const targetId of ["deal-6-followup", "deal-6-activity"]) {
+        await recordAudit({
+          companyId: company.id,
+          runId: active.id,
+          action: "deal.update",
+          targetType: "deal",
+          targetId,
+          targetLabel: "Saved follow-up evidence",
+        });
+      }
+      params.callbacks?.onUsage?.({
+        inputTokens: RUN_BATCH_TOKEN_TARGET + 500_000,
+        outputTokens: 0,
+      });
+      const currentItem = await checkpoint({
+        ...unfinished,
+        completed: "Recorded Deal 6 follow-up and Activity; its conversation is still being read.",
+        resume: "Finish Deal 6's remaining attachment pages before advancing the stable cursor.",
+      });
+      reportCheckpoint(params, currentItem);
+      assert.equal(
+        params.signal?.aborted,
+        false,
+        "work within an unfinished source item must not be stranded",
+      );
+      params.callbacks?.onToolResult?.("get_email_attachment", {
+        content: "The final attachment page.",
+      });
+      assert.equal(params.signal?.aborted, false);
+      reportCheckpoint(params, await checkpoint(complete));
+      assert.equal(params.signal?.aborted, false, "completion never needs a forced handoff");
+      return {
+        finalText: "Reviewed every conversation in the original window.",
+        steps: 1,
+        stopReason: "end_turn",
+      };
+    });
+    const child = await (
+      await startRoutineRun(
+        routine,
+        manualResume
+          ? { resumeFromRunId: parent.id }
+          : { triggerKind: "continuation", continuationFromRunId: parent.id },
+      )
+    ).completion;
+    assert.equal(workTurns, 1);
+    assert.equal(child.status, "completed");
+    assert.equal(child.retryAt, null);
+    assert.equal(child.continuationStopReason, null);
+    assert.equal(child.continuationCount, manualResume ? 0 : 1);
+    assert.doesNotMatch(child.logContent, /handing unfinished work/);
+    assert.equal((await runEffects(child.id, { companyId: company.id })).length, 2);
+    if (!manualResume)
+      assert.equal(
+        child.continuationDeadlineAt?.getTime(),
+        parent.continuationDeadlineAt?.getTime(),
+      );
+  });
+}
+
+for (const [label, value] of [
+  ["unchanged checkpoint", unfinished],
+  ["changed key alone", { ...unfinished, progressKey: "deal-6" }],
+  [
+    "changed prose at the same source cursor",
+    { ...unfinished, completed: "Recorded additional Deal 6 evidence." },
+  ],
+] as const) {
+  test(`Effects do not authorize another continuation after voluntary completion with ${label}`, async (t) => {
+    const { company, routine, current, checkpoint } = await fixture();
+    const parent = await priorRun(routine);
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      if (params.registry.resolve("submit_lesson"))
+        return { finalText: "No lesson submitted.", steps: 1, stopReason: "end_turn" };
+      await recordAudit({
+        companyId: company.id,
+        runId: (await current()).id,
+        action: "deal.update",
+        targetType: "deal",
+        targetId: "deal-6",
+        targetLabel: "Saved next step",
+      });
+      params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
+      reportCheckpoint(params, await checkpoint(value));
+      assert.equal(
+        params.signal?.aborted,
+        false,
+        "keep the current turn alive to make further progress",
+      );
+      return { finalText: "More work remains.", steps: 1, stopReason: "end_turn" };
+    });
+    const child = await (
+      await startRoutineRun(routine, {
+        triggerKind: "continuation",
+        continuationFromRunId: parent.id,
+      })
+    ).completion;
+    assert.equal(child.status, "failed");
+    assert.equal(child.retryAt, null);
+    assert.equal(
+      child.continuationStopReason,
+      "The saved checkpoint did not advance beyond the previous Run.",
+    );
+    assert.doesNotMatch(child.logContent, /handing unfinished work/);
+    assert.equal((await runEffects(child.id, { companyId: company.id })).length, 1);
+  });
+}
+
+test("an advanced continuation yields and its next Run retains the original deadline and completed work", async (t) => {
+  const { routine, checkpoint } = await fixture();
+  const parent = await priorRun(routine);
+  let calls = 0;
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    calls++;
+    if (calls === 1) {
+      params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
+      reportCheckpoint(params, await checkpoint(advanced));
+      assert.equal(params.signal?.aborted, true);
+      throw new Error("The runtime observed the deliberate checkpoint handoff.");
+    }
+    assert.match(JSON.stringify(params.messages), /deal-6/);
+    reportCheckpoint(params, await checkpoint(complete));
+    return { finalText: "Completed the original window.", steps: 1, stopReason: "end_turn" };
+  });
+  const child = await (
+    await startRoutineRun(routine, {
+      triggerKind: "continuation",
+      continuationFromRunId: parent.id,
+    })
+  ).completion;
+  assert.equal(child.status, "failed");
+  assert.equal(child.errorKind, null);
+  assert.equal(child.continuationStopReason, null);
+  assert.ok(child.retryAt);
+  const last = await (
+    await startRoutineRun(routine, { triggerKind: "continuation", continuationFromRunId: child.id })
+  ).completion;
+  assert.equal(last.status, "completed");
+  assert.equal(last.continuationCount, 2);
+  assert.equal(last.continuationDeadlineAt?.getTime(), parent.continuationDeadlineAt?.getTime());
+  assert.equal(last.parentRunId, child.id);
+});
+
+test("a clipped checkpoint result keeps its durable progress without aborting the model turn", async (t) => {
+  const { routine, checkpoint } = await fixture();
+  const parent = await priorRun(routine);
+  t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+    params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
+    const persisted = await checkpoint({
+      ...advanced,
+      completed: "\u0001".repeat(2_000),
+      remaining: "\u0001".repeat(2_000),
+      resume: "\u0001".repeat(3_000),
+    });
+    const content = JSON.stringify({ ok: true, state: "continue", checkpoint: persisted });
+    assert.ok(content.length > 8_000);
+    params.callbacks?.onToolResult?.("save_run_checkpoint", {
+      content: content.slice(0, 8_000) + "\n… [truncated]",
+    });
+    assert.equal(params.signal?.aborted, false);
+    reportCheckpoint(params, await checkpoint(complete));
+    return { finalText: "Completed the original window.", steps: 1, stopReason: "end_turn" };
+  });
+  const child = await (
+    await startRoutineRun(routine, {
+      triggerKind: "continuation",
+      continuationFromRunId: parent.id,
+    })
+  ).completion;
+  assert.equal(child.status, "completed");
+  assert.equal(child.retryAt, null);
+});
+
+for (const scenario of [
+  "approval",
+  "approval-required",
+  "review-only",
+  "last-continuation",
+  "deadline",
+] as const) {
+  test(`${scenario} work cannot be forced into an unavailable automatic handoff`, async (t) => {
+    const { routine, checkpoint } = await fixture({
+      requiresApproval: scenario === "approval-required",
+      selfReviewOnly: scenario === "review-only",
+    });
+    const parent = ["last-continuation", "deadline"].includes(scenario)
+      ? await priorRun(routine, { continuationCount: scenario === "last-continuation" ? 2 : 0 })
+      : null;
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      if (scenario === "review-only")
+        assert.match(JSON.stringify(params.messages), /suggestion-only review/);
+      if (scenario === "last-continuation") {
+        const brief = JSON.stringify(params.messages);
+        assert.match(brief, /This is continuation 3 of 3 in the current time window/);
+        assert.match(brief, /No automatic continuations remain after this Run/);
+        assert.match(brief, /it does not require ending this active Run/);
+        assert.ok(
+          brief.includes(
+            `Shared absolute deadline: ${parent!.continuationDeadlineAt!.toISOString()} (UTC)`,
+          ),
+        );
+      }
+      params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
+      const persisted = await checkpoint(advanced);
+      const clock =
+        scenario === "deadline"
+          ? t.mock.method(Date, "now", () => parent!.continuationDeadlineAt!.getTime() - 4_000)
+          : null;
+      try {
+        reportCheckpoint(params, persisted);
+        assert.equal(params.signal?.aborted, false);
+      } finally {
+        clock?.mock.restore();
+      }
+      if (scenario === "last-continuation") {
+        params.callbacks?.onUsage?.({ inputTokens: 15_000_000, outputTokens: 0 });
+        reportCheckpoint(
+          params,
+          await checkpoint({
+            ...advanced,
+            progressKey: "deal-7",
+            completed: "Reviewed Deals 1 through 7 in the original daily window.",
+          }),
+        );
+        assert.equal(
+          params.signal?.aborted,
+          false,
+          "the final Run keeps working across saved batches",
+        );
+      }
+      reportCheckpoint(params, await checkpoint(complete));
+      return { finalText: "Completed the original window.", steps: 1, stopReason: "end_turn" };
+    });
+    const result = await (
+      await startRoutineRun(
+        routine,
+        parent
+          ? { triggerKind: "continuation", continuationFromRunId: parent.id }
+          : { triggerKind: scenario === "review-only" ? "manual" : "approval" },
+      )
+    ).completion;
+    assert.equal(result.status, "completed");
+    assert.equal(result.retryAt, null);
+    assert.doesNotMatch(result.logContent, /handing unfinished work/);
+    if (scenario === "last-continuation") {
+      assert.equal(result.continuationCount, 3);
+      assert.equal(
+        result.continuationDeadlineAt!.getTime(),
+        parent!.continuationDeadlineAt!.getTime(),
+      );
+    }
+  });
+}
+
+for (const continuing of [false, true]) {
+  test(`${continuing ? "a continuation" : "an initial Run"} waits for background workers before handing off a saved batch`, async (t) => {
+    const { routine, checkpoint } = await fixture();
+    const parent = continuing ? await priorRun(routine) : null;
+    t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
+      params.callbacks?.onUsage?.({ inputTokens: RUN_BATCH_TOKEN_TARGET, outputTokens: 0 });
+      const persisted = await checkpoint(advanced);
+      for (const pending of [2, 1]) {
+        params.callbacks?.onBackgroundWork?.(pending);
+        reportCheckpoint(params, persisted);
+        assert.equal(
+          params.signal?.aborted,
+          false,
+          "a pending response cannot make unfinished workers safe to interrupt",
+        );
+      }
+      params.callbacks?.onBackgroundWork?.(0);
+      assert.equal(
+        params.signal?.aborted,
+        false,
+        "worker completion alone is not a durable handoff boundary",
+      );
+      reportCheckpoint(params, await checkpoint(advanced));
+      assert.equal(params.signal?.aborted, true);
+      return { finalText: "", steps: 1, stopReason: "aborted" };
+    });
+    const result = await (
+      await startRoutineRun(
+        routine,
+        parent
+          ? { triggerKind: "continuation", continuationFromRunId: parent.id }
+          : { triggerKind: "manual" },
+      )
+    ).completion;
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorKind, null);
+    assert.ok(result.retryAt);
+    assert.match(result.logContent, /Batch progress saved; handing unfinished work/);
+    if (parent)
+      assert.equal(
+        result.continuationDeadlineAt?.getTime(),
+        parent.continuationDeadlineAt?.getTime(),
+      );
+  });
 }
 
 test("a long initial Run yields at a new durable checkpoint and its child receives saved progress", async (t) => {
@@ -99,9 +456,9 @@ test("a long initial Run yields at a new durable checkpoint and its child receiv
       params.callbacks?.onToolResult?.("get_deal", { content: "Deal details" });
       assert.equal(params.signal?.aborted, false);
       params.callbacks?.onToolUse?.("update_deal", { id: "deal-5" }, "write-1");
-      await checkpoint(unfinished);
+      let persisted = await checkpoint(unfinished);
       params.callbacks?.onToolResult?.("save_run_checkpoint", {
-        content: JSON.stringify({ ok: true, state: "continue" }),
+        content: JSON.stringify({ ok: true, state: "continue", checkpoint: persisted }),
       });
       assert.equal(
         params.signal?.aborted,
@@ -114,9 +471,9 @@ test("a long initial Run yields at a new durable checkpoint and its child receiv
         false,
         "an earlier checkpoint cannot cover the write that just finished",
       );
-      await checkpoint(unfinished);
+      persisted = await checkpoint(unfinished);
       params.callbacks?.onToolResult?.("save_run_checkpoint", {
-        content: JSON.stringify({ ok: true, state: "continue" }),
+        content: JSON.stringify({ ok: true, state: "continue", checkpoint: persisted }),
       });
       assert.equal(params.signal?.aborted, true);
       throw new Error("The runtime observed the deliberate checkpoint handoff.");

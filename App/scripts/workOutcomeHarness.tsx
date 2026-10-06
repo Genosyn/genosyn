@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { WorkTimelinePanel } from "@/components/home/WorkTimelinePanel";
 import { RunLiveModal } from "@/components/routines/RunViews";
 import { ThemeProvider } from "@/components/Theme";
+import { DialogProvider } from "@/components/ui/Dialog";
 import type { Company, Employee, WorkEntry } from "@/lib/api";
 import "../client/styles/index.css";
 
@@ -50,6 +51,9 @@ function Fixture() {
             createdAt: opened.at,
           }}
           onClose={() => setOpened(null)}
+          onRetry={() => {
+            throw new Error("Unexpected Routine retry in browser fixture");
+          }}
         />
       )}
     </main>
@@ -60,7 +64,9 @@ createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <MemoryRouter>
       <ThemeProvider>
-        <Fixture />
+        <DialogProvider>
+          <Fixture />
+        </DialogProvider>
       </ThemeProvider>
     </MemoryRouter>
   </React.StrictMode>,

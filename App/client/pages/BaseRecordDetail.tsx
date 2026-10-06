@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import {
   X,
@@ -11,7 +12,6 @@ import {
   Download,
   User as UserIcon,
   Bot,
-  Loader2,
   Maximize2,
 } from "lucide-react";
 import {
@@ -32,6 +32,8 @@ import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Ava
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { useModalChrome } from "../components/ui/ModalChrome";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -100,14 +102,11 @@ export function RecordDetailDrawer({
   const [error, setError] = React.useState<string | null>(null);
   const baseUrl = recordApiUrl(company, base, table, record.id);
 
-  // Close on Escape so the drawer feels like a modal.
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // A modal like any other, on the shared overlay stack: it traps Tab, moves
+  // focus in and back out, and answers Escape only while nothing is open on
+  // top of it. A window listener of its own used to close the drawer on the
+  // same Escape that cancelled a delete confirm opened from inside it.
+  const { titleId, panelRef } = useModalChrome({ open: true, onDismiss: onClose });
 
   async function patchCell(fieldId: string, value: unknown) {
     setError(null);
@@ -119,14 +118,19 @@ export function RecordDetailDrawer({
     }
   }
 
-  return (
+  // Portalled to <body> like Modal and Dialog. z-[60] is ModalChrome's
+  // `nested` layer: over the page, under the dialog a delete confirms with.
+  return createPortal(
     <div
       onMouseDown={onClose}
       className="fixed inset-0 z-[60] flex justify-end bg-slate-900/40 dark:bg-black/60"
-      aria-modal="true"
-      role="dialog"
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
         className="flex h-full w-full max-w-[640px] flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
       >
@@ -136,9 +140,12 @@ export function RecordDetailDrawer({
             <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
               {table.name}
             </div>
-            <div className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
+            <h2
+              id={titleId}
+              className="truncate text-base font-semibold text-slate-900 dark:text-slate-100"
+            >
               {recordTitle(fields, record)}
-            </div>
+            </h2>
           </div>
           <div className="flex items-center gap-1">
             <Link
@@ -149,6 +156,7 @@ export function RecordDetailDrawer({
               <Maximize2 size={15} />
             </Link>
             <button
+              data-modal-close
               onClick={onClose}
               className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               aria-label="Close"
@@ -184,7 +192,8 @@ export function RecordDetailDrawer({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -268,9 +277,12 @@ export function RecordFilesSection({
   const dialog = useDialog();
   const [attachments, setAttachments] = React.useState<BaseRecordAttachment[] | null>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const uploadButtonRef = React.useRef<HTMLButtonElement>(null);
+  const focusAfterDelete = useFocusAfterDelete(attachments, uploadButtonRef);
 
   const loadAttachments = React.useCallback(async () => {
     try {
@@ -323,11 +335,15 @@ export function RecordFilesSection({
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(a.id);
     try {
       await api.del(`${baseUrl}/attachments/${a.id}`);
+      focusAfterDelete.rowDeleted(a.id);
       await loadAttachments();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the file" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -343,20 +359,13 @@ export function RecordFilesSection({
           )}
         </div>
         <Button
+          ref={uploadButtonRef}
           variant="secondary"
           size="sm"
-          disabled={uploading}
+          loading={uploading}
           onClick={() => fileInputRef.current?.click()}
         >
-          {uploading ? (
-            <>
-              <Loader2 size={12} className="animate-spin" /> Uploading…
-            </>
-          ) : (
-            <>
-              <Paperclip size={12} /> Upload
-            </>
-          )}
+          <Paperclip size={12} /> {uploading ? "Uploading…" : "Upload"}
         </Button>
         <input
           ref={fileInputRef}
@@ -386,6 +395,8 @@ export function RecordFilesSection({
               company={company}
               attachment={a}
               downloadUrl={`/api/companies/${company.id}/base-attachments/${a.id}`}
+              deleteButtonRef={focusAfterDelete.deleteButtonRef(a.id)}
+              deleting={deletingId === a.id}
               onDelete={() => void deleteAttachment(a)}
             />
           ))
@@ -408,8 +419,11 @@ export function RecordCommentsSection({
   const [comments, setComments] = React.useState<BaseRecordComment[] | null>(null);
   const [commentDraft, setCommentDraft] = React.useState("");
   const [postingComment, setPostingComment] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [postError, setPostError] = React.useState<string | null>(null);
+  const composerRef = React.useRef<HTMLTextAreaElement>(null);
+  const focusAfterDelete = useFocusAfterDelete(comments, composerRef);
 
   const loadComments = React.useCallback(async () => {
     try {
@@ -450,11 +464,15 @@ export function RecordCommentsSection({
       variant: "danger",
     });
     if (!ok) return;
+    setDeletingId(c.id);
     try {
       await api.del(`${baseUrl}/comments/${c.id}`);
+      focusAfterDelete.rowDeleted(c.id);
       await loadComments();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the comment" });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -483,6 +501,8 @@ export function RecordCommentsSection({
               key={c.id}
               company={company}
               comment={c}
+              deleteButtonRef={focusAfterDelete.deleteButtonRef(c.id)}
+              deleting={deletingId === c.id}
               onDelete={() => void deleteComment(c)}
             />
           ))
@@ -493,6 +513,7 @@ export function RecordCommentsSection({
 
       <div className="mt-3 flex items-end gap-2">
         <textarea
+          ref={composerRef}
           value={commentDraft}
           onChange={(e) => setCommentDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -507,14 +528,11 @@ export function RecordCommentsSection({
         />
         <Button
           size="sm"
-          disabled={postingComment || !commentDraft.trim()}
+          loading={postingComment}
+          disabled={!commentDraft.trim()}
           onClick={() => void postComment()}
         >
-          {postingComment ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <Send size={12} />
-          )}
+          <Send size={12} />
           Send
         </Button>
       </div>
@@ -525,10 +543,14 @@ export function RecordCommentsSection({
 function CommentRow({
   company,
   comment,
+  deleteButtonRef,
+  deleting,
   onDelete,
 }: {
   company: Company;
   comment: BaseRecordComment;
+  deleteButtonRef: React.Ref<HTMLButtonElement>;
+  deleting: boolean;
   onDelete: () => void;
 }) {
   const author = comment.author;
@@ -543,7 +565,7 @@ function CommentRow({
   const when = new Date(comment.createdAt);
 
   return (
-    <div className="flex gap-3">
+    <div className="group flex gap-3">
       <Avatar
         size="sm"
         name={name}
@@ -566,12 +588,20 @@ function CommentRow({
               timeStyle: "short",
             })}
           </span>
+          {/* Revealed on row hover, on keyboard focus, while its delete is in
+            flight (the pointer left the row for the confirm dialog), and
+            always on touch screens, where there is no hover to reveal it. Busy
+            rather than disabled while it runs: a disabled button drops focus,
+            and this one holds it until the row it deletes is gone. */}
           <button
-            onClick={onDelete}
-            className="ml-auto rounded p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-600 dark:hover:bg-red-950/30"
+            ref={deleteButtonRef}
+            onClick={deleting ? undefined : onDelete}
+            aria-disabled={deleting || undefined}
+            aria-busy={deleting || undefined}
+            className="ml-auto rounded p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-600 dark:hover:bg-red-950/30 aria-busy:opacity-100 [@media(hover:none)]:opacity-100"
             title="Delete"
           >
-            <Trash2 size={11} />
+            {deleting ? <ButtonSpinner size={11} /> : <Trash2 size={11} />}
           </button>
         </div>
         <div className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -586,11 +616,15 @@ function AttachmentRow({
   company,
   attachment,
   downloadUrl,
+  deleteButtonRef,
+  deleting,
   onDelete,
 }: {
   company: Company;
   attachment: BaseRecordAttachment;
   downloadUrl: string;
+  deleteButtonRef: React.Ref<HTMLButtonElement>;
+  deleting: boolean;
   onDelete: () => void;
 }) {
   const uploader = attachment.uploader;
@@ -640,17 +674,71 @@ function AttachmentRow({
       >
         <Download size={14} />
       </a>
+      {/* Busy rather than disabled, like CommentRow's: it holds focus until
+          the row it deletes is gone. */}
       <button
-        onClick={onDelete}
+        ref={deleteButtonRef}
+        onClick={deleting ? undefined : onDelete}
+        aria-disabled={deleting || undefined}
+        aria-busy={deleting || undefined}
         className="rounded p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-600 dark:hover:bg-red-950/30"
         title="Delete"
       >
-        <Trash2 size={13} />
+        {deleting ? <ButtonSpinner size={13} /> : <Trash2 size={13} />}
       </button>
       {/* keep eslint happy when company isn't otherwise referenced */}
       <span className="hidden">{company.id}</span>
     </div>
   );
+}
+
+// ───── Focus after a delete ──────────────────────────────────────────────────
+
+/**
+ * Keeps keyboard focus in a list when one of its rows is deleted. The row's
+ * delete button holds focus while the request runs, but the reload after it
+ * unmounts that button, and focus that goes down with a node lands on <body>:
+ * the next Tab would start over at the top of the page, or in the page behind
+ * the drawer. So once the row is gone, focus moves to the row that took its
+ * place, else the one above it, else `emptyTarget`, the control that adds one.
+ */
+function useFocusAfterDelete(
+  rows: { id: string }[] | null,
+  emptyTarget: React.RefObject<HTMLElement>,
+) {
+  const deleteButtons = React.useRef(new Map<string, HTMLButtonElement>());
+  const successors = React.useRef<string[] | null>(null);
+
+  // `rows` changing is the commit that took the deleted row off the page.
+  React.useLayoutEffect(() => {
+    const candidates = successors.current;
+    if (!candidates) return;
+    successors.current = null;
+    // Wherever the person went while the delete ran, they stay.
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const target =
+      candidates.map((id) => deleteButtons.current.get(id)).find(Boolean) ?? emptyTarget.current;
+    target?.focus();
+  }, [rows, emptyTarget]);
+
+  return {
+    deleteButtonRef: (id: string) => (button: HTMLButtonElement | null) => {
+      if (button) deleteButtons.current.set(id, button);
+      else deleteButtons.current.delete(id);
+    },
+    /** Row `id` is deleted. Call before the reload that drops it from `rows`. */
+    rowDeleted(id: string) {
+      // Only focus that is on the row moves on with it: not after a click in a
+      // browser that leaves buttons unfocused, nor once the person has moved.
+      if (document.activeElement !== deleteButtons.current.get(id)) return;
+      const ids = rows?.map((row) => row.id) ?? [];
+      const index = ids.indexOf(id);
+      successors.current = [ids[index + 1], ids[index - 1]].filter(
+        (candidate): candidate is string => candidate !== undefined,
+      );
+    },
+  };
 }
 
 function isImageIconType(mime: string): boolean {

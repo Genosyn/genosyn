@@ -34,10 +34,9 @@ import { workSummaryLogLine } from "./runWorkSummary.js";
 /**
  * The work timeline is assembled from seven tables at read time, three of
  * which carry no `companyId` of their own, and it deliberately reads
- * `audit_events` on a path that is neither admin-gated nor behind the
- * `auditLog` entitlement. That combination is exactly where a cross-tenant
- * leak or a quietly-widened disclosure would hide, so most of what follows
- * pins scoping and visibility rather than shape.
+ * `audit_events` on a path that is not admin-gated. That combination is
+ * exactly where a cross-tenant leak or a quietly-widened disclosure would
+ * hide, so most of what follows pins scoping and visibility rather than shape.
  *
  * The rest pins the two things that are easy to "fix" wrongly later: this is a
  * record and not a queue (a dismissed failure still happened), and every one of
@@ -1234,6 +1233,13 @@ describe("work timeline visibility", () => {
 // ─────────────────── a record, not a queue; verdicts ─────────────────────
 
 describe("work timeline is a record, not a queue", () => {
+  test("queued Runs stay out of recorded work and employee activity summaries", async () => {
+    await run({ status: "queued" });
+    const result = await timeline();
+    assert.equal(result.entries.length, 0);
+    assert.equal(result.entryCount, 0);
+    assert.ok(result.employeeSummaries.every((summary) => summary.current === null));
+  });
   test("still shows a failure a Member has already dismissed", async () => {
     // Home's failed-routines panel drops these on purpose. This one must not:
     // acknowledging a failure does not un-happen it.

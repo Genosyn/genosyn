@@ -95,7 +95,10 @@ function parseUrl(raw: string): URL {
  * able to read and act on (try another result, tell the human the site is
  * unreachable), so they come back as ordinary tool errors rather than 500s.
  */
-async function fetchDocument(url: URL, accept: string): Promise<{
+async function fetchDocument(
+  url: URL,
+  accept: string,
+): Promise<{
   url: string;
   contentType: string;
   body: Buffer;
@@ -147,11 +150,141 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
     );
   }
   const capped = Math.max(1, Math.min(limit, web.maxSearchResults));
+  if (web.searchProvider === "searxng") return searchSearxng(trimmed, capped, web.searxngUrl);
+  if (Date.now() < searchChallengedUntil) {
+    throw searchUnavailable("the search backend is still challenging this server", true);
+  }
   const endpoint = new URL("https://html.duckduckgo.com/html/");
   endpoint.searchParams.set("q", trimmed);
   const doc = await fetchDocument(endpoint, "text/html,application/xhtml+xml");
-  const results = parseDuckDuckGoResults(doc.body.toString("utf8"), capped);
+  const html = searchMarkup(doc.body.toString("utf8"));
+  let emptyResults = false;
+  for (const tag of html.matchAll(/<[a-z][\w:-]*\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>/gi)) {
+    const attributes = searchAttributes(tag[1]);
+    const classes = (attributes.get("class") ?? "").split(/\s+/);
+    if (
+      attributes.get("id") === "challenge-form" ||
+      classes.some((name) => name === "anomaly-modal" || name.startsWith("anomaly-modal__"))
+    ) {
+      searchChallengedUntil = Date.now() + SEARCH_CHALLENGE_COOLDOWN_MS;
+      throw searchUnavailable("the search backend returned a bot challenge", true);
+    }
+    if (classes.includes("no-results") || classes.includes("no-results__message"))
+      emptyResults = true;
+  }
+  if (doc.contentType && !/^(text\/html|application\/xhtml\+xml)(?:;|$)/i.test(doc.contentType)) {
+    throw searchUnavailable("the search backend returned an unexpected content type");
+  }
+  const results = parseDuckDuckGoResults(html, capped);
+  if (results.length > 0 || emptyResults) return results;
+  throw searchUnavailable("the search backend returned an unrecognized or empty page");
+}
+
+/**
+ * Search through a self-hosted SearXNG instance. It asks several engines and
+ * answers in JSON, so search keeps working when one engine rate-limits or
+ * challenges a busy server, as DuckDuckGo does. The instance must have the
+ * json format enabled; its address is admin configuration, and a private one
+ * still has to be on the private host allow list like any other.
+ */
+async function searchSearxng(
+  query: string,
+  limit: number,
+  base: string,
+): Promise<WebSearchResult[]> {
+  if (!base.trim()) {
+    throw new WebToolError(
+      "Web search is set to SearXNG, but no SearXNG URL is configured. Ask an admin to set one under Admin → Runtime → Web tools.",
+      503,
+    );
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL("search", base.trim().replace(/\/*$/, "/"));
+  } catch {
+    throw searchUnavailable("the configured SearXNG URL is not valid");
+  }
+  endpoint.searchParams.set("q", query);
+  endpoint.searchParams.set("format", "json");
+  const doc = await fetchDocument(endpoint, "application/json");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(doc.body.toString("utf8"));
+  } catch {
+    throw searchUnavailable(
+      "the SearXNG instance did not answer in JSON (enable the json format in its settings.yml)",
+    );
+  }
+  const rows = (parsed as { results?: unknown } | null)?.results;
+  if (!Array.isArray(rows)) {
+    throw searchUnavailable("the SearXNG instance returned an unrecognized response");
+  }
+  const results: WebSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (results.length >= limit) break;
+    if (!row || typeof row !== "object") continue;
+    const { url, title, content } = row as { url?: unknown; title?: unknown; content?: unknown };
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    const name = typeof title === "string" ? title.trim() : "";
+    if (!name) continue;
+    seen.add(url);
+    results.push({ title: name, url, snippet: typeof content === "string" ? content.trim() : "" });
+  }
   return results;
+}
+
+/**
+ * A search engine that has challenged this server keeps doing so for a while.
+ * Each retry meanwhile costs an employee a model step — minutes on a local
+ * model — and fails the same way, so answer at once until it may have cleared.
+ */
+const SEARCH_CHALLENGE_COOLDOWN_MS = 15 * 60_000;
+let searchChallengedUntil = 0;
+
+/** Test seam: forget a remembered bot challenge. */
+export function resetSearchChallengeForTests(): void {
+  searchChallengedUntil = 0;
+}
+
+function searchUnavailable(reason: string, challenged = false): WebToolError {
+  return new WebToolError(
+    `Web search is unavailable because ${reason}.${challenged ? " Searching again will not work for a while, so do not retry search in this Run." : ""} This does not mean there are no matching pages. Use fetch_web_page for a known primary-source URL or an existing authorized browser, if available.`,
+    502,
+  );
+}
+
+/** Ignore inert text so a commented link or script string is not a result. */
+function searchMarkup(html: string): string {
+  return html.replace(/<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+}
+
+/** HTML attribute order and quote choice do not change a link's meaning. */
+function searchAttributes(raw: string): Map<string, string> {
+  const attributes = new Map<string, string>();
+  const pattern = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  for (const match of raw.matchAll(pattern)) {
+    const name = match[1].toLowerCase();
+    if (!attributes.has(name)) attributes.set(name, match[2] ?? match[3] ?? match[4] ?? "");
+  }
+  return attributes;
+}
+
+/** Keep title and snippet inside one result, including nested layout divs. */
+function* searchResultBlocks(html: string): Generator<string> {
+  let depth = 0;
+  let start = 0;
+  const divs = /<(\/?)div\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>/gi;
+  for (const tag of html.matchAll(divs)) {
+    if (tag[1]) {
+      if (depth > 0 && --depth === 0) yield html.slice(start, tag.index);
+    } else if (depth > 0) {
+      depth += 1;
+    } else if ((searchAttributes(tag[2]).get("class") ?? "").split(/\s+/).includes("result")) {
+      depth = 1;
+      start = tag.index + tag[0].length;
+    }
+  }
 }
 
 /**
@@ -163,28 +296,24 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
 export function parseDuckDuckGoResults(html: string, limit: number): WebSearchResult[] {
   const out: WebSearchResult[] = [];
   const seen = new Set<string>();
-  // Anchor on the result-link class rather than on document structure: the
-  // surrounding markup churns far more often than the class name does.
-  const anchorRe = /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  for (const match of html.matchAll(anchorRe)) {
-    const href = resolveDuckDuckGoHref(match[1]);
-    if (!href || seen.has(href)) continue;
-    const title = htmlToText(match[2]).text.replace(/\s+/g, " ").trim();
-    if (!title) continue;
-    seen.add(href);
-    out.push({ title, url: href, snippet: "" });
+  const anchorRe = /<a\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/a\s*>/gi;
+  for (const block of searchResultBlocks(searchMarkup(html))) {
+    let result: WebSearchResult | undefined;
+    let snippet = "";
+    for (const anchor of block.matchAll(anchorRe)) {
+      const attributes = searchAttributes(anchor[1]);
+      const classes = (attributes.get("class") ?? "").split(/\s+/);
+      const text = htmlToText(anchor[2]).text.replace(/\s+/g, " ").trim();
+      if (classes.includes("result__snippet")) snippet = text.slice(0, 400);
+      if (!result && classes.includes("result__a")) {
+        const href = resolveDuckDuckGoHref(attributes.get("href") ?? "");
+        if (href && text) result = { title: text, url: href, snippet: "" };
+      }
+    }
+    if (!result || seen.has(result.url)) continue;
+    seen.add(result.url);
+    out.push({ ...result, snippet });
     if (out.length >= limit) break;
-  }
-  if (out.length === 0) return out;
-
-  // Snippets are a separate element and can be missing; pair them positionally
-  // with the links, which is the order the page renders them in.
-  const snippetRe = /<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippets = [...html.matchAll(snippetRe)].map((m) =>
-    htmlToText(m[1]).text.replace(/\s+/g, " ").trim(),
-  );
-  for (let i = 0; i < out.length; i += 1) {
-    if (snippets[i]) out[i].snippet = snippets[i].slice(0, 400);
   }
   return out;
 }

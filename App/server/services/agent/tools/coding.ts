@@ -5,9 +5,8 @@ import { globTool, grepTool } from "./codingSearch.js";
 import type { CodingToolContext } from "./codingShared.js";
 
 /**
- * Coding adapters for the official Codex subscription runtime and optional
- * bubblewrap execution. Ordinary API-key/custom host turns use OpenCode's
- * native coding tools instead.
+ * Coding adapters for the official Codex subscription runtime. Ordinary
+ * API-key/custom turns use OpenCode's native coding tools instead.
  */
 
 export type { CodingToolContext } from "./codingShared.js";

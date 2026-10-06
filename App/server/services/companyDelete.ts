@@ -110,10 +110,14 @@ import { MeetingParticipant } from "../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../db/entities/MeetingTranscriptSegment.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
+import { AskAiConversation } from "../db/entities/AskAiConversation.js";
+import { AskAiMessage } from "../db/entities/AskAiMessage.js";
 import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailMessageAddress } from "../db/entities/MailMessageAddress.js";
+import { MailAddressIndexState } from "../db/entities/MailAddressIndexState.js";
 import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
 import { MailInboundAutomation } from "../db/entities/MailInboundAutomation.js";
 import { MailRule } from "../db/entities/MailRule.js";
@@ -132,6 +136,7 @@ import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
 import { EmployeeResourceGrant } from "../db/entities/EmployeeResourceGrant.js";
+import { EmployeeResourceLibraryGrant } from "../db/entities/EmployeeResourceLibraryGrant.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
@@ -140,6 +145,7 @@ import { Handoff } from "../db/entities/Handoff.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Invoice } from "../db/entities/Invoice.js";
+import { Subsidiary } from "../db/entities/Subsidiary.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
@@ -163,6 +169,7 @@ import { Project } from "../db/entities/Project.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
+import { RecurringInvoiceRun } from "../db/entities/RecurringInvoiceRun.js";
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -207,11 +214,7 @@ import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
-import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { CompanySso } from "../db/entities/CompanySso.js";
-import { getStripeSecrets } from "./billing/billingSettings.js";
-import { ACTIVE_SUBSCRIPTION_STATUSES } from "./billing/companyBilling.js";
-import { cancelSubscription } from "./billing/stripe.js";
 
 /**
  * Hard-delete a company and every row that hangs off it.
@@ -243,12 +246,6 @@ export async function deleteCompanyCascade(args: {
     console.warn(
       `[companyDelete] failed to stop browser recordings for ${companyId}: ${(err as Error).message}`,
     );
-  });
-
-  // Captured before the cascade so the post-commit Stripe seat sync below
-  // still knows the subscription this company was billed on.
-  const billingRowBeforeDelete = await AppDataSource.getRepository(CompanyBilling).findOneBy({
-    companyId,
   });
 
   await AppDataSource.transaction(async (m) => {
@@ -437,6 +434,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(RealtimeEvent, { companyId });
     await m.delete(AdSpendEvent, { companyId });
     await m.delete(EmployeeFinanceGrant, { companyId });
+    await m.delete(EmployeeResourceLibraryGrant, { companyId });
     await m.delete(FinanceProposal, { companyId });
     await m.delete(CustomerCreditApplication, { companyId });
     await m.delete(CustomerRefund, { companyId });
@@ -458,6 +456,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Project, { companyId });
     await m.delete(Bill, { companyId });
     await m.delete(Invoice, { companyId });
+    await m.delete(Subsidiary, { companyId });
     await m.delete(CustomerCredit, { companyId });
     await m.delete(VendorCredit, { companyId });
     await m.delete(Customer, { companyId });
@@ -481,6 +480,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MailSavedSearch, { companyId });
     await m.delete(MailInboundAutomation, { companyId });
     await m.delete(MailInboundAnalysis, { companyId });
+    await m.delete(MailMessageAddress, { companyId });
+    await m.delete(MailAddressIndexState, { companyId });
     await m.delete(MailMessage, { companyId });
     await m.delete(MailThread, { companyId });
     await m.delete(MailLabel, { companyId });
@@ -488,6 +489,9 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MailHandover, { companyId });
     await m.delete(MailChatMessage, { companyId });
     await m.delete(RoutineChatMessage, { companyId });
+    // Ask AI conversations are company-scoped, Member-owned transcripts.
+    await m.delete(AskAiMessage, { companyId });
+    await m.delete(AskAiConversation, { companyId });
     await m.delete(MailAccount, { companyId });
     // Calendar + Meetings (M44). Same shape as mail: the grant carries no
     // companyId so it goes by this company's employees, then leaf-first
@@ -523,6 +527,7 @@ export async function deleteCompanyCascade(args: {
     // Repositories, and browser sessions. Line items, dashboard cards,
     // and the three employee grants were removed in the leaf/employee sweeps.
     await m.delete(Estimate, { companyId });
+    await m.delete(RecurringInvoiceRun, { companyId });
     await m.delete(RecurringInvoice, { companyId });
     // Signing evidence and placed fields are leaves; remove them before their
     // recipients and envelope. The AI access grant is company-scoped.
@@ -611,34 +616,10 @@ export async function deleteCompanyCascade(args: {
     await m.delete(AIEmployee, { companyId });
     await m.delete(Invitation, { companyId });
     await m.delete(Membership, { companyId });
-    await m.delete(CompanyBilling, { companyId });
     await m.delete(CompanySso, { companyId });
     await m.delete(Company, { id: companyId });
   });
   emitMembershipAuthorizationChange(companyId);
-
-  // ── Stripe cancellation (best-effort, M56) ───────────────────────────
-  // The company is gone but its subscription may still be live at Stripe —
-  // and with the Company, Membership, and CompanyBilling rows deleted, no
-  // route can ever mint a billing-portal session for this customer again.
-  // Cancel the subscription outright so the card on file stops being charged
-  // for a company that no longer exists.
-  if (
-    billingRowBeforeDelete?.stripeSubscriptionId &&
-    billingRowBeforeDelete.status &&
-    ACTIVE_SUBSCRIPTION_STATUSES.includes(billingRowBeforeDelete.status)
-  ) {
-    try {
-      const { secretKey } = await getStripeSecrets();
-      if (secretKey) {
-        await cancelSubscription(secretKey, billingRowBeforeDelete.stripeSubscriptionId);
-      }
-    } catch (err) {
-      console.warn(
-        `[companyDelete] Stripe subscription cancel failed for ${companyId}: ${(err as Error).message}`,
-      );
-    }
-  }
 
   // ── 4. Filesystem (best-effort) ──────────────────────────────────────
   try {

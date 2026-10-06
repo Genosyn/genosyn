@@ -14,6 +14,7 @@ import {
   RUNTIME_SETTINGS_DEFAULTS,
   RUNTIME_SETTING_KEYS,
   getMailSettings,
+  getRuntimeOauthSettings,
   getWebSettings,
   resetRuntimeSettingsCacheForTests,
 } from "../services/runtimeSettings.js";
@@ -91,6 +92,7 @@ async function call<T = Record<string, unknown>>(
 type Snapshot = {
   web: typeof RUNTIME_SETTINGS_DEFAULTS.web;
   mail: typeof RUNTIME_SETTINGS_DEFAULTS.mail;
+  oauth: typeof RUNTIME_SETTINGS_DEFAULTS.oauth;
   meetings: typeof RUNTIME_SETTINGS_DEFAULTS.meetings;
   browser: typeof RUNTIME_SETTINGS_DEFAULTS.browser;
   agent: typeof RUNTIME_SETTINGS_DEFAULTS.agent;
@@ -105,12 +107,14 @@ describe("GET /api/admin/runtime-settings", () => {
     assert.equal(status, 200);
     assert.deepEqual(body.web, RUNTIME_SETTINGS_DEFAULTS.web);
     assert.deepEqual(body.mail, RUNTIME_SETTINGS_DEFAULTS.mail);
+    assert.deepEqual(body.oauth, RUNTIME_SETTINGS_DEFAULTS.oauth);
     assert.deepEqual(body.meetings, RUNTIME_SETTINGS_DEFAULTS.meetings);
     assert.deepEqual(body.browser, RUNTIME_SETTINGS_DEFAULTS.browser);
     assert.deepEqual(body.agent, RUNTIME_SETTINGS_DEFAULTS.agent);
     assert.deepEqual(body.overridden, {
       web: false,
       mail: false,
+      oauth: false,
       meetings: false,
       browser: false,
       agent: false,
@@ -126,6 +130,153 @@ describe("GET /api/admin/runtime-settings", () => {
 });
 
 describe("PUT /api/admin/runtime-settings/:group", () => {
+  test("a separate sign-in host address normalizes and leaves the consumer service intact", async () => {
+    const expected = {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://customer-sign-in.example.com",
+      hostSignIn: true,
+      signInHostUrl: "https://connect.example.com",
+    };
+    const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+      ...expected,
+      signInHostUrl: " https://CONNECT.example.com/ ",
+    });
+
+    assert.equal(status, 200);
+    assert.deepEqual(body.oauth, expected);
+    assert.equal(body.overridden.oauth, true);
+    assert.deepEqual(getRuntimeOauthSettings(), expected);
+    const stored = await AppDataSource.getRepository(AppSetting).findOneBy({
+      key: RUNTIME_SETTING_KEYS.oauth,
+    });
+    assert.deepEqual(JSON.parse(stored!.value), expected);
+  });
+
+  test("a blank sign-in host address can restore the installation address", async () => {
+    const settings = {
+      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
+      hostSignIn: true,
+      hostedSignInUrl: "https://customer-sign-in.example.com",
+      signInHostUrl: "https://connect.example.com",
+    };
+    assert.equal((await call("PUT", "/runtime-settings/oauth", settings)).status, 200);
+
+    for (const signInHostUrl of ["", "   "]) {
+      const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+        ...settings,
+        signInHostUrl,
+      });
+      assert.equal(status, 200);
+      assert.equal(body.oauth.signInHostUrl, "");
+      assert.equal(body.oauth.hostSignIn, true);
+      assert.equal(body.oauth.hostedSignInUrl, settings.hostedSignInUrl);
+    }
+  });
+
+  test("invalid sign-in host addresses are rejected without replacing saved settings", async () => {
+    const settings = {
+      ...RUNTIME_SETTINGS_DEFAULTS.oauth,
+      hostedSignInUrl: "https://customer-sign-in.example.com",
+      signInHostUrl: "https://connect.example.com",
+    };
+    assert.equal((await call("PUT", "/runtime-settings/oauth", settings)).status, 200);
+
+    for (const signInHostUrl of [
+      "http://connect.example.com",
+      "https://connect.example.com/callback",
+      "https://connect.example.com?value=1",
+      "https://connect.example.com#fragment",
+      "https://user:secret@connect.example.com",
+      null,
+      123,
+      "x".repeat(2049),
+    ]) {
+      const { status, body } = await call<{ error: string }>("PUT", "/runtime-settings/oauth", {
+        ...settings,
+        hostSignIn: true,
+        signInHostUrl,
+      });
+      assert.equal(status, 400);
+      assert.match(body.error, /Invalid runtime settings/);
+      assert.deepEqual(getRuntimeOauthSettings(), settings);
+    }
+    const stored = await AppDataSource.getRepository(AppSetting).findOneBy({
+      key: RUNTIME_SETTING_KEYS.oauth,
+    });
+    assert.deepEqual(JSON.parse(stored!.value), settings);
+  });
+
+  test("old complete Gmail API bodies persist and return only canonical fields", async () => {
+    for (const gmailSignInHostUrl of [undefined, " https://HOST.example.com/ "]) {
+      const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+        gmailSignInEnabled: false,
+        gmailSignInUrl: " https://LEGACY.example.com/ ",
+        hostGmailSignIn: true,
+        gmailSignInHostUrl,
+      });
+      const expected = {
+        hostedSignInEnabled: false,
+        hostedSignInUrl: "https://legacy.example.com",
+        hostSignIn: true,
+        signInHostUrl: gmailSignInHostUrl ? "https://host.example.com" : "",
+      };
+      assert.equal(status, 200);
+      assert.deepEqual(body.oauth, expected);
+      const stored = await AppDataSource.getRepository(AppSetting).findOneByOrFail({
+        key: RUNTIME_SETTING_KEYS.oauth,
+      });
+      assert.deepEqual(JSON.parse(stored.value), expected);
+    }
+  });
+
+  test("explicit canonical API fields take precedence over conflicting legacy values", async () => {
+    const expected = {
+      hostedSignInEnabled: false,
+      hostedSignInUrl: "https://current.example.com",
+      hostSignIn: false,
+      signInHostUrl: "",
+    };
+    const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/oauth", {
+      gmailSignInEnabled: true,
+      gmailSignInUrl: "http://unsafe.example.com",
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "http://unsafe.example.com",
+      ...expected,
+    });
+    assert.equal(status, 200);
+    assert.deepEqual(body.oauth, expected);
+  });
+
+  test("legacy aliases cannot bypass validation of selected canonical settings", async () => {
+    const legacy = {
+      gmailSignInEnabled: true,
+      gmailSignInUrl: "https://legacy.example.com",
+      hostGmailSignIn: true,
+      gmailSignInHostUrl: "https://host.example.com",
+    };
+    for (const invalid of [
+      { hostedSignInEnabled: "false" },
+      { hostedSignInUrl: "http://unsafe.example.com" },
+      { hostSignIn: "true" },
+      { signInHostUrl: "https://host.example.com/callback" },
+      { signInHostUrl: null },
+      { gmailSignInHostUrl: "http://unsafe.example.com" },
+    ]) {
+      assert.equal((await call("PUT", "/runtime-settings/oauth", { ...legacy, ...invalid })).status, 400);
+    }
+    assert.equal(await AppDataSource.getRepository(AppSetting).countBy({ key: RUNTIME_SETTING_KEYS.oauth }), 0);
+  });
+
+  test("OAuth updates reject incomplete bodies and unknown names", async () => {
+    for (const invalid of [
+      { hostedSignInEnabled: false },
+      { gmailSignInEnabled: false },
+      { ...RUNTIME_SETTINGS_DEFAULTS.oauth, hostSignin: true },
+    ]) {
+      assert.equal((await call("PUT", "/runtime-settings/oauth", invalid)).status, 400);
+    }
+  });
+
   test("a save persists, is reflected in the snapshot, and reaches the readers", async () => {
     const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/web", {
       enabled: false,

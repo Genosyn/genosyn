@@ -37,10 +37,9 @@ import { initials, MessageList } from "../components/workspace/MessageList";
 import { TypingPill, useChannelTyping } from "../components/workspace/TypingPill";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
-import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { SidebarLink } from "../components/AppShell";
 
 /**
@@ -466,9 +465,6 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         open={showNewChannel}
         company={company}
         directory={directory}
-        // Only real channels count toward the plan cap — the channels state
-        // still holds DM rows (kind "dm"), which are never limited.
-        channelCount={(channels ?? []).filter((c) => c.kind !== "dm").length}
         onClose={() => setShowNewChannel(false)}
         onCreated={(ch) => {
           setShowNewChannel(false);
@@ -516,11 +512,21 @@ function WorkspaceSidebar({
   onSelect: (id: string) => void;
   onNewChannel: () => void;
   onNewDM: () => void;
-  onArchive: (id: string) => void;
+  onArchive: (id: string) => Promise<void>;
 }) {
+  const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const publicChannels = (channels ?? []).filter((c) => c.kind === "public");
   const privateChannels = (channels ?? []).filter((c) => c.kind === "private");
   const dms = (channels ?? []).filter((c) => c.kind === "dm");
+
+  async function archive(id: string) {
+    setArchivingId(id);
+    try {
+      await onArchive(id);
+    } finally {
+      setArchivingId(null);
+    }
+  }
 
   return (
     <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
@@ -588,12 +594,14 @@ function WorkspaceSidebar({
                   onClick={() => onSelect(c.id)}
                   action={
                     <button
-                      onClick={() => onArchive(c.id)}
+                      onClick={() => void archive(c.id)}
+                      disabled={archivingId === c.id}
+                      aria-busy={archivingId === c.id || undefined}
                       className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                       title="Archive direct message"
                       aria-label={`Archive direct message with ${other?.name ?? "former employee"}`}
                     >
-                      <Archive size={12} />
+                      {archivingId === c.id ? <ButtonSpinner size={12} /> : <Archive size={12} />}
                     </button>
                   }
                 />
@@ -740,7 +748,7 @@ function ChannelView({
   mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
   onChannelUpdated: (c: WorkspaceChannel) => void;
-  onArchive: () => void;
+  onArchive: () => Promise<void>;
 }) {
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const endRef = React.useRef<HTMLDivElement | null>(null);
@@ -754,6 +762,7 @@ function ChannelView({
   const [showMembers, setShowMembers] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
+  const [archiving, setArchiving] = React.useState(false);
   const typers = useChannelTyping(channel.id, me.id);
 
   React.useLayoutEffect(() => {
@@ -807,6 +816,15 @@ function ChannelView({
     }
   }
 
+  async function archive() {
+    setArchiving(true);
+    try {
+      await onArchive();
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   // Cancel any in-progress edit when switching channels.
   React.useEffect(() => {
     setEditingMessageId(null);
@@ -829,11 +847,13 @@ function ChannelView({
         <div className="ml-auto flex items-center gap-1">
           {channel.kind === "dm" && (
             <button
-              onClick={onArchive}
+              onClick={() => void archive()}
+              disabled={archiving}
+              aria-busy={archiving || undefined}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
               title="Archive direct message"
             >
-              <Archive size={12} /> Archive
+              {archiving ? <ButtonSpinner size={12} /> : <Archive size={12} />} Archive
             </button>
           )}
           {channel.kind !== "dm" && (
@@ -1035,15 +1055,12 @@ function NewChannelModal({
   open,
   company,
   directory,
-  channelCount,
   onClose,
   onCreated,
 }: {
   open: boolean;
   company: Company;
   directory: WorkspaceDirectory | null;
-  /** Non-DM channels only — DMs never count toward the plan cap. */
-  channelCount: number;
   onClose: () => void;
   onCreated: (c: WorkspaceChannel) => void;
 }) {
@@ -1086,20 +1103,9 @@ function NewChannelModal({
     }
   }
 
-  const maxChannels = company.entitlements.maxChannels;
-  const atChannelCap = maxChannels !== null && channelCount >= maxChannels;
-
   return (
     <Modal open={open} onClose={onClose} title="Create a channel">
       <div className="space-y-4">
-        {/* Plan-limit upsell (M56). Informational only — creation stays
-          enabled and the server's 402 surfaces in the modal's FormError. */}
-        {atChannelCap && (
-          <PlanLimitBanner
-            message={`Your Free plan includes ${maxChannels} Channel${maxChannels === 1 ? "" : "s"}.`}
-            company={company}
-          />
-        )}
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
             Name
@@ -1192,7 +1198,7 @@ function NewChannelModal({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!name.trim() || creating} onClick={create}>
+          <Button loading={creating} disabled={!name.trim()} onClick={create}>
             Create
           </Button>
         </div>
@@ -1218,6 +1224,7 @@ function NewDMModal({
 }) {
   const [q, setQ] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [openingId, setOpeningId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
@@ -1228,11 +1235,14 @@ function NewDMModal({
 
   async function openWith(target: { targetUserId: string } | { targetEmployeeId: string }) {
     setError(null);
+    setOpeningId("targetUserId" in target ? target.targetUserId : target.targetEmployeeId);
     try {
       const ch = await workspaceApi.openDm(company.id, target);
       onOpened(ch);
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setOpeningId(null);
     }
   }
 
@@ -1271,10 +1281,12 @@ function NewDMModal({
                 <button
                   key={u.id}
                   onClick={() => openWith({ targetUserId: u.id })}
+                  disabled={openingId === u.id}
+                  aria-busy={openingId === u.id || undefined}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   <div className="flex h-6 w-6 items-center justify-center rounded bg-emerald-100 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                    {initials(u.name)}
+                    {openingId === u.id ? <ButtonSpinner size={12} /> : initials(u.name)}
                   </div>
                   <span className="font-medium">{u.name}</span>
                   <span className="ml-auto truncate text-xs text-slate-400">{u.email}</span>
@@ -1291,10 +1303,12 @@ function NewDMModal({
                 <button
                   key={e.id}
                   onClick={() => openWith({ targetEmployeeId: e.id })}
+                  disabled={openingId === e.id}
+                  aria-busy={openingId === e.id || undefined}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   <div className="flex h-6 w-6 items-center justify-center rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
-                    <Bot size={12} />
+                    {openingId === e.id ? <ButtonSpinner size={12} /> : <Bot size={12} />}
                   </div>
                   <span className="font-medium">{e.name}</span>
                   <span className="ml-auto truncate text-xs text-slate-400">{e.role}</span>
@@ -1333,7 +1347,9 @@ function ChannelSettingsModal({
   const [saving, setSaving] = React.useState(false);
   const [webhook, setWebhook] = React.useState<WorkspaceChannelWebhookSettings | null>(null);
   const [loadingWebhook, setLoadingWebhook] = React.useState(false);
-  const [changingWebhook, setChangingWebhook] = React.useState(false);
+  const [changingWebhook, setChangingWebhook] = React.useState<
+    null | "enable" | "regenerate" | "disable"
+  >(null);
   const [generalError, setGeneralError] = React.useState<string | null>(null);
   const [webhookError, setWebhookError] = React.useState<string | null>(null);
   const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
@@ -1375,7 +1391,7 @@ function ChannelSettingsModal({
   }
 
   async function changeWebhook(enabled: boolean, regenerate = false) {
-    setChangingWebhook(true);
+    setChangingWebhook(regenerate ? "regenerate" : enabled ? "enable" : "disable");
     setWebhookError(null);
     setCopyNotice(null);
     try {
@@ -1390,7 +1406,7 @@ function ChannelSettingsModal({
     } catch (error) {
       setWebhookError(errorMessage(error));
     } finally {
-      setChangingWebhook(false);
+      setChangingWebhook(null);
     }
   }
 
@@ -1442,7 +1458,7 @@ function ChannelSettingsModal({
           </div>
           <FormError message={generalError} />
           <div className="flex justify-end">
-            <Button disabled={saving || !name.trim()} onClick={saveGeneral}>
+            <Button loading={saving} disabled={!name.trim()} onClick={saveGeneral}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -1517,7 +1533,8 @@ function ChannelSettingsModal({
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={changingWebhook}
+                  loading={changingWebhook === "regenerate"}
+                  disabled={changingWebhook !== null}
                   onClick={() => changeWebhook(true, true)}
                 >
                   <RefreshCw size={13} /> Regenerate URL
@@ -1525,7 +1542,8 @@ function ChannelSettingsModal({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={changingWebhook}
+                  loading={changingWebhook === "disable"}
+                  disabled={changingWebhook !== null}
                   onClick={() => changeWebhook(false)}
                 >
                   Disable
@@ -1539,7 +1557,8 @@ function ChannelSettingsModal({
               </p>
               <Button
                 size="sm"
-                disabled={changingWebhook || loadingWebhook}
+                loading={changingWebhook === "enable"}
+                disabled={changingWebhook !== null || loadingWebhook}
                 onClick={() => changeWebhook(true)}
               >
                 Enable incoming webhook
@@ -1687,7 +1706,7 @@ function ChannelMembersSettings({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={adding?.kind === "user" && adding.id === user.id}
+                  loading={adding?.kind === "user" && adding.id === user.id}
                   className="ml-auto"
                   onClick={() => add("user", user.id)}
                 >
@@ -1705,7 +1724,7 @@ function ChannelMembersSettings({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={adding?.kind === "ai" && adding.id === employee.id}
+                  loading={adding?.kind === "ai" && adding.id === employee.id}
                   className="ml-auto"
                   onClick={() => add("ai", employee.id)}
                 >

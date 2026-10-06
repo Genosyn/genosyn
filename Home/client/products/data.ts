@@ -110,11 +110,11 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "OpenCode runs the AI work",
-      body: "OpenCode runs API-key and custom models, managing the model loop, coding tools, and context compaction. Genosyn supplies the Soul, Skills, and company tool registry, enforces Grants and Approvals, and records the work. Host coding is the trusted self-host default; bubblewrap is optional. Eligible OpenAI subscription models keep using the official Codex app-server.",
+      body: "OpenCode runs API-key and custom models, managing the model loop, coding tools, and context compaction. Genosyn supplies the Soul, Skills, and company tool registry, enforces Grants and Approvals, and records the work. Coding runs directly in the App container by default, and operators can switch command execution off. Eligible OpenAI subscription models keep using the official Codex app-server.",
       bullets: [
         {
           title: "Tools match the deployment",
-          body: "OpenCode's native coding tools are on by default for ordinary employee work, running with the App process user's authority inside the App container. Optional bubblewrap isolates commands; disabled mode omits coding. Browser tools drive Chromium with a host allowlist and human takeover for captchas.",
+          body: "OpenCode's native coding tools are on by default for ordinary employee work, running with the App process user's authority inside the App container, with no OS sandbox. Disabled mode omits coding. Browser tools drive Chromium with a host allowlist and human takeover for captchas.",
         },
         {
           title: "Memory that persists",
@@ -133,7 +133,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Which models can an employee run on?",
-        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Trusted single-tenant deployments can also connect OpenAI through a ChatGPT subscription; the Docker default supports host coding without requiring Linux namespaces. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
+        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. OpenAI can also connect through an eligible ChatGPT subscription. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
       },
       {
         q: "Where do model credentials live?",
@@ -420,8 +420,8 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         icon: "bot",
-        title: "The Base Assistant knows the schema and suggests changes",
-        body: "A slide-over chat hands your question to an AI Employee loaded with the Base's schema, and it comes back with suggested changes. Applying them stays your call, which keeps the blast radius small.",
+        title: "Ask AI already knows the Base you have open",
+        body: "Press Ask AI in the top bar and a granted AI Employee sees the tables, fields and the record in front of you. It explains, suggests changes, or makes them when you ask — with its Base Grant and your authority, never more.",
       },
       {
         icon: "keyRound",
@@ -1505,11 +1505,11 @@ export const PRODUCTS: ProductDef[] = [
       bullets: [
         {
           title: "A separate branch per session",
-          body: "Each session gets its own git worktree and branch. Genosyn's file tools stay inside that tree and protect .git. Host commands use the App process authority; select optional bubblewrap when commands also need OS isolation.",
+          body: "Each session gets its own git worktree and branch. Genosyn's file tools stay inside that tree and protect .git. Commands run on the host with the App process authority: the worktree keeps changes separate, but it is not an OS sandbox.",
         },
         {
           title: "Commands you decide on",
-          body: "Choose per repository what an employee may run: nothing, only what matches your list, or anything. The default list covers the usual test, lint, and build tooling and leaves out curl, ssh, and git push. Commands run in the session's worktree using the configured execution mode: host by default, optional bubblewrap, or disabled. The command policy and work-session review flow apply in either execution mode.",
+          body: "Choose per repository what an employee may run: nothing, only what matches your list, or anything. The default list covers the usual test, lint, and build tooling and leaves out curl, ssh, and git push. Commands start in the session's worktree and run on the host, or not at all when an operator disables command execution. The command policy and work-session review flow apply either way.",
         },
         {
           title: "A diff and a report",
@@ -1531,8 +1531,8 @@ export const PRODUCTS: ProductDef[] = [
         a: "It creates the repository on GitHub through the Connection your company already authorised under Settings → Integrations, then pushes the history the repository already has. Nobody creates or pastes a personal access token: the Connection's token is resolved per operation and never stored on the repository, and later pushes to that remote use the same Connection. Branches from AI work sessions are deliberately left out of that first push. If you would rather create the repository yourself, paste the clone URL of an empty one instead — a remote that already has commits is refused, not force-pushed. Owner or admin only.",
       },
       {
-        q: "Do I need coding tools or a sandbox enabled?",
-        a: "No sandbox is required. The default host mode supports coding and Repository commands inside the App container, including tests and linters. Optional bubblewrap adds OS isolation. Disabled mode still supports the browser editor and work-session reading, writing, and committing, while omitting shell commands and the separate per-employee checkout.",
+        q: "Do I need coding tools enabled?",
+        a: "No. They are on by default: host mode supports coding and Repository commands inside the App container, including tests and linters, with no OS sandbox. With command execution disabled, Repositories still support the browser editor and work-session reading, writing, and committing, while omitting shell commands and the separate per-employee checkout.",
       },
       {
         q: "Can an AI Employee push straight to my remote?",

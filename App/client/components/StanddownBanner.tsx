@@ -202,7 +202,7 @@ export function StanddownBanner({
       </div>
       {canManage && (
         <div className="shrink-0 sm:ml-auto">
-          <Button variant="secondary" disabled={lifting} onClick={() => void returnToWork()}>
+          <Button variant="secondary" loading={lifting} onClick={() => void returnToWork()}>
             <PlayCircle size={14} /> {lifting ? "Returning…" : "Return to work"}
           </Button>
         </div>
@@ -290,7 +290,7 @@ export function StanddownControl({
     <Button
       variant="danger"
       className={className}
-      disabled={placing}
+      loading={placing}
       onClick={() => void standDown()}
     >
       <OctagonX size={14} /> {placing ? "Stopping…" : "Stand down"}

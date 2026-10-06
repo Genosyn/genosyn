@@ -7,6 +7,7 @@ import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { Select } from "../ui/Select";
+import { ButtonSpinner } from "../ui/Spinner";
 import { Textarea } from "../ui/Textarea";
 
 const KIND_LABEL: Record<RevenueDocumentKind, string> = {
@@ -37,6 +38,7 @@ export function RevenueDocumentsPanel({
   const [rows, setRows] = React.useState<RevenueDocument[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<RevenueDocument | null>(null);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -55,11 +57,14 @@ export function RevenueDocumentsPanel({
   }, [reload]);
 
   async function remove(id: string) {
+    setRemovingId(id);
     try {
       await api.del(`${base}/documents/${id}`);
       setRows((current) => current?.filter((row) => row.id !== id) ?? current);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -122,10 +127,12 @@ export function RevenueDocumentsPanel({
                 <button
                   type="button"
                   onClick={() => void remove(document.id)}
+                  disabled={removingId === document.id}
+                  aria-busy={removingId === document.id || undefined}
                   className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"
                   aria-label={`Remove ${document.title}`}
                 >
-                  <Trash2 size={14} />
+                  {removingId === document.id ? <ButtonSpinner size={14} /> : <Trash2 size={14} />}
                 </button>
               </div>
             );
@@ -238,7 +245,7 @@ function EditDocumentModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Saving…" : "Save"}
           </Button>
         </div>
@@ -343,7 +350,7 @@ function AddDocumentModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? "Linking…" : "Link document"}
           </Button>
         </div>

@@ -29,7 +29,7 @@ import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import type { Company, TldrItem } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
@@ -1144,11 +1144,12 @@ const Composer = React.forwardRef<
         <button
           type="button"
           aria-label="Attach a file"
+          aria-busy={attachmentDraft.uploading > 0 || undefined}
           disabled={busy}
           onClick={() => fileInputRef.current?.click()}
           className="rounded-md p-1 text-slate-400 hover:text-violet-600 disabled:opacity-40"
         >
-          {attachmentDraft.uploading > 0 ? <Spinner size={13} /> : <Paperclip size={13} />}
+          {attachmentDraft.uploading > 0 ? <ButtonSpinner size={13} /> : <Paperclip size={13} />}
         </button>
         <span className="text-[10px] text-slate-400 dark:text-slate-500">
           Enter to send · Shift + Enter for a new line
@@ -1156,14 +1157,13 @@ const Composer = React.forwardRef<
         <Button
           size="sm"
           variant="secondary"
+          loading={busy}
           disabled={
-            busy ||
-            attachmentDraft.uploading > 0 ||
-            (!value.trim() && attachmentDraft.pending.length === 0)
+            attachmentDraft.uploading > 0 || (!value.trim() && attachmentDraft.pending.length === 0)
           }
           onClick={() => void submit()}
         >
-          {busy ? <Spinner size={12} /> : <CornerDownLeft size={12} />}
+          <CornerDownLeft size={12} />
           {busy ? "Working…" : submitLabel}
         </Button>
       </div>

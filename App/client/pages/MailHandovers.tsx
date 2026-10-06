@@ -28,6 +28,7 @@ export default function MailHandovers() {
   const dialog = useDialog();
   const [handovers, setHandovers] = React.useState<MailHandover[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [retryingId, setRetryingId] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     const res = await mailApi.handovers(company.id, account.id);
@@ -51,11 +52,14 @@ export default function MailHandovers() {
   }, [changeTick]);
 
   const retry = async (h: MailHandover) => {
+    setRetryingId(h.id);
     try {
       await mailApi.retryHandover(company.id, h.id);
       await load();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t retry the handover" });
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -132,7 +136,12 @@ export default function MailHandovers() {
                   Open thread <ExternalLink size={11} />
                 </Link>
                 {h.status === "failed" && (
-                  <Button size="sm" variant="ghost" onClick={() => retry(h)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={retryingId === h.id}
+                    onClick={() => retry(h)}
+                  >
                     Retry
                   </Button>
                 )}

@@ -9,10 +9,10 @@ import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
 import {
   messageOf,
-  spawnSandboxedCommand,
-  type SandboxCommandResult,
-} from "./agent/sandboxCommandRun.js";
-import { buildSandboxShellInvocation } from "./agent/sandboxShell.js";
+  runCommandToCompletion,
+  type CommandRunResult,
+} from "./agent/commandRun.js";
+import { buildShellInvocation } from "./agent/shellInvocation.js";
 import { MAX_SESSION_COMMAND_LENGTH, parseCommandSegments } from "./repositoryCommandPolicy.js";
 import { countContinuationEffects } from "./runEffects.js";
 
@@ -82,8 +82,8 @@ export async function checkConfigurationSummary(companyId: string, routineId: st
  *
  * The tail rather than the head: a check answers one question, and the sentence
  * that says why the answer was no is the last thing a test runner or a linter
- * prints. The full output is bounded again by the sandbox itself; this is the
- * slice that lands in a database column a person reads.
+ * prints. The full output is bounded again by the command runner itself; this
+ * is the slice that lands in a database column a person reads.
  */
 export const CHECK_DETAIL_MAX_BYTES = 8 * 1024;
 
@@ -138,7 +138,8 @@ export function parseEffectSpec(raw: string): EffectCheckSpec {
   const spec = parsed.data;
   if (spec.max !== undefined && spec.max < spec.min) {
     // A window that excludes every number is a Check that can never pass, and
-    // the same rule that refuses a `command` check with no sandbox refuses it.
+    // the same rule that refuses a `command` check where commands cannot run
+    // refuses it.
     return failSpec(`max (${spec.max}) is below min (${spec.min}), so nothing could satisfy it`);
   }
   return spec;
@@ -449,7 +450,7 @@ export type CheckRunParams = {
   routine: Pick<Routine, "id">;
   employee: Pick<AIEmployee, "id">;
   companyId: string;
-  /** The employee working directory. Both the sandbox root and the cwd. */
+  /** The employee working directory the command starts in. */
   cwd: string;
   /** Which remediation round this is. 0 is the first pass. */
   attempt: number;
@@ -461,12 +462,12 @@ export type CheckRunParams = {
   /**
    * Seam for tests — a `command` check is a real child process. Mirrors
    * `runVerdicts.ts`'s `runRestricted` injection rather than inventing a second
-   * pattern. Injecting it also stands in for the sandbox availability gate,
-   * which is what makes the check path testable on a machine with no bubblewrap.
+   * pattern. Injecting it also stands in for the command availability gate,
+   * which is what makes the check path testable without running a real shell.
    */
   runCommand?: (
-    options: Parameters<typeof spawnSandboxedCommand>[0],
-  ) => Promise<SandboxCommandResult>;
+    options: Parameters<typeof runCommandToCompletion>[0],
+  ) => Promise<CommandRunResult>;
 };
 
 /**
@@ -601,8 +602,8 @@ async function runEffectCheck(check: RoutineCheck, params: CheckRunParams): Prom
 }
 
 /**
- * The `command` kind: run it in the same sandbox the employee's own shell uses,
- * rooted at the same working directory, and read the exit status.
+ * The `command` kind: run it the way the employee's own shell runs, starting
+ * in the same working directory, and read the exit status.
  *
  * The timeout is the smaller of the check's own ceiling and whatever is left of
  * the Run's absolute deadline, so a list of checks can never extend
@@ -624,10 +625,9 @@ async function runCommandCheck(check: RoutineCheck, params: CheckRunParams): Pro
     if (!availability.available) return unrunnable(availability.reason);
   }
 
-  let invocation: ReturnType<typeof buildSandboxShellInvocation>;
+  let invocation: ReturnType<typeof buildShellInvocation>;
   try {
-    invocation = buildSandboxShellInvocation({
-      workspaceRoot: params.cwd,
+    invocation = buildShellInvocation({
       cwd: params.cwd,
       command: check.spec.trim(),
       // The Routine's own turn ran with these, and a check that could not see
@@ -643,7 +643,7 @@ async function runCommandCheck(check: RoutineCheck, params: CheckRunParams): Pro
     return unrunnable(`the command could not be prepared (${messageOf(error)})`);
   }
 
-  const spawner = params.runCommand ?? spawnSandboxedCommand;
+  const spawner = params.runCommand ?? runCommandToCompletion;
   const result = await spawner({
     executable: invocation.executable,
     args: invocation.args,

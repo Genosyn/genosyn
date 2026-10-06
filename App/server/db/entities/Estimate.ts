@@ -1,3 +1,4 @@
+import type { SubsidiaryIssuerSnapshot } from "./Subsidiary.js";
 import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
@@ -59,6 +60,14 @@ export class Estimate {
 
   @Column({ type: "varchar" })
   customerId!: string;
+
+  /** Optional legal issuer; null retains the company default. */
+  @Column({ type: "varchar", nullable: true })
+  subsidiaryId!: string | null;
+
+  /** Frozen when the issuer is selected; later profile edits never rewrite documents. */
+  @Column({ type: "simple-json", nullable: true })
+  issuerSnapshot!: SubsidiaryIssuerSnapshot | null;
 
   /** URL slug — `est-0001` once issued, `edraft-<short>` while in draft.
    *  Renames don't change the slug; voiding doesn't either. */

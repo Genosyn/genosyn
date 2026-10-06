@@ -1,34 +1,20 @@
-# Single-tenant self-host shape — the chart's OLD default, kept as a one-flag
-# off-ramp now that the default posture is production multi-tenant SaaS:
+# SQLite on the /app/data volume, with no bundled Postgres — the same shape as
+# the one-line Docker installer:
 #
 #   helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
 #     --namespace genosyn --create-namespace \
 #     -f values-selfhost.yaml
 #
-# What you get: one replica, SQLite on the 20Gi /app/data volume, no bundled
-# Postgres, no securityContext demands — the same shape as the one-line Docker
-# installer. The chart still generates strong session/encryption secrets in a
-# kept Kubernetes Secret (see `secrets` in values.yaml).
-#
-# OpenCode coding tools and Repository commands execute in the App container
-# without an OS sandbox in this trusted single-tenant shape. Set sandbox.enabled
-# to true for optional bubblewrap isolation; your cluster must then permit its
-# securityContext fields (seccomp Unconfined + procMount Unmasked + hostUsers: false).
+# Everything else follows values.yaml: single-tenant, one replica on the 20Gi
+# volume, and strong session/encryption secrets in a kept Kubernetes Secret.
+# The post-install public URL Job needs Postgres, so here the first master
+# admin's sign-in records the public URL instead.
 
 config:
-  # Private single-tenant install: no shared-SaaS boot checklist, so
-  # bootstrapMasterAdminEmail may stay empty. System mail is configured after
-  # boot at Admin -> Email transport; until it is, verification and
-  # password-reset links log to the server console
-  # (`kubectl logs -n <namespace> deploy/<release>`).
-  multiTenant: false
   db:
     # SQLite lives on the /app/data volume. Flip to postgres +
     # config.db.postgresUrlSecret (or postgres.enabled) when you outgrow it.
     driver: sqlite
-
-sandbox:
-  enabled: false
 
 postgres:
   enabled: false

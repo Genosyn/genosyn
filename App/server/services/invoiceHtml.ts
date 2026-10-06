@@ -7,6 +7,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
 import { getFinanceSettings } from "./fx.js";
 import { htmlToPdf } from "./htmlToPdf.js";
+import { documentIssuerFields } from "./subsidiaries.js";
 
 /**
  * Render an Invoice as a self-contained HTML document. Used as both the
@@ -226,6 +227,7 @@ function fmtQty(q: number): string {
 
 export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
   const { invoice, customer, lines, payments } = input;
+  const issuer = documentIssuerFields(invoice, input);
   const cur = invoice.currency;
   const lineRows = lines
     .map((l) => {
@@ -277,10 +279,8 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
   const notesBlock = invoice.notes
     ? `<div class="notes">${esc(invoice.notes)}</div>`
     : "";
-  // Per-doc footer wins; the company-wide default is used only when the
-  // invoice has none. Keeping the precedence here means a user who clears
-  // a per-doc footer to "" still sees the default they configured.
-  const footerText = invoice.footer || input.defaultFooter || "";
+  // Per-document terms win; otherwise use the selected issuer's defaults.
+  const footerText = invoice.footer || issuer.defaultFooter || "";
   const footerBlock = footerText
     ? `<div class="footer">${esc(footerText)}</div>`
     : "";
@@ -310,7 +310,7 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
     ${emailMessageBlock}
     <div class="header">
       <div>
-        <div class="brand">${esc(input.companyName || "")}</div>
+        <div class="brand">${esc(issuer.companyName || "")}</div>
         <div style="margin-top:24px">
           <div class="title">Invoice</div>
           <h1 class="invoice-number">${esc(numberDisplay)}</h1>
@@ -335,9 +335,9 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
       <div>
         <div class="party-label">From</div>
         ${
-          input.defaultFromBlock
-            ? `<div class="party-detail">${esc(input.defaultFromBlock)}</div>`
-            : `<div class="party-name">${esc(input.companyName || "")}</div>`
+          issuer.defaultFromBlock
+            ? `<div class="party-detail">${esc(issuer.defaultFromBlock)}</div>`
+            : `<div class="party-name">${esc(issuer.companyName || "")}</div>`
         }
       </div>
     </div>

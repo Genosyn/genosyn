@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { encryptSecret } from "../../../lib/secret.js";
 import { toolsBriefing } from "../systemPrompt.js";
 import {
   createParallelDelegationTool,
@@ -45,12 +46,58 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   assert.fail("Timed out waiting for delegated work to reach the expected state.");
 }
 
+const hostedModel = {
+  id: "hosted",
+  provider: "openai" as const,
+  authMode: "apikey" as const,
+  configJson: "{}",
+  maxConcurrentRuns: null,
+};
+
+function customModel(baseURL: string, maxConcurrentRuns: number | null) {
+  return {
+    id: "custom",
+    provider: "custom" as const,
+    authMode: "customEndpoint" as const,
+    configJson: JSON.stringify({
+      baseURLEncrypted: encryptSecret(baseURL),
+      modelId: "Qwen/Qwen3.8-27B",
+    }),
+    maxConcurrentRuns,
+  };
+}
+
 test("subscription turns do not advertise delegation that would wait on their model lock", () => {
-  assert.equal(supportsParallelDelegation("subscription"), false);
-  assert.equal(supportsParallelDelegation("apikey"), true);
-  assert.equal(supportsParallelDelegation("customEndpoint"), true);
-  assert.equal(supportsParallelDelegation("apikey", 1), false);
-  assert.equal(supportsParallelDelegation("customEndpoint", 1), false);
+  assert.equal(supportsParallelDelegation({ ...hostedModel, authMode: "subscription" }), false);
+  assert.equal(supportsParallelDelegation(hostedModel), true);
+  assert.equal(supportsParallelDelegation(hostedModel, 1), false);
+  assert.equal(supportsParallelDelegation(customModel("https://llm.example.com/v1", null)), true);
+  assert.equal(
+    supportsParallelDelegation(customModel("https://llm.example.com/v1", null), 1),
+    false,
+  );
+});
+
+// 2026-10-02: a Weekly Customer Expansion Run on Qwen ran two workers beside its
+// own conversation and another Run's, four long conversations on a GPU whose
+// cache held about three; none of their cached prompts survived.
+test("a model that serves a limited number of Runs at once gets no parallel workers", () => {
+  assert.equal(
+    supportsParallelDelegation(customModel("https://gpu.example.com/v1", 2)),
+    false,
+    "Concurrent Routine Runs is set",
+  );
+  assert.equal(
+    supportsParallelDelegation(customModel("http://127.0.0.1:8000/v1", null)),
+    false,
+    "a server on this machine serves one Run at a time by default",
+  );
+  assert.equal(
+    supportsParallelDelegation(customModel("http://127.0.0.1:8000/v1", 0)),
+    true,
+    "No limit",
+  );
+  assert.equal(supportsParallelDelegation({ ...hostedModel, maxConcurrentRuns: 3 }), false);
 });
 
 test("a temporary worker's inherited briefing does not promise recursive delegation", () => {
@@ -81,14 +128,11 @@ test("chat and Routine briefings promise only tools the runtime offers", () => {
   }
   assert.match(toolsBriefing("routine", true), /explicitly asks to use subagents/);
   assert.doesNotMatch(toolsBriefing("chat", false, false), /- Coding:|`bash`/);
-  const hostBriefing = toolsBriefing("chat", false, true, false);
+  const hostBriefing = toolsBriefing("chat", false, true);
   assert.match(hostBriefing, /coding tools supplied by your runtime/);
   assert.match(hostBriefing, /read, edit, and search files/);
   assert.match(hostBriefing, /run commands when a command tool is available/);
-  assert.doesNotMatch(hostBriefing, /`read_file`|isolated `bash`|bubblewrap deployment/);
-  assert.match(toolsBriefing("chat", false, true, true), /isolated `bash`/);
-  assert.doesNotMatch(toolsBriefing("chat", false, true, true), /`read_file`/);
-  assert.match(toolsBriefing("chat", false, true, true), /bubblewrap deployment/);
+  assert.doesNotMatch(hostBriefing, /`read_file`|isolated `bash`|bubblewrap/);
 });
 
 describe("delegate_parallel_work input", () => {
@@ -129,6 +173,27 @@ describe("delegate_parallel_work input", () => {
     assert.match(result.content, /1\/1 briefs completed \(concurrency 1\)/);
     assert.match(result.content, /## 1\. Issue 41 — completed\nworker result/);
     assert.equal(result.isError, undefined);
+  });
+
+  test("required tools named as OpenCode shows them resolve to the real tool names", async () => {
+    const seen: DelegatedBrief[] = [];
+    const tool = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      runBrief: async (value) => {
+        seen.push(value);
+        return completed();
+      },
+    });
+    await tool.run({
+      tasks: [
+        {
+          label: "Research a channel",
+          instruction: "Open the channel page and summarize its audience.",
+          requiredTools: ["genosyn_browser_open", " browser_snapshot ", "genosyn_browser_open"],
+        },
+      ],
+    });
+    assert.deepEqual(seen[0].requiredTools, ["browser_open", "browser_snapshot"]);
   });
 
   test("rejects malformed batches without spending budget or starting a worker", async () => {
@@ -450,6 +515,267 @@ describe("delegate_parallel_work results and cancellation", () => {
 });
 
 describe("parallel worker result recovery", () => {
+  test("long delegation returns pending result IDs before the transport timeout", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const store = createParallelResultStore();
+    const worker = deferred<DelegatedBriefResult>();
+    let started = false;
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      runBrief: async () => {
+        started = true;
+        return worker.promise;
+      },
+    });
+    let returned = false;
+    const running = delegate.run({ tasks: [brief(1)] }).then((result) => {
+      returned = true;
+      return result;
+    });
+    try {
+      await waitFor(() => started);
+      t.mock.timers.tick(30_000);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(returned, true, "the parent must regain control while the worker is pending");
+      const result = await running;
+      const [pending] = store.list();
+      assert.equal(pending.status, "pending");
+      assert.match(result.content, /pending/i);
+      assert.ok(result.content.includes(pending.resultId));
+      assert.equal(result.isError, undefined);
+      worker.resolve(completed("Verified source evidence"));
+      await waitFor(() => store.list()[0].status === "completed");
+      assert.equal(store.list()[0].resultId, pending.resultId);
+      assert.equal(store.read(pending.resultId, 0, 100)?.text, "Verified source evidence");
+    } finally {
+      worker.resolve(completed());
+      await running;
+    }
+  });
+
+  test("pending responses preserve mixed completed and failed evidence without redispatch", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const store = createParallelResultStore();
+    const slow = deferred<DelegatedBriefResult>();
+    const called: string[] = [];
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      runBrief: async (value) => {
+        called.push(value.label);
+        if (value.label === "Issue 1") return completed("early verified evidence");
+        if (value.label === "Issue 2") throw new Error("source unavailable");
+        return slow.promise;
+      },
+    });
+    const response = delegate.run({ tasks: [brief(1), brief(2), brief(3)] });
+    try {
+      await waitFor(() => store.list().filter((row) => row.status !== "pending").length === 2);
+      t.mock.timers.tick(30_000);
+      assert.equal((await response).isError, undefined);
+      const reader = createParallelWorkResultTool(store);
+      const listed = JSON.parse((await reader.run({})).content);
+      assert.deepEqual(
+        listed.results.map((row: { status: string }) => row.status),
+        ["completed", "failed", "pending"],
+      );
+      const pendingId = listed.results[2].resultId;
+      const pendingPage = JSON.parse((await reader.run({ resultId: pendingId })).content);
+      assert.equal(pendingPage.coverage.complete, false);
+      slow.resolve({ status: "failed", error: "bounded source could not be completed" });
+      await waitFor(() => store.list()[2].status === "failed");
+      const failedPage = JSON.parse((await reader.run({ resultId: pendingId })).content);
+      assert.equal(failedPage.status, "failed");
+      assert.match(failedPage.text, /could not be completed/);
+      assert.equal(store.read(listed.results[0].resultId, 0, 100)?.text, "early verified evidence");
+      assert.match(
+        store.read(listed.results[1].resultId, 0, 100)?.text ?? "",
+        /source unavailable/,
+      );
+      assert.deepEqual(called, ["Issue 1", "Issue 2", "Issue 3"]);
+    } finally {
+      slow.resolve(completed());
+      await delegate.close();
+    }
+  });
+
+  test("overlapping pending calls share four worker slots and the twelve-brief allowance", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const store = createParallelResultStore();
+    const release = deferred<void>();
+    let running = 0;
+    let peak = 0;
+    const started: string[] = [];
+    const pendingGroups: number[] = [];
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      onBackgroundWork: (pending) => pendingGroups.push(pending),
+      runBrief: async (value) => {
+        started.push(value.label);
+        running++;
+        peak = Math.max(peak, running);
+        await release.promise;
+        running--;
+        return completed(value.label);
+      },
+    });
+    const calls = [0, 4, 8].map((start) =>
+      delegate.run({ tasks: Array.from({ length: 4 }, (_, index) => brief(start + index)) }),
+    );
+    try {
+      await waitFor(() => store.list().length === 12 && started.length === 4);
+      t.mock.timers.tick(30_000);
+      const responses = await Promise.all(calls);
+      assert.ok(
+        responses.every((response) => !response.isError && /pending/.test(response.content)),
+      );
+      assert.equal(started.length, 4);
+      const overBudget = await delegate.run({ tasks: [brief(13)] });
+      assert.equal(overBudget.isError, true);
+      assert.match(overBudget.content, /0 more briefs/);
+      release.resolve();
+      await waitFor(() => store.list().every((row) => row.status === "completed"));
+      assert.equal(started.length, 12);
+      assert.equal(new Set(started).size, 12);
+      assert.equal(peak, 4);
+      await delegate.close();
+      assert.deepEqual(pendingGroups, [1, 2, 3, 2, 1, 0]);
+    } finally {
+      release.resolve();
+      await delegate.close();
+    }
+  });
+
+  test("synchronous worker failures release slots for later pending calls", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const store = createParallelResultStore();
+    const release = deferred<void>();
+    let attempts = 0;
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: store,
+      runBrief: (value) => {
+        attempts++;
+        if (Number(value.label.slice(6)) < 4) throw new Error("synchronous source failure");
+        return release.promise.then(() => completed(value.label));
+      },
+    });
+    const failed = delegate.run({ tasks: [0, 1, 2, 3].map(brief) });
+    const pending = delegate.run({ tasks: [4, 5, 6, 7].map(brief) });
+    try {
+      assert.equal((await failed).isError, true);
+      await waitFor(() => attempts === 8);
+      t.mock.timers.tick(30_000);
+      assert.match((await pending).content, /pending/);
+      release.resolve();
+      await waitFor(() => store.list().every((row) => row.status !== "pending"));
+      assert.equal(store.list().filter((row) => row.status === "failed").length, 4);
+      assert.equal(store.list().filter((row) => row.status === "completed").length, 4);
+    } finally {
+      release.resolve();
+      await delegate.close();
+    }
+  });
+
+  for (const stop of ["close", "deadline"] as const) {
+    test(`${stop} stops active workers, finalizes never-started briefs, and refuses later dispatch`, async () => {
+      const controller = new AbortController();
+      const store = createParallelResultStore();
+      const started: string[] = [];
+      const reasons: unknown[] = [];
+      const delegate = createParallelDelegationTool({
+        budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+        resultStore: store,
+        signal: controller.signal,
+        runBrief: async (value, _resultId, signal) => {
+          started.push(value.label);
+          assert.ok(signal);
+          await new Promise<void>((resolve) =>
+            signal.addEventListener(
+              "abort",
+              () => {
+                reasons.push(signal.reason);
+                resolve();
+              },
+              { once: true },
+            ),
+          );
+          return { status: "failed", error: "parent stopped before completion" };
+        },
+      });
+      const pending = delegate.run({
+        tasks: Array.from({ length: 8 }, (_, index) => brief(index)),
+        maxConcurrency: 2,
+      });
+      await waitFor(() => started.length === 2);
+      const reason = new Error("original deadline reached");
+      if (stop === "deadline") controller.abort(reason);
+      await delegate.close();
+      assert.equal((await pending).isError, true);
+      assert.equal(started.length, 2);
+      assert.equal(store.list().length, 8);
+      assert.ok(store.list().every((row) => row.status === "failed"));
+      assert.equal(reasons.length, 2);
+      if (stop === "deadline") assert.ok(reasons.every((value) => value === reason));
+      else assert.equal(controller.signal.aborted, false, "closing a tool cannot abort its caller");
+      const late = await delegate.run({ tasks: [brief(9)] });
+      assert.equal(late.isError, true);
+      assert.match(late.content, /aborted before it started/);
+      await delegate.close();
+    });
+  }
+
+  test("a result persistence failure cannot release cleanup before sibling workers settle", async () => {
+    const store = createParallelResultStore();
+    const siblingStarted = deferred<void>();
+    const releaseCleanup = deferred<void>();
+    let aborted = false;
+    let cleaned = false;
+    const delegate = createParallelDelegationTool({
+      budget: { remaining: MAX_DELEGATIONS_PER_TURN },
+      resultStore: {
+        ...store,
+        finish: () => {
+          throw new Error("result storage failed");
+        },
+      },
+      runBrief: async (value, _id, signal) => {
+        if (value.label === "Issue 1") return completed();
+        assert.ok(signal);
+        siblingStarted.resolve();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              resolve();
+            },
+            { once: true },
+          ),
+        );
+        await releaseCleanup.promise;
+        cleaned = true;
+        return { status: "failed", error: "interrupted" };
+      },
+    });
+    const result = delegate.run({ tasks: [brief(1), brief(2)] });
+    const rejected = assert.rejects(result, /result storage failed/);
+    await siblingStarted.promise;
+    let closed = false;
+    const closing = delegate.close().then(() => {
+      closed = true;
+    });
+    await waitFor(() => aborted);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(closed, false);
+    releaseCleanup.resolve();
+    await closing;
+    await rejected;
+    assert.equal(cleaned, true);
+  });
+
   test("recovers every page without rerunning work and isolates parent turns", async () => {
     const store = createParallelResultStore();
     const reader = createParallelWorkResultTool(store);

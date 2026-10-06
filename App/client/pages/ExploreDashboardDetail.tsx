@@ -20,7 +20,7 @@ import { ExploreShareModal } from "./ExploreShareModal";
 import { api, Company } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Modal } from "../components/ui/Modal";
 import { FormError } from "../components/ui/FormError";
@@ -90,6 +90,8 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   const [savingDetails, setSavingDetails] = React.useState(false);
   const [detailsError, setDetailsError] = React.useState<string | null>(null);
   const [addCardError, setAddCardError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [removingCardId, setRemovingCardId] = React.useState<string | null>(null);
   const [runs, setRuns] = React.useState<Record<string, RunState>>({});
   const runRequests = React.useRef(new Map<string, symbol>());
   const runScope = React.useRef("");
@@ -181,12 +183,15 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       confirmLabel: "Delete dashboard",
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/explore/dashboards/${data.slug}`);
       await reloadIndex();
       navigate(`/c/${company.slug}/explore`, { replace: true });
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the dashboard" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -242,6 +247,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
 
   async function deleteCard(card: CardDTO) {
     if (!data) return;
+    setRemovingCardId(card.id);
     try {
       await api.del(
         `/api/companies/${company.id}/explore/dashboards/${data.slug}/cards/${card.id}`,
@@ -249,6 +255,8 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       await reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t remove the card" });
+    } finally {
+      setRemovingCardId(null);
     }
   }
 
@@ -343,7 +351,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           )}
         </Button>
         {editing && (
-          <Button variant="ghost" size="sm" onClick={destroy}>
+          <Button variant="ghost" size="sm" loading={deleting} onClick={destroy}>
             <Trash2 size={14} className="text-red-500" />
           </Button>
         )}
@@ -423,6 +431,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
                         )}
                         <CardEditControls
                           card={card}
+                          removing={removingCardId === card.id}
                           onChange={(patch) => patchCard(card, patch)}
                           onDelete={() => deleteCard(card)}
                         />
@@ -561,10 +570,12 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
 
 function CardEditControls({
   card,
+  removing,
   onChange,
   onDelete,
 }: {
   card: CardDTO;
+  removing: boolean;
   onChange: (patch: Partial<CardDTO>) => void;
   onDelete: () => void;
 }) {
@@ -640,10 +651,12 @@ function CardEditControls({
       </Select>
       <button
         onClick={onDelete}
+        disabled={removing}
+        aria-busy={removing || undefined}
         className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
         title="Remove from dashboard"
       >
-        <X size={12} />
+        {removing ? <ButtonSpinner size={12} /> : <X size={12} />}
       </button>
     </div>
   );

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import bcrypt from "bcrypt";
+import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
 import { ensureUserHandle } from "./userHandle.js";
@@ -313,6 +314,11 @@ async function fetchClaims(userinfoEndpoint: string, accessToken: string): Promi
       "The identity provider did not share an email address — make sure the email scope is granted.",
     );
   }
+  // Refuse rather than normalize: " bob@acme.com" would miss the exact
+  // account lookup and mint a lookalike of Bob's account.
+  if (email !== email.trim() || !z.string().email().safeParse(email).success) {
+    throw new SsoLoginError("The identity provider shared an email address Genosyn cannot use.");
+  }
   // Email-based account linking is safe only with an affirmative claim. An
   // omitted value is not evidence of mailbox ownership.
   if (parsed.email_verified !== true) {
@@ -367,7 +373,7 @@ async function resolveSsoUser(args: { sso: ResolvedSso; claims: SsoClaims }): Pr
     );
   }
 
-  return provisionSsoUser({ issuer: sso.issuer, claims });
+  return provisionSsoUser({ issuer: sso.issuer, claims, emailVerified: true });
 }
 
 /**
@@ -375,9 +381,19 @@ async function resolveSsoUser(args: { sso: ResolvedSso; claims: SsoClaims }): Pr
  * subject pair. The password hash is random and unusable; "forgot password"
  * mints a real one later if the person ever needs password login. Shared by
  * the instance auto-provision branch and per-company SSO auto-join.
+ *
+ * `emailVerified` says whether the issuer's email claim counts as proof of
+ * the mailbox. It does for the instance IdP a master admin configured; it
+ * does not for an IdP any company admin can point at, which could assert
+ * anyone's address — that account verifies through the emailed link, the
+ * same as signup.
  */
-export async function provisionSsoUser(args: { issuer: string; claims: SsoClaims }): Promise<User> {
-  const { issuer, claims } = args;
+export async function provisionSsoUser(args: {
+  issuer: string;
+  claims: SsoClaims;
+  emailVerified: boolean;
+}): Promise<User> {
+  const { issuer, claims, emailVerified } = args;
   const repo = AppDataSource.getRepository(User);
   const user = repo.create({
     email: claims.email,
@@ -386,7 +402,7 @@ export async function provisionSsoUser(args: { issuer: string; claims: SsoClaims
     isMasterAdmin: false,
     resetToken: null,
     resetExpiresAt: null,
-    emailVerifiedAt: new Date(),
+    emailVerifiedAt: emailVerified ? new Date() : null,
     emailVerificationTokenHash: null,
     emailVerificationExpiresAt: null,
     sessionVersion: 0,

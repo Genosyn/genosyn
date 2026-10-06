@@ -914,7 +914,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "save_run_checkpoint",
     description:
-      "Save progress for your current Routine Run after each small batch of at most five source records. Include everything needed to resume: a successful continue checkpoint may immediately hand the work to a fresh Run after two million tokens in this Run, before you can write a final report. Use continue for resumable work, blocked for missing access or a human Decision, complete only when nothing remains. Include the fixed review window and stable source anchors in resume. progressKey identifies the last fully processed source item; never change it merely to request another attempt. Three continuations and the original time limit apply; there is no total model-token limit. Only the top-level AI Employee running this Routine may call this. This does not mark the Run successful or change its Checks. Discover get_journal_entry for full older Journal evidence.",
+      "Save progress for your current Routine Run after each small batch of at most five substantively reviewed or processed source records. Compact discovery listings may use the tool's supported bounded page sizes; retry the same page with a smaller limit if its output is truncated. Capture and deduplicate stable IDs and cursors from fully read pages. Record inventory coverage separately from completed substantive review. Include everything needed to resume: a successful continue checkpoint may immediately hand the work to a fresh Run after two million tokens in this Run, before you can write a final report. A continuation can hand off only when progressKey and the completed or resume description advance beyond the previous Run's checkpoint. An unchanged checkpoint preserves the current Run so you can keep working within its remaining time. Use continue for resumable work, blocked for missing access or a human Decision, complete only when nothing remains. Include the fixed review window and stable source anchors in resume. progressKey identifies the last fully processed source item; never change it merely to request another attempt. Three continuations and the original time limit apply; there is no total model-token limit. Only the top-level AI Employee running this Routine may call this. This does not mark the Run successful or change its Checks. Discover get_journal_entry for full older Journal evidence.",
     inputSchema: {
       type: "object",
       properties: {
@@ -928,7 +928,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         remaining: {
           type: "string",
           maxLength: 2000,
-          description: "Unfinished items or exact blocker. Empty only when complete.",
+          description:
+            "Unfinished items or exact blocker. Empty when complete; follow-ups for a later Run go in resume.",
         },
         resume: {
           type: "string",
@@ -1596,8 +1597,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
-        title: { type: "string" },
-        body: { type: "string" },
+        title: { type: "string", minLength: 1, maxLength: 200 },
+        body: { type: "string", maxLength: 10_000 },
       },
       required: ["title"],
       additionalProperties: false,
@@ -2336,7 +2337,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
               },
               detail: {
                 type: "string",
-                description: "Next step and exact information needed in the Member's note.",
+                maxLength: 240,
+                description: "Next step and required Member input.",
               },
               tone: {
                 type: "string",
@@ -3046,7 +3048,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_resource",
     description:
-      "Add a new Resource that the team can study. Three sources. `sourceKind: 'url'` with `url` fetches and extracts a page. `sourceKind: 'text'` with `title` and `body` (markdown) files a paste — a transcript, a primer, a research summary. `sourceKind: 'file'` with `attachmentId` files an actual file: a PDF, EPUB, Word document, or text file that a teammate uploaded, that arrived on an email (open it with `read_mail_attachment`), that you downloaded with `download_web_file`, or that you produced this turn with `convert_to_pdf` / `create_docx`. Filing a PDF this way is what a signing request needs — `draft_signature_envelope` takes a PDF Resource and nothing else, so the whole errand is `read_mail_attachment` → `convert_to_pdf` → `create_resource` → `draft_signature_envelope`, and no human has to re-upload anything. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. Video files still need a human — file the transcript as text instead.",
+      "Add a new Resource that the team can study. Three sources. `sourceKind: 'url'` with `url` fetches and extracts a page. `sourceKind: 'text'` with `title` and `body` (markdown) files a paste — a transcript, a primer, a research summary. `sourceKind: 'file'` with `attachmentId` files an actual file: a PDF, EPUB, Word document, or text file that a teammate uploaded, that arrived on an email (open it with `read_mail_attachment`), that you downloaded with `download_web_file`, or that you produced this turn with `convert_to_pdf` / `create_docx`. Filing a PDF this way is what a signing request needs — `draft_signature_envelope` takes a PDF Resource and nothing else, so the whole errand is `read_mail_attachment` → `convert_to_pdf` → `create_resource` → `draft_signature_envelope`, and no human has to re-upload anything. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. Video files still need a human — file the transcript as text instead. Refused when an owner or admin has set your Resources access to read only (Resources → AI access).",
     inputSchema: {
       type: "object",
       properties: {
@@ -3096,7 +3098,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_resource",
     description:
-      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete.",
+      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete. If an owner or admin has set your Resources access to read only (Resources → AI access), every update is refused whatever the share modal says.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3117,7 +3119,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "delete_resource",
     description:
-      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `delete` access — strictly more than `edit`. Rows you created via `create_resource` already have it; for other rows, ask a human to promote you. There is no undo, so prefer `update_resource` to correct a mistake when possible.",
+      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `delete` access — strictly more than `edit`. Rows you created via `create_resource` already have it; for other rows, ask a human to promote you. Refused for every Resource when your Resources access is read only (Resources → AI access). There is no undo, so prefer `update_resource` to correct a mistake when possible.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4339,6 +4341,17 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_subsidiaries",
+    readOnly: true,
+    description:
+      "List the company's issuing legal entities with ids, legal names, addresses, tax and registration numbers, contact details, and invoice footers. Use an active subsidiary id as subsidiaryId when creating an invoice, estimate, or recurring invoice schedule. Archived subsidiaries are hidden unless includeArchived is true and cannot be selected for new documents. Omit subsidiaryId or pass null for the default company issuer. An owner or admin manages subsidiaries in Finance. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { includeArchived: { type: "boolean", default: false } },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_invoices",
     description:
       "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void) or `customerSlug`. Returns compact rows (number, status, customer, totals, balance, dates); call get_invoice for line items and payments. Needs `read` finance access.",
@@ -4404,16 +4417,27 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_recurring_invoice",
     description:
-      "Create a recurring invoice schedule for repeat billing. Required fields are `customerSlug`, `name`, `cronExpr`, `frequency`, and 1–200 `lines`; each line needs `{description, quantity, unitPriceCents}` and may include `taxRateId`, `productId`, or `sortOrder`. The five-field `cronExpr` uses server-local time and must match `frequency` (for example `0 9 20 8 *` + `yearly` means every August 20 at 09:00). Each run creates a draft by default. Set `autoSend: true` only when the teammate explicitly wants every future run to issue the invoice, post it to the ledger, and email the customer. Creating the schedule itself never creates or emails an invoice. Needs `invoice` finance access.",
+      "Create a recurring invoice schedule for repeat billing. Required fields are `customerSlug`, `cronExpr`, `frequency`, and 1–200 `lines`; each line needs `{description, quantity, unitPriceCents}` and may include `taxRateId`, `productId`, or `sortOrder`. `name` is optional and defaults to the customer's name. The five-field `cronExpr` uses server-local time and must match `frequency` (for example `0 9 20 8 *` + `yearly` means every August 20 at 09:00). Each run creates a draft by default. Set `autoSend: true` only when the teammate explicitly wants every future run to issue the invoice, post it to the ledger, and email the customer. Creating the schedule itself never creates or emails an invoice. Needs `invoice` finance access.",
     inputSchema: {
       type: "object",
-      required: ["customerSlug", "name", "cronExpr", "frequency", "lines"],
+      required: ["customerSlug", "cronExpr", "frequency", "lines"],
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to use the company default, or pass null explicitly. Archived subsidiaries cannot be selected.",
+        },
         customerSlug: {
           type: "string",
           description: "Who to bill (from list_customers / create_customer).",
         },
-        name: { type: "string", description: "Human-readable schedule name." },
+        name: {
+          type: "string",
+          maxLength: 200,
+          description:
+            "Human-readable schedule name. Omit it or leave it blank to name the schedule after the customer.",
+        },
         cronExpr: {
           type: "string",
           description:
@@ -4493,9 +4517,23 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       required: ["recurringInvoiceSlug"],
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to keep the existing issuer; pass null for the company default. Archived subsidiaries cannot be selected.",
+        },
         recurringInvoiceSlug: { type: "string", description: "Which schedule to update." },
-        customerSlug: { type: "string", description: "Move future billing to this customer." },
-        name: { type: "string" },
+        customerSlug: {
+          type: "string",
+          description: "Move future billing to this customer. The schedule keeps its name.",
+        },
+        name: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "New schedule name; it cannot be blank.",
+        },
         cronExpr: { type: "string", description: "Valid five-field cron in server-local time." },
         frequency: {
           type: "string",
@@ -4660,6 +4698,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to use the company default, or pass null explicitly. Archived subsidiaries cannot be selected.",
+        },
         customerSlug: {
           type: "string",
           description: "Who receives the quotation (from list_customers / create_customer).",
@@ -4747,6 +4791,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
+        subsidiaryId: {
+          type: ["string", "null"],
+          format: "uuid",
+          description:
+            "Issuing legal entity id from list_subsidiaries. Omit to use the company default, or pass null explicitly. Archived subsidiaries cannot be selected.",
+        },
         customerSlug: {
           type: "string",
           description: "Who to bill (from list_customers / create_customer).",
@@ -4871,10 +4921,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         query: {
           type: "string",
-          description: "Free-text — matches subject, participants, and body.",
+          description: "Free-text — matches words and word starts in subject, participants, and body.",
         },
-        from: { type: "string", description: "Sender address/name substring." },
-        to: { type: "string", description: "Recipient address substring." },
+        from: { type: "string", description: "Sender address or name; words match from their start." },
+        to: { type: "string", description: "Recipient address; words match from their start." },
         after: { type: "string", description: "Only threads on/after this date (YYYY-MM-DD)." },
         before: { type: "string", description: "Only threads before this date (YYYY-MM-DD)." },
         label: {
@@ -4963,7 +5013,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "read_mail_attachment",
     description:
-      "Open a file that arrived on an email. Pass the `messageId` and the attachment's `index` from `get_mail_thread`; the bytes are pulled from the mailbox and become an ordinary chat attachment, so you get back an `attachmentId` that works with `read_pdf_fields`, `fill_pdf_form`, `read_xlsx`, `edit_xlsx`, `send_chat_attachment`, and the `attachments` list on `create_mail_draft` / `send_mail`. Text and PDF files also come back with their extracted text. Use this instead of asking the teammate to re-upload a file their mailbox already has — e.g. to fill in a supplier form a vendor emailed over. Requires the `read` access level.",
+      "Open a file that arrived on an email. Pass the `messageId` and attachment `index` from `get_mail_thread`; bytes become an ordinary chat attachment whose `attachment.id` works with the PDF, Word, Excel and mail compose tools. Extracted text is paged at up to 20,000 characters by default. While textCoverage.hasMore is true, repeat with the same messageId/index, attachmentId: attachment.id, textOffset: textCoverage.nextOffset, and expectedTextVersion: textVersion. Pages reuse the original file. A changed file is refused; restart at offset 0 without attachmentId/expectedTextVersion. If the runtime clips a result, retry the same offset with a smaller maxTextChars. Check extractionAvailable and previewOnly: extracted text coverage does not mean a protected message was decrypted or a document preview covers every cell or paragraph. Use this instead of asking a teammate to re-upload an email file. Requires the mailbox Read Grant on every page.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4975,6 +5025,27 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "integer",
           minimum: 0,
           description: "Zero-based `index` of the attachment on that message.",
+        },
+        textOffset: {
+          type: "integer",
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: "Continue with textCoverage.nextOffset; requires attachmentId and expectedTextVersion when greater than 0.",
+        },
+        maxTextChars: {
+          type: "integer",
+          minimum: 2,
+          maximum: 20000,
+          description: "Requested character ceiling, default 20000. The serialized tool-result budget can shorten the page; always continue with the returned nextOffset.",
+        },
+        expectedTextVersion: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$",
+          description: "Previous page's textVersion. Required for continuation to prevent combining different files.",
+        },
+        attachmentId: {
+          type: "string",
+          description: "First page's attachment.id, required for continuation so every page reuses the same file. Must have been opened in this turn.",
         },
       },
       required: ["messageId", "index"],
@@ -5106,7 +5177,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "suggest_mail_actions",
     description:
-      "Offer the teammate one-click action buttons in an email's AI chat. Call this once at the end of a turn when there are concrete next steps for the human — the buttons render under your reply and execute with the human's own authority, so use it to propose things beyond your grant level (e.g. a draft-level employee suggesting a send). Kinds and their required fields: `reply` opens the composer pre-filled (`threadId` for a reply, or `to` + `subject` for fresh mail; always `bodyText`); `send_draft` sends an existing draft (`messageId` of the draft); `thread_action` triages (`threadId` + `action`: markRead | markUnread | star | unstar | archive | moveToInbox | trash | applyLabel | removeLabel, `labelName` for the label ones); `open_thread` jumps to a thread (`threadId`); `hand_over` starts a Mail Handover (`threadId` + `employeeId` + `mode` + `instruction`); `create_rule` proposes an inbox rule (`rule` object). Keep it to the 1–4 most useful buttons; `label` is the button text. Requires the `read` access level. Only has an effect inside per-email AI chat — elsewhere the suggestions are dropped.",
+      "Offer the teammate one-click action buttons under your Ask AI reply about an email. Call this once at the end of a turn when there are concrete next steps for the human — the buttons render under your reply and execute with the human's own authority, so use it to propose things beyond your grant level (e.g. a draft-level employee suggesting a send). Kinds and their required fields: `reply` opens the composer pre-filled (`threadId` for a reply, or `to` + `subject` for fresh mail; always `bodyText`); `send_draft` sends an existing draft (`messageId` of the draft); `thread_action` triages (`threadId` + `action`: markRead | markUnread | star | unstar | archive | moveToInbox | trash | applyLabel | removeLabel, `labelName` for the label ones); `open_thread` jumps to a thread (`threadId`); `hand_over` starts a Mail Handover (`threadId` + `employeeId` + `mode` + `instruction`); `create_rule` proposes an inbox rule (`rule` object). Keep it to the 1–4 most useful buttons; `label` is the button text. Requires the `read` access level. Only has an effect in Ask AI while the teammate has an email from this mailbox open — elsewhere the suggestions are dropped.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5519,6 +5590,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         includeArchived: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
+        compact: {
+          type: "boolean",
+          description:
+            "Inventory rows for discovery passes: id, title, status, stage, amount, customer, contact, dates and the first 160 characters of the next step, with empty fields left out. get_deal reads one in full.",
+        },
       },
       additionalProperties: false,
     },

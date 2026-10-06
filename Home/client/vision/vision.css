@@ -1,0 +1,296 @@
+/* The vision page's motion. Every piece is CSS, so it starts with the first
+   paint of the prerendered page rather than waiting for hydration, and every
+   piece is switched off for reduced motion — the page reads the same either
+   way, with everything already in place. */
+
+/* -------------------------------------------------------------------------
+   The board tree (VisionHero.tsx)
+------------------------------------------------------------------------- */
+
+/* Lines grow from the board downward, one layer after another. Each path
+   carries pathLength="1", so one dash is exactly one path long. */
+.vt-draw path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: vt-draw 1.1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.vt-draw-0 path {
+  animation-delay: 0.35s;
+}
+
+.vt-draw-1 path {
+  animation-delay: 0.7s;
+}
+
+.vt-draw-2 path {
+  animation-delay: 1.05s;
+}
+
+.vt-draw-3 path {
+  animation-delay: 1.4s;
+  animation-duration: 1.6s;
+}
+
+@keyframes vt-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Nodes arrive just behind the lines that reach them. Opacity is animated on
+   the layer's group, so each dot keeps its own fill-opacity. */
+.vt-pop {
+  opacity: 0;
+  animation: vt-pop 0.7s ease-out forwards;
+}
+
+.vt-pop-0 {
+  animation-delay: 0.6s;
+}
+
+.vt-pop-1 {
+  animation-delay: 0.95s;
+}
+
+.vt-pop-2 {
+  animation-delay: 1.3s;
+}
+
+.vt-pop-3 {
+  animation-delay: 1.8s;
+  animation-duration: 1.2s;
+}
+
+@keyframes vt-pop {
+  to {
+    opacity: 1;
+  }
+}
+
+/* A Run in flight: a slow, uneven shimmer across the field of work. */
+.vt-tw {
+  animation: vt-twinkle 4.2s ease-in-out infinite;
+}
+
+.vt-tw-1 {
+  animation-delay: -0.4s;
+}
+
+.vt-tw-2 {
+  animation-delay: -1.1s;
+  animation-duration: 3.6s;
+}
+
+.vt-tw-3 {
+  animation-delay: -1.9s;
+}
+
+.vt-tw-4 {
+  animation-delay: -2.6s;
+  animation-duration: 5s;
+}
+
+.vt-tw-5 {
+  animation-delay: -3.2s;
+}
+
+.vt-tw-6 {
+  animation-delay: -0.9s;
+  animation-duration: 4.8s;
+}
+
+@keyframes vt-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.12;
+  }
+}
+
+/* The board breathes, slowly: it is the one part of the picture that is a
+   person, and it is never in a hurry. */
+.vt-breathe {
+  animation: vt-breathe 6s ease-in-out infinite;
+}
+
+@keyframes vt-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.vt-tree[data-paused="true"] .vt-tw,
+.vt-tree[data-paused="true"] .vt-breathe {
+  animation-play-state: paused;
+}
+
+/* -------------------------------------------------------------------------
+   The wall of companies waiting for a board (VisionPage.tsx)
+------------------------------------------------------------------------- */
+
+.vw-row {
+  animation: vw-marquee 70s linear infinite;
+}
+
+.vw-row-1 {
+  animation-direction: reverse;
+  animation-duration: 84s;
+}
+
+.vw-row-2 {
+  animation-duration: 96s;
+}
+
+.vw-wall:hover .vw-row {
+  animation-play-state: paused;
+}
+
+@keyframes vw-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* -------------------------------------------------------------------------
+   The letters (Letters.tsx)
+------------------------------------------------------------------------- */
+
+/* The growth curve draws itself once, left to right, when it is first seen,
+   and the ground beneath it fills in behind the line. The chart is whole in
+   the prerendered page; the script only hides it ("pending") once it knows it
+   can also draw it back ("running"). */
+.vl-chart[data-draw] .vl-curve {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.vl-chart[data-draw] .vl-area {
+  opacity: 0;
+}
+
+.vl-chart[data-draw="running"] .vl-curve {
+  animation: vt-draw 2.4s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+}
+
+.vl-chart[data-draw="running"] .vl-area {
+  animation: vt-pop 1.4s ease-out 1.3s forwards;
+}
+
+/* -------------------------------------------------------------------------
+   The bigger ideas (IdeaArt.tsx)
+------------------------------------------------------------------------- */
+
+/* Each drawing builds itself once, the first time it is seen. It is whole in
+   the prerendered page; the script hides it ("pending") only once it knows it
+   can draw it back ("running"). Lines carry pathLength="1", like the tree's. */
+.vi-art[data-draw="pending"] .vi-in {
+  opacity: 0;
+}
+
+.vi-art[data-draw="pending"] .vi-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.vi-art[data-draw="running"] .vi-in {
+  opacity: 0;
+  animation: vt-pop 0.6s ease-out forwards;
+}
+
+.vi-art[data-draw="running"] .vi-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: vt-draw 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Build order. As specific as the rules above and later than them, because
+   their animation shorthand resets the delay. */
+.vi-art[data-draw] .vi-d1 {
+  animation-delay: 0.15s;
+}
+
+.vi-art[data-draw] .vi-d2 {
+  animation-delay: 0.3s;
+}
+
+.vi-art[data-draw] .vi-d3 {
+  animation-delay: 0.45s;
+}
+
+.vi-art[data-draw] .vi-d4 {
+  animation-delay: 0.6s;
+}
+
+.vi-art[data-draw] .vi-d5 {
+  animation-delay: 0.75s;
+}
+
+.vi-art[data-draw] .vi-d6 {
+  animation-delay: 0.9s;
+}
+
+.vi-art[data-draw] .vi-d7 {
+  animation-delay: 1.05s;
+}
+
+/* Payments between companies, moving only while someone can see them. */
+.vi-flow {
+  stroke-dasharray: 1.5 7;
+  animation: vi-flow 1.3s linear infinite;
+}
+
+.vi-art:not([data-live="true"]) .vi-flow {
+  animation-play-state: paused;
+}
+
+@keyframes vi-flow {
+  to {
+    stroke-dashoffset: -8.5;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Reduced motion
+------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .vt-draw path,
+  .vl-chart[data-draw] .vl-curve {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .vl-chart[data-draw] .vl-area {
+    animation: none;
+    opacity: 1;
+  }
+
+  .vt-pop {
+    animation: none;
+    opacity: 1;
+  }
+
+  .vt-tw,
+  .vt-breathe,
+  .vw-row,
+  .vi-flow {
+    animation: none;
+  }
+
+  .vi-art[data-draw] .vi-in,
+  .vi-art[data-draw] .vi-line {
+    animation: none;
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}

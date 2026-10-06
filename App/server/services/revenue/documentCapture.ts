@@ -350,7 +350,7 @@ export async function listRevenueDocumentCandidates(
     qb.innerJoin(
       MailMessage,
       "sourceMessage",
-      "sourceMessage.id = candidate.mailMessageId AND sourceMessage.companyId = candidate.companyId",
+      "CAST(sourceMessage.id AS text) = candidate.mailMessageId AND sourceMessage.companyId = candidate.companyId",
     ).andWhere("sourceMessage.accountId = :accountId", { accountId: opts.accountId });
   }
   const total = await qb.clone().getCount();

@@ -22,6 +22,7 @@ import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
 import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
+import { RecurringInvoiceRun } from "../db/entities/RecurringInvoiceRun.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
@@ -34,7 +35,7 @@ import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAc
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import {
-  draftInvoiceSlug,
+  createInvoiceDraft,
   duplicateInvoice,
   getInvoiceEmailDetails,
   hydrateInvoices,
@@ -122,12 +123,17 @@ import {
 import {
   applyRecurringInvoiceStatus,
   duplicateRecurringInvoice,
+  findPendingRecurringInvoiceRun,
   generateInvoiceFromRecurring,
   hydrateRecurringInvoices,
   loadRecurringInvoiceBySlug,
+  nameForNewRecurringInvoice,
+  processRecurringInvoiceRun,
+  RECURRING_INVOICE_NAME_REQUIRED_ERROR,
   registerRecurringInvoice,
   replaceRecurringInvoiceLines,
 } from "../services/recurringInvoices.js";
+import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
 import { renderCustomerStatementHtmlForCompany } from "../services/customerStatementHtml.js";
@@ -217,6 +223,9 @@ import {
   voidBill,
 } from "../services/bills.js";
 import { hydrateCustomers, listCustomers } from "../services/customers.js";
+import { listCustomerMail } from "../services/customerMail.js";
+import { resolveDocumentIssuer } from "../services/subsidiaries.js";
+import { subsidiariesRouter } from "./subsidiaries.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -229,6 +238,7 @@ import { hydrateCustomers, listCustomers } from "../services/customers.js";
 export const financeRouter = Router({ mergeParams: true });
 financeRouter.use(requireAuth);
 financeRouter.use(requireCompanyMember);
+financeRouter.use("/finance/subsidiaries", subsidiariesRouter);
 
 // Per-member finance authorization (M33 A4). Rather than repeat the guard on
 // ~130 routes (and risk missing one), wrap the router's verb methods so every
@@ -404,6 +414,27 @@ financeRouter.get("/customers/:slug", async (req, res) => {
   const [hydrated] = await hydrateCustomers(cid, [c]);
   res.json(hydrated);
 });
+
+// Mail exchanged with the customer, across every connected mailbox — see
+// services/customerMail.ts for how a conversation is matched to an account.
+const customerMailQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    offset: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  })
+  .strict();
+
+financeRouter.get(
+  "/customers/:slug/mail",
+  validateQuery(customerMailQuerySchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const c = await loadCustomerBySlug(cid, req.params.slug);
+    if (!c) return res.status(404).json({ error: "Customer not found" });
+    const query = req.query as unknown as z.infer<typeof customerMailQuerySchema>;
+    res.json(await listCustomerMail(cid, c, query));
+  },
+);
 
 // ─────────────────────── Customer statement ───────────────────────────
 //
@@ -867,7 +898,8 @@ const lineDraftSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-const invoiceCreateSchema = z.object({
+export const invoiceCreateSchema = z.object({
+  subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid(),
   issueDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
@@ -903,39 +935,24 @@ financeRouter.get("/invoices", async (req, res) => {
 financeRouter.post("/invoices", validateBody(invoiceCreateSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof invoiceCreateSchema>;
-  const customer = await AppDataSource.getRepository(Customer).findOneBy({
-    id: body.customerId,
-    companyId: cid,
-  });
-  if (!customer) return res.status(400).json({ error: "Invalid customer" });
-
-  const repo = AppDataSource.getRepository(Invoice);
-  const slug = await draftInvoiceSlug(cid);
-  const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
-  const dueDate = body.dueDate
-    ? new Date(body.dueDate)
-    : new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const inv = repo.create({
-    companyId: cid,
-    customerId: customer.id,
-    slug,
-    numberSeq: 0,
-    number: "",
-    status: "draft",
-    issueDate,
-    dueDate,
-    currency: body.currency ?? customer.currency ?? "USD",
-    notes: body.notes ?? "",
-    footer: body.footer ?? "",
-    createdById: req.userId ?? null,
-  });
-  await repo.save(inv);
-  if (body.lines && body.lines.length > 0) {
-    await replaceInvoiceLines(inv, body.lines);
+  try {
+    const invoice = await createInvoiceDraft({
+      companyId: cid,
+      customerId: body.customerId,
+      subsidiaryId: body.subsidiaryId,
+      issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+      dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+      currency: body.currency,
+      notes: body.notes,
+      footer: body.footer,
+      lines: body.lines,
+      createdById: req.userId ?? null,
+    });
+    const [hydrated] = await hydrateInvoices(cid, [invoice]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
   }
-  const recomputed = await recomputeInvoiceTotals(inv);
-  const [hydrated] = await hydrateInvoices(cid, [recomputed]);
-  res.json(hydrated);
 });
 
 financeRouter.get("/invoices/:slug", async (req, res) => {
@@ -971,7 +988,8 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
   });
 });
 
-const invoicePatchSchema = z.object({
+export const invoicePatchSchema = z.object({
+  subsidiaryId: z.string().uuid().nullable().optional(),
   // Header fields editable on draft AND issued invoices:
   notes: z.string().max(4000).optional(),
   footer: z.string().max(1000).optional(),
@@ -993,6 +1011,7 @@ financeRouter.patch("/invoices/:slug", validateBody(invoicePatchSchema), async (
   }
   const body = req.body as z.infer<typeof invoicePatchSchema>;
   const draftOnly =
+    body.subsidiaryId !== undefined ||
     body.customerId !== undefined ||
     body.issueDate !== undefined ||
     body.currency !== undefined ||
@@ -1000,7 +1019,15 @@ financeRouter.patch("/invoices/:slug", validateBody(invoicePatchSchema), async (
   if (draftOnly && inv.status !== "draft") {
     return res
       .status(409)
-      .json({ error: "Lines and header (customer/date/currency) are draft-only" });
+      .json({ error: "Lines and header (customer/subsidiary/date/currency) are draft-only" });
+  }
+
+  if (body.subsidiaryId !== undefined && body.subsidiaryId !== inv.subsidiaryId) {
+    try {
+      Object.assign(inv, await resolveDocumentIssuer(cid, body.subsidiaryId));
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
   }
 
   if (body.notes !== undefined) inv.notes = body.notes;
@@ -1510,9 +1537,14 @@ async function serializeCreditDetail(companyId: string, credit: CustomerCredit) 
   };
 }
 
-financeRouter.get("/credit-notes", async (req, res) => {
+const creditListQuerySchema = z.object({
+  customerId: z.string().uuid().optional(),
+});
+
+financeRouter.get("/credit-notes", validateQuery(creditListQuerySchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const credits = await listCustomerCredits(cid);
+  const query = req.query as unknown as z.infer<typeof creditListQuerySchema>;
+  const credits = await listCustomerCredits(cid, { customerId: query.customerId });
   res.json(credits.map((c) => ({ ...c, openCents: creditOpenCents(c) })));
 });
 
@@ -2003,7 +2035,8 @@ financeRouter.delete("/vendor-refunds/:id", async (req, res) => {
 
 // ───────────────────────────── Estimates ──────────────────────────────
 
-const estimateCreateSchema = z.object({
+export const estimateCreateSchema = z.object({
+  subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid(),
   issueDate: z.string().datetime().optional(),
   validUntil: z.string().datetime().optional(),
@@ -2042,6 +2075,7 @@ financeRouter.post("/estimates", validateBody(estimateCreateSchema), async (req,
     const estimate = await createEstimateDraft({
       companyId: cid,
       customerId: body.customerId,
+      subsidiaryId: body.subsidiaryId,
       issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
       validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
       currency: body.currency,
@@ -2065,7 +2099,8 @@ financeRouter.get("/estimates/:slug", async (req, res) => {
   res.json(hydrated);
 });
 
-const estimatePatchSchema = z.object({
+export const estimatePatchSchema = z.object({
+  subsidiaryId: z.string().uuid().nullable().optional(),
   notes: z.string().max(4000).optional(),
   footer: z.string().max(1000).optional(),
   validUntil: z.string().datetime().optional(),
@@ -2084,6 +2119,7 @@ financeRouter.patch("/estimates/:slug", validateBody(estimatePatchSchema), async
   }
   const body = req.body as z.infer<typeof estimatePatchSchema>;
   const draftOnly =
+    body.subsidiaryId !== undefined ||
     body.customerId !== undefined ||
     body.issueDate !== undefined ||
     body.currency !== undefined ||
@@ -2091,7 +2127,15 @@ financeRouter.patch("/estimates/:slug", validateBody(estimatePatchSchema), async
   if (draftOnly && est.status !== "draft") {
     return res
       .status(409)
-      .json({ error: "Lines and header (customer/date/currency) are draft-only" });
+      .json({ error: "Lines and header (customer/subsidiary/date/currency) are draft-only" });
+  }
+
+  if (body.subsidiaryId !== undefined && body.subsidiaryId !== est.subsidiaryId) {
+    try {
+      Object.assign(est, await resolveDocumentIssuer(cid, body.subsidiaryId));
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
   }
 
   if (body.notes !== undefined) est.notes = body.notes;
@@ -3956,9 +4000,15 @@ const recurringLineDraftSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-const recurringInvoiceCreateSchema = z.object({
+export const recurringInvoiceCreateSchema = z.object({
+  subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid(),
-  name: z.string().min(1).max(200),
+  name: z
+    .string()
+    .trim()
+    .max(RECURRING_INVOICE_NAME_MAX_LENGTH)
+    .optional()
+    .describe("Schedule name. Omitted or blank, the schedule is named after its customer."),
   cronExpr: z
     .string()
     .min(1)
@@ -4008,14 +4058,24 @@ financeRouter.post(
       companyId: cid,
     });
     if (!customer) return res.status(400).json({ error: "Invalid customer" });
+    const name = nameForNewRecurringInvoice(body.name, customer);
+    if (!name) return res.status(400).json({ error: RECURRING_INVOICE_NAME_REQUIRED_ERROR });
+
+    let subsidiaryId: string | null;
+    try {
+      subsidiaryId = (await resolveDocumentIssuer(cid, body.subsidiaryId)).subsidiaryId;
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
 
     const repo = AppDataSource.getRepository(RecurringInvoice);
     const slug = await uniqueRecurringInvoiceSlug(cid);
     const ri = repo.create({
       companyId: cid,
       customerId: customer.id,
+      subsidiaryId,
       slug,
-      name: body.name,
+      name,
       cronExpr: body.cronExpr,
       frequency: body.frequency ?? "monthly",
       intervalCount: body.intervalCount ?? 1,
@@ -4049,9 +4109,16 @@ financeRouter.get("/recurring-invoices/:slug", async (req, res) => {
   res.json(hydrated);
 });
 
-const recurringInvoicePatchSchema = z.object({
+export const recurringInvoicePatchSchema = z.object({
+  subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid().optional(),
-  name: z.string().min(1).max(200).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name can't be blank")
+    .max(RECURRING_INVOICE_NAME_MAX_LENGTH)
+    .optional()
+    .describe("New schedule name; it cannot be blank. Omit it to keep the current name."),
   cronExpr: z
     .string()
     .min(1)
@@ -4080,6 +4147,13 @@ financeRouter.patch(
     if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
     const body = req.body as z.infer<typeof recurringInvoicePatchSchema>;
 
+    if (body.subsidiaryId !== undefined && body.subsidiaryId !== ri.subsidiaryId) {
+      try {
+        ri.subsidiaryId = (await resolveDocumentIssuer(cid, body.subsidiaryId)).subsidiaryId;
+      } catch (err) {
+        return res.status(400).json({ error: (err as Error).message });
+      }
+    }
     if (body.customerId !== undefined) {
       const c = await AppDataSource.getRepository(Customer).findOneBy({
         id: body.customerId,
@@ -4133,6 +4207,7 @@ financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
   await AppDataSource.getRepository(RecurringInvoiceLineItem).delete({
     recurringInvoiceId: ri.id,
   });
+  await AppDataSource.getRepository(RecurringInvoiceRun).delete({ recurringInvoiceId: ri.id });
   await AppDataSource.getRepository(RecurringInvoice).delete({ id: ri.id });
   res.json({ ok: true });
 });
@@ -4141,12 +4216,39 @@ financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
 // scheduled slot — `nextRunAt` is untouched so the next scheduled fire
 // still happens on time. The generated invoice is counted toward
 // `runsCreated` though, so any `maxRuns` cap is respected.
+//
+// While a scheduled run is still retrying, Run now retries *that* run
+// instead: an extra invoice now plus the retried one later would bill the
+// customer twice for the same slot.
 financeRouter.post("/recurring-invoices/:slug/run-now", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
   if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
   if (ri.status === "ended") {
     return res.status(409).json({ error: "This schedule has ended" });
+  }
+  const pending = ri.status === "active" ? await findPendingRecurringInvoiceRun(ri.id) : null;
+  if (pending) {
+    const result = await processRecurringInvoiceRun(pending.id, {
+      ignoreBackoff: true,
+      actorUserId: req.userId ?? null,
+    });
+    if (!result) {
+      return res
+        .status(409)
+        .json({ error: "This run is being retried right now. Refresh in a moment." });
+    }
+    if (result.run.status === "pending" || result.run.status === "cancelled") {
+      return res.status(400).json({ error: result.run.lastError });
+    }
+    const fresh = (await loadRecurringInvoiceBySlug(cid, req.params.slug)) ?? ri;
+    const [hydrated] = await hydrateRecurringInvoices(cid, [fresh]);
+    return res.json({
+      recurringInvoice: hydrated,
+      invoice: result.invoice,
+      emailStatus: result.run.emailStatus || "not_attempted",
+      emailError: result.run.status === "failed" ? result.run.lastError : "",
+    });
   }
   try {
     const result = await generateInvoiceFromRecurring(ri, req.userId ?? null);

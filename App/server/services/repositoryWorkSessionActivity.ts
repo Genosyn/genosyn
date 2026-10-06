@@ -3,7 +3,13 @@ import {
   RepositoryWorkSessionEvent,
   type RepositoryWorkSessionEventKind,
 } from "../db/entities/RepositoryWorkSessionEvent.js";
-import type { AgentProgress, CompactionInfo, ModelRetryInfo, ToolResult } from "./agent/types.js";
+import type {
+  AgentProgress,
+  CompactionInfo,
+  ModelOutage,
+  ModelRetryInfo,
+  ToolResult,
+} from "./agent/types.js";
 import type { SessionStep } from "./repositorySessionTools.js";
 
 /**
@@ -206,6 +212,18 @@ export class SessionActivityRecorder {
       kind: "retry",
       summary: `Model call retried (${info.attempt}${info.maxAttempts === null ? "" : ` of ${info.maxAttempts}`}): ${info.reason}`,
       detail: { attempt: info.attempt, maxAttempts: info.maxAttempts, delayMs: info.delayMs },
+    });
+  }
+
+  modelOutage(outage: ModelOutage): void {
+    const minutes = Math.round(outage.waitedMs / 60_000);
+    this.record({
+      kind: "retry",
+      summary:
+        outage.state === "waiting"
+          ? "The AI Model's server stopped answering; the session waits for it"
+          : `The AI Model's server answered again after ${minutes < 1 ? "less than a minute" : `${minutes} min`}; continuing`,
+      detail: { state: outage.state, waitedMs: outage.waitedMs },
     });
   }
 

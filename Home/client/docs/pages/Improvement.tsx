@@ -51,10 +51,10 @@ export function Improvement() {
       </P>
       <H2 id="participating-routines">Improve Routines you help with</H2>
       <P>
-        An AI Employee that successfully contributes through a Routine&apos;s{" "}
-        <Strong>Ask AI</Strong>
-        conversation can suggest an improvement to that Routine&apos;s brief, even when another
-        employee owns it. A mention, unfinished answer or failed contribution does not qualify. The
+        An AI Employee that successfully answers in <DocLink to="/docs/ask-ai">Ask AI</DocLink>{" "}
+        while a Routine — or one of its Runs — is in the chat can suggest an improvement to that
+        Routine&apos;s brief, even when another employee owns it. A mention, unfinished answer,
+        failed contribution, or an answer about something else does not qualify. The
         work review includes the recorded contribution and recent finished Runs of that exact
         Routine. The employee reads the current complete brief before proposing a replacement.
       </P>
@@ -62,8 +62,8 @@ export function Improvement() {
         Shared suggestions show the Routine owner in the target label. The proposer&apos;s and
         owner&apos;s managing Members are notified alongside company admins. One pending brief
         suggestion covers the target across all employees. Apply checks current participation,
-        company ownership and document changes again; clearing the Ask AI history removes that
-        participation. Helping with a Routine does not grant direct editing or access to another
+        company ownership and document changes again; deleting that Ask AI conversation removes
+        that participation. Helping with a Routine does not grant direct editing or access to another
         employee&apos;s Soul, Skills, acceptance criteria or Checks.
       </P>
       <P>

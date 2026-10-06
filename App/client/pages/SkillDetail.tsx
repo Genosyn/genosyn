@@ -206,7 +206,7 @@ function PlaybookTab({ company, skill }: { company: Company; skill: SkillWithMet
         <MarkdownEditor value={content} onChange={setContent} rows={18} onSave={save} />
         <FormError message={error} />
         <div className="flex items-center gap-2">
-          <Button onClick={save} disabled={saving || !dirty}>
+          <Button onClick={save} loading={saving} disabled={!dirty}>
             {saving ? "Saving…" : "Save skill"}
           </Button>
           {dirty ? (
@@ -234,6 +234,7 @@ function SettingsTab({
   const [name, setName] = React.useState(skill.name);
   const [toolset, setToolset] = React.useState<string[]>(skill.toolset ?? []);
   const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // A toolset-only edit must be saveable, so the dirty check spans both fields.
@@ -293,7 +294,7 @@ function SettingsTab({
       <FormError message={error} />
 
       <div className="flex gap-2">
-        <Button onClick={save} disabled={saving || !name.trim() || !dirty}>
+        <Button onClick={save} loading={saving} disabled={!name.trim() || !dirty}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -310,6 +311,7 @@ function SettingsTab({
           </div>
           <Button
             variant="danger"
+            loading={deleting}
             onClick={async () => {
               const ok = await dialog.confirm({
                 title: `Delete skill "${skill.name}"?`,
@@ -319,12 +321,15 @@ function SettingsTab({
                 variant: "danger",
               });
               if (!ok) return;
+              setDeleting(true);
               try {
                 await api.del(`/api/companies/${company.id}/skills/${skill.id}`);
                 await onSaved();
                 navigate(`/c/${company.slug}/skills`, { replace: true });
               } catch (err) {
                 void dialog.error(err, { title: "Couldn’t delete the skill" });
+              } finally {
+                setDeleting(false);
               }
             }}
           >

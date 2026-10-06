@@ -20,9 +20,10 @@ export default function FinanceIndex() {
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
 
   const reload = React.useCallback(() => {
-    Promise.all([
+    return Promise.all([
       api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices`),
       api.get<Customer[]>(`/api/companies/${company.id}/customers`),
     ])
@@ -43,6 +44,15 @@ export default function FinanceIndex() {
   }, [reload]);
 
   useLiveRefetch(["invoice", "customer"], reload);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const loading = invoices === null || customers === null;
 
@@ -115,7 +125,7 @@ export default function FinanceIndex() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Something went wrong loading invoices and customers.
           </p>
-          <Button variant="secondary" className="mt-4" onClick={reload}>
+          <Button variant="secondary" className="mt-4" loading={retrying} onClick={retry}>
             Try again
           </Button>
         </div>

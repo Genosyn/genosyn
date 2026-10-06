@@ -7,9 +7,9 @@ type LogoProps = {
   className?: string;
 };
 
-/** The same monochrome circle mark used by the App. */
+/** The ring mark the App uses. */
 export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
-  const fg = variant === "tile" ? "#ffffff" : "currentColor";
+  const fg = variant === "tile" ? "#F4F1EB" : "currentColor";
 
   const Mark = <circle cx="16" cy="16" r="9" fill="none" stroke={fg} strokeWidth="2.4" />;
 
@@ -21,27 +21,22 @@ export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
         className={className}
         aria-hidden="true"
       >
-        <rect width="32" height="32" rx="8" fill="#0f172a" />
+        <rect width="32" height="32" rx="8" fill="#17150F" />
         {Mark}
       </svg>
     );
   }
 
   return (
-    <svg
-      viewBox="0 0 32 32"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden="true">
       {Mark}
     </svg>
   );
 }
 
 /**
- * The App's circle-and-wordmark SVG. Its height remains em-based so existing
- * Home callers that size the lockup with a text utility keep the same API.
+ * The ring and the wordmark. Height is em-based so callers size the lockup
+ * with a text utility.
  */
 export function Logo({ className = "" }: LogoProps) {
   return (
@@ -54,11 +49,11 @@ export function Logo({ className = "" }: LogoProps) {
     >
       <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" strokeWidth="2.4" />
       <text
-        x="36"
-        y="22"
-        fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-        fontSize="17"
-        fontWeight="700"
+        x="35"
+        y="21.5"
+        fontFamily="'Mona Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        fontSize="16"
+        fontWeight="650"
         letterSpacing="2.4"
         fill="currentColor"
       >

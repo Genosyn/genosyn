@@ -16,11 +16,6 @@ export function Browser() {
         }
       />
 
-      <Callout kind="warn" title="Unavailable in shared SaaS mode">
-        The current browser runtime shares the App container and filesystem, so the fail-closed
-        hosted profile disables it. It remains available for single-tenant self-hosting. A hosted
-        browser needs a separately isolated worker before operators should enable it.
-      </Callout>
       <Callout kind="info" title="Genosyn Member sessions are isolated from AI Browser authority">
         If App-owned Chrome holds a Member&apos;s Genosyn session, every Genosyn App API request
         from that browser is refused. The session cannot mint API keys, change company roles, or
@@ -53,7 +48,7 @@ export function Browser() {
         That last one is the useful chain: an employee working an email thread can find the current
         version of a form online, download it, complete it from what your company already knows, and
         attach the finished file to a Gmail draft. See{" "}
-        <DocLink to="/docs/email#assistant">AI chat on every email</DocLink>.
+        <DocLink to="/docs/email#assistant">Ask AI about an email</DocLink>.
       </P>
       <P>
         Every request goes through the same outbound guard as the rest of the product: http(s) only,
@@ -65,6 +60,22 @@ export function Browser() {
         <Strong>Search provider</Strong> at <Code>Admin → Runtime</Code>, which takes effect on the
         next tool call without a restart. Search uses DuckDuckGo&apos;s no-JavaScript endpoint by
         default, so no API key or account is involved.
+      </P>
+      <P>
+        DuckDuckGo can start challenging a busy server, which stops search for a while. A
+        self-hosted <Strong>SearXNG</Strong> instance avoids that by asking several engines: run
+        one, enable the <Code>json</Code> format under <Code>search.formats</Code> in its{" "}
+        <Code>settings.yml</Code>, then choose <Strong>SearXNG</Strong> as the search provider and
+        enter its address as <Strong>SearXNG URL</Strong>. A private address, such as a container
+        on the same host, must also be on the private host allow list under{" "}
+        <Code>Admin → Runtime → Network</Code>, like any other private destination.
+      </P>
+      <P>
+        A search backend challenge, unexpected page, or empty response is reported as unavailable.
+        It is not evidence that no matching pages exist. Only a recognized empty-results page
+        returns an empty search. The employee can continue with a known primary-source URL or an
+        existing authorized browser when available; search does not solve or bypass challenges. Each
+        result keeps the snippet from its own result, even when ads or duplicate links are skipped.
       </P>
       <P>
         Everything below is about the heavier capability: a real browser that holds a session,
@@ -95,11 +106,11 @@ export function Browser() {
 
       <H2 id="tools">The tools</H2>
       <P>
-        If an unattended browser closes after inactivity, or the employee closes its page and
-        later needs it again in the same Run, <Code>browser_open</Code> starts a fresh session and
+        If an unattended browser closes after inactivity, or the employee closes its page and later
+        needs it again in the same Run, <Code>browser_open</Code> starts a fresh session and
         rechecks current access. Closed sessions keep their own recordings. This recovery only
-        repeats the requested navigation; it never repeats a click, form submission or Approval.
-        A browser you close manually, revoked access or a finished Run remains closed.
+        repeats the requested navigation; it never repeats a click, form submission or Approval. A
+        browser you close manually, revoked access or a finished Run remains closed.
       </P>
       <P>
         When enabled, the employee&apos;s tool list grows by the <Code>browser</Code> set. Every
@@ -200,8 +211,7 @@ export function Browser() {
       </P>
       <P>
         Events the employee could not otherwise see — a JavaScript dialog that was auto-dismissed, a
-        popup tab that was adopted, a selector that matched more than one element — are surfaced as
-        {" "}
+        popup tab that was adopted, a selector that matched more than one element — are surfaced as{" "}
         <Code>NOTE:</Code> lines at the top of the next snapshot.
       </P>
       <P>
@@ -244,8 +254,7 @@ export function Browser() {
         A granted <DocLink to="/docs/vault">Vault</DocLink> login removes the need to paste a
         password or current authenticator code into Chat or type it during take-over. The employee
         first calls <Code>list_vault_items</Code> for safe metadata, opens the saved website, then
-        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>
-        {" "}
+        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>{" "}
         field. The App resolves the current item-level Grant, generates a fresh code when needed,
         and types the value directly into Chrome. The tool result only confirms that the field was
         filled.
@@ -296,8 +305,7 @@ export function Browser() {
 
       <H2 id="approvals">Approval-gated submits</H2>
       <P>
-        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>
-        {" "}
+        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>{" "}
         does not fire. It queues an Approval — visible in the company Approvals inbox with the page
         URL and a one-line summary of what the employee is trying to do — and the employee is told
         the submission is pending. Once you approve, the employee re-fires it with{" "}
@@ -349,11 +357,11 @@ export function Browser() {
       <P>
         Live view is ephemeral in Chat. A <DocLink to="/docs/routines">Routine Run</DocLink> that
         actually uses a browser is different: Genosyn automatically saves a silent visual MP4 of
-        each Run-linked browser session. Open the Run log to watch the browser live while it records;
-        the panel switches to playback and download controls when the recording is ready. Merely
-        giving the employee Browser access does not create a recording; capture starts only when the
-        session opens the browser. Parallel delegated browser work produces separate recordings, and
-        none of them contain page audio.
+        each Run-linked browser session. Open the Run log to watch the browser live while it
+        records; the panel switches to playback and download controls when the recording is ready.
+        Merely giving the employee Browser access does not create a recording; capture starts only
+        when the session opens the browser. Parallel delegated browser work produces separate
+        recordings, and none of them contain page audio.
       </P>
       <Callout kind="warn" title="A recording shows the whole screen">
         Visual recording captures everything rendered in the browser viewport, including a login
@@ -367,20 +375,47 @@ export function Browser() {
       <H2 id="persistence">What persists</H2>
       <P>
         The browser outlives individual chat turns — &quot;I&apos;ll wait while you sign in&quot;
-        genuinely works, and an idle browser is reclaimed after five minutes once nobody is using
-        it. Cookies and local storage are snapshotted per employee under the company data directory,
-        so a login survives new conversations and container restarts. Model credentials are never
-        involved; see <DocLink to="/docs/self-hosting">Configuration</DocLink> for where data lives
-        on disk.
+        genuinely works. Each AI Employee has <Strong>one Chrome</Strong> in the App container, and
+        every conversation or Routine Run that uses it opens its own window there. They all share
+        one set of cookies: sign in from a chat, and a Routine Run already under way is signed in
+        too.
       </P>
       <P>
-        That snapshot is written whenever a session is torn down — including on <Code>SIGTERM</Code>
-        , so stopping or updating the container flushes every live browser before it exits rather
-        than dropping whatever the session had learned since it started. Page loads also trigger a
-        debounced save, which bounds what an ungraceful kill can cost to the last page. Two things
-        are deliberately <Strong>not</Strong> kept: IndexedDB and service-worker storage, so a site
-        that keys its auth off those needs a fresh sign-in; and Chrome&apos;s own profile directory,
-        which is new on every launch, so the HTTP cache always starts cold.
+        That Chrome runs on a <Strong>persistent profile</Strong>. Cookies, local storage,
+        IndexedDB, the HTTP cache and browsing history all live in it, so a login — even one a site
+        keeps in IndexedDB — survives new conversations, container restarts and upgrades, and the
+        cache stays warm between launches. Service workers are the exception: they are still
+        blocked, because one could answer a request out of Genosyn&apos;s sight and slip past the
+        Member-session guard at the top of this page.
+      </P>
+      <P>
+        The profile lives at{" "}
+        <Code>.private/browser-state/&lt;company-id&gt;/&lt;employee-id&gt;.profile/</Code> in the
+        data directory. It is App-private (mode <Code>0700</Code>), outside the AI Employee&apos;s
+        working tree, deleted with the employee or the company, and included in whole-instance
+        backups, signed-in sessions and all. Model credentials are never involved; see{" "}
+        <DocLink to="/docs/self-hosting#data-dir">Configuration</DocLink> for where data lives on
+        disk.
+      </P>
+      <P>
+        An idle session — no activity and nobody watching — is reclaimed after five minutes, and
+        Chrome closes about 45 seconds after its last session does, so a session that starts within
+        that window reuses it instead of relaunching it. Stopping or updating the container sends{" "}
+        <Code>SIGTERM</Code>, which shuts every Chrome down without that wait. If the container is
+        killed outright — an OOM kill, or a stop that runs out of time — the lock Chrome leaves in
+        the profile is cleared before the next launch, so a hard stop does not cost the employee
+        their profile.
+      </P>
+      <P>
+        Cookies and local storage are also exported to <Code>&lt;employee-id&gt;.json</Code> beside
+        the profile, by a debounced save after page loads and whenever Genosyn closes Chrome,
+        including on <Code>SIGTERM</Code>. The export is one-way: a working profile never reads it
+        back. It is used only to seed a brand-new profile once — so an install upgrading from the
+        earlier, ephemeral browser keeps its employees&apos; sign-ins — and as the cookie jar for a
+        fallback. If the profile cannot be used (a Playwright build that cannot open a persistent
+        profile, or a profile directory that cannot be opened), Genosyn logs a warning and starts an
+        ephemeral browser from the snapshot rather than failing. Cookies and local storage still
+        carry over there, but IndexedDB, the cache and history start empty on every launch.
       </P>
       <P>
         Vault passkeys do not depend on Chrome&apos;s profile directory. Their encrypted credential
@@ -395,7 +430,7 @@ export function Browser() {
         deleted. Chat sessions are not recorded.
       </P>
       <P>
-        That per-employee session is also what a sign-in driven from the{" "}
+        That per-employee profile is also what a sign-in driven from the{" "}
         <DocLink to="/docs/vault">Vault</DocLink> uses. When a site challenges a sign-in with a
         captcha or an authenticator not attached to the Login, the fix is to take over here and sign
         in once — the employee picks up the session you established and stops failing.
@@ -431,8 +466,7 @@ export function Browser() {
         it. A sign-in page watches for exactly that, and a field that fills in a single
         keystroke-free burst from a pointer that never moved is read as automation even when the
         browser itself is an honest Chrome — which is why an employee gets challenged from the same
-        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>
-        {" "}
+        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>{" "}
         with small randomized gaps and <Strong>approach a control with the pointer</Strong> before
         clicking. This changes only how the input arrives, never what: a{" "}
         <DocLink to="/docs/vault">Vault</DocLink> credential is typed into the same field and is not

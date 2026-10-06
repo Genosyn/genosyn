@@ -5,6 +5,7 @@ import type {
   WorkEntryKind,
   WorkEntryRun,
 } from "./api";
+import { analysisCategoryLabel } from "@/lib/mailAnalysis";
 
 /**
  * The presentation rules behind Home's AI Employee work timeline.
@@ -60,6 +61,25 @@ export const WORK_KIND_META: Record<WorkEntryKind, WorkKindMeta> = {
     tone: "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
   },
 };
+
+const EMAIL_ANALYSIS_PHASES = new Map<string, "started" | "completed" | "failed">([
+  ["mail.analysis.started", "started"],
+  ["mail.analysis.completed", "completed"],
+  ["mail.analysis.failed", "failed"],
+]);
+
+/** Other `mail.analysis.*` effects record actions, not an analysis attempt. */
+export function workEmailAnalysisPhase(
+  entry: Pick<WorkEntry, "kind" | "detail">,
+): "started" | "completed" | "failed" | null {
+  if (entry.kind !== "effect") return null;
+  return EMAIL_ANALYSIS_PHASES.get(entry.detail) ?? null;
+}
+
+/** A specific source is more useful than the generic ledger label. */
+export function workEntryKindLabel(entry: Pick<WorkEntry, "kind" | "detail">): string {
+  return workEmailAnalysisPhase(entry) ? "Email analysis" : WORK_KIND_META[entry.kind].label;
+}
 
 /** Every kind, in the order the union declares them. Table-driven tests use it. */
 export const WORK_ENTRY_KINDS: readonly WorkEntryKind[] = [
@@ -264,6 +284,13 @@ function readableWords(value: string): string {
 
 /** An effect-ledger action split into the two words a sentence needs. */
 function splitWorkAction(action: string, targetType: string): { verb: string; target: string } {
+  const analysis = EMAIL_ANALYSIS_PHASES.get(action);
+  if (analysis) {
+    return {
+      verb: analysis === "failed" ? "Could not complete" : capitalize(analysis),
+      target: "email analysis",
+    };
+  }
   const actionParts = action.split(/[.:/]/).filter(Boolean);
   const operation = readableWords(actionParts.at(-1) ?? action);
   const target = readableWords(targetType || actionParts.at(-2) || "record");
@@ -614,6 +641,67 @@ export type WorkNarrative = {
   body: string[];
 };
 
+export type WorkEmailAnalysisDetails = {
+  summary: string | null;
+  category: string | null;
+  /** Null means unavailable; an empty array means the saved result suggested none. */
+  suggestedActions: string[] | null;
+  failureReason: string | null;
+  unavailable: string | null;
+};
+
+/** The event's own result only; a later retry must not rewrite its history. */
+export function workEmailAnalysisDetails(entry: WorkEntry): WorkEmailAnalysisDetails | null {
+  const phase = workEmailAnalysisPhase(entry);
+  if (!phase || phase === "started") return null;
+  const analysis = entry.analysis;
+  const available =
+    analysis?.kind === "email" && analysis.status === phase && analysis.resultAvailable;
+  const blank: WorkEmailAnalysisDetails = {
+    summary: null,
+    category: null,
+    suggestedActions: null,
+    failureReason: null,
+    unavailable: null,
+  };
+  if (phase === "failed") {
+    const reason = available ? analysis.error?.trim() : "";
+    return {
+      ...blank,
+      failureReason: reason || null,
+      unavailable: reason ? null : "The failure reason is unavailable for this analysis.",
+    };
+  }
+  if (!available)
+    return { ...blank, unavailable: "Result details are unavailable for this analysis." };
+  return {
+    ...blank,
+    summary: analysis.summary?.trim() || null,
+    category: analysis.category?.trim() ? analysisCategoryLabel(analysis.category.trim()) : null,
+    suggestedActions: analysis.suggestedActions.map((label) => label.trim()).filter(Boolean),
+    unavailable: analysis.summary?.trim() ? null : "No summary was recorded for this analysis.",
+  };
+}
+
+const EMAIL_ANALYSIS_PURPOSE =
+  "Classifies the email, summarizes what it asks for, and suggests next steps. This analysis does not send email or carry out the suggestions.";
+
+function emailAnalysisDuration(entry: WorkEntry): string {
+  const phase = workEmailAnalysisPhase(entry);
+  const duration = entry.analysis?.status === phase ? entry.analysis.durationMs : null;
+  if (phase === "started" || duration == null || !Number.isFinite(duration) || duration <= 0)
+    return "";
+  if (duration < 1000) return "under a second";
+  if (duration < 60_000) {
+    const seconds = Math.floor(duration / 1000);
+    return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  }
+  const end = new Date(duration);
+  return Number.isNaN(end.getTime())
+    ? ""
+    : workDurationLabel(new Date(0).toISOString(), end.toISOString());
+}
+
 export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}): WorkNarrative {
   const nowIso = opts.nowIso ?? new Date().toISOString();
   const who = entry.employee.name;
@@ -688,7 +776,15 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
       break;
     }
     case "effect": {
-      if (entry.source?.kind === "mail_thread") {
+      const analysisPhase = workEmailAnalysisPhase(entry);
+      if (analysisPhase) {
+        const operation = analysisPhase === "failed" ? "could not complete" : analysisPhase;
+        clause = `${operation} email analysis${named ? ` for ${named}` : ""}${when}.`;
+        context = [entry.source?.label, entry.source?.detail, emailAnalysisDuration(entry)]
+          .filter(Boolean)
+          .join(" · ");
+        body.push(entry.analysis?.purpose.trim() || EMAIL_ANALYSIS_PURPOSE);
+      } else if (entry.source?.kind === "mail_thread" && entry.detail.startsWith("mail.handover.")) {
         const operation = entry.detail.split(/[.:/]/).filter(Boolean).at(-1);
         clause =
           operation === "complete"
@@ -700,6 +796,9 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
       } else {
         const action = humanizeWorkAction(entry.detail, "");
         clause = `${action.charAt(0).toLowerCase()}${action.slice(1)}${named ? ` ${named}` : ""}${when}.`;
+        if (entry.source) {
+          context = [entry.source.label, entry.source.detail].filter(Boolean).join(" · ");
+        }
       }
       break;
     }
@@ -726,13 +825,14 @@ export function workCountsSentence(entries: WorkEntry[]): string {
   const approvals = count("approval");
   const wakeups = count("wakeup");
   const lessons = count("lesson");
+  const analysisUpdates = entries.filter((entry) => workEmailAnalysisPhase(entry) !== null).length;
   // Routine ledgers include reads and tool calls, which are not work outcomes.
-  // Their contribution is the Run above; retain change counts for other kinds.
-  const changes = entries.reduce(
-    (total, entry) =>
-      total + (entry.kind === "effect" ? 1 : entry.kind === "run" ? 0 : entry.effectCount),
-    0,
-  );
+  // Their contribution is the Run above. Email analysis lifecycle events are
+  // updates about a review; only actual action effects count as changes.
+  const changes = entries.reduce((total, entry) => {
+    if (entry.kind === "run" || workEmailAnalysisPhase(entry)) return total;
+    return total + (entry.kind === "effect" ? 1 : entry.effectCount);
+  }, 0);
   const parts: string[] = [];
   if (runs) parts.push(`${runs} routine ${runs === 1 ? "run" : "runs"}`);
   if (chats) parts.push(`${chats} ${chats === 1 ? "conversation" : "conversations"}`);
@@ -740,6 +840,8 @@ export function workCountsSentence(entries: WorkEntry[]): string {
   if (approvals) parts.push(`${approvals} approval ${approvals === 1 ? "request" : "requests"}`);
   if (wakeups) parts.push(`${wakeups} ${wakeups === 1 ? "wakeup" : "wakeups"}`);
   if (lessons) parts.push(`${lessons} ${lessons === 1 ? "lesson" : "lessons"}`);
+  if (analysisUpdates)
+    parts.push(`${analysisUpdates} email analysis ${analysisUpdates === 1 ? "update" : "updates"}`);
   if (changes) parts.push(`${changes} recorded ${changes === 1 ? "change" : "changes"}`);
   return joinList(parts);
 }

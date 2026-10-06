@@ -638,7 +638,7 @@ export async function collectCollectedRevenue(
 ): Promise<number> {
   const qb = AppDataSource.getRepository(InvoicePayment)
     .createQueryBuilder("p")
-    .innerJoin(Invoice, "i", "i.id = p.invoiceId")
+    .innerJoin(Invoice, "i", "CAST(i.id AS text) = p.invoiceId")
     .select("SUM(p.amountCents)", "total")
     .where("i.companyId = :companyId", { companyId });
   applyPeriod(qb, "p.paidAt", from, to);

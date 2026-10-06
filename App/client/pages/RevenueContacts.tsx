@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { api, Customer, Employee, Member } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -243,6 +244,7 @@ export default function RevenueContacts() {
   const [rows, setRows] = React.useState<RevenueContact[] | null>(null);
   const [total, setTotal] = React.useState(0);
   const [loadError, setLoadError] = React.useState(false);
+  const [retrying, setRetrying] = React.useState(false);
   const [offset, setOffset] = React.useState(0);
   const [stage, setStage] = React.useState<ContactLifecycleStage | "">("");
   const [search, setSearch] = React.useState("");
@@ -399,6 +401,17 @@ export default function RevenueContacts() {
     );
   }
 
+  function retry() {
+    setRetrying(true);
+    reload()
+      .catch(() => {
+        setRows([]);
+        setTotal(0);
+        setLoadError(true);
+      })
+      .finally(() => setRetrying(false));
+  }
+
   return (
     <div className="page-shell p-8">
       <div className="mb-6">
@@ -467,7 +480,7 @@ export default function RevenueContacts() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Something went wrong fetching this list.
           </p>
-          <Button variant="secondary" className="mt-4" onClick={load}>
+          <Button variant="secondary" className="mt-4" onClick={retry} loading={retrying}>
             Try again
           </Button>
         </div>
@@ -851,7 +864,7 @@ function NewContactModal({
             <option value="">No linked account</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
+                {customerOptionLabel(account)}
               </option>
             ))}
           </Select>
@@ -906,8 +919,8 @@ function NewContactModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? <Spinner size={14} /> : <Plus size={14} />} Create contact
+          <Button type="submit" loading={saving}>
+            <Plus size={14} /> Create contact
           </Button>
         </div>
       </form>

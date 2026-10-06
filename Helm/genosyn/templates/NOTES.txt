@@ -3,7 +3,7 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 1. Reach the app
 {{- if .Values.ingress.enabled }}
 
-   http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+   http{{ if include "genosyn.ingressTls" . }}s{{ end }}://{{ .Values.ingress.host }}
 {{- else }}
 
    No Ingress is enabled. Port-forward to try it out:
@@ -14,66 +14,81 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    and ingress.host (WebSockets pass through a plain Ingress rule).
 {{- end }}
 
+{{- if include "genosyn.gke.enabled" . }}
+
+   gke.enabled=true: GKE's load balancer uses BackendConfig
+   {{ include "genosyn.gke.backendConfigName" . }} (timeouts, /api/health, request logging off), and the
+   App trusts its two proxy hops.
+{{- if include "genosyn.gke.managedCertificate" . }} Point every Ingress hostname at the Ingress
+   address (DNS only) so Google can provision ManagedCertificate
+   {{ include "genosyn.gke.managedCertificateName" . }}:
+
+     kubectl -n {{ .Release.Namespace }} get ingress {{ include "genosyn.fullname" . }}
+{{- end }}
+{{- else }}
+
+   Select your installed controller with ingress.className and extend its
+   configuration with ingress.annotations or service.annotations. Set its
+   WebSocket/streaming timeouts and buffering as needed, and omit query
+   strings from access logs (OAuth callbacks contain authorization codes).
+   Kubernetes Ingress has no portable timeout field. The App defaults to
+   one trusted ingress proxy; match trustedProxyHops to your actual chain.
+   On GKE's built-in Ingress, gke.enabled=true configures all of this.
+{{- end }}
+{{- if (default dict .Values.ingress.tls.certManager).enabled }}
+
+   cert-manager issues and renews the Ingress TLS Secrets. Point every
+   Ingress hostname at the Ingress address; until the first issuance the
+   Secrets hold a temporary self-signed certificate.
+{{- end }}
+
 2. First boot
 
    The pod becomes Ready once every database migration has run — /api/health
    answers only after boot completes, so a pending readiness probe during the
-   first minute is normal. Create the first account in the browser; the first
-   verified sign-in becomes the master admin. Then review the public URL at
-   Admin -> General.
-{{- if .Values.config.multiTenant }}
+   first minute is normal.
+{{- $publicUrl := include "genosyn.publicUrl" . }}
+{{- if $publicUrl }}
 
-   multiTenant is ON (the chart default). Only
-   {{ .Values.config.bootstrapMasterAdminEmail }} may claim the master-admin
-   account — and multiTenant forces Secure session cookies, so the FIRST
-   login must already happen over HTTPS: reach the app through the Ingress
-   with TLS, not a plain http:// port-forward, or the browser will drop the
-   session cookie.
+   A post-install Job stored the public URL {{ $publicUrl }}, which email
+   links and OAuth callbacks use; an origin already changed at
+   Admin -> General is kept. Session cookies are Secure from then on, so
+   sign in through the HTTPS Ingress, not a plain http:// port-forward.
+{{- else }}
+
+   The first master admin's sign-in records its browser origin as the
+   public URL; review it at Admin -> General.
+{{- end }}
+{{- with .Values.config.bootstrapMasterAdminEmail }}
+
+   Register {{ . }} and open its verification link to make it the master
+   admin. Do it before sharing the address: whenever the App starts without
+   a master admin, it promotes the earliest registered account.
+{{- else }}
+
+   config.bootstrapMasterAdminEmail is empty: no account becomes master admin
+   until the App restarts, which promotes the earliest registered account.
+   Name the operator before anyone registers:
+
+     helm upgrade {{ .Release.Name }} ... --set config.bootstrapMasterAdminEmail=you@example.com
 {{- end }}
 
    System email (verification, invites, password resets) is NOT in this
    chart. Configure it after boot at Admin -> Email transport; it is stored
    encrypted in the database. Until then boot prints a warning and every
-   such mail — including the bootstrap master admin's own verification link —
-   is written to the pod log instead of being sent. Read it with:
+   such mail — including the master admin's own verification link — is
+   written to the pod log instead of being sent. Read it with:
 
      kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "genosyn.fullname" . }}
 
    Paste that link into the browser to verify and claim the account, then set
    up SMTP from the dashboard.
 
-3. Command execution (the coding sandbox)
-{{- if .Values.sandbox.enabled }}
+3. One organization per install
 
-   sandbox.enabled=true (the chart default) — the pod requests
-   seccompProfile Unconfined and procMount Unmasked{{ if not (kindIs "invalid" .Values.sandbox.hostUsers) }}, plus pod-spec
-   hostUsers: {{ .Values.sandbox.hostUsers }}{{ end }}. Your cluster must support all of it:
-   procMount Unmasked needs the ProcMountType feature gate, hostUsers: false
-   needs UserNamespacesSupport (set sandbox.hostUsers=null on clusters
-   without that gate), and Pod Security admission must permit the fields in
-   this namespace (they are rejected below the `privileged` level). If the
-   pod will not schedule, turn the sandbox off with the exact flags:
-{{- if .Values.config.multiTenant }}
-
-     # multiTenant refuses to boot without a working sandbox, so turning it
-     # off means leaving multi-tenant mode — the self-host shape:
-     helm upgrade {{ .Release.Name }} ... -f values-selfhost.yaml
-     # or explicitly:
-     helm upgrade {{ .Release.Name }} ... --set config.multiTenant=false --set sandbox.enabled=false
-{{- else }}
-
-     helm upgrade {{ .Release.Name }} ... --set sandbox.enabled=false
-{{- end }}
-
-   Genosyn then runs with command execution disabled and says why.
-{{- else }}
-
-   sandbox.enabled=false — Genosyn boots with command execution disabled and
-   logs the reason. Chat, Routines, Integrations, and browser work all still
-   function; builds, test suites, and per-employee checkouts do not. Set
-   sandbox.enabled=true when your cluster can honor the required
-   securityContext (see values.yaml).
-{{- end }}
+   AI Employee commands run in the App container as the App user, with its
+   filesystem and network access to every company in this install. Give
+   each unrelated organization its own install.
 
 4. Data
 
@@ -83,7 +98,7 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 {{- if not .Values.secrets.existingSecret }}
 
    The session/encryption secrets live in Secret {{ include "genosyn.instanceSecretsName" . }}
-   (generated once, kept across upgrades AND `helm uninstall` — rotating the
+   (set once, kept across upgrades AND `helm uninstall` — rotating the
    encryption secret would orphan every encrypted row). Back that Secret up
    with the database.
 {{- end }}

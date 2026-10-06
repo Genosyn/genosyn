@@ -38,8 +38,8 @@ export function SelfHosting() {
       <P>
         The file holds three kinds of thing and nothing else: <Strong>secrets</Strong>,{" "}
         <Strong>database coordinates</Strong>, and the <Strong>fail-closed security posture</Strong>{" "}
-        that startup validation checks before the process accepts a request. That is the whole
-        shape, with the same comments you&apos;ll see in the file:
+        that startup validation checks before the process accepts a request. Here are those
+        settings, with the comments you&apos;ll see in the file:
       </P>
       <Pre lang="ts">{`export const config = {
   // Where all user-generated data lives.
@@ -60,7 +60,6 @@ export function SelfHosting() {
   sessionSecret: "change-me-in-production",
 
   security: {
-    multiTenant: false,
     // Managed separately from the cookie secret on default self-host installs.
     encryptionSecret: "change-me-in-production-too",
     previousEncryptionSecrets: [],
@@ -80,15 +79,11 @@ export function SelfHosting() {
   agent: {
     codingTools: {
       enabled: true,
-      // Trusted self-host default: OpenCode coding tools execute directly.
-      // Use "disabled" to omit coding, or "bubblewrap" for optional isolation.
+      // "host": commands run directly on the host with the App process
+      // user's authority; there is no OS sandbox. "disabled": no coding tools.
       executionMode: "host",
-      bubblewrapPath: "/usr/bin/bwrap", allowNetwork: false,
       allowUnsafeHostExecution: true,
     },
-    // The app-owned Chromium shares the API container. Startup validation
-    // enforces this boundary in shared SaaS mode.
-    browserEnabledInMultiTenant: false,
   },
 } as const;`}</Pre>
 
@@ -101,33 +96,26 @@ export function SelfHosting() {
       </P>
       <Callout kind="info" title="OpenCode and host coding are enabled by default.">
         The App image includes pinned OpenCode. Genosyn starts it automatically for API-key and
-        custom models and enables native coding tools for ordinary employee work. Commands run with
-        the App process user&apos;s filesystem and network authority, inside the App container in
-        Docker. No Linux namespaces or additional Docker security options are needed. The host
-        default is for trusted single-tenant installs; shared SaaS retains its stricter startup
-        requirements. ChatGPT subscription models keep using the official Codex app-server.
+        custom models and enables native coding tools for ordinary employee work. AI Employee
+        commands — OpenCode&apos;s coding tools, Genosyn&apos;s command tools, Repository
+        work-session commands, command Checks, and server-managed Git — run directly on the host,
+        inside the App container in Docker, with the App process user&apos;s filesystem and network
+        authority. The container keeps Docker&apos;s standard security profile. ChatGPT
+        subscription models keep using the official Codex app-server.
       </Callout>
       <P>
-        Select <Code>executionMode: &quot;disabled&quot;</Code> to omit coding tools and employee
-        repository materialization. An existing explicit opt-out remains effective. Restricted
-        review turns omit coding, and Repository work sessions always use Genosyn&apos;s scoped
-        tools, command policy, and delivery controls. Host execution does not isolate one process
-        from another.
-      </P>
-      <H3 id="optional-sandbox">Optional bubblewrap isolation</H3>
-      <P>
-        Set <Code>executionMode: &quot;bubblewrap&quot;</Code> to isolate commands. OpenCode&apos;s
-        native coding tools are disabled in this mode, and Genosyn supplies the scoped command tool.
-        The image includes <Code>bwrap</Code>; Linux user namespaces must also be available. Boot
-        probes the sandbox and falls back to disabled if it cannot start.
+        A working directory, tool permission, command allowlist, or Grant is not an OS sandbox, and
+        Genosyn has no isolation mode. To stop command execution, select{" "}
+        <Code>executionMode: &quot;disabled&quot;</Code>: Genosyn then exposes no coding tools,
+        materializes no employee repositories, and omits company-configured stdio MCP servers; HTTP
+        MCP servers remain available. An existing <Code>allowUnsafeHostExecution: false</Code>{" "}
+        opt-out remains effective. Restricted review turns omit coding, and Repository work sessions
+        always use Genosyn&apos;s scoped tools, command policy, and delivery controls.
       </P>
       <P>
-        Docker must permit namespace creation and a private <Code>/proc</Code>. For this optional
-        mode, install with <Code>GENOSYN_SANDBOX=1</Code>, or create the container with
-        <Code> --security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code>. A
-        container must be recreated to change those options. They are not required for the default
-        host mode. Shared SaaS also requires working isolation; see
-        <DocLink to="/docs/saas-hosting"> SaaS hosting</DocLink>.
+        A configuration that still selects the removed <Code>bubblewrap</Code> mode starts with
+        command execution disabled and logs a warning. Set <Code>executionMode</Code> to{" "}
+        <Code>&quot;host&quot;</Code> or <Code>&quot;disabled&quot;</Code> explicitly.
       </P>
 
       <H3 id="runtime-settings">Everything else is in the database</H3>
@@ -146,11 +134,12 @@ export function SelfHosting() {
               <>
                 <Strong>Web tools</Strong> (on/off, search provider, result and document limits),{" "}
                 <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
+                <Strong>Hosted sign-in</Strong> (shared sign-in and service URL),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
-                discovery), <Strong>Containment</Strong> (the Routine circuit breaker and the
-                re-grade sweep), and <Strong>Outbound network</Strong> (the private-host allowlist).
+                discovery), <Strong>Containment</Strong> (the re-grade sweep), and{" "}
+                <Strong>Outbound network</Strong> (the private-host allowlist).
               </>
             ),
           },
@@ -182,18 +171,23 @@ export function SelfHosting() {
       <P>
         Genosyn refuses any outbound request that resolves to a loopback, private, or link-local
         address, which is what stops a Connection form or a fetched page from being pointed at your
-        internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model endpoint at{" "}
-        <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per line, under{" "}
-        <Strong>Outbound network</Strong> at <Code>Admin → Runtime</Code> and they become reachable
-        within about 30 seconds — no file to edit, no container to restart.
+        internal network. Redirects are checked again, and so is DNS when the socket connects, so a
+        public name cannot be rebound to a private address. A self-hosted Forgejo at{" "}
+        <Code>git.internal</Code>, or a model endpoint at <Code>10.0.0.5</Code>, is caught by that
+        same rule. List those hosts, one per line, under <Strong>Outbound network</Strong> at{" "}
+        <Code>Admin → Runtime</Code> and they become reachable within about 30 seconds — no file
+        to edit, no container to restart.
+      </P>
+      <P>
+        This policy covers Genosyn&apos;s own requests. Commands an AI Employee runs in host mode
+        use the App container&apos;s network directly and are not filtered by it.
       </P>
       <Callout kind="warn" title="An allowlisted host is exempt from the check, permanently.">
         Everything an AI Employee can be talked into fetching can reach a host on this list, so add
         one only when you mean employees to reach it — and prefer the narrowest hostname over a
         whole internal domain. The list is empty on a fresh install. Hosts set in{" "}
         <Code>security.outboundPrivateHostAllowlist</Code> in <Code>config.ts</Code> keep working as
-        well; the two lists are combined. Shared multi-tenant installs ignore the Admin list
-        entirely and refuse to boot with a non-empty one in the file.
+        well; the two lists are combined.
       </Callout>
 
       <H2 id="public-url">Public URL</H2>
@@ -244,8 +238,8 @@ export function SelfHosting() {
       <P>
         All entities and migrations work on both drivers. On startup Genosyn calls{" "}
         <Code>AppDataSource.runMigrations()</Code> — any pending migrations apply automatically.
-        SQLite and Postgres use separate generated migration streams. Postgres is required for
-        shared SaaS; see <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
+        SQLite and Postgres use separate generated migration streams. Built-in backups do not
+        include a Postgres database; see <DocLink to="/docs/self-hosting#backups">Backups</DocLink>.
       </P>
       <Callout title="Upgrading private conversations">
         Older direct and Help conversations may predate private Member ownership. They remain hidden
@@ -263,15 +257,16 @@ export function SelfHosting() {
         App-private files there too. Souls, Skills, Routines, Run logs, model credentials, and
         Connection credentials live on encrypted/scoped database rows:
       </P>
-      <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
+      <pre className="mt-4 overflow-x-auto rounded-2xl border border-line bg-paper-raised px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink-600">
         {`data/
 ├── .instance-secrets.json
 ├── .instance-secrets.required
 ├── .private/
+│   ├── browser-state/<company-id>/<employee-id>.profile/
 │   ├── browser-state/<company-id>/<employee-id>.json
 │   ├── browser-recordings/<company-id>/<run-id>/
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
-├── app.sqlite
+├── app.sqlite            # plus app.sqlite-wal / -shm while the App runs
 └── companies/<co-slug>/employees/<emp-slug>/
     ├── repos/
     ├── code-repos/
@@ -281,6 +276,12 @@ export function SelfHosting() {
         In the Docker image, this is mounted at <Code>/app/data</Code>. The installer maps a named
         volume <Code>genosyn-data</Code> there — back that volume up and you&apos;ve backed up
         everything.
+      </P>
+      <P>
+        SQLite runs in write-ahead-log mode, so while the App is running its most recent writes sit
+        in <Code>app.sqlite-wal</Code> beside the database. Copy the whole directory rather than{" "}
+        <Code>app.sqlite</Code> on its own; a clean stop folds the log back into{" "}
+        <Code>app.sqlite</Code>.
       </P>
       <P>
         Each file under <Code>.private/browser-recordings</Code> is a silent MP4 from one browser
@@ -350,13 +351,25 @@ export function SelfHosting() {
 
       <H2 id="oauth-apps">OAuth apps for the whole install</H2>
       <P>
-        Integrations that sign in with OAuth — Google, GitHub, Microsoft, LinkedIn, Reddit, X — need
-        a client registered with the provider. Left alone, every Connection has to bring its own, so
-        the first person to connect a Gmail mailbox has to stand up a Google Cloud project before
-        they can start.
+        Gmail can use Genosyn&apos;s hosted sign-in service: open <Strong>Email</Strong>, enter
+        your address, then choose <Strong>Continue with Google</Strong>. No Google Cloud project is
+        needed on your installation when the service is available. Sign-in and token renewal use
+        the hosted service; reading and sending mail happen directly between your installation and
+        Google. Credentials are stored encrypted locally and sent to the service to renew access.
+        Email content never passes through the sign-in service.
       </P>
       <P>
-        Do it once instead, at <Code>Admin → Integrations</Code>. Each provider card shows the exact
+        <Code>Admin → Runtime → Hosted sign-in</Code> controls hosted sign-in. The default service is
+        {" "}<Code>https://connect.genosyn.com</Code>; it must be deployed and available before sign-in
+        works. Turning off <Strong>Use hosted sign-in</Strong> prevents new hosted sign-ins
+        without revoking existing Connections. Existing Connections continue renewing through their
+        original service even if you change the URL. Leave <Strong>Host shared sign-in on this
+        installation</Strong> off; that setting is for the operator of the dedicated public service.
+      </P>
+      <P>
+        To manage Gmail independently, or connect Google Drive, Calendar, Analytics, Search Console,
+        Ads and other OAuth integrations, register your own app at <Code>Admin → Integrations</Code>.
+        Each provider card shows the exact
         redirect URI to allow-list (derived from the <Code>Public URL</Code> above, so set that
         first) and the ordered steps for that provider&apos;s console. Paste back the Client ID and
         Client Secret, and every company on the instance can connect that provider with a single
@@ -535,17 +548,12 @@ export function SelfHosting() {
       <P>
         A new Member follows the invitation email and chooses <Strong>Create account</Strong>. That
         form stays available when public sign-ups are closed, for that invitation&apos;s email
-        address only. In shared SaaS, they verify their email first, choose{" "}
-        <Strong>Continue</Strong> on the verification page, then choose{" "}
+        address only. Genosyn then returns them to the invitation, where they choose{" "}
         <Strong>Accept invitation</Strong>. Registering does not consume the invitation or add a
         company membership. An expired invitation needs to be replaced by an owner or admin.
       </P>
 
       <H3 id="sso">SSO</H3>
-      <Callout kind="info" title="Genosyn Enterprise feature.">
-        On a self-hosted install, enabling SSO requires an Enterprise license activated at{" "}
-        <Code>Admin → License</Code> — see <DocLink to="/docs/enterprise-license" />.
-      </Callout>
       <P>
         <Code>Admin → SSO</Code> adds single sign-on to the login page —{" "}
         <Strong>disabled by default</Strong>; a fresh install only offers email + password until a
@@ -578,6 +586,16 @@ export function SelfHosting() {
         provider admits get a Genosyn account automatically — turn it off to admit only people who
         already have an account or an invitation. Password login keeps working either way, so
         enabling (or later resetting) SSO can never lock an operator out.
+      </P>
+      <P>
+        Companies can also sign their Members in through their own identity provider, with their
+        own login URL, at <Strong>Settings → Single sign-on</Strong> — see{" "}
+        <DocLink to="/docs/security#company-sso">Company single sign-on</DocLink>. A master admin
+        allows that first with <Strong>Let companies use their own identity provider</Strong>{" "}
+        under <Strong>Company single sign-on</Strong> on the same page. It is off by default:
+        each company admin&apos;s provider can then sign that company&apos;s Members in to their
+        whole account, so turn it on only if you trust every company admin on the install with
+        that.
       </P>
 
       <H3 id="db-console">Database console</H3>
@@ -642,7 +660,9 @@ export function SelfHosting() {
       <P>
         A backup zips the <em>entire</em> data directory — every company&apos;s rows, uploads, and
         credentials, including the hidden managed <Code>.instance-secrets.json</Code> file — so it
-        is install-wide, not per company. Run one from the CLI:
+        is install-wide, not per company. On Postgres the database lives outside that directory:
+        back it up separately with <Code>pg_dump</Code> or your provider&apos;s backups, from the
+        same point in time as the archive. Run one from the CLI:
       </P>
       <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz
 genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
@@ -654,6 +674,11 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         flag list.
       </P>
 
+      <P>
+        The SQLite database is copied with SQLite&apos;s online backup API a few pages at a time, so
+        the App keeps answering requests while a backup runs and the archive still holds one
+        consistent point-in-time copy as <Code>app.sqlite</Code>.
+      </P>
       <P>
         A backup is written to a temporary <Code>.part</Code> file and moved into place only once it
         is complete, so a <Code>.zip</Code> in <Code>data/Backup/</Code> is always a whole archive —
@@ -748,9 +773,14 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <H2 id="upgrading">Upgrading</H2>
       <P>
         CLI installs schedule <Code>genosyn upgrade</Code> automatically every day at 03:17 local
-        time. The command self-upgrades the CLI, pulls the latest image, and retains the previous
-        container until the new version becomes ready. A failed start restarts the previous version
-        with the current data volume. Backups are off by default; run{" "}
+        time. Each run first updates its own{" "}
+        <DocLink to="/docs/cli#automatic-updates">copy of the CLI</DocLink>, which needs no{" "}
+        <Code>sudo</Code> even when <Code>/usr/local/bin/genosyn</Code> belongs to root, then pulls
+        the latest image and retains the previous container until the new version becomes ready.
+        Before it restarts, running Routine Runs get up to 60 minutes to finish while new ones wait
+        in the queue (
+        <DocLink to="/docs/cli#upgrade-drain">details</DocLink>). A failed start restarts the
+        previous version with the current data volume. Backups are off by default; run{" "}
         <Code>genosyn upgrade --backup</Code> for a manual upgrade that also writes a verified
         archive under <Code>~/.genosyn/backups</Code> and restores it on failure. Check or change
         the schedule with <Code>genosyn auto-update status</Code>,{" "}

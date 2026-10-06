@@ -310,25 +310,31 @@ workflow's filter. Deploy it directly:
 gh workflow run site.yml --ref release
 ```
 
-### "`main` has two red `Workers Builds` checks"
+### "`main` or `release` has red `Workers Builds` checks"
 
 `Workers Builds: genosyn` and `Workers Builds: genosyn-test` are not this
 repo's CI, which is why `gh run list` shows nothing wrong. They are Cloudflare's
 own Git integration, attached to the *second* `genosyn` Worker described in
 [Why this is written down](#why-this-is-written-down) — the one a hand-run
-`wrangler deploy` created in a personal account. That account still builds this
-repository on every push, and has failed on every commit since `da43199e`
-pinned `account_id` in [`Home/wrangler.jsonc`](Home/wrangler.jsonc): a deploy
-into an account the config does not name is precisely what the pin refuses.
+`wrangler deploy` created in a personal account. Through the **Cloudflare
+Workers and Pages** GitHub App, that account built this repository on every
+push, and failed on every commit after `da43199e` pinned `account_id` in
+[`Home/wrangler.jsonc`](Home/wrangler.jsonc): a deploy into an account the
+config does not name is precisely what the pin refuses.
 
-Compare the account id in the check's **Details** link with the one in
-`Home/wrangler.jsonc` — that is how you tell a stale build from a real one.
+The app was uninstalled from the Genosyn organization on 2026-09-29, so newer
+commits carry no Workers Builds checks. Older commits keep their red ones,
+because only the app that created a check can change it. genosyn.com never
+needed the app: [`site.yml`](.github/workflows/site.yml) deploys with the
+`CLOUDFLARE_API_TOKEN` secret.
 
-Nothing in the repository can turn those checks green. Removing the pin would,
-and reintroduces the bug `da43199e` fixed. Delete the `genosyn` and
-`genosyn-test` Workers in the stale account, or unlink the build integration
-under **Workers & Pages → the Worker → Settings → Build → Git repository →
-Disconnect**.
+If the checks come back, the app has been reinstalled. Compare the account id in
+the check's **Details** link with the one in `Home/wrangler.jsonc` — that is how
+you tell a stale build from a real one. For a stale build, uninstall the app
+again under **Organization settings → GitHub Apps → Cloudflare Workers and
+Pages → Configure**, or disconnect the Worker under **Workers & Pages → the
+Worker → Settings → Build → Git repository → Disconnect**. Never remove the pin
+to turn them green; that reintroduces the bug `da43199e` fixed.
 
 To see every check on a commit, not just the Actions ones:
 

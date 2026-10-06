@@ -82,7 +82,8 @@ export function StarterSetupModal({
           </Button>
           <Button
             type="submit"
-            disabled={saving || needs.length > 0 || !instruction.trim() || Boolean(already)}
+            loading={saving}
+            disabled={needs.length > 0 || !instruction.trim() || Boolean(already)}
           >
             <Sparkles size={16} aria-hidden="true" />
             {saving ? "Assigning…" : "Assign work"}

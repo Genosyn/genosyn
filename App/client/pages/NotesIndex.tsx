@@ -14,6 +14,7 @@ import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
+import { ButtonSpinner } from "../components/ui/Spinner";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 
@@ -63,7 +64,6 @@ export default function NotesIndex({ company }: { company: Company }) {
   }, [notebooks]);
 
   async function createNotebook() {
-    setCreatingNb(true);
     try {
       const title = await dialog.prompt({
         title: "New notebook",
@@ -72,6 +72,7 @@ export default function NotesIndex({ company }: { company: Company }) {
         confirmLabel: "Create",
       });
       if (!title) return;
+      setCreatingNb(true);
       const created = await api.post<Notebook>(
         `/api/companies/${company.id}/notebooks`,
         { title },
@@ -198,9 +199,11 @@ function EmptyHero({
       <button
         onClick={onCreate}
         disabled={creating}
+        aria-busy={creating || undefined}
         className="mx-auto mt-5 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
-        <BookPlus size={14} /> {creating ? "Creating…" : "Create your first notebook"}
+        {creating ? <ButtonSpinner size={14} /> : <BookPlus size={14} />}{" "}
+        {creating ? "Creating…" : "Create your first notebook"}
       </button>
     </div>
   );
@@ -239,9 +242,11 @@ function NotebookGrid({
         <button
           onClick={onCreate}
           disabled={creating}
+          aria-busy={creating || undefined}
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700 dark:hover:text-indigo-300"
         >
-          <BookPlus size={12} /> {creating ? "Creating…" : "New notebook"}
+          {creating ? <ButtonSpinner size={12} /> : <BookPlus size={12} />}{" "}
+          {creating ? "Creating…" : "New notebook"}
         </button>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

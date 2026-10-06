@@ -55,7 +55,7 @@ test("unlimited subscription shutdown refuses a queued tool request delivered af
   const mutableConfig = config as unknown as {
     sessionSecret: string;
     security: { multiTenant: boolean; encryptionSecret: string };
-    agent: { codingTools: { executionMode: "host" | "bubblewrap" | "disabled" } };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
   };
   const original = {
     sessionSecret: mutableConfig.sessionSecret,
@@ -155,7 +155,7 @@ test("subscription turns exceed 100 tool calls only with an unlimited step polic
   const mutableConfig = config as unknown as {
     sessionSecret: string;
     security: { multiTenant: boolean; encryptionSecret: string };
-    agent: { codingTools: { executionMode: "host" | "bubblewrap" | "disabled" } };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
   };
   const original = {
     sessionSecret: mutableConfig.sessionSecret,
@@ -256,6 +256,108 @@ test("subscription turns exceed 100 tool calls only with an unlimited step polic
         }
       });
     }
+  } finally {
+    await closeTestDb();
+    mutableConfig.sessionSecret = original.sessionSecret;
+    Object.assign(mutableConfig.security, original.security);
+    mutableConfig.agent.codingTools.executionMode = original.executionMode;
+  }
+});
+
+test("subscription tool results carry a Run's time check as a separate item", async (t) => {
+  const mutableConfig = config as unknown as {
+    sessionSecret: string;
+    security: { multiTenant: boolean; encryptionSecret: string };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
+  };
+  const original = {
+    sessionSecret: mutableConfig.sessionSecret,
+    security: { ...mutableConfig.security },
+    executionMode: mutableConfig.agent.codingTools.executionMode,
+  };
+  mutableConfig.sessionSecret = "codex-notice-test-session-secret-2026";
+  mutableConfig.security.multiTenant = false;
+  mutableConfig.security.encryptionSecret = "codex-notice-test-encryption-secret-2026";
+  mutableConfig.agent.codingTools.executionMode = "disabled";
+  try {
+    await initTestDb();
+    const model = await insert(AIModel, {
+      employeeId: "test-employee",
+      provider: "openai",
+      model: expected.model,
+      authMode: "subscription",
+      connectedAt: new Date(),
+      configJson: JSON.stringify({
+        codexAccessTokenEncrypted: encryptSecret("test-codex-notice-token"),
+      }),
+    });
+    const recorded: string[] = [];
+    const registry = residentOnlyRegistry([
+      {
+        name: "read_record",
+        description: "Read a test record.",
+        inputSchema: { type: "object", properties: {} },
+        readOnly: true,
+        run: async () => ({ content: "Record 7 reviewed." }),
+      },
+    ]);
+    registry.resultNotice = () => "[Time check] Under 3 minutes remain.";
+    let response: unknown;
+    t.mock.method(
+      CodexAppServer,
+      "start",
+      async (options: Parameters<typeof CodexAppServer.start>[0]) => {
+        let notify: Parameters<CodexAppServer["onNotification"]>[0] | undefined;
+        return {
+          request: async (method: string) => {
+            if (method === "thread/start")
+              return {
+                ...safeResponse,
+                cwd: options.cwd,
+                thread: { ...safeResponse.thread, cwd: options.cwd },
+              };
+            if (method === "turn/start") {
+              response = await options.onServerRequest!("item/tool/call", {
+                threadId: "thread-id",
+                turnId: "turn-id",
+                callId: "call-1",
+                namespace: null,
+                tool: "read_record",
+                arguments: {},
+              });
+              notify?.("turn/completed", {
+                threadId: "thread-id",
+                turn: { id: "turn-id", status: "completed" },
+              });
+              return { turn: { id: "turn-id" } };
+            }
+            throw new Error(`Unexpected test request: ${method}`);
+          },
+          onNotification: (handler: Parameters<CodexAppServer["onNotification"]>[0]) => {
+            notify = handler;
+            return () => undefined;
+          },
+          onExit: () => () => undefined,
+          close: async () => {},
+        } as unknown as CodexAppServer;
+      },
+    );
+    await runCodexSubscriptionTurn({
+      model,
+      system: "Review the record.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Review record 7." }] }],
+      registry,
+      maxSteps: null,
+      callbacks: { onToolResult: (_name, result) => recorded.push(result.content) },
+    });
+    assert.deepEqual(response, {
+      contentItems: [
+        { type: "inputText", text: "Record 7 reviewed." },
+        { type: "inputText", text: "[Time check] Under 3 minutes remain." },
+      ],
+      success: true,
+    });
+    assert.deepEqual(recorded, ["Record 7 reviewed."]);
   } finally {
     await closeTestDb();
     mutableConfig.sessionSecret = original.sessionSecret;

@@ -27,6 +27,7 @@ import {
 } from "./repositories.js";
 import type { RepoSyncResult, SyncedRepo } from "./repoSync.js";
 import { startRoutineRun } from "./runner.js";
+import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
 import { stopStanddowns } from "./standdowns.js";
 
@@ -42,7 +43,7 @@ let gitRequests = 0;
 const dataConfig = config as { dataDir: string };
 const securityConfig = config.security as { multiTenant: boolean };
 const codingConfig = config.agent.codingTools as {
-  executionMode: "host" | "bubblewrap" | "disabled";
+  executionMode: "host" | "disabled";
 };
 const originalConfig = {
   dataDir: config.dataDir,
@@ -103,6 +104,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  await waitForRoutineQueueIdle();
   stopStanddowns();
   resetRuntimeSettingsCacheForTests();
   await resetTestDb();
@@ -136,6 +138,7 @@ afterEach(() => {
 });
 
 after(async () => {
+  await waitForRoutineQueueIdle();
   dataConfig.dataDir = originalConfig.dataDir;
   securityConfig.multiTenant = originalConfig.multiTenant;
   Object.assign(config.agent.codingTools, originalConfig.codingTools);
@@ -409,22 +412,20 @@ describe("materialized employee repository contributor context", () => {
     assert.equal(await context([synced]), "");
   });
 
-  for (const mode of ["host", "bubblewrap"] as const) {
-    test(`large guides use ${mode === "host" ? "the available file reader" : "bash"} and stay within the shared budget`, async () => {
-      const { synced } = await grantedCheckout(
-        "large",
-        "AGENTS.md",
-        "Required validation instructions.\n".repeat(3_000),
-      );
-      codingConfig.executionMode = mode;
-      const result = await context([synced]);
-      assert.ok(result.length <= REPOSITORIES_CONTEXT_MAX_CHARS);
-      assert.match(result, /truncat|excerpt|omitted/i);
-      assert.ok(result.includes(mode === "host" ? "the available file-reading tool" : "bash"));
-      if (mode === "host") assert.doesNotMatch(result, /read_file/);
-      assert.match(result, /repositories\/large\/AGENTS.md/);
-    });
-  }
+  test("large guides use the available file reader and stay within the shared budget", async () => {
+    const { synced } = await grantedCheckout(
+      "large",
+      "AGENTS.md",
+      "Required validation instructions.\n".repeat(3_000),
+    );
+    codingConfig.executionMode = "host";
+    const result = await context([synced]);
+    assert.ok(result.length <= REPOSITORIES_CONTEXT_MAX_CHARS);
+    assert.match(result, /truncat|excerpt|omitted/i);
+    assert.ok(result.includes("the available file-reading tool"));
+    assert.doesNotMatch(result, /read_file/);
+    assert.match(result, /repositories\/large\/AGENTS.md/);
+  });
 
   test("bounds the whole briefing even with many large guides", async () => {
     const checkouts: SyncedRepository[] = [];

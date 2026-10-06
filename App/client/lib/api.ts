@@ -166,9 +166,6 @@ export type Me = {
   isMasterAdmin: boolean;
   emailVerified: boolean;
   emailVerificationRequired: boolean;
-  /** True when the operator turned on per-company Plans at Admin → Billing
-   *  (Genosyn Cloud). Gates the Settings → Billing sidebar entry. */
-  billingEnabled: boolean;
 };
 export type TwoFactorLoginMethods = {
   enabled: boolean;
@@ -224,9 +221,6 @@ export type Company = {
    */
   financeAccess: FinanceAccess;
   requireTwoFactor: boolean;
-  /** Resolved edition/plan facts for this company — see "Billing & editions"
-   *  below. Present on every /api/companies row. */
-  entitlements: CompanyEntitlements;
 };
 export type Employee = {
   id: string;
@@ -945,6 +939,7 @@ export type Initiative = {
 };
 
 export type RunStatus =
+  | "queued"
   | "running"
   /** Proactive review finished; proposed work requires a separate Approval. */
   | "reviewed"
@@ -974,6 +969,8 @@ export type RunTrigger =
 export type Run = {
   id: string;
   routineId: string;
+  /** When this Run was accepted for dispatch. */
+  queuedAt?: string | null;
   startedAt: string;
   finishedAt: string | null;
   status: RunStatus;
@@ -1000,7 +997,9 @@ export type Run = {
   continuationCount?: number;
   /** Why automatic continuation stopped, when intervention may be needed. */
   continuationStopReason?: string | null;
-  /** Occurrences missed during downtime that this run stands in for. */
+  /** Same-Routine follow-up metadata; undefined until relationships have been loaded. */
+  followUpRun?: RunFollowUp | null;
+  /** More scheduled occurrences this run stands in for: missed during downtime or due while it waited. */
   missedSlots?: number;
   /** How the run measured against its Routine's acceptance criteria. */
   outcomeVerdict?: RunOutcomeVerdict | null;
@@ -1014,6 +1013,23 @@ export type Run = {
   tokensIn?: number;
   /** Completion tokens billed across every model turn of this run. */
   tokensOut?: number;
+};
+export type RunFollowUp = Pick<
+  Run,
+  | "id"
+  | "routineId"
+  | "status"
+  | "errorKind"
+  | "createdAt"
+  | "startedAt"
+  | "finishedAt"
+  | "exitCode"
+  | "triggerKind"
+  | "continuationCount"
+> & {
+  retryPending: boolean;
+  awaitingOutcome: boolean;
+  isLatest: boolean;
 };
 /**
  * `achieved` — the transcript shows the criteria were met. `off_goal` — the
@@ -1057,6 +1073,7 @@ export type RunDiagnosticFailure = {
   step: { tool: string; callId: string | null; startedAt: string } | null;
 };
 export type RunLog = {
+  queuedAt?: string | null;
   content: string;
   truncated?: boolean;
   size?: number;
@@ -1077,6 +1094,7 @@ export type RunLog = {
   hasUnfinishedWork?: boolean;
   continuationCount?: number;
   continuationStopReason?: string | null;
+  followUpRun?: RunFollowUp | null;
   attempt?: number;
   outcomeVerdict?: RunOutcomeVerdict | null;
   outcomeNote?: string | null;
@@ -1141,6 +1159,12 @@ export type AIModel = {
   contextWindowSource: "probed" | "manual" | null;
   /** False when the provider can't be asked at all (OpenAI reports no window). */
   contextWindowProbeable: boolean;
+  /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
+  maxConcurrentRuns: number | null;
+  /** How many Routine Runs may use this model at once; null means no limit. */
+  effectiveMaxConcurrentRuns: number | null;
+  /** Why that limit applies. */
+  concurrencySource: "configured" | "local-default" | "unlimited";
 };
 export type FinanceAccess = "none" | "read" | "full";
 
@@ -1508,7 +1532,7 @@ export type RoutineCheck = {
 /**
  * Whether a `command` Check can run on this installation, and why not.
  *
- * Command Checks use the configured host or bubblewrap execution mode. The editor disables
+ * Command Checks use the configured execution mode. The editor disables
  * the option and shows this reason rather than letting somebody author a Check
  * that is guaranteed to fail.
  */
@@ -1587,7 +1611,7 @@ export type RunEffectList = {
 // stopped, and why — while placing and lifting are admin-only.
 
 export type StanddownScope = "company" | "employee" | "routine";
-/** `breaker` is the consecutive-failure circuit breaker in the runner. */
+/** `breaker` identifies Standdowns placed by the former failure breaker. */
 export type StanddownSource = "human" | "breaker";
 
 export type Standdown = {
@@ -1668,6 +1692,8 @@ export type IntegrationCatalogEntry = {
      *  (Admin → Integrations). The connect form then asks for no credentials
      *  at all — the handshake uses the instance's client. */
     instanceApp?: boolean;
+    /** Hosted sign-in covers Gmail only; other Google products need a registered client. */
+    hostedSignIn?: boolean;
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     /** Extra create-time inputs (developer tokens, account ids, safety
@@ -1689,6 +1715,7 @@ export type IntegrationCatalogEntry = {
 };
 export type IntegrationConnectionStatus = "connected" | "error" | "expired";
 export type IntegrationConnection = {
+  hostedSignIn?: boolean;
   id: string;
   companyId: string;
   provider: string;
@@ -2268,12 +2295,6 @@ export type BaseTemplateSummary = {
   tableNames: string[];
 };
 
-export type BaseAssistantResult = {
-  status: "ok" | "skipped" | "error";
-  reply: string;
-  employee?: { id: string; name: string; slug: string };
-};
-
 export type BaseRecordCommentAuthor =
   | {
       kind: "human";
@@ -2679,6 +2700,23 @@ export type ResourceGrantsResponse = { direct: ResourceGrant[] };
 export type ResourceGrantCandidate = ResourceGrantEmployee & {
   alreadyGranted: boolean;
 };
+
+/**
+ * Resources → AI access: whether an AI Employee may write to the library at
+ * all. `write` (read + write) is the default and leaves each Resource's Share
+ * settings in charge; `read` (read only) refuses every write whatever they say.
+ * See `EmployeeResourceLibraryGrant` on the server.
+ */
+export type ResourceLibraryAccessLevel = "read" | "write";
+
+export type ResourceLibraryAccessRow = {
+  employee: ResourceGrantEmployee;
+  accessLevel: ResourceLibraryAccessLevel;
+  /** True when nobody has set this employee's access, so the default applies. */
+  isDefault: boolean;
+};
+
+export type ResourceLibraryAccessResponse = { rows: ResourceLibraryAccessRow[] };
 
 // ───────────────────────── Repositories ────────────────────────────
 
@@ -3372,6 +3410,7 @@ export type HomeChannel = {
 };
 
 export type HomeFailedRun = {
+  followUpRun?: RunFollowUp | null;
   runId: string;
   routineId: string;
   routineName: string;
@@ -3431,6 +3470,20 @@ export type WorkEntrySource = {
   detail: string;
 };
 
+/** Recorded result of this email analysis attempt, never executable actions. */
+export type WorkEntryAnalysis = {
+  kind: "email";
+  status: "started" | "completed" | "failed";
+  purpose: string;
+  category: string | null;
+  summary: string | null;
+  suggestedActions: string[];
+  error: string | null;
+  /** Whether this attempt's recorded result is available to display. */
+  resultAvailable: boolean;
+  durationMs: number | null;
+};
+
 /** A Run's concise outcome and status, without a second request. */
 export type WorkEntryRun = {
   /** A short outcome from the recorded Run, or null when none is available. */
@@ -3469,6 +3522,8 @@ export type WorkEntry = {
   detail: string;
   /** Linked provenance for a standalone change, when its source still exists. */
   source: WorkEntrySource | null;
+  /** A bounded result for an email analysis effect; optional for older responses. */
+  analysis?: WorkEntryAnalysis | null;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;
   effects: WorkEffect[];
@@ -3496,6 +3551,29 @@ export type WorkTimeline = {
   entryCount: number;
   /** Pre-response-limit rollups, so the 40 visible rows cannot crowd a bubble out. */
   employeeSummaries: WorkEmployeeSummary[];
+};
+
+/** Live Routine work, independent of the day selected in the work timeline. */
+export type EmployeeQueueItem = {
+  id: string;
+  runId: string | null;
+  routine: { id: string; name: string; slug: string };
+  triggerKind: RunTrigger;
+  queuedAt: string;
+  availableAt: string | null;
+  /** Legacy field, always null: Runs no longer wait in employee order. */
+  position: number | null;
+  blockedReason: string | null;
+};
+
+export type EmployeeWorkQueue = {
+  employeeId: string;
+  /** First running item retained for older API clients. */
+  current: EmployeeQueueItem | null;
+  running: EmployeeQueueItem[];
+  runningCount: number;
+  pending: EmployeeQueueItem[];
+  pendingCount: number;
 };
 
 // ───────────────────────── System Health ────────────────────────────────
@@ -3645,6 +3723,7 @@ export type GlobalEmailTransport = {
 export type RuntimeSettingsGroup =
   | "web"
   | "mail"
+  | "oauth"
   | "meetings"
   | "browser"
   | "agent"
@@ -3654,7 +3733,8 @@ export type RuntimeSettingsGroup =
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
   enabled: boolean;
-  searchProvider: "duckduckgo" | "disabled";
+  searchProvider: "duckduckgo" | "searxng" | "disabled";
+  searxngUrl: string;
   maxSearchResults: number;
   maxDocumentBytes: number;
   maxTextChars: number;
@@ -3666,6 +3746,13 @@ export type RuntimeMailSettings = {
   backfillThreadsPerPass: number;
   backfillPassSeconds: number;
   backfillDays: number;
+};
+
+export type RuntimeOauthSettings = {
+  hostedSignInEnabled: boolean;
+  hostedSignInUrl: string;
+  hostSignIn: boolean;
+  signInHostUrl: string;
 };
 
 /** Calendar mirror + meeting transcription. */
@@ -3694,15 +3781,8 @@ export type RuntimeAgentSettings = {
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
 };
 
-/**
- * How hard the install leans on the two containment instruments M58 added: the
- * circuit breaker that stands a permanently broken Routine down, and the sweep
- * that finishes grading Runs the runner never got to.
- */
+/** Settings for the sweep that finishes grading Runs with missing verdicts. */
 export type RuntimeContainmentSettings = {
-  /** Consecutive bad Runs on one Routine before the breaker stands it down.
-   *  0 disables the breaker entirely. */
-  routineBreakerThreshold: number;
   /** How stale a Run's missing verdict must be before the sweep re-grades it. */
   regradeAfterMinutes: number;
   /** Runs re-graded per heartbeat pass. Each one is a model turn. */
@@ -3722,6 +3802,7 @@ export type RuntimeNetworkSettings = {
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
+  oauth: RuntimeOauthSettings;
   meetings: RuntimeMeetingsSettings;
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
@@ -3785,12 +3866,15 @@ export type SsoSettings = {
   autoProvision: boolean;
   configured: boolean;
   callbackUrl: string;
+  /** Whether companies may sign Members in through their own identity
+   *  provider. Set with PUT /api/admin/sso/company. */
+  companySsoAllowed: boolean;
 };
 export type SsoPublicStatus = {
   enabled: boolean;
   buttonLabel: string | null;
-  /** True iff instance billing is enabled — the login page uses it to offer
-   *  company SSO sign-in (company SSO itself ships in a later phase). */
+  /** True iff at least one company on this install has its own SSO enabled —
+   *  the login page uses it to offer company SSO sign-in. */
   companySso: boolean;
 };
 export type SsoIssuerCheck = {
@@ -3801,10 +3885,10 @@ export type SsoIssuerCheck = {
 };
 
 // ───────────────────────── Company SSO ──────────────────────────────────────
-// Per-company single sign-on on a Genosyn Cloud install (M56 Phase B) — a
-// Scale-plan feature configured at Settings → Single sign-on and served by
-// /api/companies/:cid/sso. Members sign in at /login/sso/<companySlug>; the
-// public probe is /api/auth/sso/company/:companySlug/status.
+// Per-company single sign-on, configured at Settings → Single sign-on and
+// served by /api/companies/:cid/sso. Members sign in at
+// /login/sso/<companySlug>; the public probe is
+// /api/auth/sso/company/:companySlug/status.
 export type CompanySsoSettings = {
   enabled: boolean;
   provider: SsoProvider;
@@ -3823,6 +3907,8 @@ export type CompanySsoSettings = {
   callbackUrl: string;
   /** The page members bookmark to sign in through this company's IdP. */
   loginUrl: string;
+  /** Whether a master admin allows company SSO on this install at all. */
+  allowedByInstance: boolean;
 };
 export type CompanySsoPublicStatus = {
   enabled: boolean;
@@ -3833,131 +3919,12 @@ export type CompanySsoPublicStatus = {
 export type CompanySsoLinkResponse =
   | { ok: true; requiresTwoFactor?: undefined }
   | { requiresTwoFactor: true; methods: TwoFactorLoginMethods };
-
-// ───────────────────────── Billing & editions ───────────────────────────────
-// Editions, plans & billing (M56). Three deployment shapes, one codebase:
-// self-hosted Community (no license), self-hosted Enterprise (a signed
-// license activated at Admin → License), and Genosyn Cloud (instance billing
-// enabled at Admin → Billing; per-company Plans billed through Stripe).
-
-/** A Genosyn Cloud pricing tier. */
-export type PlanId = "free" | "growth" | "scale";
-
-/** How a paid Plan is billed. Annual is twelve months less 10% (M56). */
-export type BillingInterval = "month" | "year";
-
-/** Resolved server-side facts about what a company may use — carried on every
- *  /api/companies row and on GET /api/companies/:cid. */
-export type CompanyEntitlements = {
-  edition: "cloud" | "community" | "enterprise";
-  /** Null when instance billing is disabled (self-hosted). */
-  plan: PlanId | null;
-  /** Company-wide totals; null = unlimited. */
-  maxAiEmployees: number | null;
-  maxRoutines: number | null;
-  maxBases: number | null;
-  /** Non-archived tables, counted across all of the company's Bases. */
-  maxBaseTables: number | null;
-  /** Public + private channels only — DMs never count, nor do archived ones. */
-  maxChannels: number | null;
-  maxProjects: number | null;
-  /** All Todo rows across the company's Projects, regardless of status. */
-  maxTodos: number | null;
-  features: { sso: boolean; auditLog: boolean };
-};
-
-/** GET /api/companies/:cid/billing — the Settings → Billing page's whole
- *  world in one response. Also returned by POST /billing/sync. */
-export type BillingSummary = {
-  /** Instance billing enabled (Genosyn Cloud). */
-  enabled: boolean;
-  plan: PlanId;
-  /** Which interval the live subscription bills on; null on Free. */
-  interval: BillingInterval | null;
-  /** Raw Stripe subscription status; null when none. */
-  status: string | null;
-  /** Billed quantity; null when no subscription. */
-  seatCount: number | null;
-  aiEmployeeCount: number;
-  routineCount: number;
-  /** ISO timestamp; null when no subscription. */
-  currentPeriodEnd: string | null;
-  limits: {
-    maxAiEmployees: number | null;
-    maxRoutines: number | null;
-    maxBases: number | null;
-    maxBaseTables: number | null;
-    maxChannels: number | null;
-    maxProjects: number | null;
-    maxTodos: number | null;
-  };
-  features: { sso: boolean; auditLog: boolean };
-  /** Per-seat amount in cents for each Plan on each interval — monthly
-   *  1900 / 4900, annual 20520 / 52920. `configured` is whether the operator
-   *  pasted a Stripe price id for that combination; annual is optional. */
-  prices: {
-    currency: "usd";
-    growth: Record<BillingInterval, { unitAmount: number; configured: boolean }>;
-    scale: Record<BillingInterval, { unitAmount: number; configured: boolean }>;
-  };
-  /** Secret key + both monthly price ids present on the instance. */
-  stripeConfigured: boolean;
-  /** The company has a Stripe customer, so POST /billing/portal will work. */
-  portalAvailable: boolean;
-};
-
-/** GET/PUT /api/admin/billing — instance-wide Stripe wiring. Secrets follow
- *  the blank-keeps-stored pattern; only their presence is reported. */
-export type AdminBillingSettings = {
-  enabled: boolean;
-  /** One Stripe price id per paid Plan per interval. The annual pair may be
-   *  blank — an install that only sells monthly simply doesn't offer it. */
-  growthMonthlyPriceId: string;
-  growthAnnualPriceId: string;
-  scaleMonthlyPriceId: string;
-  scaleAnnualPriceId: string;
-  hasSecretKey: boolean;
-  hasWebhookSecret: boolean;
-};
-
-/** GET/PUT /api/admin/license — this install's enterprise license.
- *  "expired" on a paid license means features remain enabled (soft expiry);
- *  an expired evaluation license reports "expired" with features off. */
-export type AdminLicenseStatus = {
-  status: "none" | "valid" | "expired" | "invalid";
-  companyName: string | null;
-  email: string | null;
-  expiresAt: string | null;
-  seats: number | null;
-  evaluation: boolean;
-  /** Instance-wide AI Employee count, for the seat meter. */
-  aiEmployeeCount: number;
-};
-
-/** One row of the issuer's registry at GET /api/admin/licenses. Only a masked
- *  keyPreview is stored — the full key appears once, in the POST response. */
-export type AdminEnterpriseLicense = {
-  id: string;
+/** POST /api/auth/sso/company/link/describe — the company whose SSO is asking
+ *  to link, for the confirm page. The account's email stays server-side. */
+export type CompanySsoLinkDescription = {
   companyName: string;
-  email: string | null;
-  expiresAt: string;
-  seats: number | null;
-  evaluation: boolean;
-  keyPreview: string;
-  createdAt: string;
-};
-
-/** GET /api/admin/licenses — the issuer surface (Admin → Enterprise
- *  Licenses). Issuing needs the Ed25519 signing private key configured. */
-export type AdminEnterpriseLicenses = {
-  signingConfigured: boolean;
-  licenses: AdminEnterpriseLicense[];
-};
-
-/** POST /api/admin/licenses — `key` is shown once and never stored. */
-export type AdminEnterpriseLicenseIssued = {
-  license: AdminEnterpriseLicense;
-  key: string;
+  companySlug: string;
+  issuerHost: string;
 };
 
 // ───────────────────── Admin directory (Users + Companies) ───────────────────
@@ -4205,6 +4172,43 @@ export type Customer = {
   contacts: CustomerContact[];
 };
 
+/** One of the customer's people on a mail conversation. */
+export type CustomerMailPerson = {
+  email: string;
+  /** Contact name, else the sender's display name, else "". */
+  name: string;
+};
+
+/** A mail conversation with a customer — GET /customers/:slug/mail. */
+export type CustomerMailThread = {
+  id: string;
+  accountId: string;
+  mailboxAddress: string;
+  subject: string;
+  snippet: string;
+  participants: string;
+  unread: boolean;
+  messageCount: number;
+  hasAttachments: boolean;
+  lastMessageAt: string | null;
+  people: CustomerMailPerson[];
+  peopleTotal: number;
+};
+
+export type CustomerMailPage = {
+  threads: CustomerMailThread[];
+  total: number;
+  limit: number;
+  offset: number;
+  /** Exact addresses the server matched on. */
+  addresses: string[];
+  /** The domain matched on; null when unset, free mail, or the company's own. */
+  domain: string | null;
+  mailboxCount: number;
+  /** Mail mirrored before the address index existed is still being indexed. */
+  indexing: boolean;
+};
+
 /** A server-filtered window for the standalone Customers list. */
 export type CustomerListPage = {
   customers: Customer[];
@@ -4341,10 +4345,41 @@ export type InvoiceCustomerStub = {
   email: string;
 };
 
+export type InvoiceIssuer = {
+  name: string;
+  address: string;
+  country: string;
+  taxNumber: string;
+  registrationNumber: string;
+  email: string;
+  phone: string;
+  website: string;
+  footer: string;
+};
+
+export type Subsidiary = InvoiceIssuer & {
+  id: string;
+  companyId: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const financeSubsidiaries = {
+  list: (companyId: string) =>
+    api.get<Subsidiary[]>(`/api/companies/${companyId}/finance/subsidiaries`),
+  create: (companyId: string, body: InvoiceIssuer) =>
+    api.post<Subsidiary>(`/api/companies/${companyId}/finance/subsidiaries`, body),
+  update: (companyId: string, id: string, body: Partial<InvoiceIssuer> & { archived?: boolean }) =>
+    api.patch<Subsidiary>(`/api/companies/${companyId}/finance/subsidiaries/${id}`, body),
+};
+
 export type Invoice = {
   id: string;
   companyId: string;
   customerId: string;
+  subsidiaryId: string | null;
+  issuerSnapshot: InvoiceIssuer | null;
   slug: string;
   numberSeq: number;
   number: string;
@@ -4594,6 +4629,7 @@ export type RecurringInvoice = {
   id: string;
   companyId: string;
   customerId: string;
+  subsidiaryId: string | null;
   slug: string;
   name: string;
   cronExpr: string;
@@ -4616,6 +4652,24 @@ export type RecurringInvoice = {
   updatedAt: string;
   customer: RecurringInvoiceCustomerStub | null;
   lines: RecurringInvoiceLineItem[];
+  /** What one run bills, tax included: the generated invoice's total. */
+  totalCents: number;
+  /** The most recent scheduled run, so one that is retrying or failed shows. */
+  latestRun: RecurringInvoiceRunSummary | null;
+};
+
+export type RecurringInvoiceRunStatus = "pending" | "succeeded" | "failed" | "cancelled";
+
+/** One scheduled run of a recurring invoice, as list and detail pages see it. */
+export type RecurringInvoiceRunSummary = {
+  status: RecurringInvoiceRunStatus;
+  scheduledFor: string;
+  attempts: number;
+  retryAt: string | null;
+  lastError: string;
+  emailStatus: "" | "sent" | "skipped" | "failed";
+  completedAt: string | null;
+  invoiceSlug: string | null;
 };
 
 export type RecurringInvoiceListItem = Omit<RecurringInvoice, "lines"> & {
@@ -4671,6 +4725,8 @@ export type Estimate = {
   id: string;
   companyId: string;
   customerId: string;
+  subsidiaryId: string | null;
+  issuerSnapshot: InvoiceIssuer | null;
   slug: string;
   numberSeq: number;
   number: string;

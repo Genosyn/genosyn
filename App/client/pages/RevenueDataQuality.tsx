@@ -26,7 +26,7 @@ import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 type ResourceType = "account" | "contact" | "deal" | "partnership";
@@ -344,6 +344,8 @@ export default function RevenueDataQuality() {
   const [mergeResolutions, setMergeResolutions] = React.useState<
     Record<string, "source" | "target">
   >({});
+  const [previewingMerge, setPreviewingMerge] = React.useState<string | null>(null);
+  const [merging, setMerging] = React.useState(false);
   const [bulkResource, setBulkResource] = React.useState<ResourceType | "follow_up">("account");
   const [bulkAction, setBulkAction] = React.useState("archive");
   const [bulkValue, setBulkValue] = React.useState("");
@@ -355,10 +357,11 @@ export default function RevenueDataQuality() {
   const [bulkPreviewConfigurationKey, setBulkPreviewConfigurationKey] = React.useState<
     string | null
   >(null);
-  const [bulkSubmitting, setBulkSubmitting] = React.useState(false);
+  const [bulkSubmitting, setBulkSubmitting] = React.useState<null | "preview" | "apply">(null);
   const [historyJson, setHistoryJson] = React.useState("");
   const [historyPreview, setHistoryPreview] = React.useState<HistoryImportSummary | null>(null);
   const [historyPreviewPayload, setHistoryPreviewPayload] = React.useState("");
+  const [importingHistory, setImportingHistory] = React.useState<null | "preview" | "import">(null);
   const [documentLinks, setDocumentLinks] = React.useState<
     Record<string, { resourceType: ResourceType; resourceId: string }>
   >({});
@@ -371,13 +374,17 @@ export default function RevenueDataQuality() {
     React.useState<RevenueDealHistoryActivityBackfillSummary | null>(null);
   const [activityBackfillPreviewSelection, setActivityBackfillPreviewSelection] =
     React.useState("");
+  const [previewingBackfill, setPreviewingBackfill] = React.useState(false);
+  const [backfilling, setBackfilling] = React.useState(false);
   const [commercialBacklog, setCommercialBacklog] =
     React.useState<RevenueCommercialValueBacklogPage | null>(null);
   const [commercialBacklogUnavailable, setCommercialBacklogUnavailable] = React.useState(false);
   const [selectedCommercialDealIds, setSelectedCommercialDealIds] = React.useState<string[]>([]);
   const [stripeConnections, setStripeConnections] = React.useState<IntegrationConnection[]>([]);
   const [stripeConnectionId, setStripeConnectionId] = React.useState("");
-  const [commercialSubmitting, setCommercialSubmitting] = React.useState(false);
+  const [commercialSubmitting, setCommercialSubmitting] = React.useState<
+    null | "finance" | "stripe"
+  >(null);
 
   const reload = React.useCallback(async () => {
     const [
@@ -476,6 +483,7 @@ export default function RevenueDataQuality() {
     setMergePreview(null);
     setMergeConfirm("");
     setMergeResolutions({});
+    setPreviewingMerge(`${candidate.id}:${targetId}`);
     try {
       const result = await api.get<MergePreview>(
         `${base}/records/${candidate.resourceType}/${sourceId}/merge-preview?targetId=${targetId}`,
@@ -491,6 +499,8 @@ export default function RevenueDataQuality() {
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPreviewingMerge(null);
     }
   }
 
@@ -579,6 +589,7 @@ export default function RevenueDataQuality() {
 
   async function commitMerge() {
     if (!mergeCandidate || !mergePreview) return;
+    setMerging(true);
     try {
       await api.post(
         `${base}/records/${mergeCandidate.resourceType}/${mergePreview.source.id}/merge`,
@@ -593,6 +604,8 @@ export default function RevenueDataQuality() {
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setMerging(false);
     }
   }
 
@@ -630,7 +643,7 @@ export default function RevenueDataQuality() {
       setError("Preview the current bulk settings before applying them.");
       return;
     }
-    setBulkSubmitting(true);
+    setBulkSubmitting(dryRun ? "preview" : "apply");
     setError(null);
     setBulkJob(null);
     if (dryRun) setBulkPreviewConfigurationKey(null);
@@ -671,7 +684,7 @@ export default function RevenueDataQuality() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBulkSubmitting(false);
+      setBulkSubmitting(null);
     }
   }
 
@@ -692,6 +705,7 @@ export default function RevenueDataQuality() {
   }
 
   async function importHistory(dryRun: boolean) {
+    setImportingHistory(dryRun ? "preview" : "import");
     try {
       const payload = parsedJson(historyJson) as Record<string, unknown>;
       const result = await api.post<HistoryImportSummary>(`${base}/deal-history/import`, {
@@ -707,6 +721,8 @@ export default function RevenueDataQuality() {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setImportingHistory(null);
     }
   }
 
@@ -728,6 +744,7 @@ export default function RevenueDataQuality() {
     setError(null);
     setActivityBackfillPreview(null);
     setActivityBackfillPreviewSelection("");
+    setPreviewingBackfill(true);
     try {
       const dealIds = [...selectedHistoryDealIds].sort();
       const result = await api.post<RevenueDealHistoryActivityBackfillSummary>(
@@ -738,6 +755,8 @@ export default function RevenueDataQuality() {
       setActivityBackfillPreviewSelection(historySelectionKey(dealIds));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPreviewingBackfill(false);
     }
   }
 
@@ -749,6 +768,7 @@ export default function RevenueDataQuality() {
       return;
     }
     setError(null);
+    setBackfilling(true);
     try {
       await api.post<RevenueDealHistoryActivityBackfillSummary>(
         `${base}/deal-history/activity-backfill`,
@@ -764,6 +784,8 @@ export default function RevenueDataQuality() {
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBackfilling(false);
     }
   }
 
@@ -791,8 +813,8 @@ export default function RevenueDataQuality() {
 
   async function proposeSelectedFinanceValues() {
     const dealIds = selectedCommercialDeals("finance");
-    if (dealIds.length === 0 || commercialSubmitting) return;
-    setCommercialSubmitting(true);
+    if (dealIds.length === 0 || commercialSubmitting !== null) return;
+    setCommercialSubmitting("finance");
     setError(null);
     try {
       await api.post<{ proposed: number; ambiguousAccounts: number }>(
@@ -807,14 +829,14 @@ export default function RevenueDataQuality() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setCommercialSubmitting(false);
+      setCommercialSubmitting(null);
     }
   }
 
   async function proposeSelectedStripeValues() {
     const dealIds = selectedCommercialDeals("stripe");
-    if (!stripeConnectionId || dealIds.length === 0 || commercialSubmitting) return;
-    setCommercialSubmitting(true);
+    if (!stripeConnectionId || dealIds.length === 0 || commercialSubmitting !== null) return;
+    setCommercialSubmitting("stripe");
     setError(null);
     try {
       const result = await api.post<{
@@ -837,7 +859,7 @@ export default function RevenueDataQuality() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setCommercialSubmitting(false);
+      setCommercialSubmitting(null);
     }
   }
 
@@ -1009,12 +1031,14 @@ export default function RevenueDataQuality() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="secondary"
+              loading={previewingBackfill}
               disabled={selectedHistoryDealIds.length === 0}
               onClick={() => void previewActivityBackfill()}
             >
               Preview backfill
             </Button>
             <Button
+              loading={backfilling}
               disabled={
                 !activityBackfillPreview ||
                 activityBackfillPreviewSelection !== historySelectionKey(selectedHistoryDealIds) ||
@@ -1108,7 +1132,7 @@ export default function RevenueDataQuality() {
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={commercialSubmitting}
+                  disabled={commercialSubmitting !== null}
                   onClick={() =>
                     setSelectedCommercialDealIds(
                       commercialBacklog.rows
@@ -1123,7 +1147,7 @@ export default function RevenueDataQuality() {
                   size="sm"
                   variant="secondary"
                   disabled={
-                    commercialSubmitting ||
+                    commercialSubmitting !== null ||
                     !commercialBacklog.rows.some(
                       (row) =>
                         Boolean(row.stripeCandidate) &&
@@ -1147,7 +1171,7 @@ export default function RevenueDataQuality() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={commercialSubmitting || selectedCommercialDealIds.length === 0}
+                  disabled={commercialSubmitting !== null || selectedCommercialDealIds.length === 0}
                   onClick={() => setSelectedCommercialDealIds([])}
                 >
                   Clear
@@ -1195,7 +1219,7 @@ export default function RevenueDataQuality() {
                           type="checkbox"
                           className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           checked={selectedCommercialDealIds.includes(row.dealId)}
-                          disabled={!selectable || commercialSubmitting}
+                          disabled={!selectable || commercialSubmitting !== null}
                           onChange={(event) =>
                             toggleCommercialDeal(row.dealId, event.target.checked)
                           }
@@ -1216,10 +1240,12 @@ export default function RevenueDataQuality() {
               )}
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <Button
-                  disabled={commercialSubmitting || selectedCommercialDeals("finance").length === 0}
+                  loading={commercialSubmitting === "finance"}
+                  disabled={
+                    commercialSubmitting !== null || selectedCommercialDeals("finance").length === 0
+                  }
                   onClick={() => void proposeSelectedFinanceValues()}
                 >
-                  {commercialSubmitting ? <Spinner size={14} /> : null}
                   Propose Finance values ({selectedCommercialDeals("finance").length})
                 </Button>
                 {stripeConnections.length > 0 ? (
@@ -1228,7 +1254,7 @@ export default function RevenueDataQuality() {
                       label="Stripe Connection"
                       value={stripeConnectionId}
                       onChange={(event) => setStripeConnectionId(event.target.value)}
-                      disabled={commercialSubmitting}
+                      disabled={commercialSubmitting !== null}
                     >
                       {stripeConnections.map((connection) => (
                         <option key={connection.id} value={connection.id}>
@@ -1237,14 +1263,14 @@ export default function RevenueDataQuality() {
                       ))}
                     </Select>
                     <Button
+                      loading={commercialSubmitting === "stripe"}
                       disabled={
-                        commercialSubmitting ||
+                        commercialSubmitting !== null ||
                         !stripeConnectionId ||
                         selectedCommercialDeals("stripe").length === 0
                       }
                       onClick={() => void proposeSelectedStripeValues()}
                     >
-                      {commercialSubmitting ? <Spinner size={14} /> : null}
                       Propose Stripe values ({selectedCommercialDeals("stripe").length})
                     </Button>
                   </>
@@ -1287,6 +1313,7 @@ export default function RevenueDataQuality() {
                   <Button
                     size="sm"
                     variant="secondary"
+                    loading={previewingMerge === `${candidate.id}:${candidate.leftId}`}
                     onClick={() => void previewMerge(candidate, candidate.leftId)}
                   >
                     Keep left
@@ -1294,6 +1321,7 @@ export default function RevenueDataQuality() {
                   <Button
                     size="sm"
                     variant="secondary"
+                    loading={previewingMerge === `${candidate.id}:${candidate.rightId}`}
                     onClick={() => void previewMerge(candidate, candidate.rightId)}
                   >
                     Keep right
@@ -1379,6 +1407,7 @@ export default function RevenueDataQuality() {
               />
               <Button
                 variant="danger"
+                loading={merging}
                 disabled={mergeConfirm !== mergePreview.source.label}
                 onClick={() => void commitMerge()}
               >
@@ -1587,14 +1616,16 @@ export default function RevenueDataQuality() {
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              disabled={bulkSubmitting}
+              loading={bulkSubmitting === "preview"}
+              disabled={bulkSubmitting !== null}
               onClick={() => void runBulk(true)}
             >
-              {bulkSubmitting && !bulkJob ? <Spinner size={14} /> : null} Preview
+              Preview
             </Button>
             <Button
+              loading={bulkSubmitting === "apply"}
               disabled={
-                bulkSubmitting ||
+                bulkSubmitting !== null ||
                 !bulkResult?.dryRun ||
                 bulkPreviewConfigurationKey !== bulkConfigurationKey()
               }
@@ -1673,12 +1704,14 @@ export default function RevenueDataQuality() {
           <div className="mt-3 flex gap-2">
             <Button
               variant="secondary"
+              loading={importingHistory === "preview"}
               disabled={!historyJson.trim()}
               onClick={() => void importHistory(true)}
             >
               Preview import
             </Button>
             <Button
+              loading={importingHistory === "import"}
               disabled={
                 !historyJson.trim() ||
                 historyPreviewPayload !== historyJson ||
@@ -1725,10 +1758,11 @@ export default function RevenueDataQuality() {
                 key={resource}
                 onClick={() => void downloadSnapshot(resource)}
                 disabled={exporting !== null}
+                aria-busy={exporting === resource || undefined}
                 className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 {exporting === resource ? "Exporting all pages…" : resource.replaceAll("_", " ")}
-                {exporting === resource ? <Spinner size={14} /> : <Download size={14} />}
+                {exporting === resource ? <ButtonSpinner size={14} /> : <Download size={14} />}
               </button>
             ))}
           </div>

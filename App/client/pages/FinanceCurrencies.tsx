@@ -381,7 +381,7 @@ function RateModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || from === to || !rate}>
+          <Button type="submit" loading={busy} disabled={from === to || !rate}>
             Save rate
           </Button>
         </div>
@@ -456,7 +456,7 @@ function AddCurrencyModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !code || !name}>
+          <Button type="submit" loading={busy} disabled={!code || !name}>
             Add currency
           </Button>
         </div>

@@ -9,25 +9,26 @@ export function Security() {
         lead={
           <>
             Protect each human Member account with verified email, revocable sessions, and an
-            authenticator app, passwordless passkey, or FIDO2 USB security key such as YubiKey.
+            authenticator app, passwordless passkey, or FIDO2 USB security key such as YubiKey —
+            and give each company its own single sign-on and audit log.
           </>
         }
       />
 
       <H2 id="email-verification">Email verification and passwords</H2>
       <P>
-        Shared SaaS mode sends a single-use verification link after signup. A Member must verify
-        that address before creating a company or accepting an invitation, and the signed-in address
-        must exactly match the invitation recipient. New and reset passwords require at least 12
-        characters. A password change invalidates every older signed-in session. A password reset
-        also revokes every personal API key because it is treated as account recovery after a
-        possible credential compromise.
+        Genosyn sends a single-use verification link after signup. To accept an invitation, the
+        signed-in address must exactly match the invitation recipient. New and reset passwords
+        require at least 12 characters. A password change invalidates every older signed-in
+        session. A password reset also revokes every personal API key and unlinks any identity a
+        company&apos;s single sign-on linked, because it is treated as account recovery after a
+        possible credential compromise. That company&apos;s SSO asks for the new password once;
+        install-wide SSO is unaffected.
       </P>
       <P>
-        Every install — self-hosted included — shows the state of your own address at{" "}
-        <Strong>Account → Profile</Strong>, under the email field: a green <Strong>Verified</Strong>
-        {" "}
-        tag once the mailbox is proven, or an amber <Strong>Unverified</Strong> one with a{" "}
+        <Strong>Account → Profile</Strong> shows the state of your own address under the email
+        field: a green <Strong>Verified</Strong> tag once the mailbox is proven, or an amber{" "}
+        <Strong>Unverified</Strong> one with a{" "}
         <Strong>Resend verification email</Strong> button beside it. Each resend issues a new link
         and retires the previous one, so use the newest email you received. Links are valid for 24
         hours.
@@ -39,10 +40,10 @@ export function Security() {
         brings you back to <Strong>Accept invitation</Strong>; creating an account does not join
         the company automatically.
       </P>
-      <Callout kind="info" title="Self-hosted installs verify too.">
-        Instance administration is closed to an unverified account on every install, not only shared
-        SaaS — <Code>Admin</Code> answers &ldquo;Verify your email before using instance
-        administration&rdquo; until the mailbox is proven. Resend the link from{" "}
+      <Callout kind="info" title="Instance administration needs a verified email.">
+        Instance administration is closed to an unverified account — <Code>Admin</Code> answers
+        &ldquo;Verify your email before using instance administration&rdquo; until the mailbox is
+        proven. Resend the link from{" "}
         <Strong>Account → Profile</Strong>. If the instance has no email transport configured yet,
         the page says so rather than claiming the mail was sent, and the link is written to the
         server log — see <DocLink to="/docs/self-hosting">Configuration</DocLink> for how to read it
@@ -177,6 +178,79 @@ export function Security() {
         an account only when the identity provider affirmatively reports a verified email address.
       </P>
 
+      <H2 id="company-sso">Company single sign-on</H2>
+      <P>
+        Each company can sign its Members in through its own identity provider, separately from the
+        install-wide SSO a master admin configures at <Code>Admin → SSO</Code> (see{" "}
+        <DocLink to="/docs/self-hosting#sso">Configuration</DocLink>). A company owner or admin
+        opens <Strong>Settings → Single sign-on</Strong>, picks <Strong>Google</Strong> or{" "}
+        <Strong>Custom OpenID Connect</Strong> (Okta, Keycloak, Microsoft Entra ID, Auth0, or
+        anything OIDC-compliant), then:
+      </P>
+      <Callout kind="info" title="A master admin allows it first.">
+        Company single sign-on is off on every install until a master admin turns on{" "}
+        <Strong>Let companies use their own identity provider</Strong> at{" "}
+        <Code>Admin → SSO</Code>. A company&apos;s provider can sign its Members in to their whole
+        Genosyn account, so that is the operator&apos;s call. Until then a company can save its
+        settings but not turn them on. An install where a company already has its own SSO turned
+        on keeps it allowed until a master admin decides.
+      </Callout>
+      <OL>
+        <LI>
+          Registers an OAuth client at the identity provider with the <Strong>Callback URL</Strong>{" "}
+          shown under <Strong>URLs</Strong> as its authorized redirect URI. Every company on the
+          install shares <Code>&lt;public URL&gt;/api/auth/sso/company/callback</Code>.
+        </LI>
+        <LI>
+          Pastes the <Strong>Client ID</Strong> and <Strong>Client secret</Strong>, plus the{" "}
+          <Strong>Issuer URL</Strong> for a custom provider. <Strong>Check issuer</Strong> verifies
+          the provider&apos;s discovery document first. The secret is stored encrypted and never
+          shown again; leave the field blank later to keep it.
+        </LI>
+        <LI>
+          Turns on <Strong>Enable SSO sign-in</Strong>, chooses <Strong>Save SSO settings</Strong>,
+          and shares the <Strong>Login URL</Strong> —{" "}
+          <Code>&lt;public URL&gt;/login/sso/&lt;company-slug&gt;</Code> — with the company&apos;s
+          Members.
+        </LI>
+      </OL>
+      <P>
+        Once any company on the install has enabled its own SSO, the ordinary login page also offers{" "}
+        <Strong>Sign in with your company&apos;s SSO</Strong>, which asks for the workspace name from
+        the company&apos;s Genosyn URL. Password login keeps working either way, and{" "}
+        <Strong>Reset</Strong> removes the stored configuration and turns company SSO off.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Auto-join on first sign-in</Strong> — anyone the identity provider vouches for
+          joins the company as a Member, and an unknown email gets a new Genosyn account. Turned
+          off, company SSO signs in existing Members only. Because any company can point SSO at a
+          provider it runs, a company&apos;s provider never counts as proof that someone owns an
+          address: an account it creates is sent a verification link, like a signup. While
+          sign-ups are disabled at <Code>Admin → Sign-ups</Code>, only people the company has
+          invited get a new account this way.
+        </LI>
+        <LI>
+          <Strong>Allowed email domains</Strong> — a comma-separated list. Only emails on these
+          domains can join or get an account through company SSO; Members already linked keep
+          signing in. The Google preset requires the list before auto-join can be enabled, because a
+          Google OAuth client signs in any Google account. Leave it blank with a custom provider to
+          trust whoever that provider vouches for.
+        </LI>
+        <LI>
+          <Strong>Existing accounts</Strong> — a company&apos;s identity provider never takes over
+          an existing Genosyn account silently. When it asserts an email that already has an
+          account, that account must already be a Member of the company — invite it first. The
+          confirmation names the company, its workspace name, and the provider&apos;s address,
+          and warns that the provider will be able to sign in to the whole account; the person
+          enters their password once and chooses{" "}
+          <Strong>Link and sign in</Strong>, and after that the provider&apos;s stable subject
+          identifies the account. A wrong password or a confirmation older than ten minutes means
+          starting the SSO sign-in again, and wrong passwords count toward the same lockout as the
+          login form.
+        </LI>
+      </UL>
+
       <H2 id="api-keys">Personal API keys</H2>
       <P>
         A personal API key is bound to exactly one company and is accepted only under that
@@ -244,14 +318,24 @@ export function Security() {
         <Strong>Settings → Company</Strong> and turn on{" "}
         <Strong>Require two-factor authentication</Strong>. Members without a method must enroll one
         under <Strong>Account → Security</Strong> before they can access or join that company.
-        Genosyn then prevents them from removing their final method. See the full hosted baseline in{" "}
-        <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
+        Genosyn then prevents them from removing their final method.
+      </P>
+
+      <H2 id="audit-log">Audit log</H2>
+      <P>
+        Every company keeps an append-only record of changes made by Members, AI Employees, the
+        scheduler, webhooks, and the system. Company owners and admins read it at{" "}
+        <Strong>Settings → Audit log</Strong>, newest first; expand an event to see its recorded
+        details, and follow <Strong>in a routine run</Strong> to open the Run an AI Employee made
+        the change from.
       </P>
       <P>
-        Shared SaaS mode always requires master admins to enroll and complete 2FA in the current
-        browser session. Successful enrollment counts immediately, without another sign-in. That
-        session can use the install-wide Admin APIs until it expires or is revoked; operator actions
-        do not require a separate recent sign-in.
+        Narrow the log by actor kind, by one AI Employee, by action prefix —{" "}
+        <Code>invoice.</Code> matches every invoice change — or by start date, then choose{" "}
+        <Strong>Load older events</Strong> to page further back. Every Member can see one
+        employee&apos;s recorded work on its{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> and a Run&apos;s own
+        effects in its Run log.
       </P>
 
       <Callout kind="tip" title="SSO-only account?">

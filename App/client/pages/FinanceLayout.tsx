@@ -1,39 +1,17 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
-import {
-  BarChart3,
-  BookOpen,
-  Building2,
-  Calendar,
-  ClipboardCheck,
-  Coins,
-  CreditCard,
-  FileSignature,
-  FileText,
-  Undo2,
-  Inbox,
-  Layers,
-  LayoutTemplate,
-  LineChart,
-  Link2,
-  NotebookPen,
-  Package,
-  Percent,
-  Repeat,
-  ScanSearch,
-  ScrollText,
-  Settings,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { Wallet } from "lucide-react";
 import { Company } from "../lib/api";
-import { ContextualLayout, SidebarLink } from "../components/AppShell";
+import { ContextualLayout } from "../components/AppShell";
+import { SectionRailLinks } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/finance/*`. Phase A of the Finance
  * milestone (M19) — see ROADMAP.md.
  *
- * Sub-nav mirrors the Settings layout: a vertical list of section links.
+ * Sub-nav mirrors the Settings layout: a vertical list of section links,
+ * drawn from the subpage catalogue (`lib/subpages.ts`) the ⌘K palette also
+ * searches — add a Finance page there, not here.
  * Children read `company` from Outlet context so each page can build
  * `/api/companies/:cid/...` URLs without re-deriving it from the route.
  */
@@ -43,8 +21,6 @@ export type FinanceOutletCtx = {
 };
 
 export default function FinanceLayout({ company }: { company: Company }) {
-  const base = `/c/${company.slug}/finance`;
-
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
@@ -53,80 +29,7 @@ export default function FinanceLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SidebarLink to={base} end icon={<BarChart3 size={14} />} label="Overview" />
-        <SidebarLink
-          to={`${base}/estimates`}
-          icon={<FileSignature size={14} />}
-          label="Estimates"
-        />
-        <SidebarLink to={`${base}/invoices`} icon={<FileText size={14} />} label="Invoices" />
-        <SidebarLink
-          to={`${base}/customer-statements`}
-          icon={<ScrollText size={14} />}
-          label="Customer statements"
-        />
-        <SidebarLink
-          to={`${base}/credit-notes`}
-          icon={<Undo2 size={14} />}
-          label="Credit notes"
-        />
-        <SidebarLink
-          to={`${base}/recurring-invoices`}
-          icon={<Repeat size={14} />}
-          label="Recurring"
-        />
-        <SidebarLink to={`${base}/bills`} icon={<Inbox size={14} />} label="Bills" />
-        <SidebarLink to={`${base}/vendors`} icon={<Building2 size={14} />} label="Vendors" />
-        <SidebarLink
-          to={`${base}/vendor-credits`}
-          icon={<Undo2 size={14} />}
-          label="Vendor credits"
-        />
-        <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Ledger
-        </div>
-        <SidebarLink
-          to={`${base}/transactions`}
-          icon={<ScanSearch size={14} />}
-          label="Transactions"
-        />
-        <SidebarLink to={`${base}/journal`} icon={<NotebookPen size={14} />} label="Journal" />
-        <SidebarLink
-          to={`${base}/proposals`}
-          icon={<ClipboardCheck size={14} />}
-          label="Proposals"
-        />
-        <SidebarLink to={`${base}/accounts`} icon={<BookOpen size={14} />} label="Accounts" />
-        <SidebarLink
-          to={`${base}/trial-balance`}
-          icon={<Layers size={14} />}
-          label="Trial balance"
-        />
-        <SidebarLink to={`${base}/reports`} icon={<LineChart size={14} />} label="Reports" />
-        <SidebarLink to={`${base}/reconcile`} icon={<Link2 size={14} />} label="Reconcile" />
-        <SidebarLink
-          to={`${base}/card-expenses`}
-          icon={<CreditCard size={14} />}
-          label="Card expenses"
-        />
-        <SidebarLink
-          to={`${base}/periods`}
-          icon={<Calendar size={14} />}
-          label="Periods & exports"
-        />
-        <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Catalog
-        </div>
-        <SidebarLink to={`${base}/products`} icon={<Package size={14} />} label="Products" />
-        <SidebarLink to={`${base}/tax-rates`} icon={<Percent size={14} />} label="Tax rates" />
-        <SidebarLink to={`${base}/currencies`} icon={<Coins size={14} />} label="Currencies" />
-        <SidebarLink
-          to={`${base}/templates`}
-          icon={<LayoutTemplate size={14} />}
-          label="Templates"
-        />
-        <SidebarLink to={`${base}/settings`} icon={<Settings size={14} />} label="Settings" />
-        <SidebarLink to={`${base}/ai-access`} icon={<Users size={14} />} label="AI access" />
+        <SectionRailLinks section="finance" companySlug={company.slug} />
       </nav>
     </div>
   );

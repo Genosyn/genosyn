@@ -1,0 +1,70 @@
+{{- /*
+cert-manager issuance for the Ingress TLS Secrets (ingress.tls.certManager).
+cert-manager itself is a cluster add-on: installing its CRDs and webhook in
+the same release as the Certificates that use them cannot work, because Helm
+validates every resource before any of them exists.
+*/ -}}
+{{- $certManager := default dict .Values.ingress.tls.certManager }}
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled $certManager.enabled }}
+{{- $connect := include "genosyn.connectIngress" . | fromYaml }}
+{{- $issuerRef := default dict $certManager.issuerRef }}
+{{- $issuerName := $issuerRef.name | default (printf "%s-acme" (include "genosyn.fullname" . | trunc 58 | trimSuffix "-")) }}
+{{- $issuerKind := $issuerRef.kind | default "Issuer" }}
+{{- $certificates := list (list .Values.ingress.tls.secretName .Values.ingress.host) }}
+{{- if $connect.enabled }}
+{{- $certificates = append $certificates (list $connect.tlsSecretName $connect.host) }}
+{{- end }}
+{{- if not $issuerRef.name }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $issuerName }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+spec:
+  acme:
+    server: {{ $certManager.server | default "https://acme-v02.api.letsencrypt.org/directory" | quote }}
+    {{- with $certManager.email }}
+    email: {{ . | quote }}
+    {{- end }}
+    privateKeySecretRef:
+      name: {{ printf "%s-acme-account" (include "genosyn.fullname" . | trunc 50 | trimSuffix "-") }}
+    solvers:
+      - http01:
+          {{- if or (include "genosyn.gke.enabled" .) (eq .Values.ingress.className "gce") }}
+          # GKE gives each Ingress its own address, so the challenge is
+          # answered through the App's Ingress rather than a new one.
+          ingress:
+            name: {{ include "genosyn.fullname" . }}
+          {{- else if .Values.ingress.className }}
+          ingress:
+            ingressClassName: {{ .Values.ingress.className }}
+          {{- else }}
+          # No IngressClass: the cluster's default serves the challenge.
+          ingress: {}
+          {{- end }}
+{{- end }}
+{{- range $certificates }}
+{{- $secretName := index . 0 }}
+{{- $host := index . 1 }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "genosyn.labels" $ | nindent 4 }}
+  annotations:
+    # A self-signed placeholder until the first issuance, so an Ingress that
+    # needs its Secret to exist (GKE) can come up and answer the challenge.
+    cert-manager.io/issue-temporary-certificate: "true"
+spec:
+  secretName: {{ $secretName }}
+  dnsNames:
+    - {{ $host | quote }}
+  issuerRef:
+    kind: {{ $issuerKind }}
+    name: {{ $issuerName }}
+    group: {{ $issuerRef.group | default "cert-manager.io" }}
+{{- end }}
+{{- end }}

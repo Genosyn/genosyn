@@ -201,6 +201,29 @@ test("the request requires an explicit acknowledgement and valid Run ID", async 
   assert.equal(await AppDataSource.getRepository(Run).count(), 1);
 });
 
+for (const ownClaim of [true, false]) {
+  test(`the resume endpoint waits for ${ownClaim ? "this Run's" : "an earlier Run's"} terminal cleanup`, async () => {
+    const runs = AppDataSource.getRepository(Run);
+    if (ownClaim) {
+      await runs.update(source.id, { queueActiveEmployeeId: "run:source:cleanup" });
+    } else {
+      await insert(Run, {
+        employeeId: employee.id,
+        routineId: routine.id,
+        status: "error",
+        errorKind: "timeout",
+        startedAt: new Date(source.startedAt.getTime() - 60_000),
+        finishedAt: source.finishedAt,
+        queueActiveEmployeeId: "run:earlier:cleanup",
+      });
+    }
+    const response = await call();
+    assert.equal(response.status, 409);
+    assert.match(response.body.error!, /cleanup/i);
+    assert.equal(await runs.countBy({ parentRunId: source.id }), 0);
+  });
+}
+
 test("another company's Run stays inaccessible to an administrator", async () => {
   const foreignCompany = await insert(Company, {
     name: "Other",

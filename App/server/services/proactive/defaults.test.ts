@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProactiveInstallation, ProactiveOverview } from "../../../shared/proactive.js";
-import { PlanLimitError } from "../entitlements.js";
 import type { workBlocked } from "../standdowns.js";
 import { PROACTIVE_RECIPES } from "./catalogue.js";
 import { planProactiveDefaults, reconcileProactiveDefaults } from "./defaults.js";
@@ -278,7 +277,7 @@ test("concurrent company reconciliation coalesces and always uses automatic syst
   assert.equal(installed.length, planProactiveDefaults(overview).length);
 });
 
-test("late readiness is retried, expected capacity/setup gaps stay pending, unexpected failures remain visible", async () => {
+test("late readiness is retried, expected setup gaps stay pending, unexpected failures remain visible", async () => {
   const overview = fixture();
   overview.employees.forEach((employee) => {
     employee.modelReady = false;
@@ -292,7 +291,6 @@ test("late readiness is retried, expected capacity/setup gaps stay pending, unex
     install: (async (_companyId, _userId, input) => {
       calls++;
       if (unexpected) throw new Error("Database unavailable");
-      if (input.recipeId === "work-followthrough") throw new PlanLimitError("No capacity");
       if (input.recipeId === "quote-requests") throw new ProactiveSetupError("Grant changed");
       return installation(input);
     }) as typeof installProactiveStarter,

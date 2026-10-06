@@ -1,325 +1,203 @@
-import { Nav } from "@/sections/Nav";
-import { Reveal } from "@/components/Reveal";
-import { Footer, InstallCta } from "@/sections/Footer";
-import { PageHero } from "@/sections/HeroKit";
+import { ArrowRight, BookHeart, CalendarClock, KeyRound, Sparkles } from "lucide-react";
+import { useReveal } from "@/components/Reveal";
+import { INSTALL_DOCS_PATH } from "@/lib/constants";
+import { Link } from "@/lib/router";
+import { findProduct } from "@/products/data";
+import { ROLES } from "@/roles/data";
+import { roleDept, roleHours, roleInitials, roleStop, STOP_WORD } from "@/roles/meta";
+import { ClosingCta, Footer } from "@/sections/Footer";
 import {
-  ActionStrip,
-  Band,
-  Body,
-  Chip,
+  Avatar,
+  Button,
   Container,
-  Field,
-  Head,
-  Row,
-  Sheet,
+  FactRow,
+  NightPanel,
+  Section,
+  SectionHead,
   StateTag,
-  type Dept,
+  TextLink,
 } from "@/sections/Kit";
-import { ROLES, ROLE_DISCIPLINES, type RoleDef, type RoleMoment } from "@/roles/data";
+import { Nav } from "@/sections/Nav";
+import { PageHero } from "@/sections/PageHero";
+import { RoleCard } from "@/sections/Roster";
 
-/**
- * The roster index.
- *
- * The old page opened with a badge, a two-tone headline and a four-tick
- * checklist, then showed one role as a floating preview card and the rest as
- * eight hover-lifting tiles, each in its own pastel hue. The products index
- * was the identical page with different nouns in it, which is the clearest
- * possible sign that neither page was saying anything.
- *
- * In HEADCOUNT it is a roster, and it is the whole inversion drawn as a
- * table. Read a row left to right and you get: the department this role works
- * in, in that department's hue; the hours it keeps; and then, in ink, with no
- * hue at all, the one thing it hands back to a person. Eight coloured chips
- * down one edge, eight black tags down the other, and the black ones are the
- * only work left.
- *
- * Three facts do the differentiating, and they are the three a reader is
- * actually deciding on:
- *
- *   - **Where it works.** The department, not the job title — the Recruiter's
- *     discipline is People and its day happens in the inbox.
- *   - **The hours.** First moment to last moment of the role's own day,
- *     straight out of `data.ts`. Robin works 06:40 to 17:45; nobody starts
- *     that shift.
- *   - **The one thing it hands back.** Every role on the roster stops exactly
- *     once a day, and the question it writes is printed verbatim rather than
- *     summarised. That is the artefact, and a summary of it would be a claim.
- *
- * The Decision / Approval distinction is carried in the mark rather than in a
- * word: seven roles write a Decision, the Marketer trips an Approval when it
- * asks to raise the launch spend. AGENTS.md §3 is emphatic that those are not
- * synonyms, so the roster does not flatten them into one label.
- *
- * The landing page's day switcher and roster grid used to be mounted here as
- * well. They are not any more: the grid was this table drawn worse, and a
- * reader who wants the hour-by-hour version is one row away from the real one.
- */
 export function RolesIndex() {
+  const routines = ROLES.reduce((total, role) => total + role.routines.length, 0);
   return (
-    <div className="min-h-screen bg-ground text-ink">
+    <div className="min-h-screen overflow-x-clip bg-paper text-ink">
       <Nav />
       <main>
         <PageHero
-          eyebrow="Roles"
-          fields={[`${ROLES.length} ROLES`, `${ROLE_DISCIPLINES.length} DISCIPLINES`, "APACHE-2.0"]}
-          title={`${ROLES.length} roles ship written, from ${ROLES[0].short} to ${
-            ROLES[ROLES.length - 1].short
-          }.`}
-          lede={
+          kicker="Roles"
+          title={
             <>
-              Each role below is a document you edit: a Soul, the Skills its job repeats, and
-              Routines on a cron line. The table gives the department it works in, the hours it
-              keeps, and the question it hands back to a person.
+              {`${ROLES.length} roles, written hour by hour.`}
             </>
           }
+          lede="Every role is a Soul, a set of Skills and Routines on a schedule. Read one working day of each — what it did, where it did it, and the one moment it stopped for a person. Hire it as written, or write one only your company has."
           actions={
             <>
-              <ActionStrip href={`/roles/${ROLES[0].slug}`} trailing="Read">
-                {`${ROLES[0].person}'s Tuesday, hour by hour`}
-              </ActionStrip>
-              <ActionStrip href="/docs/employees" trailing="Docs">
-                How a Soul and its Skills are written
-              </ActionStrip>
+              <Button href={INSTALL_DOCS_PATH} variant="ink" arrow>
+                Install Genosyn
+              </Button>
+              <Button href="/docs/employees" variant="outline">
+                How a role is written
+              </Button>
             </>
           }
+          meta={<FactRow items={[`${ROLES.length} worked roles`, `${routines} Routines`, "1 stop each"]} />}
         />
 
         <Roster />
-
-        <InstallCta />
+        <WriteYourOwn />
+        <SideBySide />
+        <ClosingCta />
       </main>
       <Footer />
     </div>
   );
 }
 
-/* -------------------------------------------------------------------------
-   Where each role works
-------------------------------------------------------------------------- */
-
-/**
- * The department a role's day happens in.
- *
- * This is not the discipline — the disciplines group the table, and a job
- * title is not a place. Six of them line up with the obvious surface, and the
- * two that do not are the interesting ones:
- *
- *   - **The Analyst works in Operations.** Its day is Explore and Pipelines,
- *     which is the machine room rather than a department of its own.
- *   - **The Recruiter works in Email.** Its Routines are candidate replies
- *     and a feedback chase; the pipeline lives in a Base, but the day is
- *     mail. The `people` hue exists for the Recruiter and is deliberately not
- *     spent here: it is reserved for that role's own page, and a hue that
- *     appears exactly once on a roster of eight teaches a reader nothing.
- */
-const ROLE_DEPT: Record<string, Dept> = {
-  sdr: "revenue",
-  "executive-assistant": "workspace",
-  marketer: "marketing",
-  support: "email",
-  bookkeeper: "finance",
-  engineer: "repositories",
-  recruiter: "email",
-  analyst: "operations",
-};
-
-/** The department's name as a reader would say it, for the chip. */
-const DEPT_NAME: Record<Dept, string> = {
-  finance: "Finance",
-  repositories: "Repositories",
-  marketing: "Marketing",
-  workspace: "Workspace",
-  email: "Email",
-  revenue: "Revenue",
-  operations: "Operations",
-  people: "People",
-};
-
-/* -------------------------------------------------------------------------
-   The roster
-------------------------------------------------------------------------- */
-
-/**
- * Column widths, shared by the header and every row so the two stay in step.
- *
- * The department sits second, directly beside the 3px spine it names: a
- * legend three columns away from the thing it explains is not a legend. The
- * grid only exists from `lg`. Below that the cells stack, which is the only
- * honest projection at 375px — the last column is a whole question in prose
- * and a phone has no room to put it beside anything.
- */
-const COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[13rem_8rem_9.5rem_minmax(0,1fr)]";
-
-/**
- * Row cells set their own colour, so they also have to answer the row's hover
- * inversion — `Row` puts `group` on the link and flips the text on itself,
- * which cannot reach a child that has already declared a colour of its own.
- * The department chip is deliberately left out of it: it is a department fill
- * carrying white, and it stays that on ink the way a department stays itself.
- * The state tag is left out too, but it is not left alone — it answers the
- * hover by inverting rather than by recolouring its text. See `RoleRow`.
- */
 function Roster() {
+  const grid = useReveal<HTMLUListElement>(0, 55);
   return (
-    <Band id="roster" tone="ground" pad="m">
+    <Section id="roster" space="none" className="pb-20 sm:pb-24">
       <Container>
-        <Head
-          eyebrow="Roster"
-          title={`${ROLES.length} roles stop once each, ${STOP_WINDOW}.`}
-          lede={
+        <ul ref={grid} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {ROLES.map((role) => (
+            <li key={role.slug} className="min-w-0">
+              <RoleCard role={role} />
+            </li>
+          ))}
+        </ul>
+      </Container>
+    </Section>
+  );
+}
+
+function SideBySide() {
+  return (
+    <Section id="compare" tone="raised" space="md" rule>
+      <Container>
+        <SectionHead
+          kicker="Side by side"
+          title={
             <>
-              Every role runs its own day unattended and stops once, at the moment it needs a
-              person. That stop is the state tag on the right of each row, using a semantic status
-              colour rather than the role’s department hue.
+              Each works its own day, and stops once.
             </>
           }
-          // Both fields are emitted data. "1 STOP PER ROLE" was a claim set in
-          // mono, and it restated the count beside it; the clock range is read
-          // off the same marked moments the count is.
-          aside={
-            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
-              <Field>{STOP_COUNT_FIELD}</Field>
-              <Field>{STOP_RANGE_FIELD}</Field>
-            </div>
-          }
+          lede="Every role runs unattended through its sample day and stops exactly once — for a Decision it writes itself, or an Approval the system holds for an admin."
         />
-
-        <div className="mt-10">
-          <div className={`hidden w-full px-4 pb-2 lg:grid ${COLUMNS}`}>
-            <Sheet>Role</Sheet>
-            <Sheet>Works in</Sheet>
-            <Sheet>Hours</Sheet>
-            <Sheet>Hands back</Sheet>
-          </div>
-
-          {ROLE_DISCIPLINES.map((discipline) => {
-            const roles = ROLES.filter((role) => role.discipline === discipline);
-            if (roles.length === 0) return null;
-
-            return (
-              <section
-                key={discipline}
-                aria-label={discipline}
-                className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm first:mt-0"
-              >
-                {/* The head carries the discipline and nothing else. A count
-                    belongs beside a group that has one worth reading, and
-                    "1 ROLE" printed eight times down the page is furniture. */}
-                <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
-                  <span className="text-sm font-semibold text-slate-900">{discipline}</span>
-                </div>
-
-                <Reveal stagger={45} className="divide-y divide-slate-100">
-                  {roles.map((role) => (
-                    <RoleRow key={role.slug} role={role} />
-                  ))}
-                </Reveal>
-              </section>
-            );
-          })}
+        <div className="scrollbar-none mt-12 overflow-x-auto rounded-3xl border border-line bg-paper">
+          <table className="w-full min-w-[56rem] border-collapse text-left">
+            <caption className="sr-only">Every role&apos;s hours, Runs, stop and products</caption>
+            <thead>
+              <tr className="border-b border-line font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-400">
+                <th scope="col" className="px-6 py-4 font-medium">Role</th>
+                <th scope="col" className="px-4 py-4 font-medium">Hours</th>
+                <th scope="col" className="px-4 py-4 font-medium">Runs</th>
+                <th scope="col" className="px-4 py-4 font-medium">Stops for you</th>
+                <th scope="col" className="px-4 py-4 font-medium">Works in</th>
+                <th scope="col" className="px-6 py-4">
+                  <span className="sr-only">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {ROLES.map((role) => {
+                const stop = roleStop(role);
+                const products = role.products.flatMap((slug) => findProduct(slug) ?? []);
+                return (
+                  <tr key={role.slug} className="group transition-colors hover:bg-white">
+                    <th scope="row" className="px-6 py-4 font-normal">
+                      <Link href={`/roles/${role.slug}`} className="flex items-center gap-3">
+                        <Avatar initials={roleInitials(role)} dept={roleDept(role)} size="sm" />
+                        <span>
+                          <span className="block text-[14.5px] font-medium text-ink">{role.name}</span>
+                          <span className="block text-[12.5px] text-ink-500">{`${role.person} · ${role.discipline}`}</span>
+                        </span>
+                      </Link>
+                    </th>
+                    <td className="px-4 py-4 font-mono text-[12.5px] text-ink-600">{roleHours(role)}</td>
+                    <td className="px-4 py-4 font-mono text-[12.5px] text-ink-600">{role.day.length}</td>
+                    <td className="px-4 py-4">
+                      {stop ? (
+                        <span className="inline-flex items-center gap-2">
+                          <StateTag state={stop.kind}>{STOP_WORD[stop.kind]}</StateTag>
+                          <span className="font-mono text-[12px] text-ink-500">{stop.time}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[13px] text-ink-400">None</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-[13.5px] text-ink-600">
+                      {products
+                        .slice(0, 3)
+                        .map((product) => product.name)
+                        .join(", ")}
+                      {products.length > 3 ? ` +${products.length - 3}` : ""}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        href={`/roles/${role.slug}`}
+                        aria-label={`Read the ${role.name} page`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line text-ink-500 transition-colors group-hover:border-ink group-hover:bg-ink group-hover:text-white"
+                      >
+                        <ArrowRight aria-hidden className="h-4 w-4" />
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </Container>
-    </Band>
+    </Section>
   );
 }
 
-/**
- * One role.
- *
- * `opens` promotes the top border of a group's first row from a hairline to
- * the structural weight, which is how a group boundary is drawn without a
- * second element: a `Rule` placed above the row would sit under the row's own
- * `-mt-px` and disappear, and giving it room instead draws a double line.
- */
-function RoleRow({ role }: { role: RoleDef }) {
-  const moment = stop(role);
-  const state = moment?.kind === "approval" ? "approval" : "decision";
-  const dept = ROLE_DEPT[role.slug];
-  const first = role.day[0].time;
-  const last = role.day[role.day.length - 1].time;
+const PARTS = [
+  { icon: BookHeart, name: "Soul", body: "How it judges: what to do first, and when to stop and ask instead of guessing." },
+  { icon: Sparkles, name: "Skills", body: "The playbooks for the work your company repeats, each with a definition of done." },
+  { icon: CalendarClock, name: "Routines", body: "The schedule that starts the work, so nobody has to remember to." },
+  { icon: KeyRound, name: "Grants", body: "Exactly which Connections, notebooks and Repositories it may touch." },
+];
 
+function WriteYourOwn() {
   return (
-    <Row
-      href={`/roles/${role.slug}`}
-      className="!mt-0 !rounded-none !border-0 !px-4 !py-4 !shadow-none transition-colors hover:!bg-slate-50 hover:!text-slate-900"
-    >
-      <div className={`grid w-full min-w-0 ${COLUMNS}`}>
-        <div className="min-w-0">
-          <Body className="!text-[1rem] !font-semibold !leading-6 !text-slate-900 group-hover:!text-indigo-700">
-            {role.name}
-          </Body>
-          <span className="mt-1 block text-xs text-slate-500">{role.person}</span>
-        </div>
-
-        <div className="min-w-0">
-          <Chip dept={dept}>{DEPT_NAME[dept]}</Chip>
-        </div>
-
-        {/* The range separator is U+2212, not an arrow: the arrow is outside
-            the served font subset and would swap face mid-string. The printed
-            form is aria-hidden and the spoken form says "to", because a
-            screen reader reading a minus sign between two clock times reads
-            it as arithmetic. */}
-        <div className="min-w-0">
-          <span aria-hidden className="block">
-            <Field>{`${first} − ${last}`}</Field>
-          </span>
-          <span className="sr-only">{`Works ${first} to ${last}`}</span>
-        </div>
-
-        <div className="min-w-0">
-          {/* `Row`'s hover fills the whole row with ink, and `StateTag`'s
-              human skin is also ink — so on the one row a reader is pointing
-              at, the black tag dissolved into the row and "Decision" read as
-              one more word in the sentence beside it. The tag flips instead:
-              ink on ground, ground on ink, 16.43:1 either way. Adding a rule
-              around it was the rejected alternative — an outlined tag on an
-              ink row is a fourth `StateTag` skin nobody declared, and the
-              claim this table makes is that the mark is *inverted* from the
-              colour around it, which is exactly what flipping keeps true. */}
-          <StateTag state={state} className="!rounded-full">
-            {state === "approval" ? "Approval" : "Decision"}
-          </StateTag>
-          <Body className="mt-2 !text-slate-600 group-hover:!text-slate-600">
-            {role.decisions[0]}
-          </Body>
-        </div>
-      </div>
-    </Row>
+    <div className="pb-2">
+      <NightPanel id="write-your-own" dawn={0.5}>
+        <Container className="py-20 sm:py-24">
+          <SectionHead
+            night
+            kicker="Write your own"
+            title={
+              <>
+                The next role is one only your company has.
+              </>
+            }
+            lede="These eight are worked examples, not the catalogue. Any role you can describe in four documents can be hired, and the AI Employee can help you write them."
+            aside={
+              <TextLink href="/docs/employees" night>
+                How an AI Employee is assembled
+              </TextLink>
+            }
+          />
+          <ol className="mt-14 grid gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+            {PARTS.map((part, index) => (
+              <li key={part.name} className="bg-night-raised/90 p-7">
+                <div className="flex items-center justify-between">
+                  <part.icon aria-hidden className="h-5 w-5 text-white" strokeWidth={1.6} />
+                  <span className="font-mono text-[12px] text-white/35">{`0${index + 1}`}</span>
+                </div>
+                <p className="mt-8 font-display text-[1.35rem] leading-tight tracking-[-0.03em] text-white">{part.name}</p>
+                <p className="mt-2.5 text-[14.5px] leading-6 text-night-muted">{part.body}</p>
+              </li>
+            ))}
+          </ol>
+        </Container>
+      </NightPanel>
+    </div>
   );
 }
-
-/** The one moment a day the role stops and a person is needed. */
-function stop(role: RoleDef): RoleMoment | undefined {
-  return role.day.find((moment) => moment.kind === "decision" || moment.kind === "approval");
-}
-
-/**
- * The window the roster's stops fall in, computed rather than asserted.
- *
- * Every role currently has exactly one marked moment, so this reads "between * 11:00 and 16:00". A role that ever shipped without one drops out of the
- * window instead of widening it into a claim the data does not support, and
- * if none of them had one the sentence falls back to saying nothing about
- * clock times at all.
- */
-const STOP_TIMES = ROLES.map(stop)
-  .filter((moment): moment is RoleMoment => Boolean(moment))
-  .map((moment) => moment.time)
-  .sort();
-
-const STOP_WINDOW = STOP_TIMES.length
-  ? `between ${STOP_TIMES[0]} and ${STOP_TIMES[STOP_TIMES.length - 1]}`
-  : "on a day they schedule themselves";
-
-const STOP_COUNT_FIELD = `${STOP_TIMES.length} STOPS A DAY`;
-
-/**
- * The same window as a field.
- *
- * Written "11:00 TO 16:00" rather than with a dash: this line has nowhere to
- * hang an `sr-only` gloss the way the row's hours cell does, and a screen
- * reader given "11:00 − 16:00" bare reads the minus as arithmetic.
- */
-const STOP_RANGE_FIELD = STOP_TIMES.length
-  ? `${STOP_TIMES[0]} TO ${STOP_TIMES[STOP_TIMES.length - 1]}`
-  : "NO STOPS";

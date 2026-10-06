@@ -149,7 +149,7 @@ export function buildCheckSpec(draft: CheckSpecDraft): CheckSpecResult {
 
 /**
  * The draft an editor opens with. A new Check starts as an `effect` one: it
- * needs no sandbox, so it is the kind that works on every installation.
+ * needs no shell, so it is the kind that works on every installation.
  */
 export function checkSpecDraft(check: RoutineCheck | null): CheckSpecDraft {
   const spec = check?.kind === "effect" ? readEffectSpec(check.spec) : null;

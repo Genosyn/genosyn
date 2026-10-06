@@ -6,7 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
-import { initDb } from "./db/datasource.js";
+import { AppDataSource, initDb } from "./db/datasource.js";
 import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { bootStanddowns } from "./services/standdowns.js";
@@ -18,11 +18,11 @@ import { bootRevenue } from "./services/revenue/boot.js";
 import { bootMeetings } from "./services/meetings/boot.js";
 import { bootChatSurfaceWorkers } from "./services/chatSurfaces/index.js";
 import { bootMailSync } from "./services/mail/sync.js";
+import { bootMailAddressIndex } from "./services/mail/addressIndex.js";
+import { bootMailSearchIndex } from "./services/mail/searchIndex.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
-import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js";
-import { finalizeInterruptedAssistantTurns as finalizeInterruptedRoutineAssistantTurns } from "./services/routineAssistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./services/tldrQuestions.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler, installProcessErrorHandlers } from "./middleware/error.js";
@@ -40,8 +40,8 @@ import { toolCatalogueRouter } from "./routes/toolCatalogue.js";
 import { routinesRouter } from "./routes/routines.js";
 import { proactiveRouter } from "./routes/proactive.js";
 import { bootProactiveDefaults } from "./services/proactive/defaults.js";
-import { routineAssistantRouter } from "./routes/routineAssistant.js";
-import { runExplanationsRouter } from "./routes/runExplanations.js";
+import { askAiRouter } from "./routes/askAi.js";
+import { finalizeInterruptedAskAiTurns } from "./services/askAi/assistant.js";
 import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { goalsRouter } from "./routes/goals.js";
 import { improvementRouter } from "./routes/improvement.js";
@@ -74,6 +74,8 @@ import { adminRouter } from "./routes/admin.js";
 import { customJavaScriptRouter } from "./routes/customJavaScript.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
+import { googleSignInBrokerRouter } from "./routes/googleSignInBroker.js";
+import { connectSignInRouter } from "./routes/connectSignIn.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
 // The mount path is imported rather than repeated: the same constant builds
 // the URL the operator pastes into Microsoft's or Meta's console, and a mount
@@ -113,6 +115,7 @@ import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
 import { workTimelineRouter } from "./routes/workTimeline.js";
+import { employeeWorkQueueRouter } from "./routes/employeeWorkQueue.js";
 import { tldrsRouter } from "./routes/tldrs.js";
 import { searchRouter } from "./routes/search.js";
 import { systemHealthRouter } from "./routes/systemHealth.js";
@@ -125,8 +128,6 @@ import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { bootVaultSourceSync } from "./services/vaultSourceSync.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
-import { billingRouter } from "./routes/billing.js";
-import { billingWebhookRouter } from "./routes/billingWebhook.js";
 import { requireTrustedOrigin, securityHeaders } from "./middleware/httpSecurity.js";
 import { loopbackOnly } from "./middleware/loopbackOnly.js";
 import { appVersion } from "./lib/version.js";
@@ -140,6 +141,7 @@ import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.j
 import { bootPublicUrl } from "./services/publicUrl.js";
 import { bootCustomJavaScript } from "./services/customJavaScript.js";
 import { bootRuntimeSettings, importLegacyConfigOverrides } from "./services/runtimeSettings.js";
+import { bootAuthFlowStateSweeper, stopAuthFlowStateSweeper } from "./services/authFlowCleanup.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
@@ -161,6 +163,7 @@ async function main() {
   installOutboundNetworkPolicy();
   await initDb();
   await bindInstanceSecretsToDatabase();
+  await bootAuthFlowStateSweeper();
   await bootPublicUrl();
   await bootCustomJavaScript();
   // An install upgrading from an old-shape config.ts (or a Kubernetes overlay
@@ -172,7 +175,7 @@ async function main() {
   // The standdown cache before the scheduler: a heartbeat that ran with an
   // empty cache would dispatch work a human had already stopped.
   await bootStanddowns();
-  // Resolve any explicitly selected sandbox mode before validation reads it,
+  // Narrow a retired execution mode to `disabled` before validation reads it,
   // and before any tool registry, Run, or repository clone does.
   resolveCodingExecutionMode();
   validateRuntimeSecurity();
@@ -228,6 +231,12 @@ async function main() {
   // The heartbeat's first pass runs async, so like the chat surfaces it never
   // gates startup; handover recovery is a quick DB sweep.
   bootMailSync();
+  // Address index behind the Customer page's Emails tab; works through mail
+  // mirrored before it existed in bounded chunks, then keeps up.
+  bootMailAddressIndex();
+  // Full-text index behind mail search (SQLite): built in the background, and
+  // search scans as before until it is ready.
+  bootMailSearchIndex();
   void bootMailAutomationQueue().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] inbound automation queue failed to start:", err);
@@ -240,13 +249,9 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[mail] draft-send queue boot failed:", err);
   });
-  void finalizeInterruptedAssistantTurns().catch((err) => {
+  void finalizeInterruptedAskAiTurns().catch((err) => {
     // eslint-disable-next-line no-console
-    console.error("[mail] assistant turn recovery failed:", err);
-  });
-  void finalizeInterruptedRoutineAssistantTurns().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error("[routine:assistant] turn recovery failed:", err);
+    console.error("[ask-ai] turn recovery failed:", err);
   });
   void finalizeInterruptedTldrQuestionTurns().catch((err) => {
     // eslint-disable-next-line no-console
@@ -263,19 +268,14 @@ async function main() {
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, version: appVersion() });
   });
-  // Stripe webhook (M56). Mounted BEFORE express.json() because signature
-  // verification needs the raw request bytes (the router applies its own
-  // express.raw()), and before requireTrustedOrigin/session middleware because
-  // Stripe's servers send neither an Origin header nor a cookie — the signed
-  // payload is the credential.
-  app.use("/api/billing/stripe/webhook", billingWebhookRouter);
   // External chat surface webhooks (M59) — Microsoft Teams and WhatsApp POST
-  // here. Same two reasons as Stripe above, and they are the only credential
-  // this endpoint has: WhatsApp's signature is an HMAC over the exact bytes
-  // Meta sent, so the router applies its own express.raw() and must see them
-  // before any parser re-serializes them, and neither platform sends a cookie
-  // or an Origin header, so the session and trusted-origin middleware would
-  // reject every delivery.
+  // here. Mounted BEFORE express.json() and before requireTrustedOrigin/session
+  // middleware, because the signature is the only credential this endpoint
+  // has: WhatsApp's signature is an HMAC over the exact bytes Meta sent, so the
+  // router applies its own express.raw() and must see them before any parser
+  // re-serializes them, and neither platform sends a cookie or an Origin
+  // header, so the session and trusted-origin middleware would reject every
+  // delivery.
   app.use(CHAT_SURFACE_WEBHOOK_MOUNT, chatSurfaceWebhooksRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
@@ -344,6 +344,10 @@ async function main() {
   // inside startOauth(). Mounted before session so cross-site-redirect
   // cookie behavior doesn't matter.
   app.use("/api/integrations/oauth", integrationsOauthRouter);
+  // Fixed Google callback and proof-bound handoffs for self-hosted installs.
+  // Hosting is off by default; this router owns its browser CSRF protection.
+  app.use("/api/google-sign-in", googleSignInBrokerRouter);
+  app.use("/api/connect", connectSignInRouter);
 
   // Built-in MCP tools called by the Genosyn stdio binary we spawn alongside
   // every AI employee. Auth is a short-lived Bearer token we issued moments
@@ -404,12 +408,10 @@ async function main() {
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);
   app.use("/api/companies/:cid", skillsRouter);
   app.use("/api/companies/:cid", toolCatalogueRouter);
-  // Ask AI on a Routine. Mounted before `routinesRouter` deliberately: that
-  // router gates every non-GET under `/routines` behind the admin role, and
-  // asking a question about a routine is not an admin action. See the header
-  // of `routes/routineAssistant.ts`.
-  app.use("/api/companies/:cid", routineAssistantRouter);
-  app.use("/api/companies/:cid", runExplanationsRouter);
+  // Ask AI — the top-nav chat window. Its own router, mounted ahead of the
+  // section routers, so no section's admin-only mutation gate applies to
+  // asking a question about something on screen.
+  app.use("/api/companies/:cid", askAiRouter);
   app.use("/api/companies/:cid", proactiveRouter);
   app.use("/api/companies/:cid", routinesRouter);
   app.use("/api/companies/:cid", routineFoldersRouter);
@@ -438,6 +440,7 @@ async function main() {
   // The AI Employee work timeline behind Home's "What your AI employees did"
   // panel. Its own router because it refetches per employee, on its own clock.
   app.use("/api/companies/:cid", workTimelineRouter);
+  app.use("/api/companies/:cid", employeeWorkQueueRouter);
   // Scheduled company briefs: configuration, history, and per-Member dismissal.
   app.use("/api/companies/:cid", tldrsRouter);
   // Company-wide quick search — entity results for the ⌘K palette.
@@ -459,9 +462,7 @@ async function main() {
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);
-  // Company billing (M56) — plan state, Stripe checkout/portal/sync.
-  app.use("/api/companies/:cid", billingRouter);
-  // Per-company SSO settings (M56 Phase B) — Scale-plan feature.
+  // Per-company SSO settings (M56 Phase B).
   app.use("/api/companies/:cid", companySsoRouter);
   app.use("/api/companies/:cid", usageRouter);
   // Per-user programmatic API keys (M14). Bearer tokens minted here
@@ -625,6 +626,7 @@ function installShutdownHandlers(server: http.Server): void {
   let shuttingDown = false;
 
   const shutdown = (signal: NodeJS.Signals): void => {
+    stopAuthFlowStateSweeper();
     // A second Ctrl-C should not start a second flush over the first.
     if (shuttingDown) return;
     shuttingDown = true;
@@ -667,6 +669,11 @@ function installShutdownHandlers(server: http.Server): void {
       .catch(() => {
         // A failed flush still exits — see the doc comment.
       })
+      // Closing the SQLite handle checkpoints the write-ahead log back into
+      // `app.sqlite`, so a stopped install is one self-contained file again.
+      // Exiting without it loses nothing — the next open replays the log.
+      .then(() => (AppDataSource.isInitialized ? AppDataSource.destroy() : undefined))
+      .catch(() => {})
       .then(() => process.exit(0));
   };
 

@@ -3,7 +3,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
-import { runContinuationView } from "./runContinuationView.js";
+import { loadRunFollowUps, runContinuationView, type RunFollowUp } from "./runContinuationView.js";
 
 export const ROUTINE_ACTIVITY_MAX_WINDOW_MS = 26 * 60 * 60 * 1000;
 
@@ -27,6 +27,7 @@ const runSummaryFields = [
 export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]> & {
   hasUnfinishedWork: boolean;
   continuationPending: boolean;
+  followUpRun?: RunFollowUp | null;
 };
 
 export type RoutineActivity = {
@@ -58,7 +59,7 @@ function inDay(alias: string): string {
   );
 }
 
-function summary(run: Run): RoutineActivityRun {
+function summary(run: Run, followUpRun: RunFollowUp | null): RoutineActivityRun {
   return {
     id: run.id,
     routineId: run.routineId,
@@ -69,7 +70,7 @@ function summary(run: Run): RoutineActivityRun {
     exitCode: run.exitCode,
     attempt: run.attempt,
     retryAt: run.retryAt,
-    ...runContinuationView(run),
+    ...runContinuationView(run, followUpRun),
     missedSlots: run.missedSlots,
     outcomeVerdict: run.outcomeVerdict,
     checksVerdict: run.checksVerdict,
@@ -92,7 +93,7 @@ export async function getRoutineActivity({
   to: Date;
 }): Promise<RoutineActivity> {
   const selectedFields = [...runSummaryFields, "checkpointJson"].map((field) => `run.${field}`);
-  const dayParameters = { from, to, excludedStatuses: ["running", "skipped"] };
+  const dayParameters = { from, to, excludedStatuses: ["queued", "running", "skipped"] };
   const [running, daily] = await Promise.all([
     companyRuns(companyId)
       .select(selectedFields)
@@ -131,6 +132,7 @@ export async function getRoutineActivity({
         .getMany()
     : [];
   const byId = new Map(latestRuns.map((run) => [run.id, run]));
+  const followUps = await loadRunFollowUps(companyId, [...running, ...latestRuns]);
   const today: RoutineActivity["today"] = [];
   for (const row of daily) {
     const latestRun = byId.get(row.latestRunId);
@@ -139,7 +141,7 @@ export async function getRoutineActivity({
       today.push({
         routineId: row.routineId,
         runCount: Number(row.runCount),
-        latestRun: summary(latestRun),
+        latestRun: summary(latestRun, followUps.get(latestRun.id) ?? null),
       });
     }
   }
@@ -148,5 +150,5 @@ export async function getRoutineActivity({
     const bTime = (b.latestRun.finishedAt ?? b.latestRun.startedAt).getTime();
     return bTime - aTime || b.latestRun.id.localeCompare(a.latestRun.id);
   });
-  return { running: running.map(summary), today };
+  return { running: running.map((run) => summary(run, followUps.get(run.id) ?? null)), today };
 }

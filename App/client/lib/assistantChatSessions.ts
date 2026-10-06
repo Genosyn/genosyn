@@ -8,7 +8,8 @@ export type AssistantChatMessage = {
   role: "user" | "assistant";
   employeeId: string | null;
   content: string;
-  status: "working" | "ok" | "skipped" | "error" | null;
+  /** `queued` and `working` are both answers still owed. */
+  status: "queued" | "working" | "ok" | "skipped" | "error" | null;
   attachments: ChatAttachment[];
 };
 
@@ -18,8 +19,16 @@ export type AssistantQueuedMessage = {
   message: string;
   attachments: ChatAttachment[];
   employeeId?: string;
+  /** Several AI Employees addressed by one message, in order (Ask AI). */
+  employeeIds?: string[];
   modelId?: string | null;
   focusedMessageId?: string | null;
+  /**
+   * Whatever else the surface captured when the Member pressed send — Ask AI
+   * keeps the page the message was written on here, so a follow-up queued on
+   * an invoice still asks about that invoice after the Member moves on.
+   */
+  payload?: unknown;
   queuedAt: string;
 };
 
@@ -271,8 +280,15 @@ export class AssistantChatSession<M extends AssistantChatMessage, R> {
     }
   };
 
+  /**
+   * An answer still owed. A message addressed to several AI Employees owes one
+   * answer each: the one being written is `working`, the rest wait `queued`,
+   * and nothing new may be sent until every one of them has finished.
+   */
   private workingMessage(): M | undefined {
-    return this.state.messages?.find((row) => row.role === "assistant" && row.status === "working");
+    return this.state.messages?.find(
+      (row) => row.role === "assistant" && (row.status === "working" || row.status === "queued"),
+    );
   }
   private wait(): Promise<void> {
     return new Promise((resolve) => {
@@ -371,9 +387,16 @@ export class AssistantChatSession<M extends AssistantChatMessage, R> {
               this.patch({ target: (data as { employee: AssistantChatTarget | null }).employee });
             }
           } else if (event === "working") {
+            // A later employee starting on the same message: its text is its
+            // own, and the previous answer no longer settles this turn.
             const row = data as M;
             workingId = row.id;
+            terminal = null;
+            accumulated = "";
+            this.patch({ streaming: null });
             this.updateMessage(row);
+          } else if (event === "queued") {
+            this.updateMessage(data as M);
           } else if (event === "chunk") {
             accumulated += (data as { text: string }).text;
             this.patch({ streaming: accumulated });
@@ -418,14 +441,14 @@ export class AssistantChatSession<M extends AssistantChatMessage, R> {
         }
         if (workingId) {
           const row = result.messages.find((message) => message.id === workingId);
-          if (row && row.status !== "working") terminal = row;
+          if (row && row.status !== "working" && row.status !== "queued") terminal = row;
         } else if (userId) {
           const index = result.messages.findIndex((row) => row.id === userId);
           // No request id is exposed by these panels. Only adopt the next
           // reply when no intervening Member message makes ownership unclear.
           const reply = index >= 0 ? result.messages[index + 1] : undefined;
           if (reply?.role === "assistant" && !baseline.has(reply.id)) {
-            if (reply.status === "working") workingId = reply.id;
+            if (reply.status === "working" || reply.status === "queued") workingId = reply.id;
             else terminal = reply;
           }
         }

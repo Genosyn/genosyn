@@ -159,6 +159,7 @@ export default function EmployeeNew({
   const [role, setRole] = React.useState("");
   const [step, setStep] = React.useState<Step>(resumeEmployeeId ? "launch" : "basics");
   const [creating, setCreating] = React.useState(false);
+  const [openingSoul, setOpeningSoul] = React.useState(false);
   const [finishing, setFinishing] = React.useState(false);
   const [emp, setEmp] = React.useState<Employee | null>(null);
   const employeeRef = React.useRef<Employee | null>(null);
@@ -278,6 +279,7 @@ export default function EmployeeNew({
     if (anyAnswered) {
       setSoul(generateSoul(name, role, selectedTemplate, answers));
     } else {
+      setOpeningSoul(true);
       try {
         const r = await api.get<{ content: string }>(
           `/api/companies/${company.id}/employees/${emp.id}/soul`,
@@ -285,6 +287,8 @@ export default function EmployeeNew({
         setSoul(r.content || generateSoul(name, role, selectedTemplate, answers));
       } catch {
         setSoul(generateSoul(name, role, selectedTemplate, answers));
+      } finally {
+        setOpeningSoul(false);
       }
     }
     setStep("soul");
@@ -399,6 +403,7 @@ export default function EmployeeNew({
           onChange={setAnswers}
           onBack={() => setStep("model")}
           onNext={openSoulStep}
+          loading={openingSoul}
         />
       )}
 
@@ -651,7 +656,7 @@ function BasicsStep({
               disabled={locked}
             />
             <div className="flex gap-2">
-              <Button type="submit" disabled={creating}>
+              <Button type="submit" loading={creating}>
                 {creating ? "Creating…" : locked ? "Continue" : "Create & continue"}
                 {!creating && <ArrowRight size={14} />}
               </Button>
@@ -714,6 +719,7 @@ function AboutStep({
   onChange,
   onBack,
   onNext,
+  loading,
 }: {
   name: string;
   role: string;
@@ -721,6 +727,7 @@ function AboutStep({
   onChange: (a: SoulAnswers) => void;
   onBack: () => void;
   onNext: () => void;
+  loading: boolean;
 }) {
   function set<K extends keyof SoulAnswers>(key: K, value: SoulAnswers[K]) {
     onChange({ ...answers, [key]: value });
@@ -781,7 +788,7 @@ function AboutStep({
           />
         </CardBody>
       </Card>
-      <StepNav onBack={onBack} onNext={onNext} nextLabel="Generate Soul" />
+      <StepNav onBack={onBack} onNext={onNext} nextLabel="Generate Soul" nextLoading={loading} />
     </div>
   );
 }
@@ -865,7 +872,8 @@ function SoulStep({
         onBack={onBack}
         onNext={onFinish}
         nextLabel={finishing ? "Saving…" : "Save Soul & build launch plan"}
-        nextDisabled={finishing || soul.trim().length === 0}
+        nextLoading={finishing}
+        nextDisabled={soul.trim().length === 0}
       />
     </div>
   );
@@ -878,12 +886,14 @@ function StepNav({
   onNext,
   nextLabel,
   secondaryLabel,
+  nextLoading,
   nextDisabled,
 }: {
   onBack: () => void;
   onNext: () => void;
   nextLabel: string;
   secondaryLabel?: string;
+  nextLoading?: boolean;
   nextDisabled?: boolean;
 }) {
   return (
@@ -897,7 +907,7 @@ function StepNav({
             {secondaryLabel}
           </Button>
         )}
-        <Button onClick={onNext} disabled={nextDisabled}>
+        <Button onClick={onNext} loading={nextLoading} disabled={nextDisabled}>
           {nextLabel}
           <ArrowRight size={14} />
         </Button>

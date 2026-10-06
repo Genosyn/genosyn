@@ -78,9 +78,17 @@ Senior brand writer for an open-source company.
 
       <H2 id="editing-it">Editing it</H2>
       <P>
-        The in-app Soul editor renders markdown with a live preview pane. ⌘S saves. Every save
-        replaces the body — there&apos;s no soft history today, so if you want diffs, commit the
-        rendered text outside the app (most teams paste it into a private repo).
+        The in-app Soul editor, at the employee&apos;s <Strong>Settings → Soul</Strong>, renders
+        markdown with a live preview pane. ⌘S saves. Every save replaces the body — there&apos;s no
+        soft history today, so if you want diffs, commit the rendered text outside the app (most
+        teams paste it into a private repo).
+      </P>
+      <P>
+        Through the authenticated company API, send the markdown as <Code>content</Code> to{" "}
+        <Code>PUT /api/companies/:companyId/employees/:employeeId/soul</Code>. The employee&apos;s
+        settings endpoint, <Code>PATCH /api/companies/:companyId/employees/:employeeId</Code>, does
+        not take <Code>soulBody</Code>: it refuses any field it does not handle with a 400 that
+        names it, and saves nothing from that request.
       </P>
 
       <Callout kind="tip" title="Treat it like a hiring document.">

@@ -59,7 +59,8 @@ import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
 import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
-import { runExplanationLabel } from "@/components/routines/RunExplanation";
+import { runExplanationLabel, runExplanationPrompt } from "@/lib/runStatus";
+import { useAskAi } from "@/components/askAi/AskAiProvider";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
 import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
@@ -73,7 +74,7 @@ import {
   type DecisionFollowUps,
 } from "@/components/decisions/useDecisionFollowUps";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
@@ -117,7 +118,7 @@ type HomeOverlay =
    * modal offers the same dismissal the row does.
    */
   | { kind: "health"; checkId: string; title: string; onDismiss: () => void }
-  | { kind: "run"; run: HomeFailedRun; initialView?: "log" | "explanation" }
+  | { kind: "run"; run: HomeFailedRun }
   /** A run opened from the work timeline, where the row is an entry not a
    *  failure — same viewer, different source row. */
   | { kind: "workRun"; entry: WorkEntry };
@@ -132,6 +133,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const [decisionNotice, setDecisionNotice] = React.useState<{ message: string } | null>(null);
   const [readNotice, setReadNotice] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const background = useBackgroundAction();
   const decisionFollowUps = useDecisionFollowUps(company, me.id);
   const clearClosedFollowUps = decisionFollowUps.clearClosed;
@@ -164,6 +166,15 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
       setLoadError(errorMessage(err, "Could not refresh your home screen."));
     }
   }, [company.id, clearClosedFollowUps]);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const reloadPendingDecisions = React.useCallback(
     async (announcement?: string) => {
@@ -418,7 +429,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                 Showing the last update. Counts may have changed.
               </p>
             )}
-            <Button variant="secondary" size="sm" onClick={() => void reload()}>
+            <Button variant="secondary" size="sm" loading={retrying} onClick={() => void retry()}>
               Retry
             </Button>
           </div>
@@ -597,7 +608,6 @@ function HomeOverlayHost({
       return (
         <RunLiveModal
           key={overlay.run.runId}
-          initialView={overlay.initialView}
           company={company}
           routine={{ id: overlay.run.routineId, name: overlay.run.routineName }}
           run={{
@@ -611,6 +621,7 @@ function HomeOverlayHost({
             hasUnfinishedWork: overlay.run.hasUnfinishedWork,
             retryAt: overlay.run.retryAt,
             continuationPending: overlay.run.continuationPending,
+            followUpRun: overlay.run.followUpRun,
             exitCode: overlay.run.exitCode,
             createdAt: overlay.run.startedAt,
           }}
@@ -943,7 +954,7 @@ function PushPromptBanner() {
           is closed.
         </div>
       </div>
-      <Button size="sm" onClick={enable} disabled={busy}>
+      <Button size="sm" onClick={enable} loading={busy}>
         {busy ? "Enabling…" : "Enable"}
       </Button>
       <button
@@ -1081,6 +1092,7 @@ function FailedRoutinesAlert({
   onOpen: (overlay: HomeOverlay) => void;
 }) {
   const dialog = useDialog();
+  const askAi = useAskAi();
   // Which row is mid-request, and which of its two buttons owns the spinner.
   const [busy, setBusy] = React.useState<{ runId: string; action: "retry" | "dismiss" } | null>(
     null,
@@ -1111,23 +1123,26 @@ function FailedRoutinesAlert({
    * button, asked here as a confirm because this panel is one click from a
    * page nobody opened to think about side effects.
    *
-   * Starting the retry acknowledges the failed run, so the row drops off
-   * instead of sitting there inviting a second, duplicate run.
+   * A different accepted Run acknowledges the failed one. If cleanup still
+   * owns this same Run, open its log and retain the failure for a later retry.
    */
   async function retry(r: HomeFailedRun) {
     const ok = await dialog.confirm({
       title: `Run ${r.routineName} again?`,
       message:
         r.status === "interrupted" || r.errorKind === "interrupted"
-          ? "The server stopped part-way through, so nothing is known about work done after the log's last line. Run it again only if repeating that work is safe."
+          ? "This Run was interrupted. Review its recorded reason, log, and Effects before running it again; work already done may repeat."
           : "The run stopped part-way through, so any work it had already done stands. Run it again only if repeating that work is safe — otherwise open the log first.",
       confirmLabel: "Retry",
     });
     if (!ok) return;
     setBusy({ runId: r.runId, action: "retry" });
     try {
-      await api.post(`/api/companies/${company.id}/routines/${r.routineId}/run`);
-      await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
+      const accepted = await api.post<{ id: string }>(
+        `/api/companies/${company.id}/routines/${r.routineId}/run`,
+      );
+      if (accepted.id === r.runId) onOpen({ kind: "run", run: r });
+      else await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
       await onChanged();
     } catch (err) {
       void dialog.error(err, { title: `Couldn’t run ${r.routineName} again` });
@@ -1182,7 +1197,14 @@ function FailedRoutinesAlert({
             </HomeRow>
             <button
               type="button"
-              onClick={() => onOpen({ kind: "run", run: r, initialView: "explanation" })}
+              // Ask AI explains it, with this Run in context; the routine's own
+              // employee answers by default because it wrote the log.
+              onClick={() =>
+                askAi?.ask({
+                  refs: [{ kind: "run", id: r.runId }],
+                  prompt: runExplanationPrompt(r.status),
+                })
+              }
               aria-label={`${runExplanationLabel(r.status)} ${r.routineName}`}
               className="flex shrink-0 items-center gap-1 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 dark:text-rose-300 dark:hover:bg-rose-500/10"
             >
@@ -1194,31 +1216,35 @@ function FailedRoutinesAlert({
               run={{ ...r, id: r.runId }}
               onResumed={async () => onChanged()}
             />
-            <button
-              type="button"
-              onClick={() => retry(r)}
-              disabled={busy?.runId === r.runId}
-              title="Retry"
-              aria-label={`Retry ${r.routineName}`}
-              className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              {busy?.runId === r.runId && busy.action === "retry" ? (
-                <Spinner size={14} />
-              ) : (
-                <RotateCw size={14} />
-              )}
-              <span className="hidden sm:inline">Retry</span>
-            </button>
+            {r.followUpRun === null && (
+              <button
+                type="button"
+                onClick={() => retry(r)}
+                disabled={busy?.runId === r.runId}
+                aria-busy={(busy?.runId === r.runId && busy.action === "retry") || undefined}
+                title="Retry"
+                aria-label={`Retry ${r.routineName}`}
+                className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              >
+                {busy?.runId === r.runId && busy.action === "retry" ? (
+                  <ButtonSpinner size={14} />
+                ) : (
+                  <RotateCw size={14} />
+                )}
+                <span className="hidden sm:inline">Retry</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => dismiss(r.runId)}
               disabled={busy?.runId === r.runId}
+              aria-busy={(busy?.runId === r.runId && busy.action === "dismiss") || undefined}
               title="Dismiss"
               aria-label={`Dismiss ${r.routineName} failure`}
               className="flex shrink-0 items-center px-3 text-rose-400 transition hover:bg-rose-100/50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-500/70 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
             >
               {busy?.runId === r.runId && busy.action === "dismiss" ? (
-                <Spinner size={14} />
+                <ButtonSpinner size={14} />
               ) : (
                 <X size={15} />
               )}

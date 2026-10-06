@@ -67,6 +67,7 @@ const Run = z
     id: z.string().uuid(),
     routineId: z.string().uuid(),
     status: z.enum([
+      "queued",
       "running",
       "completed",
       "reviewed",
@@ -89,6 +90,7 @@ const Run = z
         "The AI Employee's reason the intended work could not be completed; separate from outcome grading and Checks.",
       ),
     exitCode: z.number().nullable(),
+    queuedAt: z.string().datetime().describe("When this Run was accepted for dispatch."),
     startedAt: z.string().datetime(),
     finishedAt: z.string().datetime().nullable(),
     triggerKind: z
@@ -125,8 +127,8 @@ const Run = z
       .number()
       .int()
       .describe(
-        "Scheduled occurrences that elapsed while the server was unavailable and are " +
-          "collapsed into this catch-up run. 0 normally.",
+        "Scheduled occurrences collapsed into this catch-up run: slots missed while the " +
+          "server was unavailable, or that came due while this Run waited to start. 0 normally.",
       ),
   })
   .openapi("Run");
@@ -528,10 +530,11 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/companies/{cid}/routines/{rid}/run",
-  summary: "Trigger a routine immediately",
+  summary: "Start a Routine now",
   description:
-    "Fires the routine outside its cron schedule. Returns the new `Run` row; the run " +
-    "happens asynchronously — poll `GET /routines/{rid}/runs` or stream the log via " +
+    "Accepts a Routine Run outside its cron schedule. Returns the new `Run` row in `queued` status " +
+    "while dispatch starts it independently of other Runs for the same AI Employee. " +
+    "Poll `GET /routines/{rid}/runs` or the log via " +
     "`GET /runs/{runId}/log` to follow progress.",
   tags: ["Routines"],
   security: defaultSecurity,
@@ -542,7 +545,7 @@ registry.registerPath({
     }),
   },
   responses: {
-    200: { description: "Run started", content: { "application/json": { schema: Run } } },
+    200: { description: "Run queued", content: { "application/json": { schema: Run } } },
     404: {
       description: "Routine not found",
       content: { "application/json": { schema: ErrorResponse } },

@@ -44,9 +44,10 @@ export default function FinanceBills() {
   const [bills, setBills] = React.useState<BillListItem[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
+  const [retrying, setRetrying] = React.useState(false);
 
   const reload = React.useCallback(() => {
-    api
+    return api
       .get<BillListItem[]>(`/api/companies/${company.id}/bills`)
       .then((b) => {
         setBills(b);
@@ -63,6 +64,15 @@ export default function FinanceBills() {
   }, [reload]);
 
   useLiveRefetch("bill", reload);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const filtered = React.useMemo(() => {
     if (!bills) return null;
@@ -137,7 +147,7 @@ export default function FinanceBills() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Something went wrong fetching this list.
           </p>
-          <Button variant="secondary" className="mt-4" onClick={reload}>
+          <Button variant="secondary" className="mt-4" loading={retrying} onClick={retry}>
             Try again
           </Button>
         </div>

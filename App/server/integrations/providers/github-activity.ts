@@ -1,12 +1,14 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import type { IntegrationTool } from "../types.js";
+import { continuationStore, type ContinuationStore } from "../../services/integrationContinuations.js";
 import { forgeFetchWithHeaders, GITHUB_ENDPOINT, repoPath } from "./forge/client.js";
 
 export const githubActivityTool: IntegrationTool = {
   name: "list_repository_activity",
   description:
-    "Read structured GitHub activity with stable event-ID continuation. Follow nextCursor as cursor after processing eventIds. For interruption within a batch, save resumeCursor and the last successfully processed event ID; resume with cursor=resumeCursor and afterEventId. At scan end save checkpoint and supply it on the next scan to exclude processed IDs while picking up delayed arrivals. A missing saved event or anchor returns an explicit gap without advancing. Store progress in a Workstream. Receipts do not prove processing or exactly-once side effects. Coverage remains partial: at most 300 events from 30 days, delayed up to six hours.",
+    "Read structured GitHub activity with stable event-ID continuation. Follow nextCursor as cursor after processing eventIds. For interruption within a batch, save resumeCursor and the last successfully processed event ID; resume with cursor=resumeCursor and afterEventId. At scan end save checkpoint and supply it on the next scan to exclude processed IDs while picking up delayed arrivals. A missing saved event or anchor returns an explicit gap without advancing. A new scan returns its events oldest first, so the events nearest to leaving GitHub's feed are read before they do, and an event this server has already read stays available after the feed drops it. Cursors and checkpoints are short references; copy them exactly. Store progress in a Workstream. Receipts do not prove processing or exactly-once side effects. Coverage remains partial: at most 300 events from 30 days, delayed up to six hours.",
   inputSchema: {
     type: "object",
     properties: {
@@ -81,6 +83,38 @@ function compactEvent(event: Row): CompactEvent {
   };
 }
 
+/**
+ * Events this process has read, so a scan can still return one after GitHub's
+ * feed drops it. GitHub keeps only the newest 300 events, a busy repository
+ * fills that in about a day, and a self-hosted model can take hours over one
+ * scan: on 2026-10-03 new events pushed unread ones out minutes after a scan
+ * began, and each such gap stopped the scan. An event never changes, so the
+ * copy is the event. A restart forgets them; the scan then reports the gap.
+ */
+const REMEMBERED_EVENT_LIMIT = 5_000;
+const rememberedEvents = new Map<string, CompactEvent>();
+
+function rememberedKey(connectionId: string, repository: string, id: string): string {
+  return `${connectionId}\n${repository}\n${id}`;
+}
+
+function rememberEvents(connectionId: string, repository: string, events: Iterable<CompactEvent>): void {
+  for (const event of events) {
+    const key = rememberedKey(connectionId, repository, event.id as string);
+    rememberedEvents.delete(key);
+    rememberedEvents.set(key, event);
+  }
+  for (const key of rememberedEvents.keys()) {
+    if (rememberedEvents.size <= REMEMBERED_EVENT_LIMIT) break;
+    rememberedEvents.delete(key);
+  }
+}
+
+/** Forget every remembered event, as a restart does. For tests. */
+export function forgetRememberedGithubEvents(): void {
+  rememberedEvents.clear();
+}
+
 /** Read a page number from Link; never fetch a provider-supplied URL with a credential. */
 function nextPageFromLink(link: string | null, path: string, page: number, perPage: number): number | null {
   for (const part of (link ?? "").split(",")) {
@@ -88,7 +122,12 @@ function nextPageFromLink(link: string | null, path: string, page: number, perPa
     if (!match) continue;
     const url = new URL(match[1]);
     const next = Number(url.searchParams.get("page"));
-    if (url.origin !== GITHUB_ENDPOINT.apiBase || url.pathname !== path ||
+    // GitHub canonicalizes repository pagination to /repositories/<id>/events,
+    // including when our request used /repos/<owner>/<repo>/events. Accept that
+    // route on the pinned GitHub origin, but consume only its page number:
+    // retainedEvents still rebuilds every request from the caller's repo path.
+    const repositoryPath = url.pathname === path || /^\/repositories\/[1-9]\d*\/events$/.test(url.pathname);
+    if (url.origin !== GITHUB_ENDPOINT.apiBase || !repositoryPath ||
         !Number.isInteger(next) || next !== page + 1 || next > Math.ceil(300 / perPage)) {
       throw new Error("GitHub returned an invalid activity continuation; coverage could not be established.");
     }
@@ -118,14 +157,54 @@ const cursorState = checkpointState.omit({ kind: true }).extend({
 type Checkpoint = z.infer<typeof checkpointState>;
 type Cursor = z.infer<typeof cursorState>;
 
-/** Caller-owned progress, never authorization. Compression bounds the 300 stable IDs. */
+/** Caller-owned progress, never authorization. The checksum detects copy errors, not forgery. */
 function encodeState(state: Checkpoint | Cursor): string {
-  return `gha1.${deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url")}`;
+  const payload = deflateRawSync(Buffer.from(JSON.stringify(state))).toString("base64url");
+  return `gha2.${payload}.${createHash("sha256").update(payload).digest("hex")}`;
 }
+
+const SHORT_REFERENCE = /^gha3\.([a-f0-9]{20})$/;
+function referenceFor(token: string): string {
+  return `gha3.${createHash("sha256").update(token).digest("hex").slice(0, 20)}`;
+}
+
+/**
+ * Hand out a short reference to `state` and keep the full value server-side.
+ * A full value carries up to 300 event IDs, a couple of thousand characters
+ * the model must copy exactly on every call; on 2026-10-03 a self-hosted
+ * model got one wrong after a dozen pages, and the scan was lost.
+ */
+async function issue(state: Checkpoint | Cursor, store: ContinuationStore): Promise<string> {
+  const token = encodeState(state);
+  const reference = referenceFor(token);
+  await store.save(reference, token, state.connectionId);
+  return reference;
+}
+
+/** The full value behind a short reference; a full value is used as given. */
+async function fullValue(value: string, store: ContinuationStore): Promise<string> {
+  if (!SHORT_REFERENCE.test(value)) return value;
+  const token = await store.load(value).catch(() => null);
+  // The reference is derived from the value, so a stored value that does not
+  // match it was not issued for it.
+  return token && referenceFor(token) === value ? token : "";
+}
+
 function decodeState(value: string, kind: "cursor" | "checkpoint"): Checkpoint | Cursor {
   try {
-    if (!/^gha1\.[A-Za-z0-9_-]+$/.test(value)) throw new Error("Invalid token");
-    const json = inflateRawSync(Buffer.from(value.slice(5), "base64url"), { maxOutputLength: 65_000 });
+    const current = value.match(/^gha2\.([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/);
+    const legacy = value.match(/^gha1\.([A-Za-z0-9_-]+)$/);
+    const matched = current ?? legacy;
+    if (!matched || matched[0] !== value) throw new Error("Invalid token");
+    const payload = matched[1];
+    // Raw DEFLATE has no integrity check: a copied character can still inflate
+    // to valid JSON with different event IDs. Verify the encoded payload before
+    // inflating it, while accepting existing gha1 progress without rewriting it.
+    if (current && createHash("sha256").update(payload).digest("hex") !== current[2])
+      throw new Error("Invalid checksum");
+    const compressed = Buffer.from(payload, "base64url");
+    if (current && compressed.toString("base64url") !== payload) throw new Error("Invalid encoding");
+    const json = inflateRawSync(compressed, { maxOutputLength: 65_000 });
     const state = (kind === "cursor" ? cursorState : checkpointState).parse(JSON.parse(json.toString("utf8")));
     const allIds = [...state.processedIds, ...("snapshotIds" in state ? state.snapshotIds : [])];
     if (allIds.length > 300 || new Set(allIds).size !== allIds.length ||
@@ -181,12 +260,17 @@ async function retainedEvents(path: string, token: string): Promise<Row[]> {
   throw new Error("GitHub activity changed while scanning its pages. Retry the same saved cursor/checkpoint; no progress was acknowledged.");
 }
 
-export async function listGithubRepositoryActivity(args: unknown, token: string, connectionId = "direct") {
+export async function listGithubRepositoryActivity(
+  args: unknown,
+  token: string,
+  connectionId = "direct",
+  store: ContinuationStore = continuationStore(),
+) {
   const input = activityArgs.parse(args ?? {});
   const repository = `${input.owner.toLowerCase()}/${input.repo.toLowerCase()}`;
   const scope = { repository, connectionId, since: input.since ?? null, until: input.until ?? null };
-  let saved = input.cursor ? decodeState(input.cursor, "cursor") :
-    input.checkpoint ? decodeState(input.checkpoint, "checkpoint") : null;
+  let saved = input.cursor ? decodeState(await fullValue(input.cursor, store), "cursor") :
+    input.checkpoint ? decodeState(await fullValue(input.checkpoint, store), "checkpoint") : null;
   if (input.afterEventId && saved?.kind === "cursor") {
     const acknowledged = saved.snapshotIds.indexOf(input.afterEventId, saved.position);
     if (acknowledged < saved.position || acknowledged >= saved.position + saved.pageSize) {
@@ -199,12 +283,16 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
     throw new Error("GitHub activity cursor/checkpoint does not match this Connection, repository, filters or page size. Keep the saved scan scope unchanged.");
   }
   const rows = await retainedEvents(`${repoPath(input.owner, input.repo)}/events`, token);
-  const byId = new Map(rows.map((row) => [row.id as string, row]));
+  const byId = new Map(rows.map((row) => [row.id as string, compactEvent(row)]));
+  rememberEvents(connectionId, repository, byId.values());
+  // The live feed, or this process's copy of an event the feed has dropped.
+  const eventFor = (id: string) =>
+    byId.get(id) ?? rememberedEvents.get(rememberedKey(connectionId, repository, id));
   const dates = rows.map((row) => Date.parse(row.created_at as string));
   const expired = !!saved && Date.now() - Date.parse(saved.observedAt) >= 30 * 86_400_000;
   const anchorMissing = !!saved?.anchorId && !byId.has(saved.anchorId);
   const unanchoredCapacity = !!saved && !saved.anchorId && rows.length === 300;
-  const missing = saved?.kind === "cursor" ? saved.snapshotIds.slice(saved.position).filter((id) => !byId.has(id)) : [];
+  const missing = saved?.kind === "cursor" ? saved.snapshotIds.slice(saved.position).filter((id) => !eventFor(id)) : [];
   const gap = expired ? { reason: "checkpoint_expired", missingEventIds: [] as string[] } :
     anchorMissing ? { reason: "checkpoint_anchor_missing", missingEventIds: [saved!.anchorId!] } :
     unanchoredCapacity ? { reason: "unanchored_feed_at_capacity", missingEventIds: [] as string[] } :
@@ -212,8 +300,12 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
   const since = input.since ? Date.parse(input.since) : -Infinity;
   const until = input.until ? Date.parse(input.until) : Infinity;
   const priorIds = new Set(saved?.processedIds ?? []);
+  // Oldest first. GitHub keeps only the newest 300 events, and a busy repository
+  // fills that in about a day, so a slow reader that started at the newest end
+  // found the oldest events of its snapshot gone before it reached them: a gap
+  // that stopped the rest of the scan. A saved cursor keeps its own order.
   const snapshotIds = saved?.kind === "cursor" ? saved.snapshotIds :
-    rows.filter((row, i) => dates[i] >= since && dates[i] < until && !priorIds.has(row.id as string)).map((row) => row.id as string);
+    rows.filter((row, i) => dates[i] >= since && dates[i] < until && !priorIds.has(row.id as string)).map((row) => row.id as string).reverse();
   const state: Cursor = saved?.kind === "cursor" ? saved : {
     version: 1, kind: "cursor", ...scope, observedAt: new Date().toISOString(),
     anchorId: rows.length ? rows[0].id as string : null,
@@ -223,13 +315,13 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
   const eventIds = gap ? [] : state.snapshotIds.slice(state.position, state.position + state.pageSize);
   const nextPosition = state.position + eventIds.length;
   const done = !gap && nextPosition === state.snapshotIds.length;
-  const nextCursor = gap || done ? null : encodeState({ ...state, position: nextPosition });
-  const checkpoint = done ? encodeState({
+  const nextCursor = gap || done ? null : await issue({ ...state, position: nextPosition }, store);
+  const checkpoint = done ? await issue({
     version: 1, kind: "checkpoint", ...scope, observedAt: state.observedAt,
     anchorId: state.anchorId, processedIds: [...state.processedIds, ...state.snapshotIds],
-  }) : null;
+  }, store) : null;
   return {
-    resumeCursor: gap ? null : encodeState(state),
+    resumeCursor: gap ? null : await issue(state, store),
     nextCursor,
     checkpoint,
     eventIds,
@@ -247,6 +339,7 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
       complete: false,
       retentionDays: 30, maximumEvents: 300, maximumDelaySeconds: 21_600,
       retainedFeedAtCapacity: rows.length === 300,
+      rememberedEvents: eventIds.filter((id) => !byId.has(id)).length,
       atomicProviderSnapshot: false,
       stringLimit: 500,
       omitted: ["event bodies", "commit details", "complete CI history"],
@@ -254,6 +347,6 @@ export async function listGithubRepositoryActivity(args: unknown, token: string,
         ? "Progress was not advanced. The saved boundary is no longer recoverable from GitHub's retained feed; reconcile missing history using authoritative commit/issue/PR reads before establishing a new checkpoint."
         : "Save resumeCursor before processing and record each successfully processed event ID in a Workstream. Resume a partial batch with that cursor and afterEventId; save nextCursor/checkpoint after the whole batch succeeds. Replaying an unacknowledged cursor intentionally replays its IDs. Caller-owned receipts do not prove processing or exactly-once effects. New and delayed arrivals appear on the next checkpoint scan; GitHub has no atomic or complete activity audit here.",
     },
-    events: eventIds.map((id) => compactEvent(byId.get(id)!)),
+    events: eventIds.map((id) => eventFor(id)!),
   };
 }

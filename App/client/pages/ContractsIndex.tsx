@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, Customer, CustomerContract } from "../lib/api";
+import { customerOptionLabel } from "../lib/customerLabel";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
@@ -101,7 +102,7 @@ export default function ContractsIndex() {
               <option value="__none__">Unassigned</option>
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {customerOptionLabel(c)}
                 </option>
               ))}
             </Select>

@@ -14,7 +14,7 @@ import { Breadcrumbs } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { api, type Company, type Pipeline, type PipelineGraph, type PipelineNode } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import type { PipelinesContext } from "@/pages/PipelinesLayout";
@@ -56,6 +56,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [running, setRunning] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [tab, setTab] = React.useState<"builder" | "runs">("builder");
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
 
@@ -291,12 +292,15 @@ export default function PipelineDetail({ company }: { company: Company }) {
       variant: "danger",
     });
     if (!confirmed) return;
+    setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/pipelines/${pipeline.id}`);
       await refreshList();
       navigate(`/c/${company.slug}/pipelines`, { replace: true });
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t delete the pipeline" });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -415,7 +419,8 @@ export default function PipelineDetail({ company }: { company: Company }) {
               variant="secondary"
               size="sm"
               onClick={() => void runNow()}
-              disabled={!canRun || running || saving}
+              loading={running}
+              disabled={!canRun || saving}
               title={
                 !enabled
                   ? "Turn the pipeline on before running it"
@@ -429,7 +434,8 @@ export default function PipelineDetail({ company }: { company: Company }) {
             <Button
               size="sm"
               onClick={() => void save()}
-              disabled={!dirty || saving || !name.trim()}
+              loading={saving}
+              disabled={!dirty || !name.trim()}
               title="Save pipeline (⌘S or Ctrl+S)"
             >
               <Save size={14} /> {saving ? "Saving…" : dirty ? "Save" : "Saved"}
@@ -437,11 +443,13 @@ export default function PipelineDetail({ company }: { company: Company }) {
             <button
               type="button"
               onClick={() => void destroy()}
+              disabled={deleting}
+              aria-busy={deleting || undefined}
               className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
               title="Delete pipeline"
               aria-label="Delete pipeline"
             >
-              <Trash2 size={16} />
+              {deleting ? <ButtonSpinner size={16} /> : <Trash2 size={16} />}
             </button>
           </div>
         </div>

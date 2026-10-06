@@ -2,7 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { codingRuntimeAvailability } from "../codingAvailability.js";
-import { buildSandboxShellInvocation } from "../sandboxShell.js";
+import { buildShellInvocation } from "../shellInvocation.js";
 import type { AgentTool, ToolResult } from "../types.js";
 import { fail, type CodingToolContext } from "./codingShared.js";
 
@@ -49,10 +49,9 @@ function runBash(command: string, ctx: CodingToolContext, timeoutMs: number): Pr
   let args: string[];
   let childEnv: Record<string, string>;
   try {
-    // The employee's whole working directory is the sandbox root here: the
-    // repositories it was granted, and whatever its tools wrote into cwd.
-    const invocation = buildSandboxShellInvocation({
-      workspaceRoot: ctx.cwd,
+    // Starts in the employee's working directory: the repositories it was
+    // granted, and whatever its tools wrote into cwd.
+    const invocation = buildShellInvocation({
       cwd: ctx.cwd,
       command,
       env: ctx.env,

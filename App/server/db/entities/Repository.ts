@@ -57,13 +57,13 @@ export type RepositoryKind = "code" | "documents";
  *                   before commands existed.
  *   - `allowlist` → only commands matching {@link Repository.allowedCommands},
  *                   or Genosyn's built-in list while that field is empty.
- *   - `all`       → every command, with no pattern check. The sandbox and the
- *                   operator's execution mode still apply; this switch only
- *                   turns off Genosyn's own matching.
+ *   - `all`       → every command, with no pattern check. The operator's
+ *                   execution mode still applies; this switch only turns off
+ *                   Genosyn's own matching.
  *
  * None of the three can conjure command execution where the install has none:
- * `codingRuntimeAvailability()` is checked first, and on an install whose
- * sandbox could not start there is no shell to reach whatever this says.
+ * `codingRuntimeAvailability()` is checked first, and on an install with
+ * command execution disabled there is no shell to reach whatever this says.
  */
 export type RepositoryCommandMode = "off" | "allowlist" | "all";
 

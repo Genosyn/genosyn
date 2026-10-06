@@ -26,6 +26,29 @@ export const OPENCODE_NATIVE_PERMISSIONS = [
   "todowrite",
 ];
 
+/**
+ * Response ceiling for a custom endpoint whose context window is known. Open
+ * reasoning models think before every tool call, and a hard step on a 27B
+ * model can spend well over 8K tokens doing so; a response cut off at the
+ * ceiling ends the turn with nothing done. A quarter of the window still
+ * bounds it, so the prompt keeps most of the context. An unknown window keeps
+ * the old 8K, since a server with a small window rejects a larger request.
+ */
+export const CUSTOM_MODEL_OUTPUT_LIMIT = 32_768;
+
+/**
+ * How long a custom endpoint may take to start answering, and between the
+ * parts of an answer. OpenCode and Node's fetch both give up after five
+ * minutes, and OpenCode then sends the request again from the start. A busy
+ * self-hosted server queues requests and reads a long conversation at a few
+ * thousand tokens a second, so it can need longer than that: on 2026-10-02 a
+ * saturated vLLM took over five minutes to answer Routine steps, and each
+ * retry threw away the prompt it had nearly read and queued it again. A server
+ * that has stopped is still caught, by the outage hold in `opencodeProxy.ts`
+ * or by the Run's time limit.
+ */
+export const SELF_HOSTED_RESPONSE_WAIT_MS = 15 * 60_000;
+
 export type OpenCodeModel = {
   id: string;
   provider: "anthropic" | "openai" | "custom";
@@ -69,12 +92,36 @@ export async function resolveOpenCodeModel(model: AIModel): Promise<OpenCodeMode
   return { id: model.model, provider: model.provider, apiKey, contextWindow: model.contextWindow };
 }
 
+/**
+ * OpenCode answers a malformed or unknown tool call by rewriting it to this
+ * internal tool, whose only effect is to tell the model what was wrong. It is
+ * never offered to the model as a callable tool, but OpenCode removes any tool
+ * whose last matching rule is `"*": "deny"` — so without its own rule, every
+ * repair failed with "Model tried to call unavailable tool 'invalid'" and the
+ * model never learned which name or argument it got wrong.
+ */
+export const OPENCODE_REPAIR_TOOL = "invalid";
+
+/**
+ * OpenCode's guard against a model repeating itself: three identical tool calls
+ * in a row within one reply ask this permission. Under `"*": "deny"` the guard
+ * denied it outright, and a denial there fails the whole turn. A Daily Partner
+ * Prospecting Run asked for five partnership records at once by an unlisted
+ * tool name; OpenCode repaired each into the same `invalid` call, and the Run
+ * ended after 52 minutes of work. Allowed, the calls run and answer as they
+ * would have, which tells the model what to change; a Run's time limit still
+ * ends a model that never does.
+ */
+export const OPENCODE_REPEAT_GUARD = "doom_loop";
+
 /** Native tools are an explicit work-surface choice; company tools keep their own Grants. */
 export function openCodePermissions(
   nativeCoding: boolean,
 ): Record<string, "allow" | "ask" | "deny"> {
   return {
     "*": "deny",
+    [OPENCODE_REPAIR_TOOL]: "allow",
+    [OPENCODE_REPEAT_GUARD]: "allow",
     ...(nativeCoding
       ? Object.fromEntries(OPENCODE_NATIVE_PERMISSIONS.map((name) => [name, "ask" as const]))
       : {}),
@@ -100,7 +147,11 @@ export function buildOpenCodeConfig(args: {
   const providerId = openCodeProviderId(model.provider);
   const modelRef = `${providerId}/${model.id}`;
   const outputLimit =
-    model.provider === "anthropic" && /^claude-3-(opus|sonnet|haiku)-/.test(model.id) ? 4096 : 8192;
+    model.provider === "anthropic" && /^claude-3-(opus|sonnet|haiku)-/.test(model.id)
+      ? 4096
+      : model.provider === "custom" && model.contextWindow
+        ? CUSTOM_MODEL_OUTPUT_LIMIT
+        : 8192;
   const options =
     model.provider === "openai"
       ? { store: false, ...(effort ? { reasoningEffort: effort } : {}) }
@@ -147,7 +198,16 @@ export function buildOpenCodeConfig(args: {
             : model.provider === "openai"
               ? "@ai-sdk/openai"
               : "@ai-sdk/openai-compatible",
-        options: { apiKey: model.apiKey, ...(model.baseURL ? { baseURL: model.baseURL } : {}) },
+        options: {
+          apiKey: model.apiKey,
+          ...(model.baseURL ? { baseURL: model.baseURL } : {}),
+          ...(model.provider === "custom"
+            ? {
+                headerTimeout: SELF_HOSTED_RESPONSE_WAIT_MS,
+                chunkTimeout: SELF_HOSTED_RESPONSE_WAIT_MS,
+              }
+            : {}),
+        },
         models: {
           [model.id]: {
             id: model.id,

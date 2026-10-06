@@ -983,13 +983,25 @@ export async function pageSnapshot(p: Page, sessionId: string): Promise<string> 
 }
 
 /**
+ * Accept a snapshot ref written without its `aria-ref=` engine. Small models
+ * copy the `[ref=e89]` marker as `e89`, `ref=e89` or `[ref=e89]`; as CSS the
+ * first names an `<e89>` element no page has, so the call could only time out
+ * and the model tended to repeat it unchanged.
+ */
+export function browserSelector(selector: string): string {
+  const ref = /^\s*(?:\[\s*ref\s*=\s*(e\d+)\s*\]|(?:ref\s*=\s*)?(e\d+))\s*$/.exec(selector);
+  return ref ? `aria-ref=${ref[1] ?? ref[2]}` : selector;
+}
+
+/**
  * Resolve a selector to its first visible match, failing fast. On no match
  * the error carries a fresh snapshot so the model can pick a valid ref
  * without spending another turn on browser_snapshot. When a CSS/text
  * selector matches several elements, a notice flags the ambiguity instead
  * of silently acting on the first.
  */
-async function locate(p: Page, sessionId: string, selector: string): Promise<Locator> {
+async function locate(p: Page, sessionId: string, requested: string): Promise<Locator> {
+  const selector = browserSelector(requested);
   const base = p.locator(selector);
   const loc = base.first();
   try {
@@ -2847,15 +2859,26 @@ browserRpcRouter.post("/scroll", validateBody(scrollSchema), async (req: Browser
   }
 });
 
+/**
+ * Go back one history entry and say whether the tab moved. A single-page app
+ * such as Primal changes views with the History API, and Playwright's goBack
+ * resolves to null for that exactly as it does when there is no earlier
+ * entry, so where the tab ended up is what tells the two apart.
+ */
+export async function goBackInPage(page: Pick<Page, "goBack" | "url">): Promise<boolean> {
+  const before = page.url();
+  const response = await page.goBack({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+  return response !== null || page.url() !== before;
+}
+
 browserRpcRouter.post("/back", async (req: BrowserRpcReq, res) => {
   const sessionId = req.browserSession!.id;
   try {
     const page = await bumpAndAcquire(req);
-    const result = await page.goBack({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
-    if (result === null) {
-      pushSessionNotice(sessionId, "There is no earlier page in this tab's history — staying put.");
-    } else {
+    if (await goBackInPage(page)) {
       await settle(page);
+    } else {
+      pushSessionNotice(sessionId, "There is no earlier page in this tab's history — staying put.");
     }
     res.json({ snapshot: await pageSnapshot(page, sessionId) });
   } catch (err) {
@@ -2876,7 +2899,7 @@ browserRpcRouter.post("/wait", validateBody(waitSchema), async (req: BrowserRpcR
     const page = await bumpAndAcquire(req);
     if (body.ms) await page.waitForTimeout(body.ms);
     if (body.selector && body.selector.length > 0) {
-      const loc = page.locator(body.selector).first();
+      const loc = page.locator(browserSelector(body.selector)).first();
       await loc.waitFor({ state: "visible", timeout: WAIT_MAX_MS });
     }
     res.json({ snapshot: await pageSnapshot(page, sessionId) });

@@ -2,111 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The marketing surface uses the same neutral canvas and typography as App. */
+/* -------------------------------------------------------------------------
+   Base
+------------------------------------------------------------------------- */
 
 :root {
   color-scheme: light;
+  --paper: #f5f5f2;
+  --ink: #0e0e0d;
 }
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 4.5rem;
+  scroll-padding-top: 5.5rem;
+  -webkit-text-size-adjust: 100%;
 }
 
 html,
 body {
-  @apply bg-ground font-sans text-ink antialiased;
+  @apply bg-paper font-sans text-ink antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
-  background-color: #4f46e5;
-  color: white;
+  background-color: #0e0e0d;
+  color: #ffffff;
 }
 
-:where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #4f46e5;
-  outline-offset: 2px;
+:where(a, button, input, textarea, select, summary, [role="button"], [role="option"]):focus-visible {
+  outline: 2px solid #0e0e0d;
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 .on-night
-  :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #818cf8;
+  :where(a, button, input, textarea, select, summary, [role="button"], [role="option"]):focus-visible {
+  outline-color: #ffffff;
+}
+
+/* -------------------------------------------------------------------------
+   Type
+------------------------------------------------------------------------- */
+
+@layer components {
+  /* Headings: Mona Sans at a firm weight, tracked in as it grows. The
+     `text-display-*` sizes carry their own tracking; this is the floor for
+     smaller headings set with an arbitrary size. */
+  .font-display {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  /* Legacy data labels, still used by the product mock-ups. */
+  .t-data {
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .t-field {
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 500;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .kicker {
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 500;
+    font-size: 0.72rem;
+    line-height: 1rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
 }
 
 .tabular {
   font-variant-numeric: tabular-nums;
 }
 
-/* Legacy type classes retained for page compatibility, all on the Inter stack. */
-@layer components {
-  .t-hero {
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    font-weight: 700;
-    letter-spacing: -0.04em;
-    line-height: 1.02;
-  }
+/* -------------------------------------------------------------------------
+   Surfaces
+------------------------------------------------------------------------- */
 
-  .t-h2 {
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-    line-height: 1.1;
-  }
-
-  .t-h3 {
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    letter-spacing: -0.015em;
-    line-height: 1.25;
-  }
-
-  .t-figure {
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.035em;
-    line-height: 0.95;
-  }
-
-  .t-data {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .t-field {
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    font-size: 0.6875rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
+/* Registered so the dawn can brighten smoothly instead of stepping. */
+@property --dawn {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.45;
 }
 
-@media (max-width: 639px) {
-  .t-hero {
-    line-height: 1.04;
-  }
+/* The night: black, with a pale light that rises from the horizon as the
+   clock approaches the morning. No hue — only how much light there is. */
+.night-sky {
+  background-color: #0a0a0a;
+  background-image:
+    radial-gradient(110% 60% at 50% 120%, rgb(255 255 255 / calc(var(--dawn, 0.45) * 0.13)), transparent 62%),
+    radial-gradient(50% 30% at 50% 108%, rgb(255 255 255 / calc(var(--dawn, 0.45) * 0.09)), transparent 70%),
+    linear-gradient(180deg, #080808 0%, #0b0b0b 60%, #101010 100%);
+  transition: --dawn 600ms linear;
 }
 
-/* Legacy layout helpers used by product and role pages. */
-.rail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+/* A film of grain, so large flat darks do not band on cheap panels. */
+.grain {
+  position: relative;
+  isolation: isolate;
 }
 
-@media (min-width: 1024px) {
-  .rail {
-    grid-template-columns: 9.5rem minmax(0, 1fr);
-  }
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 }
 
-@media (min-width: 1280px) {
-  .rail-3 {
-    grid-template-columns: 9.5rem minmax(0, 1fr) 16rem;
-  }
+/* Hour lines for any 24-hour strip, drawn once rather than as 24 nodes. */
+.hour-grid {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--hour-line, rgb(14 14 13 / 0.08)) 0 1px,
+    transparent 1px calc(100% / 24)
+  );
 }
 
-/* Data-grid and Standdown textures retained for the product demonstrations. */
+.hour-grid-night {
+  --hour-line: rgb(255 255 255 / 0.06);
+}
+
+/* Dotted paper for quiet backdrops behind a product mock-up. */
+.dot-paper {
+  background-image: radial-gradient(rgb(14 14 13 / 0.12) 0.8px, transparent 0.8px);
+  background-size: 18px 18px;
+}
+
+/* Legacy textures used by the product mock-ups. */
 .hours {
   background-image: repeating-linear-gradient(
     to right,
@@ -115,20 +148,12 @@ body {
   );
 }
 
-.hours-night {
-  background-image: repeating-linear-gradient(
-    to right,
-    #1e293b 0 1px,
-    transparent 1px calc(100% / 24)
-  );
-}
-
 .hatch {
-  background-image: repeating-linear-gradient(45deg, #475569 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(45deg, #393936 0 1px, transparent 1px 5px);
 }
 
 .hatch-night {
-  background-image: repeating-linear-gradient(45deg, #94a3b8 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(45deg, rgb(255 255 255 / 0.5) 0 1px, transparent 1px 5px);
 }
 
 .scrollbar-none {
@@ -139,96 +164,21 @@ body {
   display: none;
 }
 
-/* Motion is brief, opt-in, and disabled below for reduced-motion users. */
-
-/* Timestamped demonstration bars keep their relative delay on one sweep. */
-@keyframes strip {
-  from {
-    transform: translateY(-50%) scaleX(0);
-  }
-  to {
-    transform: translateY(-50%) scaleX(1);
-  }
+/* A marquee fades out at both ends instead of being cropped by the frame. */
+.fade-x {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
 }
 
-@keyframes wipe {
-  from {
-    transform: scaleY(0);
-  }
-  to {
-    transform: scaleY(1);
-  }
+.fade-b {
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }
 
-@keyframes arrive {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
+/* -------------------------------------------------------------------------
+   Product prototype (product pages)
+------------------------------------------------------------------------- */
 
-[data-sweep] .strip-draw {
-  transform-origin: left;
-  animation: strip 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  animation-delay: calc(var(--sweep, 1800ms) * var(--at, 0) / 24);
-}
-
-[data-sweep] .arrive-wipe {
-  transform-origin: top;
-  animation: wipe 160ms linear both;
-  animation-delay: calc(var(--sweep, 1800ms) * var(--at, 9.5) / 24);
-}
-
-[data-sweep] .arrive-in {
-  animation: arrive 240ms linear both;
-  animation-delay: calc(var(--sweep, 1800ms) * var(--at, 9.5) / 24 + 160ms);
-}
-
-/* Keyboard navigation must never land on a bar still waiting to draw. */
-[data-sweep]:focus-within .strip-draw,
-[data-sweep]:focus-within .arrive-wipe,
-[data-sweep]:focus-within .arrive-in {
-  animation: none;
-}
-
-.arrive-in {
-  animation: arrive 160ms ease-out both;
-}
-
-/* Small transitions used by live product demonstrations. */
-@keyframes row-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.row-in {
-  animation: row-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-@keyframes claim-in {
-  from {
-    opacity: 0;
-    transform: translateY(0.45em);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.claim-in {
-  animation: claim-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* Product prototypes keep their own containment and scroll behaviour. */
 .prototype-shell {
   contain: layout paint;
   touch-action: pan-y;
@@ -239,7 +189,7 @@ body {
 }
 
 .prototype-stage > :first-child {
-  animation: arrive 160ms ease-out both;
+  animation: fade-in 160ms ease-out both;
 }
 
 .prototype-stage-compact {
@@ -253,6 +203,15 @@ body {
   }
   to {
     transform: scaleX(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -270,59 +229,50 @@ body {
   }
 }
 
+/* -------------------------------------------------------------------------
+   Navigation menu
+------------------------------------------------------------------------- */
+
+.site-menu {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition:
+    opacity 220ms ease,
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s 320ms;
+}
+
+.site-menu[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+/* -------------------------------------------------------------------------
+   Reduced motion
+------------------------------------------------------------------------- */
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
 
-  .claim-in,
-  .row-in,
-  [data-sweep] .strip-draw,
-  [data-sweep] .arrive-wipe,
-  [data-sweep] .arrive-in,
-  .strip-draw,
-  .arrive-in,
-  .prototype-stage > :first-child,
-  .prototype-progress,
+  .animate-marquee,
+  .animate-rise-in,
+  .animate-fade-in,
+  .animate-soft-pulse,
+  .animate-blink,
   .animate-pulse,
   .animate-spin,
-  .animate-strip,
-  .animate-arrive {
-    animation: none;
+  .prototype-stage > :first-child,
+  .prototype-progress {
+    animation: none !important;
   }
-}
 
-/* A quiet drafting grid frames the opening without competing with the preview. */
-.hero-grid {
-  background-image: radial-gradient(#cbd5e1 0.7px, transparent 0.7px);
-  background-size: 24px 24px;
-  mask-image: linear-gradient(to bottom, #00000030, transparent 85%);
-}
-
-.site-menu {
-  grid-template-rows: 0fr;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 180ms ease,
-    visibility 0s 280ms;
-}
-
-.site-menu[data-open="true"] {
-  grid-template-rows: 1fr;
-  opacity: 1;
-  visibility: visible;
-  transition-delay: 0s;
-}
-
-.site-menu-clip {
-  min-height: 0;
-  overflow: hidden;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .site-menu {
+  .site-menu,
+  .night-sky {
     transition: none;
   }
 }

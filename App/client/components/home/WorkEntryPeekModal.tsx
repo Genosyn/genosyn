@@ -6,7 +6,7 @@ import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import type { Company, WorkEntry } from "@/lib/api";
-import { workClock, workEntryHref, workEntryLinkLabel, WORK_KIND_META } from "@/lib/workTimeline";
+import { workClock, workEntryHref, workEntryKindLabel, workEntryLinkLabel } from "@/lib/workTimeline";
 
 import { WorkEntryBlock } from "./WorkEntryViews";
 
@@ -48,7 +48,7 @@ export function WorkEntryPeekModal({
       title={entry.employee.name}
       description={
         <span className="flex flex-wrap items-center gap-x-1.5">
-          <span>{WORK_KIND_META[entry.kind].label}</span>
+          <span>{workEntryKindLabel(entry)}</span>
           <span aria-hidden="true">·</span>
           <time dateTime={entry.at} title={absolute}>
             {workClock(entry.at) || absolute}

@@ -352,7 +352,7 @@ export async function findOrCreateDM(params: {
   // small (DMs are per-person, per-counterparty) so N is comfortable.
   const myDMsQB = members
     .createQueryBuilder("cm")
-    .innerJoin(Channel, "c", "c.id = cm.channelId")
+    .innerJoin(Channel, "c", "CAST(c.id AS text) = cm.channelId")
     .where("c.companyId = :companyId", { companyId: params.companyId })
     .andWhere("c.kind = 'dm'")
     .andWhere("c.archivedAt IS NULL");

@@ -1,5 +1,5 @@
 import React from "react";
-import { CornerDownLeft, Keyboard, Search } from "lucide-react";
+import { CornerDownLeft, Keyboard, Search, Sparkles } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCOUNT_SECTION,
@@ -11,6 +11,7 @@ import {
 } from "../lib/sections";
 import { anotherDialogIsOpen, isTypingTarget, setChordPending } from "../lib/keyboard";
 import { PALETTE_SHORTCUT } from "./CommandPalette";
+import { ASK_AI_SHORTCUT } from "./askAi/AskAiProvider";
 import { useNavigationGuard } from "./NavigationGuard";
 import { clsx } from "./ui/clsx";
 import { ModalCloseButton, ModalPanel, ModalScrim } from "./ui/ModalChrome";
@@ -323,7 +324,7 @@ function ShortcutGuide({
             >
               Everywhere
             </h3>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2">
               <ShortcutCard
                 icon={<Search size={15} />}
                 label="Search and open"
@@ -335,6 +336,11 @@ function ShortcutGuide({
                 keys={["G"]}
               />
               <ShortcutCard icon={<Keyboard size={15} />} label="Show this guide" keys={["?"]} />
+              <ShortcutCard
+                icon={<Sparkles size={15} />}
+                label="Ask AI about this page"
+                keys={[ASK_AI_SHORTCUT]}
+              />
             </div>
           </section>
 

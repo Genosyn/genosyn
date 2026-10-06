@@ -31,6 +31,16 @@ import {
   Wallet,
   Wrench,
 } from "lucide-react";
+import {
+  MATCH_SCORE,
+  type TextMatch,
+  foldSearchText,
+  isSubsequence,
+  matchKeywords,
+  matchLabelText,
+  matchesInitials,
+  queryTokens,
+} from "./searchText";
 
 /**
  * The catalog of top-level sections, and how a URL maps back to one.
@@ -531,7 +541,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "models",
           "config",
           "api keys",
-          "billing",
         ],
       },
     ],
@@ -639,71 +648,42 @@ export type SectionMatch = {
   /** `[start, end)` offsets into `item.label`, or null when the hit was
    *  elsewhere (a keyword, the description, or a fuzzy skip-match). */
   hit: [number, number] | null;
+  /** How well it matched, on the shared `MATCH_SCORE` scale; 0 when browsing. */
+  score: number;
 };
 
-/** Does `needle` appear in `hay` in order, allowing gaps? ("aiemp" → "AI Employees") */
-function subsequenceOf(hay: string, needle: string): boolean {
-  let i = 0;
-  for (const ch of hay) {
-    if (ch === needle[i]) i++;
-    if (i === needle.length) return true;
-  }
-  return false;
-}
-
 /**
- * Rank one section against one lowercased token. Higher is better; null means
+ * Rank one section against one folded token. Higher is better; null means
  * "no match, hide it". The tiers exist so that typing "not" puts Notes above
  * Notifications-in-a-description, and so an exact word always wins.
  */
-function scoreToken(
-  item: SectionItem,
-  q: string,
-): { score: number; hit: [number, number] | null } | null {
-  const label = item.label.toLowerCase();
-
-  if (label === q) return { score: 100, hit: [0, label.length] };
-
-  const at = label.indexOf(q);
-  if (at === 0) return { score: 90, hit: [0, q.length] };
-  if (at > 0) {
-    // A hit at a word boundary ("Employees" in "AI Employees") reads as
-    // intentional; one mid-word ("mail" in "Gmail") is weaker.
-    const boundary = !/[a-z0-9]/.test(label[at - 1]);
-    return { score: boundary ? 80 : 65, hit: [at, at + q.length] };
-  }
+function scoreToken(item: SectionItem, q: string): TextMatch | null {
+  const label = matchLabelText(item.label, q);
+  if (label) return label;
 
   // Initials — "ae" reaches "AI Employees" without spelling either word.
-  const initials = label
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean)
-    .map((w) => w[0])
-    .join("");
-  if (initials.length > 1 && initials.startsWith(q)) {
-    return { score: 58, hit: null };
+  if (matchesInitials(item.label, q)) return { score: MATCH_SCORE.initials, hit: null };
+
+  const keyword = matchKeywords(item.keywords, q);
+  if (keyword !== null) return { score: keyword, hit: null };
+
+  if (foldSearchText(item.description).includes(q)) {
+    return { score: MATCH_SCORE.description, hit: null };
   }
 
-  const kw = (item.keywords ?? []).find((k) => k.includes(q));
-  if (kw) return { score: kw.startsWith(q) ? 55 : 45, hit: null };
-
-  if (item.description.toLowerCase().includes(q)) return { score: 35, hit: null };
-
-  if (subsequenceOf(label, q)) return { score: 20, hit: null };
+  if (isSubsequence(foldSearchText(item.label), q)) return { score: MATCH_SCORE.fuzzy, hit: null };
 
   return null;
 }
 
 /**
- * Rank one section against a lowercased query. Multi-word queries AND their
+ * Rank one section against a folded query. Multi-word queries AND their
  * tokens ("ai emp" must hit on every word, in any order) and score as the
  * weakest token, so each extra word narrows rather than widens.
  */
-function scoreSection(
-  item: SectionItem,
-  q: string,
-): { score: number; hit: [number, number] | null } | null {
+function scoreSection(item: SectionItem, q: string): TextMatch | null {
   const whole = scoreToken(item, q);
-  const tokens = q.split(/\s+/).filter(Boolean);
+  const tokens = queryTokens(q);
   if (tokens.length < 2) return whole;
 
   let min = Infinity;
@@ -723,16 +703,17 @@ function scoreSection(
 /**
  * Flat, ranked results for the palette's search mode. Ties keep catalog order
  * (`Array.sort` is stable), so equally-good matches stay in the order the user
- * already learned from the grouped browse view.
+ * already learned from the grouped browse view. Case, accents, and extra
+ * spaces in the query don't matter.
  */
 export function searchSections(items: SectionItem[], query: string): SectionMatch[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return items.map((item) => ({ item, hit: null }));
+  const q = foldSearchText(query);
+  if (!q) return items.map((item) => ({ item, hit: null, score: 0 }));
 
-  const scored: { m: SectionMatch; score: number }[] = [];
+  const scored: SectionMatch[] = [];
   for (const item of items) {
     const r = scoreSection(item, q);
-    if (r) scored.push({ m: { item, hit: r.hit }, score: r.score });
+    if (r) scored.push({ item, hit: r.hit, score: r.score });
   }
-  return scored.sort((a, b) => b.score - a.score).map((s) => s.m);
+  return scored.sort((a, b) => b.score - a.score);
 }

@@ -195,12 +195,14 @@ export function Signatures() {
         the ordinary setup, a Member who has read the document.
       </P>
       <P>
-        <Strong>Ask AI</Strong> on a request saves valid unsaved changes, lets you choose among
-        eligible AI Employees, and opens Chat with a draft readiness or status question. Nothing
-        runs until you send that chat message. The employee can inspect the saved request
-        configuration and evidence, but its signing tools cannot read the source PDF or edit an
-        existing draft, so the Member remains responsible for checking document meaning and field
-        placement.
+        To check a request with an AI Employee, open it and press <Strong>Ask AI</Strong> in the top
+        bar — for example &ldquo;is this ready to send?&rdquo; or &ldquo;where is this stuck?&rdquo;.
+        An employee with a Signing Grant is shown the saved title, status, recipients, routing,
+        expiry and evidence trail; one without is told only that a signature request is open.
+        Private signing links and signature values are never shared. Its signing tools cannot read
+        the source PDF or edit an existing draft, so the Member remains responsible for checking
+        document meaning and field placement, and it sends, reminds or voids nothing unless you ask.
+        Unsaved draft changes autosave within a few seconds; the employee reads the saved version.
       </P>
       <P>
         AI Employees can never call the recipient completion endpoint, see private signing links or
