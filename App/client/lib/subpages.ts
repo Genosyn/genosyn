@@ -284,6 +284,22 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       rail: false,
       keywords: ["create routine", "add routine", "schedule work", "new cron job"],
     },
+    // The rail draws its folders and employees itself; this is the one fixed
+    // page it pins beneath them. Ungated like the sibling AI access pages:
+    // every Member can see who is read + run, only owners and admins change it.
+    {
+      label: "AI access",
+      path: "/routines/ai-access",
+      icon: Bot,
+      keywords: [
+        "routine grants",
+        "ai employee access",
+        "read and run",
+        "read and write",
+        "who can edit routines",
+        "permissions",
+      ],
+    },
   ],
   tasks: [
     {

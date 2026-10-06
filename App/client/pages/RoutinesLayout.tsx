@@ -23,6 +23,7 @@ import {
   RoutineWithMeta,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
+import { SectionRailLinks } from "../components/SectionRail";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
@@ -582,6 +583,14 @@ function Sidebar({
           </>
         )}
       </div>
+      {/* The section's fixed pages (Routines → AI access), drawn from the
+          subpage catalogue the ⌘K palette searches, pinned below the filters. */}
+      <nav
+        aria-label="Routines settings"
+        className="shrink-0 space-y-0.5 border-t border-slate-100 p-2 dark:border-slate-800"
+      >
+        <SectionRailLinks section="routines" companySlug={company.slug} />
+      </nav>
     </div>
   );
 }

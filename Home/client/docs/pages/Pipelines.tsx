@@ -374,6 +374,14 @@ return { score: res.data.score };`}</Pre>
         read. In both cases a human can still leave the scope empty in the builder; the Pipeline
         then runs exactly as it always has.
       </P>
+      <P>
+        A <Strong>Schedule</Strong> trigger turns a Pipeline into recurring work, which is what
+        creating a Routine does, so it follows{" "}
+        <DocLink to="/docs/routines#ai-access">Routines → AI access</DocLink>. An employee held to{" "}
+        <Strong>Read + run</Strong> there cannot add one, and — by the whole-Pipeline rule above —
+        cannot change, run, or resume a Pipeline that has one. Manual, webhook, and event triggers
+        are unaffected.
+      </P>
       <Callout kind="info" title="Grants are checked when the Pipeline is written.">
         Like a Member who builds one and later loses access, an employee&apos;s Pipeline keeps
         running after a Grant is withdrawn — the Run has no principal to re-check. Open the Pipeline

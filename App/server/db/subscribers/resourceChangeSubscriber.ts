@@ -303,6 +303,8 @@ const REGISTRY: Record<string, Mapping> = {
   },
   // Resources → AI access: the company-wide ceiling over the rows above.
   EmployeeResourceLibraryGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
+  // Routines → AI access: read + run or read + write, one row per employee.
+  EmployeeRoutineGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
   EmployeeBaseGrant: {
     kind: "grant",
     company: { fk: "employeeId", parent: "AIEmployee" },

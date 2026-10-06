@@ -47,7 +47,8 @@
     "test:passkey-signin": "tsx scripts/test-passkey-signin.ts",
     "test:recurring-invoice-name": "tsx scripts/test-recurring-invoice-name.ts",
     "test:command-palette": "tsx scripts/test-command-palette.ts",
-    "test:resources-ai-access": "tsx scripts/test-resources-ai-access.ts"
+    "test:resources-ai-access": "tsx scripts/test-resources-ai-access.ts",
+    "test:routines-ai-access": "tsx scripts/test-routines-ai-access.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

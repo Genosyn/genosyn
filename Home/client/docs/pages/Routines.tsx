@@ -547,7 +547,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Ask an employee in chat to set up a weekly report, move it to Fridays, rewrite its brief, or
         pause it, and they edit the existing routine in place —<Code>update_routine</Code> covers
         rename, re-schedule, brief rewrites, and the enable/disable switch, so nothing forces a
-        duplicate.
+        duplicate. That is the default; <DocLink to="/docs/routines#ai-access">AI access</DocLink>,
+        below, can hold an employee to reading and running Routines instead.
       </P>
       <P>
         Every change made this way is written to the{" "}
@@ -555,6 +556,61 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         lands in the owning employee&apos;s journal, so the humans can always see who rescheduled
         what.
       </P>
+
+      <H2 id="ai-access">AI access: read + write or read + run</H2>
+      <P>
+        Open <Strong>Routines → AI access</Strong> — pinned at the bottom of the Routines sidebar —
+        to see every AI Employee in the company and what it may do with Routines. Each one is at one
+        of two levels, and the level covers every Routine: its own and its teammates&apos;.
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "Read + write",
+            def: "The default, and what every AI Employee could already do. It reads every Routine and its Runs, its Routines keep running, and it may create, edit, re-schedule, pause, re-file, tag, and delete Routines — its own, and those of teammates who also hold Read + write.",
+          },
+          {
+            term: "Read + run",
+            def: (
+              <>
+                It still reads every Routine, its brief, and its Runs (<Code>list_routines</Code>,{" "}
+                <Code>get_routine</Code>, <Code>list_runs</Code>, <Code>get_run_report</Code>), and
+                its Routines keep running. <Code>create_routine</Code>,{" "}
+                <Code>update_routine</Code>, and <Code>delete_routine</Code> are refused for every
+                Routine, and so is a <DocLink to="/docs/pipelines#ai">Pipeline</DocLink> schedule
+                trigger, which would be recurring work by another name.
+              </>
+            ),
+          },
+        ]}
+      />
+      <P>
+        Read + run never stops a Run. Its Routines start exactly as before — on their schedule, from
+        a <DocLink to="/docs/reactivity">Trigger</DocLink> or webhook, from{" "}
+        <Strong>Run now</Strong>, or as a retry — and inside a Run it still saves checkpoints and
+        reports failure. What it takes away is change, in both directions: the employee cannot
+        change any Routine, and no other AI Employee can change <Strong>its</Strong> Routines, so a
+        change cannot be handed to a teammate that may write. Members still edit every Routine in
+        the Routines section, and the employee can still suggest a better brief or acceptance
+        criteria as a{" "}
+        <DocLink to="/docs/improvement">Revision proposal</DocLink>, or propose new standing work
+        as an Initiative — nothing changes until a human applies or accepts it.
+      </P>
+      <P>
+        Every Member can open the page and see who is read + run; only owners and admins can change
+        a level, and each change is recorded in the{" "}
+        <DocLink to="/docs/security#audit-log">audit log</DocLink> as{" "}
+        <Code>routine.ai_access.update</Code> with the level before and after. A read + run
+        employee is told so in its briefing — in chat and in every Run — and the three writers
+        leave the set of tools it sees on every step, so it says it can&apos;t make a change instead
+        of attempting one. A Member chatting with it cannot lend it write access. The setting
+        governs only what AI Employees do through their tools.
+      </P>
+      <Callout kind="info" title="Same page, same rules as Resources → AI access.">
+        Routines and <DocLink to="/docs/resources#ai-access">Resources</DocLink> each have an AI
+        access page with one row per employee and the default at the top level, so an upgrade
+        changes nothing until you narrow someone.
+      </Callout>
 
       <H2 id="model">Picking a model</H2>
       <P>

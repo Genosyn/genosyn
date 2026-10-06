@@ -30,9 +30,11 @@ import {
 } from "../../../db/entities/EmployeeVaultGrant.js";
 import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnectionGrant.js";
 import { EmployeeResourceLibraryGrant } from "../../../db/entities/EmployeeResourceLibraryGrant.js";
+import { EmployeeRoutineGrant } from "../../../db/entities/EmployeeRoutineGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
 import { EXPLORE_PROVIDERS } from "../../explore.js";
 import { RESOURCE_WRITE_TOOLS } from "../../resourceLibraryAccess.js";
+import { ROUTINE_WRITE_TOOLS } from "../../routineAccess.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -330,6 +332,17 @@ const REVENUE_GATED_TOOLS = new Set(Object.keys(REVENUE_TOOL_ACCESS));
  */
 const RESOURCE_WRITE_GATED_TOOLS = new Set<string>(RESOURCE_WRITE_TOOLS);
 
+/**
+ * Routines → AI access, the same shape as the Resources ceiling above: an
+ * employee with no row holds `write`, so the Routine writers are dead only for
+ * one explicitly set to `run` (read + run). Unlike the Resource writers these
+ * three are resident in every working set, and `gatherEmployeeTools` drops a
+ * dead one from the resident defaults — still discoverable, never shown on
+ * every step to an employee that can only be refused it. The read tools never
+ * appear: both levels read every Routine and Run.
+ */
+const ROUTINE_WRITE_GATED_TOOLS = new Set<string>(ROUTINE_WRITE_TOOLS);
+
 /** Explore's ad-hoc database tools need at least one Connection Grant. */
 const EXPLORE_CONNECTION_GATED_TOOLS = new Set([
   "get_explore_schema",
@@ -357,6 +370,7 @@ export function assertGrantSetsResolve(): void {
     ...VAULT_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
     ...RESOURCE_WRITE_GATED_TOOLS,
+    ...ROUTINE_WRITE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
   ].filter((n) => !known.has(n));
   if (unknown.length > 0) {
@@ -424,6 +438,13 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
     // it anyway, and a ranking hint prefers a wasted call to a hidden tool.
     if (resourceLibrary?.accessLevel === "read") {
       for (const t of RESOURCE_WRITE_GATED_TOOLS) dead.add(t);
+    }
+    const routineAccess = await AppDataSource.getRepository(EmployeeRoutineGrant).findOne({
+      where: { employeeId },
+    });
+    // Exactly `run`, for the same reason as the Resources branch above.
+    if (routineAccess?.accessLevel === "run") {
+      for (const t of ROUTINE_WRITE_GATED_TOOLS) dead.add(t);
     }
     const vaultGrants = await AppDataSource.getRepository(EmployeeVaultGrant).find({
       where: { employeeId },

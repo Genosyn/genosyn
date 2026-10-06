@@ -191,6 +191,27 @@ export function SelfHosting() {
         well; the two lists are combined.
       </Callout>
 
+      <H3 id="http-proxy">Sending outbound traffic through a proxy</H3>
+      <P>
+        If your network only lets traffic out through an HTTP proxy, set the standard{" "}
+        <Code>HTTPS_PROXY</Code>, <Code>HTTP_PROXY</Code>, and <Code>NO_PROXY</Code> variables on
+        the App container. In Kubernetes, add them to the chart&apos;s <Code>env</Code> value. With
+        the Docker installer, add a <Code>proxies</Code> block to <Code>~/.docker/config.json</Code>{" "}
+        and Docker sets them on each container it creates from then on, such as the one{" "}
+        <Code>genosyn install</Code> or an upgrade to a new release starts. Genosyn reads them at
+        startup. Its own HTTP requests (model providers, web tools, Integrations) then go through
+        the proxy, except for hosts listed in <Code>NO_PROXY</Code>. Loopback never goes through the
+        proxy, and IMAP and SMTP connections always go directly.
+      </P>
+      <P>
+        A proxy resolves the names it carries, so for those requests Genosyn checks the address when
+        it validates the URL but not again when the socket connects. Have the proxy refuse private
+        and link-local destinations as well. List internal hosts, such as a Forgejo at{" "}
+        <Code>git.internal</Code> or an Ollama on your LAN, in <Code>NO_PROXY</Code> so Genosyn
+        reaches them directly. If the proxy inspects TLS, point <Code>NODE_EXTRA_CA_CERTS</Code> at
+        its CA certificate.
+      </P>
+
       <H2 id="public-url">Public URL</H2>
       <P>
         Sign in as a master admin and open <Code>Admin → General</Code>. Set the exact origin

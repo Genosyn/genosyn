@@ -285,7 +285,10 @@ export async function gatherEmployeeTools(params: {
   }
 
   const wanted = new Set([
-    ...RESIDENT_GENOSYN_TOOLS,
+    // A default resident tool this employee can only be refused stays one
+    // `find_tools` away rather than on every step: today that is the Routine
+    // writers for an employee held at read + run (Routines → AI access).
+    ...RESIDENT_GENOSYN_TOOLS.filter((name) => !grantDead.has(name)),
     // Keep review submission visible; bounded preparation tools remain discoverable.
     ...(tokenInfo?.proactiveReview
       ? ["request_mail_review", "request_work_review", "get_proactive_work", "list_workstreams"]

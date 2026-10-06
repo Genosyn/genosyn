@@ -452,7 +452,9 @@ data/
 ├── .instance-secrets.json  # generated cookie + encryption roots (mode 0600)
 ├── .instance-secrets.required # non-secret loss-detection marker (mode 0600)
 ├── .private/
-│   ├── browser-state/<company-id>/<employee-id>.json # cookies/localStorage
+│   ├── browser-state/<company-id>/
+│   │   ├── <employee-id>.profile/ # the employee's persistent Chrome profile (mode 0700)
+│   │   └── <employee-id>.json     # exported cookie/local-storage snapshot
 │   ├── browser-recordings/<company-id>/<run-id>/ # silent per-session Routine MP4s
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
 ├── app.sqlite              # WAL mode: app.sqlite-wal / -shm beside it while running
@@ -472,7 +474,16 @@ support bundles, or source control. Explicit strong config values remain
 supported and take precedence.
 
 Browser authentication state, Routine browser recordings, and repository SSH
-host-key caches are App-private. Silent visual recordings live under
+host-key caches are App-private. Every session an AI Employee opens in
+Genosyn's browser shares one Chrome on a persistent profile at
+`.private/browser-state/<company-id>/<employee-id>.profile/`, which holds its
+cookies, IndexedDB, cache, and history and is deleted with the employee or the
+company. The `<employee-id>.json` beside it is a one-way export of cookies and
+local storage, written on a debounce after navigation and whenever Chrome
+closes, `SIGTERM` included. It is read only to seed a brand-new profile once and
+as the cookie jar for the ephemeral fallback when the profile cannot be used.
+Never pass it back into a working profile: a stale export would overwrite the
+jar Chrome already loaded. Silent visual recordings live under
 `.private/browser-recordings/<company-id>/<run-id>/`, one MP4 per
 `BrowserSession`, and are linked from the Run log rather than exposed in an AI
 Employee's working tree. A recording from Genosyn's browser is admin-only; a

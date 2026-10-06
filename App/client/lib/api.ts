@@ -572,6 +572,23 @@ export type RoutineWithMeta = Routine & {
 };
 
 /**
+ * Routines → AI access: whether an AI Employee may change Routines at all.
+ * `write` (read + write) is the default; `run` (read + run) still reads every
+ * Routine and Run and keeps its own Routines running, but refuses every
+ * Routine write. See `EmployeeRoutineGrant` on the server.
+ */
+export type RoutineAccessLevel = "run" | "write";
+
+export type RoutineAccessRow = {
+  employee: EmployeeSummary;
+  accessLevel: RoutineAccessLevel;
+  /** True when nobody has set this employee's access, so the default applies. */
+  isDefault: boolean;
+};
+
+export type RoutineAccessResponse = { rows: RoutineAccessRow[] };
+
+/**
  * A skill as the company-wide Skills section sees it: the row plus the
  * employee whose playbook it is. Served by `/api/companies/:cid/skills`.
  * `body` is not on the list — each playbook is fetched via
