@@ -8,6 +8,7 @@ import {
   displayBillStatus,
   formatMoney,
 } from "../lib/api";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -37,10 +38,11 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
 /**
  * Bills list. Phase G of the Finance milestone (M19). Mirrors the
  * Invoices list — same status-tab filter, same row layout flipped to
- * "we owe them" framing.
+ * "we owe them" framing. A read-only Member gets the list without New bill.
  */
 export default function FinanceBills() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const [bills, setBills] = React.useState<BillListItem[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
@@ -110,11 +112,13 @@ export default function FinanceBills() {
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
           Bills
         </h1>
-        <Link to={`/c/${company.slug}/finance/bills/new`}>
-          <Button>
-            <Plus size={14} /> New bill
-          </Button>
-        </Link>
+        {canWrite && (
+          <Link to={`/c/${company.slug}/finance/bills/new`}>
+            <Button>
+              <Plus size={14} /> New bill
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
@@ -160,9 +164,15 @@ export default function FinanceBills() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No bills in this view
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {filter === "all" ? "Record a bill to start tracking what you owe." : "Try a different status filter."}
-          </p>
+          {filter !== "all" ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Try a different status filter.
+            </p>
+          ) : canWrite ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Record a bill to start tracking what you owe.
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

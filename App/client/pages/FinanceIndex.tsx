@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { ArrowRight, FileText, Plus, Users, Wallet } from "lucide-react";
 import { api, Customer, formatMoney, InvoiceListItem } from "../lib/api";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -17,6 +18,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceIndex() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
@@ -108,13 +110,15 @@ export default function FinanceIndex() {
             Invoices, bills, and revenue at a glance.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Link to={`/c/${company.slug}/finance/invoices/new`}>
-            <Button>
-              <Plus size={14} /> New invoice
-            </Button>
-          </Link>
-        </div>
+        {canWrite && (
+          <div className="flex gap-2">
+            <Link to={`/c/${company.slug}/finance/invoices/new`}>
+              <Button>
+                <Plus size={14} /> New invoice
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
 
       {loadError ? (
@@ -174,14 +178,19 @@ export default function FinanceIndex() {
             </div>
             {recent.length === 0 ? (
               <div className="p-10 text-center text-sm text-slate-500 dark:text-slate-400">
-                No invoices yet.{" "}
-                <Link
-                  to={`/c/${company.slug}/finance/invoices/new`}
-                  className="text-indigo-600 hover:underline dark:text-indigo-400"
-                >
-                  Create your first invoice
-                </Link>
-                .
+                No invoices yet.
+                {canWrite && (
+                  <>
+                    {" "}
+                    <Link
+                      to={`/c/${company.slug}/finance/invoices/new`}
+                      className="text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      Create your first invoice
+                    </Link>
+                    .
+                  </>
+                )}
               </div>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">

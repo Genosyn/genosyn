@@ -3,6 +3,7 @@ import { Link, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Ban, Plus, Trash2, Undo2 } from "lucide-react";
 import { api, VendorCreditDetail, formatMoney, parseMoneyToCents } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -21,6 +22,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function FinanceVendorCreditDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const { creditSlug } = useParams();
   const dialog = useDialog();
   const [credit, setCredit] = React.useState<VendorCreditDetail | null>(null);
@@ -94,8 +96,9 @@ export default function FinanceVendorCreditDetail() {
     return <div className="flex justify-center p-12"><Spinner /></div>;
   }
 
-  const canApply = credit.status === "issued" && credit.openCents > 0;
-  const canVoid = credit.status === "issued" && credit.openCents === credit.totalCents;
+  // Each of these is a write, so a read-only Member is offered none of them.
+  const canApply = canWrite && credit.status === "issued" && credit.openCents > 0;
+  const canVoid = canWrite && credit.status === "issued" && credit.openCents === credit.totalCents;
 
   return (
     <div className="page-shell p-8">
@@ -159,7 +162,7 @@ export default function FinanceVendorCreditDetail() {
                   <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{formatMoney(a.amountCents, credit.currency)}</span>{" "}
                   <span className="text-xs text-slate-500 dark:text-slate-400">→ {a.billNumber ?? "bill"} · {new Date(a.appliedAt).toISOString().slice(0, 10)}{a.reversedAt ? " · reversed" : ""}</span>
                 </div>
-                {!a.reversedAt && (
+                {canWrite && !a.reversedAt && (
                   <button onClick={() => unapply(a.id)} disabled={unapplyingId === a.id} aria-busy={unapplyingId === a.id || undefined} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label="Unapply">
                     {unapplyingId === a.id ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                   </button>
@@ -180,7 +183,7 @@ export default function FinanceVendorCreditDetail() {
                   <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{formatMoney(r.amountCents, credit.currency)}</span>{" "}
                   <span className="text-xs text-slate-500 dark:text-slate-400">{new Date(r.refundedAt).toISOString().slice(0, 10)}{r.method ? ` · ${r.method}` : ""}{r.reversedAt ? " · reversed" : ""}</span>
                 </div>
-                {!r.reversedAt && (
+                {canWrite && !r.reversedAt && (
                   <button onClick={() => voidRefund(r.id)} disabled={reversingId === r.id} aria-busy={reversingId === r.id || undefined} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label="Reverse refund">
                     {reversingId === r.id ? <ButtonSpinner size={12} /> : <Trash2 size={12} />}
                   </button>

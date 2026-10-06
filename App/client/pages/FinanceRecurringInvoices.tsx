@@ -11,6 +11,7 @@ import {
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -46,10 +47,12 @@ function formatRelative(iso: string | null): string {
 
 /**
  * Recurring invoices list. Each row is a scheduled template that
- * auto-generates a new `Invoice` on its cron tick.
+ * auto-generates a new `Invoice` on its cron tick. A read-only Member gets
+ * the list without New schedule.
  */
 export default function FinanceRecurringInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const navigate = useNavigate();
   const [rows, setRows] = React.useState<RecurringInvoiceListItem[] | null>(null);
   const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
@@ -118,11 +121,13 @@ export default function FinanceRecurringInvoices() {
             annual licences. Each run creates a fresh invoice.
           </p>
         </div>
-        <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
-          <Button>
-            <Plus size={14} /> New schedule
-          </Button>
-        </Link>
+        {canWrite && (
+          <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
+            <Button>
+              <Plus size={14} /> New schedule
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
@@ -159,20 +164,24 @@ export default function FinanceRecurringInvoices() {
           <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">
             No recurring invoices yet
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {filter === "all"
-              ? "Set up a schedule once — Genosyn handles the rest."
-              : "Try a different status filter."}
-          </p>
-          {filter === "all" && (
-            <div className="mt-4">
-              <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
-                <Button>
-                  <Plus size={14} /> New schedule
-                </Button>
-              </Link>
-            </div>
-          )}
+          {filter !== "all" ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Try a different status filter.
+            </p>
+          ) : canWrite ? (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Set up a schedule once — Genosyn handles the rest.
+              </p>
+              <div className="mt-4">
+                <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
+                  <Button>
+                    <Plus size={14} /> New schedule
+                  </Button>
+                </Link>
+              </div>
+            </>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

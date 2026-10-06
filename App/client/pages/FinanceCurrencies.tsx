@@ -2,6 +2,7 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { api, CompanyFinanceSettings, Currency, ExchangeRate } from "../lib/api";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -12,6 +13,7 @@ import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { errorMessage } from "../lib/errors";
+import { FinanceReadOnlyNote } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -21,9 +23,14 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  *   - Home currency picker (the company's reporting currency).
  *   - Currencies catalog (the list invoices can be denominated in).
  *   - Exchange rates (manual entry, walk-back lookup at FX time).
+ *
+ * A read-only Member sees all three. The home currency stays a disabled
+ * picker, since it is the one value the page has to show; adding and
+ * deleting currencies and rates is simply not offered.
  */
 export default function FinanceCurrencies() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const dialog = useDialog();
   const background = useBackgroundAction();
 
@@ -135,6 +142,7 @@ export default function FinanceCurrencies() {
         using the most recent rate on or before the issue date; payments convert at the payment
         date, with the difference posting to FX gain or loss.
       </p>
+      {!canWrite && <FinanceReadOnlyNote className="mt-4" />}
 
       {loading ? (
         <div className="flex justify-center p-16">
@@ -150,6 +158,7 @@ export default function FinanceCurrencies() {
               <Select
                 value={settings.homeCurrency}
                 onChange={(e) => changeHomeCurrency(e.target.value)}
+                disabled={!canWrite}
               >
                 {currencies.map((c) => (
                   <option key={c.id} value={c.code}>
@@ -169,9 +178,11 @@ export default function FinanceCurrencies() {
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Currencies
               </h2>
-              <Button onClick={() => setShowAddCurrency(true)} size="sm">
-                <Plus size={14} /> Add currency
-              </Button>
+              {canWrite && (
+                <Button onClick={() => setShowAddCurrency(true)} size="sm">
+                  <Plus size={14} /> Add currency
+                </Button>
+              )}
             </div>
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -180,7 +191,7 @@ export default function FinanceCurrencies() {
                   <th className="px-4 py-2 text-left font-medium">Name</th>
                   <th className="w-24 px-4 py-2 text-left font-medium">Symbol</th>
                   <th className="w-28 px-4 py-2 text-left font-medium">Decimals</th>
-                  <th className="w-10" />
+                  {canWrite && <th className="w-10" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -196,17 +207,19 @@ export default function FinanceCurrencies() {
                     <td className="px-4 py-2 tabular-nums text-slate-500 dark:text-slate-400">
                       {c.decimalPlaces}
                     </td>
-                    <td className="px-4 py-2 text-right">
-                      {c.code !== settings.homeCurrency && (
-                        <button
-                          onClick={() => deleteCurrency(c)}
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                          aria-label="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </td>
+                    {canWrite && (
+                      <td className="px-4 py-2 text-right">
+                        {c.code !== settings.homeCurrency && (
+                          <button
+                            onClick={() => deleteCurrency(c)}
+                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                            aria-label="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -218,13 +231,16 @@ export default function FinanceCurrencies() {
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Exchange rates
               </h2>
-              <Button onClick={() => setShowRateModal(true)} size="sm">
-                <Plus size={14} /> Set rate
-              </Button>
+              {canWrite && (
+                <Button onClick={() => setShowRateModal(true)} size="sm">
+                  <Plus size={14} /> Set rate
+                </Button>
+              )}
             </div>
             {rates.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
-                No exchange rates yet. Add one before issuing foreign-currency invoices.
+                No exchange rates yet.
+                {canWrite && " Add one before issuing foreign-currency invoices."}
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -234,7 +250,7 @@ export default function FinanceCurrencies() {
                     <th className="w-32 px-4 py-2 text-left font-medium">From → To</th>
                     <th className="w-32 px-4 py-2 text-right font-medium">Rate</th>
                     <th className="px-4 py-2 text-left font-medium">Source</th>
-                    <th className="w-10" />
+                    {canWrite && <th className="w-10" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -250,15 +266,17 @@ export default function FinanceCurrencies() {
                         {r.rate}
                       </td>
                       <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{r.source}</td>
-                      <td className="px-4 py-2 text-right">
-                        <button
-                          onClick={() => deleteRate(r)}
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                          aria-label="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
+                      {canWrite && (
+                        <td className="px-4 py-2 text-right">
+                          <button
+                            onClick={() => deleteRate(r)}
+                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                            aria-label="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

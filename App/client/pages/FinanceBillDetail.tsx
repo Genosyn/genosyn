@@ -11,6 +11,7 @@ import {
   VendorCreditDetail,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -34,10 +35,12 @@ const STATUS_BADGE: Record<string, string> = {
 /**
  * Bill detail. Phase G of the Finance milestone (M19). Mirrors
  * FinanceInvoiceDetail with the actions flipped to the AP side
- * (record payment = "we paid them" rather than "they paid us").
+ * (record payment = "we paid them" rather than "they paid us"). A read-only
+ * Member gets the bill without any of them.
  */
 export default function FinanceBillDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const { billSlug } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
@@ -201,47 +204,49 @@ export default function FinanceBillDetail() {
             {ds}
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {bill.status === "draft" && (
-            <Button onClick={issue} loading={busy === "issue"} disabled={busy !== null}>
-              <CheckCircle2 size={14} /> Issue
-            </Button>
-          )}
-          {bill.status !== "void" && bill.status !== "draft" && (
-            <Button variant="secondary" onClick={() => setShowPay(true)} disabled={busy !== null}>
-              <Plus size={14} /> Record payment
-            </Button>
-          )}
-          {bill.status !== "void" && bill.status !== "draft" && bill.balanceCents > 0 && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowCredit(true)}
-              disabled={busy !== null}
-            >
-              <Undo2 size={14} /> Vendor credit
-            </Button>
-          )}
-          {bill.status !== "void" && bill.status !== "draft" && (
-            <Button
-              variant="secondary"
-              onClick={voidIt}
-              loading={busy === "void"}
-              disabled={busy !== null}
-            >
-              <Ban size={14} /> Void
-            </Button>
-          )}
-          {bill.status === "draft" && (
-            <Button
-              variant="secondary"
-              onClick={deleteDraft}
-              loading={deleting}
-              disabled={busy !== null}
-            >
-              <Trash2 size={14} /> Delete
-            </Button>
-          )}
-        </div>
+        {canWrite && (
+          <div className="flex flex-wrap gap-2">
+            {bill.status === "draft" && (
+              <Button onClick={issue} loading={busy === "issue"} disabled={busy !== null}>
+                <CheckCircle2 size={14} /> Issue
+              </Button>
+            )}
+            {bill.status !== "void" && bill.status !== "draft" && (
+              <Button variant="secondary" onClick={() => setShowPay(true)} disabled={busy !== null}>
+                <Plus size={14} /> Record payment
+              </Button>
+            )}
+            {bill.status !== "void" && bill.status !== "draft" && bill.balanceCents > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setShowCredit(true)}
+                disabled={busy !== null}
+              >
+                <Undo2 size={14} /> Vendor credit
+              </Button>
+            )}
+            {bill.status !== "void" && bill.status !== "draft" && (
+              <Button
+                variant="secondary"
+                onClick={voidIt}
+                loading={busy === "void"}
+                disabled={busy !== null}
+              >
+                <Ban size={14} /> Void
+              </Button>
+            )}
+            {bill.status === "draft" && (
+              <Button
+                variant="secondary"
+                onClick={deleteDraft}
+                loading={deleting}
+                disabled={busy !== null}
+              >
+                <Trash2 size={14} /> Delete
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -396,19 +401,21 @@ export default function FinanceBillDetail() {
                         {p.reference ? ` · ${p.reference}` : ""}
                       </div>
                     </div>
-                    <button
-                      onClick={() => deletePayment(p.id)}
-                      disabled={deletingPaymentId === p.id}
-                      aria-busy={deletingPaymentId === p.id || undefined}
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                      aria-label="Delete payment"
-                    >
-                      {deletingPaymentId === p.id ? (
-                        <ButtonSpinner size={12} />
-                      ) : (
-                        <Trash2 size={12} />
-                      )}
-                    </button>
+                    {canWrite && (
+                      <button
+                        onClick={() => deletePayment(p.id)}
+                        disabled={deletingPaymentId === p.id}
+                        aria-busy={deletingPaymentId === p.id || undefined}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                        aria-label="Delete payment"
+                      >
+                        {deletingPaymentId === p.id ? (
+                          <ButtonSpinner size={12} />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

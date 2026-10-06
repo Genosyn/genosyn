@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, formatMoney, parseMoneyToCents, Product, TaxRate } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -25,6 +26,9 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceProducts() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  // The row menu only edits what the table already shows, so a read-only
+  // Member loses nothing by going without it.
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
   const [products, setProducts] = React.useState<Product[] | null>(null);
@@ -127,9 +131,11 @@ export default function FinanceProducts() {
             />
             Show archived
           </label>
-          <Button onClick={() => setEditing("new")}>
-            <Plus size={14} /> New product
-          </Button>
+          {canWrite && (
+            <Button onClick={() => setEditing("new")}>
+              <Plus size={14} /> New product
+            </Button>
+          )}
         </div>
       </div>
 
@@ -142,14 +148,18 @@ export default function FinanceProducts() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No products yet
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Add reusable line items so invoicing is one click.
-          </p>
-          <div className="mt-4">
-            <Button onClick={() => setEditing("new")}>
-              <Plus size={14} /> New product
-            </Button>
-          </div>
+          {canWrite && (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Add reusable line items so invoicing is one click.
+              </p>
+              <div className="mt-4">
+                <Button onClick={() => setEditing("new")}>
+                  <Plus size={14} /> New product
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -159,7 +169,7 @@ export default function FinanceProducts() {
                 <th className="px-4 py-2 text-left font-medium">Name</th>
                 <th className="px-4 py-2 text-right font-medium">Unit price</th>
                 <th className="px-4 py-2 text-left font-medium">Default tax</th>
-                <th className="px-4 py-2 text-right font-medium">&nbsp;</th>
+                {canWrite && <th className="px-4 py-2 text-right font-medium">&nbsp;</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -179,14 +189,16 @@ export default function FinanceProducts() {
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {p.defaultTaxRateId ? (taxById.get(p.defaultTaxRateId)?.name ?? "—") : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <RowMenu
-                      archived={!!p.archivedAt}
-                      onEdit={() => setEditing(p)}
-                      onArchive={() => archive(p)}
-                      onDelete={() => remove(p)}
-                    />
-                  </td>
+                  {canWrite && (
+                    <td className="px-4 py-3 text-right">
+                      <RowMenu
+                        archived={!!p.archivedAt}
+                        onEdit={() => setEditing(p)}
+                        onArchive={() => archive(p)}
+                        onDelete={() => remove(p)}
+                      />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

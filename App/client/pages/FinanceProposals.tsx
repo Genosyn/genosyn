@@ -10,6 +10,7 @@ import {
   formatMoney,
   JournalProposalPayload,
 } from "../lib/api";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -39,6 +40,8 @@ const STATUS_BADGE: Record<FinanceProposalStatus, { label: string; className: st
 
 export default function FinanceProposals() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  // Applying, rejecting, and proposing all need Full finance access.
+  const canWrite = canWriteFinance(company);
   const [proposals, setProposals] = React.useState<FinanceProposal[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
@@ -127,10 +130,12 @@ export default function FinanceProposals() {
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {filter === "pending" ? "Nothing awaiting review." : "No proposals yet."}
           </p>
-          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            Open the Journal page and use <span className="font-medium">Propose for review</span> to
-            stage an entry.
-          </p>
+          {canWrite && (
+            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+              Open the Journal page and use <span className="font-medium">Propose for review</span>{" "}
+              to stage an entry.
+            </p>
+          )}
         </div>
       ) : (
         <ul className="space-y-2">
@@ -142,6 +147,7 @@ export default function FinanceProposals() {
               companySlug={company.slug}
               accountsById={accountsById}
               homeCurrency={homeCurrency}
+              canWrite={canWrite}
               onChanged={reload}
             />
           ))}
@@ -157,6 +163,7 @@ function ProposalCard({
   companySlug,
   accountsById,
   homeCurrency,
+  canWrite,
   onChanged,
 }: {
   proposal: FinanceProposal;
@@ -164,6 +171,8 @@ function ProposalCard({
   companySlug: string;
   accountsById: Map<string, Account>;
   homeCurrency: string;
+  /** False for a read-only Member: a pending proposal shows without Apply or Reject. */
+  canWrite: boolean;
   onChanged: () => Promise<void> | void;
 }) {
   const dialog = useDialog();
@@ -265,7 +274,7 @@ function ProposalCard({
             </div>
           )}
         </div>
-        {isPending && (
+        {canWrite && isPending && (
           <div className="flex shrink-0 gap-2">
             <Button
               size="sm"

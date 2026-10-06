@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Download, Lock, Plus, Trash2, Unlock } from "lucide-react";
 import { AccountingPeriod, api } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -22,9 +23,13 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  *   - Exports: download CSVs of customers / invoices / general
  *     journal / trial balance for handing off to the company's
  *     external accountant.
+ *
+ * A read-only Member sees both, but only the exports do anything for them:
+ * creating, closing, re-opening, and deleting periods need Full access.
  */
 export default function FinancePeriods() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
 
@@ -184,9 +189,11 @@ export default function FinancePeriods() {
           <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
             Accounting periods
           </h2>
-          <Button onClick={() => setShowNew(true)} size="sm">
-            <Plus size={14} /> New period
-          </Button>
+          {canWrite && (
+            <Button onClick={() => setShowNew(true)} size="sm">
+              <Plus size={14} /> New period
+            </Button>
+          )}
         </div>
         {periods === null ? (
           <div className="flex justify-center p-8">
@@ -194,7 +201,8 @@ export default function FinancePeriods() {
           </div>
         ) : periods.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-slate-400">
-            No periods defined yet. Create your first one to start closing books at month-end.
+            No periods defined yet.
+            {canWrite && " Create your first one to start closing books at month-end."}
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -204,7 +212,7 @@ export default function FinancePeriods() {
                 <th className="w-32 px-4 py-2 text-left font-medium">Start</th>
                 <th className="w-32 px-4 py-2 text-left font-medium">End</th>
                 <th className="w-24 px-4 py-2 text-left font-medium">Status</th>
-                <th className="w-48 px-4 py-2 text-right font-medium">&nbsp;</th>
+                {canWrite && <th className="w-48 px-4 py-2 text-right font-medium">&nbsp;</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -231,28 +239,30 @@ export default function FinancePeriods() {
                       {p.status}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="flex justify-end gap-2">
-                      {p.status === "open" ? (
-                        <>
-                          <Button onClick={() => close(p)} size="sm">
-                            <Lock size={12} /> Close
+                  {canWrite && (
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex justify-end gap-2">
+                        {p.status === "open" ? (
+                          <>
+                            <Button onClick={() => close(p)} size="sm">
+                              <Lock size={12} /> Close
+                            </Button>
+                            <button
+                              onClick={() => remove(p)}
+                              className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                              aria-label="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <Button onClick={() => reopen(p)} variant="secondary" size="sm">
+                            <Unlock size={12} /> Re-open
                           </Button>
-                          <button
-                            onClick={() => remove(p)}
-                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                            aria-label="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
-                      ) : (
-                        <Button onClick={() => reopen(p)} variant="secondary" size="sm">
-                          <Unlock size={12} /> Re-open
-                        </Button>
-                      )}
-                    </div>
-                  </td>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

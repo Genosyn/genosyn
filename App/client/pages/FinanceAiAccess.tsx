@@ -27,6 +27,8 @@ import {
   FinanceGrantsResponse,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
+import { FinanceReadOnlyNote } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -86,6 +88,9 @@ function meta(level: FinanceAccessLevel): LevelMeta {
 
 export default function FinanceAiAccess() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  // A read-only Member sees who holds which level, but not the controls
+  // that grant, change, or revoke it.
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<FinanceGrant[] | null>(null);
   const [candidates, setCandidates] = React.useState<FinanceGrantCandidate[]>([]);
@@ -226,50 +231,56 @@ export default function FinanceAiAccess() {
 
       <div className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         {/* Add a grant */}
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1">
-              <Select
-                label="Grant access to"
-                value={pickEmployee}
-                onChange={(event) => setPickEmployee(event.target.value)}
-                disabled={ungranted.length === 0}
-              >
-                <option value="">
-                  {ungranted.length === 0
-                    ? "All employees already have access"
-                    : "Choose an AI employee…"}
-                </option>
-                {ungranted.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name} &mdash; {candidate.role}
+        {canWrite ? (
+          <div className="flex flex-col gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <Select
+                  label="Grant access to"
+                  value={pickEmployee}
+                  onChange={(event) => setPickEmployee(event.target.value)}
+                  disabled={ungranted.length === 0}
+                >
+                  <option value="">
+                    {ungranted.length === 0
+                      ? "All employees already have access"
+                      : "Choose an AI employee…"}
                   </option>
-                ))}
-              </Select>
+                  {ungranted.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name} &mdash; {candidate.role}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="w-full sm:w-auto">
+                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Access level
+                </label>
+                <LevelPicker
+                  level={pickLevel}
+                  align="left"
+                  disabled={ungranted.length === 0}
+                  onChange={setPickLevel}
+                />
+              </div>
+              <Button
+                onClick={addGrant}
+                loading={adding}
+                disabled={!pickEmployee}
+                className="shrink-0"
+              >
+                <UserPlus size={14} />
+                Add
+              </Button>
             </div>
-            <div className="w-full sm:w-auto">
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                Access level
-              </label>
-              <LevelPicker
-                level={pickLevel}
-                align="left"
-                disabled={ungranted.length === 0}
-                onChange={setPickLevel}
-              />
-            </div>
-            <Button
-              onClick={addGrant}
-              loading={adding}
-              disabled={!pickEmployee}
-              className="shrink-0"
-            >
-              <UserPlus size={14} />
-              Add
-            </Button>
+            <FormError message={addError} />
           </div>
-          <FormError message={addError} />
-        </div>
+        ) : (
+          <div className="border-b border-slate-100 p-4 dark:border-slate-800">
+            <FinanceReadOnlyNote />
+          </div>
+        )}
 
         {loadError ? (
           <FormError message={loadError} className="m-4" />
@@ -283,10 +294,12 @@ export default function FinanceAiAccess() {
             <div className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">
               No AI employees have finance access
             </div>
-            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Add one above. Start with Read only, then promote to Invoicing when you want an
-              employee to bill customers on its own.
-            </p>
+            {canWrite && (
+              <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400">
+                Add one above. Start with Read only, then promote to Invoicing when you want an
+                employee to bill customers on its own.
+              </p>
+            )}
           </div>
         ) : (
           <>
@@ -338,6 +351,7 @@ export default function FinanceAiAccess() {
                       <LevelPicker
                         level={grant.accessLevel}
                         align="right"
+                        disabled={!canWrite}
                         onChange={(level) => changeLevel(grant, level)}
                       />
                       {grant.employee && (
@@ -350,14 +364,16 @@ export default function FinanceAiAccess() {
                           <MessageSquare size={15} />
                         </Link>
                       )}
-                      <button
-                        onClick={() => revoke(grant)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
-                        aria-label="Revoke finance access"
-                        title="Revoke finance access"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      {canWrite && (
+                        <button
+                          onClick={() => revoke(grant)}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                          aria-label="Revoke finance access"
+                          title="Revoke finance access"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   </li>
                 );

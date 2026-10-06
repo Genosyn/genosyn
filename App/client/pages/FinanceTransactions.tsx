@@ -23,6 +23,7 @@ import {
   LedgerReviewStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -139,6 +140,10 @@ export default function FinanceTransactions() {
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
   const canApprove = company.role === "owner" || company.role === "admin";
+  // Selection only feeds the bulk actions. With read-only finance access none
+  // of them would go through (not even deleting a manual draft), so a
+  // read-only Member gets the list without checkboxes or the selection bar.
+  const canWrite = canWriteFinance(company);
 
   const reload = React.useCallback(async () => {
     try {
@@ -395,82 +400,84 @@ export default function FinanceTransactions() {
           </div>
         ) : (
           <>
-            <div
-              className={
-                "sticky top-0 z-10 flex items-center gap-3 border-b px-4 py-2 backdrop-blur " +
-                (selectedCount > 0
-                  ? "border-indigo-200 bg-indigo-50/90 dark:border-indigo-900 dark:bg-indigo-950/70"
-                  : "border-slate-100 bg-white/90 dark:border-slate-800 dark:bg-slate-900/90")
-              }
-            >
-              <TriCheckbox
-                checked={allSelected}
-                indeterminate={someSelected}
-                onChange={toggleAllInView}
-                ariaLabel={allSelected ? "Clear selection" : "Select all transactions"}
-              />
-              {selectedCount === 0 ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Select transactions to approve, recategorize, or delete together.
-                </span>
-              ) : (
-                <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
-                    {selectedCount} selected
+            {canWrite && (
+              <div
+                className={
+                  "sticky top-0 z-10 flex items-center gap-3 border-b px-4 py-2 backdrop-blur " +
+                  (selectedCount > 0
+                    ? "border-indigo-200 bg-indigo-50/90 dark:border-indigo-900 dark:bg-indigo-950/70"
+                    : "border-slate-100 bg-white/90 dark:border-slate-800 dark:bg-slate-900/90")
+                }
+              >
+                <TriCheckbox
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  onChange={toggleAllInView}
+                  ariaLabel={allSelected ? "Clear selection" : "Select all transactions"}
+                />
+                {selectedCount === 0 ? (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Select transactions to approve, recategorize, or delete together.
                   </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {canApprove && anyApprovable && (
-                      <Button
-                        size="sm"
-                        onClick={() => setConfirmAction("approve")}
+                ) : (
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                      {selectedCount} selected
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {canApprove && anyApprovable && (
+                        <Button
+                          size="sm"
+                          onClick={() => setConfirmAction("approve")}
+                          disabled={bulkBusy !== null}
+                        >
+                          <CheckCircle2 size={14} /> Approve
+                        </Button>
+                      )}
+                      {canApprove && anyReturnable && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void runBulk("return")}
+                          loading={bulkBusy === "return"}
+                          disabled={bulkBusy !== null}
+                        >
+                          <Undo2 size={14} /> Return
+                        </Button>
+                      )}
+                      {canApprove && anyApprovable && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setPickerOpen(true)}
+                          disabled={bulkBusy !== null}
+                        >
+                          <Tags size={14} /> Change category
+                        </Button>
+                      )}
+                      {anyDeletable && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => setConfirmAction("delete")}
+                          disabled={bulkBusy !== null}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </Button>
+                      )}
+                      <button
+                        onClick={clearSelection}
                         disabled={bulkBusy !== null}
+                        aria-label="Clear selection"
+                        className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-slate-700 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                       >
-                        <CheckCircle2 size={14} /> Approve
-                      </Button>
-                    )}
-                    {canApprove && anyReturnable && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => void runBulk("return")}
-                        loading={bulkBusy === "return"}
-                        disabled={bulkBusy !== null}
-                      >
-                        <Undo2 size={14} /> Return
-                      </Button>
-                    )}
-                    {canApprove && anyApprovable && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setPickerOpen(true)}
-                        disabled={bulkBusy !== null}
-                      >
-                        <Tags size={14} /> Change category
-                      </Button>
-                    )}
-                    {anyDeletable && (
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => setConfirmAction("delete")}
-                        disabled={bulkBusy !== null}
-                      >
-                        <Trash2 size={14} /> Delete
-                      </Button>
-                    )}
-                    <button
-                      onClick={clearSelection}
-                      disabled={bulkBusy !== null}
-                      aria-label="Clear selection"
-                      className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-slate-700 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                    >
-                      <X size={15} />
-                    </button>
+                        <X size={15} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {filtered.map((entry) => {
                 const isSelected = selectedIds.has(entry.id);
@@ -484,11 +491,13 @@ export default function FinanceTransactions() {
                         : "hover:bg-slate-50 dark:hover:bg-slate-800/50")
                     }
                   >
-                    <TriCheckbox
-                      checked={isSelected}
-                      onChange={() => toggleOne(entry.id)}
-                      ariaLabel={`Select ${entry.memo || "transaction"}`}
-                    />
+                    {canWrite && (
+                      <TriCheckbox
+                        checked={isSelected}
+                        onChange={() => toggleOne(entry.id)}
+                        ariaLabel={`Select ${entry.memo || "transaction"}`}
+                      />
+                    )}
                     <button
                       className="flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 text-left"
                       onClick={() => setSelected(entry)}

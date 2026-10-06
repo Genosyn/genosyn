@@ -13,6 +13,7 @@ import { FormError } from "../components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const TYPES: AccountType[] = ["asset", "liability", "equity", "revenue", "expense"];
@@ -32,9 +33,12 @@ const TYPE_BADGE: Record<AccountType, string> = {
  * Humans can rename system accounts, add custom accounts, and archive
  * unused customs. System accounts (the seeded ones) cannot be deleted —
  * the auto-post hooks in `services/finance.ts` look them up by code.
+ * A read-only Member sees the chart without New account or the row menu,
+ * which only edits what the rows already show.
  */
 export default function FinanceAccounts() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
   const [accounts, setAccounts] = React.useState<Account[] | null>(null);
@@ -132,9 +136,11 @@ export default function FinanceAccounts() {
             4000) are reserved for invoice auto-posting and can be renamed but not removed.
           </p>
         </div>
-        <Button onClick={() => setEditing("new")}>
-          <Plus size={14} /> New account
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setEditing("new")}>
+            <Plus size={14} /> New account
+          </Button>
+        )}
       </div>
 
       {grouped === null ? (
@@ -173,14 +179,16 @@ export default function FinanceAccounts() {
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-2 text-right">
-                          <RowMenu
-                            account={a}
-                            onEdit={() => setEditing(a)}
-                            onArchive={() => archive(a)}
-                            onDelete={() => remove(a)}
-                          />
-                        </td>
+                        {canWrite && (
+                          <td className="px-2 py-2 text-right">
+                            <RowMenu
+                              account={a}
+                              onEdit={() => setEditing(a)}
+                              onArchive={() => archive(a)}
+                              onDelete={() => remove(a)}
+                            />
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

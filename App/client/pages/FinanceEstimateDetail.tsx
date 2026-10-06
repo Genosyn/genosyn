@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api, displayEstimateStatus, Estimate, formatMoney, Invoice } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -41,9 +42,12 @@ const STATUS_BADGE: Record<string, string> = {
  * actions (Issue / Send / Accept / Decline / Convert / Void / Delete)
  * appropriate to the current status. The printable HTML lives at a
  * separate route so File → Print gives a clean PDF without app chrome.
+ * A read-only Member gets the estimate and its PDF, and none of the actions
+ * the server would refuse them.
  */
 export default function FinanceEstimateDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const { estimateSlug } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
@@ -316,133 +320,142 @@ export default function FinanceEstimateDetail() {
             {ds}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {estimate.status === "draft" && (
-            <>
-              <Link to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}>
-                <Button variant="secondary" disabled={busy !== null}>
-                  <Pencil size={14} /> Edit
+        {canWrite ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {estimate.status === "draft" && (
+              <>
+                <Link to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}>
+                  <Button variant="secondary" disabled={busy !== null}>
+                    <Pencil size={14} /> Edit
+                  </Button>
+                </Link>
+                <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
+                  <Send size={14} /> Issue & send
                 </Button>
-              </Link>
-              <Button onClick={send} loading={busy === "send"} disabled={busy !== null}>
-                <Send size={14} /> Issue & send
-              </Button>
-            </>
-          )}
-          {estimate.status === "sent" && !isConverted && (
-            <>
-              <Button
-                variant="secondary"
-                onClick={accept}
-                loading={busy === "accept"}
-                disabled={busy !== null}
-              >
-                <CheckCircle2 size={14} /> Mark accepted
-              </Button>
+              </>
+            )}
+            {estimate.status === "sent" && !isConverted && (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={accept}
+                  loading={busy === "accept"}
+                  disabled={busy !== null}
+                >
+                  <CheckCircle2 size={14} /> Mark accepted
+                </Button>
+                <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
+                  <ArrowRight size={14} /> Convert to invoice
+                </Button>
+              </>
+            )}
+            {estimate.status === "accepted" && !isConverted && (
               <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
                 <ArrowRight size={14} /> Convert to invoice
               </Button>
-            </>
-          )}
-          {estimate.status === "accepted" && !isConverted && (
-            <Button onClick={convert} loading={busy === "convert"} disabled={busy !== null}>
-              <ArrowRight size={14} /> Convert to invoice
-            </Button>
-          )}
+            )}
 
-          <Menu
-            align="right"
-            width={208}
-            trigger={({ ref, onClick }) => (
-              <Button
-                ref={ref}
-                variant="secondary"
-                onClick={onClick}
-                disabled={busy !== null}
-                aria-label="More actions"
-              >
-                <MoreHorizontal size={14} />
-              </Button>
-            )}
-          >
-            {(close) => (
-              <>
-                {estimate.status === "draft" && (
-                  <MenuItem
-                    icon={<CheckCircle2 size={14} />}
-                    label="Issue without sending"
-                    onSelect={() => {
-                      close();
-                      issue();
-                    }}
-                  />
-                )}
-                {(estimate.status === "sent" || estimate.status === "accepted") && !isConverted && (
-                  <MenuItem
-                    icon={<Mail size={14} />}
-                    label="Resend email"
-                    onSelect={() => {
-                      close();
-                      send();
-                    }}
-                  />
-                )}
-                {estimate.status === "sent" && !isConverted && (
-                  <MenuItem
-                    icon={<XCircle size={14} />}
-                    label="Mark declined"
-                    onSelect={() => {
-                      close();
-                      decline();
-                    }}
-                  />
-                )}
-                <MenuItem
-                  icon={<Download size={14} />}
-                  label="Download PDF"
-                  onSelect={() => {
-                    close();
-                    window.location.href = `/api/companies/${company.id}/estimates/${estimate.slug}/pdf`;
-                  }}
-                />
-                <MenuItem
-                  icon={<Copy size={14} />}
-                  label="Duplicate"
-                  onSelect={() => {
-                    close();
-                    duplicate();
-                  }}
-                />
-                {!isTerminal && estimate.status !== "draft" && (
-                  <>
-                    <MenuSeparator />
+            <Menu
+              align="right"
+              width={208}
+              trigger={({ ref, onClick }) => (
+                <Button
+                  ref={ref}
+                  variant="secondary"
+                  onClick={onClick}
+                  disabled={busy !== null}
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal size={14} />
+                </Button>
+              )}
+            >
+              {(close) => (
+                <>
+                  {estimate.status === "draft" && (
                     <MenuItem
-                      icon={<Ban size={14} className="text-red-500" />}
-                      label={<span className="text-red-600 dark:text-red-400">Void</span>}
+                      icon={<CheckCircle2 size={14} />}
+                      label="Issue without sending"
                       onSelect={() => {
                         close();
-                        voidEstimate();
+                        issue();
                       }}
                     />
-                  </>
-                )}
-                {estimate.status === "draft" && (
-                  <>
-                    <MenuSeparator />
+                  )}
+                  {(estimate.status === "sent" || estimate.status === "accepted") &&
+                    !isConverted && (
+                      <MenuItem
+                        icon={<Mail size={14} />}
+                        label="Resend email"
+                        onSelect={() => {
+                          close();
+                          send();
+                        }}
+                      />
+                    )}
+                  {estimate.status === "sent" && !isConverted && (
                     <MenuItem
-                      icon={<Trash2 size={14} className="text-red-500" />}
-                      label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+                      icon={<XCircle size={14} />}
+                      label="Mark declined"
                       onSelect={() => {
                         close();
-                        deleteDraft();
+                        decline();
                       }}
                     />
-                  </>
-                )}
-              </>
-            )}
-          </Menu>
-        </div>
+                  )}
+                  <MenuItem
+                    icon={<Download size={14} />}
+                    label="Download PDF"
+                    onSelect={() => {
+                      close();
+                      window.location.href = `/api/companies/${company.id}/estimates/${estimate.slug}/pdf`;
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Copy size={14} />}
+                    label="Duplicate"
+                    onSelect={() => {
+                      close();
+                      duplicate();
+                    }}
+                  />
+                  {!isTerminal && estimate.status !== "draft" && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        icon={<Ban size={14} className="text-red-500" />}
+                        label={<span className="text-red-600 dark:text-red-400">Void</span>}
+                        onSelect={() => {
+                          close();
+                          voidEstimate();
+                        }}
+                      />
+                    </>
+                  )}
+                  {estimate.status === "draft" && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        icon={<Trash2 size={14} className="text-red-500" />}
+                        label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+                        onSelect={() => {
+                          close();
+                          deleteDraft();
+                        }}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </Menu>
+          </div>
+        ) : (
+          <a href={`/api/companies/${company.id}/estimates/${estimate.slug}/pdf`}>
+            <Button variant="secondary">
+              <Download size={14} /> Download PDF
+            </Button>
+          </a>
+        )}
       </div>
 
       <FormSuccess message={sendNotice} className="mb-4" />

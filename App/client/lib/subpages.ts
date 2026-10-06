@@ -1021,6 +1021,17 @@ export function effectiveFinanceAccess(viewer: SubpageViewer): FinanceAccess {
 }
 
 /**
+ * Whether this person may change anything in Finance. Every finance mutation
+ * passes the server's `requireFinanceWrite`, which wants `full`; Read opens
+ * every page but has each create, send, void, payment, and approval refused.
+ * Finance pages offer those controls only when this is true, so a read-only
+ * Member is never handed a button that can only fail.
+ */
+export function canWriteFinance(viewer: SubpageViewer): boolean {
+  return effectiveFinanceAccess(viewer) === "full";
+}
+
+/**
  * Whether this person can actually open the page. Mirrors the server's own
  * gates — an admin-only page answers 403 to a Member, and every Finance read
  * needs at least `read` access — so neither the palette nor a section rail

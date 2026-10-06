@@ -13,6 +13,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -137,10 +138,12 @@ const UNKNOWN_SOURCE_BADGE = {
  *
  * Each row expands to show its `LedgerLine` legs. Auto-posted entries
  * (from invoice issue / payment / void) are not deletable here; only
- * `manual` entries can be deleted.
+ * `manual` entries can be deleted. Deleting one, like posting or proposing
+ * one, needs Full finance access, so a read-only Member is offered neither.
  */
 export default function FinanceJournal() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const dialog = useDialog();
   const [entries, setEntries] = React.useState<LedgerEntry[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
@@ -223,14 +226,16 @@ export default function FinanceJournal() {
             rows are auto-posted; manual rows are for accountant adjustments.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setNotice(null);
-            setShowNew(true);
-          }}
-        >
-          <Plus size={14} /> Manual entry
-        </Button>
+        {canWrite && (
+          <Button
+            onClick={() => {
+              setNotice(null);
+              setShowNew(true);
+            }}
+          >
+            <Plus size={14} /> Manual entry
+          </Button>
+        )}
       </div>
 
       <FormSuccess message={notice} className="mb-4" />
@@ -271,7 +276,7 @@ export default function FinanceJournal() {
                 companySlug={company.slug}
                 homeCurrency={homeCurrency}
                 deleting={deletingId === e.id}
-                onDelete={() => remove(e)}
+                onDelete={canWrite ? () => remove(e) : null}
               />
             ))}
           </ul>
@@ -308,7 +313,8 @@ function EntryRow({
   companySlug: string;
   homeCurrency: string;
   deleting: boolean;
-  onDelete: () => void;
+  /** Null for a read-only Member, who sees manual entries without Delete. */
+  onDelete: (() => void) | null;
 }) {
   const [open, setOpen] = React.useState(false);
   // An expanded entry is what Ask AI means by "this entry".
@@ -352,7 +358,7 @@ function EntryRow({
         <span className="tabular-nums text-sm font-medium text-slate-900 dark:text-slate-100">
           {formatMoney(total, homeCurrency)}
         </span>
-        {entry.source === "manual" && (
+        {onDelete && entry.source === "manual" && (
           <button
             onClick={(e) => {
               e.stopPropagation();

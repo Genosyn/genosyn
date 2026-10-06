@@ -14,6 +14,7 @@ import {
   MatchCandidate,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -39,9 +40,14 @@ function bankFeedSourceLabel(kind: BankFeedKind): string {
  * Each unmatched row expands inline to show candidate `InvoicePayment`s
  * scored by amount-equality + date-proximity. Matched rows show the
  * invoice they were attached to with an unmatch escape.
+ *
+ * A read-only Member can browse feeds, lines, and candidates, but adding a
+ * feed, syncing, importing, matching, and categorizing are all writes, so
+ * none of them is offered.
  */
 export default function FinanceReconcile() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const canWrite = canWriteFinance(company);
   const dialog = useDialog();
 
   const [feeds, setFeeds] = React.useState<BankFeed[] | null>(null);
@@ -178,9 +184,11 @@ export default function FinanceReconcile() {
             and date line up; you confirm the rest.
           </p>
         </div>
-        <Button onClick={() => setShowNewFeed(true)}>
-          <Plus size={14} /> New feed
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setShowNewFeed(true)}>
+            <Plus size={14} /> New feed
+          </Button>
+        )}
       </div>
 
       {feeds === null ? (
@@ -192,14 +200,19 @@ export default function FinanceReconcile() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No bank feeds yet
           </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Connect Brex Cash, connect Stripe payouts, or upload a bank CSV to start reconciling.
-          </p>
-          <div className="mt-4">
-            <Button onClick={() => setShowNewFeed(true)}>
-              <Plus size={14} /> New feed
-            </Button>
-          </div>
+          {canWrite && (
+            <>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Connect Brex Cash, connect Stripe payouts, or upload a bank CSV to start
+                reconciling.
+              </p>
+              <div className="mt-4">
+                <Button onClick={() => setShowNewFeed(true)}>
+                  <Plus size={14} /> New feed
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -218,17 +231,17 @@ export default function FinanceReconcile() {
                 );
               })}
             </Select>
-            {activeFeed && activeFeed.kind !== "csv" && (
+            {canWrite && activeFeed && activeFeed.kind !== "csv" && (
               <Button variant="secondary" onClick={syncFeed} loading={busy}>
                 <RefreshCw size={14} /> Sync
               </Button>
             )}
-            {activeFeed?.kind === "csv" && (
+            {canWrite && activeFeed?.kind === "csv" && (
               <Button variant="secondary" onClick={() => setShowImport(true)} disabled={busy}>
                 <Upload size={14} /> Import CSV
               </Button>
             )}
-            {activeFeed && (
+            {canWrite && activeFeed && (
               <Button variant="secondary" onClick={deleteFeed} loading={deleting} disabled={busy}>
                 <Trash2 size={14} /> Delete feed
               </Button>
@@ -277,11 +290,15 @@ export default function FinanceReconcile() {
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                 {filter === "unmatched" ? "Nothing to reconcile" : "No transactions"}
               </h3>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                {filter === "unmatched"
-                  ? "Every bank line on this feed has been matched."
-                  : "Pull or import to populate this feed."}
-              </p>
+              {filter === "unmatched" ? (
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Every bank line on this feed has been matched.
+                </p>
+              ) : canWrite ? (
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Pull or import to populate this feed.
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -294,6 +311,7 @@ export default function FinanceReconcile() {
                     homeCurrency={homeCurrency}
                     txn={t}
                     accounts={accounts}
+                    canWrite={canWrite}
                     onChanged={reloadTxns}
                   />
                 ))}
@@ -339,6 +357,7 @@ function TxnRow({
   homeCurrency,
   txn,
   accounts,
+  canWrite,
   onChanged,
 }: {
   companyId: string;
@@ -346,6 +365,8 @@ function TxnRow({
   homeCurrency: string;
   txn: BankTransaction;
   accounts: Account[];
+  /** False for a read-only Member: the line and its candidates, without Match or Unmatch. */
+  canWrite: boolean;
   onChanged: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -493,14 +514,16 @@ function TxnRow({
                   </div>
                 )}
               </div>
-              <Button
-                variant="secondary"
-                onClick={unmatchTxn}
-                loading={busy === "unmatch"}
-                disabled={busy !== null}
-              >
-                <X size={14} /> Unmatch
-              </Button>
+              {canWrite && (
+                <Button
+                  variant="secondary"
+                  onClick={unmatchTxn}
+                  loading={busy === "unmatch"}
+                  disabled={busy !== null}
+                >
+                  <X size={14} /> Unmatch
+                </Button>
+              )}
             </div>
           ) : loadError ? (
             <FormError message={loadError} />
@@ -510,8 +533,14 @@ function TxnRow({
             </div>
           ) : candidates.length === 0 ? (
             <div className="text-sm text-slate-500 dark:text-slate-400">
-              No invoice-payment candidates within the matching window. Match it to a recorded
-              payment, or post it straight to a category below (bank interest, a fee, a transfer).
+              No invoice-payment candidates within the matching window.
+              {canWrite && (
+                <>
+                  {" "}
+                  Match it to a recorded payment, or post it straight to a category below (bank
+                  interest, a fee, a transfer).
+                </>
+              )}
             </div>
           ) : (
             <ul className="space-y-1.5">
@@ -554,19 +583,21 @@ function TxnRow({
                   <div className="tabular-nums text-sm text-slate-900 dark:text-slate-100">
                     {formatMoney(c.amountCents, homeCurrency)}
                   </div>
-                  <Button
-                    onClick={() => matchCandidate(c)}
-                    loading={busy === c}
-                    disabled={busy !== null}
-                    size="sm"
-                  >
-                    Match
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      onClick={() => matchCandidate(c)}
+                      loading={busy === c}
+                      disabled={busy !== null}
+                      size="sm"
+                    >
+                      Match
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
-          {!matched && (
+          {canWrite && !matched && (
             <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
               <FormError message={error} className="mb-2" />
               <div className="flex items-end gap-2">
