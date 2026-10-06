@@ -940,12 +940,14 @@ function Grid({
                     colSpan={visibleFields.length + 1}
                     className="bg-slate-50 dark:bg-slate-900"
                   >
+                    {/* Its focus ring is drawn inside, where the sticky header,
+                        the row numbers and the scroller's edge can't hide it. */}
                     <button
                       ref={addRowBtnRef}
                       onClick={addRow}
                       disabled={addingRow}
                       aria-busy={addingRow || undefined}
-                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-offset-[-2px] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                     >
                       {addingRow ? <ButtonSpinner size={12} /> : <Plus size={12} />} Add row
                     </button>
