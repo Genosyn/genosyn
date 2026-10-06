@@ -132,6 +132,14 @@ export function Email() {
         connected by any mail client, Genosyn included; the connect dialog says so rather than
         letting you fail at a password prompt.
       </P>
+      <Callout kind="info" title="Subjects and names in any language.">
+        A subject or a name outside plain ASCII reaches an IMAP server encoded. Genosyn shows,
+        searches and hands AI Employees the decoded text, the way Gmail does. Mail that an earlier
+        version of Genosyn mirrored from an IMAP mailbox is decoded in place over the next few
+        syncs, with nothing downloaded again. A pending email or work review on one of those
+        conversations expires once and has to be prepared again, while a reply already sent or
+        discarded, or work already approved or declined, stays handled.
+      </Callout>
 
       <H3 id="folders-labels">Folders and labels</H3>
       <P>
