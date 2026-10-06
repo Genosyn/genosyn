@@ -865,6 +865,29 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
 mcpInternalRouter.use(requireMcpToken);
 
 /**
+ * The static tool a request dispatches to, by its registered name — or null
+ * when the path names none.
+ *
+ * Read the way Express routes the request, not the way the caller spelled it.
+ * A Router defaults to `caseSensitive: false` and `strict: false`, so `POST
+ * /tools/SEND_MAIL`, `/tools/send_mail/` and `/TOOLS/Send_Mail` all reach the
+ * handler registered at `/tools/send_mail`. A gate that matched the literal
+ * path skipped itself for exactly those requests while the handler still ran
+ * — the hole `matchesRoutePath` (middleware/auth.ts) closes for HTTP guards.
+ * An allowlist keyed on the raw name fails closed on such a path; a denylist
+ * fails open, so a denylist names the tool through this.
+ *
+ * Every tool route is one lowercase `[a-z0-9_]+` segment, and `i` without `u`
+ * never folds a non-ASCII character onto an ASCII one, so every spelling the
+ * router sends to a tool's handler yields that tool's registered name here.
+ */
+const TOOL_PATH_RE = /^\/tools\/([a-z0-9_]+)\/?$/i;
+
+function dispatchedToolName(path: string): string | null {
+  return TOOL_PATH_RE.exec(path)?.[1].toLowerCase() ?? null;
+}
+
+/**
  * Company tools are never ambient authority. Unknown chat surfaces carry an
  * untrusted token and receive no company data. Interactive Member turns are
  * checked against their live membership here before the employee-specific
@@ -1022,11 +1045,10 @@ function restrictRepositoryWorkSessionTools(
 
 mcpInternalRouter.use(restrictRepositoryWorkSessionTools);
 
-const TOOL_PATH_RE = /^\/tools\/([a-z0-9_]+)$/;
-
 /**
  * The Policy layer + taint gates (M53), one middleware so every static tool
- * dispatch meets both:
+ * dispatch meets both — under the tool's registered name, however the path
+ * spelled it ({@link dispatchedToolName}):
  *
  *  1. A company policy forbidding the tool refuses the call and records a
  *     `policy.violation` AuditEvent. One small indexed query per call.
@@ -1042,9 +1064,8 @@ const TOOL_PATH_RE = /^\/tools\/([a-z0-9_]+)$/;
  *     sink's own zod schema re-validates it.
  */
 mcpInternalRouter.use(async (req: McpRequest, res, next) => {
-  const match = req.method === "POST" ? TOOL_PATH_RE.exec(req.path) : null;
-  if (!match || !req.mcpCompany || !req.mcpEmployee) return next();
-  const toolName = match[1];
+  const toolName = req.method === "POST" ? dispatchedToolName(req.path) : null;
+  if (!toolName || !req.mcpCompany || !req.mcpEmployee) return next();
   try {
     const policy = await policyForbiddingTool(req.mcpCompany.id, toolName);
     if (policy) {
@@ -8436,7 +8457,7 @@ async function resolveRoutine(
  * body the handler would reject, or a Routine it would not find, is passed
  * through so the handler answers it exactly as it always has. Each handler
  * asks again once it holds the owner ({@link routineOwnerWriteRefusal}), so the
- * rule holds even for a dispatch this middleware's exact-name match misses.
+ * rule holds even for a dispatch this middleware does not recognize.
  */
 async function routineWriteRefusal(req: McpRequest, toolName: string): Promise<string | null> {
   if (!(ROUTINE_WRITE_TOOLS as readonly string[]).includes(toolName)) return null;

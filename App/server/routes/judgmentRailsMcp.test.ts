@@ -15,7 +15,13 @@ import { CompanyPolicy } from "../db/entities/CompanyPolicy.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import { issueMcpToken, markTokenTainted, revokeMcpToken } from "../services/mcpTokens.js";
+import {
+  isTokenTainted,
+  issueMcpToken,
+  markTokenTainted,
+  revokeMcpToken,
+} from "../services/mcpTokens.js";
+import { parseTaintedToolPayload } from "../services/taintPolicy.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
@@ -74,11 +80,11 @@ after(async () => {
   await closeTestDb();
 });
 
-async function tool<T = Record<string, unknown>>(
-  name: string,
+async function post<T = Record<string, unknown>>(
+  path: string,
   args: unknown = {},
 ): Promise<{ status: number; body: T }> {
-  const response = await fetch(`${baseUrl}/internal/mcp/tools/${name}`, {
+  const response = await fetch(`${baseUrl}/internal/mcp${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(args),
@@ -86,6 +92,17 @@ async function tool<T = Record<string, unknown>>(
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
 }
+
+function tool<T = Record<string, unknown>>(name: string, args: unknown = {}) {
+  return post<T>(`/tools/${name}`, args);
+}
+
+/**
+ * A Router is case-insensitive and non-strict, so every one of these reaches
+ * the `send_mail` handler — and so every one must meet the gates the
+ * registered spelling does.
+ */
+const LOOSE_SEND_MAIL_PATHS = ["/tools/SEND_MAIL", "/tools/send_mail/", "/TOOLS/Send_Mail/"];
 
 describe("policy-forbidden tools", () => {
   test("a forbidden tool is refused, named, and audited — its handler never runs", async () => {
@@ -108,6 +125,31 @@ describe("policy-forbidden tools", () => {
     const listed = await tool<{ goals: unknown[] }>("list_goals");
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.body.goals, []);
+  });
+
+  test("a forbidden tool is refused and audited under every path that reaches it", async () => {
+    await insert(CompanyPolicy, {
+      companyId: company.id,
+      title: "No outbound mail",
+      forbiddenTools: "send_mail",
+      enabled: true,
+    });
+    for (const path of LOOSE_SEND_MAIL_PATHS) {
+      const refused = await post<{ error: string }>(path, {
+        to: "customer@example.test",
+        subject: "Hello",
+        bodyText: "Hi",
+      });
+      assert.equal(refused.status, 403, path);
+      assert.match(refused.body.error, /No outbound mail/, path);
+    }
+    const audits = await AppDataSource.getRepository(AuditEvent).findBy({
+      action: "policy.violation",
+    });
+    assert.deepEqual(
+      audits.map((audit) => JSON.parse(audit.metadataJson).tool),
+      LOOSE_SEND_MAIL_PATHS.map(() => "send_mail"),
+    );
   });
 });
 
@@ -145,5 +187,32 @@ describe("tainted sinks", () => {
   test("a tainted turn's reads stay free", async () => {
     markTokenTainted(token);
     assert.equal((await tool("list_goals")).status, 200);
+  });
+
+  test("a tainted turn's send is held under every path that reaches it", async () => {
+    markTokenTainted(token);
+    for (const path of LOOSE_SEND_MAIL_PATHS) {
+      const held = await post<{ status: string; approvalId: string }>(path, {
+        to: "attacker@example.test",
+        subject: "Injected",
+        bodyText: "Whatever the page asked for",
+      });
+      assert.equal(held.status, 200, path);
+      assert.equal(held.body.status, "pending_approval", path);
+      const approval = await AppDataSource.getRepository(Approval).findOneByOrFail({
+        id: held.body.approvalId,
+      });
+      assert.equal(approval.kind, "tainted_tool");
+      // Held under the registered name, so an approved replay passes the
+      // payload allowlist and dispatches to the handler it was held from.
+      assert.equal(parseTaintedToolPayload(approval.payloadJson).tool, "send_mail");
+    }
+  });
+
+  test("a web tool taints the turn under every path that reaches it", async () => {
+    // Refused by the handler's own validation, after the gate has marked the
+    // turn — nothing is fetched.
+    assert.equal((await post("/TOOLS/Fetch_Web_Page/", {})).status, 400);
+    assert.equal(isTokenTainted(token), true);
   });
 });
