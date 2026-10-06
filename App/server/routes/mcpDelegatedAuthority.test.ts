@@ -18,6 +18,7 @@ import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
+import { Skill } from "../db/entities/Skill.js";
 import { Todo } from "../db/entities/Todo.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
@@ -100,8 +101,8 @@ after(async () => {
   await closeTestDb();
 });
 
-async function call(tool: string, body: unknown = {}) {
-  const response = await fetch(`${baseUrl}/internal/mcp/tools/${tool}`, {
+async function post(path: string, body: unknown = {}) {
+  const response = await fetch(`${baseUrl}/internal/mcp${path}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -114,6 +115,10 @@ async function call(tool: string, body: unknown = {}) {
     status: response.status,
     body: (text ? JSON.parse(text) : {}) as Record<string, unknown> & { error?: string },
   };
+}
+
+function call(tool: string, body: unknown = {}) {
+  return post(`/tools/${tool}`, body);
 }
 
 async function internalRequest(
@@ -283,6 +288,27 @@ describe("interactive MCP authority", () => {
       body: "{}",
     });
     assert.equal(response.status, 403);
+  });
+
+  test("a regular Member's limits bind every path Express routes to a handler", async () => {
+    // A Router is case-insensitive and non-strict, so each of these reaches
+    // `/tools/create_skill` or `/integrations/*`. None may pass as "not a
+    // tool" and skip the requesting Member's own role.
+    for (const path of [
+      "/TOOLS/create_skill",
+      "/tools/CREATE_SKILL/",
+      "/INTEGRATIONS/_list",
+      "/Integrations/Invoke/",
+    ]) {
+      const response = await post(path, {
+        employeeSlug: employee.slug,
+        name: "Escalated playbook",
+        body: "Do privileged work",
+      });
+      assert.equal(response.status, 403, `${path}: ${JSON.stringify(response.body)}`);
+      assert.match(response.body.error ?? "", /owner or admin/, path);
+    }
+    assert.equal(await AppDataSource.getRepository(Skill).countBy({ employeeId: employee.id }), 0);
   });
 
   test("owner/admin Member authority keeps administrative delegation available", async () => {

@@ -874,8 +874,8 @@ mcpInternalRouter.use(requireMcpToken);
  * handler registered at `/tools/send_mail`. A gate that matched the literal
  * path skipped itself for exactly those requests while the handler still ran
  * — the hole `matchesRoutePath` (middleware/auth.ts) closes for HTTP guards.
- * An allowlist keyed on the raw name fails closed on such a path; a denylist
- * fails open, so a denylist names the tool through this.
+ * An allowlist that refuses whatever it cannot name fails closed on such a
+ * path; a denylist fails open, so a denylist names the tool through this.
  *
  * Every tool route is one lowercase `[a-z0-9_]+` segment, and `i` without `u`
  * never folds a non-ASCII character onto an ASCII one, so every spelling the
@@ -910,12 +910,16 @@ function requireDelegatedToolAuthority(
   const membership = req.mcpRequesterMembership;
   if (!membership) return res.status(403).json({ error: "Member authority is unavailable." });
   const administrative = membership.role === "owner" || membership.role === "admin";
-  if (req.path.startsWith("/integrations/") && !administrative) {
+  // Folded because the router matches case-insensitively: `/TOOLS/create_skill`
+  // and `/INTEGRATIONS/invoke` reach their handlers, and a path this did not
+  // recognize would pass below as "not a tool" (see `dispatchedToolName`).
+  const path = req.path.toLowerCase();
+  if (path.startsWith("/integrations/") && !administrative) {
     return res.status(403).json({
       error: "An owner or admin must delegate access to external Connections.",
     });
   }
-  const toolName = /^\/tools\/([^/]+)/.exec(req.path)?.[1];
+  const toolName = /^\/tools\/([^/]+)/.exec(path)?.[1];
   if (!toolName) return next();
   // An approved proactive delivery Run carries its approving Member. It can
   // report its own unfinished work, while ordinary Member chat cannot choose
