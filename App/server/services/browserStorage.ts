@@ -11,104 +11,25 @@ import {
 } from "./paths.js";
 
 /**
- * Per-employee Playwright `storageState()` persistence.
+ * On-disk browser state for each AI Employee, kept App-private under
+ * `.private/browser-state/<company-id>/` rather than in the employee's
+ * model-visible workspace (see `paths.ts`).
  *
- * We snapshot cookies + localStorage + sessionStorage to an App-private JSON
- * file outside the employee's model-visible workspace. Loaded on every
- * browser-context launch and saved on every clean teardown — so logging into
- * X.com once survives container restarts, idle teardown, and fresh
- * conversations with the same employee without making bearer cookies readable
- * by coding tools. IndexedDB and service workers aren't covered; sites that key
- * their auth off those will still need a re-login.
+ * The Chrome profile, `<employee-id>.profile/`, is the source of truth:
+ * cookies, localStorage, IndexedDB, cache and history all live in it and
+ * survive restarts on their own. The `<employee-id>.json` beside it is a
+ * one-way export of Playwright's `storageState()` (cookies and localStorage
+ * only), which `browserChromium.ts` writes on a debounce after navigation and
+ * whenever it closes Chrome, `SIGTERM` included. A working profile never
+ * reads it back. It is read only to seed a brand-new profile once, so an
+ * upgrade from the ephemeral browser keeps every employee's sign-ins, and as
+ * the cookie jar for the ephemeral fallback when the profile cannot be used.
  */
 
 export type StorageState = {
   cookies: unknown[];
   origins: Array<{ origin: string; localStorage: Array<{ name: string; value: string }> }>;
 };
-
-/**
- * Does this cookie domain or origin belong to one of `domains`?
- *
- * Cookie domains may carry a leading dot (`.x.com` = "and all subdomains"),
- * and an origin is a URL. Both reduce to a hostname, which either equals a
- * listed domain or is a subdomain of it. Substring matching would be wrong
- * and dangerous here — `evil-x.com` must not match `x.com`.
- */
-function hostMatchesDomains(host: string, domains: string[]): boolean {
-  const normalized = host.replace(/^\./, "").toLowerCase();
-  return domains.some((domain) => {
-    const d = domain.replace(/^\./, "").toLowerCase();
-    return normalized === d || normalized.endsWith(`.${d}`);
-  });
-}
-
-function cookieMatchesDomains(cookie: unknown, domains: string[]): boolean {
-  const domain = (cookie as { domain?: unknown } | null)?.domain;
-  return typeof domain === "string" && hostMatchesDomains(domain, domains);
-}
-
-function originMatchesDomains(origin: string, domains: string[]): boolean {
-  try {
-    return hostMatchesDomains(new URL(origin).hostname, domains);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Narrow a storage state to the sites in `domains`.
- *
- * An employee's jar accumulates cookies for everything they browse, so any
- * caller that hands the jar somewhere else — or writes a jar back from one
- * site's session — has to clip it to the site it actually owns first.
- * Unscoped, a read copies the employee's Gmail session along with it, and a
- * write replaces the whole jar with the single site that produced it,
- * signing them out of everything else.
- */
-export function filterStorageState(state: StorageState, domains: string[]): StorageState {
-  return {
-    cookies: state.cookies.filter((cookie) => cookieMatchesDomains(cookie, domains)),
-    origins: state.origins.filter((origin) => originMatchesDomains(origin.origin, domains)),
-  };
-}
-
-/**
- * Fold `incoming` into `base`, but only for `domains`: every base entry for
- * those sites is dropped and replaced wholesale, and everything else in
- * `base` is left exactly as it was.
- *
- * Replace-per-domain rather than merge-per-cookie because a sign-out is
- * expressed by a cookie's *absence*; merging key-by-key would resurrect a
- * dead session token. Untouched domains survive because a Connection
- * refreshing its own site must not clear the employee's other logins.
- */
-export function mergeStorageState(
-  base: StorageState | undefined,
-  incoming: StorageState,
-  domains: string[],
-): StorageState {
-  const scoped = filterStorageState(incoming, domains);
-  if (!base) return scoped;
-  return {
-    cookies: [
-      ...base.cookies.filter((cookie) => !cookieMatchesDomains(cookie, domains)),
-      ...scoped.cookies,
-    ],
-    origins: [
-      ...base.origins.filter((origin) => !originMatchesDomains(origin.origin, domains)),
-      ...scoped.origins,
-    ],
-  };
-}
-
-/** Best-effort coercion of an unknown blob into a StorageState. */
-export function asStorageState(value: unknown): StorageState | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const record = value as Partial<StorageState>;
-  if (!Array.isArray(record.cookies) || !Array.isArray(record.origins)) return undefined;
-  return { cookies: record.cookies, origins: record.origins };
-}
 
 type BrowserStorageIdentity = {
   companySlug: string;
@@ -304,9 +225,10 @@ export async function browserProfileIsNew(
 }
 
 /**
- * Read the saved storage state for this employee, or `undefined` if no
- * snapshot exists yet (or the file is unreadable / unparseable). Callers
- * pass the result straight into `browser.newContext({ storageState })`.
+ * Read the exported storage state for this employee, or `undefined` if no
+ * snapshot exists yet (or the file is unreadable / unparseable). Only the
+ * one-time seed of a brand-new profile and the ephemeral fallback's
+ * `newContext({ storageState })` read it.
  */
 export async function loadStorageState(
   companyId: string,
