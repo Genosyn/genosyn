@@ -375,20 +375,47 @@ export function Browser() {
       <H2 id="persistence">What persists</H2>
       <P>
         The browser outlives individual chat turns — &quot;I&apos;ll wait while you sign in&quot;
-        genuinely works, and an idle browser is reclaimed after five minutes once nobody is using
-        it. Cookies and local storage are snapshotted per employee under the company data directory,
-        so a login survives new conversations and container restarts. Model credentials are never
-        involved; see <DocLink to="/docs/self-hosting">Configuration</DocLink> for where data lives
-        on disk.
+        genuinely works. Each AI Employee has <Strong>one Chrome</Strong> in the App container, and
+        every conversation or Routine Run that uses it opens its own window there. They all share
+        one set of cookies: sign in from a chat, and a Routine Run already under way is signed in
+        too.
       </P>
       <P>
-        That snapshot is written whenever a session is torn down — including on <Code>SIGTERM</Code>
-        , so stopping or updating the container flushes every live browser before it exits rather
-        than dropping whatever the session had learned since it started. Page loads also trigger a
-        debounced save, which bounds what an ungraceful kill can cost to the last page. Two things
-        are deliberately <Strong>not</Strong> kept: IndexedDB and service-worker storage, so a site
-        that keys its auth off those needs a fresh sign-in; and Chrome&apos;s own profile directory,
-        which is new on every launch, so the HTTP cache always starts cold.
+        That Chrome runs on a <Strong>persistent profile</Strong>. Cookies, local storage,
+        IndexedDB, the HTTP cache and browsing history all live in it, so a login — even one a site
+        keeps in IndexedDB — survives new conversations, container restarts and upgrades, and the
+        cache stays warm between launches. Service workers are the exception: they are still
+        blocked, because one could answer a request out of Genosyn&apos;s sight and slip past the
+        Member-session guard at the top of this page.
+      </P>
+      <P>
+        The profile lives at{" "}
+        <Code>.private/browser-state/&lt;company-id&gt;/&lt;employee-id&gt;.profile/</Code> in the
+        data directory. It is App-private (mode <Code>0700</Code>), outside the AI Employee&apos;s
+        working tree, deleted with the employee or the company, and included in whole-instance
+        backups, signed-in sessions and all. Model credentials are never involved; see{" "}
+        <DocLink to="/docs/self-hosting#data-dir">Configuration</DocLink> for where data lives on
+        disk.
+      </P>
+      <P>
+        An idle session — no activity and nobody watching — is reclaimed after five minutes, and
+        Chrome closes about 45 seconds after its last session does, so a session that starts within
+        that window reuses it instead of relaunching it. Stopping or updating the container sends{" "}
+        <Code>SIGTERM</Code>, which shuts every Chrome down without that wait. If the container is
+        killed outright — an OOM kill, or a stop that runs out of time — the lock Chrome leaves in
+        the profile is cleared before the next launch, so a hard stop does not cost the employee
+        their profile.
+      </P>
+      <P>
+        Cookies and local storage are also exported to <Code>&lt;employee-id&gt;.json</Code> beside
+        the profile, by a debounced save after page loads and whenever Genosyn closes Chrome,
+        including on <Code>SIGTERM</Code>. The export is one-way: a working profile never reads it
+        back. It is used only to seed a brand-new profile once — so an install upgrading from the
+        earlier, ephemeral browser keeps its employees&apos; sign-ins — and as the cookie jar for a
+        fallback. If the profile cannot be used (a Playwright build that cannot open a persistent
+        profile, or a profile directory that cannot be opened), Genosyn logs a warning and starts an
+        ephemeral browser from the snapshot rather than failing. Cookies and local storage still
+        carry over there, but IndexedDB, the cache and history start empty on every launch.
       </P>
       <P>
         Vault passkeys do not depend on Chrome&apos;s profile directory. Their encrypted credential
@@ -403,7 +430,7 @@ export function Browser() {
         deleted. Chat sessions are not recorded.
       </P>
       <P>
-        That per-employee session is also what a sign-in driven from the{" "}
+        That per-employee profile is also what a sign-in driven from the{" "}
         <DocLink to="/docs/vault">Vault</DocLink> uses. When a site challenges a sign-in with a
         captcha or an authenticator not attached to the Login, the fix is to take over here and sign
         in once — the employee picks up the session you established and stops failing.

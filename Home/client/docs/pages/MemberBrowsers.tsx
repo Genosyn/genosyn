@@ -156,9 +156,9 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <Callout kind="warn" title="Empty means nothing, not everything">
         On the <DocLink to="/docs/browser">Browser</DocLink> page, an empty employee allow list
         means unrestricted. Here it means the browser opens <Strong>nothing</Strong> and every
-        navigation is refused with an explanation. That default is defensible for a throwaway
-        container browser and indefensible for one sitting on your laptop holding your signed-in
-        sessions.
+        navigation is refused with an explanation. That default is defensible for a browser that
+        lives inside the App container and indefensible for one sitting on your laptop holding your
+        signed-in sessions.
       </Callout>
       <P>
         The two lists are checked independently and a URL must pass <Strong>both</Strong>, so

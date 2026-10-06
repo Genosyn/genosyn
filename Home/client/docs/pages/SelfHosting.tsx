@@ -262,6 +262,7 @@ export function SelfHosting() {
 ├── .instance-secrets.json
 ├── .instance-secrets.required
 ├── .private/
+│   ├── browser-state/<company-id>/<employee-id>.profile/
 │   ├── browser-state/<company-id>/<employee-id>.json
 │   ├── browser-recordings/<company-id>/<run-id>/
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
