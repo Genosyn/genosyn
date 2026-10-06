@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Select } from "@/components/ui/Select";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
@@ -50,7 +51,12 @@ import { Input } from "../components/ui/Input";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
-import { ModalCloseButton, ModalPanel, ModalScrim } from "../components/ui/ModalChrome";
+import {
+  ModalCloseButton,
+  ModalPanel,
+  ModalScrim,
+  useModalChrome,
+} from "../components/ui/ModalChrome";
 import { useFocusAfterDelete } from "../components/useFocusAfterDelete";
 import { useBases } from "./BasesLayout";
 import {
@@ -1114,22 +1120,22 @@ function AddLinkFieldModal({
 }) {
   const [name, setName] = React.useState("");
   const [targetTableId, setTargetTableId] = React.useState(tables[0]?.id ?? "");
-
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  // On the shared overlay stack like Modal and Dialog: it traps Tab, moves focus
+  // in and back out, and answers Escape before the grid sees the key. A window
+  // listener of its own ran after the grid's, so the first Escape cleared the
+  // selected rows and left this open.
+  const { titleId, panelRef } = useModalChrome({ open: true, onDismiss: onCancel });
 
   const canSubmit = name.trim() && targetTableId;
 
-  return (
+  return createPortal(
     <ModalScrim layer="dialog" onDismiss={onCancel}>
-      <ModalPanel size="sm">
+      <ModalPanel ref={panelRef} size="sm" labelledBy={titleId}>
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-5 py-3 dark:border-slate-800">
-          <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          <h2
+            id={titleId}
+            className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+          >
             Add link field
           </h2>
           <ModalCloseButton onClick={onCancel} />
@@ -1172,7 +1178,8 @@ function AddLinkFieldModal({
           </div>
         </div>
       </ModalPanel>
-    </ModalScrim>
+    </ModalScrim>,
+    document.body,
   );
 }
 
@@ -1645,6 +1652,10 @@ function BaseSettingsModal({
   const [busy, setBusy] = React.useState<null | "save" | "delete">(null);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<"general" | "access">("general");
+  // On the shared overlay stack: Escape closes this — before the grid behind
+  // could take the key and clear its selection — Tab stays inside, and focus
+  // returns to the settings button. It had no keyboard handling of its own.
+  const { titleId, panelRef } = useModalChrome({ open: true, onDismiss: onClose });
 
   async function save() {
     setBusy("save");
@@ -1685,11 +1696,14 @@ function BaseSettingsModal({
     }
   }
 
-  return (
+  return createPortal(
     <ModalScrim onDismiss={onClose}>
-      <ModalPanel size="md">
+      <ModalPanel ref={panelRef} size="md" labelledBy={titleId}>
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-5 py-3 dark:border-slate-800">
-          <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          <h2
+            id={titleId}
+            className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+          >
             Base settings
           </h2>
           <ModalCloseButton onClick={onClose} />
@@ -1796,7 +1810,8 @@ function BaseSettingsModal({
           )}
         </div>
       </ModalPanel>
-    </ModalScrim>
+    </ModalScrim>,
+    document.body,
   );
 }
 
@@ -2021,11 +2036,17 @@ function EmployeePickerModal({
   onCancel: () => void;
   onPick: (e: Employee) => void;
 }) {
-  return (
+  // Stacked over the settings modal, so Escape closes this one alone.
+  const { titleId, panelRef } = useModalChrome({ open: true, onDismiss: onCancel });
+
+  return createPortal(
     <ModalScrim layer="top" onDismiss={onCancel}>
-      <ModalPanel size="sm">
+      <ModalPanel ref={panelRef} size="sm" labelledBy={titleId}>
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-5 py-3 dark:border-slate-800">
-          <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          <h3
+            id={titleId}
+            className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+          >
             Grant access
           </h3>
           <ModalCloseButton onClick={onCancel} />
@@ -2068,6 +2089,7 @@ function EmployeePickerModal({
           )}
         </div>
       </ModalPanel>
-    </ModalScrim>
+    </ModalScrim>,
+    document.body,
   );
 }
