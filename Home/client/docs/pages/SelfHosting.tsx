@@ -134,7 +134,8 @@ export function SelfHosting() {
               <>
                 <Strong>Web tools</Strong> (on/off, search provider, result and document limits),{" "}
                 <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
-                <Strong>Hosted sign-in</Strong> (shared sign-in and service URL),{" "}
+                <Strong>Hosted sign-in</Strong> (Genosyn Connect on or off, its URL, and its live
+                status),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
@@ -351,24 +352,26 @@ export function SelfHosting() {
 
       <H2 id="oauth-apps">OAuth apps for the whole install</H2>
       <P>
-        Gmail can use Genosyn&apos;s hosted sign-in service: open <Strong>Email</Strong>, enter
-        your address, then choose <Strong>Continue with Google</Strong>. No Google Cloud project is
-        needed on your installation when the service is available. Sign-in and token renewal use
-        the hosted service; reading and sending mail happen directly between your installation and
-        Google. Credentials are stored encrypted locally and sent to the service to renew access.
-        Email content never passes through the sign-in service.
+        Gmail needs no OAuth app of your own: open <Strong>Email</Strong>, enter your address, and
+        choose <Strong>Continue with Google</Strong>.{" "}
+        <DocLink to="/docs/connect">Genosyn Connect</DocLink> handles sign-in and token renewal;
+        reading and sending mail happen directly between your installation and Google, and email
+        content never passes through Connect. Credentials are stored encrypted locally, and the
+        refresh token is sent to Connect only to renew access. Your installation needs outbound
+        HTTPS to the service; Connect never connects to your installation.
       </P>
       <P>
-        <Code>Admin → Runtime → Hosted sign-in</Code> controls hosted sign-in. The default service is
-        {" "}<Code>https://connect.genosyn.com</Code>; it must be deployed and available before sign-in
-        works. Turning off <Strong>Use hosted sign-in</Strong> prevents new hosted sign-ins
-        without revoking existing Connections. Existing Connections continue renewing through their
-        original service even if you change the URL. Leave <Strong>Host shared sign-in on this
-        installation</Strong> off; that setting is for the operator of the dedicated public service.
+        <Code>Admin → Runtime → Hosted sign-in</Code> controls it and shows, live, whether the
+        service answers and what it offers. The default service is{" "}
+        <Code>https://connect.genosyn.com</Code>. Turning off <Strong>Use Genosyn Connect</Strong>{" "}
+        prevents new sign-ins through it without revoking existing Connections, which keep renewing
+        through their original service even if you change the URL. To run the service yourself,
+        see <DocLink to="/docs/connect#run-your-own">Running your own Genosyn Connect</DocLink>.
       </P>
       <P>
-        To manage Gmail independently, or connect Google Drive, Calendar, Analytics, Search Console,
-        Ads and other OAuth integrations, register your own app at <Code>Admin → Integrations</Code>.
+        To use your own Google app instead — or for Google products Connect does not offer, and for
+        GitHub, Microsoft, LinkedIn, Reddit and X — register an app at{" "}
+        <Code>Admin → Integrations</Code>. A registered app always takes precedence over Connect.
         Each provider card shows the exact
         redirect URI to allow-list (derived from the <Code>Public URL</Code> above, so set that
         first) and the ordered steps for that provider&apos;s console. Paste back the Client ID and

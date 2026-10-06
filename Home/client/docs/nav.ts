@@ -349,6 +349,11 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Configuration",
         blurb: "config.ts, the runtime settings in Admin, the data directory, backups.",
       },
+      {
+        path: "/docs/connect",
+        title: "Genosyn Connect",
+        blurb: "Connect Gmail and other Integrations without your own OAuth app, or run the service.",
+      },
       { path: "/docs/cli", title: "CLI reference", blurb: "Every genosyn command, every flag." },
       {
         path: "/docs/kubernetes",

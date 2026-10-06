@@ -70,6 +70,8 @@ everything else on its own, and asks the board only what an owner must.
 ```
 genosyn/
 ├── App/         # Product app: Express + TypeORM + React + Vite + Tailwind
+├── Connect/     # Genosyn Connect: the hosted OAuth sign-in service
+│                # (connect.genosyn.com, image ghcr.io/genosyn/connect).
 ├── Helm/        # Official Kubernetes Helm chart (Helm/genosyn). Packaged and
 │                # published to oci://ghcr.io/genosyn/charts by
 │                # .github/workflows/chart.yml on every release tag.
@@ -111,13 +113,42 @@ These operator-private files may contain deployment secrets. Keep them out of
 Git, Docker build contexts, logs, and command output. Never copy their values
 into tracked examples or CI fixtures. See `Helm/Values/README.md`.
 
-Both Docker images use the repo root as their build context. Home needs the
+Every Docker image uses the repo root as its build context. Home needs the
 root because `sync-cli` reads from `../CLI/`; App needs it because in-app Help
 ships a read-only snapshot of App, Home, CLI, docs, and delivery
-workflows for AI Employees to inspect. `Home/Dockerfile` mirrors the repo
+workflows for AI Employees to inspect; Connect needs it for the license. `Home/Dockerfile` mirrors the repo
 layout inside the image at `/build/Home` + `/build/CLI` so the relative path
 resolves the same way as local dev. If you rename `CLI/`, update **all three**:
 the sync script, the Dockerfile, and the workflow matrix.
+
+### About `Connect/`
+
+**Genosyn Connect** is a separate, small service: one registered OAuth app per
+provider, so a self-hosted installation can connect Gmail (and whatever else
+the service offers) without registering its own. It brokers consent and token
+renewal and never sees mailbox or file content; installations reach it, it
+never reaches them. Its operator guide is [`Connect/README.md`](./Connect/README.md).
+
+- **The App is only a client.** `services/hostedOauth.ts` signs in through it,
+  `services/hostedOauthApps.ts` lists which Integration OAuth apps can, and each
+  provider's token lifecycle renews through `services/hostedOauthTokens.ts`.
+  An app registered at Admin → Integrations, or a client supplied on a
+  Connection, always wins over Connect. The App no longer hosts sign-in for
+  other installations; do not add those routes back to it.
+- **Its wire protocol is released.** Installations pin the path they signed in
+  through (`/api/connect/<provider>`, or Gmail's original `/api/google-sign-in`)
+  and renew there for the life of the Connection. Extend it compatibly — a new
+  optional field, a new provider — and keep `Connect/tests/legacy.test.ts`
+  green; never rename a path, cookie prefix or window-message name.
+- **Same stack, different container.** TypeScript, Express and zod as in the
+  App. Configuration is environment variables read once by
+  `Connect/src/config.ts`: it is a separate image an operator runs with
+  `docker run`, and §5's "no env, AppSetting for everything" rule binds the App.
+  It has no TypeORM: its only persistent state is optional, ten-minute sign-in
+  handoffs in one Postgres table it creates idempotently, through `pg`.
+- **Provider names, endpoints and scopes come from code**, never a request.
+  Adding a provider means an adapter in `Connect/src/providers/`, its entry in
+  `hostedOauthApps.ts`, and tests on both sides.
 
 ---
 
@@ -138,6 +169,7 @@ code, UI copy, commits, and docs.
 | **Folder** (the exclusive, nestable filing tree for Routines — `RoutineFolder`) | Category, Group, Collection, Tag |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
+| **Genosyn Connect** (the hosted sign-in service in `Connect/`; "Connect" for short) | Broker, Proxy, Sign-in provider (in product copy) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Vault source** (an external password manager a company mirrors into its Vault — `VaultSource`) | Integration, Connection, Provider, Backend |
 | **Decision** (a consequential choice an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
@@ -394,6 +426,7 @@ file and restart a container to change how often a mailbox polls.
 | Global SMTP transport | **Admin → Email transport** | `smtp.global` |
 | Browser-facing public URL and custom JavaScript | **Admin → General** | `instance.publicUrl`, `instance.customJavaScript` |
 | OAuth app credentials | **Admin → Integrations** | `oauth.apps` |
+| Genosyn Connect on/off and its URL | **Admin → Runtime → Hosted sign-in** | `runtime.oauth` |
 
 `services/runtimeSettings.ts` owns every `runtime.*` group: types, defaults,
 tolerant per-field parsing, synchronous cached getters on a shared 30s refresh
