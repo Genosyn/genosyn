@@ -23,8 +23,11 @@ export function CustomerMailList({
 }: {
   mail: CustomerMailPage;
   companySlug: string;
-  /** The customer's edit page — where an email address or domain is added. */
-  editTo: string;
+  /**
+   * The customer's edit page — where an email address or domain is added —
+   * or null for a Member whose read-only finance access can't save it.
+   */
+  editTo: string | null;
   /** Show only this many conversations, without paging controls. */
   preview?: number;
   onLoadMore?: () => void;
@@ -49,13 +52,19 @@ export function CustomerMailList({
     return (
       <EmptyState
         title="No email address to search"
-        description="Add a billing email, a contact with an email address, or the customer's domain to see the mail you've exchanged with them."
+        description={
+          editTo
+            ? "Add a billing email, a contact with an email address, or the customer's domain to see the mail you've exchanged with them."
+            : "The mail you've exchanged with the customer shows up here once it has a billing email, a contact with an email address, or a domain."
+        }
         action={
-          <Link to={editTo}>
-            <Button variant="secondary" size="sm">
-              Edit customer
-            </Button>
-          </Link>
+          editTo && (
+            <Link to={editTo}>
+              <Button variant="secondary" size="sm">
+                Edit customer
+              </Button>
+            </Link>
+          )
         }
       />
     );

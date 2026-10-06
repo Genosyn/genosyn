@@ -45,7 +45,7 @@ import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { describeCron } from "../lib/schedule";
 import { normalizeEnvelopeList, type SignatureEnvelope } from "../lib/signing";
-import { effectiveFinanceAccess } from "../lib/subpages";
+import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ActivityTimeline, type RevenueActivity } from "../components/revenue/ActivityTimeline";
@@ -162,6 +162,12 @@ export default function CustomerDetail() {
 }
 
 function CustomerOverview({ company }: { company: Company }) {
+  // Edit, and the Billing tab's New invoice, New estimate, and New recurring
+  // invoice, open forms that save through the finance routes, which refuse a
+  // read-only Member, so they get the page without those. Contracts,
+  // signature requests, files, and custom fields have routes of their own
+  // that finance access doesn't gate, so those stay for every Member.
+  const canWrite = canWriteFinance(company);
   const { customerSlug } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -519,7 +525,7 @@ function CustomerOverview({ company }: { company: Company }) {
     );
   }
 
-  const editTo = `${customersUrl}/${customer.slug}/edit`;
+  const editTo = canWrite ? `${customersUrl}/${customer.slug}/edit` : null;
   const website = websiteHref(customer);
   const owner = ownerLabel(customer, members, employees);
   const people = (relationship?.contacts.length ?? 0) + customer.contacts.length;
@@ -607,9 +613,11 @@ function CustomerOverview({ company }: { company: Company }) {
           >
             <ScrollText size={14} /> Statement
           </Button>
-          <Button variant="secondary" onClick={() => navigate(editTo)}>
-            <Pencil size={14} /> Edit
-          </Button>
+          {editTo && (
+            <Button variant="secondary" onClick={() => navigate(editTo)}>
+              <Pencil size={14} /> Edit
+            </Button>
+          )}
         </div>
       </div>
 
@@ -917,6 +925,7 @@ function CustomerOverview({ company }: { company: Company }) {
                 companySlug={company.slug}
                 members={members}
                 employees={employees}
+                canEditCustomer={canWrite}
               />
             </>
           ) : (
@@ -945,7 +954,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Invoices"
             count={invoices.length}
             newLabel="New invoice"
-            newTo={`${financeBase}/invoices/new`}
+            newTo={canWrite ? `${financeBase}/invoices/new` : undefined}
             emptyText="No invoices for this customer yet."
             first
           >
@@ -979,7 +988,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Estimates"
             count={estimates.length}
             newLabel="New estimate"
-            newTo={`${financeBase}/estimates/new`}
+            newTo={canWrite ? `${financeBase}/estimates/new` : undefined}
             emptyText="No estimates for this customer yet."
           >
             {estimates.length > 0 && (
@@ -1007,7 +1016,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Recurring invoices"
             count={recurring.length}
             newLabel="New recurring invoice"
-            newTo={newRecurringInvoicePath(financeBase, customer.id)}
+            newTo={canWrite ? newRecurringInvoicePath(financeBase, customer.id) : undefined}
             emptyText="No recurring invoices for this customer yet."
           >
             {recurring.length > 0 && (
@@ -1106,7 +1115,7 @@ function MailSection({
   mail: CustomerMailPage | null;
   error: string | null;
   companySlug: string;
-  editTo: string;
+  editTo: string | null;
   preview?: number;
   onLoadMore?: () => void;
   loadingMore?: boolean;

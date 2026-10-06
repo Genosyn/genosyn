@@ -5,12 +5,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Route, Routes, StaticRouter } from "react-router-dom";
 
 import { DialogProvider } from "../components/ui/Dialog.js";
-import type { Company, Me } from "../lib/api.js";
+import type { Company, CustomerMailPage, Me } from "../lib/api.js";
 import { canOpenSubpage, effectiveFinanceAccess, subpageAt } from "../lib/subpages.js";
 import AuditLog from "./AuditLog.js";
 import ContractsIndex from "./ContractsIndex.js";
 import CustomerDetail from "./CustomerDetail.js";
+import { CustomerMailList } from "./CustomerMailPanel.js";
 import CustomerNew from "./CustomerNew.js";
+import { CustomerPeoplePanel } from "./CustomerRelationshipPanels.js";
 import CustomerStatement from "./CustomerStatement.js";
 import CustomersIndex from "./CustomersIndex.js";
 import CustomersLayout from "./CustomersLayout.js";
@@ -32,6 +34,9 @@ import Usage from "./Usage.js";
  * the page that loads data mounted at all. Every loading page draws a spinner
  * on its first render, which is the render this produces, so a closed page
  * must show none of the page's own controls and nothing loading.
+ *
+ * Customer pages a read-only Member can open are here too, drawn without the
+ * changes the finance routes would refuse them.
  */
 
 const h = React.createElement;
@@ -200,6 +205,9 @@ const ADMIN_ONLY_SETTINGS: AdminOnlyPage[] = [
 const heading = (text: string) =>
   new RegExp(`<h1 class="[^"]*">${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</h1>`);
 
+/** The Customers landing's create button: a `<button>` ending in its label, after its icon. */
+const NEW_CUSTOMER = /<button\b[^>]*>(?:(?!<\/button>)[\s\S])*New customer<\/button>/;
+
 describe("admin-only Settings pages", () => {
   test("give a Member a note in place of the page, whatever their finance access", () => {
     for (const page of ADMIN_ONLY_SETTINGS) {
@@ -276,8 +284,28 @@ describe("the Customers landing", () => {
       const html = renderCustomers(c);
       assert.equal(html.includes(NOTE), false, who(c));
       assert.ok(html.includes('aria-label="Search customers"'), who(c));
-      assert.ok(html.includes("New customer"), who(c));
       assert.ok(html.includes('aria-label="Loading customers"'), who(c));
+    }
+  });
+
+  test("offers New customer only to those whose finance access can save one", () => {
+    for (const c of [...OWNERS_AND_ADMINS, member]) {
+      assert.match(renderCustomers(c), NEW_CUSTOMER, who(c));
+    }
+    // Read-only lists customers but can't add one, and the form would only
+    // show its read-only note, so the list doesn't offer it.
+    const html = renderCustomers(memberReadOnly);
+    assert.doesNotMatch(html, NEW_CUSTOMER);
+    assert.equal(html.includes("New customer"), false);
+  });
+
+  test("offers New customer exactly when the catalogue says the viewer can open it", () => {
+    for (const c of EVERYONE) {
+      assert.equal(
+        NEW_CUSTOMER.test(renderCustomers(c)),
+        canOpenSubpage(subpageAt("/customers/new"), c),
+        who(c),
+      );
     }
   });
 
@@ -350,6 +378,60 @@ describe("a customer's overview and statement", () => {
         );
       }
     }
+  });
+});
+
+/** One of a customer overview's panels, drawn as it is once its data is in. */
+function renderPanel(panel: React.ReactElement): string {
+  return decode(
+    renderToStaticMarkup(h(StaticRouter, { location: "/c/acme/customers/acme-corp" }, panel)),
+  );
+}
+
+/**
+ * The overview itself draws only a spinner until its data arrives, which a
+ * server render never waits for, so its Edit and the Billing tab's New links
+ * are held to `canWriteFinance` at the source, in
+ * `server/client/financeReadOnly.test.ts`. The panels below take what they
+ * show as props, so here they are drawn as each Member gets them.
+ */
+describe("a customer's overview panels for a read-only Member", () => {
+  const editTo = "/c/acme/customers/acme-corp/edit";
+
+  test("leave Edit customer out of the emails when there's no address to search", () => {
+    const mail = {
+      threads: [],
+      total: 0,
+      limit: 25,
+      offset: 0,
+      addresses: [],
+      domain: null,
+      mailboxCount: 1,
+      indexing: false,
+    } satisfies CustomerMailPage;
+    const writable = renderPanel(h(CustomerMailList, { mail, companySlug: "acme", editTo }));
+    assert.ok(writable.includes(`href="${editTo}"`));
+    assert.ok(writable.includes("Edit customer"));
+    assert.ok(writable.includes("Add a billing email"));
+
+    const readOnly = renderPanel(h(CustomerMailList, { mail, companySlug: "acme", editTo: null }));
+    assert.ok(readOnly.includes("No email address to search"));
+    assert.equal(readOnly.includes("Edit customer"), false);
+    assert.equal(readOnly.includes("/edit"), false);
+    // What fills the tab, rather than an instruction they couldn't follow.
+    assert.equal(readOnly.includes("Add a billing email"), false);
+    assert.ok(readOnly.includes("shows up here once it has a billing email"));
+  });
+
+  test("don't send them to the edit page for billing contacts", () => {
+    const people = { contacts: [], billingContacts: [], companySlug: "acme", members: [], employees: [] };
+    const writable = renderPanel(h(CustomerPeoplePanel, { ...people, canEditCustomer: true }));
+    assert.ok(writable.includes("on the customer's edit page"));
+
+    const readOnly = renderPanel(h(CustomerPeoplePanel, { ...people, canEditCustomer: false }));
+    assert.ok(readOnly.includes("No billing contacts"));
+    assert.ok(readOnly.includes("The people who handle the customer's invoices and payments"));
+    assert.equal(readOnly.includes("edit page"), false);
   });
 });
 

@@ -534,7 +534,8 @@ export function Finance() {
           <Strong>Issue &amp; send</Strong>, <Strong>Record payment</Strong>,{" "}
           <Strong>Void</Strong>, and a proposal&apos;s <Strong>Apply</Strong>, and show settings,
           templates, and a vendor&apos;s details for reading only. Following a saved link to a
-          create or edit form shows a note in its place, with a way back.
+          create or edit form shows a note in its place, with a way back. Customers follow the same
+          rule — see <DocLink to="/docs/customers#access">who can change customers</DocLink>.
         </LI>
         <LI>
           <Strong>None</Strong> — the finance section is closed to them entirely. Opening Finance
