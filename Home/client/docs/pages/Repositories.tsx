@@ -66,6 +66,13 @@ export function Repositories() {
         to engineers, and nothing here requires a git host, an account on one, or coding tools
         switched on.
       </P>
+      <P>
+        Any Member can edit files, commit, branch, and hand work to an AI Employee: start a work
+        session, ask for changes, stop it, merge it, or throw it away. Pulling, pushing, connecting
+        a remote, and opening a pull request are <Strong>owner or admin</Strong> only, because they
+        reach outside the company. So are adding a repository and changing its settings or AI
+        access.
+      </P>
 
       <H2 id="create">Create a repository</H2>
       <OL>
