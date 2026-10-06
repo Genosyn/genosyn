@@ -1164,6 +1164,17 @@ function AddLinkFieldModal({
 
 // ─────────────────────────── row + cells ─────────────────────────────────────
 
+// A row's checkbox and its Open and Delete buttons show on hover, while keyboard
+// focus is anywhere in the row, and always on touch screens, where nothing
+// hovers. Otherwise they are transparent rather than `hidden`: `display: none`
+// took them out of the tab order, so no keyboard could reach them, and left the
+// record drawer nothing to hand focus back to when it closed.
+const ROW_CONTROL_CLASS =
+  "opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 [@media(hover:none)]:opacity-100";
+// The row number gives the checkbox its place whenever the checkbox shows.
+const ROW_NUMBER_CLASS =
+  "group-hover:opacity-0 group-has-[:focus-visible]:opacity-0 [@media(hover:none)]:opacity-0";
+
 function Row({
   index,
   record,
@@ -1209,8 +1220,14 @@ function Row({
             : "bg-white group-hover:bg-indigo-50/20 dark:bg-slate-900",
         )}
       >
-        <div className="flex h-9 items-center justify-center gap-1">
-          {/* Selection checkbox (always visible if selected, else on hover) */}
+        {/* The row number and the selection checkbox share one grid cell, so
+            swapping one for the other moves neither. A selected row shows only
+            its checkbox. The checkbox comes last so it sits on top and takes
+            the click. */}
+        <div className="grid h-9 place-items-center">
+          {!selected && (
+            <span className={clsx("col-start-1 row-start-1", ROW_NUMBER_CLASS)}>{index}</span>
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -1218,8 +1235,8 @@ function Row({
               onToggleSelect(e.shiftKey);
             }}
             className={clsx(
-              "rounded p-0.5",
-              selected ? "inline-flex" : "hidden group-hover:inline-flex",
+              "col-start-1 row-start-1 inline-flex rounded p-0.5",
+              !selected && ROW_CONTROL_CLASS,
             )}
             aria-label={selected ? "Deselect row" : "Select row"}
             title="Click to select; shift-click for range"
@@ -1235,7 +1252,6 @@ function Row({
               {selected && <Check size={10} strokeWidth={3} />}
             </span>
           </button>
-          {!selected && <span className="group-hover:hidden">{index}</span>}
         </div>
       </td>
       {fields.map((f) => {
@@ -1298,16 +1314,24 @@ function Row({
         <div className="flex h-9 items-center justify-center gap-1">
           <button
             onClick={onExpand}
-            className="hidden rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-950/30"
+            className={clsx(
+              "inline-flex rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/30",
+              ROW_CONTROL_CLASS,
+            )}
             title="Open record"
           >
             <Maximize2 size={13} />
           </button>
+          {/* Also shown while its delete is in flight: the disabled button has
+              lost focus, and the pointer may have left the row. */}
           <button
             onClick={onDelete}
             disabled={deleting}
             aria-busy={deleting || undefined}
-            className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex dark:hover:bg-red-950/30"
+            className={clsx(
+              "inline-flex rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 aria-busy:opacity-100 dark:hover:bg-red-950/30",
+              ROW_CONTROL_CLASS,
+            )}
             title="Delete row"
           >
             {deleting ? <ButtonSpinner size={13} /> : <Trash2 size={13} />}
