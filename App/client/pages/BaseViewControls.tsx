@@ -20,7 +20,7 @@ import {
   isBaseResourceFieldType,
   SelectOption,
 } from "../lib/api";
-import { Menu, useCloseOnEscape } from "../components/ui/Menu";
+import { Menu, useCloseOnEscape, useCloseOnPressOutside } from "../components/ui/Menu";
 import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { chipClass } from "../components/BaseIcons";
@@ -364,7 +364,6 @@ function ToolbarPopover({
   width?: number;
   children: React.ReactNode;
 }) {
-  const ref = React.useRef<HTMLDivElement>(null);
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null);
 
   React.useLayoutEffect(() => {
@@ -375,16 +374,9 @@ function ToolbarPopover({
     setCoords({ top, left });
   }, [open, triggerRef, width]);
 
-  React.useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      const t = e.target as Node;
-      if (ref.current?.contains(t) || triggerRef.current?.contains(t)) return;
-      onClose();
-    }
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open, onClose, triggerRef]);
+  // A press in a field, operator or value menu opened in here lands outside
+  // this node, in the menu's portal, and still keeps the popover open.
+  const markPressInside = useCloseOnPressOutside(open, onClose, triggerRef);
   // On the Menu stack, so a field or operator menu opened in here closes
   // before the popover does, and the grid keeps its selection either way.
   useCloseOnEscape(open, onClose);
@@ -392,7 +384,7 @@ function ToolbarPopover({
   if (!open || !coords) return null;
   return (
     <div
-      ref={ref}
+      onMouseDownCapture={markPressInside}
       style={{ top: coords.top, left: coords.left, width }}
       className="fixed z-50 rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900"
       role="dialog"

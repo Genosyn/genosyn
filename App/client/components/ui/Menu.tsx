@@ -47,6 +47,50 @@ export function useCloseOnEscape(open: boolean, onClose: () => void) {
   }, [open]);
 }
 
+/* ── Presses outside menus and popovers ───────────────────────────────────
+ *
+ * A menu or popover closes on a mousedown outside it, and outside means outside
+ * its React tree, not its DOM node. A Menu portals to document.body, so one
+ * opened inside another menu or a popover is no DOM descendant of it: a press
+ * on one of its items counted as outside, closed the parent, and unmounted the
+ * item before its click could apply the choice.
+ *
+ * React events bubble along the component tree, through portals, so the
+ * surface's root marks every press that passes through it — a nested menu's
+ * too — and the window listener, which hears the same press last, lets a
+ * marked one go.
+ */
+
+/**
+ * Close a menu or popover on a press outside it and its trigger. Returns the
+ * handler for the surface's root element's `onMouseDownCapture`.
+ */
+export function useCloseOnPressOutside(
+  open: boolean,
+  onClose: () => void,
+  triggerRef: React.RefObject<HTMLElement>,
+) {
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
+  const pressInside = React.useRef<Event | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function onDown(event: MouseEvent) {
+      const inside = event === pressInside.current;
+      pressInside.current = null;
+      if (inside || triggerRef.current?.contains(event.target as Node)) return;
+      closeRef.current();
+    }
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open, triggerRef]);
+
+  return React.useCallback((event: React.MouseEvent) => {
+    pressInside.current = event.nativeEvent;
+  }, []);
+}
+
 /**
  * Small popover menu, Linear-style. Not a full combobox — pairs with a
  * trigger button supplied by the caller so the same primitive can back
@@ -86,7 +130,6 @@ export function Menu({
   };
 
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const menuRef = React.useRef<HTMLDivElement>(null);
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null);
 
   React.useLayoutEffect(() => {
@@ -99,17 +142,7 @@ export function Menu({
     setCoords({ top, left: Math.max(8, Math.min(left, maxLeft)) });
   }, [open, align, width]);
 
-  React.useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      const t = e.target as Node;
-      if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
-      setOpen(false);
-    }
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const markPressInside = useCloseOnPressOutside(open, () => setOpen(false), triggerRef);
   useCloseOnEscape(open, () => setOpen(false));
 
   return (
@@ -123,8 +156,8 @@ export function Menu({
         coords &&
         createPortal(
           <div
-            ref={menuRef}
             role="menu"
+            onMouseDownCapture={markPressInside}
             style={{ top: coords.top, left: coords.left, width }}
             className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
           >
