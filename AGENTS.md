@@ -620,9 +620,10 @@ in a Work session instead of leaving them stranded as local commits.
 - **Icons**: `lucide-react` only.
 - **Section pages are catalogued.** Section rails and the ⌘K palette's page
   search both read `client/lib/subpages.ts`. Add a new page there, with the
-  access it needs so the palette never offers it to someone who can't open it,
-  rather than as a hand-written rail link. `server/client/subpageRoutes.test.ts`
-  fails on a static route that is neither catalogued nor deliberately left out.
+  access it needs so neither the palette nor a rail (which passes its
+  `viewer`) offers it to someone who can't open it, rather than as a
+  hand-written rail link. `server/client/subpageRoutes.test.ts` fails on a
+  static route that is neither catalogued nor deliberately left out.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults. **Run

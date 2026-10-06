@@ -22,7 +22,7 @@ export default function ResourcesLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        <SectionRailLinks section="resources" companySlug={company.slug} />
+        <SectionRailLinks section="resources" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

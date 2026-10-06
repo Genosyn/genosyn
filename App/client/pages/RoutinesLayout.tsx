@@ -589,7 +589,7 @@ function Sidebar({
         aria-label="Routines settings"
         className="shrink-0 space-y-0.5 border-t border-slate-100 p-2 dark:border-slate-800"
       >
-        <SectionRailLinks section="routines" companySlug={company.slug} />
+        <SectionRailLinks section="routines" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

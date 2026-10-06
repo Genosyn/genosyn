@@ -30,7 +30,7 @@ export default function RevenueLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="revenue" companySlug={company.slug} />
+        <SectionRailLinks section="revenue" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

@@ -23,7 +23,7 @@ export default function TldrsLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="tldrs" companySlug={company.slug} />
+        <SectionRailLinks section="tldrs" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

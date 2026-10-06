@@ -10,7 +10,9 @@ import { SectionRailLinks } from "../components/SectionRail";
  * the Finance section; they now stand alone as their own top-level section
  * (accounts + signed contracts), since they're a CRM concern that outgrew
  * the invoicing context. Rail links come from the subpage catalogue
- * (`lib/subpages.ts`) the ⌘K palette also searches.
+ * (`lib/subpages.ts`) the ⌘K palette also searches, and leave out what the
+ * viewer can't open: the customer list is served by the finance routes, so a
+ * Member without finance access sees Contracts only.
  *
  * Children read `company` from Outlet context so each page can build
  * `/api/companies/:cid/...` URLs without re-deriving it from the route.
@@ -29,7 +31,7 @@ export default function CustomersLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="customers" companySlug={company.slug} />
+        <SectionRailLinks section="customers" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

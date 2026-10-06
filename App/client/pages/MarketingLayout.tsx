@@ -18,7 +18,7 @@ export default function MarketingLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="marketing" companySlug={company.slug} />
+        <SectionRailLinks section="marketing" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );
