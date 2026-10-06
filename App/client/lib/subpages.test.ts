@@ -469,6 +469,7 @@ describe("subpage search", () => {
     assert.deepEqual(aiAccess, catalogueOrder);
     assert.deepEqual(aiAccess, [
       "/meetings/ai-access",
+      "/routines/ai-access",
       "/resources/ai-access",
       "/marketing/ai-access",
       "/revenue/ai-access",
@@ -630,5 +631,53 @@ describe("Resources in the catalogue", () => {
     const { sections, pages } = palette("resources");
     assert.equal(sections[0].item.key, "resources");
     assert.equal(paths(pages).includes("/resources"), false);
+  });
+});
+
+// ─────────────────────────── Routines → AI access ───────────────────────────
+
+describe("Routines in the catalogue", () => {
+  test("pins AI access as the only catalogue link in the self-drawn Routines rail", () => {
+    // Folders and the employee filter are drawn by RoutinesLayout itself; the
+    // create form is reached from its "New routine" button.
+    assert.deepEqual(
+      railSubpages("routines").map((p) => [p.navLabel ?? p.label, p.path]),
+      [["AI access", "/routines/ai-access"]],
+    );
+    assert.equal(page("/routines/new").rail, false);
+  });
+
+  test("offers AI access to every Member, like the sibling AI access pages", () => {
+    // Members see who is read + run; only owners and admins can change it,
+    // which the page and its route enforce.
+    const aiAccess = page("/routines/ai-access");
+    assert.equal(aiAccess.access, undefined);
+    assert.equal(aiAccess.section, "routines");
+    for (const viewer of Object.values(VIEWERS))
+      assert.equal(canOpenSubpage(aiAccess, viewer), true);
+    assert.equal(
+      page("/resources/ai-access").access,
+      undefined,
+      "its Resources twin is ungated too",
+    );
+  });
+
+  test("finds Routines → AI access by its section, its name, and what it governs", () => {
+    assert.equal(palette("routines ai access").pages[0].page.path, "/routines/ai-access");
+    for (const query of ["who can edit routines", "read and run", "routine grants"]) {
+      assert.ok(
+        paths(palette(query, MEMBER_NONE).pages).includes("/routines/ai-access"),
+        `"${query}" finds the page for a plain Member`,
+      );
+    }
+    // Asking for one section's AI access does not answer with the other's.
+    assert.equal(
+      paths(palette("routines ai access").pages).includes("/resources/ai-access"),
+      false,
+    );
+    assert.equal(
+      paths(palette("resources ai access").pages).includes("/routines/ai-access"),
+      false,
+    );
   });
 });

@@ -12,6 +12,11 @@ import {
 import { Project } from "../../db/entities/Project.js";
 import { hasBaseGrant } from "../bases.js";
 import { assertUnrestrictedConnectionUse } from "../connectionCapabilities.js";
+import {
+  ROUTINE_SCHEDULE_TRIGGER_REFUSAL,
+  canWriteRoutines,
+  getRoutineAccess,
+} from "../routineAccess.js";
 import { getGrantWithConnection } from "../integrations.js";
 import { getProvider } from "../../integrations/index.js";
 import { findChannelBySlugOrId } from "../workspaceChat.js";
@@ -107,16 +112,23 @@ async function checkNode(
   const { companyId, employee } = ctx;
 
   switch (node.type) {
-    // Manual, schedule and webhook triggers read nothing and write nothing.
-    // An employee already schedules recurring work with `create_routine`, so
-    // a cron trigger grants no reach it did not have.
+    // Manual and webhook triggers read nothing and write nothing.
     case "trigger.manual":
-    case "trigger.schedule":
     case "trigger.webhook":
     case "logic.set":
     case "logic.branch":
     case "logic.delay":
       return null;
+
+    // A schedule reads and writes nothing either, but it makes the pipeline
+    // recurring work. An employee schedules recurring work itself with
+    // `create_routine`, so a cron trigger grants no reach it did not have —
+    // unless Routines → AI access holds it at read + run, which takes exactly
+    // that away. Then a schedule here would be a Routine by another name.
+    case "trigger.schedule":
+      return canWriteRoutines(await getRoutineAccess(employee.id))
+        ? null
+        : refusal(node, ROUTINE_SCHEDULE_TRIGGER_REFUSAL);
 
     // The outbound guard in `lib/outboundUrl.ts` is what protects this at run
     // time, and it is the same guard the employee's own `fetch_web_page` and
