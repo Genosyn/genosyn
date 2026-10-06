@@ -276,12 +276,11 @@ liveness on `/healthz`. The whole Connect hostname routes to it and none of it
 reaches the App. On GKE it gets its own BackendConfig with request logging
 off, because callback URLs carry authorization codes.
 
-One replica keeps sign-ins in memory; a restart costs only the sign-ins open
-at that moment. For `connect.replicaCount` above one, add
-`CONNECT_DATABASE_URL` (Postgres) and `CONNECT_SECRET` (32+ characters) to the
-Secret so replicas share sign-in state. Register
-`https://connect.example.com/api/connect/google/callback` and the legacy
-`https://connect.example.com/api/google-sign-in/callback` with Google.
+Connect keeps no state, so `connect.replicaCount` can be anything. Its
+replicas share only `CONNECT_SECRET`, which the chart generates once into a
+`<release>-connect-key` Secret and keeps across upgrades; a `CONNECT_SECRET`
+in `connect.existingSecret` takes precedence. Register
+`https://connect.example.com/api/connect/google/callback` with Google.
 
 `ingress.connect` defaults to an empty object, with effective defaults of
 disabled, empty hostname, and empty TLS Secret name. Existing

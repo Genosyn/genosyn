@@ -369,8 +369,8 @@ export async function startOauthReconnect(args: {
   }
   if (cfg.credentialSource === "hosted") {
     // Renewal is bound to the service that issued the refresh token, so a
-    // reconnect goes back to that same service and protocol, whatever the
-    // installation's current default is.
+    // reconnect goes back to that same service, whatever the installation's
+    // current default is.
     if (!cfg.tokenBrokerUrl) {
       throw new Error("This Connection's sign-in service is unknown. Disconnect it and connect again.");
     }
@@ -384,7 +384,6 @@ export async function startOauthReconnect(args: {
       existingConnectionId: conn.id,
       linkMailbox: !!linkedMailbox,
       tokenBrokerUrl: cfg.tokenBrokerUrl,
-      tokenBrokerPath: cfg.tokenBrokerPath,
       installationOrigin: args.installationOrigin,
     });
   }

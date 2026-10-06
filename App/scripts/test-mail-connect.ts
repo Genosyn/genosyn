@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright-core";
 import { createServer } from "vite";
 import { discoverMailbox } from "../server/services/mail/discovery";
-// The real Genosyn Connect pages, so the installation's popup code is proven
-// against the consent page the service actually serves.
-import { consentPage, messagePage } from "../../Connect/src/pages";
+// The real Genosyn Connect consent page, so the installation's popup code is
+// proven against the page the service actually serves.
+import { consentPage } from "../../Connect/src/pages";
 import { canonicalProtocol } from "../../Connect/src/protocol";
 import express from "express";
 import { integrationsOauthRouter } from "../server/routes/integrationsOauth";
@@ -137,20 +137,12 @@ const server = await createServer({
               state.brokerLaunchVerified,
               "The actual broker page must receive the launch proof from its opener",
             );
+            // Google and the installation's return page are not this test's
+            // subject; the installation's server now holds the outcome.
             state.hostedComplete = true;
             res.setHeader("content-type", "text/html");
-            res.setHeader(
-              "Content-Security-Policy",
-              "default-src 'none'; style-src 'nonce-fixture-style'",
-            );
             res.end(
-              messagePage({
-                title: "Google is connected",
-                detail: "Gmail sign-in is complete. Return to Genosyn.",
-                tone: "ok",
-                styleNonce: "fixture-style",
-                links: { privacy: null, terms: null },
-              }),
+              "<!doctype html><title>Back at the installation</title><p>Fixture: returned.</p>",
             );
             return;
           }
@@ -451,7 +443,7 @@ add("hosted Gmail refuses a sign-in page opened without its installation", async
   await standalone.evaluate(() =>
     window.postMessage(
       {
-        source: "genosyn-google-sign-in-launch",
+        source: "genosyn-sign-in-launch",
         requestId: "b".repeat(43),
         proof: "p".repeat(43),
       },

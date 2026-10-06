@@ -4,9 +4,9 @@
 # The build context is the repo root, like the App and Home images, so the
 # published image can carry the license. Only Connect/ and LICENSE are copied.
 #
-# The image holds no secrets and no state. Configuration is environment
-# variables (see Connect/README.md); sign-in state lives in memory, or in
-# Postgres when CONNECT_DATABASE_URL is set for several replicas.
+# The image holds no secrets, and the service keeps no state: a sign-in's
+# context travels sealed with it. Configuration is environment variables (see
+# Connect/README.md); replicas need only the same CONNECT_SECRET.
 
 # ---------- build ----------
 FROM node:22-alpine AS build

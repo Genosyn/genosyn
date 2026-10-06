@@ -58,16 +58,6 @@ export type ConnectProvider = {
   catalog: readonly ScopeGroup[];
   /** The groups the operator chose to offer. */
   groups: readonly ScopeGroup[];
-  /**
-   * What a client that names no scopes receives. Installations released before
-   * scopes were negotiable only ever asked for Gmail and expect exactly that.
-   */
-  defaultRequest?: {
-    group: string;
-    /** True when the granted scopes are enough for what the old client does. */
-    satisfiedBy(grantedScopes: readonly string[]): boolean;
-    missingMessage: string;
-  };
   authorizeUrl(args: {
     clientId: string;
     redirectUri: string;
@@ -79,7 +69,6 @@ export type ConnectProvider = {
     args: ProviderRegistration & { code: string; codeVerifier: string; redirectUri: string },
   ): Promise<ProviderCredential>;
   refresh(args: ProviderRegistration & { refreshToken: string }): Promise<RefreshedToken>;
-  messages: { cancelled: string; completed: string; failed: string };
 };
 
 /** The scopes an operator's configuration lets an installation ask for. */

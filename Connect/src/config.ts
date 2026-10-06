@@ -16,13 +16,14 @@ export type ConnectConfig = {
   listenHost: string;
   /** The exact origin people see in the address bar; callbacks are built from it. */
   publicUrl: string;
-  /** Encrypts sign-in state at rest. */
+  /**
+   * Seals the context a sign-in carries through the browser. Every replica
+   * must share it, or a sign-in started on one cannot finish on another.
+   */
   secret: string;
-  /** True when no secret was configured and an in-memory store made one unnecessary. */
+  /** True when none was configured and this process made up its own. */
   secretIsEphemeral: boolean;
   trustedProxyHops: number;
-  /** Postgres URL for a store shared by several replicas; null keeps state in memory. */
-  databaseUrl: string | null;
   accessLog: boolean;
   links: { privacy: string | null; terms: string | null };
   google: { clientId: string; clientSecret: string; scopeGroups: string[] } | null;
@@ -106,9 +107,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectConfig 
     );
   }
 
-  const databaseUrl = secretValue("CONNECT_DATABASE_URL") ?? null;
-  if (databaseUrl && !/^postgres(ql)?:\/\//i.test(databaseUrl)) {
-    problems.push("CONNECT_DATABASE_URL must be a postgres:// connection URL.");
+  if (env.CONNECT_DATABASE_URL || env.CONNECT_DATABASE_URL_FILE) {
+    problems.push(
+      "CONNECT_DATABASE_URL is no longer used: Genosyn Connect keeps no state. Remove it; several replicas need only the same CONNECT_SECRET.",
+    );
   }
 
   let secret = secretValue("CONNECT_SECRET");
@@ -116,16 +118,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectConfig 
   if (secret && secret.length < 32) {
     problems.push("CONNECT_SECRET must be at least 32 characters.");
   } else if (!secret) {
-    if (databaseUrl) {
-      problems.push(
-        "CONNECT_SECRET is required with CONNECT_DATABASE_URL, so every replica can read the sign-ins the others started.",
-      );
-    } else {
-      // Sign-in state lives only in this process's memory, so a key that
-      // lives exactly as long as that memory protects it just as well.
-      secret = randomToken(32);
-      secretIsEphemeral = true;
-    }
+    // One process can make up its own key: a sign-in lives ten minutes, and a
+    // restart only means the few open at that moment start again.
+    secret = randomToken(32);
+    secretIsEphemeral = true;
   }
 
   const accessLogValue = env.CONNECT_ACCESS_LOG?.trim().toLowerCase();
@@ -176,7 +172,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectConfig 
     secret: secret!,
     secretIsEphemeral,
     trustedProxyHops,
-    databaseUrl,
     accessLog: accessLogValue !== "false" && accessLogValue !== "0",
     links: { privacy: privacy ?? null, terms: terms ?? null },
     google,

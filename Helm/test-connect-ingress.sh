@@ -118,7 +118,8 @@ try {
   assert.match(routed.deployment, /- name: CONNECT_PRIVACY_URL\n\s+value: "https:\/\/genosyn\.example\/privacy"/);
   assert.match(routed.deployment, /- name: CONNECT_ACCESS_LOG\n\s+value: "false"/);
   assert(!routed.deployment.includes('CONNECT_TERMS_URL'), 'unset links are not rendered');
-  assert.match(routed.deployment, /envFrom:\n\s+- secretRef:\n\s+name: "ci-connect"/);
+  assert.match(routed.deployment, /envFrom:\n\s+- secretRef:\n\s+name: "genosyn-connect-key"\n\s+- secretRef:\n\s+name: "ci-connect"/,
+    'the chart key first, so a CONNECT_SECRET in the operator\'s Secret wins');
   assert(!/CONNECT_GOOGLE_CLIENT_SECRET|CONNECT_SECRET\b|CONNECT_DATABASE_URL/.test(routed.text), 'no secret is rendered');
   assert.match(routed.deployment, /runAsNonRoot: true\n\s+runAsUser: 1000\n\s+runAsGroup: 1000\n\s+readOnlyRootFilesystem: true\n\s+allowPrivilegeEscalation: false/);
   assert.match(routed.deployment, /automountServiceAccountToken: false/);
@@ -151,6 +152,46 @@ try {
   }
   process.stdout.write('ok - Connect settings fail closed with actionable messages\n');
 
+  const keyed = template({ connect: { ...service, publicUrl: 'https://connect.example.com' } }, chart,
+    ['templates/connect-key.yaml']);
+  assert.equal(keyed.status, 0, keyed.stderr);
+  const [key] = documents(keyed.stdout);
+  assert.match(key, /^kind: Secret$/m);
+  assert.match(key, /^  name: genosyn-connect-key$/m);
+  const generated = /^  CONNECT_SECRET: "?([A-Za-z0-9+/=]+)"?$/m.exec(key);
+  assert(generated && Buffer.from(generated[1], 'base64').toString().length >= 32, 'a 32+ character key');
+  assert(!/resource-policy/.test(key), 'losing it costs only the sign-ins in flight');
+  assert.equal(template({}, chart, ['templates/connect-key.yaml']).stdout.trim(), '', 'no key without Connect');
+  // Upgrades keep the key: the template hands lookup's result to this helper.
+  const keyTemplate = fs.readFileSync(path.join(chart, 'templates/connect-key.yaml'), 'utf8');
+  assert(keyTemplate.includes('lookup "v1" "Secret" .Release.Namespace $secretName'));
+  assert.match(keyTemplate, /include "genosyn\.connectKeyData" \(dict "existing" \$existing\)/);
+  const upgradeChart = path.join(scratch, 'key-upgrade');
+  fs.mkdirSync(path.join(upgradeChart, 'templates'), { recursive: true });
+  for (const file of ['Chart.yaml', 'values.yaml', 'templates/_helpers.tpl']) {
+    fs.copyFileSync(path.join(chart, file), path.join(upgradeChart, file));
+  }
+  fs.writeFileSync(path.join(upgradeChart, 'templates/check.yaml'), `apiVersion: v1
+kind: Secret
+metadata:
+  name: fixture-key
+data:
+  {{- include "genosyn.connectKeyData" (dict "existing" .Values.fixtureKey) | nindent 2 }}
+`);
+  const kept = Buffer.from('k'.repeat(48)).toString('base64');
+  for (const [fixtureKey, expected] of [
+    [{ data: { CONNECT_SECRET: kept } }, kept],
+    [{ data: {} }, null],
+    [{}, null],
+  ]) {
+    const result = template({ fixtureKey }, upgradeChart, ['templates/check.yaml']);
+    assert.equal(result.status, 0, result.stderr);
+    const value = /^  CONNECT_SECRET: "?([A-Za-z0-9+/=]+)"?$/m.exec(result.stdout)?.[1];
+    if (expected) assert.equal(value, expected, 'an existing key is kept byte for byte');
+    else assert.equal(Buffer.from(value, 'base64').toString().length, 48, 'a missing key is made again');
+  }
+  process.stdout.write('ok - the chart makes the key Connect replicas share and keeps it across upgrades\n');
+
   const gke = template({ gke: { enabled: true }, ingress: { ...primary, connect }, connect: service }, chart,
     ['templates/gke.yaml', 'templates/connect.yaml']);
   assert.equal(gke.status, 0, gke.stderr);
@@ -171,6 +212,6 @@ try {
   assertAppOnly(render({ ingress: primary }, oldChart));
   assertConnect(render({ ingress: { ...primary, gmailSignIn: connect }, connect: service }, oldChart));
   process.stdout.write('ok - reused chart values without the new blocks remain valid\n');
-  process.stdout.write('10 Connect ingress and workload checks passed\n');
+  process.stdout.write('11 Connect ingress and workload checks passed\n');
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 NODE

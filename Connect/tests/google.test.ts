@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { UpstreamError } from "../src/errors.js";
-import {
-  createGoogleProvider,
-  GOOGLE_SCOPE_GROUPS,
-  hasGmailMailboxScope,
-} from "../src/providers/google.js";
+import { createGoogleProvider, GOOGLE_SCOPE_GROUPS } from "../src/providers/google.js";
 import { offeredScopes } from "../src/providers/types.js";
 import { upstreamJson } from "../src/upstream.js";
 import { fakeGoogle } from "./helpers.js";
 
 const registration = { clientId: "client-id", clientSecret: "client-secret" };
+
+/** The code a failed sign-in reports to the installation, never the upstream's words. */
+function coded(code: string) {
+  return (error: unknown) => {
+    assert.ok(error instanceof UpstreamError);
+    assert.equal(error.code, code);
+    assert.doesNotMatch(error.message, /invalid_grant|internal|Bad Request/);
+    return true;
+  };
+}
 
 function provider(groups = ["gmail"]) {
   const google = fakeGoogle();
@@ -60,17 +66,6 @@ test("only the configured groups are offered", () => {
     "https://www.googleapis.com/auth/calendar",
   ]);
   assert.deepEqual(offeredScopes(provider([]).adapter), []);
-});
-
-test("Gmail mailbox access means modify or full mail scope, never settings or read-only", () => {
-  assert.equal(hasGmailMailboxScope(["https://www.googleapis.com/auth/gmail.modify"]), true);
-  assert.equal(hasGmailMailboxScope(["https://mail.google.com/"]), true);
-  assert.equal(
-    hasGmailMailboxScope(["https://www.googleapis.com/auth/gmail.settings.basic"]),
-    false,
-  );
-  assert.equal(hasGmailMailboxScope(["https://www.googleapis.com/auth/gmail.readonly"]), false);
-  assert.equal(hasGmailMailboxScope([]), false);
 });
 
 test("the authorization URL asks for offline access with PKCE and exactly the requested scopes", () => {
@@ -134,7 +129,7 @@ test("malformed or incomplete token responses never become a credential", async 
   ]) {
     const { google, adapter } = provider();
     google.state.tokenBody = tokenBody;
-    await assert.rejects(exchange(adapter), UpstreamError, JSON.stringify(tokenBody));
+    await assert.rejects(exchange(adapter), coded("exchange_failed"), JSON.stringify(tokenBody));
   }
   const missingRefresh = provider();
   missingRefresh.google.state.tokenBody = {
@@ -142,7 +137,7 @@ test("malformed or incomplete token responses never become a credential", async 
     expires_in: 3600,
     token_type: "bearer",
   };
-  await assert.rejects(exchange(missingRefresh.adapter), /offline access/);
+  await assert.rejects(exchange(missingRefresh.adapter), coded("offline_access_missing"));
   for (const profile of [
     { email: "member@gmail.com", email_verified: false },
     { email: "member@gmail.com" },
@@ -150,11 +145,15 @@ test("malformed or incomplete token responses never become a credential", async 
   ]) {
     const { google, adapter } = provider();
     google.state.profile = profile;
-    await assert.rejects(exchange(adapter), /verified email/);
+    await assert.rejects(exchange(adapter), coded("account_unverified"));
   }
   const profileDown = provider();
   profileDown.google.state.profileStatus = 500;
-  await assert.rejects(exchange(profileDown.adapter), /verified email/);
+  await assert.rejects(exchange(profileDown.adapter), coded("account_unverified"));
+  // A code Google already redeemed, or one that expired on the way back.
+  const reused = provider();
+  await exchange(reused.adapter);
+  await assert.rejects(exchange(reused.adapter), coded("exchange_failed"));
 });
 
 test("renewal reports revocation distinctly and hides every other upstream failure", async () => {
