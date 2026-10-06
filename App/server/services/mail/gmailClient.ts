@@ -10,8 +10,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import {
   buildMimeString,
-  decodeMimeWords,
-  displayNameText,
+  decodeDisplayName,
   toBase64Url,
   type MimeAttachment,
   type MimeFields,
@@ -622,22 +621,18 @@ export function headerValue(headers: GmailHeader[] | undefined, name: string): s
  * `"Ada Lovelace" <ada@acme.com>` → { name: "Ada Lovelace", email: "ada@acme.com" }
  *
  * The name comes back as the text a mail client would show: quotes and
- * backslash escapes removed, RFC 2047 words decoded. Gmail's API has already
- * decoded its headers; an IMAP server has not, and without the decode a sender
- * called Zoë — or a mailbox's own sender name, on the copy filed in Sent —
- * reads `=?UTF-8?B?…?=`. The address is the last angle group, so a name that
- * itself contains a quote or a bracket cannot swallow it. A value that does
- * not end in one is a bare address.
+ * backslash escapes removed, RFC 2047 words decoded. Both mailbox adapters
+ * hand their headers over decoded, but a value read back out of the mirror
+ * may predate that — an IMAP row mirrored before its adapter decoded still
+ * holds `=?UTF-8?B?…?=` — so the name is decoded here as well, which changes
+ * nothing in a name that was never encoded. The address is the last angle
+ * group, so a name that itself contains a quote or a bracket cannot swallow
+ * it. A value that does not end in one is a bare address.
  */
 export function parseAddress(value: string): { name: string; email: string } {
   const trimmed = value.trim();
   const open = trimmed.lastIndexOf("<");
   const email = open >= 0 && trimmed.endsWith(">") ? trimmed.slice(open + 1, -1).trim() : "";
   if (!email) return { name: "", email: trimmed };
-  const name = decodeMimeWords(displayNameText(trimmed.slice(0, open)))
-    // A decoded word can carry anything, a line break included; a name is one line.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\s\u0000-\u001f\u007f]+/g, " ")
-    .trim();
-  return { name, email };
+  return { name: decodeDisplayName(trimmed.slice(0, open)), email };
 }

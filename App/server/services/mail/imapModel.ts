@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import type { GmailHeader, ParsedAttachment } from "./gmailClient.js";
 import { CANONICAL_LABELS, type MailboxLabel, type MailboxMessage } from "./mailbox/types.js";
+import { decodeAddressList, decodeHeaderText } from "./mime.js";
 
 /**
  * The pure half of the IMAP mailbox backend: identifiers, folder/flag
@@ -287,14 +288,23 @@ export type ParsedSource = {
 };
 
 /**
- * Turn one raw header line back into a `{ name, value }` pair.
+ * Turn one raw header line back into a `{ name, value }` pair, decoded the
+ * way Gmail's API decodes the headers it hands over.
  *
  * mailparser hands back the raw lines rather than a parsed map, which is what
- * we want: `headerValue()` downstream expects Gmail's raw header shape, and
+ * we want: `headerValue()` downstream expects Gmail's header shape, and
  * re-deriving values from mailparser's decoded objects would quietly rewrite
  * addresses the mirror is supposed to store verbatim. Continuation lines are
  * unfolded because a folded `References` chain that keeps its newlines would
  * break both threading and the reply builder.
+ *
+ * A raw line is not yet the text a reader sees: a subject or a name outside
+ * ASCII travels as RFC 2047 words, which Gmail decodes before its API answers
+ * and an IMAP server never does. So `Subject` and the address headers are
+ * decoded here — an address list name by name, re-quoted wherever the decoded
+ * name needs it ({@link decodeAddressList}) — and every other header keeps
+ * its bytes. `Message-ID`, `References` and `In-Reply-To` above all: rows and
+ * conversations are keyed on them, so they reach the mirror byte for byte.
  */
 export function headersFromLines(
   lines: Array<{ key: string; line: string }>,
@@ -304,9 +314,21 @@ export function headersFromLines(
     const line = entry.line.replace(/\r?\n[ \t]+/g, " ");
     const colon = line.indexOf(":");
     if (colon <= 0) continue;
-    out.push({ name: line.slice(0, colon).trim(), value: line.slice(colon + 1).trim() });
+    const name = line.slice(0, colon).trim();
+    out.push({ name, value: decodedValue(name, line.slice(colon + 1).trim()) });
   }
   return out;
+}
+
+/** The headers that hold mailboxes, whose display names a reader sees. */
+const ADDRESS_HEADERS = new Set(["from", "sender", "reply-to", "to", "cc", "bcc"]);
+
+/** One header's value as a reader sees it — see {@link headersFromLines}. */
+function decodedValue(name: string, value: string): string {
+  const key = name.toLowerCase();
+  if (key === "subject") return decodeHeaderText(value);
+  if (ADDRESS_HEADERS.has(key)) return decodeAddressList(value);
+  return value;
 }
 
 /** First 220 characters of the body, whitespace collapsed. */

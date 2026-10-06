@@ -128,9 +128,11 @@ export function isRoleAddress(input: string | null | undefined): boolean {
  *
  * Commas inside a quoted display name (`"Bar, Foo" <a@b.com>`) do not
  * separate recipients, which is why this is a small state machine rather
- * than `value.split(",")`. Unparseable entries are reported separately so a
- * caller can surface them instead of quietly mailing fewer people than the
- * user typed.
+ * than `value.split(",")`. A backslash inside the quotes escapes the next
+ * character, so `"Foo \"Q" <a@b.com>` is one quoted name — the way the mail
+ * headers Genosyn writes and mirrors spell a name holding a quote. Unparseable
+ * entries are reported separately so a caller can surface them instead of
+ * quietly mailing fewer people than the user typed.
  */
 export function parseAddressList(input: string | null | undefined): {
   addresses: string[];
@@ -144,7 +146,18 @@ export function parseAddressList(input: string | null | undefined): {
   let current = "";
   let inQuotes = false;
   let inAngles = false;
+  let escaped = false;
   for (const char of input) {
+    if (escaped) {
+      escaped = false;
+      current += char;
+      continue;
+    }
+    if (inQuotes && char === "\\") {
+      escaped = true;
+      current += char;
+      continue;
+    }
     if (char === '"') {
       inQuotes = !inQuotes;
       current += char;
