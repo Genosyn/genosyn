@@ -544,7 +544,7 @@ function CommentRow({
   const when = new Date(comment.createdAt);
 
   return (
-    <div className="flex gap-3">
+    <div className="group flex gap-3">
       <Avatar
         size="sm"
         name={name}
@@ -567,11 +567,14 @@ function CommentRow({
               timeStyle: "short",
             })}
           </span>
+          {/* Revealed on row hover, on keyboard focus, while its delete is in
+            flight (the pointer and focus left the row for the confirm dialog),
+            and always on touch screens, where there is no hover to reveal it. */}
           <button
             onClick={onDelete}
             disabled={deleting}
             aria-busy={deleting || undefined}
-            className="ml-auto rounded p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-600 dark:hover:bg-red-950/30"
+            className="ml-auto rounded p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-600 dark:hover:bg-red-950/30 aria-busy:opacity-100 [@media(hover:none)]:opacity-100"
             title="Delete"
           >
             {deleting ? <ButtonSpinner size={11} /> : <Trash2 size={11} />}
