@@ -104,13 +104,17 @@ function setDeliveryMode(mode: MailDeliveryMode | null) {
   });
 }
 
-async function call(tool: string, body: unknown) {
-  const response = await fetch(`${url}/tools/${tool}`, {
+async function post(path: string, body: unknown) {
+  const response = await fetch(`${url}${path}`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   return { status: response.status, body: (await response.json()) as { error?: string } };
+}
+
+function call(tool: string, body: unknown) {
+  return post(`/tools/${tool}`, body);
 }
 
 async function useMemberAuthority(role: "owner" | "admin" | "member") {
@@ -216,6 +220,19 @@ describe("server enforced mail delivery ceiling", () => {
     for (const name of ["send_invoice", "send_signature_envelope", "remind_signature_recipient"]) {
       assert.equal((await call(name, {})).status, 403, name);
     }
+  });
+
+  test("the ceiling binds every path Express routes to a send or automation tool", async () => {
+    // A Router is case-insensitive and non-strict, so each of these reaches
+    // the registered handler and must meet the ceiling under its real name.
+    for (const path of ["/tools/SEND_MAIL", "/tools/send_mail/", "/TOOLS/Send_Mail/"]) {
+      const result = await post(path, { to: "any@example.com", subject: "new", bodyText: "new" });
+      assert.equal(result.status, 403, `${path}: ${result.body.error}`);
+      assert.match(result.body.error!, /request_mail_review/, path);
+    }
+    const automation = await post("/TOOLS/Schedule_Wakeup/", {});
+    assert.equal(automation.status, 403, automation.body.error);
+    assert.match(automation.body.error!, /separate automation/);
   });
 
   test("a legacy draft token can create only a Decision-stack email review", async () => {
