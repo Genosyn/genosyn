@@ -696,3 +696,33 @@ describe("draft send pacing", () => {
     assert.equal(latest?.estimatedCompletionAt, null);
   });
 });
+
+describe("draft send preview", () => {
+  test("samples a quoted name holding a comma or a quote as one recipient", async () => {
+    const { account, drafts } = await createDrafts(1);
+    drafts[0].toEmails =
+      '"Doe, Zoë" <doe@example.com>, "Åsa \\"Q" <q@example.com>, plain@example.com';
+    drafts[0].ccEmails = '"Lee, Ann" <ann@example.com>';
+    drafts[0].bccEmails = "Bob <bob@example.com>";
+    await AppDataSource.getRepository(MailMessage).save(drafts[0]);
+
+    const preview = await previewDraftSend(account, { ids: [drafts[0].id] });
+    assert.deepEqual(preview.sampleRecipients, [
+      '"Doe, Zoë" <doe@example.com>',
+      '"Åsa \\"Q" <q@example.com>',
+      "plain@example.com",
+      '"Lee, Ann" <ann@example.com>',
+      "Bob <bob@example.com>",
+    ]);
+  });
+
+  test("an unclosed quote in one header does not swallow the next", async () => {
+    const { account, drafts } = await createDrafts(1);
+    drafts[0].toEmails = '"Doe <doe@example.com>';
+    drafts[0].ccEmails = "bob@example.com";
+    await AppDataSource.getRepository(MailMessage).save(drafts[0]);
+
+    const preview = await previewDraftSend(account, { ids: [drafts[0].id] });
+    assert.deepEqual(preview.sampleRecipients, ['"Doe <doe@example.com>', "bob@example.com"]);
+  });
+});
