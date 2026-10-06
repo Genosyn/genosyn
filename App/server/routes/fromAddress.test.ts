@@ -88,6 +88,7 @@ describe("refuses things that are not addresses", () => {
     "a@b.com; c@d.com",
     "Unbalanced <a@b.com",
     "Unbalanced a@b.com>",
+    '"Unclosed <a@b.com>',
     "a..b@example.com",
     "a.@example.com",
     ".a@example.com",

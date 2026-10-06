@@ -622,8 +622,11 @@ in a Work session instead of leaving them stranded as local commits.
   search both read `client/lib/subpages.ts`. Add a new page there, with the
   access it needs so neither the palette nor a rail (which passes its
   `viewer`) offers it to someone who can't open it, rather than as a
-  hand-written rail link. `server/client/subpageRoutes.test.ts` fails on a
-  static route that is neither catalogued nor deliberately left out.
+  hand-written rail link. A page they reach by URL anyway checks its own
+  entry (`canOpenSubpage(subpageAt(path), company)`) and shows a note
+  instead of mounting what could only answer 403.
+  `server/client/subpageRoutes.test.ts` fails on a static route that is
+  neither catalogued nor deliberately left out.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults. **Run

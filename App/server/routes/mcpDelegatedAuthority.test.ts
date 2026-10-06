@@ -701,6 +701,83 @@ describe("workspace channel handles", () => {
   });
 });
 
+describe("workspace DM handles", () => {
+  /**
+   * `dmEmployee` takes a slug or a UUID, the same pair the channel tools take,
+   * and fails the same way: `ai_employees.id` is a uuid column on Postgres, so
+   * a slug reaching the id lookup raises 22P02 and the tool call never answers.
+   * A delegated Member cannot open an AI-to-AI DM at all, so this runs under the
+   * employee's own authority.
+   */
+  test("a slug or an id opens a DM with this company's employee, never another company's", async () => {
+    useEmployeeAuthority();
+    const peer = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Kim",
+      slug: "kim",
+      role: "Research",
+      soulBody: "",
+    });
+    const otherCompany = await insert(Company, {
+      name: "Other Co",
+      slug: "other-co",
+      ownerId: "other-owner",
+    });
+    const theirKim = await insert(AIEmployee, {
+      companyId: otherCompany.id,
+      name: "Kim",
+      slug: "kim",
+      role: "Research",
+      soulBody: "",
+    });
+    await insert(AIEmployee, {
+      companyId: otherCompany.id,
+      name: "Lee",
+      slug: "lee",
+      role: "Research",
+      soulBody: "",
+    });
+
+    const handles = [
+      "kim", // this company's slug, which the other company uses too
+      peer.id,
+      theirKim.id,
+      "lee", // a slug only the other company has
+    ];
+    const { result, nonUuidIds } = await withNonUuidIdLookups(AIEmployee, async () => {
+      const responses = [];
+      for (const dmEmployee of handles) {
+        responses.push(await call("send_workspace_message", { dmEmployee, content: "Shipped" }));
+      }
+      return responses;
+    });
+    assert.deepEqual(
+      result.map((response) => response.status),
+      [200, 200, 404, 404],
+    );
+    assert.deepEqual(nonUuidIds, [], "each of these is a 22P02 on Postgres");
+
+    // The slug and the id reach one DM, and it holds only this pair.
+    const dm = result[0].body.channel as { id: string; kind: string };
+    assert.equal(dm.kind, "dm");
+    assert.deepEqual(result[1].body.channel, dm);
+    assert.equal(await AppDataSource.getRepository(Channel).count(), 1);
+    const participants = await AppDataSource.getRepository(ChannelMember).find();
+    assert.deepEqual(
+      participants.map((row) => row.employeeId).sort(),
+      [employee.id, peer.id].sort(),
+    );
+    // Kim answers each DM in the background, so count only what was sent.
+    const sent = await AppDataSource.getRepository(ChannelMessage).findBy({
+      authorEmployeeId: employee.id,
+    });
+    assert.deepEqual(
+      sent.map((message) => message.channelId),
+      [dm.id, dm.id],
+    );
+  });
+});
+
 describe("browser approval MCP callbacks", () => {
   test("concurrent resume callbacks issue one claim and one durable completion receipt", async () => {
     revokeMcpToken(token);

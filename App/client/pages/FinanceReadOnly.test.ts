@@ -31,7 +31,9 @@ import FinanceVendors from "./FinanceVendors.js";
  * server refuses each change they try (`requireFinanceWrite`). These render
  * the real pages inside the real layout and check that a read-only Member is
  * not offered the controls that could only fail, while everyone who can write
- * gets the page exactly as before.
+ * gets the page exactly as before. AI access asks more than Full access: only
+ * owners and admins may change an AI Employee's finance access, so every other
+ * Member reads that page the way a read-only Member does.
  *
  * Server rendering draws a page as it stands before its data arrives, so this
  * covers what a page shows up front — its create buttons, and the create and
@@ -74,6 +76,20 @@ const WRITERS: [string, Company][] = [
   ["Member with Full access", fullMember],
   ["owner with a None row", { ...owner, financeAccess: "none" }],
   ["admin with a None row", { ...admin, financeAccess: "none" }],
+];
+
+/**
+ * The writers who may also change an AI Employee's finance access, which the
+ * server keeps to owners and admins whatever a Member's Finance access is.
+ */
+const ADMINS = WRITERS.filter(
+  ([, company]) => company.role === "owner" || company.role === "admin",
+);
+
+/** Members who can open Finance, at either level, but not change AI access. */
+const MEMBERS: [string, Company][] = [
+  ["Member with Full access", fullMember],
+  ["Member with read-only access", readOnlyMember],
 ];
 
 /** The Finance routes under test, as `App.tsx` mounts them. */
@@ -197,7 +213,6 @@ describe("Finance for a Member with read-only access", () => {
       ["periods", "Periods & exports", "New period"],
       ["reconcile", "Reconciliation", "New feed"],
       ["card-expenses", "Card expenses", "Connect card feed"],
-      ["ai-access", "AI access", "Add"],
     ];
     for (const [at, title, label] of pages) {
       for (const [who, company] of WRITERS) {
@@ -206,17 +221,6 @@ describe("Finance for a Member with read-only access", () => {
       const html = renderFinance(at, readOnlyMember);
       assert.equal(heading(html), title, `/${at} still renders for a read-only Member`);
       assert.equal(buttons(html).includes(label), false, `/${at} offers no "${label}"`);
-    }
-  });
-
-  test("tells a read-only Member why AI access has no way to grant it", () => {
-    const html = renderFinance("ai-access", readOnlyMember);
-    assert.ok(text(html).includes(READ_ONLY_NOTE));
-    assert.equal(text(html).includes("Grant access to"), false);
-    for (const [who, company] of WRITERS) {
-      const writer = text(renderFinance("ai-access", company));
-      assert.ok(writer.includes("Grant access to"), who);
-      assert.equal(writer.includes(READ_ONLY_NOTE), false, who);
     }
   });
 
@@ -254,11 +258,43 @@ describe("Finance for a Member with read-only access", () => {
 
   test("draws every page the same for each viewer who can write", () => {
     for (const at of ["", ...ROUTES.map(([path]) => path.replace(/:[^/]+/g, "x"))]) {
-      const [[, first], ...rest] = WRITERS;
+      // Only owners and admins can write AI access; a Full Member reads it.
+      const [[, first], ...rest] = at === "ai-access" ? ADMINS : WRITERS;
       const expected = renderFinance(at, first);
       for (const [who, company] of rest) {
         assert.equal(renderFinance(at, company), expected, `${who} at /${at}`);
       }
+    }
+  });
+});
+
+const ADMIN_ONLY_NOTE = "Only owners and admins can change AI employees' finance access";
+
+describe("Finance AI access for a Member who is not an owner or admin", () => {
+  test("shows the grants with a note in place of the way to add one", () => {
+    for (const [who, company] of ADMINS) {
+      const html = renderFinance("ai-access", company);
+      assert.ok(buttons(html).includes("Add"), who);
+      assert.ok(text(html).includes("Grant access to"), who);
+      assert.equal(text(html).includes(ADMIN_ONLY_NOTE), false, who);
+    }
+    for (const [who, company] of MEMBERS) {
+      const html = renderFinance("ai-access", company);
+      assert.equal(heading(html), "AI access", `${who} can still open AI access`);
+      assert.equal(buttons(html).includes("Add"), false, who);
+      assert.equal(text(html).includes("Grant access to"), false, who);
+      assert.ok(text(html).includes(ADMIN_ONLY_NOTE), who);
+      // More Finance access would not let them change it, so the read-only
+      // note's pointer to Settings → Members would send them the wrong way.
+      assert.equal(text(html).includes(READ_ONLY_NOTE), false, who);
+    }
+  });
+
+  test("draws it the same whatever their Finance access", () => {
+    const [[, first], ...rest] = MEMBERS;
+    const expected = renderFinance("ai-access", first);
+    for (const [who, company] of rest) {
+      assert.equal(renderFinance("ai-access", company), expected, who);
     }
   });
 });

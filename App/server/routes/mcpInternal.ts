@@ -277,6 +277,7 @@ import {
   seedBaseFromTemplate,
   uniqueBaseSlug,
   uniqueTableSlug,
+  UUID_RE,
 } from "../services/bases.js";
 import { buildResourceOptionsFor } from "../services/baseResources.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
@@ -8353,8 +8354,6 @@ mcpInternalRouter.post(
 
 // ----- Routines -----
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 type RoutineLookup =
   | { ok: true; routine: Routine; owner: AIEmployee }
   | { ok: false; status: number; error: string };
@@ -12359,16 +12358,7 @@ mcpInternalRouter.post(
           error: "A delegated Member cannot send into a private DM they cannot access.",
         });
       }
-      const empRepo = AppDataSource.getRepository(AIEmployee);
-      const target =
-        (await empRepo.findOneBy({
-          id: body.dmEmployee,
-          companyId: co.id,
-        })) ??
-        (await empRepo.findOneBy({
-          slug: body.dmEmployee.toLowerCase(),
-          companyId: co.id,
-        }));
+      const target = await findEmployeeBySlugOrId(co.id, body.dmEmployee);
       if (!target) {
         return res.status(404).json({ error: "Employee not found" });
       }
@@ -12509,8 +12499,14 @@ async function findEmployeeBySlugOrId(
   idOrSlug: string,
 ): Promise<AIEmployee | null> {
   const repo = AppDataSource.getRepository(AIEmployee);
-  const byId = await repo.findOneBy({ id: idOrSlug, companyId });
-  if (byId) return byId;
+  // `id` is a uuid column: on Postgres a slug like "kim" raises 22P02 rather
+  // than matching nothing, so only a uuid-shaped handle may reach it. The
+  // slug — the form create_handoff asks for, and the usual dmEmployee of
+  // send_workspace_message — goes straight to the fallback.
+  if (UUID_RE.test(idOrSlug)) {
+    const byId = await repo.findOneBy({ id: idOrSlug, companyId });
+    if (byId) return byId;
+  }
   return repo.findOneBy({ companyId, slug: idOrSlug.toLowerCase() });
 }
 

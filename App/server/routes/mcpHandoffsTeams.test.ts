@@ -16,6 +16,7 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { loadGenosynTools } from "../services/agent/tools/genosyn.js";
+import { UUID_RE } from "../services/bases.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
@@ -148,6 +149,37 @@ type Refusal = { error: string; issues?: Issue[] };
 
 const handoffCount = () => AppDataSource.getRepository(Handoff).count();
 
+/**
+ * Every non-uuid `id` that reached an AIEmployee `findOneBy` while `run` ran.
+ *
+ * SQLite cannot reproduce the failure this exists for: Postgres types
+ * `ai_employees.id` as uuid and raises 22P02 when a query compares it to a
+ * slug like "kim" — the tool call fails instead of resolving — while SQLite
+ * just returns no rows. So a slug handoff passing here proves nothing on its
+ * own; the slug must also never reach the id lookup. The same spy pins the
+ * Base row id guards in bases.test.ts.
+ */
+async function withNonUuidEmployeeIdSpy<T>(
+  run: () => Promise<T>,
+): Promise<{ result: T; nonUuidIds: string[] }> {
+  const repo = AppDataSource.getRepository(AIEmployee);
+  const original = repo.findOneBy;
+  const nonUuidIds: string[] = [];
+  const mutable = repo as unknown as { findOneBy: typeof repo.findOneBy };
+  mutable.findOneBy = ((where: Parameters<typeof repo.findOneBy>[0]) => {
+    for (const clause of Array.isArray(where) ? where : [where]) {
+      const id: unknown = clause.id;
+      if (typeof id === "string" && !UUID_RE.test(id)) nonUuidIds.push(id);
+    }
+    return original.call(repo, where);
+  }) as typeof repo.findOneBy;
+  try {
+    return { result: await run(), nonUuidIds };
+  } finally {
+    mutable.findOneBy = original;
+  }
+}
+
 describe("create_handoff", () => {
   test("hands work to a teammate named by slug, and records the trail", async () => {
     const dueAt = new Date(Date.now() + 86_400_000).toISOString();
@@ -181,6 +213,29 @@ describe("create_handoff", () => {
     });
     assert.equal(created.status, 200);
     assert.equal(created.body.handoff.toEmployeeId, lead.id);
+  });
+
+  test("a slug never reaches the uuid id lookup, and every handle stays in the company", async () => {
+    const { result, nonUuidIds } = await withNonUuidEmployeeIdSpy(async () => {
+      const outcomes: Array<[string, number, string | null]> = [];
+      for (const toEmployee of ["kim", "Kim", lead.id, stranger.id, stranger.slug, "nobody"]) {
+        const sent = await tool<{ handoff?: { toEmployeeId: string } }>("create_handoff", {
+          toEmployee,
+          title: "Reconcile the March statements",
+        });
+        outcomes.push([toEmployee, sent.status, sent.body.handoff?.toEmployeeId ?? null]);
+      }
+      return outcomes;
+    });
+    assert.deepEqual(result, [
+      ["kim", 200, kim.id],
+      ["Kim", 200, kim.id],
+      [lead.id, 200, lead.id],
+      [stranger.id, 404, null],
+      [stranger.slug, 404, null],
+      ["nobody", 404, null],
+    ]);
+    assert.deepEqual(nonUuidIds, [], "each of these is a 22P02 on Postgres");
   });
 
   for (const [label, args] of [

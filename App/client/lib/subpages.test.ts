@@ -25,6 +25,7 @@ import {
   pagesLead,
   railSubpages,
   searchSubpages,
+  subpageAt,
 } from "./subpages.js";
 
 const OWNER: SubpageViewer = { role: "owner", financeAccess: "full" };
@@ -339,6 +340,14 @@ describe("subpage visibility", () => {
     );
     assert.ok(visible.some((p) => p.path === "/customers/contracts"));
     assert.ok(visible.some((p) => p.path === "/revenue/deals"));
+  });
+
+  test("finds the entry a page gates itself by, and refuses a path it doesn't list", () => {
+    // A page reached by URL looks itself up here, so a miss must be loud: a
+    // quiet "open to everyone" would bring back the raw 403 for Members.
+    for (const p of ALL_PAGES) assert.equal(subpageAt(p.path), p, p.path);
+    assert.throws(() => subpageAt("/settings/usage/"), /No page is catalogued at \/settings\/usage\//);
+    assert.throws(() => subpageAt("/customers/acme"), /No page is catalogued/);
   });
 
   test("never returns a page the viewer cannot open, for any query", () => {
