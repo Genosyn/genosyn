@@ -9,10 +9,12 @@ import {
   type CustomerStatementResponse,
   formatMoney,
 } from "../lib/api";
+import { effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
+import { CustomersClosed } from "./CustomersLayout";
 
 /**
  * Customer statement — a statement of account for one customer: a
@@ -64,14 +66,28 @@ function presetRange(p: Exclude<Preset, "custom">, now = new Date()): {
 
 export type CustomerStatementSurface = "customers" | "finance";
 
-export default function CustomerStatement({
-  surface = "customers",
-  customerSwitcher,
-}: {
+type CustomerStatementProps = {
   surface?: CustomerStatementSurface;
   customerSwitcher?: React.ReactNode;
-}) {
+};
+
+export default function CustomerStatement(props: CustomerStatementProps) {
   const { company } = useOutletContext<{ company: Company }>();
+  // The statement loads through the finance routes, so with finance access
+  // None it could only answer 403. Finance's layout already closes its copy
+  // of this page; under Customers a shared link still lands here, so the
+  // Customers note stands in and the statement never mounts to ask.
+  if (effectiveFinanceAccess(company) === "none") {
+    return <CustomersClosed companySlug={company.slug} page="customer" />;
+  }
+  return <StatementOfAccount company={company} {...props} />;
+}
+
+function StatementOfAccount({
+  company,
+  surface = "customers",
+  customerSwitcher,
+}: CustomerStatementProps & { company: Company }) {
   const { customerSlug } = useParams();
   const customersUrl = `/c/${company.slug}/customers`;
   const financeUrl = `/c/${company.slug}/finance`;

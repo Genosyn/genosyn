@@ -1,9 +1,11 @@
 import React from "react";
-import { Outlet } from "react-router-dom";
-import { Contact2 } from "lucide-react";
+import { Link, Outlet } from "react-router-dom";
+import { Building2, Contact2, FileSignature } from "lucide-react";
 import { Company } from "../lib/api";
-import { ContextualLayout } from "../components/AppShell";
+import { Breadcrumbs, ContextualLayout } from "../components/AppShell";
 import { SectionRailLinks } from "../components/SectionRail";
+import { buttonClassName } from "../components/ui/Button";
+import { EmptyState } from "../components/ui/EmptyState";
 
 /**
  * Sidebar + layout for `/c/:slug/customers/*`. Customers used to live inside
@@ -40,5 +42,52 @@ export default function CustomersLayout({ company }: { company: Company }) {
     <ContextualLayout sidebar={sidebar}>
       <Outlet context={{ company } satisfies CustomersOutletCtx} />
     </ContextualLayout>
+  );
+}
+
+/**
+ * In place of a Customers page for a Member without finance access. Every
+ * page here but Contracts reads or writes through the finance routes — the
+ * list, a customer's overview, statement, and edit form, and the New customer
+ * form — so each checks that access itself and shows this rather than mount
+ * a load that could only answer 403. Revenue → Accounts lists the same
+ * accounts and Contracts stays open to them, so the note links to both rather
+ * than leaving them at a dead end — on a phone the rail with Contracts in it
+ * is folded away.
+ */
+export function CustomersClosed({
+  companySlug,
+  page,
+}: {
+  companySlug: string;
+  /** The list (and the form that adds to it), or one customer's own pages. */
+  page: "list" | "customer";
+}) {
+  const link = buttonClassName({ variant: "secondary", size: "sm" });
+  return (
+    <div className="page-shell p-4 sm:p-8">
+      <div className="mb-6">
+        <Breadcrumbs items={[{ label: "Customers" }]} />
+      </div>
+      <h1 className="mb-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">Customers</h1>
+      <EmptyState
+        title={
+          page === "list"
+            ? "You don't have access to the customer list"
+            : "You don't have access to this customer's page"
+        }
+        description="Customer pages follow finance access, which owners and admins choose for each Member. Ask one of them to change yours under Settings → Members. Revenue → Accounts lists the same accounts, and Contracts stays open to you."
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link to={`/c/${companySlug}/revenue/accounts`} className={link}>
+              <Building2 size={14} /> Revenue accounts
+            </Link>
+            <Link to={`/c/${companySlug}/customers/contracts`} className={link}>
+              <FileSignature size={14} /> Contracts
+            </Link>
+          </div>
+        }
+      />
+    </div>
   );
 }
