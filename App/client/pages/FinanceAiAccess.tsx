@@ -27,8 +27,6 @@ import {
   FinanceGrantsResponse,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import { canWriteFinance } from "../lib/subpages";
-import { FinanceReadOnlyNote } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -88,9 +86,10 @@ function meta(level: FinanceAccessLevel): LevelMeta {
 
 export default function FinanceAiAccess() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  // A read-only Member sees who holds which level, but not the controls
-  // that grant, change, or revoke it.
-  const canWrite = canWriteFinance(company);
+  // Only owners and admins may grant, change, or revoke an employee's finance
+  // access — the server refuses anyone else, whatever their own Finance
+  // access. Everyone else sees who holds which level, read-only.
+  const canManage = company.role === "owner" || company.role === "admin";
   const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<FinanceGrant[] | null>(null);
   const [candidates, setCandidates] = React.useState<FinanceGrantCandidate[]>([]);
@@ -231,7 +230,7 @@ export default function FinanceAiAccess() {
 
       <div className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         {/* Add a grant */}
-        {canWrite ? (
+        {canManage ? (
           <div className="flex flex-col gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1">
@@ -277,9 +276,9 @@ export default function FinanceAiAccess() {
             <FormError message={addError} />
           </div>
         ) : (
-          <div className="border-b border-slate-100 p-4 dark:border-slate-800">
-            <FinanceReadOnlyNote />
-          </div>
+          <p className="border-b border-slate-100 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            Only owners and admins can change AI employees&apos; finance access.
+          </p>
         )}
 
         {loadError ? (
@@ -294,7 +293,7 @@ export default function FinanceAiAccess() {
             <div className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">
               No AI employees have finance access
             </div>
-            {canWrite && (
+            {canManage && (
               <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400">
                 Add one above. Start with Read only, then promote to Invoicing when you want an
                 employee to bill customers on its own.
@@ -351,7 +350,7 @@ export default function FinanceAiAccess() {
                       <LevelPicker
                         level={grant.accessLevel}
                         align="right"
-                        disabled={!canWrite}
+                        disabled={!canManage}
                         onChange={(level) => changeLevel(grant, level)}
                       />
                       {grant.employee && (
@@ -364,7 +363,7 @@ export default function FinanceAiAccess() {
                           <MessageSquare size={15} />
                         </Link>
                       )}
-                      {canWrite && (
+                      {canManage && (
                         <button
                           onClick={() => revoke(grant)}
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"

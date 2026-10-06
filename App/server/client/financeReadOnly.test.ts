@@ -32,6 +32,7 @@ const ASKS = /\bcanWriteFinance\(company\)/;
  * keeps every read-only Member out.
  */
 const STRICTER: Record<string, RegExp> = {
+  "FinanceAiAccess.tsx": /canManage = company\.role === "owner" \|\| company\.role === "admin"/,
   "FinanceSubsidiaries.tsx": /canManage = company\.role === "owner" \|\| company\.role === "admin"/,
 };
 
