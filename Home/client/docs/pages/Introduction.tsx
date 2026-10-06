@@ -196,6 +196,18 @@ export function Introduction() {
         if you&apos;d rather click.
       </P>
       <P>
+        The palette finds the pages inside each section as well. Type &ldquo;recurring&rdquo; and{" "}
+        <DocLink to="/docs/finance">Finance</DocLink>&apos;s <Strong>Recurring invoices</Strong>{" "}
+        appears under <Strong>Pages</Strong>, beside Routines; &ldquo;members&rdquo; opens Settings →
+        Members, &ldquo;drafts&rdquo; opens your Email drafts, and &ldquo;new invoice&rdquo; opens
+        the invoice form. Each page shows the section it belongs to, and whichever group holds the
+        closest match comes first, so <Code>↵</Code> opens it. Add the section&apos;s name to narrow
+        things down: &ldquo;revenue accounts&rdquo; finds Revenue&apos;s Accounts and not
+        Finance&apos;s Chart of accounts. Pages only appear when you can open them: a Member
+        doesn&apos;t see admin-only pages such as Usage, Single sign-on, or the Audit log, and
+        Finance pages follow the finance access an owner or admin set for you on Settings → Members.
+      </P>
+      <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
         Routines. Pressing <Code>G</Code>
@@ -211,10 +223,10 @@ export function Introduction() {
         the same search interaction.
       </P>
       <P>
-        The palette searches your company&apos;s content too, not just the section list. Type two or
+        The palette searches your company&apos;s content too, not just sections and pages. Type two or
         more characters and matching AI Employees, skills, routines, notebooks, notes, bases,
         channels, projects, todos, customers, charts, dashboards, repositories, and pipelines appear
-        grouped beneath the sections. It matches <em>names</em> — plus a few fields you&apos;d
+        grouped beneath them. It matches <em>names</em> — plus a few fields you&apos;d
         naturally reach for, like a customer&apos;s email, a channel&apos;s topic, or an
         employee&apos;s role — never document bodies. Press <Code>↵</Code> to open a result; a todo
         takes you to its project&apos;s board, ticket number in hand. Results respect what you can

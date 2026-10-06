@@ -1,18 +1,20 @@
 import React from "react";
-import { FileText, Settings2, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Outlet } from "react-router-dom";
 
-import { ContextualLayout, SidebarLink } from "@/components/AppShell";
+import { ContextualLayout } from "@/components/AppShell";
+import { SectionRailLinks } from "@/components/SectionRail";
 import type { Company } from "@/lib/api";
 
 export type TldrsOutletContext = {
   company: Company;
 };
 
-/** Company-wide TLDR feed plus the schedule that produces it. */
+/**
+ * Company-wide TLDR feed plus the schedule that produces it. Rail links come
+ * from the subpage catalogue (`lib/subpages.ts`) the ⌘K palette searches.
+ */
 export default function TldrsLayout({ company }: { company: Company }) {
-  const base = `/c/${company.slug}/tldrs`;
-
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
@@ -21,8 +23,7 @@ export default function TldrsLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SidebarLink to={base} end icon={<FileText size={14} />} label="Briefings" />
-        <SidebarLink to={`${base}/settings`} icon={<Settings2 size={14} />} label="Settings" />
+        <SectionRailLinks section="tldrs" companySlug={company.slug} />
       </nav>
     </div>
   );

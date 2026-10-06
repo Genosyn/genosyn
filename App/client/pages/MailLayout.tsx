@@ -2,7 +2,6 @@ import React from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Archive,
-  Bot,
   ChevronDown,
   FileText,
   Inbox,
@@ -10,9 +9,7 @@ import {
   PenSquare,
   RefreshCw,
   Send,
-  Settings as SettingsIcon,
   ShieldAlert,
-  SlidersHorizontal,
   Star,
   Tag,
   Trash2,
@@ -23,7 +20,8 @@ import { errorMessage } from "../lib/errors";
 import { ComposeInput, MailAccount, MailCounts, MailLabelInfo, mailApi } from "../lib/mail";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
-import { ContextualLayout, SidebarLink } from "../components/AppShell";
+import { ContextualLayout } from "../components/AppShell";
+import { SectionRailLinks } from "../components/SectionRail";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { ConnectMailboxForm } from "../components/mail/ConnectMailbox";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -496,12 +494,11 @@ export default function MailLayout({ company }: { company: Company }) {
             ))}
           </>
         )}
-        <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Automation
-        </div>
-        <SidebarLink to={`${base}/rules`} icon={<SlidersHorizontal size={14} />} label="Rules" />
-        <SidebarLink to={`${base}/handovers`} icon={<Bot size={14} />} label="AI handovers" />
-        <SidebarLink to={`${base}/settings`} icon={<SettingsIcon size={14} />} label="Settings" />
+        {/* Rules, AI handovers and Settings under "Automation", from the
+            subpage catalogue (`lib/subpages.ts`) the ⌘K palette searches. The
+            folders above are drawn here because they carry live counts; the
+            catalogue lists them for the palette too. */}
+        <SectionRailLinks section="mail" companySlug={company.slug} continued />
       </nav>
     </div>
   );

@@ -1,8 +1,9 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { CircleUser, ShieldCheck, User } from "lucide-react";
+import { CircleUser } from "lucide-react";
 import { Company, Me } from "../lib/api";
-import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
+import { Breadcrumbs, ContextualLayout } from "../components/AppShell";
+import { SectionRailLinks } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/account/*`. The Account section holds settings
@@ -10,7 +11,8 @@ import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShe
  * viewing — profile, password, notifications, and security. It mirrors
  * the company Settings section so the two feel consistent, but its pages are
  * deliberately global to the user's account. Child routes read `me` and the
- * refresh callback from Outlet context.
+ * refresh callback from Outlet context. Rail links come from the subpage
+ * catalogue (`lib/subpages.ts`) the ⌘K palette searches.
  */
 
 export type AccountOutletCtx = {
@@ -44,11 +46,7 @@ export default function AccountLayout({
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Your account
-        </div>
-        <SidebarLink to={`${base}/profile`} icon={<User size={14} />} label="Profile" />
-        <SidebarLink to={`${base}/security`} icon={<ShieldCheck size={14} />} label="Security" />
+        <SectionRailLinks section="account" companySlug={company.slug} />
       </nav>
     </div>
   );
