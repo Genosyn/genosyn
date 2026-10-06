@@ -15,18 +15,20 @@ export function useFocusAfterDelete(
   emptyTarget: React.RefObject<HTMLElement>,
 ) {
   const deleteButtons = React.useRef(new Map<string, HTMLButtonElement>());
-  const successors = React.useRef<string[] | null>(null);
+  const deleted = React.useRef<{ id: string; successors: string[] } | null>(null);
 
-  // `rows` changing is the commit that took the deleted row off the page.
+  // Waits for the commit that actually takes the row off the page: a live
+  // refetch that left before the delete landed still lists it.
   React.useLayoutEffect(() => {
-    const candidates = successors.current;
-    if (!candidates) return;
-    successors.current = null;
+    const row = deleted.current;
+    if (!row || !rows || rows.some((r) => r.id === row.id)) return;
+    deleted.current = null;
     // Wherever the person went while the delete ran, they stay.
     const active = document.activeElement;
     if (active && active !== document.body) return;
     const target =
-      candidates.map((id) => deleteButtons.current.get(id)).find(Boolean) ?? emptyTarget.current;
+      row.successors.map((id) => deleteButtons.current.get(id)).find(Boolean) ??
+      emptyTarget.current;
     target?.focus();
   }, [rows, emptyTarget]);
 
@@ -42,9 +44,12 @@ export function useFocusAfterDelete(
       if (document.activeElement !== deleteButtons.current.get(id)) return;
       const ids = rows?.map((row) => row.id) ?? [];
       const index = ids.indexOf(id);
-      successors.current = [ids[index + 1], ids[index - 1]].filter(
-        (candidate): candidate is string => candidate !== undefined,
-      );
+      deleted.current = {
+        id,
+        successors: [ids[index + 1], ids[index - 1]].filter(
+          (candidate): candidate is string => candidate !== undefined,
+        ),
+      };
     },
   };
 }
