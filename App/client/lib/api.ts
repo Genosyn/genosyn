@@ -2701,6 +2701,23 @@ export type ResourceGrantCandidate = ResourceGrantEmployee & {
   alreadyGranted: boolean;
 };
 
+/**
+ * Resources → AI access: whether an AI Employee may write to the library at
+ * all. `write` (read + write) is the default and leaves each Resource's Share
+ * settings in charge; `read` (read only) refuses every write whatever they say.
+ * See `EmployeeResourceLibraryGrant` on the server.
+ */
+export type ResourceLibraryAccessLevel = "read" | "write";
+
+export type ResourceLibraryAccessRow = {
+  employee: ResourceGrantEmployee;
+  accessLevel: ResourceLibraryAccessLevel;
+  /** True when nobody has set this employee's access, so the default applies. */
+  isDefault: boolean;
+};
+
+export type ResourceLibraryAccessResponse = { rows: ResourceLibraryAccessRow[] };
+
 // ───────────────────────── Repositories ────────────────────────────
 
 export type RepositoryAuthMode = "none" | "https" | "ssh";

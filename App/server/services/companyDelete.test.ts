@@ -15,6 +15,7 @@ import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplicat
 import { CustomerCreditLine } from "../db/entities/CustomerCreditLine.js";
 import { CustomerRefund } from "../db/entities/CustomerRefund.js";
 import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js";
+import { EmployeeResourceLibraryGrant } from "../db/entities/EmployeeResourceLibraryGrant.js";
 import { FinanceProposal } from "../db/entities/FinanceProposal.js";
 import { ExternalChatIdentity } from "../db/entities/ExternalChatIdentity.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
@@ -52,6 +53,7 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   CustomerCreditApplication,
   CustomerRefund,
   EmployeeMarketingGrant,
+  EmployeeResourceLibraryGrant,
   ExternalChatIdentity,
   FinanceProposal,
   InvoiceWriteOff,

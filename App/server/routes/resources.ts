@@ -10,8 +10,17 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import { EmployeeResourceGrant } from "../db/entities/EmployeeResourceGrant.js";
 import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
-import { validateBody, validateQuery } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  RESOURCE_LIBRARY_ACCESS_LEVELS,
+  type ResourceLibraryAccessLevel,
+} from "../db/entities/EmployeeResourceLibraryGrant.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
+import {
+  onRoutePaths,
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+} from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -34,6 +43,12 @@ import {
   upsertResourceGrant,
 } from "../services/resources.js";
 import { resourceFileHeaders } from "../services/resourceFiles.js";
+import {
+  ResourceLibraryAccessNotFoundError,
+  getResourceLibraryAccessRow,
+  listResourceLibraryAccess,
+  setResourceLibraryAccess,
+} from "../services/resourceLibraryAccess.js";
 import { EXPORT_FORMATS, exportResource, isExportFormat } from "../services/resourceExport.js";
 import { Tag } from "../db/entities/Tag.js";
 import {
@@ -52,11 +67,22 @@ import {
  * tool surface (`list_resources` / `search_resources` / `get_resource`
  * for reading; `create_resource` / `update_resource` / `delete_resource`
  * for curating). The AI surface uses three escalating grants:
- * `read` < `edit` < `delete`. Humans bypass the grant table.
+ * `read` < `edit` < `delete`, capped library-wide by Resources → AI access
+ * (`read` < `write`). Humans bypass both grant tables.
  */
 export const resourcesRouter = Router({ mergeParams: true });
 resourcesRouter.use(requireAuth);
 resourcesRouter.use(requireCompanyMember);
+/**
+ * Changing which AI Employees may write to the library is an owner/admin act;
+ * reading the list is not, so every Member can see what has been delegated.
+ * Scoped with `onRoutePaths` because this router is mounted at
+ * `/api/companies/:cid` beside others — an unscoped `.use()` guard would make
+ * every route after it admin-only. See `middleware/auth.ts`.
+ */
+resourcesRouter.use(
+  onRoutePaths(["/resources/ai-access"], requireCompanyRoleForMutations("admin")),
+);
 
 /** The one query parameter this router reads. It was read raw until M62,
  *  which §12 names as a rejection cause on its own. */
@@ -207,6 +233,79 @@ resourcesRouter.get("/resources/search", validateQuery(searchQuerySchema), async
     broadened: found.broadened,
   });
 });
+
+// ----- AI ACCESS -----
+//
+// Resources → AI access: whether each AI Employee may write to the library at
+// all (read < write; no row means write). It is a ceiling over the per-Resource
+// Share settings further down this file, enforced at the MCP seam — see
+// `services/resourceLibraryAccess.ts`. Registered before `/resources/:slug`,
+// which would otherwise answer `GET /resources/ai-access` as a Resource lookup.
+
+const aiAccessListParamsSchema = z.object({ cid: z.string().uuid() }).strict();
+const aiAccessEmployeeParamsSchema = z
+  .object({ cid: z.string().uuid(), employeeId: z.string().uuid() })
+  .strict();
+const aiAccessBodySchema = z
+  .object({
+    accessLevel: z.enum(
+      RESOURCE_LIBRARY_ACCESS_LEVELS as [ResourceLibraryAccessLevel, ...ResourceLibraryAccessLevel[]],
+    ),
+  })
+  .strict();
+
+resourcesRouter.get(
+  "/resources/ai-access",
+  validateParams(aiAccessListParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { cid } = req.params as z.infer<typeof aiAccessListParamsSchema>;
+      res.json({ rows: await listResourceLibraryAccess(cid) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * PUT because the caller states the level an employee should hold; every
+ * employee already holds one, so there is nothing to create or revoke.
+ * Audited only when the level actually moves.
+ */
+resourcesRouter.put(
+  "/resources/ai-access/:employeeId",
+  validateParams(aiAccessEmployeeParamsSchema),
+  validateBody(aiAccessBodySchema),
+  async (req, res, next) => {
+    try {
+      const { cid, employeeId } = req.params as z.infer<typeof aiAccessEmployeeParamsSchema>;
+      const body = req.body as z.infer<typeof aiAccessBodySchema>;
+      let change;
+      try {
+        change = await setResourceLibraryAccess(cid, employeeId, body.accessLevel);
+      } catch (err) {
+        if (err instanceof ResourceLibraryAccessNotFoundError) {
+          return res.status(404).json({ error: "Employee not found" });
+        }
+        throw err;
+      }
+      if (change.changed) {
+        await recordAudit({
+          companyId: cid,
+          actorUserId: req.userId ?? null,
+          action: "resource.ai_access.update",
+          targetType: "employee",
+          targetId: change.employee.id,
+          targetLabel: change.employee.name,
+          metadata: { accessLevel: change.accessLevel, previousAccessLevel: change.previous },
+        });
+      }
+      res.json({ row: await getResourceLibraryAccessRow(cid, change.employee.id) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ----- CREATE: URL or paste -----
 

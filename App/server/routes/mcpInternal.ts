@@ -377,6 +377,11 @@ import {
   writeResourceBytes,
 } from "../services/resources.js";
 import {
+  RESOURCE_READ_ONLY_ERROR,
+  canWriteResourceLibrary,
+  getResourceLibraryAccess,
+} from "../services/resourceLibraryAccess.js";
+import {
   SigningConflictError,
   SigningNotFoundError,
   SigningValidationError,
@@ -14965,6 +14970,35 @@ mcpInternalRouter.post(
   },
 );
 
+/**
+ * Resource writes answer to two locks, checked in this order.
+ *
+ * 1. The library ceiling, Resources → AI access (`EmployeeResourceLibraryGrant`):
+ *    an owner or admin may set an employee to read only, and then no write
+ *    tool succeeds. Checked first, before any lookup, fetch, or byte reaches
+ *    disk — `create_resource` would otherwise fetch a URL or file an upload
+ *    before discovering it may not keep the result.
+ * 2. The per-Resource Grant (`EmployeeResourceGrant`, the Share settings):
+ *    `edit` for `update_resource`, `delete` for `delete_resource`. Creating
+ *    needs none — the author is granted `delete` on its own row.
+ *
+ * The ceiling applies whatever the authority behind the call: a Member driving
+ * a chat turn cannot lend a read-only employee write access it was denied,
+ * just as a Member's own Finance access cannot raise an employee's Finance
+ * Grant. Reads (`list_resources`, `search_resources`, `get_resource`,
+ * `export_resource`) never consult it.
+ *
+ * Writes the 403 itself and returns false, like `requireFinance`.
+ */
+async function requireResourceWrite(req: McpRequest, res: Response): Promise<boolean> {
+  const level = await getResourceLibraryAccess(req.mcpEmployee!.id);
+  if (!canWriteResourceLibrary(level)) {
+    res.status(403).json({ error: RESOURCE_READ_ONLY_ERROR });
+    return false;
+  }
+  return true;
+}
+
 const createResourceSchema = z
   .object({
     sourceKind: z.enum(["text", "url", "file"]),
@@ -14985,6 +15019,7 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof createResourceSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
+    if (!(await requireResourceWrite(req, res))) return;
 
     let title = body.title?.trim() ?? "";
     let bodyText = "";
@@ -15176,6 +15211,7 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof updateResourceSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
+    if (!(await requireResourceWrite(req, res))) return;
     const repo = AppDataSource.getRepository(Resource);
     const row = await repo.findOneBy({
       companyId: co.id,
@@ -15243,6 +15279,7 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof deleteResourceSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
+    if (!(await requireResourceWrite(req, res))) return;
     const repo = AppDataSource.getRepository(Resource);
     const row = await repo.findOneBy({
       companyId: co.id,

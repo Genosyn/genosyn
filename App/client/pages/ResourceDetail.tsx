@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import ePub from "epubjs";
@@ -44,8 +44,11 @@ import {
   ResourceGrant,
   ResourceGrantCandidate,
   ResourceGrantsResponse,
+  ResourceLibraryAccessLevel,
+  ResourceLibraryAccessResponse,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { isShareGrantPaused, resourceLibraryLevelsById } from "../lib/resourceAiAccess";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -971,6 +974,11 @@ function ShareModal({
   const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<ResourceGrant[]>([]);
   const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>([]);
+  // Resources → AI access, so a level this employee cannot use right now can
+  // say so. Advisory only: if it fails to load, the modal works as before.
+  const [libraryLevels, setLibraryLevels] = React.useState<
+    Map<string, ResourceLibraryAccessLevel>
+  >(() => new Map());
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -978,16 +986,20 @@ function ShareModal({
     if (!open) return;
     setError(null);
     try {
-      const [g, cs] = await Promise.all([
+      const [g, cs, access] = await Promise.all([
         api.get<ResourceGrantsResponse>(
           `/api/companies/${company.id}/resources/${resource.slug}/grants`,
         ),
         api.get<ResourceGrantCandidate[]>(
           `/api/companies/${company.id}/resources/${resource.slug}/grant-candidates`,
         ),
+        api
+          .get<ResourceLibraryAccessResponse>(`/api/companies/${company.id}/resources/ai-access`)
+          .catch(() => null),
       ]);
       setGrants(g.direct);
       setCandidates(cs);
+      if (access) setLibraryLevels(resourceLibraryLevelsById(access.rows));
     } catch (err) {
       setError(errorMessage(err, "Could not load who has access"));
     }
@@ -1068,7 +1080,14 @@ function ShareModal({
           <span className="font-medium">View only</span> reads it,{" "}
           <span className="font-medium">Can edit</span> also modifies it,{" "}
           <span className="font-medium">Can delete</span> can also remove it. Authors keep full
-          control of the rows they create.
+          control of the rows they create. An employee set to Read only under{" "}
+          <Link
+            to={`/c/${company.slug}/resources/ai-access`}
+            className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            AI access
+          </Link>{" "}
+          can only view, whatever its level here.
         </p>
         <FormError message={error} />
         <div>
@@ -1091,6 +1110,11 @@ function ShareModal({
                     <div className="ml-[18px] truncate text-xs text-slate-500 dark:text-slate-400">
                       {g.employee?.role ?? ""}
                     </div>
+                    {isShareGrantPaused(libraryLevels.get(g.employeeId), g.accessLevel) && (
+                      <div className="ml-[18px] mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        Paused &mdash; Read only under AI access
+                      </div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <AccessLevelMenu
@@ -1133,6 +1157,11 @@ function ShareModal({
                     <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                       {c.role}
                     </div>
+                    {libraryLevels.get(c.id) === "read" && (
+                      <div className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        Read only under AI access
+                      </div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button

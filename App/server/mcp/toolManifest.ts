@@ -3048,7 +3048,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_resource",
     description:
-      "Add a new Resource that the team can study. Three sources. `sourceKind: 'url'` with `url` fetches and extracts a page. `sourceKind: 'text'` with `title` and `body` (markdown) files a paste — a transcript, a primer, a research summary. `sourceKind: 'file'` with `attachmentId` files an actual file: a PDF, EPUB, Word document, or text file that a teammate uploaded, that arrived on an email (open it with `read_mail_attachment`), that you downloaded with `download_web_file`, or that you produced this turn with `convert_to_pdf` / `create_docx`. Filing a PDF this way is what a signing request needs — `draft_signature_envelope` takes a PDF Resource and nothing else, so the whole errand is `read_mail_attachment` → `convert_to_pdf` → `create_resource` → `draft_signature_envelope`, and no human has to re-upload anything. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. Video files still need a human — file the transcript as text instead.",
+      "Add a new Resource that the team can study. Three sources. `sourceKind: 'url'` with `url` fetches and extracts a page. `sourceKind: 'text'` with `title` and `body` (markdown) files a paste — a transcript, a primer, a research summary. `sourceKind: 'file'` with `attachmentId` files an actual file: a PDF, EPUB, Word document, or text file that a teammate uploaded, that arrived on an email (open it with `read_mail_attachment`), that you downloaded with `download_web_file`, or that you produced this turn with `convert_to_pdf` / `create_docx`. Filing a PDF this way is what a signing request needs — `draft_signature_envelope` takes a PDF Resource and nothing else, so the whole errand is `read_mail_attachment` → `convert_to_pdf` → `create_resource` → `draft_signature_envelope`, and no human has to re-upload anything. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. Video files still need a human — file the transcript as text instead. Refused when an owner or admin has set your Resources access to read only (Resources → AI access).",
     inputSchema: {
       type: "object",
       properties: {
@@ -3098,7 +3098,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_resource",
     description:
-      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete.",
+      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete. If an owner or admin has set your Resources access to read only (Resources → AI access), every update is refused whatever the share modal says.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3119,7 +3119,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "delete_resource",
     description:
-      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `delete` access — strictly more than `edit`. Rows you created via `create_resource` already have it; for other rows, ask a human to promote you. There is no undo, so prefer `update_resource` to correct a mistake when possible.",
+      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `delete` access — strictly more than `edit`. Rows you created via `create_resource` already have it; for other rows, ask a human to promote you. Refused for every Resource when your Resources access is read only (Resources → AI access). There is no undo, so prefer `update_resource` to correct a mistake when possible.",
     inputSchema: {
       type: "object",
       properties: {
