@@ -1,11 +1,13 @@
 import nodemailer from "nodemailer";
 import { config } from "../../config.js";
+import { parseAddressList } from "../lib/emailAddress.js";
 import { assertPublicOutboundHost } from "../lib/outboundUrl.js";
 import type { EmailProviderKind } from "../db/entities/EmailProvider.js";
 import {
   formatGlobalSmtpSender,
   getEffectiveGlobalSmtp,
 } from "./globalEmailTransport.js";
+import { splitAddressList } from "./mail/mime.js";
 
 /**
  * Transport adapters for every supported email provider kind. Each adapter
@@ -555,12 +557,12 @@ async function sendSendGrid(
   msg: EmailMessage,
 ): Promise<EmailSendResult> {
   const { name, email } = parseAddress(msg.fromAddress);
-  const to = splitAddressList(msg.to).map((address) => ({
-    email: parseAddress(address).email,
-  }));
-  const cc = splitAddressList(msg.cc ?? "").map((address) => ({
-    email: parseAddress(address).email,
-  }));
+  const to = sendGridRecipients("To", msg.to);
+  // SendGrid refuses an address named in both To and Cc. Whoever is already
+  // in To still receives the message.
+  const cc = sendGridRecipients("Cc", msg.cc).filter(
+    (recipient) => !to.some((toRecipient) => toRecipient.email === recipient.email),
+  );
   const body: Record<string, unknown> = {
     personalizations: [{ to, ...(cc.length > 0 ? { cc } : {}) }],
     from: name ? { email, name } : { email },
@@ -679,6 +681,9 @@ async function sendResend(
 ): Promise<EmailSendResult> {
   const body: Record<string, unknown> = {
     from: msg.fromAddress,
+    // One string per recipient, as written: Resend reads `Name <address>`
+    // itself, so a name still shows beside its address. Not a plain split on
+    // commas — a quoted name such as `"Doe, Zoë"` holds one.
     to: splitAddressList(msg.to),
     subject: msg.subject,
     text: msg.text,
@@ -829,9 +834,21 @@ export function parseAddress(addr: string): { name: string; email: string } {
   return { name: "", email: trimmed };
 }
 
-function splitAddressList(value: string): string[] {
-  return value
-    .split(",")
-    .map((address) => address.trim())
-    .filter(Boolean);
+/**
+ * The `{ email }` objects SendGrid's personalizations take for a To or Cc list.
+ *
+ * SendGrid wants a bare address there (a name has its own field, which these
+ * sends have never filled) and refuses a personalization that names the same
+ * address twice, so the list is read by `parseAddressList`: a quoted name
+ * holding a comma stays one recipient, each address is lowercased, and a
+ * repeat is dropped. An entry that does not read as an address fails the send
+ * rather than being left out, so nobody the message was addressed to is
+ * quietly skipped.
+ */
+function sendGridRecipients(label: "To" | "Cc", value: string | undefined): { email: string }[] {
+  const { addresses, invalid } = parseAddressList(value);
+  if (invalid.length > 0) {
+    throw new Error(`${label} contains an invalid email address: ${invalid[0]}`);
+  }
+  return addresses.map((email) => ({ email }));
 }

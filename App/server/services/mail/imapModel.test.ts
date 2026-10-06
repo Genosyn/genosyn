@@ -328,6 +328,14 @@ describe("labelCatalog", () => {
 
 // ───────────────────────────── parsing ─────────────────────────────
 
+/**
+ * A header line as mailparser hands it over when `text` was sent as raw UTF-8:
+ * one character per byte, so `Zoë` is `ZoÃ«`.
+ */
+function rawUtf8(text: string): string {
+  return Buffer.from(text, "utf8").toString("latin1");
+}
+
 describe("headersFromLines", () => {
   test("unfolds a continuation line", () => {
     // A folded References chain that kept its newline would break threading
@@ -388,15 +396,42 @@ describe("headersFromLines", () => {
     });
   });
 
+  test("reads a subject and names sent as raw UTF-8 as UTF-8", () => {
+    // RFC 6532 lets a header carry UTF-8 as itself, and plenty of senders do.
+    // The bytes are read before the encoded words, so a name holding both
+    // reads whole, and a quoted name keeps the quotes that make it one
+    // recipient.
+    const headers = headersFromLines([
+      { key: "subject", line: rawUtf8("Subject: Café =?UTF-8?Q?=E2=80=94_devis?=") },
+      { key: "from", line: rawUtf8("From: Zoë =?UTF-8?Q?=C3=96degaard?= <zoe@x.com>") },
+      { key: "cc", line: rawUtf8('Cc: "Doe, Zoë" <doe@x.com>, Ådne <adne@x.com>') },
+    ]);
+    assert.equal(headerOf(headers, "Subject"), "Café — devis");
+    assert.equal(headerOf(headers, "From"), "Zoë Ödegaard <zoe@x.com>");
+    assert.equal(headerOf(headers, "Cc"), '"Doe, Zoë" <doe@x.com>, Ådne <adne@x.com>');
+  });
+
+  test("leaves a value holding a character above U+00FF as it is", () => {
+    // Such a value has been read already and is not bytes. Turned back into
+    // bytes it would lose that character: `✓` would become a control code.
+    const headers = headersFromLines([{ key: "subject", line: "Subject: Ã©tat ✓" }]);
+    assert.equal(headerOf(headers, "Subject"), "Ã©tat ✓");
+  });
+
   test("leaves every header a reader does not see byte for byte", () => {
     // Rows are keyed on Message-ID and conversations on References and
     // In-Reply-To, so those reach the mirror exactly as sent — even when they
-    // hold something shaped like an encoded word.
+    // hold something shaped like an encoded word, or raw UTF-8 that, read
+    // anew, would give a message already mirrored a second row.
     const lines = [
       { key: "message-id", line: "Message-ID: <=?utf-8?q?a?=@x.com>" },
       { key: "references", line: "References: <=?utf-8?q?root?=@x.com> <b@x.com>" },
       { key: "in-reply-to", line: "In-Reply-To: <=?utf-8?q?b?=@x.com>" },
       { key: "list-id", line: "List-Id: =?UTF-8?Q?Caf=C3=A9?= <cafe.lists.x.com>" },
+      { key: "message-id", line: rawUtf8("Message-ID: <zoë@x.com>") },
+      { key: "references", line: rawUtf8("References: <café@x.com> <zoë@x.com>") },
+      { key: "in-reply-to", line: rawUtf8("In-Reply-To: <café@x.com>") },
+      { key: "list-id", line: rawUtf8("List-Id: Café <cafe.lists.x.com>") },
     ];
     assert.deepEqual(
       headersFromLines(lines).map((h) => h.value),
@@ -592,5 +627,62 @@ describe("mailboxMessageFrom", () => {
     });
     assert.equal(headerValue(message.headers, "Subject"), "Café — devis");
     assert.equal(headerValue(message.headers, "To"), "Zoë Ödegaard <zoe@x.com>");
+  });
+
+  test("reads a subject and recipients sent as raw UTF-8, as Gmail's API does", async () => {
+    // mailparser hands each header line over one character per byte, so these
+    // used to reach the mirror as `CafÃ© raw` and `ZoÃ« <zoe@x.com>`.
+    const raw =
+      "From: a@x.com\r\nTo: Zoë <zoe@x.com>\r\nSubject: Café raw\r\nMessage-ID: <m@x>\r\n\r\nhi\r\n";
+    const message = mailboxMessageFrom({
+      parsed: await parseSource(Buffer.from(raw, "utf8")),
+      folder: INBOX,
+      flags: [],
+      location,
+      hasBodies: true,
+    });
+    assert.equal(headerValue(message.headers, "Subject"), "Café raw");
+    assert.equal(headerValue(message.headers, "To"), "Zoë <zoe@x.com>");
+  });
+
+  test("keeps header bytes that are not UTF-8 as they came", async () => {
+    // Some legacy 8-bit charset the headers do not name — ISO-8859-1 here,
+    // which reads right one character per byte. Nothing is guessed at and
+    // nothing turns into U+FFFD.
+    const raw =
+      "From: Ren\xe9 <rene@x.com>\r\nTo: a@x.com\r\nSubject: Caf\xe9 latin1\r\nMessage-ID: <l@x>\r\n\r\nhi\r\n";
+    const message = mailboxMessageFrom({
+      parsed: await parseSource(Buffer.from(raw, "latin1")),
+      folder: INBOX,
+      flags: [],
+      location,
+      hasBodies: true,
+    });
+    assert.equal(headerValue(message.headers, "Subject"), "Caf\xe9 latin1");
+    assert.equal(headerValue(message.headers, "From"), "Ren\xe9 <rene@x.com>");
+  });
+
+  test("keeps the refs a message with a raw UTF-8 Message-ID was mirrored under", async () => {
+    // Its row and its conversation are keyed on hashes of these headers as
+    // they came, and its next import must find that row, not add a second.
+    const raw =
+      "From: a@x.com\r\nSubject: Café\r\nMessage-ID: <zoë@x.com>\r\nReferences: <café@x.com>\r\n\r\nhi\r\n";
+    const message = mailboxMessageFrom({
+      parsed: await parseSource(Buffer.from(raw, "utf8")),
+      folder: INBOX,
+      flags: [],
+      location,
+      hasBodies: true,
+    });
+    assert.equal(headerValue(message.headers, "Subject"), "Café");
+    assert.equal(message.ref, messageRefFor({ messageId: rawUtf8("<zoë@x.com>"), location }));
+    assert.equal(
+      message.threadRef,
+      threadRefFor({
+        messageId: rawUtf8("<zoë@x.com>"),
+        references: rawUtf8("<café@x.com>"),
+        inReplyTo: "",
+      }),
+    );
   });
 });

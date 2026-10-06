@@ -9,6 +9,7 @@ import { User } from "../../db/entities/User.js";
 import { recordAudit } from "../audit.js";
 import { discardMailDraft, notifyMailChanged } from "./actions.js";
 import { activeDraftQueueIds } from "./draftSendQueue.js";
+import { splitAddressList } from "./mime.js";
 import { applyMailScope } from "./searchQuery.js";
 
 /**
@@ -557,12 +558,16 @@ export type DraftSendPreview = {
   truncated: boolean;
 };
 
-/** Split a comma-joined header into individual addresses. */
-function addressesOf(toEmails: string): string[] {
-  return toEmails
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+/**
+ * Split recipient headers into one entry per recipient, each as written. Not
+ * normalized: `parseAddressList` drops what it cannot read, and a sample that
+ * exists to show who gets mail must not hide anyone. Not a plain split on
+ * commas either — a quoted name such as `"Doe, Zoë"` holds one — and each
+ * header is split on its own so an unclosed quote in one cannot swallow the
+ * next.
+ */
+function addressesOf(...headers: string[]): string[] {
+  return headers.flatMap((header) => splitAddressList(header));
 }
 
 /**
@@ -608,9 +613,7 @@ export async function previewDraftSend(
 
     // Cc and Bcc receive the mail just as much as To does — sampling only To
     // would under-state the blast radius on exactly the sends where it matters.
-    for (const address of addressesOf(
-      [row.toEmails, row.ccEmails, row.bccEmails].filter(Boolean).join(","),
-    )) {
+    for (const address of addressesOf(row.toEmails, row.ccEmails, row.bccEmails)) {
       const key = address.toLowerCase();
       if (seenRecipient.has(key)) continue;
       seenRecipient.add(key);

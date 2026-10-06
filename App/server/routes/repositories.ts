@@ -63,12 +63,24 @@ import { config } from "../../config.js";
  * the client in plaintext.
  */
 export const repositoriesRouter = Router({ mergeParams: true });
+
+/**
+ * The record paths this router serves, and the only ones its admin gate may
+ * cover. This router is mounted ahead of `repositoryContentRouter`, so a gate
+ * on the string `"/repositories"`, which matches everything below it, would
+ * also refuse the file, commit, and AI work-session routes that router opens
+ * to every Member. A record route added below must also be added here.
+ */
+const RECORD_PATHS = [
+  /^\/repositories$/,
+  /^\/repositories\/[^/]+$/,
+  /^\/repositories\/[^/]+\/(?:grants|grant-candidates|test)(?:\/|$)/,
+];
+
 repositoriesRouter.use(requireAuth);
 repositoriesRouter.use(requireCompanyMember);
 repositoriesRouter.use(onRoutePaths(["/repositories"], requireBrowserSession));
-repositoriesRouter.use(
-  onRoutePaths(["/repositories"], requireCompanyRoleForMutations("admin")),
-);
+repositoriesRouter.use(onRoutePaths(RECORD_PATHS, requireCompanyRoleForMutations("admin")));
 repositoriesRouter.use(
   onRoutePaths(["/repositories"], (req, res, next) => {
     if (

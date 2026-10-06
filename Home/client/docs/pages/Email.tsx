@@ -38,6 +38,9 @@ export function Email() {
         Open <Strong>Email</Strong> and type the address. That is the whole first step — Genosyn
         works out the sign-in method from the domain. Gmail and Google Workspace use Google sign-in.
         Other supported mailboxes use a password, with server settings filled in for you.
+        Only an owner or admin can connect or disconnect a mailbox, because its credential and its
+        AI access serve the whole company. Once it is connected, any member can read and answer its
+        mail.
       </P>
       <OL>
         <LI>
@@ -132,6 +135,14 @@ export function Email() {
         connected by any mail client, Genosyn included; the connect dialog says so rather than
         letting you fail at a password prompt.
       </P>
+      <Callout kind="info" title="Subjects and names in any language.">
+        A subject or a name outside plain ASCII reaches an IMAP server encoded. Genosyn shows,
+        searches and hands AI Employees the decoded text, the way Gmail does. Mail that an earlier
+        version of Genosyn mirrored from an IMAP mailbox is decoded in place over the next few
+        syncs, with nothing downloaded again. A pending email or work review on one of those
+        conversations expires once and has to be prepared again, while a reply already sent or
+        discarded, or work already approved or declined, stays handled.
+      </Callout>
 
       <H3 id="folders-labels">Folders and labels</H3>
       <P>
@@ -448,7 +459,9 @@ export function Email() {
         when you want a particular voice on your replies, and pin one of their{" "}
         <DocLink to="/docs/models">models</DocLink> when you want a particular brain. The card
         always tells you who would read the next email to arrive, so an on switch never means
-        nothing is happening. Turn it off and new mail simply arrives plain.
+        nothing is happening. Turn it off and new mail simply arrives plain. Any member can change
+        this card. It only chooses among employees an owner or admin has already given{" "}
+        <DocLink to="/docs/email#access">AI access</DocLink>, so it cannot widen what they can do.
       </P>
       <Callout kind="info" title="Read access categorises; Draft access can prepare replies.">
         An employee on <Strong>Read</Strong> can summarise and triage but will not offer to write a
@@ -564,8 +577,8 @@ export function Email() {
 
       <H2 id="access">Giving AI Employees mailbox access</H2>
       <P>
-        Under <Strong>Email → Settings → AI access</Strong>, grant the employees who should be able
-        to act on the mailbox, at one of three levels:
+        Under <Strong>Email → Settings → AI access</Strong>, an owner or admin grants the employees
+        who should be able to act on the mailbox, at one of three levels:
       </P>
       <UL>
         <LI>
@@ -582,6 +595,13 @@ export function Email() {
         </LI>
       </UL>
       <P>
+        Every member can see who has which level, but only owners and admins can grant, change or
+        revoke access, as with AI access in <DocLink to="/docs/revenue">Revenue</DocLink> or{" "}
+        <DocLink to="/docs/meetings">Meetings</DocLink>. A Grant lets an employee act on the
+        company&apos;s mail without a person beside it, and it can make that employee eligible for
+        automatic <DocLink to="/docs/reactivity">proactive</DocLink> email work.
+      </P>
+      <P>
         An employee used for a rule&apos;s <Strong>AI judgment</Strong> needs a connected AI Model
         and at least <Strong>Read</Strong> access to that mailbox. The rule editor shows both beside
         every employee and disables anyone who is not ready, so a broken AI judgment step cannot be
@@ -589,7 +609,9 @@ export function Email() {
       </P>
       <Callout kind="warn" title="Members always have full access; grants govern AI only.">
         Human members of the company can already use every connected mailbox. These levels only
-        decide what an AI Employee&apos;s tools and rules are allowed to do.
+        decide what an AI Employee&apos;s tools and rules are allowed to do. Using the mailbox stays
+        open to every member: reading and sending, rules, handovers, pausing sync, the sender name
+        and AI analysis. None of these can give an employee more than its Grant allows.
       </Callout>
       <P>
         The level covers <em>every</em> route an employee has to the mailbox, not just the mail
@@ -726,7 +748,9 @@ export function Email() {
       <Callout kind="warn" title="Disconnecting is safe.">
         Removing a mailbox from Genosyn deletes the local mirror, rules, AI handovers, and grants
         here. The mail itself and the underlying Connection are never touched — nothing is deleted
-        from your provider, and other surfaces on the same Connection keep working.
+        from your provider, and other surfaces on the same Connection keep working. Only an owner
+        or admin can disconnect: without the mailbox, the Google connector&apos;s{" "}
+        <Code>gmail_*</Code> tools stop following the levels above.
       </Callout>
     </>
   );

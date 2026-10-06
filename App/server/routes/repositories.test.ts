@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -22,6 +23,7 @@ import { encryptRepoSecret } from "../services/repositories.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
 import { repositoriesRouter } from "./repositories.js";
+import { repositoryContentRouter } from "./repositoryContent.js";
 
 let server: Server;
 let baseUrl: string;
@@ -51,6 +53,9 @@ before(async () => {
     next();
   });
   app.use("/api/companies/:cid", repositoriesRouter);
+  // Mounted after it, as in server/index.ts, so the record router's guards run
+  // ahead of every editing and work-session request, exactly as in production.
+  app.use("/api/companies/:cid", repositoryContentRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
@@ -308,4 +313,125 @@ test("delivery readiness preserves a granted Connection used for Git and PRs", a
   assert.equal((await deliveryReadiness()).get(employee.id), true);
   await AppDataSource.getRepository(EmployeeConnectionGrant).delete({ employeeId: employee.id });
   assert.equal((await deliveryReadiness()).get(employee.id), false);
+});
+
+// ─────────────── both routers, mounted as in server/index.ts ───────────────
+//
+// The record router comes first and its guards run for every request under
+// `/repositories`, including the editing and AI work-session routes the content
+// router serves behind it. Its admin gate once matched that whole subtree, so
+// in production every Member's save, commit, and work session was refused,
+// while repositoryContent.test.ts, which mounts the content router alone, passed.
+
+async function call(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${baseUrl}/api/companies/${company.id}${path}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: (text ? JSON.parse(text) : {}) as Record<string, unknown>,
+  };
+}
+
+/** A repository created inside Genosyn, so working in it needs no git host. */
+async function localRepository(): Promise<Repository> {
+  return insert(Repository, {
+    companyId: company.id,
+    name: "Strategy",
+    slug: "strategy",
+    origin: "local",
+    kind: "documents",
+    gitUrl: "",
+    defaultBranch: "main",
+    authMode: "none",
+  });
+}
+
+test("an ordinary Member can save a file and commit it", async () => {
+  const strategy = await localRepository();
+  actingUserId = member.id;
+  const workspace = `/repositories/${strategy.slug}/workspace`;
+  const saved = await call("PUT", `${workspace}/file`, { path: "plan.md", content: "# Plan\n" });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const committed = await call("POST", `${workspace}/commit`, { message: "Add the plan" });
+  assert.equal(committed.status, 200, JSON.stringify(committed.body));
+  assert.equal(committed.body.committed, true);
+});
+
+test("an ordinary Member's other edits and AI work sessions reach their routes", async () => {
+  const strategy = await localRepository();
+  actingUserId = member.id;
+  const workspace = `/repositories/${strategy.slug}/workspace`;
+  const session = `/repositories/${strategy.slug}/sessions/${randomUUID()}`;
+  const writes: Array<[string, string]> = [
+    ["POST", `${workspace}/refresh`],
+    ["POST", `${workspace}/directory`],
+    ["POST", `${workspace}/delete`],
+    ["POST", `${workspace}/move`],
+    ["POST", `${workspace}/discard`],
+    ["POST", `${workspace}/branches`],
+    ["POST", `${workspace}/checkout`],
+    ["POST", `/repositories/${strategy.slug}/sessions`],
+    ["POST", `/repositories/${strategy.slug}/session-attachments`],
+    ["POST", `${session}/revise`],
+    ["POST", `${session}/stop`],
+    ["PATCH", session],
+    ["POST", `${session}/publish`],
+    ["POST", `${session}/archive`],
+    ["POST", `${session}/discard`],
+  ];
+  // An empty body is refused by each route's own validation, or the session
+  // is not found. Either answer means the request got past every guard.
+  for (const [method, path] of writes) {
+    const response = await call(method, path, {});
+    assert.notEqual(response.status, 403, `${method} ${path}: ${JSON.stringify(response.body)}`);
+  }
+});
+
+/**
+ * Every write the record router serves, with its parameters filled in.
+ *
+ * Read from the router rather than listed by hand, so that a record route
+ * added later is checked here even if nobody remembers to add it to the admin
+ * gate's paths.
+ */
+function recordWrites(): Array<{ route: string; method: string; path: string }> {
+  return repositoriesRouter.stack.flatMap((layer) => {
+    if (!layer.route) return [];
+    const { path: pattern, stack } = layer.route;
+    const path = pattern.replace(/:(\w+)/g, (_param, name: string) =>
+      name === "slug" ? repository.slug : randomUUID(),
+    );
+    const methods = new Set(stack.map((handler) => handler.method.toUpperCase()));
+    methods.delete("GET");
+    return [...methods].map((method) => ({ route: `${method} ${pattern}`, method, path }));
+  });
+}
+
+test("repository record changes stay owner/admin however the path is written", async () => {
+  actingUserId = member.id;
+  const writes = recordWrites();
+  for (const route of [
+    "POST /repositories",
+    "PATCH /repositories/:slug",
+    "POST /repositories/:slug/grants",
+  ]) {
+    assert.ok(writes.some((write) => write.route === route), `${route} is not on the router`);
+  }
+  for (const { method, path } of writes) {
+    // Express routes case-insensitively and ignores a trailing slash, so each
+    // spelling reaches the same handler and must meet the same gate.
+    for (const spelling of [path, path.toUpperCase(), `${path}/`]) {
+      const response = await call(method, spelling, {});
+      assert.equal(response.status, 403, `${method} ${spelling}: ${JSON.stringify(response.body)}`);
+      assert.equal(response.body.error, "admin company role required", `${method} ${spelling}`);
+    }
+  }
 });
