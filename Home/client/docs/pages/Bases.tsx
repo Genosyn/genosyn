@@ -115,8 +115,9 @@ export function Bases() {
         Every record has a full page at{" "}
         <Code>/bases/&lt;base&gt;/&lt;table&gt;/r/&lt;record&gt;</Code> with all columns viewable
         and editable, plus the comment thread and file attachments. Open it from the expand icon
-        that appears when you hover a row, then the <Strong>Open full page</Strong> button in the
-        drawer — or share the URL directly; it deep-links like any other page.
+        that appears when you hover a row or Tab into it (a touch screen always shows it), then the{" "}
+        <Strong>Open full page</Strong> button in the drawer — or share the URL directly; it
+        deep-links like any other page.
       </P>
       <UL>
         <LI>
