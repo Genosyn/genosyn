@@ -246,6 +246,9 @@ describe("resolveEmployee and resolveSkill", () => {
       assert.equal(item.href, "/employees/jamie");
       assert.deepEqual(item.defaultEmployeeIds, [owner.id]);
       assert.match(item.body, /Role: VP of Go to Market/);
+      assert.match(item.body, /Browser: disabled/);
+      // Reporting lines were removed, so the briefing names no manager.
+      assert.doesNotMatch(item.body, /Reports to|manager/i);
       assert.match(item.body, /- Writing \(`writing`\)/);
       assert.match(item.body, /Daily Reddit Community Help — cron `0 11 \* \* \*`, enabled/);
       assert.match(item.body, /````markdown\nBe direct\./, "the Soul is fenced past its own backticks");

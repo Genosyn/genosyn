@@ -158,8 +158,7 @@ teamsRouter.delete("/teams/:tid", async (req, res) => {
   res.json({ ok: true });
 });
 
-// Tiny convenience endpoint for the org chart: all employees scoped to one
-// team, lightweight payload.
+// Tiny convenience endpoint: all employees on one team, lightweight payload.
 teamsRouter.get("/teams/:tid/members", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const t = await AppDataSource.getRepository(Team).findOneBy({
@@ -177,7 +176,6 @@ teamsRouter.get("/teams/:tid/members", async (req, res) => {
       slug: e.slug,
       name: e.name,
       role: e.role,
-      reportsToEmployeeId: e.reportsToEmployeeId,
     })),
   );
 });

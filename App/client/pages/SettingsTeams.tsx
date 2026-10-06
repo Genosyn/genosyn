@@ -17,9 +17,9 @@ import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Settings → Teams. Company owners group AI employees into Teams (Engineering,
- * Revenue, Ops, …) so the org chart, handoff defaults, and team-scoped
- * digests have something to read from. Membership itself is set on the
- * employee — this page is just CRUD over Team rows.
+ * Revenue, Ops, …), shown on each employee's card in the Employees list and
+ * returned to AI Employees by the `list_teams` tool. Membership itself is set
+ * on the employee's General settings — this page is just CRUD over Team rows.
  */
 export function SettingsTeams() {
   const { company } = useOutletContext<SettingsOutletCtx>();

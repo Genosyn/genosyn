@@ -433,6 +433,27 @@ describe("subpage search", () => {
     assert.equal(top("subscriptions"), "/finance/recurring-invoices");
   });
 
+  test("finds Teams by its own words, and no page for the removed org chart", () => {
+    const top = (q: string) => searchSubpages(PALETTE_SUBPAGES, q, { viewer: OWNER })[0]?.page.path;
+    assert.equal(top("teams"), "/settings/teams");
+    assert.equal(top("departments"), "/settings/teams");
+    // Reporting lines and their chart were removed; the palette must not
+    // promise them by sending "org chart" somewhere that no longer draws one.
+    assert.deepEqual(
+      (page("/settings/teams").keywords ?? []).filter((keyword) =>
+        /org chart|reporting|manager/i.test(keyword),
+      ),
+      [],
+    );
+    for (const query of ["org chart", "reporting structure", "reports to"]) {
+      assert.deepEqual(
+        paths(searchSubpages(PALETTE_SUBPAGES, query, { viewer: OWNER, limit: 500 })),
+        [],
+        query,
+      );
+    }
+  });
+
   test("tolerates typos anchored to a word, but not scattered letters", () => {
     const rcrng = searchSubpages(PALETTE_SUBPAGES, "rcrng", { viewer: OWNER });
     assert.equal(rcrng[0].page.path, "/finance/recurring-invoices");

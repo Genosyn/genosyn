@@ -13,7 +13,6 @@ import { redactApprovalSummary } from "./approvalRedaction.js";
 import { nextRunFor, registerRoutine } from "./cron.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
-import { managingMemberIdForEmployee } from "./reportingLine.js";
 
 /**
  * Initiatives — proactive work discovery (M54). The invariants: a proposal
@@ -208,8 +207,6 @@ async function notifyInitiativePending(initiative: Initiative): Promise<void> {
       where: { companyId: initiative.companyId, role: In(["owner", "admin"]) },
     });
     const audience = new Set(memberships.map((m) => m.userId));
-    const manager = await managingMemberIdForEmployee(initiative.companyId, initiative.employeeId);
-    if (manager) audience.add(manager);
     if (audience.size === 0) return;
     await createNotifications(
       [...audience].map((userId) => ({

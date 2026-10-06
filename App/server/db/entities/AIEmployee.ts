@@ -38,28 +38,15 @@ export class AIEmployee {
 
   /**
    * Optional Team this employee belongs to (one team per employee for V1;
-   * a join table can land later if cross-team members ever matter). Drives
-   * the org chart, Handoff defaults, and team-scoped digests.
+   * a join table can land later if cross-team members ever matter). Shown on
+   * the employee's roster card and returned by the `list_teams` MCP tool.
+   *
+   * There is deliberately no reporting line beside it. The org chart's
+   * `reportsToEmployeeId` / `reportsToUserId` were removed: oversight goes to
+   * the company's owners and admins, and a decision policy names its decider.
    */
   @Column({ type: "varchar", nullable: true })
   teamId!: string | null;
-
-  /**
-   * Optional reporting line — the employee this one reports to. Self-FK,
-   * same-company constraint enforced in code. Used by `create_handoff`'s
-   * `manager: true` shortcut and by future escalation rules.
-   */
-  @Column({ type: "varchar", nullable: true })
-  reportsToEmployeeId!: string | null;
-
-  /**
-   * Optional human manager — the company member this employee reports to.
-   * Mutually exclusive with `reportsToEmployeeId` (set at most one). Lets
-   * the org chart weave humans into the hierarchy as managers without
-   * needing a join across two tables in code that walks the tree.
-   */
-  @Column({ type: "varchar", nullable: true })
-  reportsToUserId!: string | null;
 
   /**
    * Opt-in toggle for the built-in `browser` MCP server. When true, the MCP

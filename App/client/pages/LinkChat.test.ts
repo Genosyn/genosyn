@@ -43,7 +43,7 @@ describe("chatSurfaceLabel", () => {
     assert.equal(chatSurfaceLabel("microsoft-teams"), "Microsoft Teams");
   });
 
-  test("never abbreviates Microsoft Teams to Teams, which is the org chart", () => {
+  test("never abbreviates Microsoft Teams to Teams, which is Genosyn's own grouping", () => {
     for (const provider of CHAT_SURFACE_PROVIDERS) {
       const label = chatSurfaceLabel(provider);
       if (label.includes("Teams")) assert.match(label, /^Microsoft Teams$/);
@@ -160,7 +160,7 @@ describe("bindConfirmCopy", () => {
     }
   });
 
-  test("never abbreviates Microsoft Teams to Teams, which is the org chart", () => {
+  test("never abbreviates Microsoft Teams to Teams, which is Genosyn's own grouping", () => {
     for (const alreadyMine of [false, true]) {
       const text = confirmText(previewOf({ provider: "microsoft-teams", alreadyMine }));
       assert.match(text, /Microsoft Teams/);

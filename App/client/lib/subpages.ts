@@ -814,7 +814,7 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/settings/teams",
       icon: Network,
       navGroup: "Company",
-      keywords: ["departments", "org chart", "groups"],
+      keywords: ["departments", "groups"],
     },
     {
       label: "Tags",

@@ -420,7 +420,7 @@ async function main() {
   app.use("/api/companies/:cid", routineChecksRouter);
   // M58 — the stop button. No MCP tool in either direction; see the router.
   app.use("/api/companies/:cid", standdownsRouter);
-  // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
+  // Teams + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.
   app.use("/api/companies/:cid", teamsRouter);
   // Reusable company tags + polymorphic resource assignments.

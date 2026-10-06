@@ -45,7 +45,7 @@ import { Spinner } from "../components/ui/Spinner";
 /** The four surfaces, and the only place their display names are written. */
 export const CHAT_SURFACE_LABELS: Record<string, string> = {
   slack: "Slack",
-  // Never "Teams" on its own: Teams is Genosyn's own org-chart entity.
+  // Never "Teams" on its own: a Team is Genosyn's own grouping of AI Employees.
   "microsoft-teams": "Microsoft Teams",
   whatsapp: "WhatsApp",
   telegram: "Telegram",

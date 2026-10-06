@@ -9181,7 +9181,7 @@ mcpInternalRouter.post(
       });
       res.json({
         proposal: serializeRevisionProposal(proposal),
-        note: "Pending human review — the owners and your manager have been notified. Nothing changes until someone applies it.",
+        note: "Pending human review — the company's owners and admins have been notified. Nothing changes until someone applies it.",
       });
     } catch (err) {
       if (!(err instanceof RevisionError)) throw err;
@@ -12438,7 +12438,7 @@ mcpInternalRouter.post(
   },
 );
 
-// ─────────────────── Org chart (Teams + reporting line) ────────────────
+// ─────────────────── Teams ──────────────────────────────────────────────
 
 const listTeamsSchema = z.object({}).strict();
 mcpInternalRouter.post(
@@ -12536,18 +12536,17 @@ mcpInternalRouter.post(
   },
 );
 
+// Strict: a handoff names its receiver. The old `toManager: true` shortcut
+// read a reporting line that no longer exists, so it is refused by name like
+// any other unknown key rather than quietly dropped.
 const createHandoffSchema = z
   .object({
-    toEmployee: z.string().min(1).max(120).optional(),
-    toManager: z.boolean().optional(),
+    toEmployee: z.string().min(1).max(120),
     title: z.string().min(1).max(160),
     body: z.string().max(20_000).optional(),
     dueAt: z.string().datetime().optional(),
   })
-  .strict()
-  .refine((v) => Boolean(v.toEmployee) !== Boolean(v.toManager), {
-    message: "Specify exactly one of `toEmployee` (slug/UUID) or `toManager: true`.",
-  });
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/create_handoff",
@@ -12556,29 +12555,9 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof createHandoffSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    let target: AIEmployee | null = null;
-    if (body.toManager) {
-      if (!self.reportsToEmployeeId) {
-        return res.status(400).json({
-          error:
-            "You don't have a manager set. Ask a human to wire up your reporting line, or pass `toEmployee` instead.",
-        });
-      }
-      target = await AppDataSource.getRepository(AIEmployee).findOneBy({
-        id: self.reportsToEmployeeId,
-        companyId: co.id,
-      });
-      if (!target) {
-        return res.status(400).json({ error: "Manager record is stale; ask a human to fix it." });
-      }
-    } else if (body.toEmployee) {
-      target = await findEmployeeBySlugOrId(co.id, body.toEmployee);
-      if (!target) {
-        return res.status(404).json({ error: "Employee not found" });
-      }
-    }
+    const target = await findEmployeeBySlugOrId(co.id, body.toEmployee);
     if (!target) {
-      return res.status(400).json({ error: "No target resolved" });
+      return res.status(404).json({ error: "Employee not found" });
     }
     if (target.id === self.id) {
       return res.status(400).json({ error: "Cannot hand off to yourself" });
