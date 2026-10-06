@@ -48,7 +48,8 @@ export function Email() {
           <Strong>Continue with Google</Strong> and follow Google&apos;s consent screen — the
           mailbox is created the moment you approve, with nothing to come back and click. For other
           supported services it is a password field, with the servers already filled in and a line
-          telling you what kind of password your provider wants.
+          telling you what kind of password your provider wants, plus an optional{" "}
+          <a href="#sender-name">sender name</a>.
         </LI>
         <LI>
           The first sync imports your <Strong>entire mailbox</Strong>, newest first, so everything
@@ -95,6 +96,22 @@ export function Email() {
         with no switch to turn that off — if your mail server uses an internal CA, point{" "}
         <Code>NODE_EXTRA_CA_CERTS</Code> at it so Genosyn trusts that CA rather than trusting
         nothing.
+      </P>
+
+      <H3 id="sender-name">Sender name</H3>
+      <P>
+        A mailbox connected with a password sends from its bare address unless you give it a{" "}
+        <Strong>Sender name</Strong> — the name recipients see beside the address, as in{" "}
+        <Code>Avery Monroe &lt;avery@example.com&gt;</Code>. Fill it in when you connect, or set it
+        any time under <Strong>Email → Settings</Strong>. Any name works, commas, quotes and
+        non-Latin letters included.
+      </P>
+      <P>
+        The name applies to everything sent from the mailbox, by Members and AI Employees alike —
+        drafts already waiting in the review queue included, since each one goes out under the name
+        the mailbox has when it is sent. Only the name changes: the address, which is what SPF, DKIM
+        and DMARC check, stays exactly as it was. Gmail and Google Workspace mailboxes use the name
+        set in Gmail instead, under <Strong>Settings → Accounts → Send mail as</Strong>.
       </P>
 
       <H3 id="providers">What works</H3>
